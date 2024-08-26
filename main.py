@@ -153,18 +153,6 @@ def invoke(action, **params):
     return response['result']
 
 
-def test_azure():
-    added_ids = invoke('findNotes', query='added:1')
-    last_note = invoke('notesInfo', notes=[added_ids[-1]])[0]
-    print(last_note)
-    tango = last_note['fields']['Word']['value']
-    sentence = last_note['fields']['Sentence']['value']
-    audio_path = "C:/Users/Beangate/Videos/OBS/Audio/" + tango + ".opus"
-    output_audio = audio_path.replace(".opus", "_trimmed.opus")
-
-    process_audio_with_azure(audio_path, sentence, output_audio)
-
-
 if __name__ == "__main__":
     event_handler = VideoToAudioHandler()
     observer = Observer()
