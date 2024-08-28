@@ -1,6 +1,7 @@
 import base64
 import glob
 import json
+import logging
 import os
 import random
 import string
@@ -14,6 +15,9 @@ from difflib import SequenceMatcher
 from config import *
 
 ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
+
+logging.basicConfig(filename='anki_script.log', level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 def transcribe_audio_with_azure(audio_path, sentence):
@@ -119,6 +123,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         if event.src_path.endswith(".mkv"):  # Adjust based on your OBS output format
+            logging.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
             self.convert_to_audio(event.src_path)
 
     def convert_to_audio(self, video_path):
@@ -144,8 +149,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 os.remove(audio_path)
             if update_anki:
                 update_anki_card(last_note, output_audio)
-        if remove_video:
-            os.remove(video_path)  # Optionally remove the video after conversion
+            if remove_video:
+                os.remove(video_path)  # Optionally remove the video after conversion
 
 
 def request(action, **params):
@@ -174,6 +179,7 @@ def update_anki_card(last_note, audio_path):
     invoke("updateNoteFields", note={'id': last_note['noteId'], 'fields': {sentence_audio_field: audio_html,
                                                                            picture_field: image_html,
                                                                            source_field: current_game}})
+    logging.info(f"UPDATED ANKI CARD FOR {last_note['noteId']}")
 
 
 def store_media_file(path):
@@ -210,6 +216,7 @@ def get_screenshot():
 
 
 if __name__ == "__main__":
+    logging.info("Script started.")
     event_handler = VideoToAudioHandler()
     observer = Observer()
     observer.schedule(event_handler, folder_to_watch, recursive=False)
