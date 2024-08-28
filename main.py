@@ -1,5 +1,9 @@
+import base64
+import glob
 import json
 import os
+import random
+import string
 import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -7,13 +11,9 @@ import urllib.request
 import azure.cognitiveservices.speech as speechsdk
 import subprocess
 from difflib import SequenceMatcher
+from config import *
 
-subscription_key = ""
-region = ""
-folder_to_watch = ""  # Adjust to your OBS output directory
-audio_destination = ""
-remove_video = True
-remove_untrimmed_audio = True
+ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
 
 
 def transcribe_audio_with_azure(audio_path, sentence):
@@ -27,7 +27,7 @@ def transcribe_audio_with_azure(audio_path, sentence):
     results = []
 
     def stop_cb(evt):
-        print('CLOSING on {}'.format(evt))
+        # print('CLOSING on {}'.format(evt))
         nonlocal done
         done = True
 
@@ -36,13 +36,15 @@ def transcribe_audio_with_azure(audio_path, sentence):
             print(f"Recognized: {evt.result.text}")
             recognized_text = evt.result.text
             similarity = SequenceMatcher(None, recognized_text, sentence).ratio()
-            if similarity >= .5:
+            if similarity >= .25:
                 results.append({
                     'text': recognized_text,
                     'offset': evt.result.offset,
                     'duration': evt.result.duration,
                     'similarity': similarity
                 })
+            else:
+                print(similarity)
         elif evt.result.reason == speechsdk.ResultReason.NoMatch:
             print("NoMatch: Speech could not be recognized.")
         elif evt.result.reason == speechsdk.ResultReason.Canceled:
@@ -67,29 +69,35 @@ def transcribe_audio_with_azure(audio_path, sentence):
 
 
 def trim_audio_by_time(input_audio, start_time, end_time, output_audio):
-    command = f"ffmpeg -i \"{input_audio}\" -ss {start_time} -to {end_time} -c copy \"{output_audio}\""
+    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ss {start_time} -to {end_time} -c copy \"{output_audio}\""
     subprocess.call(command, shell=True)
 
 
 def convert_opus_to_wav(input_opus, output_wav):
-    command = f"ffmpeg -i \"{input_opus}\" \"{output_wav}\""
+    command = f"{ffmpeg_base_command}  -i \"{input_opus}\" \"{output_wav}\""
     subprocess.call(command, shell=True)
 
 
 def process_audio_with_azure(input_audio, sentence, output_audio):
     # Convert MP3 to WAV
-    temp_wav = "temp.wav"
+    temp_wav = f"temp{get_random_digit_string()}.wav"
     convert_opus_to_wav(input_audio, temp_wav)
 
     # Transcribe WAV with Azure
-    result = transcribe_audio_with_azure(temp_wav, sentence)[0]
+    results = transcribe_audio_with_azure(temp_wav, sentence)
+
+    if not results:
+        print("Sentence Not matched close enough in audio")
+        return False
+
+    result = results[0]
 
     # Clean up the temporary WAV
     os.remove(temp_wav)
 
     if result is None:
         print("Failed to transcribe audio")
-        return
+        return False
 
     duration = result['duration']
     offset = result['offset']
@@ -102,7 +110,8 @@ def process_audio_with_azure(input_audio, sentence, output_audio):
     start_time_seconds = start_time / 10 ** 7  # Convert from ticks to seconds
     end_time_seconds = end_time / 10 ** 7
 
-    trim_audio_by_time(input_audio, start_time_seconds, end_time_seconds, output_audio)
+    trim_audio_by_time(input_audio, start_time_seconds, end_time_seconds + .5, output_audio)
+    return True
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -121,18 +130,22 @@ class VideoToAudioHandler(FileSystemEventHandler):
         audio_path = audio_destination + tango + ".opus"
 
         # FFmpeg command to extract the audio without re-encoding
-        command = f"ffmpeg -i \"{video_path}\" -map 0:a -c:a copy \"{audio_path}\""
+        command = f"{ffmpeg_base_command}  -i \"{video_path}\" -map 0:a -c:a copy \"{audio_path}\""
         print(f"Running Command: {command}")  # Debugging line
         subprocess.call(command, shell=True)
 
         input_audio = audio_path
-        output_audio = audio_path.replace(".opus", "_trimmed.opus")
+        output_audio = make_unique_file_name(audio_path)
 
-        process_audio_with_azure(input_audio, sentence, output_audio)
+        matched = process_audio_with_azure(input_audio, sentence, output_audio)
+
+        if matched:
+            if remove_untrimmed_audio:
+                os.remove(audio_path)
+            if update_anki:
+                update_anki_card(last_note, output_audio)
         if remove_video:
             os.remove(video_path)  # Optionally remove the video after conversion
-        if remove_untrimmed_audio:
-            os.remove(audio_path)
 
 
 def request(action, **params):
@@ -151,6 +164,49 @@ def invoke(action, **params):
     if response['error'] is not None:
         raise Exception(response['error'])
     return response['result']
+
+
+def update_anki_card(last_note, audio_path):
+    audio_in_anki = store_media_file(audio_path)
+    audio_html = f"[sound:{audio_in_anki}]"
+    screenshot_in_anki = store_media_file(get_screenshot())
+    image_html = f"<img src=\"{screenshot_in_anki}\">"
+    invoke("updateNoteFields", note={'id': last_note['noteId'], 'fields': {sentence_audio_field: audio_html,
+                                                                           picture_field: image_html,
+                                                                           source_field: current_game}})
+
+
+def store_media_file(path):
+    return invoke('storeMediaFile', filename=path, data=convert_to_base64(path))
+
+
+def convert_to_base64(file_path):
+    with open(file_path, "rb") as file:
+        file_base64 = base64.b64encode(file.read()).decode('utf-8')
+    return file_base64
+
+
+def make_unique_file_name(audio_path):
+    split = audio_path.rsplit('.', 1)
+    filename = split[0]
+    extension = split[1]
+    return filename + get_random_digit_string() + "." + extension
+
+
+def get_random_digit_string():
+    return ''.join(random.choice(string.digits) for i in range(9))
+
+def get_screenshot():
+    # Get list of all files in the directory
+    list_of_files = glob.glob(os.path.join(sharex_ss_destination, '*'))
+
+    # Filter for image files (e.g., .png, .jpg)
+    list_of_images = [f for f in list_of_files if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+
+    # Find the most recent image
+    most_recent_image = max(list_of_images, key=os.path.getctime)
+
+    return most_recent_image
 
 
 if __name__ == "__main__":
