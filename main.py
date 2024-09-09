@@ -222,9 +222,15 @@ if __name__ == "__main__":
     observer.schedule(event_handler, folder_to_watch, recursive=False)
     observer.start()
 
+    if start_obs_replaybuffer:
+        subprocess.call("obs-cli replaybuffer start", shell=True)
+        subprocess.call("obs-cli scene switch \"Dragon Quest\"", shell=True)
+
     try:
         while True:
             time.sleep(10)
     except KeyboardInterrupt:
         observer.stop()
+        if start_obs_replaybuffer:
+            subprocess.call("obs-cli replaybuffer stop", shell=True)
     observer.join()
