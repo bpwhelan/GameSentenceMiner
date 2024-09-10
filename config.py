@@ -2,7 +2,7 @@ subscription_key = ""
 region = ""
 folder_to_watch = ""  # Adjust to your OBS output directory
 audio_destination = "/"
-sharex_ss_destination = ""
+screenshot_destination = ""
 
 current_game = "Dragon Quest XI"  # Automatic in the future maybe?
 
