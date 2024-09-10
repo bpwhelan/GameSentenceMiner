@@ -103,7 +103,7 @@ To ensure you always have the latest version of this script, you can use `git pu
     ```
 
     - **`origin`** refers to the remote repository from which you cloned the code.
-    - **`main`** refers to the main branch of the repository. If your default branch has a different name (e.g., `main` or `dev`), replace `master` with that branch name.
+    - **`main`** refers to the main branch of the repository. If your default branch has a different name (e.g., `master` or `dev`), replace `main` with that branch name.
 
 3. The `git pull` command will download and apply any updates from the remote repository to your local version.
 
