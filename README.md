@@ -99,11 +99,11 @@ To ensure you always have the latest version of this script, you can use `git pu
 
 2. Run the following command to fetch and integrate the latest changes:
     ```bash
-    git pull origin master
+    git pull origin main
     ```
 
     - **`origin`** refers to the remote repository from which you cloned the code.
-    - **`master`** refers to the main branch of the repository. If your default branch has a different name (e.g., `main` or `dev`), replace `master` with that branch name.
+    - **`main`** refers to the main branch of the repository. If your default branch has a different name (e.g., `main` or `dev`), replace `master` with that branch name.
 
 3. The `git pull` command will download and apply any updates from the remote repository to your local version.
 
