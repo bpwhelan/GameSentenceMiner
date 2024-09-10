@@ -56,19 +56,7 @@ If apikey is not present, it will skip voice recognition and audio will be left 
 
 ---
 
-## 3. Setting Up ShareX to Screenshot the Game
-
-1. **Download ShareX**: Get ShareX from [here](https://getsharex.com/).
-2. **Configure Screenshot Hotkey**:
-   1. Open ShareX and go to **Hotkey Settings**.
-   2. Click **Add** and choose **Capture Active Window** (or any region/mode you prefer).
-      1. I actually use "pre-configured window" atm, will take a screenshot of the game no matter where you are (like if you are on webhook page)
-   3. Set a hotkey (The same as Replay Buffer works flawlessly for me) for taking screenshots of the game.
-   4. Optionally, configure **After Capture Tasks** (e.g., copy to clipboard, save to a folder).
-
----
-
-## 6. Configuring `config.py`
+## 3. Configuring `config.py`
 
 Your `config.py` file allows you to configure key settings for the automation process, such as your Azure credentials, file paths, and other behavior. Here are the configurable options:
 
@@ -97,7 +85,7 @@ Make sure to adjust the paths and API keys to suit your setup.
 
 ---
 
-## 7. Automating the Process
+## 4. Automating the Process
 
 1. Start/hook game/agent/script.
 2. Create Anki Card with target word (through a texthooker page)
