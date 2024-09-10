@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import random
+import shutil
 import string
 import tempfile
 import threading
@@ -184,6 +185,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
         if subscription_key:
             process_audio_with_azure(input_audio, sentence, output_audio)
+        else:
+            shutil.copy2(input_audio, output_audio)
         # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
         if update_anki and not last_note['fields'][sentence_audio_field]['value']:
             update_anki_card(last_note, output_audio, video_path, tango)
@@ -192,7 +195,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 
 def get_audio_and_trim(video_path):
-    temp = tempfile.TemporaryFile(suffix="_untrimmed.opus").name
+    temp = tempfile.NamedTemporaryFile(suffix="_untrimmed.opus").name
     # FFmpeg command to extract the audio without re-encoding
     command = f"{ffmpeg_base_command} -i \"{video_path}\" -map 0:a -c:a copy \"{temp}\""
     subprocess.call(command, shell=True)
@@ -306,7 +309,7 @@ def get_video_duration(file_path):
 
 
 def trim_audio_based_on_clipboard(temp, video_path):
-    ret = tempfile.TemporaryFile(suffix=".opus").name
+    ret = tempfile.NamedTemporaryFile(suffix=".opus").name
     file_mod_time = get_file_modification_time(video_path)
     file_length = get_video_duration(video_path)
     time_delta = file_mod_time - previous_clipboard_time
