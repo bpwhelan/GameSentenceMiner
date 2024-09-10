@@ -12,10 +12,13 @@ import soundfile as sf
 import numpy as np
 from config import *
 
+ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
+ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+
 
 # Convert audio to 16kHz mono WAV (Vosk expects this format)
 def convert_audio_to_wav(input_audio, output_wav):
-    command = f"ffmpeg -i \"{input_audio}\" -ar 16000 -ac 1 \"{output_wav}\""
+    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 \"{output_wav}\""
     subprocess.call(command, shell=True)
 
 
@@ -109,7 +112,7 @@ def detect_voice_with_vosk(input_audio, tempdir):
 
 # Trim the audio using FFmpeg based on detected speech timestamps
 def trim_audio(input_audio, end_time, output_audio):
-    command = f"ffmpeg -i \"{input_audio}\" -to {end_time} -c copy \"{output_audio}\""
+    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -to {end_time} -c copy \"{output_audio}\""
     subprocess.call(command, shell=True)
 
 
@@ -127,8 +130,6 @@ def process_audio_with_vosk(input_audio, output_audio, tempdir):
 
     # Print detected speech details with timestamps
     print(f"Detected speech from {start_time} to {end_time} seconds:")
-    for entry in voice_activity:
-        print(f"Word: {entry['text']}, Start: {entry['start']}, End: {entry['end']}")
 
     # Trim the audio using FFmpeg
     trim_audio(input_audio, end_time + .5, output_audio)
