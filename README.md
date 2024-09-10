@@ -1,9 +1,11 @@
 # Sentence Mining Game Audio Trim Helper
 
-This project automates the recording of game sentence audio to help with Anki Card Creation. You can trigger the entire process with a single hotkey that captures both video and a screenshot while sending the video for speech-to-text processing.
+This project automates the recording of game sentence audio to help with Anki Card Creation. 
+
+You can trigger the entire process with a single hotkey that cuts out the before and after voice, gets a screenshot, and sends both to Anki.
 
 
-This README is largely AI Generated, if you run into issues find me on discord @Beangate, or make an issue. I've used this process to generate ~100 cards from Dragon Quest XI so far and it's worked quite well.
+If you run into issues find me on discord @Beangate, or make an issue here. I've used this process to generate ~100 cards from Dragon Quest XI so far and it's worked quite well.
 
 
 ## Features:
@@ -17,37 +19,15 @@ This README is largely AI Generated, if you run into issues find me on discord @
 
 - [Python 3.7+](https://www.python.org/downloads/)
 - [OBS Studio](https://obsproject.com/)
-- [ShareX](https://getsharex.com/)
-- [Azure Account](https://azure.microsoft.com/) for Speech Recognition
-- [Azure Speech SDK for Python](https://pypi.org/project/azure-cognitiveservices-speech/)
 
 ---
 
-## 1. Setting Up Azure Speech Recognition (Optional)
-
-If apikey is not present, it will skip voice recognition and audio will be left over at the end. This may change at a later date if i figure out local voice recognition/audio patterns.
-
-### Step 1: Sign Up for Azure
-- Visit [Azure's Free Tier](https://azure.microsoft.com/en-us/free/) and create an account.
-- Once registered, navigate to the **Azure Portal**.
-
-### Step 2: Create a Speech Service Resource
-1. In the Azure Portal, click **Create a resource**.
-2. Search for **Speech** and select **Speech** from the list.
-3. Choose **Create** and provide the necessary information, including the **Region**, **Name**, and **Pricing Tier** (Free tier is available).
-4. Once created, navigate to the **Keys and Endpoint** section of the speech resource to get your **API Key** and **Endpoint URL**.
-
-### Step 3: Get Your Subscription Key and Endpoint
-- From the Azure Speech resource dashboard, locate the **Subscription Key** and **Region (Endpoint URL)**. You’ll need these for the Python code.
-
----
-
-## 2. Setting Up OBS 30-Second Replay Buffer
+## 1. Setting Up OBS 30-Second Replay Buffer
 
 1. **Install OBS Studio**: Download and install OBS from [here](https://obsproject.com/).
 2. **Enable Replay Buffer**:
    1. Open OBS and navigate to **Settings → Output → Replay Buffer**.
-   2. Enable the **Replay Buffer** and set the duration to **30 seconds**, this can be lower, but the extra buffer doesn't hurt.
+   2. Enable the **Replay Buffer** and set the duration to **30 seconds**, this can be lower, or higher, but 30 works for a very simple setup.
 3. **Set a Hotkey for the Replay Buffer**:
    1. Go to **Settings → Hotkeys** and find **Save Replay Buffer**.
    2. Assign a hotkey for saving the replay.
@@ -56,46 +36,53 @@ If apikey is not present, it will skip voice recognition and audio will be left 
 
 ---
 
-## 3. Configuring `config.py`
+## 2. Configuring `config.py`
 
-Your `config.py` file allows you to configure key settings for the automation process, such as your Azure credentials, file paths, and other behavior. Here are the configurable options:
+Your `config.py` file allows you to configure key settings for the automation process, file paths, and other behavior. Here are the configurable options:
 
 ```python
-subscription_key = ""  # Your Azure Speech API Key
-region = ""  # Your Azure Region
+from os.path import expanduser
+home = expanduser("~")
 
-folder_to_watch = ""  # Adjust to your OBS output directory
-audio_destination = "/"  # Directory where processed audio files are saved
-sharex_ss_destination = ""  # Directory where ShareX saves screenshots
+# Feel free to adjust these as you please
+folder_to_watch = f"{home}/Videos/OBS"
+audio_destination = f"{home}/Videos/OBS/Audio/"
+screenshot_destination = f"{home}/Videos/OBS/SS/"
 
-current_game = "Dragon Quest XI"  # Set your current game (optional)
+current_game = "Dragon Quest XI"  # Automatic in the future maybe?
 
 # Anki Fields
 sentence_audio_field = "SentenceAudio"
 picture_field = "Picture"
 source_field = "Source"
 
-# Behavior flags
-remove_video = True  # Whether to remove the original video file after processing
-remove_untrimmed_audio = True  # Whether to remove untrimmed audio after trimming
-update_anki = True  # Whether to update Anki with the audio and screenshot
-```
+# Feature Flags
+do_vosk_postprocessing = True
+remove_video = True
+update_anki = True
+start_obs_replaybuffer = False
+# Seems to be faster, but takes a LOT more resources, also is like ~1.5G, If you have a badass PC, go for it
+# vosk_model_url = "https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip"
 
-Make sure to adjust the paths and API keys to suit your setup.
+# Default, Use this if you have less than 16G of RAM, or if you have a weaker PC
+vosk_model_url = "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip"
+```
 
 ---
 
-## 4. Automating the Process
+## 3. Example Process
 
-1. Start/hook game/agent/script.
-2. Create Anki Card with target word (through a texthooker page)
-3. Trigger Hotkey
+1. Start game
+2. Hook Game with Agent (or textractor) with clipboard enabled
+3. start script: `python main.py`
+   1. Create Anki Card with target word (through a texthooker page/Yomitan)
+   2. Trigger Hotkey to record replay buffer
+4. When finished gaming, end script
 
 Once the hotkey is triggered:
-1. **OBS** will save the last 30 seconds of gameplay.
-2. **ShareX** will take a screenshot of the current game window.
-3. The Python script will trim the audio based on last clipboard event, as well as Azure Transcription if enabled.
-4. Will attempt to update the LAST anki card created.
+1. **OBS** will save the last X seconds of gameplay.
+2. The Python script will trim the audio based on last clipboard event, and the end of voiceline detected in Vosk if enabled.
+3. Will attempt to update the LAST anki card created.
 
 ---
 
