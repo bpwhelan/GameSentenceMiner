@@ -1,6 +1,5 @@
 import base64
 import datetime
-import glob
 import json
 import logging
 import os
@@ -14,12 +13,10 @@ import pyperclip
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import urllib.request
-import azure.cognitiveservices.speech as speechsdk
 import subprocess
-from difflib import SequenceMatcher
 from config import *
-from datetime import datetime, timedelta
-
+from datetime import datetime
+from vosk_helper import process_audio_with_vosk
 
 previous_clipboard = pyperclip.paste()
 previous_clipboard_time = datetime.now()
@@ -41,14 +38,6 @@ def monitor_clipboard():
 
         time.sleep(0.05)
 
-# def record_audio_with_ffmpeg(output_file):
-#     ffmpeg_command = [
-#         "ffmpeg",
-#         "-f", "dshow",
-#         "-i", "audio=Microphone (Your Mic Device)",  # Replace with your device name
-#         output_file
-#     ]
-#     subprocess.run(ffmpeg_command)
 
 # Start monitoring clipboard
 # Run monitor_clipboard in the background
@@ -62,102 +51,14 @@ ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
 logging.basicConfig(filename='anki_script.log', level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-
-def transcribe_audio_with_azure(audio_path, sentence):
-    speech_config = speechsdk.SpeechConfig(subscription=subscription_key, region=region)
-    speech_config.speech_recognition_language = "ja-JP"
-
-    audio_input = speechsdk.audio.AudioConfig(filename=audio_path)
-    speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_input)
-
-    done = False
-    results = []
-
-    def stop_cb(evt):
-        # print('CLOSING on {}'.format(evt))
-        nonlocal done
-        done = True
-
-    def recognized_cb(evt):
-        if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
-            print(f"Recognized: {evt.result.text}")
-            recognized_text = evt.result.text
-            similarity = SequenceMatcher(None, recognized_text, sentence).ratio()
-            # if similarity >= .25: # Think it's more consistent to do a combination of clipboard + LAST voiced Character
-            results.append({
-                'text': recognized_text,
-                'offset': evt.result.offset,
-                'duration': evt.result.duration,
-                'similarity': similarity
-            })
-            # else:
-            #     print(similarity)
-        elif evt.result.reason == speechsdk.ResultReason.NoMatch:
-            print("NoMatch: Speech could not be recognized.")
-        elif evt.result.reason == speechsdk.ResultReason.Canceled:
-            cancellation_details = evt.result.cancellation_details
-            print(f"Speech Recognition canceled: {cancellation_details.reason}")
-
-    # Connect callbacks to the events fired by the speech recognizer
-    speech_recognizer.recognized.connect(recognized_cb)
-    speech_recognizer.session_stopped.connect(stop_cb)
-    speech_recognizer.canceled.connect(stop_cb)
-
-    # Start the recognition
-    speech_recognizer.start_continuous_recognition()
-
-    while not done:
-        time.sleep(0.5)
-
-    speech_recognizer.stop_continuous_recognition()
-
-    # Return the full transcription along with offsets and durations
-    return results
-
-
-def trim_audio_by_time(input_audio, end_time, output_audio):
+def trim_audio_by_end_time(input_audio, end_time, output_audio):
     command = f"{ffmpeg_base_command} -i \"{input_audio}\" -to {end_time} -c copy \"{output_audio}\""
     subprocess.call(command, shell=True)
 
 
 def convert_opus_to_wav(input_opus, output_wav):
-    command = f"{ffmpeg_base_command}  -i \"{input_opus}\" \"{output_wav}\""
+    command = f"{ffmpeg_base_command} -i \"{input_opus}\" -ar 16000 -ac 1 \"{output_wav}\""
     subprocess.call(command, shell=True)
-
-
-def process_audio_with_azure(input_audio, sentence, output_audio):
-    # Convert MP3 to WAV
-    temp_wav = tempfile.NamedTemporaryFile(dir=tmpdirname, suffix=".wav").name
-    convert_opus_to_wav(input_audio, temp_wav)
-
-    # Transcribe WAV with Azure
-    results = transcribe_audio_with_azure(temp_wav, sentence)
-
-    if not results:
-        print("Sentence Not matched close enough in audio")
-        return False
-
-    result = results[-1]
-
-    # Clean up the temporary WAV
-    os.remove(temp_wav)
-
-    if result is None:
-        print("Failed to transcribe audio")
-        return
-
-    duration = result['duration']
-    offset = result['offset']
-
-    # Convert start and end index to time
-    start_time = offset
-    end_time = offset + duration
-
-    # Convert to seconds
-    start_time_seconds = start_time / 10 ** 7  # Convert from ticks to seconds
-    end_time_seconds = end_time / 10 ** 7
-
-    trim_audio_by_time(input_audio, end_time_seconds + .5, output_audio)
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -173,18 +74,21 @@ class VideoToAudioHandler(FileSystemEventHandler):
         last_note = invoke('notesInfo', notes=[added_ids[-1]])[0]
         logging.info(last_note)
         tango = last_note['fields']['Word']['value']
-        sentence = last_note['fields']['Sentence']['value']
         audio_path = audio_destination + tango + ".opus"
         trimmed_audio = get_audio_and_trim(video_path)
 
         output_audio = make_unique_file_name(audio_path)
-        if subscription_key:
-            process_audio_with_azure(trimmed_audio, sentence, output_audio)
+        if do_vosk_postprocessing:
+            process_audio_with_vosk(trimmed_audio, output_audio, tmpdirname)
         else:
             shutil.copy2(trimmed_audio, output_audio)
-        # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
-        if update_anki and not last_note['fields'][sentence_audio_field]['value']:
-            update_anki_card(last_note, output_audio, video_path, tango)
+        try:
+            # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
+            if update_anki and not last_note['fields'][sentence_audio_field]['value']:
+                update_anki_card(last_note, output_audio, video_path, tango)
+        except FileNotFoundError as f:
+            print(f)
+            print("Something went wrong with processing, anki card not updated")
         if remove_video:
             os.remove(video_path)  # Optionally remove the video after conversion
 
@@ -264,18 +168,6 @@ def get_screenshot(video_file, term):
 
     return output_image
 
-# def get_screenshot():
-#     # Get list of all files in the directory
-#     list_of_files = glob.glob(os.path.join(sharex_ss_destination, '*'))
-#
-#     # Filter for image files (e.g., .png, .jpg)
-#     list_of_images = [f for f in list_of_files if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-#
-#     # Find the most recent image
-#     most_recent_image = max(list_of_images, key=os.path.getctime)
-#
-#     return most_recent_image
-
 
 def timedelta_to_ffmpeg_friendly_format(td_obj):
     total_seconds = td_obj.total_seconds()
@@ -332,8 +224,7 @@ def trim_audio_based_on_clipboard(untrimmed_audio, video_path):
 
 
 if __name__ == "__main__":
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        print('created temporary directory', tmpdirname)
+    with tempfile.TemporaryDirectory(dir="./") as tmpdirname:
         logging.info("Script started.")
         event_handler = VideoToAudioHandler()
         observer = Observer()
@@ -343,6 +234,8 @@ if __name__ == "__main__":
         if start_obs_replaybuffer:
             subprocess.call("obs-cli replaybuffer start", shell=True)
             subprocess.call("obs-cli scene switch \"Dragon Quest\"", shell=True)
+
+        print("Script Initalized. Happy Mining!")
 
         try:
             while True:
