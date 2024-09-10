@@ -1,6 +1,6 @@
 # Sentence Mining Game Audio Trim Helper
 
-This project automates the recording of game footage using OBS, taking screenshots with ShareX, and sending the recorded video/audio for transcription using Azure Speech Recognition. You can trigger the entire process with a single hotkey that captures both video and a screenshot while sending the video for speech-to-text processing.
+This project automates the recording of game sentence audio to help with Anki Card Creation. You can trigger the entire process with a single hotkey that captures both video and a screenshot while sending the video for speech-to-text processing.
 
 
 This README is largely AI Generated, if you run into issues find me on discord @Beangate, or make an issue. I've used this process to generate ~100 cards from Dragon Quest XI so far and it's worked quite well.
