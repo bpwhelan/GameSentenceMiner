@@ -86,6 +86,36 @@ Once the hotkey is triggered:
 
 ---
 
+## How to Update the Script
+
+To ensure you always have the latest version of this script, you can use `git pull` to update your local repository with the latest changes from the remote repository.
+
+### Step-by-Step Instructions
+
+1. Open your terminal and navigate to the directory where you cloned the repository:
+    ```bash
+    cd path/to/script
+    ```
+
+2. Run the following command to fetch and integrate the latest changes:
+    ```bash
+    git pull origin master
+    ```
+
+    - **`origin`** refers to the remote repository from which you cloned the code.
+    - **`master`** refers to the main branch of the repository. If your default branch has a different name (e.g., `main` or `dev`), replace `master` with that branch name.
+
+3. The `git pull` command will download and apply any updates from the remote repository to your local version.
+
+### Example:
+
+```bash
+$ cd path/to/script
+$ git pull origin master
+```
+
+---
+
 ## Conclusion
 
 This setup allows you to record key moments in your game automatically, capture screenshots, and transcribe dialogue, all through a simple hotkey. Enjoy automating your gaming content creation!
