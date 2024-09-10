@@ -38,10 +38,6 @@ def monitor_clipboard():
             previous_clipboard = current_clipboard
             previous_clipboard_time = datetime.now()
 
-        # Just refresh if 30 seconds have passed... Something is weird with this tbh
-        if datetime.now() - previous_clipboard_time >= timedelta(seconds=30):
-            previous_clipboard_time = datetime.now()
-
         time.sleep(0.05)
 
 # def record_audio_with_ffmpeg(output_file):
