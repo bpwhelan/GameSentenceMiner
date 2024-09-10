@@ -258,7 +258,7 @@ def get_screenshot(video_file, term):
         "-i", video_file,
         "-vframes", "1",  # Extract only one frame
         "-compression_level", "6",
-        "-q:v", "80",
+        "-q:v", "85",
         output_image
     ]
     # Run the command
