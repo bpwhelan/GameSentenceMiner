@@ -4,3 +4,4 @@ __pycache__/config.cpython-311.pyc
 .idea/vcs.xml
 anki_script.log
 .idea/vcs.xml
+*.webp
