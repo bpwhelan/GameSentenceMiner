@@ -77,7 +77,40 @@ If you know what you are doing, do this in a venv, but I'm not going to explain 
 
 `pip install -r requirements.txt`
 
-## 3. Example Process
+## 4. Installing FFmpeg
+
+To run this script, you will need to have **FFmpeg** installed. If you don't have FFmpeg installed on your system, you can easily install it via **Chocolatey** (Preferred), or install it yourself and ensure it's in the PATH.
+
+#### Step-by-Step Instructions:
+
+1. First, ensure you have **Chocolatey** installed. If you don't have it installed, follow the instructions on the [Chocolatey installation page](https://chocolatey.org/install) or run the following command in an **elevated** PowerShell window (run as Administrator):
+   
+   ```bash
+   Set-ExecutionPolicy Bypass -Scope Process -Force; `
+   [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; `
+   iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+   ```
+
+2. Once Chocolatey is installed, open a **new** PowerShell or Command Prompt window (with administrator rights).
+
+3. Run the following command to install FFmpeg:
+
+   ```bash
+   choco install ffmpeg
+   ```
+
+4. After the installation is complete, verify that FFmpeg is correctly installed by running the following command:
+
+   ```bash
+   ffmpeg -version
+   ```
+
+   If the installation was successful, you should see the version information for FFmpeg.
+
+Now you're ready to use FFmpeg in the script!
+
+
+## 5. Example Process
 
 1. Start game
 2. Hook Game with Agent (or textractor) with clipboard enabled
