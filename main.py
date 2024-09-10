@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 
 previous_clipboard = pyperclip.paste()
 previous_clipboard_time = datetime.now()
+tmpdirname = ''
 
 
 def monitor_clipboard():
@@ -126,7 +127,7 @@ def convert_opus_to_wav(input_opus, output_wav):
 
 def process_audio_with_azure(input_audio, sentence, output_audio):
     # Convert MP3 to WAV
-    temp_wav = f"temp{get_random_digit_string()}.wav"
+    temp_wav = tempfile.NamedTemporaryFile(dir=tmpdirname, suffix=".wav").name
     convert_opus_to_wav(input_audio, temp_wav)
 
     # Transcribe WAV with Azure
@@ -174,15 +175,13 @@ class VideoToAudioHandler(FileSystemEventHandler):
         tango = last_note['fields']['Word']['value']
         sentence = last_note['fields']['Sentence']['value']
         audio_path = audio_destination + tango + ".opus"
-
-        input_audio = get_audio_and_trim(video_path)
+        trimmed_audio = get_audio_and_trim(video_path)
 
         output_audio = make_unique_file_name(audio_path)
-
         if subscription_key:
-            process_audio_with_azure(input_audio, sentence, output_audio)
+            process_audio_with_azure(trimmed_audio, sentence, output_audio)
         else:
-            shutil.copy2(input_audio, output_audio)
+            shutil.copy2(trimmed_audio, output_audio)
         # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
         if update_anki and not last_note['fields'][sentence_audio_field]['value']:
             update_anki_card(last_note, output_audio, video_path, tango)
@@ -191,11 +190,11 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 
 def get_audio_and_trim(video_path):
-    temp = tempfile.NamedTemporaryFile(suffix="_untrimmed.opus").name
+    untrimmed_audio = tempfile.NamedTemporaryFile(dir=tmpdirname, suffix="_untrimmed.opus").name
     # FFmpeg command to extract the audio without re-encoding
-    command = f"{ffmpeg_base_command} -i \"{video_path}\" -map 0:a -c:a copy \"{temp}\""
+    command = f"{ffmpeg_base_command} -i \"{video_path}\" -map 0:a -c:a copy \"{untrimmed_audio}\""
     subprocess.call(command, shell=True)
-    return trim_audio_based_on_clipboard(temp, video_path)
+    return trim_audio_based_on_clipboard(untrimmed_audio, video_path)
 
 
 def request(action, **params):
@@ -304,51 +303,52 @@ def get_video_duration(file_path):
     return float(duration_info["format"]["duration"])  # Return the duration in seconds
 
 
-def trim_audio_based_on_clipboard(temp, video_path):
-    ret = tempfile.NamedTemporaryFile(suffix=".opus").name
+def trim_audio_based_on_clipboard(untrimmed_audio, video_path):
+    trimmed_audio = tempfile.NamedTemporaryFile(dir=tmpdirname, suffix=".opus").name
     file_mod_time = get_file_modification_time(video_path)
     file_length = get_video_duration(video_path)
     time_delta = file_mod_time - previous_clipboard_time
     # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)
     total_seconds = file_length - time_delta.total_seconds()
     if total_seconds < 0 or total_seconds >= file_length:
-        return temp
+        return untrimmed_audio
 
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     start_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
 
     ffmpeg_command = ffmpeg_base_command_list + [
-        "-i", temp,
+        "-i", untrimmed_audio,
         "-ss", start_trim_time,
         "-c", "copy",  # Using copy to avoid re-encoding, adjust if needed
-        ret
+        trimmed_audio
     ]
     subprocess.run(ffmpeg_command)
 
     logging.info(f"{total_seconds} trimmed off of beginning")
 
-    print(f"Audio trimmed and saved to {ret}")
-
-    return ret
+    print(f"Audio trimmed and saved to {trimmed_audio}")
+    return trimmed_audio
 
 
 if __name__ == "__main__":
-    logging.info("Script started.")
-    event_handler = VideoToAudioHandler()
-    observer = Observer()
-    observer.schedule(event_handler, folder_to_watch, recursive=False)
-    observer.start()
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        print('created temporary directory', tmpdirname)
+        logging.info("Script started.")
+        event_handler = VideoToAudioHandler()
+        observer = Observer()
+        observer.schedule(event_handler, folder_to_watch, recursive=False)
+        observer.start()
 
-    if start_obs_replaybuffer:
-        subprocess.call("obs-cli replaybuffer start", shell=True)
-        subprocess.call("obs-cli scene switch \"Dragon Quest\"", shell=True)
-
-    try:
-        while True:
-            time.sleep(10)
-    except KeyboardInterrupt:
-        observer.stop()
         if start_obs_replaybuffer:
-            subprocess.call("obs-cli replaybuffer stop", shell=True)
-    observer.join()
+            subprocess.call("obs-cli replaybuffer start", shell=True)
+            subprocess.call("obs-cli scene switch \"Dragon Quest\"", shell=True)
+
+        try:
+            while True:
+                time.sleep(10)
+        except KeyboardInterrupt:
+            observer.stop()
+            if start_obs_replaybuffer:
+                subprocess.call("obs-cli replaybuffer stop", shell=True)
+        observer.join()
