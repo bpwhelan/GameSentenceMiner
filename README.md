@@ -70,6 +70,12 @@ vosk_model_url = "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.z
 
 ---
 
+## 3. Install Requirements
+
+If you know what you are doing, do this in a venv, but I'm not going to explain that here.
+
+`pip install -r requirements.txt`
+
 ## 3. Example Process
 
 1. Start game
