@@ -13,3 +13,4 @@ source_field = "Source"
 remove_video = True
 remove_untrimmed_audio = True
 update_anki = True
+start_obs_replaybuffer = False
