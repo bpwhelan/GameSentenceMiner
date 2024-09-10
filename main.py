@@ -37,6 +37,10 @@ def monitor_clipboard():
             previous_clipboard = current_clipboard
             previous_clipboard_time = datetime.now()
 
+        # Just refresh if 30 seconds have passed... Something is weird with this tbh
+        if datetime.now() - previous_clipboard_time >= timedelta(seconds=30):
+            previous_clipboard_time = datetime.now()
+
         time.sleep(0.05)
 
 # def record_audio_with_ffmpeg(output_file):
@@ -142,7 +146,7 @@ def process_audio_with_azure(input_audio, sentence, output_audio):
 
     if result is None:
         print("Failed to transcribe audio")
-        return False
+        return
 
     duration = result['duration']
     offset = result['offset']
@@ -156,10 +160,6 @@ def process_audio_with_azure(input_audio, sentence, output_audio):
     end_time_seconds = end_time / 10 ** 7
 
     trim_audio_by_time(input_audio, end_time_seconds + .5, output_audio)
-    for res in results:
-        if res['similarity'] >= .25:
-            return True
-    return False
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -171,12 +171,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
             self.convert_to_audio(event.src_path)
 
     def convert_to_audio(self, video_path):
-        info = os.stat(video_path)
-        print(info.st_mtime)
-        print(previous_clipboard_time.time())
         added_ids = invoke('findNotes', query='added:1')
         last_note = invoke('notesInfo', notes=[added_ids[-1]])[0]
-        print(last_note)
+        logging.info(last_note)
         tango = last_note['fields']['Word']['value']
         sentence = last_note['fields']['Sentence']['value']
         audio_path = audio_destination + tango + ".opus"
@@ -186,13 +183,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
         output_audio = make_unique_file_name(audio_path)
 
         if subscription_key:
-            matched = process_audio_with_azure(input_audio, sentence, output_audio)
-            if matched:
-                if update_anki:
-                    update_anki_card(last_note, output_audio)
-        else:
-            if update_anki:
-                update_anki_card(last_note, output_audio)
+            process_audio_with_azure(input_audio, sentence, output_audio)
+        # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
+        if update_anki and not last_note['fields'][sentence_audio_field]['value']:
+            update_anki_card(last_note, output_audio, video_path, tango)
         if remove_video:
             os.remove(video_path)  # Optionally remove the video after conversion
 
@@ -223,10 +217,10 @@ def invoke(action, **params):
     return response['result']
 
 
-def update_anki_card(last_note, audio_path):
+def update_anki_card(last_note, audio_path, video_path, tango):
     audio_in_anki = store_media_file(audio_path)
     audio_html = f"[sound:{audio_in_anki}]"
-    screenshot_in_anki = store_media_file(get_screenshot())
+    screenshot_in_anki = store_media_file(get_screenshot(video_path, tango))
     image_html = f"<img src=\"{screenshot_in_anki}\">"
     invoke("updateNoteFields", note={'id': last_note['noteId'], 'fields': {sentence_audio_field: audio_html,
                                                                            picture_field: image_html,
@@ -244,8 +238,8 @@ def convert_to_base64(file_path):
     return file_base64
 
 
-def make_unique_file_name(audio_path):
-    split = audio_path.rsplit('.', 1)
+def make_unique_file_name(path):
+    split = path.rsplit('.', 1)
     filename = split[0]
     extension = split[1]
     return filename + "_" + get_random_digit_string() + "." + extension
@@ -255,17 +249,34 @@ def get_random_digit_string():
     return ''.join(random.choice(string.digits) for i in range(9))
 
 
-def get_screenshot():
-    # Get list of all files in the directory
-    list_of_files = glob.glob(os.path.join(sharex_ss_destination, '*'))
+# V2, get the image from the video instead of relying on another program
+def get_screenshot(video_file, term):
+    output_image = make_unique_file_name(screenshot_destination + term + ".webp")
+    # FFmpeg command to extract the last frame of the video
+    ffmpeg_command = ffmpeg_base_command_list + [
+        "-sseof", "-1",  # Seek to 3 seconds before the end of the video
+        "-i", video_file,
+        "-vframes", "1",  # Extract only one frame
+        "-compression_level", "6",
+        "-q:v", "80",
+        output_image
+    ]
+    # Run the command
+    subprocess.run(ffmpeg_command)
 
-    # Filter for image files (e.g., .png, .jpg)
-    list_of_images = [f for f in list_of_files if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    return output_image
 
-    # Find the most recent image
-    most_recent_image = max(list_of_images, key=os.path.getctime)
-
-    return most_recent_image
+# def get_screenshot():
+#     # Get list of all files in the directory
+#     list_of_files = glob.glob(os.path.join(sharex_ss_destination, '*'))
+#
+#     # Filter for image files (e.g., .png, .jpg)
+#     list_of_images = [f for f in list_of_files if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+#
+#     # Find the most recent image
+#     most_recent_image = max(list_of_images, key=os.path.getctime)
+#
+#     return most_recent_image
 
 
 def timedelta_to_ffmpeg_friendly_format(td_obj):
