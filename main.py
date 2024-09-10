@@ -1,11 +1,15 @@
 import base64
+import datetime
 import glob
 import json
 import logging
 import os
 import random
 import string
+import tempfile
+import threading
 import time
+import pyperclip
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import urllib.request
@@ -13,8 +17,45 @@ import azure.cognitiveservices.speech as speechsdk
 import subprocess
 from difflib import SequenceMatcher
 from config import *
+from datetime import datetime, timedelta
+
+
+previous_clipboard = pyperclip.paste()
+previous_clipboard_time = datetime.now()
+
+
+def monitor_clipboard():
+    global previous_clipboard_time, previous_clipboard
+
+    # Initial clipboard content
+    previous_clipboard = pyperclip.paste()
+
+    while True:
+        current_clipboard = pyperclip.paste()
+
+        if current_clipboard != previous_clipboard:
+            previous_clipboard = current_clipboard
+            previous_clipboard_time = datetime.now()
+
+        time.sleep(0.05)
+
+# def record_audio_with_ffmpeg(output_file):
+#     ffmpeg_command = [
+#         "ffmpeg",
+#         "-f", "dshow",
+#         "-i", "audio=Microphone (Your Mic Device)",  # Replace with your device name
+#         output_file
+#     ]
+#     subprocess.run(ffmpeg_command)
+
+# Start monitoring clipboard
+# Run monitor_clipboard in the background
+clipboard_thread = threading.Thread(target=monitor_clipboard)
+clipboard_thread.daemon = True  # Ensures the thread will exit when the main program exits
+clipboard_thread.start()
 
 ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
+ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
 
 logging.basicConfig(filename='anki_script.log', level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
@@ -40,15 +81,15 @@ def transcribe_audio_with_azure(audio_path, sentence):
             print(f"Recognized: {evt.result.text}")
             recognized_text = evt.result.text
             similarity = SequenceMatcher(None, recognized_text, sentence).ratio()
-            if similarity >= .25:
-                results.append({
-                    'text': recognized_text,
-                    'offset': evt.result.offset,
-                    'duration': evt.result.duration,
-                    'similarity': similarity
-                })
-            else:
-                print(similarity)
+            # if similarity >= .25: # Think it's more consistent to do a combination of clipboard + LAST voiced Character
+            results.append({
+                'text': recognized_text,
+                'offset': evt.result.offset,
+                'duration': evt.result.duration,
+                'similarity': similarity
+            })
+            # else:
+            #     print(similarity)
         elif evt.result.reason == speechsdk.ResultReason.NoMatch:
             print("NoMatch: Speech could not be recognized.")
         elif evt.result.reason == speechsdk.ResultReason.Canceled:
@@ -72,8 +113,8 @@ def transcribe_audio_with_azure(audio_path, sentence):
     return results
 
 
-def trim_audio_by_time(input_audio, start_time, end_time, output_audio):
-    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ss {start_time} -to {end_time} -c copy \"{output_audio}\""
+def trim_audio_by_time(input_audio, end_time, output_audio):
+    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -to {end_time} -c copy \"{output_audio}\""
     subprocess.call(command, shell=True)
 
 
@@ -94,7 +135,7 @@ def process_audio_with_azure(input_audio, sentence, output_audio):
         print("Sentence Not matched close enough in audio")
         return False
 
-    result = results[0]
+    result = results[-1]
 
     # Clean up the temporary WAV
     os.remove(temp_wav)
@@ -114,8 +155,11 @@ def process_audio_with_azure(input_audio, sentence, output_audio):
     start_time_seconds = start_time / 10 ** 7  # Convert from ticks to seconds
     end_time_seconds = end_time / 10 ** 7
 
-    trim_audio_by_time(input_audio, start_time_seconds, end_time_seconds + .5, output_audio)
-    return True
+    trim_audio_by_time(input_audio, end_time_seconds + .5, output_audio)
+    for res in results:
+        if res['similarity'] >= .25:
+            return True
+    return False
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -127,6 +171,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
             self.convert_to_audio(event.src_path)
 
     def convert_to_audio(self, video_path):
+        info = os.stat(video_path)
+        print(info.st_mtime)
+        print(previous_clipboard_time.time())
         added_ids = invoke('findNotes', query='added:1')
         last_note = invoke('notesInfo', notes=[added_ids[-1]])[0]
         print(last_note)
@@ -134,23 +181,28 @@ class VideoToAudioHandler(FileSystemEventHandler):
         sentence = last_note['fields']['Sentence']['value']
         audio_path = audio_destination + tango + ".opus"
 
-        # FFmpeg command to extract the audio without re-encoding
-        command = f"{ffmpeg_base_command}  -i \"{video_path}\" -map 0:a -c:a copy \"{audio_path}\""
-        print(f"Running Command: {command}")  # Debugging line
-        subprocess.call(command, shell=True)
+        input_audio = get_audio_and_trim(video_path)
 
-        input_audio = audio_path
         output_audio = make_unique_file_name(audio_path)
 
-        matched = process_audio_with_azure(input_audio, sentence, output_audio)
-
-        if matched:
-            if remove_untrimmed_audio:
-                os.remove(audio_path)
+        if subscription_key:
+            matched = process_audio_with_azure(input_audio, sentence, output_audio)
+            if matched:
+                if update_anki:
+                    update_anki_card(last_note, output_audio)
+        else:
             if update_anki:
                 update_anki_card(last_note, output_audio)
-            if remove_video:
-                os.remove(video_path)  # Optionally remove the video after conversion
+        if remove_video:
+            os.remove(video_path)  # Optionally remove the video after conversion
+
+
+def get_audio_and_trim(video_path):
+    temp = tempfile.TemporaryFile(suffix="_untrimmed.opus").name
+    # FFmpeg command to extract the audio without re-encoding
+    command = f"{ffmpeg_base_command} -i \"{video_path}\" -map 0:a -c:a copy \"{temp}\""
+    subprocess.call(command, shell=True)
+    return trim_audio_based_on_clipboard(temp, video_path)
 
 
 def request(action, **params):
@@ -196,11 +248,12 @@ def make_unique_file_name(audio_path):
     split = audio_path.rsplit('.', 1)
     filename = split[0]
     extension = split[1]
-    return filename + get_random_digit_string() + "." + extension
+    return filename + "_" + get_random_digit_string() + "." + extension
 
 
 def get_random_digit_string():
     return ''.join(random.choice(string.digits) for i in range(9))
+
 
 def get_screenshot():
     # Get list of all files in the directory
@@ -213,6 +266,61 @@ def get_screenshot():
     most_recent_image = max(list_of_images, key=os.path.getctime)
 
     return most_recent_image
+
+
+def timedelta_to_ffmpeg_friendly_format(td_obj):
+    total_seconds = td_obj.total_seconds()
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
+
+
+def get_file_modification_time(file_path):
+    mod_time_epoch = os.path.getmtime(file_path)
+    mod_time = datetime.fromtimestamp(mod_time_epoch)
+    return mod_time
+
+
+def get_video_duration(file_path):
+    ffprobe_command = [
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "json",
+        file_path
+    ]
+    result = subprocess.run(ffprobe_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    duration_info = json.loads(result.stdout)
+    return float(duration_info["format"]["duration"])  # Return the duration in seconds
+
+
+def trim_audio_based_on_clipboard(temp, video_path):
+    ret = tempfile.TemporaryFile(suffix=".opus").name
+    file_mod_time = get_file_modification_time(video_path)
+    file_length = get_video_duration(video_path)
+    time_delta = file_mod_time - previous_clipboard_time
+    # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)
+    total_seconds = file_length - time_delta.total_seconds()
+    if total_seconds < 0 or total_seconds >= file_length:
+        return temp
+
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    start_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
+
+    ffmpeg_command = ffmpeg_base_command_list + [
+        "-i", temp,
+        "-ss", start_trim_time,
+        "-c", "copy",  # Using copy to avoid re-encoding, adjust if needed
+        ret
+    ]
+    subprocess.run(ffmpeg_command)
+
+    logging.info(f"{total_seconds} trimmed off of beginning")
+
+    print(f"Audio trimmed and saved to {ret}")
+
+    return ret
 
 
 if __name__ == "__main__":
