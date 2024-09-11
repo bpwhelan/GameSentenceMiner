@@ -32,7 +32,9 @@ If you run into issues find me on discord @Beangate, or make an issue here. I've
    1. Go to **Settings → Hotkeys** and find **Save Replay Buffer**.
    2. Assign a hotkey for saving the replay.
 4. Set Scene/Source. I recommend using "Game Capture" with "Capture Audio" Enabled. And then mute Desktop/microphone
-5. **Set up obs websocket** (Super Optional)
+   1. If "Game Capture" Does not work, use "screen capture" with a second source "Application Audio Capture"
+5. In Output Settings, set "Recording Format" to mkv, and "Audio Encoder" to Opus. Alternative Settings may be supported at a later date.
+6. **Set up obs websocket** (Super Optional)
     1. Can allow my script to automatically start (and stop) the replay buffer.
 
 ---
