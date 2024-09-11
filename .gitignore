@@ -10,3 +10,4 @@ anki_script.log
 /vosk_model_cache
 config.toml
 config.py
+tmp*

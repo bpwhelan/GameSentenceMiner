@@ -1,9 +1,26 @@
+import logging
 import os
 import toml
 from os.path import expanduser
 
 # Define the path to your config.toml file
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.toml')
+
+# Setup Logs
+logger = logging.getLogger("TrimAudio")
+logging_format = logging.Formatter(u'%(asctime)s - %(levelname)s - %(message)s')
+
+file_handler = logging.FileHandler("anki_script.log", encoding='utf-8')
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging_format)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)  # You can set the desired log level for console output
+console_handler.setFormatter(logging_format)
+
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+logger.setLevel(logging.INFO)
 
 
 def load_config():
@@ -18,10 +35,10 @@ def load_config():
 
             return config_file
     except FileNotFoundError:
-        print(f"Configuration file {CONFIG_FILE} not found!")
+        logger.error(f"Configuration file {CONFIG_FILE} not found!")
         return None
     except toml.TomlDecodeError as e:
-        print(f"Error parsing {CONFIG_FILE}: {e}")
+        logger.error(f"Error parsing {CONFIG_FILE}: {e}")
         return None
 
 
@@ -57,6 +74,10 @@ if config:
     screenshot_width = screenshot_config.get('width', 0)
     screenshot_quality = str(screenshot_config.get('quality', 85))
     screenshot_extension = screenshot_config.get('extension', "webp")
+
+    # audio config
+    audio_config = config.get('audio', {})
+    audio_extension = audio_config.get('extension', 'opus')
 
 else:
     raise Exception("No config found")
