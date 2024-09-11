@@ -79,7 +79,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
         output_audio = make_unique_file_name(audio_path)
         if do_vosk_postprocessing:
-            process_audio_with_vosk(trimmed_audio, output_audio, tmpdirname)
+            voice_matched = process_audio_with_vosk(trimmed_audio, output_audio, tmpdirname)
+            if not voice_matched:
+                shutil.copy2(trimmed_audio, output_audio)
         else:
             shutil.copy2(trimmed_audio, output_audio)
         try:
