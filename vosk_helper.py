@@ -1,5 +1,4 @@
 import json
-import os
 import subprocess
 import tarfile
 import tempfile
@@ -10,10 +9,11 @@ import requests
 import vosk
 import soundfile as sf
 import numpy as np
-from config import *
+from config_reader import *
 
 ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+vosk.SetLogLevel(vosk_log_level)
 
 
 # Convert audio to 16kHz mono WAV (Vosk expects this format)

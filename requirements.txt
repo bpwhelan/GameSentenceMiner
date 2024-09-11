@@ -14,3 +14,4 @@ urllib3==2.2.2
 vosk==0.3.45
 watchdog==5.0.2
 websockets==13.0.1
+toml
