@@ -47,16 +47,14 @@ clipboard_thread.start()
 ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
 
-logging.basicConfig(filename='anki_script.log', level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 def trim_audio_by_end_time(input_audio, end_time, output_audio):
     command = f"{ffmpeg_base_command} -i \"{input_audio}\" -to {end_time} -c copy \"{output_audio}\""
     subprocess.call(command, shell=True)
 
 
-def convert_opus_to_wav(input_opus, output_wav):
-    command = f"{ffmpeg_base_command} -i \"{input_opus}\" -ar 16000 -ac 1 \"{output_wav}\""
+def convert_audio_to_wav(input_audio, output_wav):
+    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 \"{output_wav}\""
     subprocess.call(command, shell=True)
 
 
@@ -65,15 +63,15 @@ class VideoToAudioHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         if event.src_path.endswith(".mkv"):  # Adjust based on your OBS output format
-            logging.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
+            logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
             self.convert_to_audio(event.src_path)
 
     def convert_to_audio(self, video_path):
         added_ids = invoke('findNotes', query='added:1')
         last_note = invoke('notesInfo', notes=[added_ids[-1]])[0]
-        logging.info(last_note)
+        logger.info(json.dumps(last_note))
         tango = last_note['fields']['Word']['value']
-        audio_path = audio_destination + tango + ".opus"
+        audio_path = audio_destination + tango + f".{audio_extension}"
         trimmed_audio = get_audio_and_trim(video_path)
 
         output_audio = make_unique_file_name(audio_path)
@@ -94,10 +92,52 @@ class VideoToAudioHandler(FileSystemEventHandler):
             os.remove(video_path)  # Optionally remove the video after conversion
 
 
+def get_audio_codec(video_path):
+    command = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "a:0",
+        "-show_entries", "stream=codec_name",
+        "-of", "json",
+        video_path
+    ]
+
+    # Run the command and capture the output
+    result = subprocess.run(command, capture_output=True, text=True)
+
+    # Parse the JSON output
+    try:
+        output = json.loads(result.stdout)
+        codec_name = output['streams'][0]['codec_name']
+        return codec_name
+    except (json.JSONDecodeError, KeyError, IndexError):
+        logger.error("Failed to get codec information. Re-encoding Anyways")
+        return None
+
+
 def get_audio_and_trim(video_path):
-    untrimmed_audio = tempfile.NamedTemporaryFile(dir=tmpdirname, suffix="_untrimmed.opus").name
-    # FFmpeg command to extract the audio without re-encoding
-    command = f"{ffmpeg_base_command} -i \"{video_path}\" -map 0:a -c:a copy \"{untrimmed_audio}\""
+    supported_formats = {
+        'opus': 'opus',
+        'mp3': 'libmp3lame',
+        'ogg': 'libvorbis',
+        'aac': 'aac',
+        'm4a': 'aac',
+    }
+
+    codec = get_audio_codec(video_path)
+
+    if codec == audio_extension:
+        codec_command = '-c:a copy'
+        logger.info(f"Extracting {audio_extension} from video")
+    else:
+        codec_command = f"-c:a {supported_formats[audio_extension]}"
+        logger.info(f"Re-encoding {codec} to {audio_extension}")
+
+    untrimmed_audio = tempfile.NamedTemporaryFile(dir=tmpdirname, suffix=f"_untrimmed.{audio_extension}").name
+
+    # FFmpeg command to extract OR re-encode the audio
+    command = f"{ffmpeg_base_command} -i \"{video_path}\" -map 0:a {codec_command} \"{untrimmed_audio}\""
+
     subprocess.call(command, shell=True)
     return trim_audio_based_on_clipboard(untrimmed_audio, video_path)
 
@@ -107,8 +147,8 @@ def request(action, **params):
 
 
 def invoke(action, **params):
-    requestJson = json.dumps(request(action, **params)).encode('utf-8')
-    response = json.load(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8765', requestJson)))
+    request_json = json.dumps(request(action, **params)).encode('utf-8')
+    response = json.load(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8765', request_json)))
     if len(response) != 2:
         raise Exception('response has an unexpected number of fields')
     if 'error' not in response:
@@ -128,7 +168,7 @@ def update_anki_card(last_note, audio_path, video_path, tango):
     invoke("updateNoteFields", note={'id': last_note['noteId'], 'fields': {sentence_audio_field: audio_html,
                                                                            picture_field: image_html,
                                                                            source_field: current_game}})
-    logging.info(f"UPDATED ANKI CARD FOR {last_note['noteId']}")
+    logger.info(f"UPDATED ANKI CARD FOR {last_note['noteId']}")
 
 
 def store_media_file(path):
@@ -171,7 +211,7 @@ def get_screenshot(video_file, term):
     # Run the command
     subprocess.run(ffmpeg_command)
 
-    print(f"Screenshot saved to: {output_image}")
+    logger.info(f"Screenshot saved to: {output_image}")
 
     return output_image
 
@@ -203,13 +243,14 @@ def get_video_duration(file_path):
 
 
 def trim_audio_based_on_clipboard(untrimmed_audio, video_path):
-    trimmed_audio = tempfile.NamedTemporaryFile(dir=tmpdirname, suffix=".opus").name
+    trimmed_audio = tempfile.NamedTemporaryFile(dir=tmpdirname, suffix=f".{audio_extension}").name
     file_mod_time = get_file_modification_time(video_path)
     file_length = get_video_duration(video_path)
     time_delta = file_mod_time - previous_clipboard_time
     # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)
     total_seconds = file_length - time_delta.total_seconds()
     if total_seconds < 0 or total_seconds >= file_length:
+        logger.info(f"0 seconds trimmed off of beginning")
         return untrimmed_audio
 
     hours, remainder = divmod(total_seconds, 3600)
@@ -224,7 +265,7 @@ def trim_audio_based_on_clipboard(untrimmed_audio, video_path):
     ]
     subprocess.run(ffmpeg_command)
 
-    logging.info(f"{total_seconds} trimmed off of beginning")
+    logger.info(f"{total_seconds} trimmed off of beginning")
 
     print(f"Audio trimmed and saved to {trimmed_audio}")
     return trimmed_audio
@@ -232,7 +273,7 @@ def trim_audio_based_on_clipboard(untrimmed_audio, video_path):
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(dir="./") as tmpdirname:
-        logging.info("Script started.")
+        logger.info("Script started.")
         event_handler = VideoToAudioHandler()
         observer = Observer()
         observer.schedule(event_handler, folder_to_watch, recursive=False)
@@ -240,7 +281,7 @@ if __name__ == "__main__":
 
         if start_obs_replaybuffer:
             subprocess.call("obs-cli replaybuffer start", shell=True)
-            subprocess.call("obs-cli scene switch \"Dragon Quest\"", shell=True)
+            # subprocess.call("obs-cli scene switch \"Dragon Quest\"", shell=True)
 
         print("Script Initalized. Happy Mining!")
 

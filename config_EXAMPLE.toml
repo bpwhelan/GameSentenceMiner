@@ -29,3 +29,6 @@ log-level = -1
 width = 0 # Desired Width of Screenshot, 0 to disable scaling (Default 0)
 quality = 85 # Quality of image, 100 is lossless (Default 85)
 extension = "webp" # Codec of screenshot, Recommend Keeping this as webp (Default webp)
+
+[audio]
+extension = "opus" # Desired Extension/codec of Trimmed Audio, (Default opus)

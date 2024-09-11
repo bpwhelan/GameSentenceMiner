@@ -34,18 +34,18 @@ def download_and_cache_vosk_model(model_dir="vosk_model_cache"):
 
     # If the model is already downloaded, skip the download
     if not os.path.exists(model_path):
-        print(f"Downloading the Vosk model from {vosk_model_url}... This will take a while if using large model, ~1G")
+        logger.info(f"Downloading the Vosk model from {vosk_model_url}... This will take a while if using large model, ~1G")
         response = requests.get(vosk_model_url, stream=True)
         with open(model_path, "wb") as file:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     file.write(chunk)
-        print("Download complete.")
+        logger.info("Download complete.")
 
     # Extract the model if it's a zip or tar file
     model_extract_path = os.path.join(model_dir, "vosk_model")
     if not os.path.exists(model_extract_path):
-        print("Extracting the Vosk model...")
+        logger.info("Extracting the Vosk model...")
         if model_filename.endswith(".zip"):
             with zipfile.ZipFile(model_path, "r") as zip_ref:
                 zip_ref.extractall(model_extract_path)
@@ -53,10 +53,10 @@ def download_and_cache_vosk_model(model_dir="vosk_model_cache"):
             with tarfile.open(model_path, "r:gz") as tar_ref:
                 tar_ref.extractall(model_extract_path)
         else:
-            print("Unknown archive format. Model extraction skipped.")
-        print(f"Model extracted to {model_extract_path}.")
+            logger.info("Unknown archive format. Model extraction skipped.")
+        logger.info(f"Model extracted to {model_extract_path}.")
     else:
-        print(f"Model already extracted at {model_extract_path}.")
+        logger.info(f"Model already extracted at {model_extract_path}.")
 
     # Return the path to the actual model folder inside the extraction directory
     extracted_folders = os.listdir(model_extract_path)
@@ -121,7 +121,7 @@ def process_audio_with_vosk(input_audio, output_audio, tempdir):
     voice_activity, total_duration = detect_voice_with_vosk(input_audio, tempdir)
 
     if not voice_activity:
-        print("No voice activity detected in the audio.")
+        logger.info("No voice activity detected in the audio.")
         return False
 
     # Trim based on the first and last speech detected
@@ -129,13 +129,13 @@ def process_audio_with_vosk(input_audio, output_audio, tempdir):
     end_time = voice_activity[-1]['end'] if voice_activity else total_duration
 
     # Print detected speech details with timestamps
-    print(f"Detected speech from {start_time} to {end_time} seconds:")
+    logger.info(f"Trimmed End of Audio to {end_time} seconds:")
 
     # Trim the audio using FFmpeg
     trim_audio(input_audio, end_time + .5, output_audio)
-    print(f"Trimmed audio saved to: {output_audio}")
+    logger.info(f"Trimmed audio saved to: {output_audio}")
     return True
 
 
 vosk_model_path = download_and_cache_vosk_model()
-print(f"Using Vosk model from {vosk_model_path}")
+logger.info(f"Using Vosk model from {vosk_model_path}")
