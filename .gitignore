@@ -8,3 +8,5 @@ anki_script.log
 *.opus
 /__pycache__
 /vosk_model_cache
+config.toml
+config.py

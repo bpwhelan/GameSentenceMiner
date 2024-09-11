@@ -2,7 +2,6 @@ import base64
 import datetime
 import json
 import logging
-import os
 import random
 import shutil
 import string
@@ -14,7 +13,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import urllib.request
 import subprocess
-from config import *
+from config_reader import *
 from datetime import datetime
 from vosk_helper import process_audio_with_vosk
 
@@ -155,18 +154,24 @@ def get_random_digit_string():
 
 # V2, get the image from the video instead of relying on another program
 def get_screenshot(video_file, term):
-    output_image = make_unique_file_name(screenshot_destination + term + ".webp")
+    output_image = make_unique_file_name(screenshot_destination + term + f".{screenshot_extension}")
     # FFmpeg command to extract the last frame of the video
     ffmpeg_command = ffmpeg_base_command_list + [
-        "-sseof", "-1",  # Seek to 3 seconds before the end of the video
+        "-sseof", "-1",  # Seek to 1 second before the end of the video
         "-i", video_file,
         "-vframes", "1",  # Extract only one frame
         "-compression_level", "6",
-        "-q:v", "85",
-        output_image
+        "-q:v", screenshot_quality,
     ]
+
+    if screenshot_width:
+        ffmpeg_command.extend(["-vf", f"scale={screenshot_width}:-1"])
+
+    ffmpeg_command.append(output_image)
     # Run the command
     subprocess.run(ffmpeg_command)
+
+    print(f"Screenshot saved to: {output_image}")
 
     return output_image
 

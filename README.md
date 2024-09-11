@@ -39,36 +39,46 @@ If you run into issues find me on discord @Beangate, or make an issue here. I've
 
 ---
 
-## 2. Configuring `config.py`
+## 2. Configuring `config.toml`
 
-Your `config.py` file allows you to configure key settings for the automation process, file paths, and other behavior. Here are the configurable options:
+I redid the config parsing cause `config.py` is not ideal, especially when distributing a script via git.
 
-```python
-from os.path import expanduser
-home = expanduser("~")
+Your `config.toml` file allows you to configure key settings for the automation process, file paths, and other behavior. Here are the configurable options:
 
-# Feel free to adjust these as you please
-folder_to_watch = f"{home}/Videos/OBS"
-audio_destination = f"{home}/Videos/OBS/Audio/"
-screenshot_destination = f"{home}/Videos/OBS/SS/"
+Duplicate/rename config_EXAMPLE.toml to get started
 
-current_game = "Dragon Quest XI"  # Automatic in the future maybe?
+```toml
+# Path configurations
+[paths]
+folder_to_watch = "~/Videos/OBS"
+audio_destination = "~/Videos/OBS/Audio/"
+screenshot_destination = "~/Videos/OBS/SS/"
 
 # Anki Fields
+[anki]
 sentence_audio_field = "SentenceAudio"
 picture_field = "Picture"
 source_field = "Source"
+current_game = "Japanese Game"
 
 # Feature Flags
-do_vosk_postprocessing = True
-remove_video = True
-update_anki = True
-start_obs_replaybuffer = False
-# Seems to be faster, but takes a LOT more resources, also is like ~1.5G, If you have a badass PC, go for it
-# vosk_model_url = "https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip"
+[features]
+do_vosk_postprocessing = true
+remove_video = true
+update_anki = true
+start_obs_replaybuffer = false
 
-# Default, Use this if you have less than 16G of RAM, or if you have a weaker PC
-vosk_model_url = "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip"
+# Vosk Model
+[vosk]
+url = "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip"
+# If you have a high-performance PC, with 16GB+ of RAM, you can uncomment and use this model:
+# url = "https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip"
+log-level = -1
+
+[screenshot]
+width = 0 # Desired Width of Screenshot, 0 to disable scaling (Default 0)
+quality = 85 # Quality of image, 100 is lossless (Default 85)
+extension = "webp" # Codec of screenshot, Recommend Keeping this as webp (Default webp)
 ```
 
 ---

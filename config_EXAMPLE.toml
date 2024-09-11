@@ -1,0 +1,31 @@
+# Path configurations
+[paths]
+folder_to_watch = "~/Videos/OBS"
+audio_destination = "~/Videos/OBS/Audio/"
+screenshot_destination = "~/Videos/OBS/SS/"
+
+# Anki Fields
+[anki]
+sentence_audio_field = "SentenceAudio"
+picture_field = "Picture"
+source_field = "Source"
+current_game = "Japanese Game"
+
+# Feature Flags
+[features]
+do_vosk_postprocessing = true
+remove_video = true
+update_anki = true
+start_obs_replaybuffer = false
+
+# Vosk Model
+[vosk]
+url = "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip"
+# If you have a high-performance PC, with 16GB+ of RAM, you can uncomment and use this model:
+# url = "https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip"
+log-level = -1
+
+[screenshot]
+width = 0 # Desired Width of Screenshot, 0 to disable scaling (Default 0)
+quality = 85 # Quality of image, 100 is lossless (Default 85)
+extension = "webp" # Codec of screenshot, Recommend Keeping this as webp (Default webp)
