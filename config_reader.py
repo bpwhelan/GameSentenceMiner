@@ -69,7 +69,6 @@ if config:
     do_vosk_postprocessing = feature_config.get('do_vosk_postprocessing', True)
     remove_video = feature_config.get('remove_video', True)
     update_anki = feature_config.get('update_anki', True)
-    start_obs_replaybuffer = feature_config.get('start_obs_replaybuffer', False)
     act_on_new_card_in_anki = feature_config.get('full_auto_mode', False)
 
     # Vosk config

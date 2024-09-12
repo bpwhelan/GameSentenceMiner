@@ -18,7 +18,6 @@ add_game_tag = true
 do_vosk_postprocessing = true
 remove_video = true
 update_anki = true
-start_obs_replaybuffer = false
 
 # Vosk Model
 [vosk]
