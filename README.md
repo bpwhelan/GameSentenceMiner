@@ -167,6 +167,8 @@ Once the hotkey is triggered:
 
 ## How to Update the Script
 
+There is now an Update script included! running `python update.py` in the directory will attempt to update your scripts to the latest release. If you have made changes to any of the files, they will be safely backed up before being replaced.
+
 To ensure you always have the latest version of this script, you can use `git pull` to update your local repository with the latest changes from the remote repository.
 
 ### Step-by-Step Instructions
