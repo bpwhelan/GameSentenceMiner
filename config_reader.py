@@ -1,5 +1,8 @@
 import logging
 import os
+from datetime import datetime
+
+import pyperclip
 import toml
 from os.path import expanduser
 
@@ -21,6 +24,10 @@ console_handler.setFormatter(logging_format)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 logger.setLevel(logging.INFO)
+
+anki_url = 'http://127.0.0.1:8765'
+
+temp_directory = ''
 
 
 def load_config():
@@ -54,8 +61,9 @@ if config:
     anki_config = config.get('anki', {})
     sentence_audio_field = anki_config.get('sentence_audio_field', "Sentence Audio")
     picture_field = anki_config.get('picture_field', "Picture")
-    source_field = anki_config.get('source_field', "Source")
-    current_game = anki_config.get('current_game', "Game Audio Trim Tool")
+    current_game = anki_config.get('current_game', "GameSentenceMiner")
+    custom_tags = anki_config.get("custom_tags", [])
+    add_game_tag = anki_config.get("add_game_tag", True)
 
     # Feature flags
     feature_config = config.get('features', {})
@@ -63,6 +71,7 @@ if config:
     remove_video = feature_config.get('remove_video', True)
     update_anki = feature_config.get('update_anki', True)
     start_obs_replaybuffer = feature_config.get('start_obs_replaybuffer', False)
+    act_on_new_card_in_anki = feature_config.get('full_auto_mode', False)
 
     # Vosk config
     vosk_config = config.get('vosk', {})
@@ -78,6 +87,15 @@ if config:
     # audio config
     audio_config = config.get('audio', {})
     audio_extension = audio_config.get('extension', 'opus')
+
+    # Parse OBS settings from the config
+    obs_config = config.get('obs', {})
+    obs_enabled = obs_config.get('enabled', True)
+    obs_start_buffer = obs_config.get('start_buffer', True)
+    obs_full_auto_mode = obs_config.get('full_auto_mode', False)
+    OBS_HOST = obs_config.get('host', "localhost")
+    OBS_PORT = obs_config.get('port', 4455)
+    OBS_PASSWORD = obs_config.get('password', "your_password")
 
 else:
     raise Exception("No config found")
