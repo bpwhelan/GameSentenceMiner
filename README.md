@@ -4,11 +4,6 @@ This project automates the recording of game sentence audio to help with Anki Ca
 
 You can trigger the entire process with a single hotkey that cuts out the before and after voice, gets a screenshot, and sends both to Anki.
 
-If you run into issues find me on discord @Beangate, or make an issue here. I've used this process to generate ~100 cards from Dragon Quest XI so far and it's worked quite well.
-
-If you've benefited from this or any of my other projects, please consider supporting my work via [Github Sponsors](https://github.com/sponsors/bpwhelan) or [Ko-fi.](https://ko-fi.com/beangate)
-
-
 ## Features:
 - **Vosk Speech Recognition**: Automatically cuts the end of the clip to the exact moment the voice ended.
 - **OBS Replay Buffer**: Constantly records the last X seconds of gameplay.
@@ -204,6 +199,10 @@ $ git pull origin master
 
 ---
 
-## Conclusion
+## Contact
 
-This setup allows you to record key moments in your game automatically, capture screenshots, and transcribe dialogue, all through a simple hotkey. Enjoy automating your gaming content creation!
+If you run into issues find me on discord @Beangate, or make an issue here. I've used this process to generate ~150 cards from Dragon Quest XI so far and it's worked quite well.
+
+## Donations
+
+If you've benefited from this or any of my other projects, please consider supporting my work via [Github Sponsors](https://github.com/sponsors/bpwhelan) or [Ko-fi.](https://ko-fi.com/beangate)
