@@ -11,3 +11,5 @@ anki_script.log
 config.toml
 config.py
 tmp*
+/backup
+version.txt
