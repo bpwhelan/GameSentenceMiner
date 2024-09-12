@@ -12,9 +12,9 @@ If you've benefited from this or any of my other projects, please consider suppo
 ## Features:
 - **Vosk Speech Recognition**: Automatically cuts the end of the clip to the exact moment the voice ended.
 - **OBS Replay Buffer**: Constantly records the last X seconds of gameplay.
-- **ShareX**: Takes screenshots of the game at the moment of the replay.
 - **Clipboard Interaction**: Automatically monitors the clipboard for dialogue events.
 - **Hotkey Automation**: Single hotkey to trigger video recording, screenshot, and transcription.
+- **1-Click Card Creation**: Monitors anki for new cards from Yomitan, and automatically gets audio from games.
 
 ## Prerequisites
 
