@@ -9,6 +9,8 @@ import requests
 import vosk
 import soundfile as sf
 import numpy as np
+
+import config_reader
 from config_reader import *
 
 ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
@@ -68,9 +70,9 @@ def download_and_cache_vosk_model(model_dir="vosk_model_cache"):
 
 
 # Use Vosk to detect voice activity with timestamps in the audio
-def detect_voice_with_vosk(input_audio, tempdir):
+def detect_voice_with_vosk(input_audio):
     # Convert the audio to 16kHz mono WAV
-    temp_wav = tempfile.NamedTemporaryFile(dir=tempdir, suffix='.wav').name
+    temp_wav = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix='.wav').name
     convert_audio_to_wav(input_audio, temp_wav)
     #
     # # Load the Vosk model
@@ -117,8 +119,8 @@ def trim_audio(input_audio, end_time, output_audio):
 
 
 # Example usage of Vosk with trimming
-def process_audio_with_vosk(input_audio, output_audio, tempdir):
-    voice_activity, total_duration = detect_voice_with_vosk(input_audio, tempdir)
+def process_audio_with_vosk(input_audio, output_audio):
+    voice_activity, total_duration = detect_voice_with_vosk(input_audio)
 
     if not voice_activity:
         logger.info("No voice activity detected in the audio.")
