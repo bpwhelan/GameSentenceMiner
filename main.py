@@ -18,9 +18,9 @@ import obs
 
 class VideoToAudioHandler(FileSystemEventHandler):
     def on_created(self, event):
-        if event.is_directory:
+        if event.is_directory or "Replay" not in event.src_path:
             return
-        if event.src_path.endswith(".mkv"):  # Adjust based on your OBS output format
+        if event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):  # Adjust based on your OBS output format
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
             self.convert_to_audio(event.src_path)
 
