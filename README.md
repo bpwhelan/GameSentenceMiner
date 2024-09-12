@@ -9,8 +9,8 @@ If you run into issues find me on discord @Beangate, or make an issue here. I've
 
 
 ## Features:
-- **Azure Speech Recognition**: Automatically cuts the end of the clip to the exact moment the voice ended.
-- **OBS Replay Buffer**: Constantly records the last 30 seconds of gameplay.
+- **Vosk Speech Recognition**: Automatically cuts the end of the clip to the exact moment the voice ended.
+- **OBS Replay Buffer**: Constantly records the last X seconds of gameplay.
 - **ShareX**: Takes screenshots of the game at the moment of the replay.
 - **Clipboard Interaction**: Automatically monitors the clipboard for dialogue events.
 - **Hotkey Automation**: Single hotkey to trigger video recording, screenshot, and transcription.
@@ -22,12 +22,12 @@ If you run into issues find me on discord @Beangate, or make an issue here. I've
 
 ---
 
-## 1. Setting Up OBS 30-Second Replay Buffer
+## 1. Setting Up OBS 60-Second Replay Buffer
 
 1. **Install OBS Studio**: Download and install OBS from [here](https://obsproject.com/).
 2. **Enable Replay Buffer**:
    1. Open OBS and navigate to **Settings → Output → Replay Buffer**.
-   2. Enable the **Replay Buffer** and set the duration to **30 seconds**, this can be lower, or higher, but 30 works for a very simple setup.
+   2. Enable the **Replay Buffer** and set the duration to **60 seconds**, this can be lower, or higher, but 60 works for a very simple setup.
 3. **Set a Hotkey for the Replay Buffer**:
    1. Go to **Settings → Hotkeys** and find **Save Replay Buffer**.
    2. Assign a hotkey for saving the replay.
