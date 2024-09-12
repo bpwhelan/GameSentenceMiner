@@ -6,10 +6,11 @@ screenshot_destination = "~/Videos/OBS/SS/"
 
 # Anki Fields
 [anki]
+url = 'http://127.0.0.1:8765'
 sentence_audio_field = "SentenceAudio"
 picture_field = "Picture"
 current_game = "Japanese Game"
-custom_tags = ['JapaneseGameMiner'] # leave Empty if you dont want to add tags
+custom_tags = ['JapaneseGameMiner', "Test Another Tag"] # leave Empty if you dont want to add tags
 add_game_tag = true
 
 # Feature Flags

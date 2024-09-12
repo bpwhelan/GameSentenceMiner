@@ -25,8 +25,6 @@ logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 logger.setLevel(logging.INFO)
 
-anki_url = 'http://127.0.0.1:8765'
-
 temp_directory = ''
 
 
@@ -59,6 +57,7 @@ if config:
 
     # Anki fields
     anki_config = config.get('anki', {})
+    anki_url = config.get('url', 'http://127.0.0.1:8765')
     sentence_audio_field = anki_config.get('sentence_audio_field', "Sentence Audio")
     picture_field = anki_config.get('picture_field', "Picture")
     current_game = anki_config.get('current_game', "GameSentenceMiner")
