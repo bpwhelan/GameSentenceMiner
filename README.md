@@ -56,17 +56,18 @@ screenshot_destination = "~/Videos/OBS/SS/"
 
 # Anki Fields
 [anki]
+url = 'http://127.0.0.1:8765'
 sentence_audio_field = "SentenceAudio"
 picture_field = "Picture"
-source_field = "Source"
 current_game = "Japanese Game"
+custom_tags = ['JapaneseGameMiner', "Test Another Tag"] # leave Empty if you dont want to add tags
+add_game_tag = true
 
 # Feature Flags
 [features]
 do_vosk_postprocessing = true
 remove_video = true
 update_anki = true
-start_obs_replaybuffer = false
 
 # Vosk Model
 [vosk]
@@ -79,7 +80,19 @@ log-level = -1
 width = 0 # Desired Width of Screenshot, 0 to disable scaling (Default 0)
 quality = 85 # Quality of image, 100 is lossless (Default 85)
 extension = "webp" # Codec of screenshot, Recommend Keeping this as webp (Default webp)
+
+[audio]
+extension = "opus" # Desired Extension/codec of Trimmed Audio, (Default opus)
+
+[obs]
+enabled = true
+start_buffer = true
+full_auto_mode = false # Automatically Create Cards when you Create in Yomi. REQUIRED for multi-card-per-voiceline
+host = "localhost"
+port = 4455
+password = "your_password_here"
 ```
+
 
 ---
 
@@ -122,13 +135,27 @@ To run this script, you will need to have **FFmpeg** installed. If you don't hav
 Now you're ready to use FFmpeg in the script!
 
 
-## 5. Example Process
+---
+
+## 5. One Click Card Creation
+
+With the Latest Update it is now possible to do full 1-click card creation with this tool + Yomitan. This is configured in the `obs` section in your `config.toml`
+
+Demo: https://www.youtube.com/watch?v=9dmmXO2CGNw
+
+Screenshots to help with setup:
+
+![image](https://github.com/user-attachments/assets/7de031e9-ce28-42eb-a8fd-0e60ef70dc3d)
+
+![image](https://github.com/user-attachments/assets/b0c70a1a-65b5-4fe7-a7e4-ccb0b9a5b249)
+
+## 6. Example Process
 
 1. Start game
 2. Hook Game with Agent (or textractor) with clipboard enabled
 3. start script: `python main.py`
    1. Create Anki Card with target word (through a texthooker page/Yomitan)
-   2. Trigger Hotkey to record replay buffer
+   2. (If full-auto-mode not on) Trigger Hotkey to record replay buffer
 4. When finished gaming, end script
 
 Once the hotkey is triggered:
