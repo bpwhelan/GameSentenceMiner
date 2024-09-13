@@ -8,9 +8,9 @@ from ffmpeg import get_screenshot
 
 audio_in_anki = None
 screenshot_in_anki = None
+should_update_audio = True
 
-
-def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_audio=False, should_update_audio=True):
+def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_audio=False):
     global audio_in_anki, screenshot_in_anki
     if not reuse_audio:
         if should_update_audio:
