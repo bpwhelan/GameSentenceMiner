@@ -8,11 +8,15 @@ use_previous_audio = False
 
 lock = threading.Lock()
 
+
 def make_unique_file_name(path):
     split = path.rsplit('.', 1)
     filename = split[0]
     extension = split[1]
-    return filename + "_" + get_random_digit_string() + "." + extension
+
+    current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
+
+    return f"{filename}_{current_time}.{extension}".replace(" ", "")
 
 
 def get_random_digit_string():
