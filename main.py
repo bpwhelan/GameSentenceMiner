@@ -5,6 +5,7 @@ import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+import anki
 import config_reader
 import util
 from ffmpeg import get_audio_and_trim
@@ -33,15 +34,14 @@ class VideoToAudioHandler(FileSystemEventHandler):
             trimmed_audio = get_audio_and_trim(video_path)
 
             output_audio = make_unique_file_name(audio_path)
-            should_update_audio = True
             if do_vosk_postprocessing:
-                should_update_audio = process_audio_with_vosk(trimmed_audio, output_audio)
+                anki.should_update_audio = process_audio_with_vosk(trimmed_audio, output_audio)
             else:
                 shutil.copy2(trimmed_audio, output_audio)
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 if update_anki and not last_note['fields'][sentence_audio_field]['value']:
-                    update_anki_card(last_note, output_audio, video_path, tango, should_update_audio=should_update_audio)
+                    update_anki_card(last_note, output_audio, video_path, tango)
             except FileNotFoundError as f:
                 print(f)
                 print("Something went wrong with processing, anki card not updated")
