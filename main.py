@@ -24,7 +24,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
             self.convert_to_audio(event.src_path)
 
-
     def convert_to_audio(self, video_path):
         with util.lock:
             last_note = get_last_anki_card()
@@ -34,16 +33,15 @@ class VideoToAudioHandler(FileSystemEventHandler):
             trimmed_audio = get_audio_and_trim(video_path)
 
             output_audio = make_unique_file_name(audio_path)
+            should_update_audio = True
             if do_vosk_postprocessing:
-                voice_matched = process_audio_with_vosk(trimmed_audio, output_audio)
-                if not voice_matched:
-                    shutil.copy2(trimmed_audio, output_audio)
+                should_update_audio = process_audio_with_vosk(trimmed_audio, output_audio)
             else:
                 shutil.copy2(trimmed_audio, output_audio)
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 if update_anki and not last_note['fields'][sentence_audio_field]['value']:
-                    update_anki_card(last_note, output_audio, video_path, tango)
+                    update_anki_card(last_note, output_audio, video_path, tango, should_update_audio=should_update_audio)
             except FileNotFoundError as f:
                 print(f)
                 print("Something went wrong with processing, anki card not updated")

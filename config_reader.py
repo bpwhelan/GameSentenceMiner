@@ -85,6 +85,8 @@ if config:
     # audio config
     audio_config = config.get('audio', {})
     audio_extension = audio_config.get('extension', 'opus')
+    audio_beginning_offset = audio_config.get('beginning_offset', 0.0)
+    audio_end_offset = audio_config.get('end_offset', 0.5)
 
     # Parse OBS settings from the config
     obs_config = config.get('obs', {})

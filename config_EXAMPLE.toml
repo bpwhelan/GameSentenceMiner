@@ -33,6 +33,8 @@ extension = "webp" # Codec of screenshot, Recommend Keeping this as webp (Defaul
 
 [audio]
 extension = "opus" # Desired Extension/codec of Trimmed Audio, (Default opus)
+beginning_offset = 0.0 # Negative Value = More time at the beginning (i.e. -1 is 1 extra second at the beginning)
+end_offset = 0.5 # Positive Value = More time at the end (i.e. 1 is 1 extra second at the end)
 
 [obs]
 enabled = true
