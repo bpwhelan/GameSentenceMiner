@@ -28,12 +28,12 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def convert_to_audio(self, video_path):
         with util.lock:
             last_note = get_last_anki_card()
-            logger.info(json.dumps(last_note))
+            logger.debug(json.dumps(last_note))
             tango = last_note['fields']['Word']['value']
-            audio_path = audio_destination + tango + f".{audio_extension}"
+
             trimmed_audio = get_audio_and_trim(video_path)
 
-            output_audio = make_unique_file_name(audio_path)
+            output_audio = make_unique_file_name(f"{audio_destination}{current_game}.{audio_extension}")
             if do_vosk_postprocessing:
                 anki.should_update_audio = process_audio_with_vosk(trimmed_audio, output_audio)
             else:
