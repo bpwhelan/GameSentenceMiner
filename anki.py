@@ -10,15 +10,18 @@ audio_in_anki = None
 screenshot_in_anki = None
 
 
-def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_audio=False):
+def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_audio=False, should_update_audio=True):
     global audio_in_anki, screenshot_in_anki
     if not reuse_audio:
-        audio_in_anki = store_media_file(audio_path)
+        if should_update_audio:
+            audio_in_anki = store_media_file(audio_path)
         screenshot_in_anki = store_media_file(get_screenshot(video_path, tango))
     audio_html = f"[sound:{audio_in_anki}]"
     image_html = f"<img src=\"{screenshot_in_anki}\">"
-    note = {'id': last_note['noteId'], 'fields': {sentence_audio_field: audio_html,
-                                                  picture_field: image_html}}
+    note = {'id': last_note['noteId'], 'fields': {picture_field: image_html}}
+
+    if should_update_audio:
+        note['fields'][sentence_audio_field] = audio_html
 
     invoke("updateNoteFields", note=note)
     if custom_tags:
