@@ -27,7 +27,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     def convert_to_audio(self, video_path):
         with util.lock:
-            start_time = datetime.now()
+            util.use_previous_audio = True
             last_note = get_last_anki_card()
             logger.debug(json.dumps(last_note))
             tango = last_note['fields']['Word']['value']
@@ -42,7 +42,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 if update_anki and (not last_note['fields'][sentence_audio_field]['value'] or override_audio):
-                    update_anki_card(last_note, start_time, output_audio, video_path, tango)
+                    update_anki_card(last_note, output_audio, video_path, tango)
             except FileNotFoundError as f:
                 print(f)
                 print("Something went wrong with processing, anki card not updated")
