@@ -97,7 +97,7 @@ if config:
     OBS_PORT = obs_config.get('port', 4455)
     OBS_PASSWORD = obs_config.get('password', "your_password")
 
-    #secret config DO NOT PUT THESE IN THE EXAMPLE
+    # secret config DO NOT PUT THESE IN THE EXAMPLE
     override_audio = anki_config.get("override_audio", False)
 
 else:
