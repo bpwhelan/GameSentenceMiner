@@ -49,7 +49,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 os.remove(video_path)  # Optionally remove the video after conversion
 
 
-if __name__ == "__main__":
+keep_running=True
+def main():
     with tempfile.TemporaryDirectory(dir="./") as temp_dir:
         config_reader.temp_directory = temp_dir
         logger.info("Script started.")
@@ -64,11 +65,17 @@ if __name__ == "__main__":
         print("Script Initalized. Happy Mining!")
 
         try:
-            while True:
-                time.sleep(10)
+            while keep_running:
+                time.sleep(1)
         except KeyboardInterrupt:
             observer.stop()
-            if obs_enabled and obs_start_buffer:
-                obs.stop_replay_buffer()
-        obs.disconnect_from_obs()
+
+        if obs_enabled and obs_start_buffer:
+            obs.stop_replay_buffer()
+            obs.disconnect_from_obs()
+        observer.stop()
         observer.join()
+
+
+if __name__ == "__main__":
+    main()
