@@ -1,6 +1,7 @@
 import base64
 import json
 
+import clipboard
 import util
 from config_reader import *
 import urllib.request
@@ -10,7 +11,8 @@ audio_in_anki = None
 screenshot_in_anki = None
 should_update_audio = True
 
-def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_audio=False):
+
+def update_anki_card(last_note, start_time, audio_path='', video_path='', tango='', reuse_audio=False):
     global audio_in_anki, screenshot_in_anki
     if not reuse_audio:
         if should_update_audio:
@@ -29,7 +31,8 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
             custom_tags.append(current_game.replace(" ", ""))
         for custom_tag in custom_tags:
             invoke("addTags", tags=custom_tag.replace(" ", ""), notes=[last_note['noteId']])
-    util.use_previous_audio = True
+    if clipboard.previous_clipboard_time < start_time:
+        util.use_previous_audio = True
     logger.info(f"UPDATED ANKI CARD FOR {last_note['noteId']}")
 
 
