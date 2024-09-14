@@ -27,6 +27,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     def convert_to_audio(self, video_path):
         with util.lock:
+            start_time = datetime.now()
             last_note = get_last_anki_card()
             logger.debug(json.dumps(last_note))
             tango = last_note['fields']['Word']['value']
@@ -41,7 +42,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 if update_anki and (not last_note['fields'][sentence_audio_field]['value'] or override_audio):
-                    update_anki_card(last_note, output_audio, video_path, tango)
+                    update_anki_card(last_note, start_time, output_audio, video_path, tango)
             except FileNotFoundError as f:
                 print(f)
                 print("Something went wrong with processing, anki card not updated")
@@ -49,7 +50,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 os.remove(video_path)  # Optionally remove the video after conversion
 
 
-if __name__ == "__main__":
+keep_running=True
+def main():
     with tempfile.TemporaryDirectory(dir="./") as temp_dir:
         config_reader.temp_directory = temp_dir
         logger.info("Script started.")
@@ -64,11 +66,17 @@ if __name__ == "__main__":
         print("Script Initalized. Happy Mining!")
 
         try:
-            while True:
-                time.sleep(10)
+            while keep_running:
+                time.sleep(1)
         except KeyboardInterrupt:
             observer.stop()
-            if obs_enabled and obs_start_buffer:
-                obs.stop_replay_buffer()
-        obs.disconnect_from_obs()
+
+        if obs_enabled and obs_start_buffer:
+            obs.stop_replay_buffer()
+            obs.disconnect_from_obs()
+        observer.stop()
         observer.join()
+
+
+if __name__ == "__main__":
+    main()
