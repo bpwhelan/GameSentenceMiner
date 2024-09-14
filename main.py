@@ -40,7 +40,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 shutil.copy2(trimmed_audio, output_audio)
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
-                if update_anki and not last_note['fields'][sentence_audio_field]['value']:
+                if update_anki and (not last_note['fields'][sentence_audio_field]['value'] or override_audio):
                     update_anki_card(last_note, output_audio, video_path, tango)
             except FileNotFoundError as f:
                 print(f)
