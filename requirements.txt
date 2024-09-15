@@ -9,3 +9,4 @@ numpy~=2.1.1
 toml~=0.10.2
 psutil~=6.0.0
 rapidfuzz~=3.9.7
+obs-websocket-py~=1.0
