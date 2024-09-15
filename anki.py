@@ -1,8 +1,6 @@
 import base64
 import json
 
-import clipboard
-import util
 from config_reader import *
 import urllib.request
 from ffmpeg import get_screenshot

@@ -1,4 +1,3 @@
-# V2, get the image from the video instead of relying on another program
 import json
 import subprocess
 import tempfile
