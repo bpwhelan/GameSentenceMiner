@@ -68,6 +68,8 @@ if config:
     feature_config = config.get('features', {})
     do_vosk_postprocessing = feature_config.get('do_vosk_postprocessing', True)
     remove_video = feature_config.get('remove_video', True)
+    remove_audio = feature_config.get('remove_audio', False)
+    remove_screenshot = feature_config.get('remove_screenshot', False)
     update_anki = feature_config.get('update_anki', True)
     act_on_new_card_in_anki = feature_config.get('full_auto_mode', False)
 

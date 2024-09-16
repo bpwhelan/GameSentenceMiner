@@ -41,17 +41,36 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 shutil.copy2(trimmed_audio, output_audio)
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
-                if update_anki and (not last_note['fields'][sentence_audio_field]['value'] or override_audio):
-                    update_anki_card(last_note, output_audio, video_path, tango)
+                try:
+                    if update_anki and (not last_note['fields'][sentence_audio_field]['value'] or override_audio):
+                        screenshot = update_anki_card(last_note, output_audio, video_path, tango)
+                except Exception as e:
+                    logger.error(f"Card failed to update! Maybe it was removed? {e}")
             except FileNotFoundError as f:
                 print(f)
                 print("Something went wrong with processing, anki card not updated")
-            if remove_video:
+            if remove_video and os.path.exists(video_path):
                 os.remove(video_path)  # Optionally remove the video after conversion
+            if remove_audio and os.path.exists(output_audio):
+                os.remove(output_audio)  # Optionally remove the screenshot after conversion
+            if screenshot and remove_screenshot and os.path.exists(screenshot):
+                os.remove(screenshot)  # Optionally remove the audio after conversion
 
 
-keep_running=True
+def make_dirs():
+    if not os.path.exists(folder_to_watch):
+        os.mkdir(folder_to_watch)
+    if not os.path.exists(screenshot_destination):
+        os.mkdir(screenshot_destination)
+    if not os.path.exists(audio_destination):
+        os.mkdir(audio_destination)
+
+
+keep_running = True
+
+
 def main():
+    make_dirs()
     with tempfile.TemporaryDirectory(dir="./") as temp_dir:
         config_reader.temp_directory = temp_dir
         logger.info("Script started.")

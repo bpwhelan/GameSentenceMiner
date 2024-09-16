@@ -18,7 +18,10 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
     if not reuse_audio:
         if should_update_audio:
             audio_in_anki = store_media_file(audio_path)
-        screenshot_in_anki = store_media_file(get_screenshot(video_path, tango))
+        screenshot = get_screenshot(video_path)
+        screenshot_in_anki = store_media_file(screenshot)
+        if remove_screenshot:
+            os.remove(screenshot)
     audio_html = f"[sound:{audio_in_anki}]"
     image_html = f"<img src=\"{screenshot_in_anki}\">"
     note = {'id': last_note['noteId'], 'fields': {picture_field: image_html}}
@@ -33,6 +36,8 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
         for custom_tag in custom_tags:
             invoke("addTags", tags=custom_tag.replace(" ", ""), notes=[last_note['noteId']])
     logger.info(f"UPDATED ANKI CARD FOR {last_note['noteId']}")
+    if not reuse_audio:
+        return screenshot
 
 
 def store_media_file(path):

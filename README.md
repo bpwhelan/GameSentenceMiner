@@ -13,7 +13,7 @@ You can trigger the entire process with a single hotkey that cuts out the before
 
 ## Prerequisites
 
-- [Python 3.7+](https://www.python.org/downloads/)
+- [Python 3.11+](https://www.python.org/downloads/)
 - [OBS Studio](https://obsproject.com/)
 
 ---
