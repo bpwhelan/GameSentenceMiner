@@ -16,8 +16,11 @@ add_game_tag = true
 # Feature Flags
 [features]
 do_vosk_postprocessing = true
-remove_video = true
 update_anki = true
+remove_video = true
+remove_screenshot = false
+remove_audio = false
+
 
 # Vosk Model
 [vosk]

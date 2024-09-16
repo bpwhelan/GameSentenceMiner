@@ -8,8 +8,8 @@ from config_reader import *
 from util import *
 
 
-def get_screenshot(video_file, term):
-    output_image = make_unique_file_name(screenshot_destination + term + f".{screenshot_extension}")
+def get_screenshot(video_file):
+    output_image = make_unique_file_name(screenshot_destination + current_game.replace(" ", "") + f".{screenshot_extension}")
     # FFmpeg command to extract the last frame of the video
     ffmpeg_command = ffmpeg_base_command_list + [
         "-sseof", "-1",  # Seek to 1 second before the end of the video
