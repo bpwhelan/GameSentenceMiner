@@ -5,13 +5,13 @@ import requests
 from obswebsocket import obsws, requests as obs_requests
 
 import anki
+import config_reader
 import util
 from config_reader import *
 
 # Global variables to track state
 previous_note_ids = set()
 first_run = True
-
 
 # Connect to OBS WebSocket
 if obs_enabled:
@@ -95,11 +95,13 @@ def update_new_card():
         use_prev_audio = True
     with util.lock:
         print(f"use previous audio: {use_prev_audio}")
+        config_reader.current_game = get_game_from_scene()
         if use_prev_audio:
             anki.update_anki_card(last_card, reuse_audio=True)
         else:
             print("New card(s) detected!")
             save_replay_buffer()
+
 
 # Main function to handle the script lifecycle
 def monitor_anki():
@@ -110,6 +112,16 @@ def monitor_anki():
             time.sleep(0.2)  # Check every 200ms
     except KeyboardInterrupt:
         print("Stopped Checking For Anki Cards...")
+
+
+def get_game_from_scene():
+    try:
+        response = obs_ws.call(obs_requests.GetCurrentProgramScene())
+        data = response.datain
+        print(data)
+        return data.get('sceneName')
+    except Exception as e:
+        print(f"Couldn't get scene: {e}")
 
 
 # Start monitoring anki
