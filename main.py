@@ -50,8 +50,20 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 os.remove(video_path)  # Optionally remove the video after conversion
 
 
-keep_running=True
+def make_dirs():
+    if not os.path.exists(folder_to_watch):
+        os.mkdir(folder_to_watch)
+    if not os.path.exists(screenshot_destination):
+        os.mkdir(screenshot_destination)
+    if not os.path.exists(audio_destination):
+        os.mkdir(audio_destination)
+
+
+keep_running = True
+
+
 def main():
+    make_dirs()
     with tempfile.TemporaryDirectory(dir="./") as temp_dir:
         config_reader.temp_directory = temp_dir
         logger.info("Script started.")
