@@ -78,6 +78,7 @@ def detect_voice_with_vosk(input_audio):
     # # Load the Vosk model
     model = vosk.Model(vosk_model_path)
 
+
     # Open the audio file
     with sf.SoundFile(temp_wav) as audio_file:
         recognizer = vosk.KaldiRecognizer(model, audio_file.samplerate)
@@ -85,7 +86,7 @@ def detect_voice_with_vosk(input_audio):
         total_duration = len(audio_file) / audio_file.samplerate  # Get total duration in seconds
 
         recognizer.SetWords(True)
-        recognizer.SetPartialWords(True)
+        # recognizer.SetPartialWords(True)
 
         # Process audio in chunks
         while True:
@@ -101,12 +102,26 @@ def detect_voice_with_vosk(input_audio):
 
         final_result = json.loads(recognizer.FinalResult())
         if 'result' in final_result:
+            should_use = False
+            unique_words = set()
+            for word in final_result['result']:
+                if word['conf'] >= .90:
+                    print(word)
+                    should_use = True
+                    unique_words.add(word['word'])
+            if len(unique_words) == 1 or all(item not in ['えー', 'ん'] for item in unique_words):
+                should_use = False
+
+            if not should_use:
+                return None, 0
+
             for word in final_result['result']:
                 voice_activity.append({
                     'text': word['word'],
                     'start': word['start'],
                     'end': word['end']
                 })
+
 
     # Return the detected voice activity and the total duration
     return voice_activity, total_duration
