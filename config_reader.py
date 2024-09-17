@@ -98,6 +98,7 @@ if config:
     OBS_HOST = obs_config.get('host', "localhost")
     OBS_PORT = obs_config.get('port', 4455)
     OBS_PASSWORD = obs_config.get('password', "your_password")
+    get_game_from_scene = obs_config.get('get_game_from_scene', False)
 
     # secret config DO NOT PUT THESE IN THE EXAMPLE
     override_audio = anki_config.get("override_audio", False)

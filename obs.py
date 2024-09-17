@@ -95,7 +95,8 @@ def update_new_card():
         use_prev_audio = True
     with util.lock:
         print(f"use previous audio: {use_prev_audio}")
-        config_reader.current_game = get_game_from_scene()
+        if config_reader.get_game_from_scene:
+            config_reader.current_game = get_game_from_scene()
         if use_prev_audio:
             anki.update_anki_card(last_card, reuse_audio=True)
         else:

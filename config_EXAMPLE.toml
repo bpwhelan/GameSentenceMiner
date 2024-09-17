@@ -46,3 +46,4 @@ full_auto_mode = false # Automatically Create Cards when you Create in Yomi. REQ
 host = "localhost"
 port = 4455
 password = "your_password_here"
+get_game_from_scene = false

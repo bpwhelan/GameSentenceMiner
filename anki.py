@@ -32,12 +32,10 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
     invoke("updateNoteFields", note=note)
     if custom_tags:
         if add_game_tag:
-            custom_tags.append(current_game.replace(" ", ""))
+            custom_tags.append(config_reader.current_game.replace(" ", ""))
         for custom_tag in custom_tags:
             invoke("addTags", tags=custom_tag.replace(" ", ""), notes=[last_note['noteId']])
     logger.info(f"UPDATED ANKI CARD FOR {last_note['noteId']}")
-    if not reuse_audio:
-        return screenshot
 
 
 def store_media_file(path):
