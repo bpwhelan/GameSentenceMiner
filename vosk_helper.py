@@ -128,9 +128,20 @@ def detect_voice_with_vosk(input_audio):
 
 
 # Trim the audio using FFmpeg based on detected speech timestamps
-def trim_audio(input_audio, end_time, output_audio):
-    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -to {end_time} -c copy \"{output_audio}\""
-    subprocess.call(command, shell=True)
+def trim_audio(input_audio, start_time, end_time, output_audio):
+    command = ffmpeg_base_command_list.copy()
+
+    if vosk_trim_beginning:
+        command.extend(['-ss', str(start_time)])
+
+    command.extend([
+        '-i', input_audio,
+        '-to', str(end_time),
+        '-c', 'copy',
+        output_audio
+    ])
+
+    subprocess.call(command)
 
 
 # Example usage of Vosk with trimming
@@ -145,11 +156,14 @@ def process_audio_with_vosk(input_audio, output_audio):
     start_time = voice_activity[0]['start'] if voice_activity else 0
     end_time = voice_activity[-1]['end'] if voice_activity else total_duration
 
+    if vosk_trim_beginning:
+        logger.info(f"Trimmed Beginning of Audio to {start_time}")
+
     # Print detected speech details with timestamps
     logger.info(f"Trimmed End of Audio to {end_time} seconds:")
 
     # Trim the audio using FFmpeg
-    trim_audio(input_audio, end_time + audio_end_offset, output_audio)
+    trim_audio(input_audio, start_time, end_time + audio_end_offset, output_audio)
     logger.info(f"Trimmed audio saved to: {output_audio}")
     return True
 
