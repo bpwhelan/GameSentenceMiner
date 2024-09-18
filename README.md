@@ -30,8 +30,8 @@ You can trigger the entire process with a single hotkey that cuts out the before
 4. Set Scene/Source. I recommend using "Game Capture" with "Capture Audio" Enabled. And then mute Desktop/microphone
    1. If "Game Capture" Does not work, use "screen capture" with a second source "Application Audio Capture"
 5. In Output Settings, set "Recording Format" to mkv, and "Audio Encoder" to Opus. Alternative Settings may be supported at a later date.
-6. **Set up obs websocket** (Super Optional)
-    1. Can allow my script to automatically start (and stop) the replay buffer.
+6. **Set up obs websocket** (HIGHLY RECOMMENDED see #5)
+    1. Can allow my script to automatically start (and stop) the replay buffer, as well as automatically add audio/screenshot to card created from yomi.
 
 ---
 
