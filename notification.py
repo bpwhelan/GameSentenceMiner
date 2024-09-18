@@ -1,6 +1,7 @@
 import requests
 from plyer import notification
 
+
 def open_anki_card(note_id):
     url = "http://localhost:8765"
     headers = {'Content-Type': 'application/json'}
@@ -27,7 +28,7 @@ def open_anki_card(note_id):
 def send_notification(tango):
     notification.notify(
         title="Video Game Miner",
-        message=f"Audio and Screenshot added to latest note: {tango}",
+        message=f"Audio and/or Screenshot added to latest note: {tango}",
         app_name="Anki",
         timeout=5  # Notification disappears after 5 seconds
     )
