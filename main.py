@@ -2,6 +2,11 @@ import json
 import shutil
 import tempfile
 import time
+import os
+import sys
+import subprocess
+import threading
+import keyboard
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -16,6 +21,35 @@ from ffmpeg import get_audio_and_trim
 from util import *
 from vosk_helper import process_audio_with_vosk
 
+# Global variable to control script execution
+keep_running = True
+offset_prompt_triggered = False
+restart_flag_file = "restart.flag"
+
+def prompt_for_offset_updates():
+    """Call the external offset updater script."""
+    global offset_prompt_triggered
+    print("Calling offset updater script...\n")
+    try:
+        # Start offset_updater.py and wait for it to complete
+        result = subprocess.run(["python", "offset_updater.py"], check=True)
+        if result.returncode == 0:
+            offset_prompt_triggered = True
+            # Create a flag file to signal that the script should restart
+            with open(restart_flag_file, "w") as f:
+                f.write("restart")
+        else:
+            print("Offset update failed.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error calling offset updater script: {e}")
+
+def handle_restart():
+    """Check if a restart is needed and handle it."""
+    if os.path.exists(restart_flag_file):
+        print("Restarting the script with updated settings...\n")
+        os.remove(restart_flag_file)
+        subprocess.Popen([sys.executable, os.path.abspath(__file__)])
+        sys.exit()  # Exit the current instance
 
 class VideoToAudioHandler(FileSystemEventHandler):
     def on_created(self, event):
@@ -54,7 +88,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if remove_audio and os.path.exists(output_audio):
                 os.remove(output_audio)  # Optionally remove the screenshot after conversion
 
-
 def initialize():
     if not os.path.exists(folder_to_watch):
         os.mkdir(folder_to_watch)
@@ -72,11 +105,22 @@ def initialize():
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
 
-
-keep_running = True
-
+def f4_detection_thread():
+    """Thread to handle F4 key press detection."""
+    global keep_running, offset_prompt_triggered
+    time.sleep(2)  # Add a small delay at the start to prevent immediate F4 detection after a restart
+    while keep_running:
+        if keyboard.is_pressed('f4'):
+            print("F4 Key Pressed.")
+            prompt_for_offset_updates()
+            time.sleep(1)  # Small delay to prevent multiple triggers
+        if offset_prompt_triggered:
+            time.sleep(5)  # Additional delay to avoid immediate re-trigger of the prompt
+            offset_prompt_triggered = False
+        time.sleep(0.1)  # Adjust the sleep interval if needed
 
 def main():
+    global keep_running
     initialize()
     with tempfile.TemporaryDirectory(dir="temp_files") as temp_dir:
         config_reader.temp_directory = temp_dir
@@ -89,12 +133,20 @@ def main():
         if obs_enabled and obs_start_buffer:
             obs.start_replay_buffer()
 
-        print("Script Initalized. Happy Mining!")
+        print("Script Initialized. Happy Mining!")
+        print("Press F4 to update the audio offsets.")
+
+        # Start the F4 detection thread
+        f4_thread = threading.Thread(target=f4_detection_thread, daemon=True)
+        f4_thread.start()
 
         try:
             while keep_running:
-                time.sleep(1)
+                handle_restart()  # Check if a restart is needed
+                time.sleep(1)  # Main thread sleeps while F4 thread handles key press detection
+
         except KeyboardInterrupt:
+            keep_running = False
             observer.stop()
 
         if obs_enabled and obs_start_buffer:
@@ -102,7 +154,6 @@ def main():
             obs.disconnect_from_obs()
         observer.stop()
         observer.join()
-
 
 if __name__ == "__main__":
     main()
