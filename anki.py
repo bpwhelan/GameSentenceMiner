@@ -1,11 +1,10 @@
 import base64
 import json
-
-import clipboard
-import config_reader
-import util
-from config_reader import *
 import urllib.request
+
+import config_reader
+import notification
+from config_reader import *
 from ffmpeg import get_screenshot
 
 audio_in_anki = None
@@ -36,6 +35,10 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
         for custom_tag in custom_tags:
             invoke("addTags", tags=custom_tag.replace(" ", ""), notes=[last_note['noteId']])
     logger.info(f"UPDATED ANKI CARD FOR {last_note['noteId']}")
+    if notify_on_update:
+        notification.send_notification(tango)
+    if open_anki_edit:
+        notification.open_anki_card(last_note['noteId'])
 
 
 def store_media_file(path):

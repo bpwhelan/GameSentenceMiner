@@ -2,19 +2,19 @@ import json
 import shutil
 import tempfile
 import time
-from watchdog.observers import Observer
+
 from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 import anki
 import config_reader
+import obs
 import util
+from anki import update_anki_card, get_last_anki_card
+from config_reader import *
 from ffmpeg import get_audio_and_trim
 from util import *
-from config_reader import *
 from vosk_helper import process_audio_with_vosk
-from anki import update_anki_card, get_last_anki_card
-
-import obs
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -55,21 +55,30 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 os.remove(output_audio)  # Optionally remove the screenshot after conversion
 
 
-def make_dirs():
+def initialize():
     if not os.path.exists(folder_to_watch):
         os.mkdir(folder_to_watch)
     if not os.path.exists(screenshot_destination):
         os.mkdir(screenshot_destination)
     if not os.path.exists(audio_destination):
         os.mkdir(audio_destination)
+    if not os.path.exists("temp_files"):
+        os.mkdir("temp_files")
+    else:
+        for filename in os.listdir("temp_files"):
+            file_path = os.path.join("temp_files", filename)
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
 
 
 keep_running = True
 
 
 def main():
-    make_dirs()
-    with tempfile.TemporaryDirectory(dir="./") as temp_dir:
+    initialize()
+    with tempfile.TemporaryDirectory(dir="temp_files") as temp_dir:
         config_reader.temp_directory = temp_dir
         logger.info("Script started.")
         event_handler = VideoToAudioHandler()
