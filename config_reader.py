@@ -1,10 +1,8 @@
 import logging
 import os
-from datetime import datetime
-
-import pyperclip
-import toml
 from os.path import expanduser
+
+import toml
 
 # Define the path to your config.toml file
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.toml')
@@ -72,6 +70,8 @@ if config:
     remove_screenshot = feature_config.get('remove_screenshot', False)
     update_anki = feature_config.get('update_anki', True)
     act_on_new_card_in_anki = feature_config.get('full_auto_mode', False)
+    notify_on_update = feature_config.get('notify_on_update', True)
+    open_anki_edit = feature_config.get('open_anki_edit', False)
 
     # Vosk config
     vosk_config = config.get('vosk', {})
