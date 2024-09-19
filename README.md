@@ -180,7 +180,7 @@ Once the hotkey is triggered:
 
 ## How to Update the Script
 
-### Updater
+### Updater (Preferred)
 
 There is now an Update script included! running `python update.py` in the directory will attempt to update your scripts to the latest release. If you have made changes to any of the files, they will be safely backed up before being replaced.
 
