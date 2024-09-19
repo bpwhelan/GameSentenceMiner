@@ -209,7 +209,7 @@ $ git pull origin master
 
 ## Contact
 
-If you run into issues find me on discord @Beangate, or make an issue here. I've used this process to generate ~150 cards from Dragon Quest XI so far and it's worked quite well.
+If you run into issues ask in my [discord](https://discord.gg/yP8Qse6bb8), or make an issue here.
 
 ## Donations
 
