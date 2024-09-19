@@ -18,6 +18,14 @@ You can trigger the entire process with a single hotkey that cuts out the before
 
 ---
 
+### Quick Disclaimer/Troubleshooting
+
+Every game/hook is different, so it's really improbable that any script can get it perfect everytime. Also OBS is sometimes a bit finnicky if running for too long. If the audio timing is off, please first try some troubleshooting steps before making an issue:
+- Try Restarting OBS
+- Make sure your hook is the best you can find. (Preferrably it gives you the text RIGHT when the voiceline starts)
+- Make sure copying to clipboard is ENABLED if using Agent.
+- Try Adjusting Offset Configuration in `config.toml` to better match your situation. (i.e. if the hook is late, add a negative beginning offset)
+
 ## 1. Setting Up OBS 60-Second Replay Buffer
 
 1. **Install OBS Studio**: Download and install OBS from [here](https://obsproject.com/).
