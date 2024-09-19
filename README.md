@@ -18,6 +18,14 @@ You can trigger the entire process with a single hotkey that cuts out the before
 
 ---
 
+### Quick Disclaimer/Troubleshooting
+
+Every game/hook is different, so it's really improbable that any script can get it perfect everytime. Also OBS is sometimes a bit finnicky if running for too long. If the audio timing is off, please first try some troubleshooting steps before making an issue:
+- Try Restarting OBS
+- Make sure your hook is the best you can find. (Preferrably it gives you the text RIGHT when the voiceline starts)
+- Make sure copying to clipboard is ENABLED if using Agent.
+- Try Adjusting Offset Configuration in `config.toml` to better match your situation. (i.e. if the hook is late, add a negative beginning offset)
+
 ## 1. Setting Up OBS 60-Second Replay Buffer
 
 1. **Install OBS Studio**: Download and install OBS from [here](https://obsproject.com/).
@@ -30,8 +38,8 @@ You can trigger the entire process with a single hotkey that cuts out the before
 4. Set Scene/Source. I recommend using "Game Capture" with "Capture Audio" Enabled. And then mute Desktop/microphone
    1. If "Game Capture" Does not work, use "screen capture" with a second source "Application Audio Capture"
 5. In Output Settings, set "Recording Format" to mkv, and "Audio Encoder" to Opus. Alternative Settings may be supported at a later date.
-6. **Set up obs websocket** (Super Optional)
-    1. Can allow my script to automatically start (and stop) the replay buffer.
+6. **Set up obs websocket** (HIGHLY RECOMMENDED see #5)
+    1. Can allow my script to automatically start (and stop) the replay buffer, as well as automatically add audio/screenshot to card created from yomi.
 
 ---
 
@@ -55,6 +63,7 @@ screenshot_destination = "~/Videos/OBS/SS/"
 url = 'http://127.0.0.1:8765'
 sentence_audio_field = "SentenceAudio"
 picture_field = "Picture"
+word_field = "Word"
 current_game = "Japanese Game"
 custom_tags = ['JapaneseGameMiner', "Test Another Tag"] # leave Empty if you dont want to add tags
 add_game_tag = true
@@ -62,8 +71,12 @@ add_game_tag = true
 # Feature Flags
 [features]
 do_vosk_postprocessing = true
-remove_video = true
 update_anki = true
+remove_video = true
+remove_screenshot = false
+remove_audio = false
+notify_on_update = true
+open_anki_edit = false
 
 # Vosk Model
 [vosk]
@@ -79,6 +92,9 @@ extension = "webp" # Codec of screenshot, Recommend Keeping this as webp (Defaul
 
 [audio]
 extension = "opus" # Desired Extension/codec of Trimmed Audio, (Default opus)
+beginning_offset = 0.0 # Negative Value = More time at the beginning (i.e. -1 is 1 extra second at the beginning)
+end_offset = 0.5 # Positive Value = More time at the end (i.e. 1 is 1 extra second at the end)
+vosk_trim_beginning = false # Only change If you run into issues with clipboard timing, add a negative beginning_offset as well, Warning: You may end up with audio from previous line depending on your setup!
 
 [obs]
 enabled = true
@@ -87,6 +103,7 @@ full_auto_mode = false # Automatically Create Cards when you Create in Yomi. REQ
 host = "localhost"
 port = 4455
 password = "your_password_here"
+get_game_from_scene = false
 ```
 
 
@@ -163,7 +180,7 @@ Once the hotkey is triggered:
 
 ## How to Update the Script
 
-### Updater
+### Updater (Preferred)
 
 There is now an Update script included! running `python update.py` in the directory will attempt to update your scripts to the latest release. If you have made changes to any of the files, they will be safely backed up before being replaced.
 
@@ -201,7 +218,7 @@ $ git pull origin master
 
 ## Contact
 
-If you run into issues find me on discord @Beangate, or make an issue here. I've used this process to generate ~150 cards from Dragon Quest XI so far and it's worked quite well.
+If you run into issues ask in my [discord](https://discord.gg/yP8Qse6bb8), or make an issue here.
 
 ## Donations
 

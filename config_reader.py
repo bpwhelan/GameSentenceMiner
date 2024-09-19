@@ -86,6 +86,7 @@ if config:
     current_game = anki_config.get('current_game', "GameSentenceMiner")
     custom_tags = anki_config.get("custom_tags", [])
     add_game_tag = anki_config.get("add_game_tag", True)
+    word_field = anki_config.get('word_field', 'Word')
 
     # Feature flags
     feature_config = config.get('features', {})

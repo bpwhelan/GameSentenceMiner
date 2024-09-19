@@ -64,7 +64,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             util.use_previous_audio = True
             last_note = get_last_anki_card()
             logger.debug(json.dumps(last_note))
-            tango = last_note['fields']['Word']['value']
+            tango = last_note['fields'][word_field]['value']
 
             trimmed_audio = get_audio_and_trim(video_path)
 
