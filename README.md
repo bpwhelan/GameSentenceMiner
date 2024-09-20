@@ -41,6 +41,12 @@ Every game/hook is different, so it's really improbable that any script can get 
 6. **Set up obs websocket** (HIGHLY RECOMMENDED see #5)
     1. Can allow my script to automatically start (and stop) the replay buffer, as well as automatically add audio/screenshot to card created from yomi.
 
+
+Here are the Settings I recommend in OBS. Make sure the recordings folder is the same as the "folder_to_watch" in the `config.toml`
+![image](https://github.com/user-attachments/assets/0056816d-af3c-4a3c-bc6a-4aff5c28cadb)
+![image](https://github.com/user-attachments/assets/dd2f95a6-f546-41d9-8136-de7b1b035a5d)
+
+
 ---
 
 ## 2. Configuring `config.toml`
