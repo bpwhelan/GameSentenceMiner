@@ -3,6 +3,7 @@ import os
 from os.path import expanduser
 
 import toml
+import config_reader 
 
 # Define the path to your config.toml file
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.toml')
@@ -24,6 +25,30 @@ logger.addHandler(console_handler)
 logger.setLevel(logging.INFO)
 
 temp_directory = ''
+
+def save_updated_offsets_to_file():
+    config_file = "config.toml"  # Ensure this is the correct path to your config file
+
+    try:
+        # Load the existing config
+        with open(config_file, "r") as f:
+            config_data = toml.load(f)
+
+        # Update the audio offsets in the config data
+        config_data["audio"]["beginning_offset"] = config_reader.audio_beginning_offset
+        config_data["audio"]["end_offset"] = config_reader.audio_end_offset
+
+        # Write the updated config back to the file
+        with open(config_file, "w") as f:
+            toml.dump(config_data, f)
+
+        logger.info(f"Offsets saved to config.toml: beginning_offset={config_reader.audio_beginning_offset}, end_offset={config_reader.audio_end_offset}")
+        print("Offsets have been successfully saved to the config file.")
+
+    except Exception as e:
+        logger.error(f"Failed to update offsets in config file: {e}")
+        print(f"Error saving updated offsets: {e}")
+
 
 
 def load_config():
@@ -91,6 +116,7 @@ if config:
     audio_beginning_offset = audio_config.get('beginning_offset', 0.0)
     audio_end_offset = audio_config.get('end_offset', 0.5)
     vosk_trim_beginning = audio_config.get('vosk_trim_beginning', False)
+    offset_reset_hotkey = audio_config.get('offset_reset_hotkey', 'f4')
 
     # Parse OBS settings from the config
     obs_config = config.get('obs', {})

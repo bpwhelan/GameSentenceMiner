@@ -2,19 +2,27 @@ import json
 import shutil
 import tempfile
 import time
+import os
+import sys
+import subprocess
+import threading
+import keyboard
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 import anki
-import config_reader
 import obs
+import offset_updater
 import util
 from anki import update_anki_card, get_last_anki_card
 from config_reader import *
 from ffmpeg import get_audio_and_trim
 from util import *
 from vosk_helper import process_audio_with_vosk
+
+# Global variable to control script execution
+keep_running = True
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -73,10 +81,8 @@ def initialize():
                 shutil.rmtree(file_path)
 
 
-keep_running = True
-
-
 def main():
+    global keep_running
     initialize()
     with tempfile.TemporaryDirectory(dir="temp_files") as temp_dir:
         config_reader.temp_directory = temp_dir
@@ -89,12 +95,16 @@ def main():
         if obs_enabled and obs_start_buffer:
             obs.start_replay_buffer()
 
-        print("Script Initalized. Happy Mining!")
+        print("Script Initialized. Happy Mining!")
+        print(f"Press {offset_reset_hotkey.upper()} to update the audio offsets.")
+        keyboard.add_hotkey(offset_reset_hotkey, offset_updater.prompt_for_offset_updates)
 
         try:
             while keep_running:
                 time.sleep(1)
+
         except KeyboardInterrupt:
+            keep_running = False
             observer.stop()
 
         if obs_enabled and obs_start_buffer:

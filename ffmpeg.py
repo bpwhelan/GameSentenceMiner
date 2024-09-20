@@ -104,7 +104,7 @@ def trim_audio_based_on_clipboard(untrimmed_audio, video_path):
     file_length = get_video_duration(video_path)
     time_delta = file_mod_time - clipboard.previous_clipboard_time
     # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)
-    total_seconds = file_length - time_delta.total_seconds() + audio_beginning_offset
+    total_seconds = file_length - time_delta.total_seconds() + config_reader.audio_beginning_offset
     if total_seconds < 0 or total_seconds >= file_length:
         logger.info(f"0 seconds trimmed off of beginning")
         return untrimmed_audio

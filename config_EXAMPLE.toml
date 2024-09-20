@@ -41,6 +41,7 @@ extension = "opus" # Desired Extension/codec of Trimmed Audio, (Default opus)
 beginning_offset = 0.0 # Negative Value = More time at the beginning (i.e. -1 is 1 extra second at the beginning)
 end_offset = 0.5 # Positive Value = More time at the end (i.e. 1 is 1 extra second at the end)
 vosk_trim_beginning = false # Only change If you run into issues with clipboard timing, add a negative beginning_offset as well, Warning: You may end up with audio from previous line depending on your setup!
+reset_hotkey = 'f4' # Hotkey to initiate Offset Updater.
 
 [obs]
 enabled = true
