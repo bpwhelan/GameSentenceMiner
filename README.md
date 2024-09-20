@@ -162,6 +162,9 @@ Screenshots to help with setup:
 
 ![image](https://github.com/user-attachments/assets/b0c70a1a-65b5-4fe7-a7e4-ccb0b9a5b249)
 
+![image](https://github.com/user-attachments/assets/4cf492eb-12a2-429f-aa0e-f87fc0fa6270)
+
+
 ## 6. Example Process
 
 1. Start game
