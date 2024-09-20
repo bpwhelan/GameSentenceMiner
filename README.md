@@ -26,6 +26,12 @@ Every game/hook is different, so it's really improbable that any script can get 
 - Make sure copying to clipboard is ENABLED if using Agent.
 - Try Adjusting Offset Configuration in `config.toml` to better match your situation. (i.e. if the hook is late, add a negative beginning offset)
 
+#### Setup Troubleshooting
+
+Just going to continuously update this with issues that I have helped users with. Look here first if you have issues setting it up.
+- Make sure folder_to_watch is the same as your recordings path in OBS. It defaults to ~/Videos, but I highly setting it to ~/Videos/OBS.
+- if it says something about a missing library, attempt to run `pip install -r requirements.txt` again
+
 ## 1. Setting Up OBS 60-Second Replay Buffer
 
 1. **Install OBS Studio**: Download and install OBS from [here](https://obsproject.com/).
