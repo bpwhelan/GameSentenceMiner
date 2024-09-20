@@ -5,6 +5,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def save_updated_offsets_to_file():
     config_file = "config.toml"  # Ensure this is the correct path to your config file
 
@@ -21,16 +22,19 @@ def save_updated_offsets_to_file():
         with open(config_file, "w") as f:
             toml.dump(config_data, f)
 
-        logger.info(f"Offsets saved to config.toml: beginning_offset={config_reader.audio_beginning_offset}, end_offset={config_reader.audio_end_offset}")
+        logger.info(
+            f"Offsets saved to config.toml: beginning_offset={config_reader.audio_beginning_offset}, end_offset={config_reader.audio_end_offset}")
 
     except Exception as e:
         logger.error(f"Failed to update offsets in config file: {e}")
         print(f"Error saving updated offsets: {e}")
 
+
 def prompt_for_offset_updates():
     print("Prompting for offset updates...")
     try:
-        new_beginning_offset_str = input(f"Enter new beginning offset (seconds) [Current: {config_reader.audio_beginning_offset}]: ")
+        new_beginning_offset_str = input(
+            f"Enter new beginning offset (seconds) [Current: {config_reader.audio_beginning_offset}]: ")
         new_end_offset_str = input(f"Enter new end offset (seconds) [Current: {config_reader.audio_end_offset}]: ")
 
         if new_beginning_offset_str.strip():
@@ -50,11 +54,9 @@ def prompt_for_offset_updates():
         # Save the updated offsets to the config file
         save_updated_offsets_to_file()
 
-        print(f"Offsets updated: Beginning Offset = {new_beginning_offset}, End Offset = {new_end_offset}")
+        logger.info(
+            f"Offsets updated: Beginning Offset = {new_beginning_offset}, End Offset = {new_end_offset}, no further action required!")
 
     except ValueError:
         print("Invalid input. Please enter a valid number for offsets.")
         logger.error("Invalid input for offsets.")
-
-if __name__ == "__main__":
-    prompt_for_offset_updates()
