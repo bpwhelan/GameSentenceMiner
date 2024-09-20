@@ -71,7 +71,6 @@ def get_note_ids():
 def save_replay_buffer():
     try:
         response = obs_ws.call(obs_requests.SaveReplayBuffer())
-        print(response)
         if response.status:
             print("Replay buffer saved successfully.")
         else:
@@ -123,7 +122,6 @@ def get_game_from_scene():
     try:
         response = obs_ws.call(obs_requests.GetCurrentProgramScene())
         data = response.datain
-        print(data)
         return data.get('sceneName')
     except Exception as e:
         print(f"Couldn't get scene: {e}")
