@@ -16,7 +16,7 @@ def make_unique_file_name(path):
 
     current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
 
-    return f"{filename}_{current_time}.{extension}".replace(" ", "")
+    return f"{filename}_{current_time}.{extension}"
 
 
 def get_random_digit_string():
