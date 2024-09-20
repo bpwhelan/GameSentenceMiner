@@ -168,5 +168,6 @@ def process_audio_with_vosk(input_audio, output_audio):
     return True
 
 
-vosk_model_path = download_and_cache_vosk_model()
-logger.info(f"Using Vosk model from {vosk_model_path}")
+def get_vosk_model():
+    vosk_model_path = download_and_cache_vosk_model()
+    logger.info(f"Using Vosk model from {vosk_model_path}")

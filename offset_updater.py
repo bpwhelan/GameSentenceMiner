@@ -1,9 +1,7 @@
 import toml
 import config_reader
-import logging
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = config_reader.logger
 
 
 def save_updated_offsets_to_file():
@@ -54,7 +52,7 @@ def prompt_for_offset_updates():
         # Save the updated offsets to the config file
         save_updated_offsets_to_file()
 
-        logger.info(
+        print(
             f"Offsets updated: Beginning Offset = {new_beginning_offset}, End Offset = {new_end_offset}, no further action required!")
 
     except ValueError:

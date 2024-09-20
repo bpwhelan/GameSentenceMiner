@@ -2,10 +2,6 @@ import json
 import shutil
 import tempfile
 import time
-import os
-import sys
-import subprocess
-import threading
 import keyboard
 
 from watchdog.events import FileSystemEventHandler
@@ -15,6 +11,7 @@ import anki
 import obs
 import offset_updater
 import util
+import vosk_helper
 from anki import update_anki_card, get_last_anki_card
 from config_reader import *
 from ffmpeg import get_audio_and_trim
@@ -79,6 +76,10 @@ def initialize():
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
+    vosk_helper.get_vosk_model()
+    obs.start_monitoring_anki()
+    if obs_enabled and obs_start_buffer:
+        obs.start_replay_buffer()
 
 
 def main():
@@ -91,9 +92,6 @@ def main():
         observer = Observer()
         observer.schedule(event_handler, folder_to_watch, recursive=False)
         observer.start()
-
-        if obs_enabled and obs_start_buffer:
-            obs.start_replay_buffer()
 
         print("Script Initialized. Happy Mining!")
         print(f"Press {offset_reset_hotkey.upper()} to update the audio offsets.")

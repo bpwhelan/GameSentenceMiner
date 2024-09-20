@@ -14,7 +14,7 @@ local_version = '0.0.0'
 
 
 # Helper function to run git commands
-def run_git_command(command):
+def run_command(command):
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"Error: {result.stderr}")
@@ -50,7 +50,7 @@ def check_for_updates():
 
 # Step 2: Detect uncommitted local changes
 def check_for_uncommitted_changes():
-    status_output = run_git_command("git status --porcelain")
+    status_output = run_command("git status --porcelain")
     if status_output.strip():
         return True  # Uncommitted changes detected
     return False  # No uncommitted changes
@@ -64,7 +64,7 @@ def backup_local_files():
 
     date_suffix = get_date_string()  # Get current date as suffix
     # Backing up only modified files (those tracked by git)
-    modified_files = run_git_command("git ls-files -m").splitlines()
+    modified_files = run_command("git ls-files -m").splitlines()
     for file in modified_files:
         new_file_name = f"backup/{file}_{local_version}"
         print(f"Backing up {file} to {new_file_name}")
@@ -75,10 +75,11 @@ def backup_local_files():
 # Step 4: Pull the latest changes from the remote repository (without hard reset)
 def update_files():
     print("Updating files from the remote repository...")
-    run_git_command("git fetch --all")
-    run_git_command("git stash")  # Stash local changes
-    run_git_command("git pull origin main")  # Pull latest changes
+    run_command("git fetch --all")
+    run_command("git stash")  # Stash local changes
+    run_command("git pull origin main")  # Pull latest changes
     # run_git_command("git stash pop")  # Reapply stashed changes
+    run_command("pip install -r requirements.txt")
     print("Update completed.")
 
 

@@ -35,7 +35,7 @@ def disconnect_from_obs():
 def start_replay_buffer():
     try:
         obs_ws.call(obs_requests.StartReplayBuffer())
-        print("Replay buffer started.")
+        logger.info("Replay buffer started.")
     except Exception as e:
         print(f"Error starting replay buffer: {e}")
 
@@ -44,7 +44,7 @@ def start_replay_buffer():
 def stop_replay_buffer():
     try:
         obs_ws.call(obs_requests.StopReplayBuffer())
-        print("Replay buffer stopped.")
+        logger.info("Replay buffer stopped.")
     except Exception as e:
         print(f"Error stopping replay buffer: {e}")
 
@@ -125,8 +125,9 @@ def get_game_from_scene():
         print(f"Couldn't get scene: {e}")
 
 
-# Start monitoring anki
-if obs_enabled and obs_full_auto_mode:
-    obs_thread = threading.Thread(target=monitor_anki)
-    obs_thread.daemon = True  # Ensures the thread will exit when the main program exits
-    obs_thread.start()
+def start_monitoring_anki():
+    # Start monitoring anki
+    if obs_enabled and obs_full_auto_mode:
+        obs_thread = threading.Thread(target=monitor_anki)
+        obs_thread.daemon = True  # Ensures the thread will exit when the main program exits
+        obs_thread.start()
