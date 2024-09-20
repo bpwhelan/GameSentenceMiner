@@ -12,20 +12,23 @@ from config_reader import *
 # Global variables to track state
 previous_note_ids = set()
 first_run = True
+obs_ws: obsws
 
-# Connect to OBS WebSocket
-if obs_enabled:
-    try:
-        obs_ws = obsws(OBS_HOST, OBS_PORT, OBS_PASSWORD)
-        obs_ws.connect()
-        print("Connected to OBS WebSocket.")
-    except Exception as conn_exception:
-        print(f"Error connecting to OBS WebSocket: {conn_exception}")
+
+def connect_to_obs():
+    global obs_ws
+    # Connect to OBS WebSocket
+    if obs_enabled:
+        try:
+            obs_ws = obsws(OBS_HOST, OBS_PORT, OBS_PASSWORD)
+            obs_ws.connect()
+            print("Connected to OBS WebSocket.")
+        except Exception as conn_exception:
+            print(f"Error connecting to OBS WebSocket: {conn_exception}")
 
 
 # Disconnect from OBS WebSocket
 def disconnect_from_obs():
-    global obs_ws
     if obs_ws:
         obs_ws.disconnect()
         logger.debug("Disconnected from OBS WebSocket.")
@@ -34,7 +37,7 @@ def disconnect_from_obs():
 # Start replay buffer
 def start_replay_buffer():
     try:
-        obs_ws.call(obs_requests.StartReplayBuffer())
+        info = obs_ws.call(obs_requests.StartReplayBuffer())
         logger.info("Replay buffer started.")
     except Exception as e:
         print(f"Error starting replay buffer: {e}")
@@ -68,6 +71,7 @@ def get_note_ids():
 def save_replay_buffer():
     try:
         response = obs_ws.call(obs_requests.SaveReplayBuffer())
+        print(response)
         if response.status:
             print("Replay buffer saved successfully.")
         else:

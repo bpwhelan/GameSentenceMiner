@@ -16,6 +16,7 @@ from config_reader import *
 ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
 vosk.SetLogLevel(vosk_log_level)
+vosk_model_path = ''
 
 
 # Convert audio to 16kHz mono WAV (Vosk expects this format)
@@ -169,5 +170,6 @@ def process_audio_with_vosk(input_audio, output_audio):
 
 
 def get_vosk_model():
+    global vosk_model_path
     vosk_model_path = download_and_cache_vosk_model()
     logger.info(f"Using Vosk model from {vosk_model_path}")

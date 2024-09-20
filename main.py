@@ -30,7 +30,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
             self.convert_to_audio(event.src_path)
 
-    def convert_to_audio(self, video_path):
+    @staticmethod
+    def convert_to_audio(video_path):
         with util.lock:
             util.use_previous_audio = True
             last_note = get_last_anki_card()
@@ -79,15 +80,16 @@ def initialize():
     vosk_helper.get_vosk_model()
     obs.start_monitoring_anki()
     if obs_enabled and obs_start_buffer:
+        obs.connect_to_obs()
         obs.start_replay_buffer()
 
 
 def main():
     global keep_running
+    logger.info("Script started.")
     initialize()
     with tempfile.TemporaryDirectory(dir="temp_files") as temp_dir:
         config_reader.temp_directory = temp_dir
-        logger.info("Script started.")
         event_handler = VideoToAudioHandler()
         observer = Observer()
         observer.schedule(event_handler, folder_to_watch, recursive=False)
