@@ -81,9 +81,6 @@ def initialize():
                 shutil.rmtree(file_path)
 
 
-keyboard.add_hotkey(offset_reset_hotkey, offset_updater.prompt_for_offset_updates)
-
-
 def main():
     global keep_running
     initialize()
@@ -99,7 +96,8 @@ def main():
             obs.start_replay_buffer()
 
         print("Script Initialized. Happy Mining!")
-        print("Press F4 to update the audio offsets.")
+        print(f"Press {offset_reset_hotkey.upper()} to update the audio offsets.")
+        keyboard.add_hotkey(offset_reset_hotkey, offset_updater.prompt_for_offset_updates)
 
         try:
             while keep_running:
