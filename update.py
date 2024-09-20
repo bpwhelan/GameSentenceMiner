@@ -1,3 +1,4 @@
+import pathlib
 import subprocess
 import os
 import requests
@@ -11,6 +12,33 @@ CHECK_VERSION_URL = "https://api.github.com/repos/bpwhelan/TrimJapaneseGameAudio
 # Local version file path (this is a file where you store the current version number)
 VERSION_FILE = "version.txt"
 local_version = '0.0.0'
+
+
+def initialize_git_repo():
+    if not os.path.exists(".git"):
+        print("No Git repository detected. Initializing a new Git repository...")
+        run_command("git init")
+        run_command(f"git remote add origin {REPO_URL}")
+
+        # Add all current files to the staging area for the initial commit
+        run_command("git add .")
+
+        # Make the initial commit if there isn't one already
+        run_command("git commit -m \"Initial commit before syncing with remote\"")
+
+        # Now you can safely fetch from the remote and check out the main branch
+        run_command("git fetch origin")
+        run_command("git checkout -b main --track origin/main")
+
+        print("Git repository initialized and set to track 'main' branch.")
+
+
+def initialize_git_repo():
+    if not os.path.exists(".git"):
+        print("No Git repository detected. Initializing a new Git repository...")
+        run_command("git init")
+        run_command(f"git remote add origin {REPO_URL}")
+        print("Git repository initialized. You can now fetch and pull the latest changes later.")
 
 
 # Helper function to run git commands
@@ -66,7 +94,8 @@ def backup_local_files():
     # Backing up only modified files (those tracked by git)
     modified_files = run_command("git ls-files -m").splitlines()
     for file in modified_files:
-        new_file_name = f"backup/{file}_{local_version}"
+        path = pathlib.Path(file)
+        new_file_name = f"backup/{path.name}_{local_version}"
         print(f"Backing up {file} to {new_file_name}")
         shutil.copy2(file, new_file_name)
     print("Backup completed.")
@@ -100,6 +129,7 @@ def handle_local_changes():
 
 # Main function to handle the updater logic
 def main():
+    initialize_git_repo()  # Initialize Git repo if it doesn't exist
     latest_version = check_for_updates()
     if latest_version:
         handle_local_changes()
