@@ -25,6 +25,7 @@ remove_screenshot = false
 remove_audio = false
 notify_on_update = true
 open_anki_edit = false
+backfill_audio = false # Strictly to fill audio for cards that you already have in your anki db. CANNOT BE USED WITH FULL_AUTO_MODE
 
 # Vosk Model
 [vosk]
@@ -48,7 +49,7 @@ reset_hotkey = 'f4' # Hotkey to initiate Offset Updater.
 [obs]
 enabled = true
 start_buffer = true
-full_auto_mode = false # Automatically Create Cards when you Create in Yomi. REQUIRED for multi-card-per-voiceline
+full_auto_mode = true # Automatically Create Cards when you Create in Yomi. REQUIRED for multi-card-per-voiceline
 host = "localhost"
 port = 4455
 password = "your_password_here"

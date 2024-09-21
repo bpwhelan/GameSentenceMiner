@@ -91,7 +91,7 @@ def get_cards_by_sentence(sentence):
     card_ids = invoke("findCards", query=query)
 
     if not card_ids:
-        print(f"didn't find any cards matching query:\n{query}")
+        print(f"Didn't find any cards matching query:\n{query}")
         return {}
     if len(card_ids) > 1:
         print(f'Found more than 1, and not updating cards for query: \n{query}')

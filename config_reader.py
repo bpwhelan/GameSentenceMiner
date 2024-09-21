@@ -137,5 +137,9 @@ if config:
 
     anki_custom_fields = config.get("anki_custom_fields", {})
 
+    if backfill_audio and obs_full_auto_mode:
+        print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
+        exit(1)
+
 else:
     raise Exception("No config found")
