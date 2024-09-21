@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import tempfile
 import time
@@ -8,6 +9,8 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 import anki
+import clipboard
+import config_reader
 import obs
 import offset_updater
 import util
@@ -20,6 +23,25 @@ from vosk_helper import process_audio_with_vosk
 
 # Global variable to control script execution
 keep_running = True
+
+
+def remove_html_tags(text):
+    clean_text = re.sub(r'<.*?>', '', text)
+    return clean_text
+
+
+def get_clipboard_timing(sentence):
+    clipboard_time = clipboard.previous_clipboard_time
+    next_clipboard = 0
+    for i, (clipboard_sentence, clip_time) in enumerate(reversed(clipboard.clipboard_history.items())):
+        if remove_html_tags(sentence) in clipboard_sentence:
+            clipboard_time = clip_time
+            next_time = list(clipboard.clipboard_history.values())[-i]
+            if next_time > clipboard_time:
+                next_clipboard = next_time
+            break
+
+    return clipboard_time, next_clipboard
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -35,10 +57,11 @@ class VideoToAudioHandler(FileSystemEventHandler):
         with util.lock:
             util.use_previous_audio = True
             last_note = get_last_anki_card()
+            clipboard_time, next_clipboard_time = get_clipboard_timing(last_note['fields'][sentence_field]['value'])
             logger.debug(json.dumps(last_note))
             tango = last_note['fields'][word_field]['value']
 
-            trimmed_audio = get_audio_and_trim(video_path)
+            trimmed_audio = get_audio_and_trim(video_path, clipboard_time, next_clipboard_time)
 
             output_audio = make_unique_file_name(f"{audio_destination}{config_reader.current_game}.{audio_extension}")
             if do_vosk_postprocessing:

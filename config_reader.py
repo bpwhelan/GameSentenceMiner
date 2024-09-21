@@ -3,7 +3,6 @@ import os
 from os.path import expanduser
 
 import toml
-import config_reader 
 
 # Define the path to your config.toml file
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.toml')
@@ -26,7 +25,9 @@ logger.setLevel(logging.INFO)
 
 temp_directory = ''
 
+
 def save_updated_offsets_to_file():
+    global audio_beginning_offset, audio_end_offset
     config_file = "config.toml"  # Ensure this is the correct path to your config file
 
     try:
@@ -35,14 +36,14 @@ def save_updated_offsets_to_file():
             config_data = toml.load(f)
 
         # Update the audio offsets in the config data
-        config_data["audio"]["beginning_offset"] = config_reader.audio_beginning_offset
-        config_data["audio"]["end_offset"] = config_reader.audio_end_offset
+        config_data["audio"]["beginning_offset"] = audio_beginning_offset
+        config_data["audio"]["end_offset"] = audio_end_offset
 
         # Write the updated config back to the file
         with open(config_file, "w") as f:
             toml.dump(config_data, f)
 
-        logger.info(f"Offsets saved to config.toml: beginning_offset={config_reader.audio_beginning_offset}, end_offset={config_reader.audio_end_offset}")
+        logger.info(f"Offsets saved to config.toml: beginning_offset={audio_beginning_offset}, end_offset={audio_end_offset}")
         print("Offsets have been successfully saved to the config file.")
 
     except Exception as e:
@@ -81,12 +82,14 @@ if config:
     # Anki fields
     anki_config = config.get('anki', {})
     anki_url = config.get('url', 'http://127.0.0.1:8765')
-    sentence_audio_field = anki_config.get('sentence_audio_field', "Sentence Audio")
+    sentence_field = anki_config.get('sentence_field', "Sentence")
+    sentence_audio_field = anki_config.get('sentence_audio_field', "SentenceAudio")
     picture_field = anki_config.get('picture_field', "Picture")
     current_game = anki_config.get('current_game', "GameSentenceMiner")
     custom_tags = anki_config.get("custom_tags", [])
     add_game_tag = anki_config.get("add_game_tag", True)
     word_field = anki_config.get('word_field', 'Word')
+    anki_polling_rate = anki_config.get('polling_rate', 200)
 
     # Feature flags
     feature_config = config.get('features', {})

@@ -1,5 +1,6 @@
 import threading
 import time
+from collections import OrderedDict
 from datetime import datetime
 
 import pyperclip
@@ -9,9 +10,11 @@ import util
 previous_clipboard = pyperclip.paste()
 previous_clipboard_time = datetime.now()
 
+clipboard_history = OrderedDict()
+
 
 def monitor_clipboard():
-    global previous_clipboard_time, previous_clipboard
+    global previous_clipboard_time, previous_clipboard, clipboard_history
 
     # Initial clipboard content
     previous_clipboard = pyperclip.paste()
@@ -22,6 +25,7 @@ def monitor_clipboard():
         if current_clipboard != previous_clipboard:
             previous_clipboard = current_clipboard
             previous_clipboard_time = datetime.now()
+            clipboard_history[previous_clipboard] = previous_clipboard_time
             util.use_previous_audio = False
 
         time.sleep(0.05)
