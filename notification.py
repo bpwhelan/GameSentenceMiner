@@ -27,8 +27,17 @@ def open_anki_card(note_id):
 # Send a plyer notification
 def send_notification(tango):
     notification.notify(
-        title="Video Game Miner",
+        title="Anki Card Updated",
         message=f"Audio and/or Screenshot added to latest note: {tango}",
-        app_name="Anki",
+        app_name="VideoGameMiner",
+        timeout=5  # Notification disappears after 5 seconds
+    )
+
+
+def send_audio_generated_notification(audio_path):
+    notification.notify(
+        title="Audio Trimmed",
+        message=f"Audio Trimmed and placed at {audio_path}",
+        app_name="VideoGameMiner",
         timeout=5  # Notification disappears after 5 seconds
     )

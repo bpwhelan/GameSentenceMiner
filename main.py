@@ -11,6 +11,7 @@ from watchdog.observers import Observer
 import anki
 import clipboard
 import config_reader
+import notification
 import obs
 import offset_updater
 import util
@@ -31,6 +32,8 @@ def remove_html_tags(text):
 
 
 def get_clipboard_timing(last_note):
+    if not last_note:
+        return clipboard.previous_clipboard_time, 0
     clipboard_time = clipboard.previous_clipboard_time
     next_clipboard = 0
     try:
@@ -63,8 +66,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
             util.use_previous_audio = True
             last_note = get_last_anki_card()
             clipboard_time, next_clipboard_time = get_clipboard_timing(last_note)
-            logger.debug(json.dumps(last_note))
-            tango = last_note['fields'][word_field]['value']
+            if last_note:
+                logger.debug(json.dumps(last_note))
+            tango = last_note['fields'][word_field]['value'] if last_note else ''
 
             trimmed_audio = get_audio_and_trim(video_path, clipboard_time, next_clipboard_time)
 
@@ -73,16 +77,20 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 anki.should_update_audio = process_audio_with_vosk(trimmed_audio, output_audio)
             else:
                 shutil.copy2(trimmed_audio, output_audio)
+
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 try:
-                    if update_anki and (not last_note['fields'][sentence_audio_field]['value'] or override_audio):
+                    if update_anki and last_note and (not last_note['fields'][sentence_audio_field]['value'] or override_audio):
                         update_anki_card(last_note, output_audio, video_path, tango)
+                    else:
+                        notification.send_audio_generated_notification(output_audio)
                 except Exception as e:
                     logger.error(f"Card failed to update! Maybe it was removed? {e}")
             except FileNotFoundError as f:
                 print(f)
                 print("Something went wrong with processing, anki card not updated")
+
             if remove_video and os.path.exists(video_path):
                 os.remove(video_path)  # Optionally remove the video after conversion
             if remove_audio and os.path.exists(output_audio):

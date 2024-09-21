@@ -75,5 +75,7 @@ def invoke(action, **params):
 
 def get_last_anki_card():
     added_ids = invoke('findNotes', query='added:1')
+    if not added_ids:
+        return {}
     last_note = invoke('notesInfo', notes=[added_ids[-1]])[0]
     return last_note
