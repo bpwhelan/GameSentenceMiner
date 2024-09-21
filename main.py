@@ -68,6 +68,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
             clipboard_time, next_clipboard_time = get_clipboard_timing(last_note)
             if last_note:
                 logger.debug(json.dumps(last_note))
+
+            if backfill_audio:
+                last_note = anki.get_cards_by_sentence(clipboard.previous_clipboard)
+
             tango = last_note['fields'][word_field]['value'] if last_note else ''
 
             trimmed_audio = get_audio_and_trim(video_path, clipboard_time, next_clipboard_time)

@@ -79,3 +79,27 @@ def get_last_anki_card():
         return {}
     last_note = invoke('notesInfo', notes=[added_ids[-1]])[0]
     return last_note
+
+
+def add_wildcards(expression):
+    return '*' + '*'.join(expression) + '*'
+
+
+def get_cards_by_sentence(sentence):
+    sentence = sentence.replace(" ", "")
+    query = f'{sentence_audio_field}: {sentence_field}:{add_wildcards(sentence)}'
+    card_ids = invoke("findCards", query=query)
+
+    if not card_ids:
+        print(f"didn't find any cards matching query:\n{query}")
+        return {}
+    if len(card_ids) > 1:
+        print(f'Found more than 1, and not updating cards for query: \n{query}')
+        return {}
+
+    last_notes = invoke('notesInfo', notes=[card_ids[0]])[0]
+
+    print(f"Found Card to backfill!: {card_ids[0]}")
+
+    return last_notes
+

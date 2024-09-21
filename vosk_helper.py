@@ -107,7 +107,7 @@ def detect_voice_with_vosk(input_audio):
             unique_words = set()
             for word in final_result['result']:
                 if word['conf'] >= .90:
-                    print(word)
+                    logger.debug(word)
                     should_use = True
                     unique_words.add(word['word'])
             if len(unique_words) == 1 or all(item in ['えー', 'ん'] for item in unique_words):
