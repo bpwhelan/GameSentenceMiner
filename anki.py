@@ -28,6 +28,10 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
     if should_update_audio:
         note['fields'][sentence_audio_field] = audio_html
 
+    if anki_custom_fields:
+        for key, value in anki_custom_fields.items():
+            note['fields'][key] = str(value)
+
     invoke("updateNoteFields", note=note)
     if custom_tags:
         if add_game_tag:

@@ -131,5 +131,7 @@ if config:
     # secret config DO NOT PUT THESE IN THE EXAMPLE
     override_audio = anki_config.get("override_audio", False)
 
+    anki_custom_fields = config.get("anki_custom_fields", {})
+
 else:
     raise Exception("No config found")

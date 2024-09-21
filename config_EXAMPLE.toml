@@ -51,3 +51,7 @@ host = "localhost"
 port = 4455
 password = "your_password_here"
 get_game_from_scene = false
+
+#[anki_custom_fields]
+#IsTargetedSentenceCard = 1
+#Comment = "Nice!"
