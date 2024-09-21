@@ -113,7 +113,7 @@ def monitor_anki():
         # Continuously check for new cards
         while True:
             check_for_new_cards()
-            time.sleep(0.2)  # Check every 200ms
+            time.sleep(anki_polling_rate / 1000.0)  # Check every 200ms
     except KeyboardInterrupt:
         print("Stopped Checking For Anki Cards...")
 
