@@ -101,6 +101,7 @@ if config:
     act_on_new_card_in_anki = feature_config.get('full_auto_mode', False)
     notify_on_update = feature_config.get('notify_on_update', True)
     open_anki_edit = feature_config.get('open_anki_edit', False)
+    backfill_audio = feature_config.get('backfill_audio', False)
 
     # Vosk config
     vosk_config = config.get('vosk', {})
