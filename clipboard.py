@@ -1,7 +1,6 @@
 import threading
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
 from datetime import datetime
 
 import pyperclip
