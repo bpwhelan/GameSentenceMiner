@@ -30,16 +30,21 @@ def remove_html_tags(text):
     return clean_text
 
 
-def get_clipboard_timing(sentence):
+def get_clipboard_timing(last_note):
     clipboard_time = clipboard.previous_clipboard_time
     next_clipboard = 0
-    for i, (clipboard_sentence, clip_time) in enumerate(reversed(clipboard.clipboard_history.items())):
-        if remove_html_tags(sentence) in clipboard_sentence:
-            clipboard_time = clip_time
-            next_time = list(clipboard.clipboard_history.values())[-i]
-            if next_time > clipboard_time:
-                next_clipboard = next_time
-            break
+    try:
+        sentence = last_note['fields'][sentence_field]['value']
+        if sentence:
+            for i, (clipboard_sentence, clip_time) in enumerate(reversed(clipboard.clipboard_history.items())):
+                if remove_html_tags(sentence) in clipboard_sentence:
+                    clipboard_time = clip_time
+                    # next_time = list(clipboard.clipboard_history.values())[-i]
+                    # if next_time > clipboard_time:
+                    #     next_clipboard = next_time
+                    break
+    except Exception as e:
+        logger.error(f"Defaulting to previous clipboard behavior - reason: {e}")
 
     return clipboard_time, next_clipboard
 
@@ -57,7 +62,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
         with util.lock:
             util.use_previous_audio = True
             last_note = get_last_anki_card()
-            clipboard_time, next_clipboard_time = get_clipboard_timing(last_note['fields'][sentence_field]['value'])
+            clipboard_time, next_clipboard_time = get_clipboard_timing(last_note)
             logger.debug(json.dumps(last_note))
             tango = last_note['fields'][word_field]['value']
 
