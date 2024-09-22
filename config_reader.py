@@ -137,6 +137,11 @@ if config:
 
     anki_custom_fields = config.get("anki_custom_fields", {})
 
+    # websocket settings
+    websocket_config = config.get('websocket', {})
+    websocket_enabled = websocket_config.get('enabled', True)
+    websocket_uri = websocket_config.get('uri', 'localhost:6677')
+
     if backfill_audio and obs_full_auto_mode:
         print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
         exit(1)

@@ -9,7 +9,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 import anki
-import clipboard
+import gametext
 import config_reader
 import notification
 import obs
@@ -22,34 +22,31 @@ from ffmpeg import get_audio_and_trim
 from util import *
 from vosk_helper import process_audio_with_vosk
 
-# Global variable to control script execution
-keep_running = True
-
 
 def remove_html_tags(text):
     clean_text = re.sub(r'<.*?>', '', text)
     return clean_text
 
 
-def get_clipboard_timing(last_note):
+def get_line_timing(last_note):
     if not last_note:
-        return clipboard.previous_clipboard_time, 0
-    clipboard_time = clipboard.previous_clipboard_time
-    next_clipboard = 0
+        return gametext.previous_line_time, 0
+    line_time = gametext.previous_line_time
+    next_line = 0
     try:
         sentence = last_note['fields'][sentence_field]['value']
         if sentence:
-            for i, (clipboard_sentence, clip_time) in enumerate(reversed(clipboard.clipboard_history.items())):
-                if remove_html_tags(sentence) in clipboard_sentence:
-                    clipboard_time = clip_time
+            for i, (line, clip_time) in enumerate(reversed(gametext.line_history.items())):
+                if remove_html_tags(sentence) in line:
+                    line_time = clip_time
                     # next_time = list(clipboard.clipboard_history.values())[-i]
                     # if next_time > clipboard_time:
                     #     next_clipboard = next_time
                     break
     except Exception as e:
-        logger.error(f"Defaulting to previous clipboard behavior - reason: {e}")
+        logger.error(f"Using Default clipboard/websocket timing - reason: {e}")
 
-    return clipboard_time, next_clipboard
+    return line_time, next_line
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -65,16 +62,16 @@ class VideoToAudioHandler(FileSystemEventHandler):
         with util.lock:
             util.use_previous_audio = True
             last_note = get_last_anki_card()
-            clipboard_time, next_clipboard_time = get_clipboard_timing(last_note)
+            line_time, next_line_time = get_line_timing(last_note)
             if last_note:
                 logger.debug(json.dumps(last_note))
 
             if backfill_audio:
-                last_note = anki.get_cards_by_sentence(clipboard.previous_clipboard)
+                last_note = anki.get_cards_by_sentence(gametext.previous_line)
 
             tango = last_note['fields'][word_field]['value'] if last_note else ''
 
-            trimmed_audio = get_audio_and_trim(video_path, clipboard_time, next_clipboard_time)
+            trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
 
             output_audio = make_unique_file_name(f"{audio_destination}{config_reader.current_game}.{audio_extension}")
             if do_vosk_postprocessing:
@@ -125,7 +122,6 @@ def initialize():
 
 
 def main():
-    global keep_running
     logger.info("Script started.")
     initialize()
     with tempfile.TemporaryDirectory(dir="temp_files") as temp_dir:
@@ -140,11 +136,11 @@ def main():
         keyboard.add_hotkey(offset_reset_hotkey, offset_updater.prompt_for_offset_updates)
 
         try:
-            while keep_running:
+            while util.keep_running:
                 time.sleep(1)
 
         except KeyboardInterrupt:
-            keep_running = False
+            util.keep_running = False
             observer.stop()
 
         if obs_enabled and obs_start_buffer:

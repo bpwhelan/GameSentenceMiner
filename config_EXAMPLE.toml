@@ -55,6 +55,10 @@ port = 4455
 password = "your_password_here"
 get_game_from_scene = false
 
+[websocket]
+enabled = true # Recommended, with this enabled, this script does not interact with your clipboard at all.
+uri = 'localhost:6677'
+
 #[anki_custom_fields]
 #IsTargetedSentenceCard = 1
 #Comment = "Nice!"

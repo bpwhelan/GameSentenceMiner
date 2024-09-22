@@ -2,7 +2,7 @@ import json
 import subprocess
 import tempfile
 
-import clipboard
+import gametext
 import config_reader
 from config_reader import *
 from util import *
@@ -58,7 +58,7 @@ def get_audio_codec(video_path):
         return None
 
 
-def get_audio_and_trim(video_path, clipboard_time, next_clipboard_time):
+def get_audio_and_trim(video_path, line_time, next_line_time):
     supported_formats = {
         'opus': 'opus',
         'mp3': 'libmp3lame',
@@ -82,7 +82,7 @@ def get_audio_and_trim(video_path, clipboard_time, next_clipboard_time):
     command = f"{ffmpeg_base_command} -i \"{video_path}\" -map 0:a {codec_command} \"{untrimmed_audio}\""
 
     subprocess.call(command, shell=True)
-    return trim_audio_based_on_clipboard(untrimmed_audio, video_path, clipboard_time, next_clipboard_time)
+    return trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line_time)
 
 
 def get_video_duration(file_path):
@@ -98,11 +98,11 @@ def get_video_duration(file_path):
     return float(duration_info["format"]["duration"])  # Return the duration in seconds
 
 
-def trim_audio_based_on_clipboard(untrimmed_audio, video_path, clipboard_time, next_clipboard):
+def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line):
     trimmed_audio = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix=f".{audio_extension}").name
     file_mod_time = get_file_modification_time(video_path)
     file_length = get_video_duration(video_path)
-    time_delta = file_mod_time - clipboard_time
+    time_delta = file_mod_time - line_time
     # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)
     total_seconds = file_length - time_delta.total_seconds() + config_reader.audio_beginning_offset
     if total_seconds < 0 or total_seconds >= file_length:
@@ -117,13 +117,13 @@ def trim_audio_based_on_clipboard(untrimmed_audio, video_path, clipboard_time, n
         "-i", untrimmed_audio,
         "-ss", start_trim_time]
 
-    if next_clipboard:
-        end_total_seconds = total_seconds + (next_clipboard - clipboard_time).total_seconds()
+    if next_line:
+        end_total_seconds = total_seconds + (next_line - line_time).total_seconds()
         hours, remainder = divmod(end_total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         end_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
         ffmpeg_command.extend(['-to', end_trim_time])
-        logger.info(f"Looks like Clipboard was modified before the script knew about the anki card! Trimming end of video to {end_trim_time}")
+        logger.info(f"Looks like Clipboard/Websocket was modified before the script knew about the anki card! Trimming end of video to {end_trim_time}")
 
     ffmpeg_command.extend([
         "-c", "copy",  # Using copy to avoid re-encoding, adjust if needed
