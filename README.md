@@ -73,12 +73,14 @@ screenshot_destination = "~/Videos/OBS/SS/"
 # Anki Fields
 [anki]
 url = 'http://127.0.0.1:8765'
+sentence_field = "Sentence"
 sentence_audio_field = "SentenceAudio"
 picture_field = "Picture"
 word_field = "Word"
 current_game = "Japanese Game"
 custom_tags = ['JapaneseGameMiner', "Test Another Tag"] # leave Empty if you dont want to add tags
 add_game_tag = true
+polling_rate = 200 # This is how often the script asks anki if it has new cards. Change at your own peril.
 
 # Feature Flags
 [features]
@@ -89,6 +91,7 @@ remove_screenshot = false
 remove_audio = false
 notify_on_update = true
 open_anki_edit = false
+backfill_audio = false # Strictly to fill audio for cards that you already have in your anki db. CANNOT BE USED WITH FULL_AUTO_MODE
 
 # Vosk Model
 [vosk]
@@ -107,6 +110,7 @@ extension = "opus" # Desired Extension/codec of Trimmed Audio, (Default opus)
 beginning_offset = 0.0 # Negative Value = More time at the beginning (i.e. -1 is 1 extra second at the beginning)
 end_offset = 0.5 # Positive Value = More time at the end (i.e. 1 is 1 extra second at the end)
 vosk_trim_beginning = false # Only change If you run into issues with clipboard timing, add a negative beginning_offset as well, Warning: You may end up with audio from previous line depending on your setup!
+reset_hotkey = 'f4' # Hotkey to initiate Offset Updater.
 
 [obs]
 enabled = true
@@ -116,6 +120,14 @@ host = "localhost"
 port = 4455
 password = "your_password_here"
 get_game_from_scene = false
+
+[websocket]
+enabled = true # Recommended/Default, with this enabled, this script does not interact with your clipboard at all.
+uri = 'localhost:6677'
+
+#[anki_custom_fields]
+#IsTargetedSentenceCard = 1
+#Comment = "Nice!"
 ```
 
 

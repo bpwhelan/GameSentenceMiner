@@ -12,3 +12,4 @@ rapidfuzz~=3.9.7
 obs-websocket-py~=1.0
 plyer~=2.1.0
 keyboard~=0.13.5
+websockets~=13.0.1

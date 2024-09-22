@@ -4,8 +4,9 @@ import string
 import threading
 from datetime import datetime
 
+# Global variables to control script execution
 use_previous_audio = False
-
+keep_running = True
 lock = threading.Lock()
 
 
