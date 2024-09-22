@@ -140,7 +140,8 @@ if config:
     # websocket settings
     websocket_config = config.get('websocket', {})
     websocket_enabled = websocket_config.get('enabled', True)
-    websocket_uri = websocket_config.get('uri', 'localhost:6677')
+    websocket_uri = websocket_config.get('uri') or websocket_config.get('url', 'localhost:6677')
+
 
     if backfill_audio and obs_full_auto_mode:
         print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")

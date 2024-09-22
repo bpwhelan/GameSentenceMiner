@@ -69,6 +69,5 @@ def run_websocket_listener():
 if websocket_enabled:
     text_thread = threading.Thread(target=run_websocket_listener, daemon=True)
 else:
-    text_thread = threading.Thread(target=monitor_clipboard)
-text_thread.daemon = True  # Ensures the thread will exit when the main program exits
+    text_thread = threading.Thread(target=monitor_clipboard, daemon=True)
 text_thread.start()
