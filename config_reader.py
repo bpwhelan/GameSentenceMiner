@@ -6,23 +6,6 @@ import toml
 
 # Define the path to your config.toml file
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.toml')
-
-# Setup Logs
-logger = logging.getLogger("TrimAudio")
-logging_format = logging.Formatter(u'%(asctime)s - %(levelname)s - %(message)s')
-
-file_handler = logging.FileHandler("anki_script.log", encoding='utf-8')
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(logging_format)
-
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)  # You can set the desired log level for console output
-console_handler.setFormatter(logging_format)
-
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
-logger.setLevel(logging.INFO)
-
 temp_directory = ''
 
 
@@ -43,13 +26,13 @@ def save_updated_offsets_to_file():
         with open(config_file, "w") as f:
             toml.dump(config_data, f)
 
-        logger.info(f"Offsets saved to config.toml: beginning_offset={audio_beginning_offset}, end_offset={audio_end_offset}")
+        logger.info(
+            f"Offsets saved to config.toml: beginning_offset={audio_beginning_offset}, end_offset={audio_end_offset}")
         print("Offsets have been successfully saved to the config file.")
 
     except Exception as e:
         logger.error(f"Failed to update offsets in config file: {e}")
         print(f"Error saving updated offsets: {e}")
-
 
 
 def load_config():
@@ -74,13 +57,27 @@ def load_config():
 config = load_config()
 
 if config:
+    general_config = config.get('general', {})
     path_config = config.get('paths', {})
+    audio_config = config.get('audio', {})
+    anki_config = config.get('anki', {})
+    feature_config = config.get('features', {})
+    vosk_config = config.get('vosk', {})
+    screenshot_config = config.get('screenshot', {})
+    obs_config = config.get('obs', {})
+    anki_custom_fields = config.get("anki_custom_fields", {})
+    anki_overwrites_config = config.get('anki_overwrites', {})
+
+
+    #general config
+    console_log_level = general_config.get('console_log_level', 'INFO')
+    file_log_level = general_config.get('file_log_level', 'DEBUG')
+
     folder_to_watch = path_config.get('folder_to_watch', expanduser("~/Videos/OBS"))
     audio_destination = path_config.get('audio_destination', expanduser("~/Videos/OBS/Audio/"))
     screenshot_destination = path_config.get('screenshot_destination', expanduser("~/Videos/OBS/SS/"))
 
     # Anki fields
-    anki_config = config.get('anki', {})
     anki_url = config.get('url', 'http://127.0.0.1:8765')
     sentence_field = anki_config.get('sentence_field', "Sentence")
     sentence_audio_field = anki_config.get('sentence_audio_field', "SentenceAudio")
@@ -92,7 +89,6 @@ if config:
     anki_polling_rate = anki_config.get('polling_rate', 200)
 
     # Feature flags
-    feature_config = config.get('features', {})
     do_vosk_postprocessing = feature_config.get('do_vosk_postprocessing', True)
     remove_video = feature_config.get('remove_video', True)
     remove_audio = feature_config.get('remove_audio', False)
@@ -104,26 +100,23 @@ if config:
     backfill_audio = feature_config.get('backfill_audio', False)
 
     # Vosk config
-    vosk_config = config.get('vosk', {})
     vosk_model_url = vosk_config.get('url', "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip")
     vosk_log_level = vosk_config.get('log-level', -1)
 
     # screenshot config
-    screenshot_config = config.get('screenshot', {})
     screenshot_width = screenshot_config.get('width', 0)
     screenshot_quality = str(screenshot_config.get('quality', 85))
     screenshot_extension = screenshot_config.get('extension', "webp")
 
     # audio config
-    audio_config = config.get('audio', {})
     audio_extension = audio_config.get('extension', 'opus')
     audio_beginning_offset = audio_config.get('beginning_offset', 0.0)
     audio_end_offset = audio_config.get('end_offset', 0.5)
     vosk_trim_beginning = audio_config.get('vosk_trim_beginning', False)
     offset_reset_hotkey = audio_config.get('offset_reset_hotkey', 'f4')
+    ffmpeg_reencode_options = audio_config.get('ffmpeg_reencode_options', '')
 
     # Parse OBS settings from the config
-    obs_config = config.get('obs', {})
     obs_enabled = obs_config.get('enabled', True)
     obs_start_buffer = obs_config.get('start_buffer', True)
     obs_full_auto_mode = obs_config.get('full_auto_mode', False)
@@ -132,20 +125,34 @@ if config:
     OBS_PASSWORD = obs_config.get('password', "your_password")
     get_game_from_scene = obs_config.get('get_game_from_scene', False)
 
-    # secret config DO NOT PUT THESE IN THE EXAMPLE
-    override_audio = anki_config.get("override_audio", False)
-
-    anki_custom_fields = config.get("anki_custom_fields", {})
-
     # websocket settings
     websocket_config = config.get('websocket', {})
     websocket_enabled = websocket_config.get('enabled', True)
     websocket_uri = websocket_config.get('uri') or websocket_config.get('url', 'localhost:6677')
 
+    # Overrides
+    overwrite_audio = anki_config.get("override_audio") or anki_overwrites_config.get('overwrite_audio', False)
+    overwrite_picture = anki_overwrites_config.get('overwrite_picture', True)
 
     if backfill_audio and obs_full_auto_mode:
         print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
         exit(1)
+
+    # Setup Logs
+    logger = logging.getLogger("TrimAudio")
+    logging_format = logging.Formatter(u'%(asctime)s - %(levelname)s - %(message)s')
+
+    file_handler = logging.FileHandler("anki_script.log", encoding='utf-8')
+    file_handler.setLevel(file_log_level)
+    file_handler.setFormatter(logging_format)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(console_log_level)  # You can set the desired log level for console output
+    console_handler.setFormatter(logging_format)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    logger.setLevel(logging.INFO)
 
 else:
     raise Exception("No config found")

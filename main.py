@@ -74,16 +74,18 @@ class VideoToAudioHandler(FileSystemEventHandler):
             trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
 
             output_audio = make_unique_file_name(f"{audio_destination}{config_reader.current_game}.{audio_extension}")
+            should_update_audio = True
             if do_vosk_postprocessing:
-                anki.should_update_audio = process_audio_with_vosk(trimmed_audio, output_audio)
+                should_update_audio = process_audio_with_vosk(trimmed_audio, output_audio)
             else:
                 shutil.copy2(trimmed_audio, output_audio)
 
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 try:
-                    if update_anki and last_note and (not last_note['fields'][sentence_audio_field]['value'] or override_audio):
-                        update_anki_card(last_note, output_audio, video_path, tango)
+                    if update_anki and last_note:
+                        update_anki_card(last_note, audio_path=output_audio, video_path=video_path, tango=tango,
+                                         should_update_audio=should_update_audio)
                     else:
                         notification.send_audio_generated_notification(output_audio)
                 except Exception as e:
@@ -108,17 +110,22 @@ def initialize():
     if not os.path.exists("temp_files"):
         os.mkdir("temp_files")
     else:
-        for filename in os.listdir("temp_files"):
-            file_path = os.path.join("temp_files", filename)
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-            elif os.path.isdir(file_path):
+        for filename in os.scandir('temp_files'):
+            file_path = os.path.join('temp_files', filename.name)
+            print(f"Processing: {file_path}")
+
+            if filename.is_file() or filename.is_symlink():
+                print(f"Deleting file or symlink: {file_path}")
+                os.remove(file_path)
+            elif filename.is_dir():
+                print(f"Deleting directory: {file_path}")
                 shutil.rmtree(file_path)
     vosk_helper.get_vosk_model()
     obs.start_monitoring_anki()
     if obs_enabled and obs_start_buffer:
         obs.connect_to_obs()
         obs.start_replay_buffer()
+    gametext.start_text_monitor()
 
 
 def main():

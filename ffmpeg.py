@@ -69,7 +69,9 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
 
     codec = get_audio_codec(video_path)
 
-    if codec == audio_extension:
+    if ffmpeg_reencode_options:
+        codec_command = ffmpeg_reencode_options
+    elif codec == audio_extension:
         codec_command = '-c:a copy'
         logger.info(f"Extracting {audio_extension} from video")
     else:
@@ -81,9 +83,11 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
     # FFmpeg command to extract OR re-encode the audio
     command = f"{ffmpeg_base_command} -i \"{video_path}\" -map 0:a {codec_command} \"{untrimmed_audio}\""
 
-    subprocess.call(command, shell=True)
-    return trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line_time)
+    logger.debug(command)
 
+    subprocess.call(command, shell=True)
+
+    return trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line_time)
 
 def get_video_duration(file_path):
     ffprobe_command = [

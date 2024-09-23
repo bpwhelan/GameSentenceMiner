@@ -9,24 +9,30 @@ from ffmpeg import get_screenshot
 
 audio_in_anki = None
 screenshot_in_anki = None
-should_update_audio = True
 
 
-def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_audio=False):
+def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_audio=False, should_update_audio=True):
     global audio_in_anki, screenshot_in_anki
+    update_audio = should_update_audio and (not last_note['fields'][sentence_audio_field]['value'] or overwrite_audio)
+    update_picture = overwrite_picture or not last_note['fields'][picture_field]['value']
     if not reuse_audio:
-        if should_update_audio:
+        if update_audio:
             audio_in_anki = store_media_file(audio_path)
-        screenshot = get_screenshot(video_path)
-        screenshot_in_anki = store_media_file(screenshot)
-        if remove_screenshot:
-            os.remove(screenshot)
+        if update_picture:
+            screenshot = get_screenshot(video_path)
+            screenshot_in_anki = store_media_file(screenshot)
+            if remove_screenshot:
+                os.remove(screenshot)
     audio_html = f"[sound:{audio_in_anki}]"
     image_html = f"<img src=\"{screenshot_in_anki}\">"
-    note = {'id': last_note['noteId'], 'fields': {picture_field: image_html}}
 
-    if should_update_audio:
+    note = {'id': last_note['noteId'], 'fields': {}}
+
+    if update_audio:
         note['fields'][sentence_audio_field] = audio_html
+
+    if update_picture:
+        note['fields'][picture_field] = image_html
 
     if anki_custom_fields:
         for key, value in anki_custom_fields.items():

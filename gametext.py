@@ -66,8 +66,9 @@ def run_websocket_listener():
     asyncio.run(listen_websocket())
 
 
-if websocket_enabled:
-    text_thread = threading.Thread(target=run_websocket_listener, daemon=True)
-else:
-    text_thread = threading.Thread(target=monitor_clipboard, daemon=True)
-text_thread.start()
+def start_text_monitor():
+    if websocket_enabled:
+        text_thread = threading.Thread(target=run_websocket_listener, daemon=True)
+    else:
+        text_thread = threading.Thread(target=monitor_clipboard, daemon=True)
+    text_thread.start()

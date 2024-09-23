@@ -1,3 +1,7 @@
+[general]
+console_log_level  = 'INFO' #Log Level, INFO, DEBUG, ERROR, etc.
+file_log_level = 'DEBUG'
+
 # Path configurations
 [paths]
 folder_to_watch = "~/Videos/OBS"
@@ -45,6 +49,7 @@ beginning_offset = 0.0 # Negative Value = More time at the beginning (i.e. -1 is
 end_offset = 0.5 # Positive Value = More time at the end (i.e. 1 is 1 extra second at the end)
 vosk_trim_beginning = false # Only change If you run into issues with clipboard timing, add a negative beginning_offset as well, Warning: You may end up with audio from previous line depending on your setup!
 reset_hotkey = 'f4' # Hotkey to initiate Offset Updater.
+ffmpeg_reencode_options = '' # for ffmpeg wizards only, do not change this unless you know what you are doing. These options are applied when the audio gets ripped out of the video.
 
 [obs]
 enabled = true
@@ -58,6 +63,10 @@ get_game_from_scene = false
 [websocket]
 enabled = true # Recommended/Default, with this enabled, this script does not interact with your clipboard at all.
 uri = 'localhost:6677'
+
+[anki_overwrites]
+overwrite_audio = false # Use this if you only have one audio field, and want to overwrite yomitan's audio
+#overwrite_picture = true # Recommend never changing this, not sure why you'd want yomitan's picture instead of from the game.
 
 #[anki_custom_fields]
 #IsTargetedSentenceCard = 1
