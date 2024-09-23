@@ -9,7 +9,8 @@ from util import *
 
 
 def get_screenshot(video_file):
-    output_image = make_unique_file_name(screenshot_destination + config_reader.current_game.replace(" ", "") + f".{screenshot_extension}")
+    output_image = make_unique_file_name(
+        screenshot_destination + config_reader.current_game.replace(" ", "") + f".{screenshot_extension}")
     # FFmpeg command to extract the last frame of the video
     ffmpeg_command = ffmpeg_base_command_list + [
         "-sseof", "-1",  # Seek to 1 second before the end of the video
@@ -69,16 +70,15 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
 
     codec = get_audio_codec(video_path)
 
-    if ffmpeg_reencode_options:
-        codec_command = ffmpeg_reencode_options
-    elif codec == audio_extension:
+    if codec == audio_extension:
         codec_command = '-c:a copy'
         logger.info(f"Extracting {audio_extension} from video")
     else:
         codec_command = f"-c:a {supported_formats[audio_extension]}"
         logger.info(f"Re-encoding {codec} to {audio_extension}")
 
-    untrimmed_audio = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix=f"_untrimmed.{audio_extension}").name
+    untrimmed_audio = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory,
+                                                  suffix=f"_untrimmed.{audio_extension}").name
 
     # FFmpeg command to extract OR re-encode the audio
     command = f"{ffmpeg_base_command} -i \"{video_path}\" -map 0:a {codec_command} \"{untrimmed_audio}\""
@@ -88,6 +88,7 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
     subprocess.call(command, shell=True)
 
     return trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line_time)
+
 
 def get_video_duration(file_path):
     ffprobe_command = [
@@ -127,7 +128,8 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_l
         minutes, seconds = divmod(remainder, 60)
         end_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
         ffmpeg_command.extend(['-to', end_trim_time])
-        logger.info(f"Looks like Clipboard/Websocket was modified before the script knew about the anki card! Trimming end of video to {end_trim_time}")
+        logger.info(
+            f"Looks like Clipboard/Websocket was modified before the script knew about the anki card! Trimming end of video to {end_trim_time}")
 
     ffmpeg_command.extend([
         "-c", "copy",  # Using copy to avoid re-encoding, adjust if needed
@@ -139,6 +141,18 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_l
 
     logger.info(f"Audio trimmed and saved to {trimmed_audio}")
     return trimmed_audio
+
+
+def reencode_file_with_user_config(input_file, user_ffmpeg_options):
+    logger.info(f"Re-encode running with settings:  {user_ffmpeg_options}")
+    temp_file = input_file + ".temp"
+    command = f"{ffmpeg_base_command} -i \"{input_file}\" -map 0:a {user_ffmpeg_options} \"{temp_file}\""
+
+    logger.debug(command)
+    subprocess.call(command, shell=True)
+
+    os.replace(temp_file, input_file)
+    logger.info(f'Re-encode Finished!')
 
 
 def trim_audio_by_end_time(input_audio, end_time, output_audio):

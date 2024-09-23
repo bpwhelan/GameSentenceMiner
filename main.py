@@ -9,6 +9,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 import anki
+import ffmpeg
 import gametext
 import config_reader
 import notification
@@ -80,6 +81,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
             else:
                 shutil.copy2(trimmed_audio, output_audio)
 
+            if ffmpeg_reencode_options:
+                ffmpeg.reencode_file_with_user_config(output_audio, ffmpeg_reencode_options)
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 try:

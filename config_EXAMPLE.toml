@@ -49,7 +49,10 @@ beginning_offset = 0.0 # Negative Value = More time at the beginning (i.e. -1 is
 end_offset = 0.5 # Positive Value = More time at the end (i.e. 1 is 1 extra second at the end)
 vosk_trim_beginning = false # Only change If you run into issues with clipboard timing, add a negative beginning_offset as well, Warning: You may end up with audio from previous line depending on your setup!
 reset_hotkey = 'f4' # Hotkey to initiate Offset Updater.
-ffmpeg_reencode_options = '' # for ffmpeg wizards only, do not change this unless you know what you are doing. These options are applied when the audio gets ripped out of the video.
+# Advanced Options for FFMPEG Wizards to re-encode the audio after it's trimmed, here are some sample configs, all using OPUS.
+#ffmpeg_reencode_options = '-c:a libopus -ac 1 -f opus -application voip -apply_phase_inv 0 -af "loudnorm=I=-23:dual_mono=true"' # Downmixes to mono, applies normalization
+#ffmpeg_reencode_options = '-c:a libopus -b:a 30k -ac 1 -f opus -application voip -apply_phase_inv 0 -af "loudnorm=I=-23:dual_mono=true"' # Same as above but downsampled to 30kbps (optimal size for mono)
+#ffmpeg_reencode_options = '-c:a libopus -f opus -af "loudnorm=I=-23"' # Simple loudness normalization
 
 [obs]
 enabled = true
