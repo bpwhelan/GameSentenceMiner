@@ -15,17 +15,23 @@ def get_screenshot(video_file):
     ffmpeg_command = ffmpeg_base_command_list + [
         "-sseof", "-1",  # Seek to 1 second before the end of the video
         "-i", video_file,
-        "-vframes", "1",  # Extract only one frame
-        "-compression_level", "6",
-        "-q:v", screenshot_quality,
+        "-vframes", "1"  # Extract only one frame
     ]
 
-    if screenshot_width:
-        ffmpeg_command.extend(["-vf", f"scale={screenshot_width}:-1"])
+    if screenshot_custom_ffmpeg_settings:
+        ffmpeg_command.extend(screenshot_custom_ffmpeg_settings.split())
+    else:
+        ffmpeg_command.extend(["-compression_level", "6", "-q:v", screenshot_quality])
+
+    if screenshot_width or screenshot_height:
+        ffmpeg_command.extend(["-vf", f"scale={screenshot_width or -1}:{screenshot_height or -1}"])
+
+    logger.debug(f"FFMPEG SS Command: {ffmpeg_command}")
 
     ffmpeg_command.append(output_image)
     # Run the command
     subprocess.run(ffmpeg_command)
+
 
     logger.info(f"Screenshot saved to: {output_image}")
 

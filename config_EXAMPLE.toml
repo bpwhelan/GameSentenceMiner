@@ -40,8 +40,11 @@ log-level = -1
 
 [screenshot]
 width = 0 # Desired Width of Screenshot, 0 to disable scaling (Default 0)
+height = 0 # Desired Height of Screenshot, 0 to disable scaling (Default 0)
 quality = 85 # Quality of image, 100 is lossless (Default 85)
 extension = "webp" # Codec of screenshot, Recommend Keeping this as webp (Default webp)
+custom_ffmpeg_settings = '' # overrides quality setting, extension still needed as of right now
+#custom_ffmpeg_settings = '-c:v libaom-av1 -still-picture 1 -crf 15 -b:v 0 -pix_fmt yuv420p10le' # sample avif encoding settings that I might start using
 
 [audio]
 extension = "opus" # Desired Extension/codec of Trimmed Audio, (Default opus)
@@ -52,7 +55,7 @@ reset_hotkey = 'f4' # Hotkey to initiate Offset Updater.
 # Advanced Options for FFMPEG Wizards to re-encode the audio after it's trimmed, here are some sample configs, all using OPUS.
 #ffmpeg_reencode_options = '-c:a libopus -ac 1 -f opus -application voip -apply_phase_inv 0 -af "loudnorm=I=-23:dual_mono=true"' # Downmixes to mono, applies normalization
 #ffmpeg_reencode_options = '-c:a libopus -b:a 30k -ac 1 -f opus -application voip -apply_phase_inv 0 -af "loudnorm=I=-23:dual_mono=true"' # Same as above but downsampled to 30kbps (optimal size for mono)
-#ffmpeg_reencode_options = '-c:a libopus -f opus -af "loudnorm=I=-23"' # Simple loudness normalization
+ffmpeg_reencode_options = '-c:a libopus -f opus -af "loudnorm=I=-23:LRA=7:TP=-2"' # Simple loudness normalization
 
 [obs]
 enabled = true

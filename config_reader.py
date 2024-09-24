@@ -105,8 +105,10 @@ if config:
 
     # screenshot config
     screenshot_width = screenshot_config.get('width', 0)
+    screenshot_height = screenshot_config.get('height', 0)
     screenshot_quality = str(screenshot_config.get('quality', 85))
     screenshot_extension = screenshot_config.get('extension', "webp")
+    screenshot_custom_ffmpeg_settings = screenshot_config.get('custom_ffmpeg_settings', '')
 
     # audio config
     audio_extension = audio_config.get('extension', 'opus')
