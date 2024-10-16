@@ -182,7 +182,6 @@ def main():
 
         try:
             while util.keep_running:
-                print(gametext.previous_line_time)
                 time.sleep(1)
 
         except KeyboardInterrupt:
