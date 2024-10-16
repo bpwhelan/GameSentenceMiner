@@ -1,5 +1,6 @@
 import json
 import tempfile
+import time
 
 import config_reader
 from config_reader import *
@@ -187,8 +188,22 @@ def reencode_file_with_user_config(input_file, user_ffmpeg_options):
         os.remove(temp_file)
         return
 
-    os.replace(temp_file, input_file)
-    logger.info(f'Re-encode Finished!')
+    replace_file_with_retry(temp_file, input_file)
+
+
+def replace_file_with_retry(temp_file, input_file, retries=5, delay=1):
+    for attempt in range(retries):
+        try:
+            os.replace(temp_file, input_file)
+            logger.info(f'Re-encode Finished!')
+            return
+        except OSError as e:
+            if attempt < retries - 1:
+                logger.warning(f"Attempt {attempt + 1}: File still in use. Retrying in {delay} seconds...")
+                time.sleep(delay)
+            else:
+                logger.error(f"Failed to replace the file after {retries} attempts. Error: {e}")
+                raise
 
 
 def trim_audio_by_end_time(input_audio, end_time, output_audio):
