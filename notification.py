@@ -24,12 +24,29 @@ def open_anki_card(note_id):
         print(f"Error connecting to AnkiConnect: {e}")
 
 
-# Send a plyer notification
 def send_notification(tango):
     notification.notify(
         title="Anki Card Updated",
-        message=f"Audio and/or Screenshot added to latest note: {tango}",
-        app_name="VideoGameMiner",
+        message=f"Audio and/or Screenshot added to note: {tango}",
+        app_name="GameSentenceMiner",
+        timeout=5  # Notification disappears after 5 seconds
+    )
+
+
+def send_screenshot_updated(tango):
+    notification.notify(
+        title="Anki Card Updated",
+        message=f"Screenshot updated on note: {tango}",
+        app_name="GameSentenceMiner",
+        timeout=5  # Notification disappears after 5 seconds
+    )
+
+
+def send_screenshot_saved(path):
+    notification.notify(
+        title="Screenshot Saved",
+        message=f"Screenshot saved to : {path}",
+        app_name="GameSentenceMiner",
         timeout=5  # Notification disappears after 5 seconds
     )
 

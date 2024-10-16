@@ -3,9 +3,9 @@ import json
 import urllib.request
 
 import config_reader
+import ffmpeg
 import notification
 from config_reader import *
-from ffmpeg import get_screenshot
 
 audio_in_anki = None
 screenshot_in_anki = None
@@ -19,7 +19,7 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
         if update_audio:
             audio_in_anki = store_media_file(audio_path)
         if update_picture:
-            screenshot = get_screenshot(video_path)
+            screenshot = ffmpeg.get_screenshot(video_path)
             screenshot_in_anki = store_media_file(screenshot)
             if remove_screenshot:
                 os.remove(screenshot)
@@ -49,6 +49,27 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
         notification.send_notification(tango)
     if open_anki_edit:
         notification.open_anki_card(last_note['noteId'])
+
+
+def add_image_to_card(last_note, image_path):
+    global screenshot_in_anki
+    update_picture = overwrite_picture or not last_note['fields'][picture_field]['value']
+
+    if update_picture:
+        screenshot_in_anki = store_media_file(image_path)
+        if remove_screenshot:
+            os.remove(image_path)
+
+    image_html = f"<img src=\"{screenshot_in_anki}\">"
+
+    note = {'id': last_note['noteId'], 'fields': {}}
+
+    if update_picture:
+        note['fields'][picture_field] = image_html
+
+    invoke("updateNoteFields", note=note)
+
+    logger.info(f"UPDATED IMAGE FOR ANKI CARD {last_note['noteId']}")
 
 
 def store_media_file(path):

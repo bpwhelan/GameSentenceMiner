@@ -62,6 +62,11 @@ async def listen_websocket():
             await asyncio.sleep(5)
 
 
+def reset_line_hotkey_pressed():
+    global previous_line_time
+    previous_line_time = datetime.now()
+
+
 def run_websocket_listener():
     asyncio.run(listen_websocket())
 

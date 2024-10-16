@@ -1,8 +1,6 @@
 import json
-import subprocess
 import tempfile
 
-import gametext
 import config_reader
 from config_reader import *
 from util import *
@@ -32,8 +30,35 @@ def get_screenshot(video_file):
     # Run the command
     subprocess.run(ffmpeg_command)
 
-
     logger.info(f"Screenshot saved to: {output_image}")
+
+    return output_image
+
+
+def process_image(image_file):
+    output_image = make_unique_file_name(
+        screenshot_destination + config_reader.current_game.replace(" ", "") + f".{screenshot_extension}")
+
+    # FFmpeg command to process the input image
+    ffmpeg_command = ffmpeg_base_command_list + [
+        "-i", image_file
+    ]
+
+    if screenshot_custom_ffmpeg_settings:
+        ffmpeg_command.extend(screenshot_custom_ffmpeg_settings.split())
+    else:
+        ffmpeg_command.extend(["-compression_level", "6", "-q:v", screenshot_quality])
+
+    if screenshot_width or screenshot_height:
+        ffmpeg_command.extend(["-vf", f"scale={screenshot_width or -1}:{screenshot_height or -1}"])
+
+    logger.debug(f"FFMPEG Image Command: {ffmpeg_command}")
+
+    ffmpeg_command.append(output_image)
+    # Run the command
+    subprocess.run(ffmpeg_command)
+
+    logger.info(f"Processed image saved to: {output_image}")
 
     return output_image
 
@@ -91,7 +116,7 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
 
     logger.debug(command)
 
-    subprocess.call(command, shell=True)
+    subprocess.run(command)
 
     return trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line_time)
 
@@ -155,7 +180,12 @@ def reencode_file_with_user_config(input_file, user_ffmpeg_options):
     command = f"{ffmpeg_base_command} -i \"{input_file}\" -map 0:a {user_ffmpeg_options} \"{temp_file}\""
 
     logger.debug(command)
-    subprocess.call(command, shell=True)
+    process = subprocess.run(command)
+
+    if process.returncode != 0:
+        logger.error("Re-encode failed, using original audio")
+        os.remove(temp_file)
+        return
 
     os.replace(temp_file, input_file)
     logger.info(f'Re-encode Finished!')
@@ -163,9 +193,9 @@ def reencode_file_with_user_config(input_file, user_ffmpeg_options):
 
 def trim_audio_by_end_time(input_audio, end_time, output_audio):
     command = f"{ffmpeg_base_command} -i \"{input_audio}\" -to {end_time} -c copy \"{output_audio}\""
-    subprocess.call(command, shell=True)
+    subprocess.run(command)
 
 
 def convert_audio_to_wav(input_audio, output_wav):
     command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 \"{output_wav}\""
-    subprocess.call(command, shell=True)
+    subprocess.run(command)

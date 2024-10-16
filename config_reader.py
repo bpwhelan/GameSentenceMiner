@@ -67,7 +67,8 @@ if config:
     obs_config = config.get('obs', {})
     anki_custom_fields = config.get("anki_custom_fields", {})
     anki_overwrites_config = config.get('anki_overwrites', {})
-
+    websocket_config = config.get('websocket', {})
+    hotkey_config = config.get('hotkeys', {})
 
     #general config
     console_log_level = general_config.get('console_log_level', 'INFO')
@@ -109,13 +110,13 @@ if config:
     screenshot_quality = str(screenshot_config.get('quality', 85))
     screenshot_extension = screenshot_config.get('extension', "webp")
     screenshot_custom_ffmpeg_settings = screenshot_config.get('custom_ffmpeg_settings', '')
+    screenshot_hotkey_save_to_anki = screenshot_config.get('screenshot_hotkey_save_to_anki', True)
 
     # audio config
     audio_extension = audio_config.get('extension', 'opus')
     audio_beginning_offset = audio_config.get('beginning_offset', 0.0)
     audio_end_offset = audio_config.get('end_offset', 0.5)
     vosk_trim_beginning = audio_config.get('vosk_trim_beginning', False)
-    offset_reset_hotkey = audio_config.get('offset_reset_hotkey', 'f4')
     ffmpeg_reencode_options = audio_config.get('ffmpeg_reencode_options', '')
 
     # Parse OBS settings from the config
@@ -128,13 +129,17 @@ if config:
     get_game_from_scene = obs_config.get('get_game_from_scene', False)
 
     # websocket settings
-    websocket_config = config.get('websocket', {})
     websocket_enabled = websocket_config.get('enabled', True)
     websocket_uri = websocket_config.get('uri') or websocket_config.get('url', 'localhost:6677')
 
     # Overrides
     overwrite_audio = anki_config.get("override_audio") or anki_overwrites_config.get('overwrite_audio', False)
     overwrite_picture = anki_overwrites_config.get('overwrite_picture', True)
+
+    # hotkeys
+    offset_reset_hotkey = hotkey_config.get('reset_offset') or audio_config.get('offset_reset_hotkey', 'f4')
+    reset_line_hotkey = hotkey_config.get('reset_line', 'f5')
+    take_screenshot_hotkey = hotkey_config.get('take_screenshot', 'f6')
 
     if backfill_audio and obs_full_auto_mode:
         print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")

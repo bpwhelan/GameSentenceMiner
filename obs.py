@@ -2,7 +2,7 @@ import threading
 import time
 
 import requests
-from obswebsocket import obsws, requests as obs_requests
+import obsws_python as obs
 
 import anki
 import config_reader
@@ -12,7 +12,7 @@ from config_reader import *
 # Global variables to track state
 previous_note_ids = set()
 first_run = True
-obs_ws: obsws
+obs_ws: obs.ReqClient = None
 
 
 def connect_to_obs():
@@ -20,8 +20,7 @@ def connect_to_obs():
     # Connect to OBS WebSocket
     if obs_enabled:
         try:
-            obs_ws = obsws(OBS_HOST, OBS_PORT, OBS_PASSWORD)
-            obs_ws.connect()
+            obs_ws = obs.ReqClient(host=OBS_HOST, port=OBS_PORT, password=OBS_PASSWORD)
             print("Connected to OBS WebSocket.")
         except Exception as conn_exception:
             print(f"Error connecting to OBS WebSocket: {conn_exception}")
@@ -29,16 +28,17 @@ def connect_to_obs():
 
 # Disconnect from OBS WebSocket
 def disconnect_from_obs():
+    global obs_ws
     if obs_ws:
         obs_ws.disconnect()
-        logger.debug("Disconnected from OBS WebSocket.")
+        obs_ws = None
+        print("Disconnected from OBS WebSocket.")
 
 
 # Start replay buffer
 def start_replay_buffer():
     try:
-        info = obs_ws.call(obs_requests.StartReplayBuffer())
-        logger.info("Replay buffer started.")
+        obs_ws.start_replay_buffer()
     except Exception as e:
         print(f"Error starting replay buffer: {e}")
 
@@ -46,8 +46,8 @@ def start_replay_buffer():
 # Stop replay buffer
 def stop_replay_buffer():
     try:
-        obs_ws.call(obs_requests.StopReplayBuffer())
-        logger.info("Replay buffer stopped.")
+        obs_ws.stop_replay_buffer()
+        print("Replay buffer stopped.")
     except Exception as e:
         print(f"Error stopping replay buffer: {e}")
 
@@ -70,11 +70,7 @@ def get_note_ids():
 # Save the current replay buffer
 def save_replay_buffer():
     try:
-        response = obs_ws.call(obs_requests.SaveReplayBuffer())
-        if response.status:
-            print("Replay buffer saved successfully.")
-        else:
-            print("Failed to save replay buffer.")
+        obs_ws.save_replay_buffer()
     except Exception as e:
         print(f"Error saving replay buffer: {e}")
 
@@ -99,7 +95,7 @@ def update_new_card():
     with util.lock:
         print(f"use previous audio: {use_prev_audio}")
         if config_reader.get_game_from_scene:
-            config_reader.current_game = get_game_from_scene()
+            config_reader.current_game = get_current_scene()
         if use_prev_audio:
             anki.update_anki_card(last_card, reuse_audio=True)
         else:
@@ -118,13 +114,21 @@ def monitor_anki():
         print("Stopped Checking For Anki Cards...")
 
 
-def get_game_from_scene():
+def get_current_scene():
     try:
-        response = obs_ws.call(obs_requests.GetCurrentProgramScene())
-        data = response.datain
-        return data.get('sceneName')
+        response = obs_ws.get_current_program_scene()
+        return response.scene_name
     except Exception as e:
         print(f"Couldn't get scene: {e}")
+
+
+def get_source_from_scene(scene_name):
+    try:
+        response = obs_ws.get_scene_item_list(scene_name)
+        return response.scene_items[0]['sourceName']
+    except Exception as e:
+        print(f"Error getting source from scene: {e}")
+        return None
 
 
 def start_monitoring_anki():
@@ -133,3 +137,16 @@ def start_monitoring_anki():
         obs_thread = threading.Thread(target=monitor_anki)
         obs_thread.daemon = True  # Ensures the thread will exit when the main program exits
         obs_thread.start()
+
+
+def get_screenshot():
+    try:
+        screenshot = util.make_unique_file_name(os.path.abspath(config_reader.temp_directory) + '/screenshot.png')
+        current_source = get_source_from_scene(get_current_scene())
+        if not current_source:
+            print("No active scene found.")
+            return
+        obs_ws.save_source_screenshot(current_source, 'png', screenshot, None, None, 100)
+        return screenshot
+    except Exception as e:
+        print(f"Error getting screenshot: {e}")

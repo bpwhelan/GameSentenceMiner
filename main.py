@@ -17,7 +17,6 @@ import obs
 import offset_updater
 import util
 import vosk_helper
-from anki import update_anki_card, get_last_anki_card
 from config_reader import *
 from ffmpeg import get_audio_and_trim
 from util import *
@@ -62,7 +61,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def convert_to_audio(video_path):
         with util.lock:
             util.use_previous_audio = True
-            last_note = get_last_anki_card()
+            last_note = anki.get_last_anki_card()
             line_time, next_line_time = get_line_timing(last_note)
             if last_note:
                 logger.debug(json.dumps(last_note))
@@ -74,20 +73,20 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
             trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
 
-            output_audio = make_unique_file_name(f"{audio_destination}{config_reader.current_game}.{audio_extension}")
+            output_audio = make_unique_file_name(f"{audio_destination}{config_reader.current_game.replace(' ', '')}.{audio_extension}")
             should_update_audio = True
             if do_vosk_postprocessing:
                 should_update_audio = process_audio_with_vosk(trimmed_audio, output_audio)
             else:
                 shutil.copy2(trimmed_audio, output_audio)
 
-            if ffmpeg_reencode_options:
+            if ffmpeg_reencode_options and os.path.exists(output_audio):
                 ffmpeg.reencode_file_with_user_config(output_audio, ffmpeg_reencode_options)
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 try:
                     if update_anki and last_note:
-                        update_anki_card(last_note, audio_path=output_audio, video_path=video_path, tango=tango,
+                        anki.update_anki_card(last_note, audio_path=output_audio, video_path=video_path, tango=tango,
                                          should_update_audio=should_update_audio)
                     else:
                         notification.send_audio_generated_notification(output_audio)
@@ -124,11 +123,40 @@ def initialize():
                 print(f"Deleting directory: {file_path}")
                 shutil.rmtree(file_path)
     vosk_helper.get_vosk_model()
+    obs.connect_to_obs()
     obs.start_monitoring_anki()
     if obs_enabled and obs_start_buffer:
         obs.connect_to_obs()
         obs.start_replay_buffer()
+        config_reader.current_game = obs.get_current_scene()
     gametext.start_text_monitor()
+
+
+def register_hotkeys():
+    print(f"Press {offset_reset_hotkey.upper()} to update the audio offsets.")
+    keyboard.add_hotkey(offset_reset_hotkey, offset_updater.prompt_for_offset_updates)
+    keyboard.add_hotkey(reset_line_hotkey, gametext.reset_line_hotkey_pressed)
+    keyboard.add_hotkey(take_screenshot_hotkey, get_screenshot)
+
+
+def get_screenshot():
+    image = obs.get_screenshot()
+    encoded_image = ffmpeg.process_image(image)
+    if update_anki and screenshot_hotkey_save_to_anki:
+        last_note = anki.get_last_anki_card()
+        if last_note:
+            logger.debug(json.dumps(last_note))
+        if backfill_audio:
+            last_note = anki.get_cards_by_sentence(gametext.previous_line)
+        if last_note:
+            anki.add_image_to_card(last_note, encoded_image)
+            notification.send_screenshot_updated(last_note['fields'][word_field]['value'])
+            if open_anki_edit:
+                notification.open_anki_card(last_note['noteId'])
+        else:
+            notification.send_screenshot_saved(encoded_image)
+    else:
+        notification.send_screenshot_saved(encoded_image)
 
 
 def main():
@@ -142,11 +170,19 @@ def main():
         observer.start()
 
         print("Script Initialized. Happy Mining!")
-        print(f"Press {offset_reset_hotkey.upper()} to update the audio offsets.")
-        keyboard.add_hotkey(offset_reset_hotkey, offset_updater.prompt_for_offset_updates)
+        register_hotkeys()
+
+        # game_process_id = get_process_id_by_title(config_reader.current_game)
+        #
+        # game_script = find_script_for_game(config_reader.current_game)
+        #
+        # agent_thread = threading.Thread(target=run_agent_and_hook,
+        #                                 args=(game_process_id, game_script))
+        # agent_thread.start()
 
         try:
             while util.keep_running:
+                print(gametext.previous_line_time)
                 time.sleep(1)
 
         except KeyboardInterrupt:
@@ -158,6 +194,7 @@ def main():
             obs.disconnect_from_obs()
         observer.stop()
         observer.join()
+        obs.disconnect_from_obs()
 
 
 if __name__ == "__main__":

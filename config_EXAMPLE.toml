@@ -45,13 +45,13 @@ quality = 85 # Quality of image, 100 is lossless (Default 85)
 extension = "webp" # Codec of screenshot, Recommend Keeping this as webp (Default webp)
 custom_ffmpeg_settings = '' # overrides quality setting, extension still needed as of right now
 #custom_ffmpeg_settings = '-c:v libaom-av1 -still-picture 1 -crf 15 -b:v 0 -pix_fmt yuv420p10le' # sample avif encoding settings that I might start using
+screenshot_hotkey_save_to_anki = true
 
 [audio]
 extension = "opus" # Desired Extension/codec of Trimmed Audio, (Default opus)
 beginning_offset = 0.0 # Negative Value = More time at the beginning (i.e. -1 is 1 extra second at the beginning)
 end_offset = 0.5 # Positive Value = More time at the end (i.e. 1 is 1 extra second at the end)
 vosk_trim_beginning = false # Only change If you run into issues with clipboard timing, add a negative beginning_offset as well, Warning: You may end up with audio from previous line depending on your setup!
-reset_hotkey = 'f4' # Hotkey to initiate Offset Updater.
 # Advanced Options for FFMPEG Wizards to re-encode the audio after it's trimmed, here are some sample configs, all using OPUS.
 #ffmpeg_reencode_options = '-c:a libopus -ac 1 -f opus -application voip -apply_phase_inv 0 -af "loudnorm=I=-23:dual_mono=true"' # Downmixes to mono, applies normalization
 #ffmpeg_reencode_options = '-c:a libopus -b:a 30k -ac 1 -f opus -application voip -apply_phase_inv 0 -af "loudnorm=I=-23:dual_mono=true"' # Same as above but downsampled to 30kbps (optimal size for mono)
@@ -77,3 +77,8 @@ overwrite_audio = false # Use this if you only have one audio field, and want to
 #[anki_custom_fields]
 #IsTargetedSentenceCard = 1
 #Comment = "Nice!"
+
+[hotkeys]
+reset_offset = 'f4' # Hotkey to initiate Offset Updater.
+reset_line = 'F5' # Hotkey to force GameSentenceMiner to think a new line of Dialogue has been played (this should be useful if replaying audio from logs)
+take_screenshot = 'F6' # Hotkey to get a screenshot of the current scene in obs, will attempt to update the anki card if screenshot.screenshot_hotkey_save_to_anki = true
