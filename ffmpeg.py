@@ -185,7 +185,6 @@ def reencode_file_with_user_config(input_file, user_ffmpeg_options):
 
     if process.returncode != 0:
         logger.error("Re-encode failed, using original audio")
-        os.remove(temp_file)
         return
 
     replace_file_with_retry(temp_file, input_file)

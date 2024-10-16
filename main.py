@@ -17,6 +17,7 @@ import obs
 import offset_updater
 import util
 import vosk_helper
+import whisper_helper
 from config_reader import *
 from ffmpeg import get_audio_and_trim
 from util import *
@@ -76,7 +77,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
             output_audio = make_unique_file_name(f"{audio_destination}{config_reader.current_game.replace(' ', '')}.{audio_extension}")
             should_update_audio = True
             if do_vosk_postprocessing:
-                should_update_audio = process_audio_with_vosk(trimmed_audio, output_audio)
+                if do_whisper_instead:
+                    should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio, output_audio)
+                else:
+                    should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, output_audio)
             else:
                 shutil.copy2(trimmed_audio, output_audio)
 
@@ -122,13 +126,16 @@ def initialize():
             elif filename.is_dir():
                 print(f"Deleting directory: {file_path}")
                 shutil.rmtree(file_path)
-    vosk_helper.get_vosk_model()
-    obs.connect_to_obs()
-    obs.start_monitoring_anki()
-    if obs_enabled and obs_start_buffer:
+    if do_vosk_postprocessing:
+        vosk_helper.get_vosk_model()
+        if do_whisper_instead:
+            whisper_helper.initialize_whisper_model()
+    if obs_enabled:
         obs.connect_to_obs()
-        obs.start_replay_buffer()
+        if obs_start_buffer:
+            obs.start_replay_buffer()
         config_reader.current_game = obs.get_current_scene()
+        obs.start_monitoring_anki()
     gametext.start_text_monitor()
 
 
@@ -188,12 +195,12 @@ def main():
             util.keep_running = False
             observer.stop()
 
-        if obs_enabled and obs_start_buffer:
-            obs.stop_replay_buffer()
+        if obs_enabled:
+            if obs_start_buffer:
+                obs.stop_replay_buffer()
             obs.disconnect_from_obs()
         observer.stop()
         observer.join()
-        obs.disconnect_from_obs()
 
 
 if __name__ == "__main__":
