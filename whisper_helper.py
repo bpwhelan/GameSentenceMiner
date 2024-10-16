@@ -8,14 +8,13 @@ from config_reader import *
 
 ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
-whisper_model_name = 'base'  # Choose the appropriate Whisper model (tiny, base, small, medium, large)
 whisper_model = None
 
 
-# Convert audio to 16kHz mono WAV (Whisper expects this format)
-def convert_audio_to_wav(input_audio, output_wav):
-    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 \"{output_wav}\""
-    subprocess.run(command)
+# # Convert audio to 16kHz mono WAV (Whisper expects this format)
+# def convert_audio_to_wav(input_audio, output_wav):
+#     command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 \"{output_wav}\""
+#     subprocess.run(command)
 
 
 # Function to download and load the Whisper model
@@ -30,26 +29,42 @@ def load_whisper_model():
 # Use Whisper to detect voice activity with timestamps in the audio
 def detect_voice_with_whisper(input_audio):
     # Convert the audio to 16kHz mono WAV
-    temp_wav = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix='.wav').name
-    convert_audio_to_wav(input_audio, temp_wav)
+    # temp_wav = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix='.wav').name
+    # convert_audio_to_wav(input_audio, temp_wav)
 
-    # Load the Whisper model
+    # Make sure Whisper is loaded
     load_whisper_model()
 
     # Transcribe the audio using Whisper
-    result = whisper_model.transcribe(temp_wav, language='ja')
+    result = whisper_model.transcribe(input_audio, word_timestamps=True, language='ja')
 
     voice_activity = []
 
+    # print(result)
+
+    # # Process the segments to extract tokens, timestamps, and confidence
+    # for segment in result['segments']:
+    #     print(segment)
+    #         voice_activity.append({
+    #             'text': segment['text'],
+    #             'start': segment['start'],
+    #             'end': segment['end'],
+    #             'confidence': segment.get('probability', 1.0)  # Default confidence to 1.0 if not available
+    #         })
+
     # Process the segments to extract tokens, timestamps, and confidence
     for segment in result['segments']:
-        print(segment)
-        voice_activity.append({
-            'text': segment['text'],
-            'start': segment['start'],
-            'end': segment['end'],
-            'confidence': segment.get('confidence', 1.0)  # Default confidence to 1.0 if not available
-        })
+        # print(segment)
+        for word in segment['words']:
+            confidence = word.get('probability', 1.0)
+            if confidence > .1:
+                # print(word)
+                voice_activity.append({
+                    'text': word['word'],
+                    'start': word['start'],
+                    'end': word['end'],
+                    'confidence': word.get('probability', 1.0)  # Default confidence to 1.0 if not available
+                })
     # Analyze the detected words to decide whether to use the audio
     should_use = False
     unique_words = set(word['text'] for word in voice_activity)
@@ -68,16 +83,18 @@ def trim_audio(input_audio, start_time, end_time, output_audio):
     command = ffmpeg_base_command_list.copy()
 
     if vosk_trim_beginning:
-        command.extend(['-ss', str(start_time)])
+        command.extend(['-ss', f"{start_time:.2f}"])
 
     command.extend([
+        '-to', f"{end_time:.2f}",
         '-i', input_audio,
-        '-to', str(end_time),
         '-c', 'copy',
         output_audio
     ])
 
-    subprocess.call(command)
+    print(command)
+
+    subprocess.run(command)
 
 
 # Example usage of Whisper with trimming

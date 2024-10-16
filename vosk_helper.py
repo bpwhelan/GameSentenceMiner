@@ -133,16 +133,16 @@ def trim_audio(input_audio, start_time, end_time, output_audio):
     command = ffmpeg_base_command_list.copy()
 
     if vosk_trim_beginning:
-        command.extend(['-ss', str(start_time)])
+        command.extend(['-ss', f"{start_time:.2f}"])
 
     command.extend([
+        '-to', f"{end_time:.2f}",
         '-i', input_audio,
-        '-to', str(end_time),
         '-c', 'copy',
         output_audio
     ])
 
-    subprocess.call(command)
+    subprocess.run(command)
 
 
 # Example usage of Vosk with trimming

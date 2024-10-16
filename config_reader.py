@@ -104,6 +104,7 @@ if config:
     # Vosk config
     vosk_model_url = vosk_config.get('url', "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip")
     vosk_log_level = vosk_config.get('log-level', -1)
+    whisper_model_name = vosk_config.get('whisper_model', 'base')
 
     # screenshot config
     screenshot_width = screenshot_config.get('width', 0)

@@ -38,6 +38,7 @@ url = "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip"
 # If you have a high-performance PC, with 16GB+ of RAM, you can uncomment and use this model:
 # url = "https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip"
 log-level = -1
+whisper_model = 'base' # Only change if you know what you are doing.
 
 [screenshot]
 width = 0 # Desired Width of Screenshot, 0 to disable scaling (Default 0)
