@@ -14,4 +14,4 @@ keyboard~=0.13.5
 websockets~=13.0.1
 obsws_python~=1.7.0
 numpy~=2.0.2
-openai-whisper~=20240930
+openai-whisper
