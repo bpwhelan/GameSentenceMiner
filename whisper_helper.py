@@ -1,5 +1,6 @@
 import subprocess
 import tempfile
+import warnings
 
 import whisper
 
@@ -35,12 +36,15 @@ def detect_voice_with_whisper(input_audio):
     # Make sure Whisper is loaded
     load_whisper_model()
 
+    logger.info('transcribing audio...')
+
     # Transcribe the audio using Whisper
-    result = whisper_model.transcribe(input_audio, word_timestamps=True, language='ja')
+    with warnings.catch_warnings(action="ignore"):
+        result = whisper_model.transcribe(input_audio, word_timestamps=True, language='ja')
 
     voice_activity = []
 
-    # print(result)
+    logger.debug(result)
 
     # # Process the segments to extract tokens, timestamps, and confidence
     # for segment in result['segments']:
@@ -54,11 +58,11 @@ def detect_voice_with_whisper(input_audio):
 
     # Process the segments to extract tokens, timestamps, and confidence
     for segment in result['segments']:
-        # print(segment)
+        logger.debug(segment)
         for word in segment['words']:
             confidence = word.get('probability', 1.0)
             if confidence > .1:
-                # print(word)
+                logger.debug(word)
                 voice_activity.append({
                     'text': word['word'],
                     'start': word['start'],
@@ -72,7 +76,7 @@ def detect_voice_with_whisper(input_audio):
         should_use = True
 
     if not should_use:
-        return None, 0
+        return None
 
     # Return the detected voice activity and the total duration
     return voice_activity
@@ -83,7 +87,7 @@ def trim_audio(input_audio, start_time, end_time, output_audio):
     command = ffmpeg_base_command_list.copy()
 
     if vosk_trim_beginning:
-        command.extend(['-ss', f"{start_time:.2f}"])
+        command.extend(['-ss', f"{start_time - .25:.2f}"])
 
     command.extend([
         '-to', f"{end_time:.2f}",
