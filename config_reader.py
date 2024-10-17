@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from os.path import expanduser
@@ -5,7 +6,7 @@ from os.path import expanduser
 import toml
 
 # Define the path to your config.toml file
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.toml')
+CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.json')
 temp_directory = ''
 
 
@@ -35,23 +36,46 @@ def save_updated_offsets_to_file():
         print(f"Error saving updated offsets: {e}")
 
 
+TOML_CONFIG_FILE = 'config.toml'
+
 def load_config():
-    try:
-        with open(CONFIG_FILE, 'r') as file:
-            config_file = toml.load(file)
+    if os.path.exists(CONFIG_FILE):
+        # If the JSON config exists, load it
+        try:
+            with open(CONFIG_FILE, 'r') as file:
+                config_file = json.load(file)
 
-            # Expanding user home paths in case "~" is used
-            config_file['paths']['folder_to_watch'] = expanduser(config_file['paths']['folder_to_watch'])
-            config_file['paths']['audio_destination'] = expanduser(config_file['paths']['audio_destination'])
-            config_file['paths']['screenshot_destination'] = expanduser(config_file['paths']['screenshot_destination'])
+                # Expanding user home paths in case "~" is used
+                config_file['paths']['folder_to_watch'] = expanduser(config_file['paths'].get('folder_to_watch', '~/Videos/OBS'))
+                config_file['paths']['audio_destination'] = expanduser(config_file['paths'].get('audio_destination', '~/Videos/OBS/Audio/'))
+                config_file['paths']['screenshot_destination'] = expanduser(config_file['paths'].get('screenshot_destination', '~/Videos/OBS/SS/'))
 
-            return config_file
-    except FileNotFoundError:
-        logger.error(f"Configuration file {CONFIG_FILE} not found!")
-        return None
-    except toml.TomlDecodeError as e:
-        logger.error(f"Error parsing {CONFIG_FILE}: {e}")
-        return None
+                return config_file
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing {CONFIG_FILE}: {e}")
+            return None
+    else:
+        # If the JSON config doesn't exist, load from TOML and write to JSON
+        try:
+            with open(TOML_CONFIG_FILE, 'r') as file:
+                toml_config = toml.load(file)
+
+                # Write the TOML data to JSON file
+                with open(CONFIG_FILE, 'w') as json_file:
+                    json.dump(toml_config, json_file, indent=4)
+
+                toml_config['paths']['folder_to_watch'] = expanduser(toml_config['paths'].get('folder_to_watch', '~/Videos/OBS'))
+                toml_config['paths']['audio_destination'] = expanduser(toml_config['paths'].get('audio_destination', '~/Videos/OBS/Audio/'))
+                toml_config['paths']['screenshot_destination'] = expanduser(toml_config['paths'].get('screenshot_destination', '~/Videos/OBS/SS/'))
+
+                print(f"Configuration file created from {TOML_CONFIG_FILE}.")
+                return toml_config
+        except FileNotFoundError:
+            print(f"Configuration file {TOML_CONFIG_FILE} not found!")
+            return None
+        except toml.TomlDecodeError as e:
+            print(f"Error parsing {TOML_CONFIG_FILE}: {e}")
+            return None
 
 
 config = load_config()
@@ -73,6 +97,7 @@ if config:
     #general config
     console_log_level = general_config.get('console_log_level', 'INFO')
     file_log_level = general_config.get('file_log_level', 'DEBUG')
+    whisper_model_name = general_config.get('whisper_model', 'base')
 
     folder_to_watch = path_config.get('folder_to_watch', expanduser("~/Videos/OBS"))
     audio_destination = path_config.get('audio_destination', expanduser("~/Videos/OBS/Audio/"))
@@ -95,16 +120,16 @@ if config:
     remove_audio = feature_config.get('remove_audio', False)
     remove_screenshot = feature_config.get('remove_screenshot', False)
     update_anki = feature_config.get('update_anki', True)
-    act_on_new_card_in_anki = feature_config.get('full_auto_mode', False)
+    obs_full_auto_mode = feature_config.get('full_auto', False)
     notify_on_update = feature_config.get('notify_on_update', True)
     open_anki_edit = feature_config.get('open_anki_edit', False)
     backfill_audio = feature_config.get('backfill_audio', False)
-    do_whisper_instead = feature_config.get('do_whisper_postprocessing_instead', False)
+    do_whisper_instead = feature_config.get('do_whisper_postprocessing_instead', True)
 
     # Vosk config
     vosk_model_url = vosk_config.get('url', "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip")
     vosk_log_level = vosk_config.get('log-level', -1)
-    whisper_model_name = vosk_config.get('whisper_model', 'base')
+
 
     # screenshot config
     screenshot_width = screenshot_config.get('width', 0)
@@ -124,7 +149,6 @@ if config:
     # Parse OBS settings from the config
     obs_enabled = obs_config.get('enabled', True)
     obs_start_buffer = obs_config.get('start_buffer', True)
-    obs_full_auto_mode = obs_config.get('full_auto_mode', False)
     OBS_HOST = obs_config.get('host', "localhost")
     OBS_PORT = obs_config.get('port', 4455)
     OBS_PASSWORD = obs_config.get('password', "your_password")
@@ -165,3 +189,5 @@ if config:
 
 else:
     raise Exception("No config found")
+
+print(config)
