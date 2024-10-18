@@ -23,7 +23,8 @@ def load_whisper_model():
     global whisper_model
     if whisper_model is None:
         logger.info(f"Loading Whisper model '{whisper_model_name}'... This may take a while.")
-        whisper_model = whisper.load_model(whisper_model_name)
+        with warnings.catch_warnings(action="ignore"):
+            whisper_model = whisper.load_model(whisper_model_name)
         logger.info("Whisper model loaded.")
 
 

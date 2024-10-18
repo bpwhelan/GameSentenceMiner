@@ -1,5 +1,6 @@
 import logging
 import os
+from logging.handlers import RotatingFileHandler
 from os.path import expanduser
 
 import toml
@@ -147,21 +148,27 @@ if config:
         print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
         exit(1)
 
-    # Setup Logs
-    logger = logging.getLogger("TrimAudio")
-    logging_format = logging.Formatter(u'%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger("GameSentenceMiner")
+    logger.setLevel(logging.DEBUG)  # Set the base level to DEBUG so that all messages are captured
 
-    file_handler = logging.FileHandler("anki_script.log", encoding='utf-8')
-    file_handler.setLevel(file_log_level)
-    file_handler.setFormatter(logging_format)
-
+    # Create console handler with level INFO
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(console_log_level)  # You can set the desired log level for console output
-    console_handler.setFormatter(logging_format)
+    console_handler.setLevel(logging.INFO)
 
-    logger.addHandler(file_handler)
+    # Create rotating file handler with level DEBUG
+    file_handler = RotatingFileHandler("gamesentenceminer.log", maxBytes=10_000_000, backupCount=5, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+
+    # Create a formatter
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # Add formatter to handlers
+    console_handler.setFormatter(formatter)
+    file_handler.setFormatter(formatter)
+
+    # Add handlers to the logger
     logger.addHandler(console_handler)
-    logger.setLevel(logging.INFO)
+    logger.addHandler(file_handler)
 
 else:
     raise Exception("No config found")
