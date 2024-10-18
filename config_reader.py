@@ -156,7 +156,7 @@ if config:
     console_handler.setLevel(logging.INFO)
 
     # Create rotating file handler with level DEBUG
-    file_handler = RotatingFileHandler("gamesentenceminer.log", maxBytes=10_000_000, backupCount=5, encoding='utf-8')
+    file_handler = RotatingFileHandler("gamesentenceminer.log", maxBytes=10_000_000, backupCount=2, encoding='utf-8')
     file_handler.setLevel(logging.DEBUG)
 
     # Create a formatter
