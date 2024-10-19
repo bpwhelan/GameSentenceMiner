@@ -65,6 +65,7 @@ async def listen_websocket():
 def reset_line_hotkey_pressed():
     global previous_line_time
     previous_line_time = datetime.now()
+    util.use_previous_audio = False
 
 
 def run_websocket_listener():

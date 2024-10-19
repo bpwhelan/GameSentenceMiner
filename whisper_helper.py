@@ -2,7 +2,8 @@ import subprocess
 import tempfile
 import warnings
 
-import whisper
+import stable_whisper as whisper
+from stable_whisper import WhisperResult
 
 import config_reader
 from config_reader import *
@@ -41,35 +42,42 @@ def detect_voice_with_whisper(input_audio):
 
     # Transcribe the audio using Whisper
     with warnings.catch_warnings(action="ignore"):
-        result = whisper_model.transcribe(input_audio, word_timestamps=True, language='ja')
+        result: WhisperResult = whisper_model.transcribe(input_audio, language='ja', no_speech_threshold=.5)
 
     voice_activity = []
 
-    logger.debug(result)
-
-    # # Process the segments to extract tokens, timestamps, and confidence
-    # for segment in result['segments']:
-    #     print(segment)
-    #         voice_activity.append({
-    #             'text': segment['text'],
-    #             'start': segment['start'],
-    #             'end': segment['end'],
-    #             'confidence': segment.get('probability', 1.0)  # Default confidence to 1.0 if not available
-    #         })
+    logger.debug(result.to_dict())
 
     # Process the segments to extract tokens, timestamps, and confidence
-    for segment in result['segments']:
-        logger.debug(segment)
-        for word in segment['words']:
-            confidence = word.get('probability', 1.0)
-            if confidence > .1:
-                logger.debug(word)
-                voice_activity.append({
-                    'text': word['word'],
-                    'start': word['start'],
-                    'end': word['end'],
-                    'confidence': word.get('probability', 1.0)  # Default confidence to 1.0 if not available
-                })
+    for segment in result.segments:
+        logger.debug(segment.to_dict())
+        if segment.no_speech_prob < .50:
+            for word in segment.words:
+                logger.debug(word.to_dict())
+                confidence = word.probability
+                if confidence > .1:
+                    logger.debug(word)
+                    voice_activity.append({
+                        'text': word.word,
+                        'start': word.start,
+                        'end': word.end,
+                        'confidence': word.probability
+                    })
+
+
+    # Process the segments to extract tokens, timestamps, and confidence
+    # for segment in result['segments']:
+    #     logger.debug(segment)
+    #     for word in segment['words']:
+    #         confidence = word.get('probability', 1.0)
+    #         if confidence > .1:
+    #             logger.debug(word)
+    #             voice_activity.append({
+    #                 'text': word['word'],
+    #                 'start': word['start'],
+    #                 'end': word['end'],
+    #                 'confidence': word.get('probability', 1.0)  # Default confidence to 1.0 if not available
+    #             })
     # Analyze the detected words to decide whether to use the audio
     should_use = False
     unique_words = set(word['text'] for word in voice_activity)
