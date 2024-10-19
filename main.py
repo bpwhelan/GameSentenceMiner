@@ -1,6 +1,7 @@
 import json
 import re
 import shutil
+import sys
 import tempfile
 import time
 import keyboard
@@ -9,6 +10,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 import anki
+import config_gui
 import ffmpeg
 import gametext
 import config_reader
@@ -107,6 +109,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 
 def initialize():
+    gametext.start_text_monitor()
     if not os.path.exists(folder_to_watch):
         os.mkdir(folder_to_watch)
     if not os.path.exists(screenshot_destination):
@@ -118,13 +121,9 @@ def initialize():
     else:
         for filename in os.scandir('temp_files'):
             file_path = os.path.join('temp_files', filename.name)
-            print(f"Processing: {file_path}")
-
             if filename.is_file() or filename.is_symlink():
-                print(f"Deleting file or symlink: {file_path}")
                 os.remove(file_path)
             elif filename.is_dir():
-                print(f"Deleting directory: {file_path}")
                 shutil.rmtree(file_path)
     if do_vosk_postprocessing:
         vosk_helper.get_vosk_model()
@@ -136,7 +135,6 @@ def initialize():
             obs.start_replay_buffer()
         config_reader.current_game = obs.get_current_scene()
         obs.start_monitoring_anki()
-    gametext.start_text_monitor()
 
 
 def register_hotkeys():
@@ -187,8 +185,23 @@ def main():
         #                                 args=(game_process_id, game_script))
         # agent_thread.start()
 
+        print("Enter \"config\" to open the config gui, the script will restart after the gui is closed")
         try:
             while util.keep_running:
+                command = input()
+                if command == 'config':
+                    result = subprocess.run([sys.executable, "config_gui.py"])
+                    if result.returncode == 0:
+                        print("ATTEMPTING SCRIPT RESTART WITH NEW SETTINGS")
+                        print()
+                        print('─' * 50)
+                        print()
+                        observer.stop()
+                        observer.join()
+                        main()
+                    else:
+                        print("settings not saved, not restarting script!")
+
                 time.sleep(1)
 
         except KeyboardInterrupt:

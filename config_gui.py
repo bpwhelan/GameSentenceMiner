@@ -8,6 +8,8 @@ import toml
 
 TOML_CONFIG_FILE = 'config.toml'
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.json')
+settings_saved = False
+
 
 class HoverInfoWidget:
     def __init__(self, parent, text, row, column, padx=5, pady=2):
@@ -35,13 +37,15 @@ class HoverInfoWidget:
 
 class ConfigApp:
     def __init__(self, root):
+        global settings_saved
+        settings_saved = False
         self.root = root
         self.root.title('GameSentenceMiner Configuration')
 
-        # Customize the style for dark mode
-        style = ttk.Style()
-        style.theme_use('darkly')
-        style.configure('TNotebook.Tab', padding=[10, 10], font=('Helvetica', 10))
+        # # Customize the style for dark mode
+        # style = ttk.Style()
+        # style.theme_use('darkly')
+        # style.configure('TNotebook.Tab', padding=[10, 10], font=('Helvetica', 10))
 
         self.settings = self.load_settings()
 
@@ -59,6 +63,7 @@ class ConfigApp:
         self.create_hotkeys_tab()
 
         ttk.Button(self.root, text="Save Settings", command=self.save_settings).pack(pady=10)
+
 
     def load_settings(self):
         if os.path.exists('config.json'):
@@ -90,6 +95,7 @@ class ConfigApp:
                 return None
 
     def save_settings(self):
+        global settings_saved
         # Update settings from GUI elements before saving
         self.settings['general'] = {
             'console_log_level': self.console_log_level.get(),
@@ -162,6 +168,7 @@ class ConfigApp:
         with open('config.json', 'w') as file:
             json.dump(self.settings, file, indent=4)
         print("Settings saved successfully!")
+        settings_saved = True
 
     def create_general_tab(self):
         general_frame = ttk.Frame(self.notebook)
@@ -490,7 +497,16 @@ class ConfigApp:
         HoverInfoWidget(hotkeys_frame, "Hotkey to take a screenshot.", row=2, column=2)
 
 
-if __name__ == '__main__':
-    root = ttk.Window()
-    app = ConfigApp(root)
+def show_gui():
+    root = ttk.Window(themename='darkly')
+    ConfigApp(root)
     root.mainloop()
+    return settings_saved
+
+
+if __name__ == '__main__':
+    show_gui()
+    if settings_saved:
+        exit(0)
+    else:
+        exit(1)
