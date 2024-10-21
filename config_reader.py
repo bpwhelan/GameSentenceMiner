@@ -101,6 +101,7 @@ if config:
     open_anki_edit = feature_config.get('open_anki_edit', False)
     backfill_audio = feature_config.get('backfill_audio', False)
     do_whisper_instead = feature_config.get('do_whisper_postprocessing_instead', False)
+    do_silero_instead = feature_config.get('do_silero_postprocessing_instead', False)
 
     # Vosk config
     vosk_model_url = vosk_config.get('url', "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip")
@@ -146,6 +147,10 @@ if config:
 
     if backfill_audio and obs_full_auto_mode:
         print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
+        exit(1)
+
+    if do_whisper_instead and do_silero_instead:
+        print("Cannot have do_whisper_postprocessing_instead and do_silero_postprocessing_instead turned on at the same time!")
         exit(1)
 
     logger = logging.getLogger("GameSentenceMiner")

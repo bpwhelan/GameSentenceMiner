@@ -14,9 +14,9 @@ whisper_model = None
 
 
 # # Convert audio to 16kHz mono WAV (Whisper expects this format)
-# def convert_audio_to_wav(input_audio, output_wav):
-#     command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 \"{output_wav}\""
-#     subprocess.run(command)
+def convert_audio_to_wav(input_audio, output_wav):
+    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 -af \"afftdn, dialoguenhance\" \"{output_wav}\""
+    subprocess.run(command)
 
 
 # Function to download and load the Whisper model
@@ -32,8 +32,8 @@ def load_whisper_model():
 # Use Whisper to detect voice activity with timestamps in the audio
 def detect_voice_with_whisper(input_audio):
     # Convert the audio to 16kHz mono WAV
-    # temp_wav = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix='.wav').name
-    # convert_audio_to_wav(input_audio, temp_wav)
+    temp_wav = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix='.wav').name
+    convert_audio_to_wav(input_audio, temp_wav)
 
     # Make sure Whisper is loaded
     load_whisper_model()
@@ -42,7 +42,7 @@ def detect_voice_with_whisper(input_audio):
 
     # Transcribe the audio using Whisper
     with warnings.catch_warnings(action="ignore"):
-        result: WhisperResult = whisper_model.transcribe(input_audio, language='ja', no_speech_threshold=.5)
+        result: WhisperResult = whisper_model.transcribe(temp_wav, vad=True, language='ja')
 
     voice_activity = []
 
@@ -51,18 +51,17 @@ def detect_voice_with_whisper(input_audio):
     # Process the segments to extract tokens, timestamps, and confidence
     for segment in result.segments:
         logger.debug(segment.to_dict())
-        if segment.no_speech_prob < .50:
-            for word in segment.words:
-                logger.debug(word.to_dict())
-                confidence = word.probability
-                if confidence > .1:
-                    logger.debug(word)
-                    voice_activity.append({
-                        'text': word.word,
-                        'start': word.start,
-                        'end': word.end,
-                        'confidence': word.probability
-                    })
+        for word in segment.words:
+            logger.debug(word.to_dict())
+            confidence = word.probability
+            if confidence > .1:
+                logger.debug(word)
+                voice_activity.append({
+                    'text': word.word,
+                    'start': word.start,
+                    'end': word.end,
+                    'confidence': word.probability
+                })
 
 
     # Process the segments to extract tokens, timestamps, and confidence
