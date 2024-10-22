@@ -5,8 +5,8 @@ import warnings
 import stable_whisper as whisper
 from stable_whisper import WhisperResult
 
-import config_reader
-from config_reader import *
+import configuration
+from configuration import *
 
 ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
@@ -23,16 +23,16 @@ def convert_audio_to_wav(input_audio, output_wav):
 def load_whisper_model():
     global whisper_model
     if whisper_model is None:
-        logger.info(f"Loading Whisper model '{whisper_model_name}'... This may take a while.")
+        logger.info(f"Loading Whisper model '{get_config().vad.whisper_model}'... This may take a while.")
         with warnings.catch_warnings(action="ignore"):
-            whisper_model = whisper.load_model(whisper_model_name)
+            whisper_model = whisper.load_model(get_config().vad.whisper_model)
         logger.info("Whisper model loaded.")
 
 
 # Use Whisper to detect voice activity with timestamps in the audio
 def detect_voice_with_whisper(input_audio):
     # Convert the audio to 16kHz mono WAV
-    temp_wav = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix='.wav').name
+    temp_wav = tempfile.NamedTemporaryFile(dir=get_config().temp_directory, suffix='.wav').name
     convert_audio_to_wav(input_audio, temp_wav)
 
     # Make sure Whisper is loaded
@@ -94,7 +94,7 @@ def detect_voice_with_whisper(input_audio):
 def trim_audio(input_audio, start_time, end_time, output_audio):
     command = ffmpeg_base_command_list.copy()
 
-    if vosk_trim_beginning:
+    if get_config().vad.trim_beginning:
         command.extend(['-ss', f"{start_time - .25:.2f}"])
 
     command.extend([
@@ -123,14 +123,14 @@ def process_audio_with_whisper(input_audio, output_audio):
     start_time = voice_activity[0]['start']
     end_time = voice_activity[-1]['end']
 
-    if vosk_trim_beginning:
+    if get_config().vad.trim_beginning:
         logger.info(f"Trimmed Beginning of Audio to {start_time}")
 
     # Print detected speech details with timestamps
     logger.info(f"Trimmed End of Audio to {end_time} seconds:")
 
     # Trim the audio using FFmpeg
-    trim_audio(input_audio, start_time, end_time + config_reader.audio_end_offset, output_audio)
+    trim_audio(input_audio, start_time, end_time + get_config().audio_end_offset, output_audio)
     logger.info(f"Trimmed audio saved to: {output_audio}")
     return True
 
@@ -138,4 +138,4 @@ def process_audio_with_whisper(input_audio, output_audio):
 # Load Whisper model initially
 def initialize_whisper_model():
     load_whisper_model()
-    logger.info(f"Using Whisper model '{whisper_model_name}' for Japanese voice detection")
+    logger.info(f"Using Whisper model '{get_config().vad.whisper_model}' for Japanese voice detection")

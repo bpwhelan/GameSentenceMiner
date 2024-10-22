@@ -1,15 +1,14 @@
-import json
 import tempfile
 import time
 
-import config_reader
-from config_reader import *
+import configuration
+from configuration import *
 from util import *
 
 
 def get_screenshot(video_file):
     output_image = make_unique_file_name(
-        screenshot_destination + config_reader.current_game.replace(" ", "") + f".{screenshot_extension}")
+        get_config().paths.screenshot_destination + get_config().current_game.replace(" ", "") + f".{get_config().screenshot.extension}")
     # FFmpeg command to extract the last frame of the video
     ffmpeg_command = ffmpeg_base_command_list + [
         "-sseof", "-1",  # Seek to 1 second before the end of the video
@@ -17,13 +16,13 @@ def get_screenshot(video_file):
         "-vframes", "1"  # Extract only one frame
     ]
 
-    if screenshot_custom_ffmpeg_settings:
-        ffmpeg_command.extend(screenshot_custom_ffmpeg_settings.split())
+    if get_config().screenshot.custom_ffmpeg_settings:
+        ffmpeg_command.extend(get_config().screenshot.custom_ffmpeg_settings.split())
     else:
-        ffmpeg_command.extend(["-compression_level", "6", "-q:v", screenshot_quality])
+        ffmpeg_command.extend(["-compression_level", "6", "-q:v", get_config().screenshot.quality])
 
-    if screenshot_width or screenshot_height:
-        ffmpeg_command.extend(["-vf", f"scale={screenshot_width or -1}:{screenshot_height or -1}"])
+    if get_config().screenshot.width or get_config().screenshot.height:
+        ffmpeg_command.extend(["-vf", f"scale={get_config().screenshot.width or -1}:{get_config().screenshot.height or -1}"])
 
     logger.debug(f"FFMPEG SS Command: {ffmpeg_command}")
 
@@ -38,20 +37,20 @@ def get_screenshot(video_file):
 
 def process_image(image_file):
     output_image = make_unique_file_name(
-        screenshot_destination + config_reader.current_game.replace(" ", "") + f".{screenshot_extension}")
+        get_config().paths.screenshot_destination + get_config().current_game.replace(" ", "") + f".{get_config().screenshot.extension}")
 
     # FFmpeg command to process the input image
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", image_file
     ]
 
-    if screenshot_custom_ffmpeg_settings:
-        ffmpeg_command.extend(screenshot_custom_ffmpeg_settings.split())
+    if get_config().screenshot.custom_ffmpeg_settings:
+        ffmpeg_command.extend(get_config().screenshot.custom_ffmpeg_settings.split())
     else:
-        ffmpeg_command.extend(["-compression_level", "6", "-q:v", screenshot_quality])
+        ffmpeg_command.extend(["-compression_level", "6", "-q:v", get_config().screenshot.quality])
 
-    if screenshot_width or screenshot_height:
-        ffmpeg_command.extend(["-vf", f"scale={screenshot_width or -1}:{screenshot_height or -1}"])
+    if get_config().screenshot.width or get_config().screenshot.height:
+        ffmpeg_command.extend(["-vf", f"scale={get_config().screenshot.width or -1}:{get_config().screenshot.height or -1}"])
 
     logger.debug(f"FFMPEG Image Command: {ffmpeg_command}")
 
@@ -102,15 +101,15 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
 
     codec = get_audio_codec(video_path)
 
-    if codec == audio_extension:
+    if codec == get_config().audio.extension:
         codec_command = '-c:a copy'
-        logger.info(f"Extracting {audio_extension} from video")
+        logger.info(f"Extracting {get_config().audio.extension} from video")
     else:
-        codec_command = f"-c:a {supported_formats[audio_extension]}"
-        logger.info(f"Re-encoding {codec} to {audio_extension}")
+        codec_command = f"-c:a {supported_formats[get_config().audio.extension]}"
+        logger.info(f"Re-encoding {codec} to {get_config().audio.extension}")
 
-    untrimmed_audio = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory,
-                                                  suffix=f"_untrimmed.{audio_extension}").name
+    untrimmed_audio = tempfile.NamedTemporaryFile(dir=get_config().temp_directory,
+                                                  suffix=f"_untrimmed.{get_config().audio.extension}").name
 
     # FFmpeg command to extract OR re-encode the audio
     command = f"{ffmpeg_base_command} -i \"{video_path}\" -map 0:a {codec_command} \"{untrimmed_audio}\""
@@ -136,12 +135,12 @@ def get_video_duration(file_path):
 
 
 def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line):
-    trimmed_audio = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix=f".{audio_extension}").name
+    trimmed_audio = tempfile.NamedTemporaryFile(dir=get_config().temp_directory, suffix=f".{get_config().audio.extension}").name
     file_mod_time = get_file_modification_time(video_path)
     file_length = get_video_duration(video_path)
     time_delta = file_mod_time - line_time
     # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)
-    total_seconds = file_length - time_delta.total_seconds() + config_reader.audio_beginning_offset
+    total_seconds = file_length - time_delta.total_seconds() + get_config().audio.end_offset
     if total_seconds < 0 or total_seconds >= file_length:
         logger.info(f"0 seconds trimmed off of beginning")
         return untrimmed_audio

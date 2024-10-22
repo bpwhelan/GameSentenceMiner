@@ -5,9 +5,9 @@ import requests
 import obsws_python as obs
 
 import anki
-import config_reader
+import configuration
 import util
-from config_reader import *
+from configuration import *
 
 # Global variables to track state
 previous_note_ids = set()
@@ -18,10 +18,10 @@ obs_ws: obs.ReqClient = None
 def connect_to_obs():
     global obs_ws
     # Connect to OBS WebSocket
-    if obs_enabled:
+    if get_config().obs.enabled:
         try:
-            obs_ws = obs.ReqClient(host=OBS_HOST, port=OBS_PORT, password=OBS_PASSWORD)
-            print("Connected to OBS WebSocket.")
+            obs_ws = obs.ReqClient(host=get_config().obs.host, port=get_config().obs.port, password=get_config().obs.password)
+            logger.info("Connected to OBS WebSocket.")
         except Exception as conn_exception:
             print(f"Error connecting to OBS WebSocket: {conn_exception}")
 
@@ -32,7 +32,7 @@ def disconnect_from_obs():
     if obs_ws:
         obs_ws.disconnect()
         obs_ws = None
-        print("Disconnected from OBS WebSocket.")
+        logger.info("Disconnected from OBS WebSocket.")
 
 
 # Start replay buffer
@@ -55,7 +55,7 @@ def stop_replay_buffer():
 # Fetch recent note IDs from Anki
 def get_note_ids():
     try:
-        response = requests.post(anki_url, json={
+        response = requests.post(get_config().anki.url, json={
             "action": "findNotes",
             "version": 6,
             "params": {"query": "added:1"}
@@ -94,8 +94,8 @@ def update_new_card():
         use_prev_audio = True
     with util.lock:
         print(f"use previous audio: {use_prev_audio}")
-        if config_reader.get_game_from_scene:
-            config_reader.current_game = get_current_scene()
+        if get_config().get_game_from_scene:
+            get_config().current_game = get_current_scene()
         if use_prev_audio:
             anki.update_anki_card(last_card, reuse_audio=True)
         else:
@@ -109,7 +109,7 @@ def monitor_anki():
         # Continuously check for new cards
         while True:
             check_for_new_cards()
-            time.sleep(anki_polling_rate / 1000.0)  # Check every 200ms
+            time.sleep(get_config().anki.polling_rate / 1000.0)  # Check every 200ms
     except KeyboardInterrupt:
         print("Stopped Checking For Anki Cards...")
 
@@ -133,7 +133,7 @@ def get_source_from_scene(scene_name):
 
 def start_monitoring_anki():
     # Start monitoring anki
-    if obs_enabled and obs_full_auto_mode:
+    if get_config().obs.enabled and get_config().features.full_auto:
         obs_thread = threading.Thread(target=monitor_anki)
         obs_thread.daemon = True  # Ensures the thread will exit when the main program exits
         obs_thread.start()
@@ -141,7 +141,7 @@ def start_monitoring_anki():
 
 def get_screenshot():
     try:
-        screenshot = util.make_unique_file_name(os.path.abspath(config_reader.temp_directory) + '/screenshot.png')
+        screenshot = util.make_unique_file_name(os.path.abspath(get_config().temp_directory) + '/screenshot.png')
         current_source = get_source_from_scene(get_current_scene())
         if not current_source:
             print("No active scene found.")

@@ -1,11 +1,10 @@
 import base64
-import json
 import urllib.request
 
-import config_reader
+import configuration
 import ffmpeg
 import notification
-from config_reader import *
+from configuration import *
 
 audio_in_anki = None
 screenshot_in_anki = None
@@ -13,15 +12,15 @@ screenshot_in_anki = None
 
 def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_audio=False, should_update_audio=True):
     global audio_in_anki, screenshot_in_anki
-    update_audio = should_update_audio and (not last_note['fields'][sentence_audio_field]['value'] or overwrite_audio)
-    update_picture = overwrite_picture or not last_note['fields'][picture_field]['value']
+    update_audio = should_update_audio and (not last_note['fields'][get_config().anki.sentence_audio_field]['value'] or get_config().anki.overwrite_audio)
+    update_picture = get_config().anki.overwrite_picture or not last_note['fields'][get_config().anki.picture_field]['value']
     if not reuse_audio:
         if update_audio:
             audio_in_anki = store_media_file(audio_path)
         if update_picture:
             screenshot = ffmpeg.get_screenshot(video_path)
             screenshot_in_anki = store_media_file(screenshot)
-            if remove_screenshot:
+            if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
     audio_html = f"[sound:{audio_in_anki}]"
     image_html = f"<img src=\"{screenshot_in_anki}\">"
@@ -29,35 +28,35 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
     note = {'id': last_note['noteId'], 'fields': {}}
 
     if update_audio:
-        note['fields'][sentence_audio_field] = audio_html
+        note['fields'][get_config().anki.sentence_audio_field] = audio_html
 
     if update_picture:
-        note['fields'][picture_field] = image_html
+        note['fields'][get_config().anki.picture_field] = image_html
 
-    if anki_custom_fields:
-        for key, value in anki_custom_fields.items():
+    if get_config().anki.anki_custom_fields:
+        for key, value in get_config().anki.anki_custom_fields.items():
             note['fields'][key] = str(value)
 
     invoke("updateNoteFields", note=note)
-    if custom_tags:
-        if add_game_tag:
-            custom_tags.append(config_reader.current_game.replace(" ", ""))
-        for custom_tag in custom_tags:
+    if get_config().anki.custom_tags:
+        if get_config().anki.add_game_tag:
+            get_config().anki.custom_tags.append(get_config().current_game.replace(" ", ""))
+        for custom_tag in get_config().anki.custom_tags:
             invoke("addTags", tags=custom_tag.replace(" ", ""), notes=[last_note['noteId']])
     logger.info(f"UPDATED ANKI CARD FOR {last_note['noteId']}")
-    if notify_on_update:
+    if get_config().features.notify_on_update:
         notification.send_notification(tango)
-    if open_anki_edit:
+    if get_config().features.open_anki_edit:
         notification.open_anki_card(last_note['noteId'])
 
 
 def add_image_to_card(last_note, image_path):
     global screenshot_in_anki
-    update_picture = overwrite_picture or not last_note['fields'][picture_field]['value']
+    update_picture = get_config().anki.overwrite_picture or not last_note['fields'][get_config().anki.picture_field]['value']
 
     if update_picture:
         screenshot_in_anki = store_media_file(image_path)
-        if remove_screenshot:
+        if get_config().paths.remove_screenshot:
             os.remove(image_path)
 
     image_html = f"<img src=\"{screenshot_in_anki}\">"
@@ -65,7 +64,7 @@ def add_image_to_card(last_note, image_path):
     note = {'id': last_note['noteId'], 'fields': {}}
 
     if update_picture:
-        note['fields'][picture_field] = image_html
+        note['fields'][get_config().anki.picture_field] = image_html
 
     invoke("updateNoteFields", note=note)
 
@@ -88,7 +87,7 @@ def request(action, **params):
 
 def invoke(action, **params):
     request_json = json.dumps(request(action, **params)).encode('utf-8')
-    response = json.load(urllib.request.urlopen(urllib.request.Request(anki_url, request_json)))
+    response = json.load(urllib.request.urlopen(urllib.request.Request(get_config().anki.url, request_json)))
     if len(response) != 2:
         raise Exception('response has an unexpected number of fields')
     if 'error' not in response:
@@ -114,7 +113,7 @@ def add_wildcards(expression):
 
 def get_cards_by_sentence(sentence):
     sentence = sentence.replace(" ", "")
-    query = f'{sentence_audio_field}: {sentence_field}:{add_wildcards(sentence)}'
+    query = f'{get_config().anki.sentence_audio_field}: {get_config().anki.sentence_field}:{add_wildcards(sentence)}'
     card_ids = invoke("findCards", query=query)
 
     if not card_ids:

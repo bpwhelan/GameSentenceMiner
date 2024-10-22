@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import filedialog
 import ttkbootstrap as ttk
 import json
+from configuration import *
 
 import toml
 
@@ -54,7 +55,7 @@ class ConfigApp:
         self.root.title('GameSentenceMiner Configuration')
         self.current_row = 0  # Initialize the row variable
 
-        self.settings = self.load_settings()
+        self.settings: Config = self.load_settings()
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(pady=10, expand=True)
@@ -76,113 +77,92 @@ class ConfigApp:
             try:
                 with open('config.json', 'r') as file:
                     config_file = json.load(file)
-                    return config_file
+                    return Config.from_dict(config_file)
             except json.JSONDecodeError as e:
-                print(f"Error parsing {CONFIG_FILE}: {e}")
+                print(f"Error parsing config.json: {e}")
                 return None
+        elif os.path.exists('config.toml'):
+            return Config().load_from_toml('config.toml')
         else:
-            try:
-                with open(TOML_CONFIG_FILE, 'r') as file:
-                    toml_config = toml.load(file)
-
-                    with open(CONFIG_FILE, 'w') as json_file:
-                        json.dump(toml_config, json_file, indent=4)
-
-                    print(f"Configuration file created from {TOML_CONFIG_FILE}.")
-                    return toml_config
-            except FileNotFoundError:
-                print(f"Configuration file {TOML_CONFIG_FILE} not found!")
-                return None
-            except toml.TomlDecodeError as e:
-                print(f"Error parsing {TOML_CONFIG_FILE}: {e}")
-                return None
+            return Config()
 
     def save_settings(self):
         global settings_saved
-        # Update settings from GUI elements before saving
-        self.settings['general'] = {
-            'console_log_level': self.console_log_level.get(),
-            'file_log_level': self.file_log_level.get(),
-            # Removed whisper model, moved to VAD section
-        }
 
-        self.settings['paths'] = {
-            'folder_to_watch': self.folder_to_watch.get(),
-            'audio_destination': self.audio_destination.get(),
-            'screenshot_destination': self.screenshot_destination.get(),
-            'remove_video': self.remove_video.get(),  # Included remove video option
-            'remove_audio': self.remove_audio.get(),  # Included remove audio option
-            'remove_screenshot': self.remove_screenshot.get(),  # Included remove screenshot option
-        }
+        # Create a new Config instance
+        config = Config(
+            general=General(
+                use_websocket=self.websocket_enabled.get(),
+                websocket_uri=self.websocket_uri.get()
+            ),
+            paths=Paths(
+                folder_to_watch=self.folder_to_watch.get(),
+                audio_destination=self.audio_destination.get(),
+                screenshot_destination=self.screenshot_destination.get(),
+                remove_video=self.remove_video.get(),
+                remove_audio=self.remove_audio.get(),
+                remove_screenshot=self.remove_screenshot.get()
+            ),
+            anki=Anki(
+                update_anki=self.update_anki.get(),
+                url=self.anki_url.get(),
+                sentence_field=self.sentence_field.get(),
+                sentence_audio_field=self.sentence_audio_field.get(),
+                picture_field=self.picture_field.get(),
+                word_field=self.word_field.get(),
+                custom_tags=self.custom_tags.get().split(', '),
+                add_game_tag=self.add_game_tag.get(),
+                polling_rate=int(self.polling_rate.get()),
+                overwrite_audio=self.overwrite_audio.get(),
+                overwrite_picture=self.overwrite_picture.get(),
+                anki_custom_fields={
+                    key_entry.get(): value_entry.get() for key_entry, value_entry, delete_button in
+                    self.custom_field_entries if key_entry.get()
+                }
+            ),
+            features=Features(
+                full_auto=self.full_auto.get(),
+                notify_on_update=self.notify_on_update.get(),
+                open_anki_edit=self.open_anki_edit.get(),
+                backfill_audio=self.backfill_audio.get()
+            ),
+            screenshot=Screenshot(
+                width=int(self.screenshot_width.get()),
+                height=int(self.screenshot_height.get()),
+                quality=int(self.screenshot_quality.get()),
+                extension=self.screenshot_extension.get(),
+                custom_ffmpeg_settings=self.screenshot_custom_ffmpeg_settings.get()
+            ),
+            audio=Audio(
+                extension=self.audio_extension.get(),
+                beginning_offset=float(self.beginning_offset.get()),
+                end_offset=float(self.end_offset.get()),
+                ffmpeg_reencode_options=self.ffmpeg_reencode_options.get()
+            ),
+            obs=OBS(
+                enabled=self.obs_enabled.get(),
+                host=self.obs_host.get(),
+                port=int(self.obs_port.get()),
+                password=self.obs_password.get(),
+                start_buffer=self.obs_start_buffer.get()
+            ),
+            hotkeys=Hotkeys(
+                reset_line=self.reset_line_hotkey.get(),
+                take_screenshot=self.take_screenshot_hotkey.get()
+            ),
+            vad=VAD(
+                whisper_model=self.whisper_model.get(),
+                do_vad_postprocessing=self.do_vad_postprocessing.get(),
+                vosk_url='https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip' if self.vosk_url.get() == VOSK_BASE else "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip",
+                selected_vad_model=self.selected_vad_model.get(),
+                backup_vad_model=self.backup_vad_model.get(),
+                trim_beginning=self.vad_trim_beginning.get()
+            )
+        )
 
-        self.settings['anki'] = {
-            'update_anki': self.update_anki.get(),  # Moved to top of Anki settings
-            'url': self.anki_url.get(),
-            'sentence_field': self.sentence_field.get(),
-            'sentence_audio_field': self.sentence_audio_field.get(),
-            'picture_field': self.picture_field.get(),
-            'word_field': self.word_field.get(),
-            'custom_tags': self.custom_tags.get().split(', '),
-            'add_game_tag': self.add_game_tag.get(),
-            'polling_rate': int(self.polling_rate.get()),
-            'overwrite_audio': self.overwrite_audio.get(),  # Overwrite options
-            'overwrite_picture': self.overwrite_picture.get(),
-            'anki_custom_fields': {  # Custom fields for Anki
-                key_entry.get(): value_entry.get() for key_entry, value_entry in self.custom_field_entries if
-                key_entry.get()
-            }
-        }
-
-        self.settings['vad'] = {
-            'whisper_model': self.whisper_model.get(),  # Moved whisper model here
-            'do_vad_postprocessing': self.do_vad_postprocessing.get(),
-            'vosk_url': self.vosk_url.get(),
-            'selected_vad_model': self.selected_vad_model.get(),
-            'backup_vad_model': self.backup_vad_model.get(),
-        }
-
-        self.settings['features'] = {
-            'full_auto': self.full_auto.get(),
-            'notify_on_update': self.notify_on_update.get(),
-            'open_anki_edit': self.open_anki_edit.get(),
-            'backfill_audio': self.backfill_audio.get(),
-        }
-
-        self.settings['screenshot'] = {
-            'width': int(self.screenshot_width.get()),
-            'height': int(self.screenshot_height.get()),
-            'quality': int(self.screenshot_quality.get()),
-            'extension': self.screenshot_extension.get(),
-            'custom_ffmpeg_settings': self.screenshot_custom_ffmpeg_settings.get(),
-        }
-
-        self.settings['audio'] = {
-            'extension': self.audio_extension.get(),
-            'beginning_offset': float(self.beginning_offset.get()),
-            'end_offset': float(self.end_offset.get()),
-            'ffmpeg_reencode_options': self.ffmpeg_reencode_options.get(),
-        }
-
-        self.settings['obs'] = {
-            'enabled': self.obs_enabled.get(),
-            'host': self.obs_host.get(),
-            'port': int(self.obs_port.get()),
-            'password': self.obs_password.get(),
-        }
-
-        self.settings['websocket'] = {
-            'enabled': self.websocket_enabled.get(),
-            'uri': self.websocket_uri.get(),
-        }
-
-        self.settings['hotkeys'] = {
-            'reset_hotkey': self.reset_offset_hotkey.get(),
-            'reset_line': self.reset_line_hotkey.get(),
-            'take_screenshot': self.take_screenshot_hotkey.get(),
-        }
-
+        # Serialize the config instance to JSON
         with open('config.json', 'w') as file:
-            json.dump(self.settings, file, indent=4)
+            file.write(config.to_json(indent=4))
 
         print("Settings saved successfully!")
         settings_saved = True
@@ -201,20 +181,8 @@ class ConfigApp:
         general_frame = ttk.Frame(self.notebook)
         self.notebook.add(general_frame, text='General')
 
-        ttk.Label(general_frame, text="Console Log Level:").grid(row=self.current_row, column=0, sticky='W')
-        self.console_log_level = ttk.Combobox(general_frame, values=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
-        self.console_log_level.set(self.settings.get('general', {}).get('console_log_level', 'INFO'))
-        self.console_log_level.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(general_frame, "Log Level for the Console, Default: INFO", column=2)
-
-        ttk.Label(general_frame, text="File Log Level:").grid(row=self.current_row, column=0, sticky='W')
-        self.file_log_level = ttk.Combobox(general_frame, values=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
-        self.file_log_level.set(self.settings.get('general', {}).get('file_log_level', 'DEBUG'))
-        self.file_log_level.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(general_frame, "Log Level for the Log File, Default: DEBUG.", column=2)
-
         ttk.Label(general_frame, text="Websocket Enabled:").grid(row=self.current_row, column=0, sticky='W')
-        self.websocket_enabled = tk.BooleanVar(value=self.settings.get('websocket', {}).get('enabled', True))
+        self.websocket_enabled = tk.BooleanVar(value=self.settings.general.use_websocket)
         ttk.Checkbutton(general_frame, variable=self.websocket_enabled).grid(row=self.current_row, column=1,
                                                                                sticky='W')
         self.add_label_and_increment_row(general_frame, "Enable or disable WebSocket communication.",
@@ -222,7 +190,7 @@ class ConfigApp:
 
         ttk.Label(general_frame, text="Websocket URI:").grid(row=self.current_row, column=0, sticky='W')
         self.websocket_uri = ttk.Entry(general_frame)
-        self.websocket_uri.insert(0, self.settings.get('websocket', {}).get('uri', 'localhost:6677'))
+        self.websocket_uri.insert(0, self.settings.general.websocket_uri)
         self.websocket_uri.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(general_frame, "WebSocket URI for connecting.", row=self.current_row,
                                          column=2)
@@ -234,33 +202,40 @@ class ConfigApp:
 
         ttk.Label(vad_frame, text="Voice Detection Postprocessing:").grid(row=self.current_row, column=0, sticky='W')
         self.do_vad_postprocessing = tk.BooleanVar(
-            value=self.settings.get('vad', {}).get('do_vad_postprocessing', True))
+            value=self.settings.vad.do_vad_postprocessing)
         ttk.Checkbutton(vad_frame, variable=self.do_vad_postprocessing).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(vad_frame, "Enable post-processing of audio to trim just the voiceline.", row=self.current_row, column=2)
 
         ttk.Label(vad_frame, text="Whisper Model:").grid(row=self.current_row, column=0, sticky='W')
-        self.whisper_model = ttk.Combobox(vad_frame, values=['tiny', 'base', 'small', 'medium', 'large'])
-        self.whisper_model.set(self.settings.get('vad', {}).get('whisper_model', 'base'))
+        self.whisper_model = ttk.Combobox(vad_frame, values=[WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM, WHSIPER_LARGE])
+        self.whisper_model.set(self.settings.vad.whisper_model)
         self.whisper_model.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(vad_frame, "Select the Whisper model size for VAD.", row=self.current_row, column=2)
 
         ttk.Label(vad_frame, text="Vosk URL:").grid(row=self.current_row, column=0, sticky='W')
-        self.vosk_url = ttk.Entry(vad_frame)
-        self.vosk_url.insert(0, self.settings.get('vad', {}).get('vosk_url', 'http://localhost:2700'))
+        self.vosk_url = ttk.Combobox(vad_frame, values=[VOSK_BASE, VOSK_SMALL])
+        self.vosk_url.insert(0, VOSK_BASE if self.settings.vad.vosk_url == 'https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip' else VOSK_SMALL)
         self.vosk_url.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(vad_frame, "URL for connecting to the Vosk server.", row=self.current_row, column=2)
 
         ttk.Label(vad_frame, text="Select VAD Model:").grid(row=self.current_row, column=0, sticky='W')
-        self.selected_vad_model = ttk.Combobox(vad_frame, values=['Vosk', 'Silero', 'Whisper'])
-        self.selected_vad_model.set(self.settings.get('vad', {}).get('selected_vad_model', 'Vosk'))
+        self.selected_vad_model = ttk.Combobox(vad_frame, values=[VOSK, SILERO, WHISPER])
+        self.selected_vad_model.set(self.settings.vad.selected_vad_model)
         self.selected_vad_model.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(vad_frame, "Select which VAD model to use.", row=self.current_row, column=2)
 
         ttk.Label(vad_frame, text="Backup VAD Model:").grid(row=self.current_row, column=0, sticky='W')
-        self.backup_vad_model = ttk.Combobox(vad_frame, values=['Vosk', 'Silero', 'Whisper'])
-        self.backup_vad_model.set(self.settings.get('vad', {}).get('backup_vad_model', 'Silero'))
+        self.backup_vad_model = ttk.Combobox(vad_frame, values=[OFF, VOSK, SILERO, WHISPER])
+        self.backup_vad_model.set(self.settings.vad.backup_vad_model)
         self.backup_vad_model.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(vad_frame, "Select which model to use as a backup.", row=self.current_row, column=2)
+        self.add_label_and_increment_row(vad_frame, "Select which model to use as a backup if no audio is found.", row=self.current_row, column=2)
+
+        ttk.Label(vad_frame, text="Trim Beginning:").grid(row=self.current_row, column=0, sticky='W')
+        self.vad_trim_beginning = tk.BooleanVar(
+            value=self.settings.vad.trim_beginning)
+        ttk.Checkbutton(vad_frame, variable=self.vad_trim_beginning).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(vad_frame, "Trim the beginning of the audio based on Voice Detection Results",
+                                         row=self.current_row, column=2)
 
     @new_tab
     def create_paths_tab(self):
@@ -269,7 +244,7 @@ class ConfigApp:
 
         ttk.Label(paths_frame, text="Folder to Watch:").grid(row=self.current_row, column=0, sticky='W')
         self.folder_to_watch = ttk.Entry(paths_frame, width=50)
-        self.folder_to_watch.insert(0, self.settings.get('paths', {}).get('folder_to_watch', '~/Videos/OBS'))
+        self.folder_to_watch.insert(0, self.settings.paths.folder_to_watch)
         self.folder_to_watch.grid(row=self.current_row, column=1)
         ttk.Button(paths_frame, text="Browse", command=lambda: self.browse_folder(self.folder_to_watch)).grid(row=self.current_row,
                                                                                                               column=2)
@@ -277,7 +252,7 @@ class ConfigApp:
 
         ttk.Label(paths_frame, text="Audio Destination:").grid(row=self.current_row, column=0, sticky='W')
         self.audio_destination = ttk.Entry(paths_frame, width=50)
-        self.audio_destination.insert(0, self.settings.get('paths', {}).get('audio_destination', '~/Videos/OBS/Audio/'))
+        self.audio_destination.insert(0, self.settings.paths.audio_destination)
         self.audio_destination.grid(row=self.current_row, column=1)
         ttk.Button(paths_frame, text="Browse", command=lambda: self.browse_folder(self.audio_destination)).grid(row=self.current_row,
                                                                                                                 column=2)
@@ -285,25 +260,24 @@ class ConfigApp:
 
         ttk.Label(paths_frame, text="Screenshot Destination:").grid(row=self.current_row, column=0, sticky='W')
         self.screenshot_destination = ttk.Entry(paths_frame, width=50)
-        self.screenshot_destination.insert(0, self.settings.get('paths', {}).get('screenshot_destination',
-                                                                                 '~/Videos/OBS/SS/'))
+        self.screenshot_destination.insert(0, self.settings.paths.screenshot_destination)
         self.screenshot_destination.grid(row=self.current_row, column=1)
         ttk.Button(paths_frame, text="Browse", command=lambda: self.browse_folder(self.screenshot_destination)).grid(
             row=self.current_row, column=2)
         self.add_label_and_increment_row(paths_frame, "Path where the Screenshot will be saved.", row=self.current_row, column=3)
 
         ttk.Label(paths_frame, text="Remove Video:").grid(row=self.current_row, column=0, sticky='W')
-        self.remove_video = tk.BooleanVar(value=self.settings.get('features', {}).get('remove_video', True))
+        self.remove_video = tk.BooleanVar(value=self.settings.paths.remove_video)
         ttk.Checkbutton(paths_frame, variable=self.remove_video).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(paths_frame, "Remove video from the output.", row=self.current_row, column=2)
 
         ttk.Label(paths_frame, text="Remove Audio:").grid(row=self.current_row, column=0, sticky='W')
-        self.remove_audio = tk.BooleanVar(value=self.settings.get('features', {}).get('remove_audio', False))
+        self.remove_audio = tk.BooleanVar(value=self.settings.paths.remove_audio)
         ttk.Checkbutton(paths_frame, variable=self.remove_audio).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(paths_frame, "Remove audio from the output.", row=self.current_row, column=2)
 
         ttk.Label(paths_frame, text="Remove Screenshot:").grid(row=self.current_row, column=0, sticky='W')
-        self.remove_screenshot = tk.BooleanVar(value=self.settings.get('features', {}).get('remove_screenshot', False))
+        self.remove_screenshot = tk.BooleanVar(value=self.settings.paths.remove_screenshot)
         ttk.Checkbutton(paths_frame, variable=self.remove_screenshot).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(paths_frame, "Remove screenshots after processing.", row=self.current_row, column=2)
 
@@ -319,74 +293,76 @@ class ConfigApp:
         self.notebook.add(anki_frame, text='Anki')
 
         ttk.Label(anki_frame, text="Update Anki:").grid(row=self.current_row, column=0, sticky='W')
-        self.update_anki = tk.BooleanVar(value=self.settings.get('features', {}).get('update_anki', True))
+        self.update_anki = tk.BooleanVar(value=self.settings.anki.update_anki)
         ttk.Checkbutton(anki_frame, variable=self.update_anki).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(anki_frame, "Automatically update Anki with new data.", row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Anki URL:").grid(row=self.current_row, column=0, sticky='W')
         self.anki_url = ttk.Entry(anki_frame, width=50)
-        self.anki_url.insert(0, self.settings.get('anki', {}).get('url', 'http://127.0.0.1:8765'))
+        self.anki_url.insert(0, self.settings.anki.url)
         self.anki_url.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame, "The URL to connect to your Anki instance.", row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Sentence Field:").grid(row=self.current_row, column=0, sticky='W')
         self.sentence_field = ttk.Entry(anki_frame)
-        self.sentence_field.insert(0, self.settings.get('anki', {}).get('sentence_field', 'Sentence'))
+        self.sentence_field.insert(0, self.settings.anki.sentence_field)
         self.sentence_field.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame, "Field in Anki for the main sentence.", row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Sentence Audio Field:").grid(row=self.current_row, column=0, sticky='W')
         self.sentence_audio_field = ttk.Entry(anki_frame)
-        self.sentence_audio_field.insert(0, self.settings.get('anki', {}).get('sentence_audio_field', 'SentenceAudio'))
+        self.sentence_audio_field.insert(0, self.settings.anki.sentence_audio_field)
         self.sentence_audio_field.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame, "Field in Anki for audio associated with the sentence.", row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Picture Field:").grid(row=self.current_row, column=0, sticky='W')
         self.picture_field = ttk.Entry(anki_frame)
-        self.picture_field.insert(0, self.settings.get('anki', {}).get('picture_field', 'Picture'))
+        self.picture_field.insert(0, self.settings.anki.picture_field)
         self.picture_field.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame, "Field in Anki for associated pictures.", row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Word Field:").grid(row=self.current_row, column=0, sticky='W')
         self.word_field = ttk.Entry(anki_frame)
-        self.word_field.insert(0, self.settings.get('anki', {}).get('word_field', 'Word'))
+        self.word_field.insert(0, self.settings.anki.word_field)
         self.word_field.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame, "Field in Anki for individual words.", row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Custom Tags:").grid(row=self.current_row, column=0, sticky='W')
         self.custom_tags = ttk.Entry(anki_frame)
-        self.custom_tags.insert(0, ', '.join(self.settings.get('anki', {}).get('custom_tags', [])))
+        self.custom_tags.insert(0, ', '.join(self.settings.anki.custom_tags))
         self.custom_tags.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame, "Comma-separated custom tags for the Anki cards.", row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Add Game Tag:").grid(row=self.current_row, column=0, sticky='W')
-        self.add_game_tag = tk.BooleanVar(value=self.settings.get('anki', {}).get('add_game_tag', True))
+        self.add_game_tag = tk.BooleanVar(value=self.settings.anki.add_game_tag)
         ttk.Checkbutton(anki_frame, variable=self.add_game_tag).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(anki_frame, "Include a tag for the game on the Anki card.", row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Polling Rate:").grid(row=self.current_row, column=0, sticky='W')
         self.polling_rate = ttk.Entry(anki_frame)
-        self.polling_rate.insert(0, self.settings.get('anki', {}).get('polling_rate', 200))
+        self.polling_rate.insert(0, str(self.settings.anki.polling_rate))
         self.polling_rate.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame, "Rate at which Anki will check for updates (in milliseconds).", row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Overwrite Audio:").grid(row=self.current_row, column=0, sticky='W')
         self.overwrite_audio = tk.BooleanVar(
-            value=self.settings.get('anki_overwrites', {}).get('overwrite_audio', False))
+            value=self.settings.anki.overwrite_audio)
         ttk.Checkbutton(anki_frame, variable=self.overwrite_audio).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(anki_frame, "Overwrite existing audio in Anki cards.", row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Overwrite Picture:").grid(row=self.current_row, column=0, sticky='W')
         self.overwrite_picture = tk.BooleanVar(
-            value=self.settings.get('anki_overwrites', {}).get('overwrite_picture', True))
+            value=self.settings.anki.overwrite_picture)
         ttk.Checkbutton(anki_frame, variable=self.overwrite_picture).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(anki_frame, "Overwrite existing pictures in Anki cards.", row=self.current_row, column=2)
 
-        self.anki_custom_fields = self.settings.get('anki_custom_fields', {})
+        self.anki_custom_fields = self.settings.anki.anki_custom_fields
         self.custom_field_entries = []
 
+        row_at_the_time = self.current_row + 1
+
         ttk.Button(anki_frame, text="Add Field",
-                   command=lambda: self.add_custom_field(anki_frame, self.current_row)).grid(row=self.current_row, column=0, pady=5)
+                   command=lambda: self.add_custom_field(anki_frame, row_at_the_time)).grid(row=self.current_row, column=0, pady=5)
         self.add_label_and_increment_row(anki_frame, "Add a new custom field for Anki cards.", row=self.current_row, column=2)
         self.display_custom_fields(anki_frame, self.current_row)
 
@@ -398,48 +374,71 @@ class ConfigApp:
         value_entry = ttk.Entry(frame)
         value_entry.grid(row=row, column=1, padx=5, pady=2, sticky='W')
 
-        self.custom_field_entries.append((key_entry, value_entry))
+        # Create a delete button for this custom field
+        delete_button = ttk.Button(frame, text="X",
+                                   command=lambda: self.delete_custom_field(row, key_entry, value_entry, delete_button))
+        delete_button.grid(row=row, column=2, padx=5, pady=2)
+
+        self.custom_field_entries.append((key_entry, value_entry, delete_button))
 
     def display_custom_fields(self, frame, start_row):
-        for row, (key, value) in enumerate(self.anki_custom_fields.items(), start=1):
+        for row, (key, value) in enumerate(self.anki_custom_fields.items()):
             key_entry = ttk.Entry(frame)
             key_entry.insert(0, key)
             key_entry.grid(row=row + start_row, column=0, padx=5, pady=2, sticky='W')
+
             value_entry = ttk.Entry(frame)
             value_entry.insert(0, value)
             value_entry.grid(row=row + start_row, column=1, padx=5, pady=2, sticky='W')
 
-            self.custom_field_entries.append((key_entry, value_entry))
+            # Create a delete button for each existing custom field
+            delete_button = ttk.Button(frame, text="X",
+                                       command=lambda: self.delete_custom_field(row + start_row, key_entry, value_entry,
+                                                                                delete_button))
+            delete_button.grid(row=row + start_row, column=2, padx=5, pady=2)
+
+            self.custom_field_entries.append((key_entry, value_entry, delete_button))
+
+    def delete_custom_field(self, row, key_entry, value_entry, delete_button):
+        # Remove the entry from the GUI
+        key_entry.destroy()
+        value_entry.destroy()
+        delete_button.destroy()
+
+        # Remove the entry from the custom field entries list
+        self.custom_field_entries.remove((key_entry, value_entry, delete_button))
+
+        # Update the GUI rows below to fill the gap if necessary
+        # for (ke, ve, db) in self.custom_field_entries:
+        #     if self.custom_field_entries.index((ke, ve, db)) > self.custom_field_entries.index(
+        #             (key_entry, value_entry, delete_button)):
+        #         ke.grid_configure(row=ke.grid_info()['row'] - 1)
+        #         ve.grid_configure(row=ve.grid_info()['row'] - 1)
+        #         db.grid_configure(row=db.grid_info()['row'] - 1)
 
     @new_tab
     def create_features_tab(self):
         features_frame = ttk.Frame(self.notebook)
         self.notebook.add(features_frame, text='Features')
 
-        ttk.Label(features_frame, text="Voice Detection Postprocessing:").grid(row=self.current_row, column=0, sticky='W')
-        self.do_vad_postprocessing = tk.BooleanVar(
-            value=self.settings.get('features', {}).get('do_vad_postprocessing', True))
-        ttk.Checkbutton(features_frame, variable=self.do_vad_postprocessing).grid(row=self.current_row, column=1, sticky='W')
-        self.add_label_and_increment_row(features_frame, "Enable post-processing of Audio to trim just the voiceline.", row=self.current_row, column=2)
-
         ttk.Label(features_frame, text="Notify on Update:").grid(row=self.current_row, column=0, sticky='W')
-        self.notify_on_update = tk.BooleanVar(value=self.settings.get('features', {}).get('notify_on_update', True))
+        self.notify_on_update = tk.BooleanVar(value=self.settings.features.notify_on_update)
         ttk.Checkbutton(features_frame, variable=self.notify_on_update).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(features_frame, "Notify the user when an update occurs.", row=self.current_row, column=2)
 
         ttk.Label(features_frame, text="Open Anki Edit:").grid(row=self.current_row, column=0, sticky='W')
-        self.open_anki_edit = tk.BooleanVar(value=self.settings.get('features', {}).get('open_anki_edit', False))
+        self.open_anki_edit = tk.BooleanVar(value=self.settings.features.open_anki_edit)
         ttk.Checkbutton(features_frame, variable=self.open_anki_edit).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(features_frame, "Automatically open Anki for editing after updating.", row=self.current_row, column=2)
 
         ttk.Label(features_frame, text="Backfill Audio:").grid(row=self.current_row, column=0, sticky='W')
-        self.backfill_audio = tk.BooleanVar(value=self.settings.get('features', {}).get('backfill_audio', False))
+        self.backfill_audio = tk.BooleanVar(value=self.settings.features.backfill_audio)
         ttk.Checkbutton(features_frame, variable=self.backfill_audio).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(features_frame, "Fill in audio data for existing entries.", row=self.current_row, column=2)
 
         ttk.Label(features_frame, text="Full Auto Mode:").grid(row=self.current_row, column=0, sticky='W')
         self.full_auto = tk.BooleanVar(
-            value=self.settings.get('features', {}).get('full_auto', True))
+            value=self.settings.features.full_auto)
         ttk.Checkbutton(features_frame, variable=self.full_auto).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(features_frame, "Yomitan 1-click anki card creation.", row=self.current_row, column=2)
 
@@ -450,31 +449,31 @@ class ConfigApp:
 
         ttk.Label(screenshot_frame, text="Width:").grid(row=self.current_row, column=0, sticky='W')
         self.screenshot_width = ttk.Entry(screenshot_frame)
-        self.screenshot_width.insert(0, self.settings.get('screenshot', {}).get('width', 1280))
+        self.screenshot_width.insert(0, str(self.settings.screenshot.width))
         self.screenshot_width.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(screenshot_frame, "Width of the screenshot in pixels.", row=self.current_row, column=2)
 
         ttk.Label(screenshot_frame, text="Height:").grid(row=self.current_row, column=0, sticky='W')
         self.screenshot_height = ttk.Entry(screenshot_frame)
-        self.screenshot_height.insert(0, self.settings.get('screenshot', {}).get('height', 0))
+        self.screenshot_height.insert(0, str(self.settings.screenshot.height))
         self.screenshot_height.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(screenshot_frame, "Height of the screenshot in pixels.", row=self.current_row, column=2)
 
         ttk.Label(screenshot_frame, text="Quality:").grid(row=self.current_row, column=0, sticky='W')
         self.screenshot_quality = ttk.Entry(screenshot_frame)
-        self.screenshot_quality.insert(0, self.settings.get('screenshot', {}).get('quality', 85))
+        self.screenshot_quality.insert(0, str(self.settings.screenshot.quality))
         self.screenshot_quality.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(screenshot_frame, "Quality of the screenshot (0-100).", row=self.current_row, column=2)
 
         ttk.Label(screenshot_frame, text="Extension:").grid(row=self.current_row, column=0, sticky='W')
         self.screenshot_extension = ttk.Combobox(screenshot_frame, values=['webp', 'avif', 'png', 'jpeg'])
-        self.screenshot_extension.insert(0, self.settings.get('screenshot', {}).get('extension', 'webp'))
+        self.screenshot_extension.insert(0, self.settings.screenshot.extension)
         self.screenshot_extension.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(screenshot_frame, "File extension for the screenshot format.", row=self.current_row, column=2)
 
         ttk.Label(screenshot_frame, text="FFmpeg Reencode Options:").grid(row=self.current_row, column=0, sticky='W')
         self.screenshot_custom_ffmpeg_settings = ttk.Entry(screenshot_frame, width=50)
-        self.screenshot_custom_ffmpeg_settings.insert(0, self.settings.get('screenshot', {}).get('custom_ffmpeg_settings', ''))
+        self.screenshot_custom_ffmpeg_settings.insert(0, self.settings.screenshot.custom_ffmpeg_settings)
         self.screenshot_custom_ffmpeg_settings.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(screenshot_frame, "Custom FFmpeg options for re-encoding screenshots.", row=self.current_row, column=2)
 
@@ -485,25 +484,25 @@ class ConfigApp:
 
         ttk.Label(audio_frame, text="Audio Extension:").grid(row=self.current_row, column=0, sticky='W')
         self.audio_extension = ttk.Combobox(audio_frame, values=['opus', 'mp3','ogg', 'aac', 'm4a'])
-        self.audio_extension.insert(0, self.settings.get('audio', {}).get('extension', 'opus'))
+        self.audio_extension.insert(0, self.settings.audio.extension)
         self.audio_extension.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(audio_frame, "File extension for audio files.", row=self.current_row, column=2)
 
         ttk.Label(audio_frame, text="Beginning Offset:").grid(row=self.current_row, column=0, sticky='W')
         self.beginning_offset = ttk.Entry(audio_frame)
-        self.beginning_offset.insert(0, self.settings.get('audio', {}).get('beginning_offset', 0.0))
+        self.beginning_offset.insert(0, str(self.settings.audio.beginning_offset))
         self.beginning_offset.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(audio_frame, "Offset in seconds to start audio processing.", row=self.current_row, column=2)
 
         ttk.Label(audio_frame, text="End Offset:").grid(row=self.current_row, column=0, sticky='W')
         self.end_offset = ttk.Entry(audio_frame)
-        self.end_offset.insert(0, self.settings.get('audio', {}).get('end_offset', 0.5))
+        self.end_offset.insert(0, str(self.settings.audio.end_offset))
         self.end_offset.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(audio_frame, "Offset in seconds to end audio processing.", row=self.current_row, column=2)
 
         ttk.Label(audio_frame, text="FFmpeg Reencode Options:").grid(row=self.current_row, column=0, sticky='W')
         self.ffmpeg_reencode_options = ttk.Entry(audio_frame, width=50)
-        self.ffmpeg_reencode_options.insert(0, self.settings.get('audio', {}).get('ffmpeg_reencode_options', ''))
+        self.ffmpeg_reencode_options.insert(0, self.settings.audio.ffmpeg_reencode_options)
         self.ffmpeg_reencode_options.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(audio_frame, "Custom FFmpeg options for re-encoding audio files.", row=self.current_row, column=2)
 
@@ -513,27 +512,33 @@ class ConfigApp:
         self.notebook.add(obs_frame, text='OBS')
 
         ttk.Label(obs_frame, text="Enabled:").grid(row=self.current_row, column=0, sticky='W')
-        self.obs_enabled = tk.BooleanVar(value=self.settings.get('obs', {}).get('enabled', True))
+        self.obs_enabled = tk.BooleanVar(value=self.settings.obs.enabled)
         ttk.Checkbutton(obs_frame, variable=self.obs_enabled).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(obs_frame, "Enable or disable OBS integration.", row=self.current_row, column=2)
 
         ttk.Label(obs_frame, text="Host:").grid(row=self.current_row, column=0, sticky='W')
         self.obs_host = ttk.Entry(obs_frame)
-        self.obs_host.insert(0, self.settings.get('obs', {}).get('host', '127.0.0.1'))
+        self.obs_host.insert(0, self.settings.obs.host)
         self.obs_host.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(obs_frame, "Host address for the OBS WebSocket server.", row=self.current_row, column=2)
 
         ttk.Label(obs_frame, text="Port:").grid(row=self.current_row, column=0, sticky='W')
         self.obs_port = ttk.Entry(obs_frame)
-        self.obs_port.insert(0, self.settings.get('obs', {}).get('port', 4455))
+        self.obs_port.insert(0, str(self.settings.obs.port))
         self.obs_port.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(obs_frame, "Port number for the OBS WebSocket server.", row=self.current_row, column=2)
 
         ttk.Label(obs_frame, text="Password:").grid(row=self.current_row, column=0, sticky='W')
-        self.obs_password = ttk.Entry(obs_frame, show='*')
-        self.obs_password.insert(0, self.settings.get('obs', {}).get('password', 'your_password'))
+        self.obs_password = ttk.Entry(obs_frame)
+        self.obs_password.insert(0, self.settings.obs.password)
         self.obs_password.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(obs_frame, "Password for the OBS WebSocket server.", row=self.current_row, column=2)
+
+        ttk.Label(obs_frame, text="Start/Stop Buffer:").grid(row=self.current_row, column=0, sticky='W')
+        self.obs_start_buffer = tk.BooleanVar(value=self.settings.obs.start_buffer)
+        ttk.Checkbutton(obs_frame, variable=self.obs_start_buffer).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(obs_frame, "Start and Stop the Buffer when Script runs.", row=self.current_row,
+                                         column=2)
 
 
     @new_tab
@@ -541,21 +546,15 @@ class ConfigApp:
         hotkeys_frame = ttk.Frame(self.notebook)
         self.notebook.add(hotkeys_frame, text='Hotkeys')
 
-        ttk.Label(hotkeys_frame, text="Reset Offset Hotkey:").grid(row=self.current_row, column=0, sticky='W')
-        self.reset_offset_hotkey = ttk.Entry(hotkeys_frame)
-        self.reset_offset_hotkey.insert(0, self.settings.get('hotkeys', {}).get('reset_hotkey', 'f4'))
-        self.reset_offset_hotkey.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(hotkeys_frame, "Hotkey to reset the audio offset.", row=self.current_row, column=2)
-
         ttk.Label(hotkeys_frame, text="Reset Line Hotkey:").grid(row=self.current_row, column=0, sticky='W')
         self.reset_line_hotkey = ttk.Entry(hotkeys_frame)
-        self.reset_line_hotkey.insert(0, self.settings.get('hotkeys', {}).get('reset_line', 'f5'))
+        self.reset_line_hotkey.insert(0, self.settings.hotkeys.reset_line)
         self.reset_line_hotkey.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(hotkeys_frame, "Hotkey to reset the current line of dialogue.", row=self.current_row, column=2)
 
         ttk.Label(hotkeys_frame, text="Take Screenshot Hotkey:").grid(row=self.current_row, column=0, sticky='W')
         self.take_screenshot_hotkey = ttk.Entry(hotkeys_frame)
-        self.take_screenshot_hotkey.insert(0, self.settings.get('hotkeys', {}).get('take_screenshot', 'f6'))
+        self.take_screenshot_hotkey.insert(0, self.settings.hotkeys.take_screenshot)
         self.take_screenshot_hotkey.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(hotkeys_frame, "Hotkey to take a screenshot.", row=self.current_row, column=2)
 
