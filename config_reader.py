@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from logging.handlers import RotatingFileHandler
 from os.path import expanduser
 
 import toml
@@ -124,8 +125,9 @@ if config:
     notify_on_update = feature_config.get('notify_on_update', True)
     open_anki_edit = feature_config.get('open_anki_edit', False)
     backfill_audio = feature_config.get('backfill_audio', False)
-    do_whisper_instead = feature_config.get('do_whisper_postprocessing_instead', True)
-
+    do_whisper_instead = feature_config.get('do_whisper_postprocessing_instead', False)
+    do_silero_instead = feature_config.get('do_silero_postprocessing_instead', False)
+    
     # Vosk config
     vosk_model_url = vosk_config.get('url', "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip")
     vosk_log_level = vosk_config.get('log-level', -1)
@@ -171,21 +173,31 @@ if config:
         print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
         exit(1)
 
-    # Setup Logs
-    logger = logging.getLogger("TrimAudio")
-    logging_format = logging.Formatter(u'%(asctime)s - %(levelname)s - %(message)s')
+    if do_whisper_instead and do_silero_instead:
+        print("Cannot have do_whisper_postprocessing_instead and do_silero_postprocessing_instead turned on at the same time!")
+        exit(1)
 
-    file_handler = logging.FileHandler("anki_script.log", encoding='utf-8')
-    file_handler.setLevel(file_log_level)
-    file_handler.setFormatter(logging_format)
+    logger = logging.getLogger("GameSentenceMiner")
+    logger.setLevel(logging.DEBUG)  # Set the base level to DEBUG so that all messages are captured
 
+    # Create console handler with level INFO
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(console_log_level)  # You can set the desired log level for console output
-    console_handler.setFormatter(logging_format)
+    console_handler.setLevel(logging.INFO)
 
-    logger.addHandler(file_handler)
+    # Create rotating file handler with level DEBUG
+    file_handler = RotatingFileHandler("gamesentenceminer.log", maxBytes=10_000_000, backupCount=2, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+
+    # Create a formatter
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # Add formatter to handlers
+    console_handler.setFormatter(formatter)
+    file_handler.setFormatter(formatter)
+
+    # Add handlers to the logger
     logger.addHandler(console_handler)
-    logger.setLevel(logging.INFO)
+    logger.addHandler(file_handler)
 
 else:
     raise Exception("No config found")

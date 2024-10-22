@@ -31,6 +31,7 @@ notify_on_update = true
 open_anki_edit = false
 backfill_audio = false # Strictly to fill audio for cards that you already have in your anki db. CANNOT BE USED WITH FULL_AUTO_MODE
 do_whisper_postprocessing_instead = true
+do_silero_postprocessing_instead = false
 
 # Vosk Model
 [vosk]

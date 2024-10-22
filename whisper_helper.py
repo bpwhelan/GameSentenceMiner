@@ -1,7 +1,9 @@
 import subprocess
 import tempfile
+import warnings
 
-import whisper
+import stable_whisper as whisper
+from stable_whisper import WhisperResult
 
 import config_reader
 from config_reader import *
@@ -12,9 +14,9 @@ whisper_model = None
 
 
 # # Convert audio to 16kHz mono WAV (Whisper expects this format)
-# def convert_audio_to_wav(input_audio, output_wav):
-#     command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 \"{output_wav}\""
-#     subprocess.run(command)
+def convert_audio_to_wav(input_audio, output_wav):
+    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 -af \"afftdn, dialoguenhance\" \"{output_wav}\""
+    subprocess.run(command)
 
 
 # Function to download and load the Whisper model
@@ -22,49 +24,59 @@ def load_whisper_model():
     global whisper_model
     if whisper_model is None:
         logger.info(f"Loading Whisper model '{whisper_model_name}'... This may take a while.")
-        whisper_model = whisper.load_model(whisper_model_name)
+        with warnings.catch_warnings(action="ignore"):
+            whisper_model = whisper.load_model(whisper_model_name)
         logger.info("Whisper model loaded.")
 
 
 # Use Whisper to detect voice activity with timestamps in the audio
 def detect_voice_with_whisper(input_audio):
     # Convert the audio to 16kHz mono WAV
-    # temp_wav = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix='.wav').name
-    # convert_audio_to_wav(input_audio, temp_wav)
+    temp_wav = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix='.wav').name
+    convert_audio_to_wav(input_audio, temp_wav)
 
     # Make sure Whisper is loaded
     load_whisper_model()
 
+    logger.info('transcribing audio...')
+
     # Transcribe the audio using Whisper
-    result = whisper_model.transcribe(input_audio, word_timestamps=True, language='ja')
+    with warnings.catch_warnings(action="ignore"):
+        result: WhisperResult = whisper_model.transcribe(temp_wav, vad=True, language='ja')
 
     voice_activity = []
 
-    # print(result)
-
-    # # Process the segments to extract tokens, timestamps, and confidence
-    # for segment in result['segments']:
-    #     print(segment)
-    #         voice_activity.append({
-    #             'text': segment['text'],
-    #             'start': segment['start'],
-    #             'end': segment['end'],
-    #             'confidence': segment.get('probability', 1.0)  # Default confidence to 1.0 if not available
-    #         })
+    logger.debug(result.to_dict())
 
     # Process the segments to extract tokens, timestamps, and confidence
-    for segment in result['segments']:
-        # print(segment)
-        for word in segment['words']:
-            confidence = word.get('probability', 1.0)
+    for segment in result.segments:
+        logger.debug(segment.to_dict())
+        for word in segment.words:
+            logger.debug(word.to_dict())
+            confidence = word.probability
             if confidence > .1:
-                # print(word)
+                logger.debug(word)
                 voice_activity.append({
-                    'text': word['word'],
-                    'start': word['start'],
-                    'end': word['end'],
-                    'confidence': word.get('probability', 1.0)  # Default confidence to 1.0 if not available
+                    'text': word.word,
+                    'start': word.start,
+                    'end': word.end,
+                    'confidence': word.probability
                 })
+
+
+    # Process the segments to extract tokens, timestamps, and confidence
+    # for segment in result['segments']:
+    #     logger.debug(segment)
+    #     for word in segment['words']:
+    #         confidence = word.get('probability', 1.0)
+    #         if confidence > .1:
+    #             logger.debug(word)
+    #             voice_activity.append({
+    #                 'text': word['word'],
+    #                 'start': word['start'],
+    #                 'end': word['end'],
+    #                 'confidence': word.get('probability', 1.0)  # Default confidence to 1.0 if not available
+    #             })
     # Analyze the detected words to decide whether to use the audio
     should_use = False
     unique_words = set(word['text'] for word in voice_activity)
@@ -72,7 +84,7 @@ def detect_voice_with_whisper(input_audio):
         should_use = True
 
     if not should_use:
-        return None, 0
+        return None
 
     # Return the detected voice activity and the total duration
     return voice_activity
@@ -83,7 +95,7 @@ def trim_audio(input_audio, start_time, end_time, output_audio):
     command = ffmpeg_base_command_list.copy()
 
     if vosk_trim_beginning:
-        command.extend(['-ss', f"{start_time:.2f}"])
+        command.extend(['-ss', f"{start_time - .25:.2f}"])
 
     command.extend([
         '-to', f"{end_time:.2f}",

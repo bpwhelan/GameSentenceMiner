@@ -51,11 +51,11 @@ async def listen_websocket():
                     except json.JSONDecodeError:
                         current_clipboard = message
 
-                    # if current_clipboard != previous_clipboard:
-                    previous_line = current_clipboard
-                    previous_line_time = datetime.now()
-                    line_history[previous_line] = previous_line_time
-                    util.use_previous_audio = False
+                    if current_clipboard != previous_line:
+                        previous_line = current_clipboard
+                        previous_line_time = datetime.now()
+                        line_history[previous_line] = previous_line_time
+                        util.use_previous_audio = False
 
         except (websockets.ConnectionClosed, ConnectionError) as e:
             print(f"WebSocket connection lost: {e}. Trying again in 5 seconds...")
@@ -65,6 +65,8 @@ async def listen_websocket():
 def reset_line_hotkey_pressed():
     global previous_line_time
     previous_line_time = datetime.now()
+    line_history[previous_line] = previous_line_time
+    util.use_previous_audio = False
 
 
 def run_websocket_listener():

@@ -17,6 +17,7 @@ import config_reader
 import notification
 import obs
 import offset_updater
+import silero_trim
 import util
 import vosk_helper
 import whisper_helper
@@ -81,6 +82,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if do_vosk_postprocessing:
                 if do_whisper_instead:
                     should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio, output_audio)
+                elif do_silero_instead:
+                    should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio, output_audio)
                 else:
                     should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, output_audio)
             else:
