@@ -149,9 +149,6 @@ class Config:
         with open(file_path, 'r') as f:
             config_data = toml.load(f)
 
-        # Map the TOML values to the Config dataclass
-        self.general.console_log_level = config_data['general'].get('console_log_level', self.general.console_log_level)
-        self.general.file_log_level = config_data['general'].get('file_log_level', self.general.file_log_level)
 
         self.paths.folder_to_watch = expanduser(config_data['paths'].get('folder_to_watch', self.paths.folder_to_watch))
         self.paths.audio_destination = expanduser(
