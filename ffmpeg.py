@@ -8,11 +8,11 @@ from util import *
 
 def get_screenshot(video_file):
     output_image = make_unique_file_name(
-        get_config().paths.screenshot_destination + get_config().current_game.replace(" ", "") + f".{get_config().screenshot.extension}")
+        get_config().paths.screenshot_destination + configuration.current_game.replace(" ", "") + f".{get_config().screenshot.extension}")
     # FFmpeg command to extract the last frame of the video
     ffmpeg_command = ffmpeg_base_command_list + [
         "-sseof", "-1",  # Seek to 1 second before the end of the video
-        "-i", video_file,
+        "-i", f"{video_file}",
         "-vframes", "1"  # Extract only one frame
     ]
 
@@ -26,7 +26,7 @@ def get_screenshot(video_file):
 
     logger.debug(f"FFMPEG SS Command: {ffmpeg_command}")
 
-    ffmpeg_command.append(output_image)
+    ffmpeg_command.append(f"{output_image}")
     # Run the command
     subprocess.run(ffmpeg_command)
 
@@ -37,7 +37,7 @@ def get_screenshot(video_file):
 
 def process_image(image_file):
     output_image = make_unique_file_name(
-        get_config().paths.screenshot_destination + get_config().current_game.replace(" ", "") + f".{get_config().screenshot.extension}")
+        get_config().paths.screenshot_destination + current_game.replace(" ", "") + f".{get_config().screenshot.extension}")
 
     # FFmpeg command to process the input image
     ffmpeg_command = ffmpeg_base_command_list + [
@@ -108,7 +108,7 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
         codec_command = f"-c:a {supported_formats[get_config().audio.extension]}"
         logger.info(f"Re-encoding {codec} to {get_config().audio.extension}")
 
-    untrimmed_audio = tempfile.NamedTemporaryFile(dir=get_config().temp_directory,
+    untrimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.temp_directory,
                                                   suffix=f"_untrimmed.{get_config().audio.extension}").name
 
     # FFmpeg command to extract OR re-encode the audio
@@ -135,7 +135,7 @@ def get_video_duration(file_path):
 
 
 def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line):
-    trimmed_audio = tempfile.NamedTemporaryFile(dir=get_config().temp_directory, suffix=f".{get_config().audio.extension}").name
+    trimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.temp_directory, suffix=f".{get_config().audio.extension}").name
     file_mod_time = get_file_modification_time(video_path)
     file_length = get_video_duration(video_path)
     time_delta = file_mod_time - line_time

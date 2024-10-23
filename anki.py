@@ -14,6 +14,7 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
     global audio_in_anki, screenshot_in_anki
     update_audio = should_update_audio and (not last_note['fields'][get_config().anki.sentence_audio_field]['value'] or get_config().anki.overwrite_audio)
     update_picture = get_config().anki.overwrite_picture or not last_note['fields'][get_config().anki.picture_field]['value']
+
     if not reuse_audio:
         if update_audio:
             audio_in_anki = store_media_file(audio_path)
@@ -40,7 +41,7 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
     invoke("updateNoteFields", note=note)
     if get_config().anki.custom_tags:
         if get_config().anki.add_game_tag:
-            get_config().anki.custom_tags.append(get_config().current_game.replace(" ", ""))
+            get_config().anki.custom_tags.append(configuration.current_game.replace(" ", ""))
         for custom_tag in get_config().anki.custom_tags:
             invoke("addTags", tags=custom_tag.replace(" ", ""), notes=[last_note['noteId']])
     logger.info(f"UPDATED ANKI CARD FOR {last_note['noteId']}")

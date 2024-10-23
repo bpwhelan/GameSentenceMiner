@@ -147,7 +147,8 @@ class ConfigApp:
                 host=self.obs_host.get(),
                 port=int(self.obs_port.get()),
                 password=self.obs_password.get(),
-                start_buffer=self.obs_start_buffer.get()
+                start_buffer=self.obs_start_buffer.get(),
+                get_game_from_scene=self.get_game_from_scene_name.get()
             ),
             hotkeys=Hotkeys(
                 reset_line=self.reset_line_hotkey.get(),
@@ -549,6 +550,12 @@ class ConfigApp:
         self.obs_start_buffer = tk.BooleanVar(value=self.settings.obs.start_buffer)
         ttk.Checkbutton(obs_frame, variable=self.obs_start_buffer).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(obs_frame, "Start and Stop the Buffer when Script runs.", row=self.current_row,
+                                         column=2)
+
+        ttk.Label(obs_frame, text="Get Game From Scene Name:").grid(row=self.current_row, column=0, sticky='W')
+        self.get_game_from_scene_name = tk.BooleanVar(value=self.settings.obs.get_game_from_scene)
+        ttk.Checkbutton(obs_frame, variable=self.get_game_from_scene_name).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(obs_frame, "Changes Current Game to Scene Name", row=self.current_row,
                                          column=2)
 
 
