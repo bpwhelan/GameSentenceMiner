@@ -104,16 +104,12 @@ def trim_audio(input_audio, start_time, end_time, output_audio):
         output_audio
     ])
 
-    print(command)
-
     subprocess.run(command)
 
 
 # Example usage of Whisper with trimming
 def process_audio_with_whisper(input_audio, output_audio):
     voice_activity = detect_voice_with_whisper(input_audio)
-
-    print(voice_activity)
 
     if not voice_activity:
         logger.info("No voice activity detected in the audio.")

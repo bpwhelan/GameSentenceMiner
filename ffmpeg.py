@@ -140,7 +140,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_l
     file_length = get_video_duration(video_path)
     time_delta = file_mod_time - line_time
     # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)
-    total_seconds = file_length - time_delta.total_seconds() + get_config().audio.end_offset
+    total_seconds = file_length - time_delta.total_seconds() + get_config().audio.beginning_offset
     if total_seconds < 0 or total_seconds >= file_length:
         logger.info(f"0 seconds trimmed off of beginning")
         return untrimmed_audio
