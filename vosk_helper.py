@@ -10,13 +10,14 @@ import vosk
 import soundfile as sf
 import numpy as np
 
-import config_reader
-from config_reader import *
+import configuration
+from configuration import *
 
 ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
-vosk.SetLogLevel(vosk_log_level)
+vosk.SetLogLevel(-1)
 vosk_model_path = ''
+vosk_model = None
 
 
 # Convert audio to 16kHz mono WAV (Vosk expects this format)
@@ -32,13 +33,13 @@ def download_and_cache_vosk_model(model_dir="vosk_model_cache"):
         os.makedirs(model_dir)
 
     # Extract the model name from the URL
-    model_filename = vosk_model_url.split("/")[-1]
+    model_filename = get_config().vad.vosk_url.split("/")[-1]
     model_path = os.path.join(model_dir, model_filename)
 
     # If the model is already downloaded, skip the download
     if not os.path.exists(model_path):
-        logger.info(f"Downloading the Vosk model from {vosk_model_url}... This will take a while if using large model, ~1G")
-        response = requests.get(vosk_model_url, stream=True)
+        logger.info(f"Downloading the Vosk model from {get_config().vad.vosk_url}... This will take a while if using large model, ~1G")
+        response = requests.get(get_config().vad.vosk_url, stream=True)
         with open(model_path, "wb") as file:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
@@ -72,17 +73,19 @@ def download_and_cache_vosk_model(model_dir="vosk_model_cache"):
 
 # Use Vosk to detect voice activity with timestamps in the audio
 def detect_voice_with_vosk(input_audio):
+    global vosk_model_path, vosk_model
     # Convert the audio to 16kHz mono WAV
-    temp_wav = tempfile.NamedTemporaryFile(dir=config_reader.temp_directory, suffix='.wav').name
+    temp_wav = tempfile.NamedTemporaryFile(dir=get_config().temp_directory, suffix='.wav').name
     convert_audio_to_wav(input_audio, temp_wav)
-    #
-    # # Load the Vosk model
-    model = vosk.Model(vosk_model_path)
+
+    if not vosk_model_path or not vosk_model:
+        vosk_model_path = download_and_cache_vosk_model()
+        vosk_model = vosk.Model(vosk_model_path)
 
 
     # Open the audio file
     with sf.SoundFile(temp_wav) as audio_file:
-        recognizer = vosk.KaldiRecognizer(model, audio_file.samplerate)
+        recognizer = vosk.KaldiRecognizer(vosk_model, audio_file.samplerate)
         voice_activity = []
         total_duration = len(audio_file) / audio_file.samplerate  # Get total duration in seconds
 
@@ -132,7 +135,7 @@ def detect_voice_with_vosk(input_audio):
 def trim_audio(input_audio, start_time, end_time, output_audio):
     command = ffmpeg_base_command_list.copy()
 
-    if vosk_trim_beginning:
+    if get_config().vad.trim_beginning:
         command.extend(['-ss', f"{start_time:.2f}"])
 
     command.extend([
@@ -157,19 +160,20 @@ def process_audio_with_vosk(input_audio, output_audio):
     start_time = voice_activity[0]['start'] if voice_activity else 0
     end_time = voice_activity[-1]['end'] if voice_activity else total_duration
 
-    if vosk_trim_beginning:
+    if get_config().vad.trim_beginning:
         logger.info(f"Trimmed Beginning of Audio to {start_time}")
 
     # Print detected speech details with timestamps
     logger.info(f"Trimmed End of Audio to {end_time} seconds:")
 
     # Trim the audio using FFmpeg
-    trim_audio(input_audio, start_time, end_time + config_reader.audio_end_offset, output_audio)
+    trim_audio(input_audio, start_time, end_time + get_config().audio.end_offset, output_audio)
     logger.info(f"Trimmed audio saved to: {output_audio}")
     return True
 
 
 def get_vosk_model():
-    global vosk_model_path
+    global vosk_model_path, vosk_model
     vosk_model_path = download_and_cache_vosk_model()
+    vosk_model = vosk.Model(vosk_model_path)
     logger.info(f"Using Vosk model from {vosk_model_path}")

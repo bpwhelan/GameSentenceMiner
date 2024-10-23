@@ -9,7 +9,7 @@ import pyperclip
 import websockets
 
 import util
-from config_reader import *
+from configuration import *
 
 previous_line = ''
 previous_line_time = datetime.now()
@@ -39,8 +39,7 @@ async def listen_websocket():
     global previous_line, previous_line_time, line_history
     while True:
         try:
-            async with websockets.connect(f'ws://{websocket_uri}') as websocket:
-                print("TextHook Websocket Connected")
+            async with websockets.connect(f'ws://{get_config().general.websocket_uri}') as websocket:
                 while True:
                     message = await websocket.recv()
 
@@ -58,7 +57,7 @@ async def listen_websocket():
                         util.use_previous_audio = False
 
         except (websockets.ConnectionClosed, ConnectionError) as e:
-            print(f"WebSocket connection lost: {e}. Trying again in 5 seconds...")
+            print(f"Texthooker WebSocket connection lost: {e}. Trying again in 5 seconds...")
             await asyncio.sleep(5)
 
 
@@ -74,7 +73,8 @@ def run_websocket_listener():
 
 
 def start_text_monitor():
-    if websocket_enabled:
+
+    if get_config().general.use_websocket:
         text_thread = threading.Thread(target=run_websocket_listener, daemon=True)
     else:
         text_thread = threading.Thread(target=monitor_clipboard, daemon=True)

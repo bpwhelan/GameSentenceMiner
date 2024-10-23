@@ -1,9 +1,12 @@
-import json
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import time
 import keyboard
+import psutil
+from psutil import NoSuchProcess
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -11,18 +14,18 @@ from watchdog.observers import Observer
 import anki
 import ffmpeg
 import gametext
-import config_reader
+import configuration
 import notification
 import obs
-import offset_updater
 import silero_trim
 import util
 import vosk_helper
 import whisper_helper
-from config_reader import *
 from ffmpeg import get_audio_and_trim
 from util import *
-from vosk_helper import process_audio_with_vosk
+from configuration import *
+
+config_pids = []
 
 
 def remove_html_tags(text):
@@ -36,7 +39,7 @@ def get_line_timing(last_note):
     line_time = gametext.previous_line_time
     next_line = 0
     try:
-        sentence = last_note['fields'][sentence_field]['value']
+        sentence = last_note['fields'][get_config().anki.sentence_field]['value']
         if sentence:
             for i, (line, clip_time) in enumerate(reversed(gametext.line_history.items())):
                 if remove_html_tags(sentence) in line:
@@ -68,31 +71,40 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if last_note:
                 logger.debug(json.dumps(last_note))
 
-            if backfill_audio:
+            if get_config().features.backfill_audio:
                 last_note = anki.get_cards_by_sentence(gametext.previous_line)
 
-            tango = last_note['fields'][word_field]['value'] if last_note else ''
+            tango = last_note['fields'][get_config().anki.word_field]['value'] if last_note else ''
 
             trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
 
-            output_audio = make_unique_file_name(f"{audio_destination}{config_reader.current_game.replace(' ', '')}.{audio_extension}")
+            output_audio = make_unique_file_name(f"{get_config().paths.audio_destination}{get_config().current_game.replace(' ', '')}.{get_config().audio.audio_extension}")
             should_update_audio = True
-            if do_vosk_postprocessing:
-                if do_whisper_instead:
-                    should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio, output_audio)
-                elif do_silero_instead:
-                    should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio, output_audio)
-                else:
-                    should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, output_audio)
-            else:
-                shutil.copy2(trimmed_audio, output_audio)
+            if get_config().vad.do_vad_postprocessing:
+                match get_config().vad.selected_vad_model:
+                    case configuration.SILERO:
+                        should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio, output_audio)
+                    case configuration.VOSK:
+                        should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, output_audio)
+                    case configuration.WHISPER:
+                        should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio, output_audio)
+                if not should_update_audio:
+                    match get_config().vad.backup_vad_model:
+                        case configuration.OFF:
+                            pass
+                        case configuration.SILERO:
+                            should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio, output_audio)
+                        case configuration.VOSK:
+                            should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, output_audio)
+                        case configuration.WHISPER:
+                            should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio, output_audio)
 
-            if ffmpeg_reencode_options and os.path.exists(output_audio):
-                ffmpeg.reencode_file_with_user_config(output_audio, ffmpeg_reencode_options)
+            if get_config().audio.ffmpeg_reencode_options and os.path.exists(output_audio):
+                ffmpeg.reencode_file_with_user_config(output_audio, get_config().audio.ffmpeg_reencode_options)
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 try:
-                    if update_anki and last_note:
+                    if get_config().anki.update_anki and last_note:
                         anki.update_anki_card(last_note, audio_path=output_audio, video_path=video_path, tango=tango,
                                          should_update_audio=should_update_audio)
                     else:
@@ -103,65 +115,66 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 print(f)
                 print("Something went wrong with processing, anki card not updated")
 
-            if remove_video and os.path.exists(video_path):
+            if get_config().paths.remove_video and os.path.exists(video_path):
                 os.remove(video_path)  # Optionally remove the video after conversion
-            if remove_audio and os.path.exists(output_audio):
+            if get_config().paths.remove_audio and os.path.exists(output_audio):
                 os.remove(output_audio)  # Optionally remove the screenshot after conversion
 
 
-def initialize():
-    if not os.path.exists(folder_to_watch):
-        os.mkdir(folder_to_watch)
-    if not os.path.exists(screenshot_destination):
-        os.mkdir(screenshot_destination)
-    if not os.path.exists(audio_destination):
-        os.mkdir(audio_destination)
-    if not os.path.exists("temp_files"):
-        os.mkdir("temp_files")
-    else:
-        for filename in os.scandir('temp_files'):
-            file_path = os.path.join('temp_files', filename.name)
-            print(f"Processing: {file_path}")
-
-            if filename.is_file() or filename.is_symlink():
-                print(f"Deleting file or symlink: {file_path}")
-                os.remove(file_path)
-            elif filename.is_dir():
-                print(f"Deleting directory: {file_path}")
-                shutil.rmtree(file_path)
-    if do_vosk_postprocessing:
-        vosk_helper.get_vosk_model()
-        if do_whisper_instead:
+def initialize(reloading=False):
+    if not reloading:
+        if get_config().general.open_config_on_startup:
+            proc = subprocess.Popen([sys.executable, "config_gui.py"])
+            config_pids.append(proc.pid)
+        gametext.start_text_monitor()
+        if not os.path.exists(get_config().paths.folder_to_watch):
+            os.mkdir(get_config().paths.folder_to_watch)
+        if not os.path.exists(get_config().paths.screenshot_destination):
+            os.mkdir(get_config().paths.screenshot_destination)
+        if not os.path.exists(get_config().paths.audio_destination):
+            os.mkdir(get_config().paths.audio_destination)
+        if not os.path.exists("temp_files"):
+            os.mkdir("temp_files")
+        else:
+            for filename in os.scandir('temp_files'):
+                file_path = os.path.join('temp_files', filename.name)
+                if filename.is_file() or filename.is_symlink():
+                    os.remove(file_path)
+                elif filename.is_dir():
+                    shutil.rmtree(file_path)
+    if get_config().vad.do_vad_postprocessing:
+        if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
+            vosk_helper.get_vosk_model()
+        if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
             whisper_helper.initialize_whisper_model()
-    if obs_enabled:
-        obs.connect_to_obs()
-        if obs_start_buffer:
-            obs.start_replay_buffer()
-        config_reader.current_game = obs.get_current_scene()
-        obs.start_monitoring_anki()
-    gametext.start_text_monitor()
+    if not reloading:
+        if get_config().obs.enabled:
+            obs.connect_to_obs()
+            if get_config().obs.start_buffer:
+                obs.start_replay_buffer()
+            get_config().current_game = obs.get_current_scene()
+            obs.start_monitoring_anki()
+        watch_for_config_changes()
 
 
 def register_hotkeys():
-    print(f"Press {offset_reset_hotkey.upper()} to update the audio offsets.")
-    keyboard.add_hotkey(offset_reset_hotkey, offset_updater.prompt_for_offset_updates)
-    keyboard.add_hotkey(reset_line_hotkey, gametext.reset_line_hotkey_pressed)
-    keyboard.add_hotkey(take_screenshot_hotkey, get_screenshot)
+    keyboard.add_hotkey(get_config().hotkeys.reset_line, gametext.reset_line_hotkey_pressed)
+    keyboard.add_hotkey(get_config().hotkeys.take_screenshot, get_screenshot)
 
 
 def get_screenshot():
     image = obs.get_screenshot()
     encoded_image = ffmpeg.process_image(image)
-    if update_anki and screenshot_hotkey_save_to_anki:
+    if get_config().anki.update_anki:
         last_note = anki.get_last_anki_card()
         if last_note:
             logger.debug(json.dumps(last_note))
-        if backfill_audio:
+        if get_config().features.backfill_audio:
             last_note = anki.get_cards_by_sentence(gametext.previous_line)
         if last_note:
             anki.add_image_to_card(last_note, encoded_image)
-            notification.send_screenshot_updated(last_note['fields'][word_field]['value'])
-            if open_anki_edit:
+            notification.send_screenshot_updated(last_note['fields'][get_config().anki.word_field]['value'])
+            if get_config().features.open_anki_edit:
                 notification.open_anki_card(last_note['noteId'])
         else:
             notification.send_screenshot_saved(encoded_image)
@@ -169,41 +182,53 @@ def get_screenshot():
         notification.send_screenshot_saved(encoded_image)
 
 
-def main():
+def main(reloading=False):
     logger.info("Script started.")
-    initialize()
+    initialize(reloading)
     with tempfile.TemporaryDirectory(dir="temp_files") as temp_dir:
-        config_reader.temp_directory = temp_dir
+        configuration.temp_directory = temp_dir
         event_handler = VideoToAudioHandler()
         observer = Observer()
-        observer.schedule(event_handler, folder_to_watch, recursive=False)
+        observer.schedule(event_handler, get_config().paths.folder_to_watch, recursive=False)
         observer.start()
 
-        print("Script Initialized. Happy Mining!")
+        logger.info("Script Initialized. Happy Mining!")
         register_hotkeys()
 
-        # game_process_id = get_process_id_by_title(config_reader.current_game)
+        # game_process_id = get_process_id_by_title(get_config().current_game)
         #
-        # game_script = find_script_for_game(config_reader.current_game)
+        # game_script = find_script_for_game(get_config().current_game)
         #
         # agent_thread = threading.Thread(target=run_agent_and_hook,
         #                                 args=(game_process_id, game_script))
         # agent_thread.start()
 
+        logger.info("Enter \"config\" to open the config gui")
         try:
             while util.keep_running:
+                command = input()
+                if command == 'config':
+                    logger.info('opening config, most settings are live, so once the config is saved, the script will attempt to reload the config')
+                    proc = subprocess.Popen([sys.executable, "config_gui.py"])
+                    config_pids.append(proc.pid)
                 time.sleep(1)
 
         except KeyboardInterrupt:
             util.keep_running = False
             observer.stop()
 
-        if obs_enabled:
-            if obs_start_buffer:
+        if get_config().obs.enabled:
+            if get_config().obs.start_buffer:
                 obs.stop_replay_buffer()
             obs.disconnect_from_obs()
         observer.stop()
         observer.join()
+        for pid in config_pids:
+            try:
+                p = psutil.Process(pid)
+                p.terminate()  # or p.kill()
+            except NoSuchProcess:
+                print("Config already Closed")
 
 
 if __name__ == "__main__":
