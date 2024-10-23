@@ -3,6 +3,8 @@ import tkinter as tk
 from tkinter import filedialog
 import ttkbootstrap as ttk
 import json
+
+import configuration
 from configuration import *
 
 import toml
@@ -93,7 +95,8 @@ class ConfigApp:
         config = Config(
             general=General(
                 use_websocket=self.websocket_enabled.get(),
-                websocket_uri=self.websocket_uri.get()
+                websocket_uri=self.websocket_uri.get(),
+                open_config_on_startup=self.open_config_on_startup.get()
             ),
             paths=Paths(
                 folder_to_watch=self.folder_to_watch.get(),
@@ -166,6 +169,7 @@ class ConfigApp:
 
         print("Settings saved successfully!")
         settings_saved = True
+        configuration.reload_config()
 
     def increment_row(self):
         """Increment the current row index and return the new value."""
@@ -194,6 +198,13 @@ class ConfigApp:
         self.websocket_uri.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(general_frame, "WebSocket URI for connecting.", row=self.current_row,
                                          column=2)
+
+        ttk.Label(general_frame, text="Open Config on Startup:").grid(row=self.current_row, column=0, sticky='W')
+        self.open_config_on_startup = tk.BooleanVar(value=self.settings.general.open_config_on_startup)
+        ttk.Checkbutton(general_frame, variable=self.open_config_on_startup).grid(row=self.current_row, column=1,
+                                                                             sticky='W')
+        self.add_label_and_increment_row(general_frame, "Whether to open config when the script starts.",
+                                         row=self.current_row, column=2)
 
     @new_tab
     def create_vad_tab(self):

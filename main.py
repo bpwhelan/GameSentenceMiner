@@ -1,9 +1,12 @@
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
 import keyboard
+import psutil
+from psutil import NoSuchProcess
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -21,6 +24,8 @@ import whisper_helper
 from ffmpeg import get_audio_and_trim
 from util import *
 from configuration import *
+
+config_pids = []
 
 
 def remove_html_tags(text):
@@ -118,6 +123,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 def initialize(reloading=False):
     if not reloading:
+        if get_config().general.open_config_on_startup:
+            proc = subprocess.Popen([sys.executable, "config_gui.py"])
+            config_pids.append(proc.pid)
         gametext.start_text_monitor()
         if not os.path.exists(get_config().paths.folder_to_watch):
             os.mkdir(get_config().paths.folder_to_watch)
@@ -146,6 +154,7 @@ def initialize(reloading=False):
                 obs.start_replay_buffer()
             get_config().current_game = obs.get_current_scene()
             obs.start_monitoring_anki()
+        watch_for_config_changes()
 
 
 def register_hotkeys():
@@ -200,16 +209,8 @@ def main(reloading=False):
                 command = input()
                 if command == 'config':
                     logger.info('opening config, most settings are live, so once the config is saved, the script will attempt to reload the config')
-                    result = subprocess.run([sys.executable, "config_gui.py"])
-                    if result.returncode == 0:
-                        logger.info("ATTEMPTING SCRIPT RESTART WITH NEW SETTINGS: SOME SETTINGS (websocket, obs, etc.) REQUIRE A RESTART")
-                        logger.info('─' * 50)
-                        observer.stop()
-                        observer.join()
-                        main(reloading=True)
-                    else:
-                        logger.info("settings not saved, not restarting script!")
-
+                    proc = subprocess.Popen([sys.executable, "config_gui.py"])
+                    config_pids.append(proc.pid)
                 time.sleep(1)
 
         except KeyboardInterrupt:
@@ -222,6 +223,12 @@ def main(reloading=False):
             obs.disconnect_from_obs()
         observer.stop()
         observer.join()
+        for pid in config_pids:
+            try:
+                p = psutil.Process(pid)
+                p.terminate()  # or p.kill()
+            except NoSuchProcess:
+                print("Config already Closed")
 
 
 if __name__ == "__main__":
