@@ -78,7 +78,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
             trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
 
-            output_audio = make_unique_file_name(f"{get_config().paths.audio_destination}{get_config().current_game.replace(' ', '')}.{get_config().audio.audio_extension}")
+            output_audio = make_unique_file_name(f"{get_config().paths.audio_destination}{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
             should_update_audio = True
             if get_config().vad.do_vad_postprocessing:
                 match get_config().vad.selected_vad_model:
@@ -152,7 +152,7 @@ def initialize(reloading=False):
             obs.connect_to_obs()
             if get_config().obs.start_buffer:
                 obs.start_replay_buffer()
-            get_config().current_game = obs.get_current_scene()
+            configuration.current_game = obs.get_current_scene()
             obs.start_monitoring_anki()
         watch_for_config_changes()
 
@@ -195,9 +195,9 @@ def main(reloading=False):
         logger.info("Script Initialized. Happy Mining!")
         register_hotkeys()
 
-        # game_process_id = get_process_id_by_title(get_config().current_game)
+        # game_process_id = get_process_id_by_title(current_game)
         #
-        # game_script = find_script_for_game(get_config().current_game)
+        # game_script = find_script_for_game(current_game)
         #
         # agent_thread = threading.Thread(target=run_agent_and_hook,
         #                                 args=(game_process_id, game_script))

@@ -94,8 +94,8 @@ def update_new_card():
         use_prev_audio = True
     with util.lock:
         print(f"use previous audio: {use_prev_audio}")
-        if get_config().get_game_from_scene:
-            get_config().current_game = get_current_scene()
+        if get_config().obs.get_game_from_scene:
+            configuration.current_game = get_current_scene()
         if use_prev_audio:
             anki.update_anki_card(last_card, reuse_audio=True)
         else:
@@ -141,7 +141,7 @@ def start_monitoring_anki():
 
 def get_screenshot():
     try:
-        screenshot = util.make_unique_file_name(os.path.abspath(get_config().temp_directory) + '/screenshot.png')
+        screenshot = util.make_unique_file_name(os.path.abspath(configuration.temp_directory) + '/screenshot.png')
         current_source = get_source_from_scene(get_current_scene())
         if not current_source:
             print("No active scene found.")

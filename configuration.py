@@ -86,9 +86,9 @@ class Features:
 @dataclass_json
 @dataclass
 class Screenshot:
-    width: int = 0
-    height: int = 0
-    quality: int = 85
+    width: str = 0
+    height: str = 0
+    quality: str = 85
     extension: str = "webp"
     custom_ffmpeg_settings: str = ''
 
@@ -110,6 +110,7 @@ class OBS:
     port: int = 4455
     password: str = "your_password"
     start_buffer: bool = True
+    get_game_from_scene: bool = True
 
 
 @dataclass_json

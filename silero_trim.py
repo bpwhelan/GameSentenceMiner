@@ -19,7 +19,7 @@ vad_model = load_silero_vad()
 # Use Silero to detect voice activity with timestamps in the audio
 def detect_voice_with_silero(input_audio):
     # Convert the audio to 16kHz mono WAV
-    temp_wav = tempfile.NamedTemporaryFile(dir=get_config().temp_directory, suffix='.wav').name
+    temp_wav = tempfile.NamedTemporaryFile(dir=configuration.temp_directory, suffix='.wav').name
     convert_audio_to_wav(input_audio, temp_wav)
 
     # Load the audio and detect speech timestamps
@@ -62,6 +62,6 @@ def process_audio_with_silero(input_audio, output_audio):
     end_time = voice_activity[-1]['end'] if voice_activity else 0
 
     # Trim the audio using FFmpeg
-    trim_audio(input_audio, start_time, end_time + get_config().audio_end_offset, output_audio)
+    trim_audio(input_audio, start_time, end_time + get_config().audio.end_offset, output_audio)
     logger.info(f"Trimmed audio saved to: {output_audio}")
     return True
