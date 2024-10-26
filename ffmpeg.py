@@ -79,7 +79,7 @@ def get_audio_codec(video_path):
     ]
 
     # Run the command and capture the output
-    result = util.run_command(command, capture_output=True, text=True)
+    result = subprocess.run(command, capture_output=True, text=True)
 
     # Parse the JSON output
     try:
@@ -130,7 +130,7 @@ def get_video_duration(file_path):
         "-of", "json",
         file_path
     ]
-    result = util.run_command(ffprobe_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    result = subprocess.run(ffprobe_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     duration_info = json.loads(result.stdout)
     return float(duration_info["format"]["duration"])  # Return the duration in seconds
 
