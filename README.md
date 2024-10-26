@@ -2,14 +2,15 @@
 
 This project automates the recording of game sentence audio to help with Anki Card Creation. 
 
-You can trigger the entire process with a single hotkey that cuts out the before and after voice, gets a screenshot, and sends both to Anki.
+This allows us to create cards from texthooker/yomitan, and automatically get screenshot and sentence audio from the game we are playing.
 
 ## Features:
-- **Vosk Speech Recognition**: Automatically cuts the end of the clip to the exact moment the voice ended.
+- **Voice Activity Detection**: Automatically cuts the end of the clip to the exact moment the voice ended.
 - **OBS Replay Buffer**: Constantly records the last X seconds of gameplay.
 - **Clipboard Interaction**: Automatically monitors the clipboard for dialogue events.
+- **Websocket Listening**: Listens to a websocket uri for text-events from stuff like Agent/Textractor.
 - **Hotkey Automation**: Single hotkey to trigger video recording, screenshot, and transcription.
-- **1-Click Card Creation**: Monitors anki for new cards from Yomitan, and automatically gets audio from games.
+- **1-Click Card Creation**: Monitors anki for new cards from Yomitan, and automatically gets audio from games. 
 
 ## Prerequisites
 
@@ -20,17 +21,18 @@ You can trigger the entire process with a single hotkey that cuts out the before
 
 ### Quick Disclaimer/Troubleshooting
 
-Every game/hook is different, so it's really improbable that any script can get it perfect everytime. Also OBS is sometimes a bit finnicky if running for too long. If the audio timing is off, please first try some troubleshooting steps before making an issue:
+Every game/hook is different, so it's really impossible that any script can get it perfect everytime. Also OBS is sometimes a bit finnicky if running for too long. If the audio timing is off, please first try some troubleshooting steps before making an issue:
 - Try Restarting OBS
 - Make sure your hook is the best you can find. (Preferrably it gives you the text RIGHT when the voiceline starts)
 - Try Adjusting Offset Configuration in `config.toml` to better match your situation. (i.e. if the hook is late, add a negative beginning offset)
+- Try using "Trim beginning" in `VAD` settings.
 
 #### Setup Troubleshooting
 
 Just going to continuously update this with issues that I have helped users with. Look here first if you have issues setting it up.
-- Make sure folder_to_watch is the same as your recordings path in OBS. It defaults to ~/Videos, but I highly setting it to ~/Videos/OBS.
+- Make sure folder_to_watch is the same as your recordings path in OBS. It defaults to ~/Videos, but I recommend setting it to ~/Videos/OBS.
 - if it says something about a missing library, attempt to run `pip install -r requirements.txt` again
-- Make sure copying to clipboard is ENABLED if using Agent. And "copy to clipboard" extension is installed in Textractor.
+- If using clipboard, make sure agent/textractor sending to clipboard is enabled.
 
 ## 1. Setting Up OBS 60-Second Replay Buffer
 
@@ -43,19 +45,46 @@ Just going to continuously update this with issues that I have helped users with
    2. Assign a hotkey for saving the replay.
 4. Set Scene/Source. I recommend using "Game Capture" with "Capture Audio" Enabled. And then mute Desktop/microphone
    1. If "Game Capture" Does not work, use "screen capture" with a second source "Application Audio Capture"
+   2. I recommend having a Scene PER Game, with the name of the scene labeled as the game, this makes it easier for the script to know (with a config option) what game you are playing.
 5. In Output Settings, set "Recording Format" to mkv, and "Audio Encoder" to Opus. Alternative Settings may be supported at a later date.
 6. **Set up obs websocket** (HIGHLY RECOMMENDED see #5)
     1. Can allow my script to automatically start (and stop) the replay buffer, as well as automatically add audio/screenshot to card created from yomi.
 
 
-Here are the Settings I recommend in OBS. Make sure the recordings folder is the same as the "folder_to_watch" in the `config.toml`
+Here are the Settings I use in OBS. Make sure the recordings folder is the same as the "folder_to_watch" in the config.
 ![image](https://github.com/user-attachments/assets/0056816d-af3c-4a3c-bc6a-4aff5c28cadb)
 ![image](https://github.com/user-attachments/assets/dd2f95a6-f546-41d9-8136-de7b1b035a5d)
 
 
 ---
 
-## 2. Configuring `config.toml`
+## 2. Configuring the App.
+
+### Configuration GUI
+
+The `GameSentenceMiner` project now includes a graphical interface to simplify configuration. With default values already set, this GUI lets you adjust settings as needed. Here’s how to get started:
+
+#### Running the Configuration GUI
+To open the GUI, you have two options:
+1. **Directly Run the Script**: Open a terminal in your project directory and enter:
+   \\\bash
+   python config_gui.py
+   \\\
+2. **Console Command**: You can also type `config` in the console if you’re already running the main script. 
+
+#### Default Settings and Customization
+The GUI loads with default values for each setting, so if you’re just getting started, you may only need to change stuff in the "path" config. If you make changes, remember to click **Save Settings** to apply them.
+Please take a second to look through the config to see what is available, there is a lot of extra functionality hidden behind config options.
+
+![image](https://github.com/user-attachments/assets/ffac9888-de0a-412b-817f-e22a55ce7b55)![image](https://github.com/user-attachments/assets/981c112a-1ddc-4e07-9c39-57fe46644ff5)![image](https://github.com/user-attachments/assets/29470a97-6013-4ca8-9059-48af735eb3a8)![image](https://github.com/user-attachments/assets/8e9c8f03-dc43-4822-a3c5-43f36ca65364)
+
+
+
+
+
+---
+
+## 2. Configuring `config.toml` **DEPRECATED** Only used if running an older version.
 
 I redid the config parsing cause `config.py` is not ideal, especially when distributing a script via git.
 
@@ -130,7 +159,6 @@ uri = 'localhost:6677'
 #Comment = "Nice!"
 ```
 
-
 ---
 
 ## 3. Install Requirements
@@ -171,12 +199,11 @@ To run this script, you will need to have **FFmpeg** installed. If you don't hav
 
 Now you're ready to use FFmpeg in the script!
 
-
 ---
 
 ## 5. One Click Card Creation
 
-With the Latest Update it is now possible to do full 1-click card creation with this tool + Yomitan. This is configured in the `obs` section in your `config.toml`
+This is the flagship feature of this script, so here is a section explaining it. It is possible to do full 1-click card creation with this tool + Yomitan. The relevant settings are located in `Features` and `OBS` section in the config.
 
 Demo: https://www.youtube.com/watch?v=9dmmXO2CGNw
 
