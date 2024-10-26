@@ -5,6 +5,8 @@ import requests
 import shutil
 from datetime import datetime
 
+import util
+
 # Define your repository details (modify as needed)
 REPO_URL = "https://github.com/bpwhelan/TrimJapaneseGameAudio"
 CHECK_VERSION_URL = "https://api.github.com/repos/bpwhelan/TrimJapaneseGameAudio/releases/latest"
@@ -43,7 +45,7 @@ def initialize_git_repo():
 
 # Helper function to run git commands
 def run_command(command):
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    result = util.run_command(command, shell=True, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"Error: {result.stderr}")
     return result.stdout

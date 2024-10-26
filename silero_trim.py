@@ -2,6 +2,8 @@ import subprocess
 import tempfile
 import configuration
 from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
+
+import util
 from configuration import *
 from ffmpeg import ffmpeg_base_command, ffmpeg_base_command_list
 
@@ -9,7 +11,7 @@ from ffmpeg import ffmpeg_base_command, ffmpeg_base_command_list
 # Function to convert audio to 16kHz mono WAV if not already in that format
 def convert_audio_to_wav(input_audio, output_wav):
     command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 -af \"afftdn, dialoguenhance\" \"{output_wav}\""
-    subprocess.run(command)
+    util.run_command(command)
 
 
 # Silero VAD setup
@@ -46,7 +48,7 @@ def trim_audio(input_audio, start_time, end_time, output_audio):
         output_audio
     ])
 
-    subprocess.run(command)
+    util.run_command(command)
 
 
 # Example usage of Silero with trimming
