@@ -64,7 +64,7 @@ def get_note_ids():
         return set(result['result'])
     except Exception as e:
         print(f"Error fetching Anki notes: {e}")
-        return set()
+        return None
 
 
 # Save the current replay buffer
@@ -79,6 +79,8 @@ def save_replay_buffer():
 def check_for_new_cards():
     global previous_note_ids, first_run
     current_note_ids = get_note_ids()
+    if not current_note_ids:
+        return
     new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
         update_new_card()

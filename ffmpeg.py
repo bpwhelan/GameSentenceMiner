@@ -24,9 +24,11 @@ def get_screenshot(video_file):
     if get_config().screenshot.width or get_config().screenshot.height:
         ffmpeg_command.extend(["-vf", f"scale={get_config().screenshot.width or -1}:{get_config().screenshot.height or -1}"])
 
-    logger.debug(f"FFMPEG SS Command: {ffmpeg_command}")
 
     ffmpeg_command.append(f"{output_image}")
+
+    logger.debug(f"FFMPEG SS Command: {ffmpeg_command}")
+
     # Run the command
     subprocess.run(ffmpeg_command)
 
@@ -116,7 +118,7 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
 
     logger.debug(command)
 
-    subprocess.run(command)
+    subprocess.run(command, shell=True)
 
     return trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line_time)
 
@@ -174,9 +176,9 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_l
     return trimmed_audio
 
 
-def reencode_file_with_user_config(input_file, user_ffmpeg_options):
+def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_options):
     logger.info(f"Re-encode running with settings:  {user_ffmpeg_options}")
-    temp_file = input_file + ".temp"
+    temp_file = create_temp_file_with_same_name(input_file)
     command = f"{ffmpeg_base_command} -i \"{input_file}\" -map 0:a {user_ffmpeg_options} \"{temp_file}\""
 
     logger.debug(command)
@@ -186,8 +188,11 @@ def reencode_file_with_user_config(input_file, user_ffmpeg_options):
         logger.error("Re-encode failed, using original audio")
         return
 
-    replace_file_with_retry(temp_file, input_file)
+    replace_file_with_retry(temp_file, final_output_audio)
 
+def create_temp_file_with_same_name(input_file: str):
+    split = input_file.split(".")
+    return f"{split[0]}_temp.{split[1]}"
 
 def replace_file_with_retry(temp_file, input_file, retries=5, delay=1):
     for attempt in range(retries):
