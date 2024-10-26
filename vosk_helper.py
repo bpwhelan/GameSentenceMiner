@@ -11,6 +11,7 @@ import soundfile as sf
 import numpy as np
 
 import configuration
+import util
 from configuration import *
 
 ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
@@ -23,7 +24,7 @@ vosk_model = None
 # Convert audio to 16kHz mono WAV (Vosk expects this format)
 def convert_audio_to_wav(input_audio, output_wav):
     command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 -af \"afftdn, dialoguenhance\" \"{output_wav}\""
-    subprocess.run(command)
+    util.run_command(command)
 
 
 # Function to download and cache the Vosk model
@@ -145,7 +146,7 @@ def trim_audio(input_audio, start_time, end_time, output_audio):
         output_audio
     ])
 
-    subprocess.run(command)
+    util.run_command(command)
 
 
 # Example usage of Vosk with trimming

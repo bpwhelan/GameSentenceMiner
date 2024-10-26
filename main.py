@@ -193,7 +193,8 @@ def main(reloading=False):
         observer.start()
 
         logger.info("Script Initialized. Happy Mining!")
-        register_hotkeys()
+        if not is_linux():
+            register_hotkeys()
 
         # game_process_id = get_process_id_by_title(current_game)
         #

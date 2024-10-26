@@ -2,6 +2,7 @@ import tempfile
 import time
 
 import configuration
+import util
 from configuration import *
 from util import *
 
@@ -28,7 +29,7 @@ def get_screenshot(video_file):
 
     ffmpeg_command.append(f"{output_image}")
     # Run the command
-    subprocess.run(ffmpeg_command)
+    util.run_command(ffmpeg_command)
 
     logger.info(f"Screenshot saved to: {output_image}")
 
@@ -56,7 +57,7 @@ def process_image(image_file):
 
     ffmpeg_command.append(output_image)
     # Run the command
-    subprocess.run(ffmpeg_command)
+    util.run_command(ffmpeg_command)
 
     logger.info(f"Processed image saved to: {output_image}")
 
@@ -78,7 +79,7 @@ def get_audio_codec(video_path):
     ]
 
     # Run the command and capture the output
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = util.run_command(command, capture_output=True, text=True)
 
     # Parse the JSON output
     try:
@@ -116,7 +117,7 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
 
     logger.debug(command)
 
-    subprocess.run(command)
+    util.run_command(command)
 
     return trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line_time)
 
@@ -129,7 +130,7 @@ def get_video_duration(file_path):
         "-of", "json",
         file_path
     ]
-    result = subprocess.run(ffprobe_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    result = util.run_command(ffprobe_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     duration_info = json.loads(result.stdout)
     return float(duration_info["format"]["duration"])  # Return the duration in seconds
 
@@ -166,7 +167,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_l
         "-c", "copy",  # Using copy to avoid re-encoding, adjust if needed
         trimmed_audio
     ])
-    subprocess.run(ffmpeg_command)
+    util.run_command(ffmpeg_command)
 
     logger.info(f"{total_seconds} trimmed off of beginning")
 
@@ -180,7 +181,7 @@ def reencode_file_with_user_config(input_file, user_ffmpeg_options):
     command = f"{ffmpeg_base_command} -i \"{input_file}\" -map 0:a {user_ffmpeg_options} \"{temp_file}\""
 
     logger.debug(command)
-    process = subprocess.run(command)
+    process = util.run_command(command)
 
     if process.returncode != 0:
         logger.error("Re-encode failed, using original audio")
@@ -206,9 +207,9 @@ def replace_file_with_retry(temp_file, input_file, retries=5, delay=1):
 
 def trim_audio_by_end_time(input_audio, end_time, output_audio):
     command = f"{ffmpeg_base_command} -i \"{input_audio}\" -to {end_time} -c copy \"{output_audio}\""
-    subprocess.run(command)
+    util.run_command(command)
 
 
 def convert_audio_to_wav(input_audio, output_wav):
     command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 \"{output_wav}\""
-    subprocess.run(command)
+    util.run_command(command)
