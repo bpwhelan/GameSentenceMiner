@@ -5,6 +5,8 @@ import requests
 import shutil
 from datetime import datetime
 
+import util
+
 # Define your repository details (modify as needed)
 REPO_URL = "https://github.com/bpwhelan/TrimJapaneseGameAudio"
 CHECK_VERSION_URL = "https://api.github.com/repos/bpwhelan/TrimJapaneseGameAudio/releases/latest"

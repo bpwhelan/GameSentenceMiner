@@ -4,6 +4,7 @@ import string
 import subprocess
 import threading
 from datetime import datetime
+from sys import platform
 
 from rapidfuzz import process
 
@@ -107,3 +108,17 @@ def run_agent_and_hook(pname, agent_script):
         print(f"Error occurred while running agent script: {e}")
 
     keep_running = False
+
+
+def is_linux():
+    return platform == 'linux'
+
+
+# def run_command(command, shell=False, input=None, capture_output=False, timeout=None, check=False, **kwargs):
+#     # Use shell=True if the OS is Linux, otherwise shell=False
+#     if is_linux():
+#         return subprocess.run(command, shell=True, input=input, capture_output=capture_output, timeout=timeout,
+#                               check=check, **kwargs)
+#     else:
+#         return subprocess.run(command, shell=shell, input=input, capture_output=capture_output, timeout=timeout,
+#                               check=check, **kwargs)
