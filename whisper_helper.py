@@ -6,18 +6,12 @@ import stable_whisper as whisper
 from stable_whisper import WhisperResult
 
 import configuration
+import ffmpeg
 import util
 from configuration import *
 
-ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
 whisper_model = None
-
-
-# # Convert audio to 16kHz mono WAV (Whisper expects this format)
-def convert_audio_to_wav(input_audio, output_wav):
-    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 -af \"afftdn, dialoguenhance\" \"{output_wav}\""
-    util.run_command(command)
 
 
 # Function to download and load the Whisper model
@@ -34,7 +28,7 @@ def load_whisper_model():
 def detect_voice_with_whisper(input_audio):
     # Convert the audio to 16kHz mono WAV
     temp_wav = tempfile.NamedTemporaryFile(dir=configuration.temp_directory, suffix='.wav').name
-    convert_audio_to_wav(input_audio, temp_wav)
+    ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
 
     # Make sure Whisper is loaded
     load_whisper_model()
@@ -64,20 +58,6 @@ def detect_voice_with_whisper(input_audio):
                     'confidence': word.probability
                 })
 
-
-    # Process the segments to extract tokens, timestamps, and confidence
-    # for segment in result['segments']:
-    #     logger.debug(segment)
-    #     for word in segment['words']:
-    #         confidence = word.get('probability', 1.0)
-    #         if confidence > .1:
-    #             logger.debug(word)
-    #             voice_activity.append({
-    #                 'text': word['word'],
-    #                 'start': word['start'],
-    #                 'end': word['end'],
-    #                 'confidence': word.get('probability', 1.0)  # Default confidence to 1.0 if not available
-    #             })
     # Analyze the detected words to decide whether to use the audio
     should_use = False
     unique_words = set(word['text'] for word in voice_activity)
@@ -89,23 +69,6 @@ def detect_voice_with_whisper(input_audio):
 
     # Return the detected voice activity and the total duration
     return voice_activity
-
-
-# Trim the audio using FFmpeg based on detected speech timestamps
-def trim_audio(input_audio, start_time, end_time, output_audio):
-    command = ffmpeg_base_command_list.copy()
-
-    if get_config().vad.trim_beginning:
-        command.extend(['-ss', f"{start_time - .25:.2f}"])
-
-    command.extend([
-        '-to', f"{end_time:.2f}",
-        '-i', input_audio,
-        '-c', 'copy',
-        output_audio
-    ])
-
-    util.run_command(command)
 
 
 # Example usage of Whisper with trimming
@@ -127,7 +90,7 @@ def process_audio_with_whisper(input_audio, output_audio):
     logger.info(f"Trimmed End of Audio to {end_time} seconds:")
 
     # Trim the audio using FFmpeg
-    trim_audio(input_audio, start_time, end_time + get_config().audio.end_offset, output_audio)
+    ffmpeg.trim_audio(input_audio, start_time, end_time + get_config().audio.end_offset, output_audio)
     logger.info(f"Trimmed audio saved to: {output_audio}")
     return True
 

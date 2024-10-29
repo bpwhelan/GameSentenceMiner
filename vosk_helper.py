@@ -11,20 +11,14 @@ import soundfile as sf
 import numpy as np
 
 import configuration
+import ffmpeg
 import util
 from configuration import *
 
-ffmpeg_base_command = "ffmpeg -hide_banner -loglevel error"
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
 vosk.SetLogLevel(-1)
 vosk_model_path = ''
 vosk_model = None
-
-
-# Convert audio to 16kHz mono WAV (Vosk expects this format)
-def convert_audio_to_wav(input_audio, output_wav):
-    command = f"{ffmpeg_base_command} -i \"{input_audio}\" -ar 16000 -ac 1 -af \"afftdn, dialoguenhance\" \"{output_wav}\""
-    util.run_command(command)
 
 
 # Function to download and cache the Vosk model
@@ -77,7 +71,7 @@ def detect_voice_with_vosk(input_audio):
     global vosk_model_path, vosk_model
     # Convert the audio to 16kHz mono WAV
     temp_wav = tempfile.NamedTemporaryFile(dir=configuration.temp_directory, suffix='.wav').name
-    convert_audio_to_wav(input_audio, temp_wav)
+    ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
 
     if not vosk_model_path or not vosk_model:
         vosk_model_path = download_and_cache_vosk_model()
@@ -127,26 +121,8 @@ def detect_voice_with_vosk(input_audio):
                     'end': word['end']
                 })
 
-
     # Return the detected voice activity and the total duration
     return voice_activity, total_duration
-
-
-# Trim the audio using FFmpeg based on detected speech timestamps
-def trim_audio(input_audio, start_time, end_time, output_audio):
-    command = ffmpeg_base_command_list.copy()
-
-    if get_config().vad.trim_beginning:
-        command.extend(['-ss', f"{start_time:.2f}"])
-
-    command.extend([
-        '-to', f"{end_time:.2f}",
-        '-i', input_audio,
-        '-c', 'copy',
-        output_audio
-    ])
-
-    util.run_command(command)
 
 
 # Example usage of Vosk with trimming
@@ -168,7 +144,7 @@ def process_audio_with_vosk(input_audio, output_audio):
     logger.info(f"Trimmed End of Audio to {end_time} seconds:")
 
     # Trim the audio using FFmpeg
-    trim_audio(input_audio, start_time, end_time + get_config().audio.end_offset, output_audio)
+    ffmpeg.trim_audio(input_audio, start_time, end_time + get_config().audio.end_offset, output_audio)
     logger.info(f"Trimmed audio saved to: {output_audio}")
     return True
 

@@ -18,3 +18,4 @@ steam_app_list.db
 steam_app_list.json
 /.idea
 config.json
+*.log

@@ -66,7 +66,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def convert_to_audio(video_path):
         with util.lock:
             util.use_previous_audio = True
-            last_note = anki.get_last_anki_card()
+            last_note = None
+            if get_config().anki.update_anki:
+                last_note = anki.get_last_anki_card()
             line_time, next_line_time = get_line_timing(last_note)
             if last_note:
                 logger.debug(json.dumps(last_note))
@@ -107,7 +109,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     if get_config().anki.update_anki and last_note:
                         anki.update_anki_card(last_note, audio_path=output_audio, video_path=video_path, tango=tango,
                                          should_update_audio=should_update_audio)
-                    else:
+                    elif get_config().features.notify_on_update:
                         notification.send_audio_generated_notification(output_audio)
                 except Exception as e:
                     logger.error(f"Card failed to update! Maybe it was removed? {e}")

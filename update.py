@@ -45,7 +45,7 @@ def initialize_git_repo():
 
 # Helper function to run git commands
 def run_command(command):
-    result = util.run_command(command, shell=True, capture_output=True, text=True)
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"Error: {result.stderr}")
     return result.stdout
