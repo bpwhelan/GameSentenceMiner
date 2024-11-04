@@ -6,6 +6,8 @@ import tempfile
 import keyboard
 import psutil
 from psutil import NoSuchProcess
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 import anki
 import configuration
@@ -190,22 +192,7 @@ def get_screenshot():
         notification.send_screenshot_saved(encoded_image)
 
 
-def check_for_config_input():
-    command = input()
-    if command == 'config':
-        logger.info(
-            'opening config, most settings are live, so once the config is saved, the script will attempt to reload the config')
-        proc = subprocess.Popen([sys.executable, "config_gui.py"])
-        config_pids.append(proc.pid)
-    time.sleep(1)
-
-
-def start_thread(task):
-    input_thread = threading.Thread(target=task)
-    input_thread.start()
-
-
-def main(reloading=False):
+def main(reloading=False, do_config_input=True):
     logger.info("Script started.")
     initialize(reloading)
     with tempfile.TemporaryDirectory(dir="temp_files") as temp_dir:
@@ -219,11 +206,16 @@ def main(reloading=False):
         if not is_linux():
             register_hotkeys()
 
-        start_thread(check_for_config_input)
-
         logger.info("Enter \"config\" to open the config gui")
         try:
-            while util.keep_running and not util.shutdown_event.is_set():
+            while util.keep_running:
+                if do_config_input:
+                    command = input()
+                    if command == 'config':
+                        logger.info(
+                            'opening config, most settings are live, so once the config is saved, the script will attempt to reload the config')
+                        proc = subprocess.Popen([sys.executable, "config_gui.py"])
+                        config_pids.append(proc.pid)
                 time.sleep(1)
 
         except KeyboardInterrupt:

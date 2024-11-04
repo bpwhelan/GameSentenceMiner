@@ -5,11 +5,13 @@ import threading
 import time
 from dataclasses import dataclass
 
+import psutil
+
 import main
 import util
-from steam_launcher import is_game_process_running
+# from steam_launcher import is_game_process_running
 
-yuzu_cmd = r"C:\Emulation\Emulators\yuzu-windows-msvc\yuzu.exe"
+yuzu_cmd = r"C:\Emulation\Emulators\ryujinx-1.1.1403-win_x64\publish\Ryujinx.exe"
 roms_path = r"C:\Emulation\Yuzu\Games"
 AGENT_SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
 pre_select = -1
@@ -42,12 +44,13 @@ def get_yuzu_games(directory):
 
 # Function to launch Yuzu with the selected game
 def launch_yuzu(rom_path):
+    flag = "-g" if "yuzu" in yuzu_cmd.lower() else ""
     try:
-        command = f"{yuzu_cmd} -g \"{rom_path}\""
+        command = f"{yuzu_cmd} {flag} \"{rom_path}\""
 
         print(command)
 
-        process = subprocess.Popen(command)
+        process = subprocess.Popen(command, stdout=subprocess.DEVNULL)
 
         return process.pid
     except Exception as e:
@@ -92,9 +95,16 @@ def run_agent_with_script(game_id, yuzu_pid):
         except Exception as e:
             print(f"Error occurred while running agent script: {e}")
         util.keep_running = False
-        util.shutdown_event.set()
     else:
         print(f"No matching agent script found for game ID {game_id}.")
+
+
+def is_game_process_running(process_id):
+    try:
+        process = psutil.Process(process_id)
+        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
 
 
 def monitor_process_and_flag(process_id):
@@ -103,7 +113,6 @@ def monitor_process_and_flag(process_id):
         if not is_game_process_running(int(process_id)):
             print("Game process is no longer running.")
             util.keep_running = False
-            util.shutdown_event.set()
             exit(0)
 
         # Sleep for a short period to reduce CPU usage
@@ -137,7 +146,7 @@ if __name__ == "__main__":
             monitor_thread.start()
 
             # Launch the Mining Script
-            main.main()
+            main.main(do_config_input=False)
 
         else:
             print("Failed to launch Yuzu.")
