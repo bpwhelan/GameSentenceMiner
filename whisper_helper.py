@@ -1,4 +1,3 @@
-import subprocess
 import tempfile
 import warnings
 
@@ -7,7 +6,6 @@ from stable_whisper import WhisperResult
 
 import configuration
 import ffmpeg
-import util
 from configuration import *
 
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]

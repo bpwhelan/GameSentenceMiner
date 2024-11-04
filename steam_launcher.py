@@ -216,7 +216,6 @@ def is_game_process_running(process_id):
 
 
 def monitor_process_and_flag(process_id):
-
     while main.keep_running:
         # Check the game process every iteration
         if not is_game_process_running(int(process_id)):

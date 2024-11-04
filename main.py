@@ -1,29 +1,25 @@
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
-import time
+
 import keyboard
 import psutil
 from psutil import NoSuchProcess
 
-from watchdog.events import FileSystemEventHandler
-from watchdog.observers import Observer
-
 import anki
+import configuration
 import ffmpeg
 import gametext
-import configuration
 import notification
 import obs
 import silero_trim
 import util
 import vosk_helper
 import whisper_helper
+from configuration import *
 from ffmpeg import get_audio_and_trim
 from util import *
-from configuration import *
 
 config_pids = []
 
@@ -80,7 +76,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
             trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
 
-            vad_trimmed_audio = make_unique_file_name(f"{os.path.abspath(configuration.temp_directory)}/{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
+            vad_trimmed_audio = make_unique_file_name(
+                f"{os.path.abspath(configuration.temp_directory)}/{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
             final_audio_output = make_unique_file_name(
                 f"{get_config().paths.audio_destination}{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
             should_update_audio = True
@@ -91,28 +88,33 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     case configuration.VOSK:
                         should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
                     case configuration.WHISPER:
-                        should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio, vad_trimmed_audio)
+                        should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio,
+                                                                                        vad_trimmed_audio)
                 if not should_update_audio:
                     match get_config().vad.backup_vad_model:
                         case configuration.OFF:
                             pass
                         case configuration.SILERO:
-                            should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio, vad_trimmed_audio)
+                            should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio,
+                                                                                        vad_trimmed_audio)
                         case configuration.VOSK:
                             should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
                         case configuration.WHISPER:
-                            should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio, vad_trimmed_audio)
+                            should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio,
+                                                                                            vad_trimmed_audio)
 
             if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
-                ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output, get_config().audio.ffmpeg_reencode_options)
+                ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
+                                                      get_config().audio.ffmpeg_reencode_options)
             else:
                 os.replace(vad_trimmed_audio, final_audio_output)
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 try:
                     if get_config().anki.update_anki and last_note:
-                        anki.update_anki_card(last_note, audio_path=vad_trimmed_audio, video_path=video_path, tango=tango,
-                                         should_update_audio=should_update_audio)
+                        anki.update_anki_card(last_note, audio_path=vad_trimmed_audio, video_path=video_path,
+                                              tango=tango,
+                                              should_update_audio=should_update_audio)
                     elif get_config().features.notify_on_update and should_update_audio:
                         notification.send_audio_generated_notification(vad_trimmed_audio)
                 except Exception as e:
@@ -197,9 +199,11 @@ def check_for_config_input():
         config_pids.append(proc.pid)
     time.sleep(1)
 
+
 def start_thread(task):
     input_thread = threading.Thread(target=task)
     input_thread.start()
+
 
 def main(reloading=False):
     logger.info("Script started.")

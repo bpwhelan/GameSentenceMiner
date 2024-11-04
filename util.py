@@ -113,7 +113,6 @@ def run_agent_and_hook(pname, agent_script):
 def is_linux():
     return platform == 'linux'
 
-
 # def run_command(command, shell=False, input=None, capture_output=False, timeout=None, check=False, **kwargs):
 #     # Use shell=True if the OS is Linux, otherwise shell=False
 #     if is_linux():

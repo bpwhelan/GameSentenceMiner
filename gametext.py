@@ -1,7 +1,4 @@
 import asyncio
-import json
-import threading
-import time
 from collections import OrderedDict
 from datetime import datetime
 
@@ -74,7 +71,6 @@ def run_websocket_listener():
 
 
 def start_text_monitor():
-
     if get_config().general.use_websocket:
         text_thread = threading.Thread(target=run_websocket_listener, daemon=True)
     else:

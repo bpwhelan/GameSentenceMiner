@@ -1,13 +1,12 @@
 import tempfile
-import time
 
 import configuration
 import util
 from configuration import *
 from util import *
 
-
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error", '-nostdin']
+
 
 def get_screenshot(video_file):
     output_image = make_unique_file_name(
@@ -28,7 +27,6 @@ def get_screenshot(video_file):
     if get_config().screenshot.width or get_config().screenshot.height:
         ffmpeg_command.extend(
             ["-vf", f"scale={get_config().screenshot.width or -1}:{get_config().screenshot.height or -1}"])
-
 
     ffmpeg_command.append(f"{output_image}")
 
@@ -207,9 +205,11 @@ def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_o
 
     replace_file_with_retry(temp_file, final_output_audio)
 
+
 def create_temp_file_with_same_name(input_file: str):
     split = input_file.split(".")
     return f"{split[0]}_temp.{split[1]}"
+
 
 def replace_file_with_retry(temp_file, input_file, retries=5, delay=1):
     for attempt in range(retries):

@@ -1,8 +1,5 @@
-import threading
-import time
-
-import requests
 import obsws_python as obs
+import requests
 
 import anki
 import configuration
@@ -20,7 +17,8 @@ def connect_to_obs():
     # Connect to OBS WebSocket
     if get_config().obs.enabled:
         try:
-            obs_ws = obs.ReqClient(host=get_config().obs.host, port=get_config().obs.port, password=get_config().obs.password)
+            obs_ws = obs.ReqClient(host=get_config().obs.host, port=get_config().obs.port,
+                                   password=get_config().obs.password)
             logger.info("Connected to OBS WebSocket.")
         except Exception as conn_exception:
             print(f"Error connecting to OBS WebSocket: {conn_exception}")
