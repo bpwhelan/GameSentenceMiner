@@ -1,7 +1,4 @@
 import asyncio
-import json
-import threading
-import time
 from collections import OrderedDict
 from datetime import datetime
 
@@ -63,6 +60,7 @@ async def listen_websocket():
 
 def reset_line_hotkey_pressed():
     global previous_line_time
+    logger.info("LINE RESET HOTKEY PRESSED")
     previous_line_time = datetime.now()
     line_history[previous_line] = previous_line_time
     util.use_previous_audio = False
@@ -73,7 +71,6 @@ def run_websocket_listener():
 
 
 def start_text_monitor():
-
     if get_config().general.use_websocket:
         text_thread = threading.Thread(target=run_websocket_listener, daemon=True)
     else:

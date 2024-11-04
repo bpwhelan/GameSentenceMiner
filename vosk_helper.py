@@ -1,18 +1,14 @@
-import json
-import subprocess
 import tarfile
 import tempfile
 import zipfile
 
-import requests
-
-import vosk
-import soundfile as sf
 import numpy as np
+import requests
+import soundfile as sf
+import vosk
 
 import configuration
 import ffmpeg
-import util
 from configuration import *
 
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
@@ -33,7 +29,8 @@ def download_and_cache_vosk_model(model_dir="vosk_model_cache"):
 
     # If the model is already downloaded, skip the download
     if not os.path.exists(model_path):
-        logger.info(f"Downloading the Vosk model from {get_config().vad.vosk_url}... This will take a while if using large model, ~1G")
+        logger.info(
+            f"Downloading the Vosk model from {get_config().vad.vosk_url}... This will take a while if using large model, ~1G")
         response = requests.get(get_config().vad.vosk_url, stream=True)
         with open(model_path, "wb") as file:
             for chunk in response.iter_content(chunk_size=8192):
@@ -60,7 +57,8 @@ def download_and_cache_vosk_model(model_dir="vosk_model_cache"):
     # Return the path to the actual model folder inside the extraction directory
     extracted_folders = os.listdir(model_extract_path)
     if extracted_folders:
-        actual_model_folder = os.path.join(model_extract_path, extracted_folders[0])  # Assuming the first folder is the model
+        actual_model_folder = os.path.join(model_extract_path,
+                                           extracted_folders[0])  # Assuming the first folder is the model
         return actual_model_folder
     else:
         return model_extract_path  # In case there's no subfolder, return the extraction path directly
@@ -76,7 +74,6 @@ def detect_voice_with_vosk(input_audio):
     if not vosk_model_path or not vosk_model:
         vosk_model_path = download_and_cache_vosk_model()
         vosk_model = vosk.Model(vosk_model_path)
-
 
     # Open the audio file
     with sf.SoundFile(temp_wav) as audio_file:

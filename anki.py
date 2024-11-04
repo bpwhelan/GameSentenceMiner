@@ -12,8 +12,10 @@ screenshot_in_anki = None
 
 def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_audio=False, should_update_audio=True):
     global audio_in_anki, screenshot_in_anki
-    update_audio = should_update_audio and (not last_note['fields'][get_config().anki.sentence_audio_field]['value'] or get_config().anki.overwrite_audio)
-    update_picture = get_config().anki.overwrite_picture or not last_note['fields'][get_config().anki.picture_field]['value']
+    update_audio = should_update_audio and (not last_note['fields'][get_config().anki.sentence_audio_field][
+        'value'] or get_config().anki.overwrite_audio)
+    update_picture = get_config().anki.overwrite_picture or not last_note['fields'][get_config().anki.picture_field][
+        'value']
 
     if not reuse_audio:
         if update_audio:
@@ -53,7 +55,8 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
 
 def add_image_to_card(last_note, image_path):
     global screenshot_in_anki
-    update_picture = get_config().anki.overwrite_picture or not last_note['fields'][get_config().anki.picture_field]['value']
+    update_picture = get_config().anki.overwrite_picture or not last_note['fields'][get_config().anki.picture_field][
+        'value']
 
     if update_picture:
         screenshot_in_anki = store_media_file(image_path)
@@ -129,4 +132,3 @@ def get_cards_by_sentence(sentence):
     print(f"Found Card to backfill!: {card_ids[0]}")
 
     return last_notes
-

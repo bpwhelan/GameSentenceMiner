@@ -1,8 +1,8 @@
 import json
 import logging
 import os
-import random
 import threading
+import time
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from os.path import expanduser
@@ -10,9 +10,6 @@ from typing import List, Dict
 
 import toml
 from dataclasses_json import dataclass_json
-import time
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 
 OFF = 'OFF'
 VOSK = 'VOSK'
@@ -149,7 +146,6 @@ class Config:
         with open(file_path, 'r') as f:
             config_data = toml.load(f)
 
-
         self.paths.folder_to_watch = expanduser(config_data['paths'].get('folder_to_watch', self.paths.folder_to_watch))
         self.paths.audio_destination = expanduser(
             config_data['paths'].get('audio_destination', self.paths.audio_destination))
@@ -208,7 +204,8 @@ class Config:
 
         with open('get_config().json', 'w') as f:
             f.write(self.to_json(indent=4))
-            print('get_config().json successfully generated from previous settings. get_config().toml will no longer be used.')
+            print(
+                'get_config().json successfully generated from previous settings. get_config().toml will no longer be used.')
 
         return self
 
@@ -310,4 +307,3 @@ def watch_for_config_changes():
     # Run the file watcher in a separate thread
     watcher_thread = threading.Thread(target=watcher.watch, daemon=True)
     watcher_thread.start()
-

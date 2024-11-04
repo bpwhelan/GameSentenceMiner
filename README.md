@@ -1,16 +1,18 @@
 # Sentence Mining Game Audio Trim Helper
 
-This project automates the recording of game sentence audio to help with Anki Card Creation. 
+This project automates the recording of game sentence audio to help with Anki Card Creation.
 
-This allows us to create cards from texthooker/yomitan, and automatically get screenshot and sentence audio from the game we are playing.
+This allows us to create cards from texthooker/yomitan, and automatically get screenshot and sentence audio from the
+game we are playing.
 
 ## Features:
+
 - **Voice Activity Detection**: Automatically cuts the end of the clip to the exact moment the voice ended.
 - **OBS Replay Buffer**: Constantly records the last X seconds of gameplay.
 - **Clipboard Interaction**: Automatically monitors the clipboard for dialogue events.
 - **Websocket Listening**: Listens to a websocket uri for text-events from stuff like Agent/Textractor.
 - **Hotkey Automation**: Single hotkey to trigger video recording, screenshot, and transcription.
-- **1-Click Card Creation**: Monitors anki for new cards from Yomitan, and automatically gets audio from games. 
+- **1-Click Card Creation**: Monitors anki for new cards from Yomitan, and automatically gets audio from games.
 
 ## Prerequisites
 
@@ -21,16 +23,23 @@ This allows us to create cards from texthooker/yomitan, and automatically get sc
 
 ### Quick Disclaimer/Troubleshooting
 
-Every game/hook is different, so it's really impossible that any script can get it perfect everytime. Also OBS is sometimes a bit finnicky if running for too long. If the audio timing is off, please first try some troubleshooting steps before making an issue:
+Every game/hook is different, so it's really impossible that any script can get it perfect everytime. Also OBS is
+sometimes a bit finnicky if running for too long. If the audio timing is off, please first try some troubleshooting
+steps before making an issue:
+
 - Try Restarting OBS
 - Make sure your hook is the best you can find. (Preferrably it gives you the text RIGHT when the voiceline starts)
-- Try Adjusting Offset Configuration in `config.toml` to better match your situation. (i.e. if the hook is late, add a negative beginning offset)
+- Try Adjusting Offset Configuration in `config.toml` to better match your situation. (i.e. if the hook is late, add a
+  negative beginning offset)
 - Try using "Trim beginning" in `VAD` settings.
 
 #### Setup Troubleshooting
 
-Just going to continuously update this with issues that I have helped users with. Look here first if you have issues setting it up.
-- Make sure folder_to_watch is the same as your recordings path in OBS. It defaults to ~/Videos, but I recommend setting it to ~/Videos/OBS.
+Just going to continuously update this with issues that I have helped users with. Look here first if you have issues
+setting it up.
+
+- Make sure folder_to_watch is the same as your recordings path in OBS. It defaults to ~/Videos, but I recommend setting
+  it to ~/Videos/OBS.
 - if it says something about a missing library, attempt to run `pip install -r requirements.txt` again
 - If using clipboard, make sure agent/textractor sending to clipboard is enabled.
 
@@ -38,18 +47,21 @@ Just going to continuously update this with issues that I have helped users with
 
 1. **Install OBS Studio**: Download and install OBS from [here](https://obsproject.com/).
 2. **Enable Replay Buffer**:
-   1. Open OBS and navigate to **Settings → Output → Replay Buffer**.
-   2. Enable the **Replay Buffer** and set the duration to **60 seconds**, this can be lower, or higher, but 60 works for a very simple setup.
+    1. Open OBS and navigate to **Settings → Output → Replay Buffer**.
+    2. Enable the **Replay Buffer** and set the duration to **60 seconds**, this can be lower, or higher, but 60 works
+       for a very simple setup.
 3. **Set a Hotkey for the Replay Buffer**:
-   1. Go to **Settings → Hotkeys** and find **Save Replay Buffer**.
-   2. Assign a hotkey for saving the replay.
+    1. Go to **Settings → Hotkeys** and find **Save Replay Buffer**.
+    2. Assign a hotkey for saving the replay.
 4. Set Scene/Source. I recommend using "Game Capture" with "Capture Audio" Enabled. And then mute Desktop/microphone
-   1. If "Game Capture" Does not work, use "screen capture" with a second source "Application Audio Capture"
-   2. I recommend having a Scene PER Game, with the name of the scene labeled as the game, this makes it easier for the script to know (with a config option) what game you are playing.
-5. In Output Settings, set "Recording Format" to mkv, and "Audio Encoder" to Opus. Alternative Settings may be supported at a later date.
+    1. If "Game Capture" Does not work, use "screen capture" with a second source "Application Audio Capture"
+    2. I recommend having a Scene PER Game, with the name of the scene labeled as the game, this makes it easier for the
+       script to know (with a config option) what game you are playing.
+5. In Output Settings, set "Recording Format" to mkv, and "Audio Encoder" to Opus. Alternative Settings may be supported
+   at a later date.
 6. **Set up obs websocket** (HIGHLY RECOMMENDED see #5)
-    1. Can allow my script to automatically start (and stop) the replay buffer, as well as automatically add audio/screenshot to card created from yomi.
-
+    1. Can allow my script to automatically start (and stop) the replay buffer, as well as automatically add
+       audio/screenshot to card created from yomi.
 
 Here are the Settings I use in OBS. Make sure the recordings folder is the same as the "folder_to_watch" in the config.
 ![image](https://github.com/user-attachments/assets/0056816d-af3c-4a3c-bc6a-4aff5c28cadb)
@@ -62,19 +74,25 @@ Here are the Settings I use in OBS. Make sure the recordings folder is the same 
 
 ### Configuration GUI
 
-The `GameSentenceMiner` project now includes a graphical interface to simplify configuration. With default values already set, this GUI lets you adjust settings as needed. Here’s how to get started:
+The `GameSentenceMiner` project now includes a graphical interface to simplify configuration. With default values
+already set, this GUI lets you adjust settings as needed. Here’s how to get started:
 
 #### Running the Configuration GUI
+
 To open the GUI, you have two options:
+
 1. **Directly Run the Script**: Open a terminal in your project directory and enter:
    \\\bash
    python config_gui.py
    \\\
-2. **Console Command**: You can also type `config` in the console if you’re already running the main script. 
+2. **Console Command**: You can also type `config` in the console if you’re already running the main script.
 
 #### Default Settings and Customization
-The GUI loads with default values for each setting, so if you’re just getting started, you may only need to change stuff in the "path" config. If you make changes, remember to click **Save Settings** to apply them.
-Please take a second to look through the config to see what is available, there is a lot of extra functionality hidden behind config options.
+
+The GUI loads with default values for each setting, so if you’re just getting started, you may only need to change stuff
+in the "path" config. If you make changes, remember to click **Save Settings** to apply them.
+Please take a second to look through the config to see what is available, there is a lot of extra functionality hidden
+behind config options.
 
 ![image](https://github.com/user-attachments/assets/ffac9888-de0a-412b-817f-e22a55ce7b55)![image](https://github.com/user-attachments/assets/981c112a-1ddc-4e07-9c39-57fe46644ff5)![image](https://github.com/user-attachments/assets/29470a97-6013-4ca8-9059-48af735eb3a8)![image](https://github.com/user-attachments/assets/8e9c8f03-dc43-4822-a3c5-43f36ca65364)
 
@@ -88,7 +106,8 @@ Please take a second to look through the config to see what is available, there 
 
 I redid the config parsing cause `config.py` is not ideal, especially when distributing a script via git.
 
-Your `config.toml` file allows you to configure key settings for the automation process, file paths, and other behavior. Here are the configurable options:
+Your `config.toml` file allows you to configure key settings for the automation process, file paths, and other behavior.
+Here are the configurable options:
 
 Duplicate/rename config_EXAMPLE.toml to get started
 
@@ -169,12 +188,15 @@ If you know what you are doing, do this in a venv, but I'm not going to explain 
 
 ## 4. Installing FFmpeg
 
-To run this script, you will need to have **FFmpeg** installed. If you don't have FFmpeg installed on your system, you can easily install it via **Chocolatey** (Preferred), or install it yourself and ensure it's in the PATH.
+To run this script, you will need to have **FFmpeg** installed. If you don't have FFmpeg installed on your system, you
+can easily install it via **Chocolatey** (Preferred), or install it yourself and ensure it's in the PATH.
 
 #### Step-by-Step Instructions:
 
-1. First, ensure you have **Chocolatey** installed. If you don't have it installed, follow the instructions on the [Chocolatey installation page](https://chocolatey.org/install) or run the following command in an **elevated** PowerShell window (run as Administrator):
-   
+1. First, ensure you have **Chocolatey** installed. If you don't have it installed, follow the instructions on
+   the [Chocolatey installation page](https://chocolatey.org/install) or run the following command in an **elevated**
+   PowerShell window (run as Administrator):
+
    ```bash
    Set-ExecutionPolicy Bypass -Scope Process -Force; `
    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; `
@@ -203,7 +225,8 @@ Now you're ready to use FFmpeg in the script!
 
 ## 5. One Click Card Creation
 
-This is the flagship feature of this script, so here is a section explaining it. It is possible to do full 1-click card creation with this tool + Yomitan. The relevant settings are located in `Features` and `OBS` section in the config.
+This is the flagship feature of this script, so here is a section explaining it. It is possible to do full 1-click card
+creation with this tool + Yomitan. The relevant settings are located in `Features` and `OBS` section in the config.
 
 Demo: https://www.youtube.com/watch?v=9dmmXO2CGNw
 
@@ -215,19 +238,20 @@ Screenshots to help with setup:
 
 ![image](https://github.com/user-attachments/assets/4cf492eb-12a2-429f-aa0e-f87fc0fa6270)
 
-
 ## 6. Example Process
 
 1. Start game
 2. Hook Game with Agent (or textractor) with clipboard enabled
 3. start script: `python main.py`
-   1. Create Anki Card with target word (through a texthooker page/Yomitan)
-   2. (If full-auto-mode not on) Trigger Hotkey to record replay buffer
+    1. Create Anki Card with target word (through a texthooker page/Yomitan)
+    2. (If full-auto-mode not on) Trigger Hotkey to record replay buffer
 4. When finished gaming, end script
 
 Once the hotkey is triggered:
+
 1. **OBS** will save the last X seconds of gameplay.
-2. The Python script will trim the audio based on last clipboard event, and the end of voiceline detected in Vosk if enabled.
+2. The Python script will trim the audio based on last clipboard event, and the end of voiceline detected in Vosk if
+   enabled.
 3. Will attempt to update the LAST anki card created.
 
 ---
@@ -236,13 +260,16 @@ Once the hotkey is triggered:
 
 ### Updater (Preferred)
 
-There is now an Update script included! running `python update.py` in the directory will attempt to update your scripts to the latest release. If you have made changes to any of the files, they will be safely backed up before being replaced.
+There is now an Update script included! running `python update.py` in the directory will attempt to update your scripts
+to the latest release. If you have made changes to any of the files, they will be safely backed up before being
+replaced.
 
 ---
 
 ### Manual
 
-To ensure you always have the latest version of this script, you can use `git pull` to update your local repository with the latest changes from the remote repository.
+To ensure you always have the latest version of this script, you can use `git pull` to update your local repository with
+the latest changes from the remote repository.
 
 #### Step-by-Step Instructions
 
@@ -257,7 +284,8 @@ To ensure you always have the latest version of this script, you can use `git pu
     ```
 
     - **`origin`** refers to the remote repository from which you cloned the code.
-    - **`main`** refers to the main branch of the repository. If your default branch has a different name (e.g., `master` or `dev`), replace `main` with that branch name.
+    - **`main`** refers to the main branch of the repository. If your default branch has a different name (
+      e.g., `master` or `dev`), replace `main` with that branch name.
 
 3. The `git pull` command will download and apply any updates from the remote repository to your local version.
 
@@ -276,4 +304,5 @@ If you run into issues ask in my [discord](https://discord.gg/yP8Qse6bb8), or ma
 
 ## Donations
 
-If you've benefited from this or any of my other projects, please consider supporting my work via [Github Sponsors](https://github.com/sponsors/bpwhelan) or [Ko-fi.](https://ko-fi.com/beangate)
+If you've benefited from this or any of my other projects, please consider supporting my work
+via [Github Sponsors](https://github.com/sponsors/bpwhelan) or [Ko-fi.](https://ko-fi.com/beangate)

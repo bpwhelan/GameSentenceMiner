@@ -1,13 +1,10 @@
-import subprocess
 import tempfile
-import configuration
+
 from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
 
+import configuration
 import ffmpeg
-import util
 from configuration import *
-from ffmpeg import ffmpeg_base_command_list
-
 
 # Silero VAD setup
 vad_model = load_silero_vad()
