@@ -12,9 +12,7 @@ from steam_launcher import is_game_process_running
 yuzu_cmd = r"C:\Emulation\Emulators\yuzu-windows-msvc\yuzu.exe"
 roms_path = r"C:\Emulation\Yuzu\Games"
 AGENT_SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
-
-
-# pre_select = 5
+pre_select = -1
 
 
 @dataclass
@@ -120,7 +118,10 @@ if __name__ == "__main__":
     for i, game in enumerate(games):
         print(f"{i} : {game.name}")
 
-    selection: int = int(input("Select Which Game to launch: "))
+    if pre_select >= 0:
+        selection = pre_select
+    else:
+        selection: int = int(input("Select Which Game to launch: "))
     game = games[selection]
 
     if game.id and game.path:
