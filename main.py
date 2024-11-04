@@ -188,6 +188,19 @@ def get_screenshot():
         notification.send_screenshot_saved(encoded_image)
 
 
+def check_for_config_input():
+    command = input()
+    if command == 'config':
+        logger.info(
+            'opening config, most settings are live, so once the config is saved, the script will attempt to reload the config')
+        proc = subprocess.Popen([sys.executable, "config_gui.py"])
+        config_pids.append(proc.pid)
+    time.sleep(1)
+
+def start_thread(task):
+    input_thread = threading.Thread(target=task)
+    input_thread.start()
+
 def main(reloading=False):
     logger.info("Script started.")
     initialize(reloading)
@@ -202,22 +215,11 @@ def main(reloading=False):
         if not is_linux():
             register_hotkeys()
 
-        # game_process_id = get_process_id_by_title(current_game)
-        #
-        # game_script = find_script_for_game(current_game)
-        #
-        # agent_thread = threading.Thread(target=run_agent_and_hook,
-        #                                 args=(game_process_id, game_script))
-        # agent_thread.start()
+        start_thread(check_for_config_input)
 
         logger.info("Enter \"config\" to open the config gui")
         try:
-            while util.keep_running:
-                command = input()
-                if command == 'config':
-                    logger.info('opening config, most settings are live, so once the config is saved, the script will attempt to reload the config')
-                    proc = subprocess.Popen([sys.executable, "config_gui.py"])
-                    config_pids.append(proc.pid)
+            while util.keep_running and not util.shutdown_event.is_set():
                 time.sleep(1)
 
         except KeyboardInterrupt:

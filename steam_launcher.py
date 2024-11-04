@@ -10,7 +10,6 @@ import psutil
 import requests
 from rapidfuzz import process
 
-import config_reader
 import main
 
 # This looks at config.toml for current_game

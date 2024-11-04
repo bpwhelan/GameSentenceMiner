@@ -54,17 +54,13 @@ def stop_replay_buffer():
 
 # Fetch recent note IDs from Anki
 def get_note_ids():
-    try:
-        response = requests.post(get_config().anki.url, json={
-            "action": "findNotes",
-            "version": 6,
-            "params": {"query": "added:1"}
-        })
-        result = response.json()
-        return set(result['result'])
-    except Exception as e:
-        print(f"Error fetching Anki notes: {e}")
-        return None
+    response = requests.post(get_config().anki.url, json={
+        "action": "findNotes",
+        "version": 6,
+        "params": {"query": "added:1"}
+    })
+    result = response.json()
+    return set(result['result'])
 
 
 # Save the current replay buffer
@@ -78,8 +74,11 @@ def save_replay_buffer():
 # Check for new Anki cards and save replay buffer if detected
 def check_for_new_cards():
     global previous_note_ids, first_run
-    current_note_ids = get_note_ids()
-    if not current_note_ids:
+    current_note_ids = set()
+    try:
+        current_note_ids = get_note_ids()
+    except Exception as e:
+        print(f"Error fetching Anki notes: {e}")
         return
     new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
