@@ -108,7 +108,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
                 ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
                                                       get_config().audio.ffmpeg_reencode_options)
-            else:
+            elif os.path.exists(vad_trimmed_audio):
                 os.replace(vad_trimmed_audio, final_audio_output)
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
