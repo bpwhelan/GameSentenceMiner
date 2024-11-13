@@ -2,6 +2,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 
 import keyboard
 import psutil
@@ -58,6 +59,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             return
         if event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):  # Adjust based on your OBS output format
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
+            time.sleep(.5)  # Small Sleep to allow for replay to be fully written
             self.convert_to_audio(event.src_path)
 
     @staticmethod
@@ -114,7 +116,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 try:
                     if get_config().anki.update_anki and last_note:
-                        anki.update_anki_card(last_note, audio_path=vad_trimmed_audio, video_path=video_path,
+                        anki.update_anki_card(last_note, audio_path=final_audio_output, video_path=video_path,
                                               tango=tango,
                                               should_update_audio=should_update_audio)
                     elif get_config().features.notify_on_update and should_update_audio:
