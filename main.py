@@ -53,6 +53,12 @@ def get_line_timing(last_note):
     return line_time, next_line
 
 
+def get_last_two_sentences():
+    lines = list(gametext.line_history.items())
+    print(lines)
+    return lines[-1][0], lines[-2][0] if len(lines) > 1 else ''
+
+
 class VideoToAudioHandler(FileSystemEventHandler):
     def on_created(self, event):
         if event.is_directory or "Replay" not in event.src_path:
@@ -65,6 +71,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
     @staticmethod
     def convert_to_audio(video_path):
         with util.lock:
+            current_line, previous_line = get_last_two_sentences()
             util.use_previous_audio = True
             last_note = None
             if get_config().anki.update_anki:
@@ -72,6 +79,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
             line_time, next_line_time = get_line_timing(last_note)
             if last_note:
                 logger.debug(json.dumps(last_note))
+                note = {'id': last_note['noteId'], 'fields': {}}
+
+            if get_config().anki.previous_sentence_field and previous_line and not last_note['fields'][get_config().anki.previous_sentence_field]:
+                note['fields'][get_config().anki.previous_sentence_field] = previous_line
 
             if get_config().features.backfill_audio:
                 last_note = anki.get_cards_by_sentence(gametext.previous_line)
@@ -116,7 +127,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 try:
                     if get_config().anki.update_anki and last_note:
-                        anki.update_anki_card(last_note, audio_path=final_audio_output, video_path=video_path,
+                        anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
                                               tango=tango,
                                               should_update_audio=should_update_audio)
                     elif get_config().features.notify_on_update and should_update_audio:

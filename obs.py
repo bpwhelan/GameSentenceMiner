@@ -87,6 +87,10 @@ def check_for_new_cards():
 
 def update_new_card():
     last_card = anki.get_last_anki_card()
+    if not check_tags_for_should_update(last_card):
+        logger.info("Card not tagged properly! Not updating!")
+        return
+
     use_prev_audio = util.use_previous_audio
     if util.lock.locked():
         print("Audio still being Trimmed, Card Queued!")
@@ -100,6 +104,20 @@ def update_new_card():
         else:
             print("New card(s) detected!")
             save_replay_buffer()
+
+
+def check_tags_for_should_update(last_card):
+    if get_config().anki.tags_to_check:
+        found = False
+        for tag in last_card['tags']:
+            logger.info(tag)
+            logger.info(get_config().anki.tags_to_check)
+            if tag.lower() in get_config().anki.tags_to_check:
+                found = True
+                break
+        return found
+    else:
+        return True
 
 
 # Main function to handle the script lifecycle
