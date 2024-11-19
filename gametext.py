@@ -7,6 +7,8 @@ import websockets
 
 import util
 from configuration import *
+from configuration import get_config, logger
+from util import remove_html_tags
 
 previous_line = ''
 previous_line_time = datetime.now()
@@ -76,3 +78,29 @@ def start_text_monitor():
     else:
         text_thread = threading.Thread(target=monitor_clipboard, daemon=True)
     text_thread.start()
+
+
+def get_line_timing(last_note):
+    if not last_note:
+        return previous_line_time, 0
+    line_time = previous_line_time
+    next_line = 0
+    try:
+        sentence = last_note['fields'][get_config().anki.sentence_field]['value']
+        if sentence:
+            for i, (line, clip_time) in enumerate(reversed(line_history.items())):
+                if remove_html_tags(sentence) in line:
+                    line_time = clip_time
+                    # next_time = list(clipboard.clipboard_history.values())[-i]
+                    # if next_time > clipboard_time:
+                    #     next_clipboard = next_time
+                    break
+    except Exception as e:
+        logger.error(f"Using Default clipboard/websocket timing - reason: {e}")
+
+    return line_time, next_line
+
+
+def get_last_two_sentences():
+    lines = list(line_history.items())
+    return lines[-1][0], lines[-2][0] if len(lines) > 1 else ''

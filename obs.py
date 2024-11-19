@@ -100,7 +100,7 @@ def update_new_card():
         if get_config().obs.get_game_from_scene:
             configuration.current_game = get_current_scene()
         if use_prev_audio:
-            anki.update_anki_card(last_card, reuse_audio=True)
+            anki.update_anki_card(last_card, note=anki.get_initial_card_info(last_card), reuse_audio=True)
         else:
             print("New card(s) detected!")
             save_replay_buffer()

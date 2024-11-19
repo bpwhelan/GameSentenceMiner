@@ -4,7 +4,9 @@ import urllib.request
 import configuration
 import ffmpeg
 import notification
+import util
 from configuration import *
+from gametext import get_last_two_sentences
 
 audio_in_anki = None
 screenshot_in_anki = None
@@ -75,6 +77,23 @@ def add_image_to_card(last_note, image_path):
     invoke("updateNoteFields", note=note)
 
     logger.info(f"UPDATED IMAGE FOR ANKI CARD {last_note['noteId']}")
+
+
+def get_initial_card_info(last_note):
+    note = {'id': last_note['noteId'], 'fields': {}}
+    if not last_note:
+        return note
+    current_line, previous_line = get_last_two_sentences()
+    logger.debug(f"Previous Sentence {previous_line}")
+    logger.debug(f"Current Sentence {current_line}")
+    util.use_previous_audio = True
+
+    logger.debug(
+        f"Adding Previous Sentence: {get_config().anki.previous_sentence_field and previous_line and not last_note['fields'][get_config().anki.previous_sentence_field]['value']}")
+    if get_config().anki.previous_sentence_field and previous_line and not \
+            last_note['fields'][get_config().anki.previous_sentence_field]['value']:
+        note['fields'][get_config().anki.previous_sentence_field] = previous_line
+    return note
 
 
 def store_media_file(path):
