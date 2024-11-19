@@ -10,8 +10,10 @@ audio_in_anki = None
 screenshot_in_anki = None
 
 
-def update_anki_card(last_note, note, audio_path='', video_path='', tango='', reuse_audio=False, should_update_audio=True):
+def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='', reuse_audio=False, should_update_audio=True):
     global audio_in_anki, screenshot_in_anki
+    if note is None:
+        note = {'id': last_note['noteId'], 'fields': {}}
     update_audio = should_update_audio and (not last_note['fields'][get_config().anki.sentence_audio_field][
         'value'] or get_config().anki.overwrite_audio)
     update_picture = get_config().anki.overwrite_picture or not last_note['fields'][get_config().anki.picture_field][

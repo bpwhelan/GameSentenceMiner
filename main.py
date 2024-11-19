@@ -55,7 +55,6 @@ def get_line_timing(last_note):
 
 def get_last_two_sentences():
     lines = list(gametext.line_history.items())
-    print(lines)
     return lines[-1][0], lines[-2][0] if len(lines) > 1 else ''
 
 
@@ -77,9 +76,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if get_config().anki.update_anki:
                 last_note = anki.get_last_anki_card()
             line_time, next_line_time = get_line_timing(last_note)
+            note = {'id': last_note['noteId'], 'fields': {}}
             if last_note:
                 logger.debug(json.dumps(last_note))
-                note = {'id': last_note['noteId'], 'fields': {}}
 
             if get_config().anki.previous_sentence_field and previous_line and not last_note['fields'][get_config().anki.previous_sentence_field]:
                 note['fields'][get_config().anki.previous_sentence_field] = previous_line
