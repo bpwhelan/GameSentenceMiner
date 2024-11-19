@@ -71,6 +71,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def convert_to_audio(video_path):
         with util.lock:
             current_line, previous_line = get_last_two_sentences()
+            logger.debug(f"Previous Sentence {previous_line}")
+            logger.debug(f"Current Sentence {current_line}")
             util.use_previous_audio = True
             last_note = None
             if get_config().anki.update_anki:
@@ -80,7 +82,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if last_note:
                 logger.debug(json.dumps(last_note))
 
-            if get_config().anki.previous_sentence_field and previous_line and not last_note['fields'][get_config().anki.previous_sentence_field]:
+            logger.debug(f"Adding Previous Sentence: {get_config().anki.previous_sentence_field and previous_line and not last_note['fields'][get_config().anki.previous_sentence_field]['value']}")
+            if get_config().anki.previous_sentence_field and previous_line and not last_note['fields'][get_config().anki.previous_sentence_field]['value']:
                 note['fields'][get_config().anki.previous_sentence_field] = previous_line
 
             if get_config().features.backfill_audio:
