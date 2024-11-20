@@ -1,5 +1,6 @@
 import os
 import random
+import re
 import string
 import subprocess
 import threading
@@ -121,3 +122,6 @@ def is_linux():
 #     else:
 #         return subprocess.run(command, shell=shell, input=input, capture_output=capture_output, timeout=timeout,
 #                               check=check, **kwargs)
+def remove_html_tags(text):
+    clean_text = re.sub(r'<.*?>', '', text)
+    return clean_text

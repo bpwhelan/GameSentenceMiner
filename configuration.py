@@ -57,7 +57,9 @@ class Anki:
     sentence_audio_field: str = "SentenceAudio"
     picture_field: str = "Picture"
     word_field: str = 'Word'
+    previous_sentence_field: str = ''
     custom_tags: List[str] = None  # Initialize to None and set it in __post_init__
+    tags_to_check: List[str] = None
     add_game_tag: bool = True
     polling_rate: int = 200
     overwrite_audio: bool = False
@@ -69,6 +71,8 @@ class Anki:
             self.custom_tags = []
         if self.anki_custom_fields is None:
             self.anki_custom_fields = {}
+        if self.tags_to_check is None:
+            self.tags_to_check = []
 
 
 @dataclass_json

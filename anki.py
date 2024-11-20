@@ -4,13 +4,15 @@ import urllib.request
 import configuration
 import ffmpeg
 import notification
+import util
 from configuration import *
+from gametext import get_last_two_sentences
 
 audio_in_anki = None
 screenshot_in_anki = None
 
 
-def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_audio=False, should_update_audio=True):
+def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='', reuse_audio=False, should_update_audio=True):
     global audio_in_anki, screenshot_in_anki
     update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not last_note['fields'][get_config().anki.sentence_audio_field][
         'value'] or get_config().anki.overwrite_audio)
@@ -28,7 +30,7 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
     audio_html = f"[sound:{audio_in_anki}]"
     image_html = f"<img src=\"{screenshot_in_anki}\">"
 
-    note = {'id': last_note['noteId'], 'fields': {}}
+    # note = {'id': last_note['noteId'], 'fields': {}}
 
     if update_audio:
         note['fields'][get_config().anki.sentence_audio_field] = audio_html
@@ -73,6 +75,23 @@ def add_image_to_card(last_note, image_path):
     invoke("updateNoteFields", note=note)
 
     logger.info(f"UPDATED IMAGE FOR ANKI CARD {last_note['noteId']}")
+
+
+def get_initial_card_info(last_note):
+    note = {'id': last_note['noteId'], 'fields': {}}
+    if not last_note:
+        return note
+    current_line, previous_line = get_last_two_sentences()
+    logger.debug(f"Previous Sentence {previous_line}")
+    logger.debug(f"Current Sentence {current_line}")
+    util.use_previous_audio = True
+
+    logger.debug(
+        f"Adding Previous Sentence: {get_config().anki.previous_sentence_field and previous_line and not last_note['fields'][get_config().anki.previous_sentence_field]['value']}")
+    if get_config().anki.previous_sentence_field and previous_line and not \
+            last_note['fields'][get_config().anki.previous_sentence_field]['value']:
+        note['fields'][get_config().anki.previous_sentence_field] = previous_line
+    return note
 
 
 def store_media_file(path):

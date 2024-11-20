@@ -1,8 +1,6 @@
-import re
 import shutil
 import sys
 import tempfile
-import time
 
 import keyboard
 import psutil
@@ -22,35 +20,10 @@ import vosk_helper
 import whisper_helper
 from configuration import *
 from ffmpeg import get_audio_and_trim
+from gametext import get_line_timing, get_last_two_sentences
 from util import *
 
 config_pids = []
-
-
-def remove_html_tags(text):
-    clean_text = re.sub(r'<.*?>', '', text)
-    return clean_text
-
-
-def get_line_timing(last_note):
-    if not last_note:
-        return gametext.previous_line_time, 0
-    line_time = gametext.previous_line_time
-    next_line = 0
-    try:
-        sentence = last_note['fields'][get_config().anki.sentence_field]['value']
-        if sentence:
-            for i, (line, clip_time) in enumerate(reversed(gametext.line_history.items())):
-                if remove_html_tags(sentence) in line:
-                    line_time = clip_time
-                    # next_time = list(clipboard.clipboard_history.values())[-i]
-                    # if next_time > clipboard_time:
-                    #     next_clipboard = next_time
-                    break
-    except Exception as e:
-        logger.error(f"Using Default clipboard/websocket timing - reason: {e}")
-
-    return line_time, next_line
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -69,12 +42,13 @@ class VideoToAudioHandler(FileSystemEventHandler):
             last_note = None
             if get_config().anki.update_anki:
                 last_note = anki.get_last_anki_card()
+            if get_config().features.backfill_audio:
+                last_note = anki.get_cards_by_sentence(gametext.previous_line)
             line_time, next_line_time = get_line_timing(last_note)
             if last_note:
                 logger.debug(json.dumps(last_note))
 
-            if get_config().features.backfill_audio:
-                last_note = anki.get_cards_by_sentence(gametext.previous_line)
+            note = anki.get_initial_card_info(last_note)
 
             tango = last_note['fields'][get_config().anki.word_field]['value'] if last_note else ''
 
@@ -91,7 +65,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 try:
                     if get_config().anki.update_anki and last_note:
-                        anki.update_anki_card(last_note, audio_path=final_audio_output, video_path=video_path,
+                        anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
                                               tango=tango,
                                               should_update_audio=should_update_audio)
                     elif get_config().features.notify_on_update and should_update_audio:

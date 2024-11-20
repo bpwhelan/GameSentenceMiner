@@ -111,7 +111,9 @@ class ConfigApp:
                 sentence_audio_field=self.sentence_audio_field.get(),
                 picture_field=self.picture_field.get(),
                 word_field=self.word_field.get(),
-                custom_tags=self.custom_tags.get().split(', '),
+                previous_sentence_field=self.previous_sentence_field.get(),
+                custom_tags=[tag.strip() for tag in self.custom_tags.get().split(',') if tag.strip()],
+                tags_to_check=[tag.strip().lower() for tag in self.tags_to_check.get().split(',') if tag.strip()],
                 add_game_tag=self.add_game_tag.get(),
                 polling_rate=int(self.polling_rate.get()),
                 overwrite_audio=self.overwrite_audio.get(),
@@ -355,11 +357,25 @@ class ConfigApp:
         self.add_label_and_increment_row(anki_frame, "Field in Anki for individual words.", row=self.current_row,
                                          column=2)
 
+        ttk.Label(anki_frame, text="Previous Sentence Field:").grid(row=self.current_row, column=0, sticky='W')
+        self.previous_sentence_field = ttk.Entry(anki_frame)
+        self.previous_sentence_field.insert(0, self.settings.anki.previous_sentence_field)
+        self.previous_sentence_field.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(anki_frame, "Field in Anki for the previous line of dialogue. If Empty, will not populate", row=self.current_row,
+                                         column=2)
+
         ttk.Label(anki_frame, text="Custom Tags:").grid(row=self.current_row, column=0, sticky='W')
         self.custom_tags = ttk.Entry(anki_frame)
         self.custom_tags.insert(0, ', '.join(self.settings.anki.custom_tags))
         self.custom_tags.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame, "Comma-separated custom tags for the Anki cards.",
+                                         row=self.current_row, column=2)
+
+        ttk.Label(anki_frame, text="Tags to work on:").grid(row=self.current_row, column=0, sticky='W')
+        self.tags_to_check = ttk.Entry(anki_frame)
+        self.tags_to_check.insert(0, ', '.join(self.settings.anki.tags_to_check))
+        self.tags_to_check.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(anki_frame, "Comma-separated Tags, script will only do 1-click on cards with these tags (Recommend keep empty, or use Yomitan Profile to add custom tag from texthooker page)",
                                          row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Add Game Tag:").grid(row=self.current_row, column=0, sticky='W')
