@@ -86,6 +86,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 final_audio_output = ""
                 should_update_audio = False
                 vad_trimmed_audio = ""
+                logger.info("No SentenceAudio Field in config, skipping audio processing!")
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 try:
