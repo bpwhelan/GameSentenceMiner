@@ -52,40 +52,15 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
             tango = last_note['fields'][get_config().anki.word_field]['value'] if last_note else ''
 
-            trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
-
-            vad_trimmed_audio = make_unique_file_name(
-                f"{os.path.abspath(configuration.temp_directory)}/{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
-            final_audio_output = make_unique_file_name(
-                f"{get_config().paths.audio_destination}{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
-            should_update_audio = True
-            if get_config().vad.do_vad_postprocessing:
-                match get_config().vad.selected_vad_model:
-                    case configuration.SILERO:
-                        should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio, vad_trimmed_audio)
-                    case configuration.VOSK:
-                        should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
-                    case configuration.WHISPER:
-                        should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio,
-                                                                                        vad_trimmed_audio)
-                if not should_update_audio:
-                    match get_config().vad.backup_vad_model:
-                        case configuration.OFF:
-                            pass
-                        case configuration.SILERO:
-                            should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio,
-                                                                                        vad_trimmed_audio)
-                        case configuration.VOSK:
-                            should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
-                        case configuration.WHISPER:
-                            should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio,
-                                                                                            vad_trimmed_audio)
-
-            if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
-                ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
-                                                      get_config().audio.ffmpeg_reencode_options)
-            elif os.path.exists(vad_trimmed_audio):
-                os.replace(vad_trimmed_audio, final_audio_output)
+            if get_config().anki.sentence_audio_field:
+                final_audio_output, should_update_audio, vad_trimmed_audio = VideoToAudioHandler.get_audio(line_time,
+                                                                                                           next_line_time,
+                                                                                                           video_path)
+            else:
+                final_audio_output = ""
+                should_update_audio = False
+                vad_trimmed_audio = ""
+                logger.info("No SentenceAudio Field in config, skipping audio processing!")
             try:
                 # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
                 try:
@@ -105,6 +80,42 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 os.remove(video_path)  # Optionally remove the video after conversion
             if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
                 os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
+
+    @staticmethod
+    def get_audio(line_time, next_line_time, video_path):
+        trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
+        vad_trimmed_audio = make_unique_file_name(
+            f"{os.path.abspath(configuration.temp_directory)}/{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
+        final_audio_output = make_unique_file_name(
+            f"{get_config().paths.audio_destination}{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
+        should_update_audio = True
+        if get_config().vad.do_vad_postprocessing:
+            match get_config().vad.selected_vad_model:
+                case configuration.SILERO:
+                    should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio, vad_trimmed_audio)
+                case configuration.VOSK:
+                    should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
+                case configuration.WHISPER:
+                    should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio,
+                                                                                    vad_trimmed_audio)
+            if not should_update_audio:
+                match get_config().vad.backup_vad_model:
+                    case configuration.OFF:
+                        pass
+                    case configuration.SILERO:
+                        should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio,
+                                                                                    vad_trimmed_audio)
+                    case configuration.VOSK:
+                        should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
+                    case configuration.WHISPER:
+                        should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio,
+                                                                                        vad_trimmed_audio)
+        if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
+            ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
+                                                  get_config().audio.ffmpeg_reencode_options)
+        elif os.path.exists(vad_trimmed_audio):
+            os.replace(vad_trimmed_audio, final_audio_output)
+        return final_audio_output, should_update_audio, vad_trimmed_audio
 
 
 def initialize(reloading=False):
