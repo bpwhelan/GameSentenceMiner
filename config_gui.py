@@ -340,7 +340,7 @@ class ConfigApp:
         self.sentence_audio_field = ttk.Entry(anki_frame)
         self.sentence_audio_field.insert(0, self.settings.anki.sentence_audio_field)
         self.sentence_audio_field.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(anki_frame, "Field in Anki for audio associated with the sentence.",
+        self.add_label_and_increment_row(anki_frame, "Field in Anki for audio associated with the sentence. Leave Blank to Disable Audio Processing.",
                                          row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Picture Field:").grid(row=self.current_row, column=0, sticky='W')
