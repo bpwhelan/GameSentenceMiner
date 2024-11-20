@@ -14,7 +14,7 @@ def update_anki_card(last_note, audio_path='', video_path='', tango='', reuse_au
     global audio_in_anki, screenshot_in_anki
     update_audio = should_update_audio and (not last_note['fields'][get_config().anki.sentence_audio_field][
         'value'] or get_config().anki.overwrite_audio)
-    update_picture = get_config().anki.overwrite_picture or not last_note['fields'][get_config().anki.picture_field][
+    update_picture = (get_config().anki.picture_field and get_config().anki.overwrite_picture) or not last_note['fields'][get_config().anki.picture_field][
         'value']
 
     if not reuse_audio:
