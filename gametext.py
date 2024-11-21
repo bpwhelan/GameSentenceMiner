@@ -103,4 +103,4 @@ def get_line_timing(last_note):
 
 def get_last_two_sentences():
     lines = list(line_history.items())
-    return lines[-1][0], lines[-2][0] if len(lines) > 1 else ''
+    return lines[-1][0] if lines else '', lines[-2][0] if len(lines) > 1 else ''
