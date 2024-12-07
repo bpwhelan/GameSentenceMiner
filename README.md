@@ -54,7 +54,7 @@ setting it up.
     1. Go to **Settings → Hotkeys** and find **Save Replay Buffer**.
     2. Assign a hotkey for saving the replay.
 4. Set Scene/Source. I recommend using "Game Capture" with "Capture Audio" Enabled. And then mute Desktop/microphone
-    1. If "Game Capture" Does not work, use "screen capture" with a second source "Application Audio Capture"
+    1. If "Game Capture" Does not work, use "Window Capture".
     2. I recommend having a Scene PER Game, with the name of the scene labeled as the game, this makes it easier for the
        script to know (with a config option) what game you are playing.
 5. In Output Settings, set "Recording Format" to mkv, and "Audio Encoder" to Opus. Alternative Settings may be supported
