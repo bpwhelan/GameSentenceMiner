@@ -17,7 +17,7 @@ def detect_voice_with_silero(input_audio):
     ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
 
     # Load the audio and detect speech timestamps
-    wav = read_audio(input_audio, sampling_rate=16000)
+    wav = read_audio(temp_wav, sampling_rate=16000)
     speech_timestamps = get_speech_timestamps(wav, vad_model, return_seconds=True)
 
     logger.debug(speech_timestamps)

@@ -43,11 +43,14 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
             note['fields'][key] = str(value)
 
     invoke("updateNoteFields", note=note)
+    tags = []
     if get_config().anki.custom_tags:
-        if get_config().anki.add_game_tag:
-            get_config().anki.custom_tags.append(configuration.current_game.replace(" ", ""))
-        for custom_tag in get_config().anki.custom_tags:
-            invoke("addTags", tags=custom_tag.replace(" ", ""), notes=[last_note['noteId']])
+        tags.extend(get_config().anki.custom_tags)
+    if get_config().anki.add_game_tag:
+        tags.append(configuration.current_game.replace(" ", ""))
+    if tags:
+        tag_string = " ".join(tags)
+        invoke("addTags", tags=tag_string, notes=[last_note['noteId']])
     logger.info(f"UPDATED ANKI CARD FOR {last_note['noteId']}")
     if get_config().features.notify_on_update:
         notification.send_notification(tango)
