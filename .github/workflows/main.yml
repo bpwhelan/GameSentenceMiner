@@ -25,7 +25,7 @@ jobs:
 
       - name: Build Windows Executable
         run: |
-          pyinstaller --noconfirm --name "MyApp" --add-data "pickaxe_icon.ico;." main.py
+          pyinstaller --noconfirm --name "GameSentenceMiner" main.py
         env:
           PYTHONUNBUFFERED: 1
 
@@ -53,7 +53,7 @@ jobs:
 
       - name: Build Linux Executable
         run: |
-          pyinstaller --noconfirm --name "MyApp" --add-data "pickaxe_icon.ico:." main.py
+          pyinstaller --noconfirm --name "GameSentenceMiner" main.py
         env:
           PYTHONUNBUFFERED: 1
 
