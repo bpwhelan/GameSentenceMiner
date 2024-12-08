@@ -25,7 +25,7 @@ jobs:
 
       - name: Build Windows Executable
         run: |
-          pyinstaller --noconfirm --name "GameSentenceMiner" --add-data "C:/hostedtoolcache/windows/Python/3.12.7/x64/Lib/site-packages/silero_vad/data;silero_vad/data" --add-data "C:/hostedtoolcache/windows/Python/3.12.7/x64/Lib/site-packages/vosk;vosk" main.py
+          pyinstaller --noconfirm --name "GameSentenceMiner" main.py  --additional-hooks-dir=hooks
         env:
           PYTHONUNBUFFERED: 1
 

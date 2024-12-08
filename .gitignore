@@ -21,3 +21,4 @@ config.json
 /build
 /dist
 *.spec
+/hooks/__pycache__

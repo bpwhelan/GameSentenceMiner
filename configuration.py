@@ -254,7 +254,7 @@ def load_config():
         return Config().load_from_toml('config.toml')
     else:
         with open('config.json', 'w') as file:
-            json.dump(Config(), file)
+            json.dump(Config().to_dict(), file)
         return Config()
 
 
