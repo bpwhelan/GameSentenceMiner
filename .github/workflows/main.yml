@@ -3,7 +3,7 @@ name: Build Executables
 on:
   push:
     branches:
-      - main
+      - actions
   pull_request:
 
 jobs:
