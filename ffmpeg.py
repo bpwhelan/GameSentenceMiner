@@ -125,7 +125,7 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
 
     logger.debug(" ".join(command))
 
-    subprocess.run(command, shell=True)
+    subprocess.run(command)
 
     return trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line_time)
 
