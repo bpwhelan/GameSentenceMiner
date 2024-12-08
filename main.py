@@ -7,6 +7,10 @@ import psutil
 from psutil import NoSuchProcess
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+from pystray import Icon, Menu, MenuItem
+from PIL import Image, ImageDraw
+import threading
+
 
 import anki
 import configuration
@@ -181,6 +185,68 @@ def get_screenshot():
         notification.send_screenshot_saved(encoded_image)
 
 
+def create_image():
+    """Create a simple pickaxe icon."""
+    width, height = 64, 64
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))  # Transparent background
+    draw = ImageDraw.Draw(image)
+
+    # Handle (rectangle)
+    handle_color = (139, 69, 19)  # Brown color
+    draw.rectangle([(30, 15), (34, 50)], fill=handle_color)
+
+    # Blade (triangle-like shape)
+    blade_color = (192, 192, 192)  # Silver color
+    draw.polygon([(15, 15), (49, 15), (32, 5)], fill=blade_color)
+
+    return image
+
+
+def open_settings():
+    """Function to handle opening settings."""
+    logger.info(
+        'opening config, most settings are live, so once the config is saved, the script will attempt to reload the config')
+    proc = subprocess.Popen([sys.executable, "config_gui.py"])
+    config_pids.append(proc.pid)
+
+
+def open_log():
+    """Function to handle opening log."""
+    """Open log file with the default application."""
+    log_file_path = "gamesentenceminer.log"
+    if not os.path.exists(log_file_path):
+        print("Log file not found!")
+        return
+
+    if sys.platform.startswith("win"):  # Windows
+        os.startfile(log_file_path)
+    elif sys.platform.startswith("darwin"):  # macOS
+        subprocess.call(["open", log_file_path])
+    elif sys.platform.startswith("linux"):  # Linux
+        subprocess.call(["xdg-open", log_file_path])
+    else:
+        print("Unsupported platform!")
+    print("Log opened.")
+
+
+def exit_program(icon, item):
+    """Exit the application."""
+    print("Exiting...")
+    icon.stop()
+
+
+def run_tray():
+    """Set up the system tray icon and menu."""
+    menu = Menu(
+        MenuItem("Open Settings", lambda: open_settings()),
+        MenuItem("Open Log", lambda: open_log()),
+        MenuItem("Exit", exit_program)
+    )
+
+    icon = Icon("TrayApp", create_image(), "Game Sentence Miner", menu)
+    icon.run()
+
+
 def main(reloading=False, do_config_input=True):
     logger.info("Script started.")
     initialize(reloading)
@@ -196,17 +262,19 @@ def main(reloading=False, do_config_input=True):
             register_hotkeys()
 
         logger.info("Enter \"config\" to open the config gui")
-        try:
-            while util.keep_running:
-                if do_config_input:
-                    command = input()
-                    if command == 'config':
-                        logger.info(
-                            'opening config, most settings are live, so once the config is saved, the script will attempt to reload the config')
-                        proc = subprocess.Popen([sys.executable, "config_gui.py"])
-                        config_pids.append(proc.pid)
-                time.sleep(1)
 
+        try:
+            run_tray()
+        #     while util.keep_running:
+        #         if do_config_input:
+        #             command = input()
+        #             if command == 'config':
+        #                 logger.info(
+        #                     'opening config, most settings are live, so once the config is saved, the script will attempt to reload the config')
+        #                 proc = subprocess.Popen([sys.executable, "config_gui.py"])
+        #                 config_pids.append(proc.pid)
+        #         time.sleep(1)
+        #
         except KeyboardInterrupt:
             util.keep_running = False
             observer.stop()

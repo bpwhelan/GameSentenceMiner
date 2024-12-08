@@ -42,7 +42,7 @@ def get_screenshot(video_file):
 
 def process_image(image_file):
     output_image = make_unique_file_name(
-        get_config().paths.screenshot_destination + current_game.replace(" ",
+        get_config().paths.screenshot_destination + configuration.current_game.replace(" ",
                                                                          "") + f".{get_config().screenshot.extension}")
 
     # FFmpeg command to process the input image

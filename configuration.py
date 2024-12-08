@@ -253,6 +253,8 @@ def load_config():
     elif os.path.exists('config.toml'):
         return Config().load_from_toml('config.toml')
     else:
+        with open('config.json', 'w') as file:
+            json.dump(Config(), file)
         return Config()
 
 
