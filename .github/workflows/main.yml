@@ -37,7 +37,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: windows-build
-          path: dist/GameSentenceMiner.zip
+          path: dist/GameSentenceMinerWindows.zip
 
   build-linux:
     runs-on: ubuntu-latest
@@ -69,4 +69,4 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: linux-build
-          path: dist/GameSentenceMiner.zip
+          path: dist/GameSentenceMinerLinux.zip
