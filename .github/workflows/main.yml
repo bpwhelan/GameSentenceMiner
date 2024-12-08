@@ -32,10 +32,7 @@ jobs:
 
       - name: Build Windows Executable
         run: |
-          pyinstaller --noconfirm --name "GameSentenceMiner" ^
-          --add-data "%SITE_PACKAGES_PATH%/silero_vad/data;silero_vad/data" ^
-          --add-data "%SITE_PACKAGES_PATH%/vosk;vosk" ^
-          main.py
+          pyinstaller --noconfirm --name "GameSentenceMiner" --add-data "%SITE_PACKAGES_PATH%/silero_vad/data;silero_vad/data" --add-data "%SITE_PACKAGES_PATH%/vosk;vosk" main.py
         env:
           PYTHONUNBUFFERED: 1
 
