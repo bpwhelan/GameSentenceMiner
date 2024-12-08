@@ -29,11 +29,15 @@ jobs:
         env:
           PYTHONUNBUFFERED: 1
 
+      - name: Zip Dist Folder (Windows)
+        run: |
+          powershell Compress-Archive -Path dist/GameSentenceMiner/* -DestinationPath dist/GameSentenceMinerWindows.zip
+
       - name: Upload Artifact (Windows)
         uses: actions/upload-artifact@v3
         with:
           name: windows-build
-          path: dist/GameSentenceMiner
+          path: dist/GameSentenceMiner.zip
 
   build-linux:
     runs-on: ubuntu-latest
@@ -57,8 +61,12 @@ jobs:
         env:
           PYTHONUNBUFFERED: 1
 
+      - name: Zip Dist Folder (Linux)
+        run: |
+          zip -r dist/GameSentenceMinerLinux.zip dist/GameSentenceMiner
+
       - name: Upload Artifact (Linux)
         uses: actions/upload-artifact@v3
         with:
           name: linux-build
-          path: dist/GameSentenceMiner
+          path: dist/GameSentenceMiner.zip
