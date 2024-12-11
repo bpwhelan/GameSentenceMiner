@@ -1,3 +1,4 @@
+import asyncio
 import os
 import random
 import re
@@ -15,6 +16,12 @@ SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
 use_previous_audio = False
 keep_running = True
 lock = threading.Lock()
+
+
+def run_new_thread(func):
+    thread = threading.Thread(target=func, daemon=True)
+    thread.start()
+    return thread
 
 
 def make_unique_file_name(path):

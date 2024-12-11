@@ -282,34 +282,34 @@ def reload_config():
         exit(1)
 
 
-class ConfigWatcher:
-    def __init__(self, file_path, poll_interval=.25):
-        self.file_path = file_path
-        self.poll_interval = poll_interval
-        self.last_modified_time = None
-        self.keep_running = True
-
-    def watch(self):
-        """Polls the file for changes in a loop, running in its own thread."""
-        self.last_modified_time = os.path.getmtime(self.file_path)
-
-        while self.keep_running:
-            time.sleep(self.poll_interval)
-            current_modified_time = os.path.getmtime(self.file_path)
-
-            if current_modified_time != self.last_modified_time:
-                self.last_modified_time = current_modified_time
-                self.on_modified()
-
-    def on_modified(self):
-        logger.info(f"Reloading Config!")
-        reload_config()
-
-
-def watch_for_config_changes():
-    config_file = "config.json"  # Replace with your actual config file path
-    watcher = ConfigWatcher(config_file, poll_interval=.25)
-
-    # Run the file watcher in a separate thread
-    watcher_thread = threading.Thread(target=watcher.watch, daemon=True)
-    watcher_thread.start()
+# class ConfigWatcher:
+#     def __init__(self, file_path, poll_interval=.25):
+#         self.file_path = file_path
+#         self.poll_interval = poll_interval
+#         self.last_modified_time = None
+#         self.keep_running = True
+#
+#     def watch(self):
+#         """Polls the file for changes in a loop, running in its own thread."""
+#         self.last_modified_time = os.path.getmtime(self.file_path)
+#
+#         while self.keep_running:
+#             time.sleep(self.poll_interval)
+#             current_modified_time = os.path.getmtime(self.file_path)
+#
+#             if current_modified_time != self.last_modified_time:
+#                 self.last_modified_time = current_modified_time
+#                 self.on_modified()
+#
+#     def on_modified(self):
+#         logger.info(f"Reloading Config!")
+#         reload_config()
+#
+#
+# def watch_for_config_changes():
+#     config_file = "config.json"  # Replace with your actual config file path
+#     watcher = ConfigWatcher(config_file, poll_interval=.25)
+#
+#     # Run the file watcher in a separate thread
+#     watcher_thread = threading.Thread(target=watcher.watch, daemon=True)
+#     watcher_thread.start()
