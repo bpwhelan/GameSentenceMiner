@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 from collections import OrderedDict
 from datetime import datetime
 
@@ -14,6 +15,7 @@ previous_line = ''
 previous_line_time = datetime.now()
 
 line_history = OrderedDict()
+reconnecting = False
 
 
 def monitor_clipboard():
@@ -35,7 +37,7 @@ def monitor_clipboard():
 
 
 async def listen_websocket():
-    global previous_line, previous_line_time, line_history
+    global previous_line, previous_line_time, line_history, reconnecting
     while True:
         try:
             async with websockets.connect(f'ws://{get_config().general.websocket_uri}') as websocket:
@@ -56,7 +58,9 @@ async def listen_websocket():
                         util.use_previous_audio = False
 
         except (websockets.ConnectionClosed, ConnectionError) as e:
-            print(f"Texthooker WebSocket connection lost: {e}. Trying again in 5 seconds...")
+            if not reconnecting:
+                print(f"Texthooker WebSocket connection lost: {e}. Attempting to Reconnect...")
+            reconnecting = True
             await asyncio.sleep(5)
 
 

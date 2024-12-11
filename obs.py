@@ -1,4 +1,5 @@
 import obsws_python as obs
+import obsws_python.baseclient
 import requests
 
 import anki
@@ -10,18 +11,33 @@ from configuration import *
 previous_note_ids = set()
 first_run = True
 obs_ws: obs.ReqClient = None
+obsws_python.baseclient.logger.setLevel(logging.CRITICAL)
 
 
 def connect_to_obs():
+    reconnecting = False
+    connected = False
     global obs_ws
     # Connect to OBS WebSocket
     if get_config().obs.enabled:
-        try:
-            obs_ws = obs.ReqClient(host=get_config().obs.host, port=get_config().obs.port,
-                                   password=get_config().obs.password)
-            logger.info("Connected to OBS WebSocket.")
-        except Exception as conn_exception:
-            print(f"Error connecting to OBS WebSocket: {conn_exception}")
+        while True:
+            try:
+                if connected:
+                    obs_ws.get_scene_list()
+                    continue
+                obs_ws = obs.ReqClient(host=get_config().obs.host, port=get_config().obs.port,
+                                       password=get_config().obs.password)
+                time.sleep(1)
+                if get_config().obs.start_buffer:
+                    start_replay_buffer()
+                connected = True
+                logger.info("Connected to OBS WebSocket.")
+            except Exception as conn_exception:
+                if not reconnecting:
+                    print(f"Error connecting to OBS WebSocket: {conn_exception}: Attempting to Reconnect...")
+                reconnecting = True
+                connected = False
+            time.sleep(5)
 
 
 # Disconnect from OBS WebSocket

@@ -1,18 +1,18 @@
 import shutil
+import signal
 import sys
 import tempfile
 
 import keyboard
 import psutil
-from psutil import NoSuchProcess
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from pystray import Icon, Menu, MenuItem
 from PIL import Image, ImageDraw
-import threading
 
-
+import win32api
 import anki
+import config_gui
 import configuration
 import ffmpeg
 import gametext
@@ -24,10 +24,11 @@ import vosk_helper
 import whisper_helper
 from configuration import *
 from ffmpeg import get_audio_and_trim
-from gametext import get_line_timing, get_last_two_sentences
+from gametext import get_line_timing
 from util import *
 
 config_pids = []
+settings_window = config_gui.ConfigApp()
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -152,12 +153,8 @@ def initialize(reloading=False):
             whisper_helper.initialize_whisper_model()
     if not reloading:
         if get_config().obs.enabled:
-            obs.connect_to_obs()
-            if get_config().obs.start_buffer:
-                obs.start_replay_buffer()
-            configuration.current_game = obs.get_current_scene()
+            util.run_new_thread(obs.connect_to_obs)
             obs.start_monitoring_anki()
-        watch_for_config_changes()
 
 
 def register_hotkeys():
@@ -203,11 +200,7 @@ def create_image():
 
 
 def open_settings():
-    """Function to handle opening settings."""
-    logger.info(
-        'opening config, most settings are live, so once the config is saved, the script will attempt to reload the config')
-    proc = subprocess.Popen([sys.executable, "config_gui.py"])
-    config_pids.append(proc.pid)
+    config_gui.show_gui()
 
 
 def open_log():
@@ -233,18 +226,50 @@ def exit_program(icon, item):
     """Exit the application."""
     print("Exiting...")
     icon.stop()
+    cleanup()
 
 
 def run_tray():
     """Set up the system tray icon and menu."""
+
     menu = Menu(
-        MenuItem("Open Settings", lambda: open_settings()),
-        MenuItem("Open Log", lambda: open_log()),
+        MenuItem("Open Settings", settings_window.show),
+        MenuItem("Open Log", open_log),
         MenuItem("Exit", exit_program)
     )
 
     icon = Icon("TrayApp", create_image(), "Game Sentence Miner", menu)
     icon.run()
+
+def cleanup():
+    logger.info("Performing cleanup...")
+    util.keep_running = False
+
+    for pid in config_pids:
+        try:
+            p = psutil.Process(pid)
+            p.terminate()  # Gracefully terminate the process
+        except psutil.NoSuchProcess:
+            logger.info("Config process already closed.")
+        except Exception as e:
+            logger.error(f"Error terminating process {pid}: {e}")
+
+    if get_config().obs.enabled:
+        if get_config().obs.start_buffer:
+            obs.stop_replay_buffer()
+        obs.disconnect_from_obs()
+    settings_window.window.destroy()
+    logger.info("Cleanup complete.")
+
+
+def handle_exit():
+    """Signal handler for graceful termination."""
+    def _handle_exit(signum):
+        logger.info(f"Received signal {signum}. Exiting gracefully...")
+        cleanup()
+        sys.exit(0)
+
+    return _handle_exit
 
 
 def main(reloading=False, do_config_input=True):
@@ -263,34 +288,23 @@ def main(reloading=False, do_config_input=True):
 
         logger.info("Enter \"config\" to open the config gui")
 
-        try:
-            run_tray()
-        #     while util.keep_running:
-        #         if do_config_input:
-        #             command = input()
-        #             if command == 'config':
-        #                 logger.info(
-        #                     'opening config, most settings are live, so once the config is saved, the script will attempt to reload the config')
-        #                 proc = subprocess.Popen([sys.executable, "config_gui.py"])
-        #                 config_pids.append(proc.pid)
-        #         time.sleep(1)
-        #
-        except KeyboardInterrupt:
-            util.keep_running = False
-            observer.stop()
+        # Register signal handlers for graceful shutdown
+        signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
+        signal.signal(signal.SIGINT, handle_exit())   # Handle Ctrl+C
+        win32api.SetConsoleCtrlHandler(handle_exit())
 
-        if get_config().obs.enabled:
-            if get_config().obs.start_buffer:
-                obs.stop_replay_buffer()
-            obs.disconnect_from_obs()
-        observer.stop()
-        observer.join()
-        for pid in config_pids:
-            try:
-                p = psutil.Process(pid)
-                p.terminate()  # or p.kill()
-            except NoSuchProcess:
-                print("Config already Closed")
+        util.run_new_thread(run_tray)
+
+        try:
+            settings_window.window.mainloop()
+        except KeyboardInterrupt:
+            cleanup()
+
+        try:
+            observer.stop()
+            observer.join()
+        except Exception as e:
+            logger.error(f"Error stopping observer: {e}")
 
 
 if __name__ == "__main__":

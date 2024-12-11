@@ -12,8 +12,6 @@ settings_saved = False
 
 
 def new_tab(func):
-    """Decorator to initialize the current row and perform pre-initialization tasks."""
-
     def wrapper(self, *args, **kwargs):
         self.current_row = 0  # Resetting row for the new tab
         # Perform any other pre-initialization tasks here if needed
@@ -48,29 +46,40 @@ class HoverInfoWidget:
 
 
 class ConfigApp:
-    def __init__(self, root):
-        global settings_saved
-        settings_saved = False
-        self.root = root
-        self.root.title('GameSentenceMiner Configuration')
-        self.current_row = 0  # Initialize the row variable
+    def __init__(self):
+        self.window = ttk.Window(themename='darkly')
+        self.window.title('GameSentenceMiner Configuration')
+        self.window.protocol("WM_DELETE_WINDOW", self.hide)
+
+        self.current_row = 0
 
         self.settings: Config = self.load_settings()
 
-        self.notebook = ttk.Notebook(self.root)
+        self.notebook = ttk.Notebook(self.window)
         self.notebook.pack(pady=10, expand=True)
 
         self.create_general_tab()
         self.create_paths_tab()
         self.create_anki_tab()
-        self.create_vad_tab()  # New VAD tab
+        self.create_vad_tab()
         self.create_features_tab()
         self.create_screenshot_tab()
         self.create_audio_tab()
         self.create_obs_tab()
         self.create_hotkeys_tab()
 
-        ttk.Button(self.root, text="Save Settings", command=self.save_settings).pack(pady=10)
+        ttk.Button(self.window, text="Save Settings", command=self.save_settings).pack(pady=20)
+        self.window.withdraw()
+
+    def show(self):
+        if self.window is not None:
+            self.window.deiconify()
+            self.window.lift()
+            return
+
+    def hide(self):
+        if self.window is not None:
+            self.window.withdraw()
 
     def load_settings(self):
         if os.path.exists('config.json'):
@@ -631,18 +640,3 @@ class ConfigApp:
         self.take_screenshot_hotkey.insert(0, self.settings.hotkeys.take_screenshot)
         self.take_screenshot_hotkey.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(hotkeys_frame, "Hotkey to take a screenshot.", row=self.current_row, column=2)
-
-
-def show_gui():
-    root = ttk.Window(themename='darkly')
-    ConfigApp(root)
-    root.mainloop()
-    return settings_saved
-
-
-if __name__ == '__main__':
-    show_gui()
-    if settings_saved:
-        exit(0)
-    else:
-        exit(1)
