@@ -35,6 +35,23 @@ jobs:
           name: build-windows
           path: dist/GameSentenceMiner/
 
+      - name: Install Dependencies
+        run: |
+          pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+      - name: Build Windows Executable
+        run: |
+          pyinstaller --noconfirm --name "GameSentenceMiner" main.py  --additional-hooks-dir=hooks
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Upload Artifact (Windows CUDA)
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-windows
+          path: dist/GameSentenceMiner_CUDA/
+
+
 #  build-linux:
 #    runs-on: ubuntu-latest
 #    steps:

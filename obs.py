@@ -153,6 +153,7 @@ def get_current_scene():
         return response.scene_name
     except Exception as e:
         print(f"Couldn't get scene: {e}")
+    return ''
 
 
 def get_source_from_scene(scene_name):
@@ -161,7 +162,7 @@ def get_source_from_scene(scene_name):
         return response.scene_items[0]['sourceName']
     except Exception as e:
         print(f"Error getting source from scene: {e}")
-        return None
+        return ''
 
 
 def start_monitoring_anki():
