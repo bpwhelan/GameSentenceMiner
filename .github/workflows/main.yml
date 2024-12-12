@@ -32,7 +32,7 @@ jobs:
       - name: Upload Artifact (Windows)
         uses: actions/upload-artifact@v4
         with:
-          name: build-windows
+          name: GameSentenceMiner
           path: dist/GameSentenceMiner/
 
       - name: Install Dependencies
@@ -48,8 +48,8 @@ jobs:
       - name: Upload Artifact (Windows CUDA)
         uses: actions/upload-artifact@v4
         with:
-          name: build-windows
-          path: dist/GameSentenceMiner_CUDA/
+          name: GameSentenceMiner_CUDA
+          path: dist/GameSentenceMiner/
 
 
 #  build-linux:
