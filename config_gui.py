@@ -640,3 +640,9 @@ class ConfigApp:
         self.take_screenshot_hotkey.insert(0, self.settings.hotkeys.take_screenshot)
         self.take_screenshot_hotkey.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(hotkeys_frame, "Hotkey to take a screenshot.", row=self.current_row, column=2)
+
+
+if __name__ == '__main__':
+    window = ConfigApp()
+    window.show()
+    window.window.mainloop()
