@@ -83,10 +83,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     print("Something went wrong with processing, anki card not updated")
         except Exception as e:
             logger.error(f"Some error was hit catching to allow further work to be done: {e}")
-            if get_config().paths.remove_video and os.path.exists(video_path):
-                os.remove(video_path)  # Optionally remove the video after conversion
-            if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
-                os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
+        if get_config().paths.remove_video and os.path.exists(video_path):
+            os.remove(video_path)  # Optionally remove the video after conversion
+        if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
+            os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
 
     @staticmethod
     def get_audio(line_time, next_line_time, video_path):
@@ -285,8 +285,6 @@ def main(reloading=False, do_config_input=True):
         logger.info("Script Initialized. Happy Mining!")
         if not is_linux():
             register_hotkeys()
-
-        logger.info("Enter \"config\" to open the config gui")
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
