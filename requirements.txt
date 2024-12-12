@@ -21,3 +21,4 @@ ttkbootstrap~=1.10.1
 dataclasses_json~=0.6.7
 pyinstaller
 pystray
+pywin32
