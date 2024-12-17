@@ -1,5 +1,8 @@
+from pprint import pprint
+
 import obsws_python as obs
 import obsws_python.baseclient
+from obsws_python.util import *
 import requests
 
 import anki
@@ -30,6 +33,7 @@ def connect_to_obs():
                 time.sleep(1)
                 if get_config().obs.start_buffer:
                     start_replay_buffer()
+                configuration.current_game = get_current_scene()
                 connected = True
                 logger.info("Connected to OBS WebSocket.")
             except Exception as conn_exception:
@@ -176,7 +180,8 @@ def start_monitoring_anki():
 def get_screenshot():
     try:
         screenshot = util.make_unique_file_name(os.path.abspath(configuration.temp_directory) + '/screenshot.png')
-        current_source = get_source_from_scene(get_current_scene())
+        configuration.current_game = get_current_scene()
+        current_source = get_source_from_scene(configuration.current_game)
         if not current_source:
             print("No active scene found.")
             return

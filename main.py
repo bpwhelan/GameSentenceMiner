@@ -164,6 +164,7 @@ def register_hotkeys():
 
 def get_screenshot():
     image = obs.get_screenshot()
+    time.sleep(2) # Wait for ss to save
     encoded_image = ffmpeg.process_image(image)
     if get_config().anki.update_anki:
         last_note = anki.get_last_anki_card()

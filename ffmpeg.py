@@ -43,7 +43,7 @@ def get_screenshot(video_file):
 def process_image(image_file):
     output_image = make_unique_file_name(
         get_config().paths.screenshot_destination + configuration.current_game.replace(" ",
-                                                                         "") + f".{get_config().screenshot.extension}")
+                                                                                       "") + f".{get_config().screenshot.extension}")
 
     # FFmpeg command to process the input image
     ffmpeg_command = ffmpeg_base_command_list + [
@@ -60,6 +60,7 @@ def process_image(image_file):
             ["-vf", f"scale={get_config().screenshot.width or -1}:{get_config().screenshot.height or -1}"])
 
     ffmpeg_command.append(output_image)
+    print(ffmpeg_command)
     logger.debug(" ".join(ffmpeg_command))
     # Run the command
     subprocess.run(ffmpeg_command)
