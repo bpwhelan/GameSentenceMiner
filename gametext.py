@@ -18,22 +18,29 @@ line_history = OrderedDict()
 reconnecting = False
 
 
-def monitor_clipboard():
-    global previous_line_time, previous_line, line_history
+class ClipboardMonitor(threading.Thread):
 
-    # Initial clipboard content
-    previous_line = pyperclip.paste()
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.daemon = True
 
-    while True:
-        current_clipboard = pyperclip.paste()
+    def run(self):
+        global previous_line_time, previous_line, line_history
 
-        if current_clipboard != previous_line:
-            previous_line = current_clipboard
-            previous_line_time = datetime.now()
-            line_history[previous_line] = previous_line_time
-            util.use_previous_audio = False
+        # Initial clipboard content
+        previous_line = pyperclip.paste()
 
-        time.sleep(0.05)
+        while True:
+            current_clipboard = pyperclip.paste()
+            print(current_clipboard)
+
+            if current_clipboard != previous_line:
+                previous_line = current_clipboard
+                previous_line_time = datetime.now()
+                line_history[previous_line] = previous_line_time
+                util.use_previous_audio = False
+
+            time.sleep(0.05)
 
 
 async def listen_websocket():
@@ -80,7 +87,7 @@ def start_text_monitor():
     if get_config().general.use_websocket:
         text_thread = threading.Thread(target=run_websocket_listener, daemon=True)
     else:
-        text_thread = threading.Thread(target=monitor_clipboard, daemon=True)
+        text_thread = ClipboardMonitor()
     text_thread.start()
 
 

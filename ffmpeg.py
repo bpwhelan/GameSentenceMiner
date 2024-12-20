@@ -60,7 +60,7 @@ def process_image(image_file):
             ["-vf", f"scale={get_config().screenshot.width or -1}:{get_config().screenshot.height or -1}"])
 
     ffmpeg_command.append(output_image)
-    print(ffmpeg_command)
+    logger.debug(ffmpeg_command)
     logger.debug(" ".join(ffmpeg_command))
     # Run the command
     subprocess.run(ffmpeg_command)

@@ -153,7 +153,7 @@ def initialize(reloading=False):
             whisper_helper.initialize_whisper_model()
     if not reloading:
         if get_config().obs.enabled:
-            util.run_new_thread(obs.connect_to_obs)
+            obs.connect_to_obs()
             obs.start_monitoring_anki()
 
 
@@ -163,24 +163,29 @@ def register_hotkeys():
 
 
 def get_screenshot():
-    image = obs.get_screenshot()
-    time.sleep(2) # Wait for ss to save
-    encoded_image = ffmpeg.process_image(image)
-    if get_config().anki.update_anki:
-        last_note = anki.get_last_anki_card()
-        if last_note:
-            logger.debug(json.dumps(last_note))
-        if get_config().features.backfill_audio:
-            last_note = anki.get_cards_by_sentence(gametext.previous_line)
-        if last_note:
-            anki.add_image_to_card(last_note, encoded_image)
-            notification.send_screenshot_updated(last_note['fields'][get_config().anki.word_field]['value'])
-            if get_config().features.open_anki_edit:
-                notification.open_anki_card(last_note['noteId'])
+    try:
+        image = obs.get_screenshot()
+        time.sleep(2) # Wait for ss to save
+        if not image:
+            raise Exception("Failed to get Screenshot from OBS")
+        encoded_image = ffmpeg.process_image(image)
+        if get_config().anki.update_anki:
+            last_note = anki.get_last_anki_card()
+            if last_note:
+                logger.debug(json.dumps(last_note))
+            if get_config().features.backfill_audio:
+                last_note = anki.get_cards_by_sentence(gametext.previous_line)
+            if last_note:
+                anki.add_image_to_card(last_note, encoded_image)
+                notification.send_screenshot_updated(last_note['fields'][get_config().anki.word_field]['value'])
+                if get_config().features.open_anki_edit:
+                    notification.open_anki_card(last_note['noteId'])
+            else:
+                notification.send_screenshot_saved(encoded_image)
         else:
             notification.send_screenshot_saved(encoded_image)
-    else:
-        notification.send_screenshot_saved(encoded_image)
+    except Exception as e:
+        logger.error(f"Failed to get Screenshot {e}")
 
 
 def create_image():

@@ -113,6 +113,7 @@ def request(action, **params):
 
 def invoke(action, **params):
     request_json = json.dumps(request(action, **params)).encode('utf-8')
+    logger.debug(f"Hitting Anki. Action: {action}. Data: {request_json}")
     response = json.load(urllib.request.urlopen(urllib.request.Request(get_config().anki.url, request_json)))
     if len(response) != 2:
         raise Exception('response has an unexpected number of fields')

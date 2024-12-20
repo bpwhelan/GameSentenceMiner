@@ -1,62 +1,58 @@
-from pprint import pprint
-
-import obsws_python as obs
-import obsws_python.baseclient
-from obsws_python.util import *
-import requests
+import requests as req
+from obswebsocket import obsws, requests
 
 import anki
 import configuration
 import util
 from configuration import *
+from model import *
 
 # Global variables to track state
 previous_note_ids = set()
 first_run = True
-obs_ws: obs.ReqClient = None
-obsws_python.baseclient.logger.setLevel(logging.CRITICAL)
+client: obsws = None
+
+# REFERENCE: https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md
+
+
+def on_connect(obs):
+    logger.info("Connected to OBS WebSocket.")
+    time.sleep(2)
+    if get_config().obs.start_buffer:
+        start_replay_buffer()
+
+
+def on_disconnect(obs):
+    logger.error("OBS Connection Lost!")
 
 
 def connect_to_obs():
-    reconnecting = False
-    connected = False
-    global obs_ws
-    # Connect to OBS WebSocket
+    global client
     if get_config().obs.enabled:
-        while True:
-            try:
-                if connected:
-                    obs_ws.get_scene_list()
-                    continue
-                obs_ws = obs.ReqClient(host=get_config().obs.host, port=get_config().obs.port,
-                                       password=get_config().obs.password)
-                time.sleep(1)
-                if get_config().obs.start_buffer:
-                    start_replay_buffer()
-                configuration.current_game = get_current_scene()
-                connected = True
-                logger.info("Connected to OBS WebSocket.")
-            except Exception as conn_exception:
-                if not reconnecting:
-                    print(f"Error connecting to OBS WebSocket: {conn_exception}: Attempting to Reconnect...")
-                reconnecting = True
-                connected = False
-            time.sleep(5)
+        client = obsws(host=get_config().obs.host, port=get_config().obs.port,
+                       password=get_config().obs.password, authreconnect=1, on_connect=on_connect,
+                       on_disconnect=on_disconnect)
+        client.connect()
+        time.sleep(1)
+        if get_config().obs.start_buffer:
+            start_replay_buffer()
+        configuration.current_game = get_current_scene()
 
 
 # Disconnect from OBS WebSocket
 def disconnect_from_obs():
-    global obs_ws
-    if obs_ws:
-        obs_ws.disconnect()
-        obs_ws = None
+    global client
+    if client:
+        client.disconnect()
+        client = None
         logger.info("Disconnected from OBS WebSocket.")
 
 
 # Start replay buffer
 def start_replay_buffer():
     try:
-        obs_ws.start_replay_buffer()
+        client.call(requests.GetVersion())
+        client.call(requests.StartReplayBuffer())
     except Exception as e:
         print(f"Error starting replay buffer: {e}")
 
@@ -64,7 +60,7 @@ def start_replay_buffer():
 # Stop replay buffer
 def stop_replay_buffer():
     try:
-        obs_ws.stop_replay_buffer()
+        client.call(requests.StopReplayBuffer())
         print("Replay buffer stopped.")
     except Exception as e:
         print(f"Error stopping replay buffer: {e}")
@@ -72,7 +68,7 @@ def stop_replay_buffer():
 
 # Fetch recent note IDs from Anki
 def get_note_ids():
-    response = requests.post(get_config().anki.url, json={
+    response = req.post(get_config().anki.url, json={
         "action": "findNotes",
         "version": 6,
         "params": {"query": "added:1"}
@@ -84,7 +80,7 @@ def get_note_ids():
 # Save the current replay buffer
 def save_replay_buffer():
     try:
-        obs_ws.save_replay_buffer()
+        client.call(requests.SaveReplayBuffer())
     except Exception as e:
         print(f"Error saving replay buffer: {e}")
 
@@ -153,8 +149,9 @@ def monitor_anki():
 
 def get_current_scene():
     try:
-        response = obs_ws.get_current_program_scene()
-        return response.scene_name
+        response = client.call(requests.GetCurrentProgramScene())
+        scene_info = SceneInfo.from_dict(response.datain)
+        return scene_info.sceneName
     except Exception as e:
         print(f"Couldn't get scene: {e}")
     return ''
@@ -162,8 +159,10 @@ def get_current_scene():
 
 def get_source_from_scene(scene_name):
     try:
-        response = obs_ws.get_scene_item_list(scene_name)
-        return response.scene_items[0]['sourceName']
+        response = client.call(requests.GetSceneItemList(sceneName=scene_name))
+        scene_list = SceneItemsResponse.from_dict(response.datain)
+        print(scene_list)
+        return scene_list.sceneItems[0]
     except Exception as e:
         print(f"Error getting source from scene: {e}")
         return ''
@@ -182,10 +181,12 @@ def get_screenshot():
         screenshot = util.make_unique_file_name(os.path.abspath(configuration.temp_directory) + '/screenshot.png')
         configuration.current_game = get_current_scene()
         current_source = get_source_from_scene(configuration.current_game)
-        if not current_source:
+        current_source_name = current_source.sourceName
+        if not current_source_name:
             print("No active scene found.")
             return
-        obs_ws.save_source_screenshot(current_source, 'png', screenshot, None, None, 100)
+        client.call(
+            requests.SaveSourceScreenshot(sourceName=current_source_name, imageFormat='png', imageFilePath=screenshot))
         return screenshot
     except Exception as e:
         print(f"Error getting screenshot: {e}")
