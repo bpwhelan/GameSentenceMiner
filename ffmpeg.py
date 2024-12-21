@@ -267,3 +267,16 @@ def trim_audio(input_audio, start_time, end_time, output_audio):
     logger.debug(" ".join(command))
 
     subprocess.run(command)
+
+
+def is_video_big_enough(file_path, min_size_kb=250):
+    try:
+        file_size = os.path.getsize(file_path)  # Size in bytes
+        file_size_kb = file_size / 1024  # Convert to KB
+        return file_size_kb >= min_size_kb
+    except FileNotFoundError:
+        logger.error("File not found!")
+        return False
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        return False

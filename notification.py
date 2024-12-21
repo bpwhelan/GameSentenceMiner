@@ -58,3 +58,12 @@ def send_audio_generated_notification(audio_path):
         app_name="VideoGameMiner",
         timeout=5  # Notification disappears after 5 seconds
     )
+
+
+def send_check_obs_notification(reason):
+    notification.notify(
+        title="OBS Replay Invalid",
+        message=f"Check OBS Settings! Reason: {reason}",
+        app_name="GameSentenceMiner",
+        timeout=5  # Notification disappears after 5 seconds
+    )

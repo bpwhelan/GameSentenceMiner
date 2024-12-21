@@ -157,7 +157,8 @@ class ConfigApp:
                 port=int(self.obs_port.get()),
                 password=self.obs_password.get(),
                 start_buffer=self.obs_start_buffer.get(),
-                get_game_from_scene=self.get_game_from_scene_name.get()
+                get_game_from_scene=self.get_game_from_scene_name.get(),
+                minimum_replay_size=int(self.minimum_replay_size.get())
             ),
             hotkeys=Hotkeys(
                 reset_line=self.reset_line_hotkey.get(),
@@ -349,7 +350,8 @@ class ConfigApp:
         self.sentence_audio_field = ttk.Entry(anki_frame)
         self.sentence_audio_field.insert(0, self.settings.anki.sentence_audio_field)
         self.sentence_audio_field.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(anki_frame, "Field in Anki for audio associated with the sentence. Leave Blank to Disable Audio Processing.",
+        self.add_label_and_increment_row(anki_frame,
+                                         "Field in Anki for audio associated with the sentence. Leave Blank to Disable Audio Processing.",
                                          row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Picture Field:").grid(row=self.current_row, column=0, sticky='W')
@@ -370,7 +372,9 @@ class ConfigApp:
         self.previous_sentence_field = ttk.Entry(anki_frame)
         self.previous_sentence_field.insert(0, self.settings.anki.previous_sentence_field)
         self.previous_sentence_field.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(anki_frame, "Field in Anki for the previous line of dialogue. If Empty, will not populate", row=self.current_row,
+        self.add_label_and_increment_row(anki_frame,
+                                         "Field in Anki for the previous line of dialogue. If Empty, will not populate",
+                                         row=self.current_row,
                                          column=2)
 
         ttk.Label(anki_frame, text="Custom Tags:").grid(row=self.current_row, column=0, sticky='W')
@@ -384,7 +388,8 @@ class ConfigApp:
         self.tags_to_check = ttk.Entry(anki_frame)
         self.tags_to_check.insert(0, ', '.join(self.settings.anki.tags_to_check))
         self.tags_to_check.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(anki_frame, "Comma-separated Tags, script will only do 1-click on cards with these tags (Recommend keep empty, or use Yomitan Profile to add custom tag from texthooker page)",
+        self.add_label_and_increment_row(anki_frame,
+                                         "Comma-separated Tags, script will only do 1-click on cards with these tags (Recommend keep empty, or use Yomitan Profile to add custom tag from texthooker page)",
                                          row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Add Game Tag:").grid(row=self.current_row, column=0, sticky='W')
@@ -621,6 +626,14 @@ class ConfigApp:
         ttk.Checkbutton(obs_frame, variable=self.get_game_from_scene_name).grid(row=self.current_row, column=1,
                                                                                 sticky='W')
         self.add_label_and_increment_row(obs_frame, "Changes Current Game to Scene Name", row=self.current_row,
+                                         column=2)
+
+        ttk.Label(obs_frame, text="Minimum Replay Size (KB):").grid(row=self.current_row, column=0, sticky='W')
+        self.minimum_replay_size = ttk.Entry(obs_frame)
+        self.minimum_replay_size.insert(0, str(self.settings.obs.minimum_replay_size))
+        self.minimum_replay_size.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(obs_frame, "Minimum Replay Size for OBS Replays in KB. If Replay is Under this, "
+                                                    "Audio/Screenshot Will not be grabbed.", row=self.current_row,
                                          column=2)
 
     @new_tab

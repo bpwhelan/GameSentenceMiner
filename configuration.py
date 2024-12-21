@@ -112,6 +112,7 @@ class OBS:
     password: str = "your_password"
     start_buffer: bool = True
     get_game_from_scene: bool = True
+    minimum_replay_size: int = 1000
 
 
 @dataclass_json

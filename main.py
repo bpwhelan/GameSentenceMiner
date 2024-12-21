@@ -44,6 +44,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def convert_to_audio(video_path):
         try:
             with util.lock:
+                if get_config().obs.minimum_replay_size and not ffmpeg.is_video_big_enough(video_path, get_config().obs.minimum_replay_size):
+                    notification.send_check_obs_notification(reason="Video may be empty, check scene in OBS.")
+                    logger.error(f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
+                    return
                 util.use_previous_audio = True
                 last_note = None
                 if get_config().anki.update_anki:

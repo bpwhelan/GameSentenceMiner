@@ -47,6 +47,9 @@ async def listen_websocket():
     while True:
         try:
             async with websockets.connect(f'ws://{get_config().general.websocket_uri}') as websocket:
+                if reconnecting:
+                    print(f"Texthooker WebSocket connected Successfully!")
+                    reconnecting = False
                 while True:
                     message = await websocket.recv()
 
