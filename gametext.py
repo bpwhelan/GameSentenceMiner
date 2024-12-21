@@ -1,5 +1,4 @@
 import asyncio
-import itertools
 from collections import OrderedDict
 from datetime import datetime
 
