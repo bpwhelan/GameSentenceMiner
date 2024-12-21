@@ -32,7 +32,6 @@ class ClipboardMonitor(threading.Thread):
 
         while True:
             current_clipboard = pyperclip.paste()
-            print(current_clipboard)
 
             if current_clipboard != previous_line:
                 previous_line = current_clipboard
