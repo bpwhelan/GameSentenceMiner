@@ -26,7 +26,7 @@ def on_disconnect(obs):
     logger.error("OBS Connection Lost!")
 
 
-def connect_to_obs():
+def connect_to_obs(start_replay=False):
     global client
     if get_config().obs.enabled:
         client = obsws(host=get_config().obs.host, port=get_config().obs.port,
@@ -34,7 +34,7 @@ def connect_to_obs():
                        on_disconnect=on_disconnect)
         client.connect()
         time.sleep(1)
-        if get_config().obs.start_buffer:
+        if start_replay and get_config().obs.start_buffer:
             start_replay_buffer()
         configuration.current_game = get_current_scene()
 

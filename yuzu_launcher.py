@@ -15,7 +15,7 @@ yuzu_cmd = r"C:\Emulation\Emulators\yuzu-windows-msvc\yuzu.exe"
 # yuzu_cmd = r"C:\Emulation\Emulators\ryujinx-1.1.1403-win_x64\publish\Ryujinx.exe"
 roms_path = r"C:\Emulation\Yuzu\Games"
 AGENT_SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
-pre_select = 5
+pre_select = -1
 
 
 @dataclass

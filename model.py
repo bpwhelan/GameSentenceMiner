@@ -75,3 +75,10 @@ class SceneItemsResponse:
     # def __init__(self, **kwargs):
     #     self.sceneItems = [SceneItem(**item) for item in kwargs['sceneItems']]
 
+#
+# @dataclass_json
+# @dataclass
+# class SourceActive:
+#     videoActive: bool
+#     videoShowing: bool
+

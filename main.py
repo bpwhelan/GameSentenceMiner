@@ -5,12 +5,12 @@ import tempfile
 
 import keyboard
 import psutil
+import win32api
+from PIL import Image, ImageDraw
+from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-from pystray import Icon, Menu, MenuItem
-from PIL import Image, ImageDraw
 
-import win32api
 import anki
 import config_gui
 import configuration
@@ -44,9 +44,11 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def convert_to_audio(video_path):
         try:
             with util.lock:
-                if get_config().obs.minimum_replay_size and not ffmpeg.is_video_big_enough(video_path, get_config().obs.minimum_replay_size):
+                if get_config().obs.minimum_replay_size and not ffmpeg.is_video_big_enough(video_path,
+                                                                                           get_config().obs.minimum_replay_size):
                     notification.send_check_obs_notification(reason="Video may be empty, check scene in OBS.")
-                    logger.error(f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
+                    logger.error(
+                        f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
                     return
                 util.use_previous_audio = True
                 last_note = None
@@ -63,9 +65,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 tango = last_note['fields'][get_config().anki.word_field]['value'] if last_note else ''
 
                 if get_config().anki.sentence_audio_field:
-                    final_audio_output, should_update_audio, vad_trimmed_audio = VideoToAudioHandler.get_audio(line_time,
-                                                                                                               next_line_time,
-                                                                                                               video_path)
+                    final_audio_output, should_update_audio, vad_trimmed_audio = VideoToAudioHandler.get_audio(
+                        line_time,
+                        next_line_time,
+                        video_path)
                 else:
                     final_audio_output = ""
                     should_update_audio = False
@@ -157,7 +160,7 @@ def initialize(reloading=False):
             whisper_helper.initialize_whisper_model()
     if not reloading:
         if get_config().obs.enabled:
-            obs.connect_to_obs()
+            obs.connect_to_obs(start_replay=True)
             obs.start_monitoring_anki()
 
 
@@ -169,7 +172,7 @@ def register_hotkeys():
 def get_screenshot():
     try:
         image = obs.get_screenshot()
-        time.sleep(2) # Wait for ss to save
+        time.sleep(2)  # Wait for ss to save
         if not image:
             raise Exception("Failed to get Screenshot from OBS")
         encoded_image = ffmpeg.process_image(image)
@@ -251,6 +254,7 @@ def run_tray():
     icon = Icon("TrayApp", create_image(), "Game Sentence Miner", menu)
     icon.run()
 
+
 def cleanup():
     logger.info("Performing cleanup...")
     util.keep_running = False
@@ -274,6 +278,7 @@ def cleanup():
 
 def handle_exit():
     """Signal handler for graceful termination."""
+
     def _handle_exit(signum):
         logger.info(f"Received signal {signum}. Exiting gracefully...")
         cleanup()
@@ -298,7 +303,7 @@ def main(reloading=False, do_config_input=True):
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
-        signal.signal(signal.SIGINT, handle_exit())   # Handle Ctrl+C
+        signal.signal(signal.SIGINT, handle_exit())  # Handle Ctrl+C
         win32api.SetConsoleCtrlHandler(handle_exit())
 
         util.run_new_thread(run_tray)
