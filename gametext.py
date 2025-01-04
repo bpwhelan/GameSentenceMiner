@@ -103,10 +103,8 @@ def get_line_timing(last_note):
             for i, (line, clip_time) in enumerate(reversed(line_history.items())):
                 if remove_html_tags(sentence) in line:
                     line_time = clip_time
-                    # next_time = list(clipboard.clipboard_history.values())[-i]
-                    # if next_time > clipboard_time:
-                    #     next_clipboard = next_time
                     break
+                next_line = clip_time
     except Exception as e:
         logger.error(f"Using Default clipboard/websocket timing - reason: {e}")
 
