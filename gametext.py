@@ -9,6 +9,8 @@ import util
 from configuration import *
 from configuration import get_config, logger
 from util import remove_html_tags
+from difflib import SequenceMatcher
+
 
 previous_line = ''
 previous_line_time = datetime.now()
@@ -93,16 +95,22 @@ def start_text_monitor():
 
 
 def get_line_timing(last_note):
+    def similar(a, b):
+        return SequenceMatcher(None, a, b).ratio()
+
     if not last_note:
         return previous_line_time, 0
+
     line_time = previous_line_time
     next_line = 0
     prev_clip_time = 0
+
     try:
         sentence = last_note['fields'][get_config().anki.sentence_field]['value']
         if sentence:
             for i, (line, clip_time) in enumerate(reversed(line_history.items())):
-                if remove_html_tags(sentence) in line:
+                similarity = similar(remove_html_tags(sentence), line)
+                if similarity >= 0.80:  # 80% similarity threshold
                     line_time = clip_time
                     next_line = prev_clip_time
                     break
