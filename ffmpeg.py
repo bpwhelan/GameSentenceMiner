@@ -164,8 +164,8 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_l
         "-i", untrimmed_audio,
         "-ss", start_trim_time]
 
-    if next_line:
-        end_total_seconds = total_seconds + (next_line - line_time).total_seconds()
+    if next_line and next_line > line_time:
+        end_total_seconds = total_seconds + (next_line - line_time).total_seconds() + 1
         hours, remainder = divmod(end_total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         end_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)

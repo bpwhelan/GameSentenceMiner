@@ -97,14 +97,16 @@ def get_line_timing(last_note):
         return previous_line_time, 0
     line_time = previous_line_time
     next_line = 0
+    prev_clip_time = 0
     try:
         sentence = last_note['fields'][get_config().anki.sentence_field]['value']
         if sentence:
             for i, (line, clip_time) in enumerate(reversed(line_history.items())):
                 if remove_html_tags(sentence) in line:
                     line_time = clip_time
+                    next_line = prev_clip_time
                     break
-                next_line = clip_time
+                prev_clip_time = clip_time
     except Exception as e:
         logger.error(f"Using Default clipboard/websocket timing - reason: {e}")
 
