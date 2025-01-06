@@ -1,4 +1,5 @@
 import base64
+import subprocess
 import urllib.request
 
 import configuration
@@ -12,11 +13,14 @@ audio_in_anki = None
 screenshot_in_anki = None
 
 
-def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='', reuse_audio=False, should_update_audio=True):
+def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
+                     should_update_audio=True):
     global audio_in_anki, screenshot_in_anki
-    update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not last_note['fields'][get_config().anki.sentence_audio_field][
+    update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not
+    last_note['fields'][get_config().anki.sentence_audio_field][
         'value'] or get_config().anki.overwrite_audio)
-    update_picture = (get_config().anki.picture_field and get_config().anki.overwrite_picture) or not last_note['fields'][get_config().anki.picture_field][
+    update_picture = (get_config().anki.picture_field and get_config().anki.overwrite_picture) or not \
+    last_note['fields'][get_config().anki.picture_field][
         'value']
 
     if not reuse_audio:
@@ -56,6 +60,17 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
         notification.send_notification(tango)
     if get_config().features.open_anki_edit:
         notification.open_anki_card(last_note['noteId'])
+
+    if get_config().audio.external_tool:
+        open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
+
+
+def open_audio_in_external(fileabspath, shell=False):
+    logger.info(f"Opening audio: {fileabspath} in external Program: {get_config().audio.external_tool}")
+    if shell:
+        subprocess.Popen(f' "{get_config().audio.external_tool}" "{fileabspath}" ', shell=True)
+    else:
+        subprocess.Popen([get_config().audio.external_tool, fileabspath])
 
 
 def add_image_to_card(last_note, image_path):

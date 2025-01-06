@@ -101,6 +101,8 @@ class Audio:
     beginning_offset: float = 0.0
     end_offset: float = 0.5
     ffmpeg_reencode_options: str = ''
+    external_tool: str = ""
+    anki_media_collection: str = ""
 
 
 @dataclass_json

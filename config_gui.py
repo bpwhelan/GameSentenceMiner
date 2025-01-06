@@ -149,7 +149,9 @@ class ConfigApp:
                 extension=self.audio_extension.get(),
                 beginning_offset=float(self.beginning_offset.get()),
                 end_offset=float(self.end_offset.get()),
-                ffmpeg_reencode_options=self.ffmpeg_reencode_options.get()
+                ffmpeg_reencode_options=self.ffmpeg_reencode_options.get(),
+                external_tool = self.external_tool.get(),
+                anki_media_collection=self.anki_media_collection.get()
             ),
             obs=OBS(
                 enabled=self.obs_enabled.get(),
@@ -264,6 +266,7 @@ class ConfigApp:
         ttk.Checkbutton(vad_frame, variable=self.vad_trim_beginning).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(vad_frame, "Trim the beginning of the audio based on Voice Detection Results",
                                          row=self.current_row, column=2)
+
 
     @new_tab
     def create_paths_tab(self):
@@ -582,6 +585,24 @@ class ConfigApp:
         self.ffmpeg_reencode_options.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(audio_frame, "Custom FFmpeg options for re-encoding audio files.",
                                          row=self.current_row, column=2)
+
+        ttk.Label(audio_frame, text="Anki Media Collection:").grid(row=self.current_row, column=0, sticky='W')
+        self.anki_media_collection = ttk.Entry(audio_frame)
+        self.anki_media_collection.insert(0, self.settings.audio.anki_media_collection)
+        self.anki_media_collection.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(audio_frame,
+                                         "Path of the Anki Media Collection, used for external Trimming tool. NO TRAILING SLASH",
+                                         row=self.current_row,
+                                         column=2)
+
+        ttk.Label(audio_frame, text="External Audio Editting Tool:").grid(row=self.current_row, column=0, sticky='W')
+        self.external_tool = ttk.Entry(audio_frame)
+        self.external_tool.insert(0, self.settings.audio.external_tool)
+        self.external_tool.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(audio_frame,
+                                         "Path to External tool that opens the audio up for manual trimming. I recommend OcenAudio for in-place Editting.",
+                                         row=self.current_row,
+                                         column=2)
 
     @new_tab
     def create_obs_tab(self):
