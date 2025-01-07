@@ -81,11 +81,11 @@ already set, this GUI lets you adjust settings as needed. Here’s how to get st
 
 To open the GUI, you have two options:
 
-1. **Directly Run the Script**: Open a terminal in your project directory and enter:
+1. **Tray Icon**: Right Click the Tray Icon and Click `Open Settings`
+2. **Directly Run the Script**: Open a terminal in your project directory and enter:
    \\\bash
    python config_gui.py
    \\\
-2. **Console Command**: You can also type `config` in the console if you’re already running the main script.
 
 #### Default Settings and Customization
 
