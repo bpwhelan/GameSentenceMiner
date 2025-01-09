@@ -595,12 +595,12 @@ class ConfigApp:
                                          row=self.current_row,
                                          column=2)
 
-        ttk.Label(audio_frame, text="External Audio Editting Tool:").grid(row=self.current_row, column=0, sticky='W')
+        ttk.Label(audio_frame, text="External Audio Editing Tool:").grid(row=self.current_row, column=0, sticky='W')
         self.external_tool = ttk.Entry(audio_frame)
         self.external_tool.insert(0, self.settings.audio.external_tool)
         self.external_tool.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(audio_frame,
-                                         "Path to External tool that opens the audio up for manual trimming. I recommend OcenAudio for in-place Editting.",
+                                         "Path to External tool that opens the audio up for manual trimming. I recommend OcenAudio for in-place Editing.",
                                          row=self.current_row,
                                          column=2)
 
