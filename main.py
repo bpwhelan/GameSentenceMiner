@@ -29,6 +29,9 @@ from util import *
 
 config_pids = []
 settings_window = config_gui.ConfigApp()
+obs_paused = False
+icon: Icon
+menu: Menu
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -242,12 +245,37 @@ def exit_program(icon, item):
     cleanup()
 
 
-def run_tray():
-    """Set up the system tray icon and menu."""
+def play_pause(icon, item):
+    global obs_paused, menu
+    if obs_paused:
+        obs.start_replay_buffer()
+    else:
+        obs.stop_replay_buffer()
 
+    obs_paused = not obs_paused
+    update_icon()
+
+
+def update_icon():
+    global menu, icon
+    # Recreate the menu with the updated button text
     menu = Menu(
         MenuItem("Open Settings", settings_window.show),
         MenuItem("Open Log", open_log),
+        MenuItem("Resume OBS" if obs_paused else "Pause OBS", play_pause),
+        MenuItem("Exit", exit_program)
+    )
+    icon.menu = menu
+    icon.update_menu()
+
+
+def run_tray():
+    global menu, icon
+    """Set up the system tray icon and menu."""
+    menu = Menu(
+        MenuItem("Open Settings", settings_window.show),
+        MenuItem("Open Log", open_log),
+        MenuItem("Pause OBS", play_pause),
         MenuItem("Exit", exit_program)
     )
 
