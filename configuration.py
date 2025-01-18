@@ -92,6 +92,7 @@ class Screenshot:
     quality: str = 85
     extension: str = "webp"
     custom_ffmpeg_settings: str = ''
+    screenshot_hotkey_updates_anki: bool = False
 
 
 @dataclass_json

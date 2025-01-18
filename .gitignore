@@ -22,3 +22,9 @@ config.json
 /dist
 *.spec
 /hooks/__pycache__
+gamesentenceminer.log.2
+gamesentenceminer.log.1
+.vscode/launch.json
+.idea/misc.xml
+runGSM.bat
+runYuzuLauncher.bat

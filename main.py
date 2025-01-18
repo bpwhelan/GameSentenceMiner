@@ -179,7 +179,7 @@ def get_screenshot():
         if not image:
             raise Exception("Failed to get Screenshot from OBS")
         encoded_image = ffmpeg.process_image(image)
-        if get_config().anki.update_anki:
+        if get_config().anki.update_anki and get_config().screenshot.screenshot_hotkey_updates_anki:
             last_note = anki.get_last_anki_card()
             if last_note:
                 logger.debug(json.dumps(last_note))

@@ -47,7 +47,7 @@ async def listen_websocket():
     global previous_line, previous_line_time, line_history, reconnecting
     while True:
         try:
-            async with websockets.connect(f'ws://{get_config().general.websocket_uri}') as websocket:
+            async with websockets.connect(f'ws://{get_config().general.websocket_uri}', ping_interval=None) as websocket:
                 if reconnecting:
                     print(f"Texthooker WebSocket connected Successfully!")
                     reconnecting = False

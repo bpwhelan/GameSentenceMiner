@@ -143,7 +143,8 @@ class ConfigApp:
                 height=int(self.screenshot_height.get()),
                 quality=int(self.screenshot_quality.get()),
                 extension=self.screenshot_extension.get(),
-                custom_ffmpeg_settings=self.screenshot_custom_ffmpeg_settings.get()
+                custom_ffmpeg_settings=self.screenshot_custom_ffmpeg_settings.get(),
+                screenshot_hotkey_updates_anki=self.screenshot_hotkey_update_anki.get()
             ),
             audio=Audio(
                 extension=self.audio_extension.get(),
@@ -553,6 +554,12 @@ class ConfigApp:
         self.screenshot_custom_ffmpeg_settings.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(screenshot_frame, "Custom FFmpeg options for re-encoding screenshots.",
                                          row=self.current_row, column=2)
+
+        ttk.Label(screenshot_frame, text="Screenshot Hotkey Updates Anki:").grid(row=self.current_row, column=0, sticky='W')
+        self.screenshot_hotkey_update_anki = tk.BooleanVar(value=self.settings.screenshot.screenshot_hotkey_updates_anki)
+        ttk.Checkbutton(screenshot_frame, variable=self.screenshot_hotkey_update_anki).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(screenshot_frame, "Enable to allow Screenshot hotkey/button to update the latest anki card.", row=self.current_row,
+                                         column=2)
 
     @new_tab
     def create_audio_tab(self):
