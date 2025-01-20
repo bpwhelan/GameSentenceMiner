@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 
 import ttkbootstrap as ttk
 
@@ -53,7 +53,9 @@ class ConfigApp:
 
         self.current_row = 0
 
-        self.settings: Config = self.load_settings()
+        self.master_config: Config = configuration.load_config()
+
+        self.settings = self.master_config.get_config()
 
         self.notebook = ttk.Notebook(self.window)
         self.notebook.pack(pady=10, expand=True)
@@ -72,7 +74,11 @@ class ConfigApp:
         self.window.withdraw()
 
     def show(self):
+        if self.master_config.per_scene_config and (configuration.current_game and self.settings.name) and configuration.current_game != self.settings.name and self.master_config.has_config_for_current_game():
+            messagebox.showerror("Error", "OBS Scene has changed, Script must be restarted to edit config!")
+            return
         if self.window is not None:
+            self.window.title(("NEW " if not self.master_config.has_config_for_current_game() else "") + "GameSentenceMiner Configuration - " + (configuration.current_game if self.master_config.per_scene_config else "Default"))
             self.window.deiconify()
             self.window.lift()
             return
@@ -81,25 +87,11 @@ class ConfigApp:
         if self.window is not None:
             self.window.withdraw()
 
-    def load_settings(self):
-        if os.path.exists('config.json'):
-            try:
-                with open('config.json', 'r') as file:
-                    config_file = json.load(file)
-                    return Config.from_dict(config_file)
-            except json.JSONDecodeError as e:
-                print(f"Error parsing config.json: {e}")
-                return None
-        elif os.path.exists('config.toml'):
-            return Config().load_from_toml('config.toml')
-        else:
-            return Config()
-
     def save_settings(self):
         global settings_saved
 
         # Create a new Config instance
-        config = Config(
+        config = SceneConfig(
             general=General(
                 use_websocket=self.websocket_enabled.get(),
                 websocket_uri=self.websocket_uri.get(),
@@ -177,9 +169,17 @@ class ConfigApp:
             )
         )
 
+        self.master_config.per_scene_config = self.per_scene_config.get()
+
+        if self.per_scene_config.get():
+            config.name = configuration.current_game
+            self.master_config.set_config_for_scene(configuration.current_game, config)
+        if not self.master_config.default_config:
+            self.master_config.default_config = config
+
         # Serialize the config instance to JSON
         with open('config.json', 'w') as file:
-            file.write(config.to_json(indent=4))
+            file.write(self.master_config.to_json(indent=4))
 
         print("Settings saved successfully!")
         settings_saved = True
@@ -218,6 +218,13 @@ class ConfigApp:
         ttk.Checkbutton(general_frame, variable=self.open_config_on_startup).grid(row=self.current_row, column=1,
                                                                                   sticky='W')
         self.add_label_and_increment_row(general_frame, "Whether to open config when the script starts.",
+                                         row=self.current_row, column=2)
+
+        ttk.Label(general_frame, text="Per Scene Config:").grid(row=self.current_row, column=0, sticky='W')
+        self.per_scene_config = tk.BooleanVar(value=self.master_config.per_scene_config)
+        ttk.Checkbutton(general_frame, variable=self.per_scene_config).grid(row=self.current_row, column=1,
+                                                                             sticky='W')
+        self.add_label_and_increment_row(general_frame, "Enable Per-Scene Config, REQUIRES RESTART. Disable to edit the DEFAULT Config.",
                                          row=self.current_row, column=2)
 
     @new_tab

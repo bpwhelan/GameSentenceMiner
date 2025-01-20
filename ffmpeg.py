@@ -1,6 +1,7 @@
 import tempfile
 
 import configuration
+import obs
 import util
 from configuration import *
 from util import *
@@ -10,8 +11,7 @@ ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error", '-no
 
 def get_screenshot(video_file):
     output_image = make_unique_file_name(
-        get_config().paths.screenshot_destination + configuration.current_game.replace(" ",
-                                                                                       "") + f".{get_config().screenshot.extension}")
+        get_config().paths.screenshot_destination + obs.get_current_game(sanitize=True) + f".{get_config().screenshot.extension}")
     # FFmpeg command to extract the last frame of the video
     ffmpeg_command = ffmpeg_base_command_list + [
         "-sseof", "-1",  # Seek to 1 second before the end of the video
@@ -42,8 +42,7 @@ def get_screenshot(video_file):
 
 def process_image(image_file):
     output_image = make_unique_file_name(
-        get_config().paths.screenshot_destination + configuration.current_game.replace(" ",
-                                                                                       "") + f".{get_config().screenshot.extension}")
+        get_config().paths.screenshot_destination + obs.get_current_game(sanitize=True) + f".{get_config().screenshot.extension}")
 
     # FFmpeg command to process the input image
     ffmpeg_command = ffmpeg_base_command_list + [

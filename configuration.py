@@ -1,8 +1,6 @@
 import json
 import logging
 import os
-import threading
-import time
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from os.path import expanduser
@@ -10,6 +8,7 @@ from typing import List, Dict
 
 import toml
 from dataclasses_json import dataclass_json
+
 
 OFF = 'OFF'
 VOSK = 'VOSK'
@@ -27,6 +26,10 @@ WHSIPER_LARGE = 'large'
 
 INFO = 'INFO'
 DEBUG = 'DEBUG'
+
+DEFAULT_CONFIG = 'DEFAULT'
+
+current_game = ''
 
 
 @dataclass_json
@@ -138,7 +141,8 @@ class VAD:
 
 @dataclass_json
 @dataclass
-class Config:
+class SceneConfig:
+    name: str = 'Default'
     general: General = field(default_factory=General)
     paths: Paths = field(default_factory=Paths)
     anki: Anki = field(default_factory=Anki)
@@ -149,8 +153,9 @@ class Config:
     hotkeys: Hotkeys = field(default_factory=Hotkeys)
     vad: VAD = field(default_factory=VAD)
 
+
+    # This is just for legacy support
     def load_from_toml(self, file_path: str):
-        # Load the TOML configuration
         with open(file_path, 'r') as f:
             config_data = toml.load(f)
 
@@ -190,7 +195,6 @@ class Config:
         self.audio.ffmpeg_reencode_options = config_data['audio'].get('ffmpeg_reencode_options',
                                                                       self.audio.ffmpeg_reencode_options)
 
-        # Load VAD configuration from TOML
         self.vad.whisper_model = config_data['vosk'].get('whisper_model', self.vad.whisper_model)
         self.vad.vosk_url = config_data['vosk'].get('url', self.vad.vosk_url)
         self.vad.do_vad_postprocessing = config_data['features'].get('do_vosk_postprocessing',
@@ -210,12 +214,30 @@ class Config:
 
         self.anki.anki_custom_fields = config_data.get('anki_custom_fields', {})
 
-        with open('get_config().json', 'w') as f:
+        with open('config.json', 'w') as f:
             f.write(self.to_json(indent=4))
             print(
-                'get_config().json successfully generated from previous settings. get_config().toml will no longer be used.')
+                'config.json successfully generated from previous settings. config.toml will no longer be used.')
 
         return self
+
+@dataclass_json
+@dataclass
+class Config:
+    default_config: SceneConfig = field(default_factory=SceneConfig)
+    configs: Dict[str, SceneConfig] = field(default_factory=dict)
+    per_scene_config: bool = False
+
+    def get_config(self) -> SceneConfig:
+        if self.per_scene_config and current_game in self.configs:
+            return self.configs[current_game]
+        return self.default_config
+
+    def set_config_for_scene(self, scene: str, config: SceneConfig):
+        self.configs[scene] = config
+
+    def has_config_for_current_game(self):
+        return current_game in self.configs
 
 
 logger = logging.getLogger("GameSentenceMiner")
@@ -242,7 +264,6 @@ logger.addHandler(file_handler)
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'get_config().json')
 temp_directory = ''
-current_game = ''
 
 
 def load_config():
@@ -250,16 +271,31 @@ def load_config():
         try:
             with open('config.json', 'r') as file:
                 config_file = json.load(file)
-                return Config.from_dict(config_file)
+                if "per_scene_config" in config_file:
+                    return Config.from_dict(config_file)
+                else:
+                    print(f"Loading Scene-less Config, Converting to new Config!")
+                    with open('config.json', 'r') as file:
+                        config_file = json.load(file)
+
+                    config = SceneConfig.from_dict(config_file)
+                    new_config = Config(default_config=config, per_scene_config=False)
+
+                    with open('config.json', 'w') as file:
+                        json.dump(new_config.to_dict(), file, indent=4)
+                    return new_config
         except json.JSONDecodeError as e:
             print(f"Error parsing config.json: {e}")
             return None
     elif os.path.exists('config.toml'):
-        return Config().load_from_toml('config.toml')
+        config = SceneConfig().load_from_toml('config.toml')
+        new_config = Config(default_config=config, per_scene_config=False)
+        return new_config
     else:
         with open('config.json', 'w') as file:
             json.dump(Config().to_dict(), file)
         return Config()
+
 
 
 config_instance: Config = None
@@ -269,51 +305,21 @@ def get_config():
     global config_instance
     if config_instance is None:
         config_instance = load_config()
+        config = config_instance.get_config()
 
-        if config_instance.features.backfill_audio and config_instance.features.full_auto:
+        if config.features.backfill_audio and config.features.full_auto:
             print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
             exit(1)
 
-    return config_instance
+    # print(config_instance.get_config())
+    return config_instance.get_config()
 
 
 def reload_config():
     global config_instance
     config_instance = load_config()
+    config = config_instance.get_config()
 
-    if config_instance.features.backfill_audio and config_instance.features.full_auto:
+    if config.features.backfill_audio and config.features.full_auto:
         print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
         exit(1)
-
-
-# class ConfigWatcher:
-#     def __init__(self, file_path, poll_interval=.25):
-#         self.file_path = file_path
-#         self.poll_interval = poll_interval
-#         self.last_modified_time = None
-#         self.keep_running = True
-#
-#     def watch(self):
-#         """Polls the file for changes in a loop, running in its own thread."""
-#         self.last_modified_time = os.path.getmtime(self.file_path)
-#
-#         while self.keep_running:
-#             time.sleep(self.poll_interval)
-#             current_modified_time = os.path.getmtime(self.file_path)
-#
-#             if current_modified_time != self.last_modified_time:
-#                 self.last_modified_time = current_modified_time
-#                 self.on_modified()
-#
-#     def on_modified(self):
-#         logger.info(f"Reloading Config!")
-#         reload_config()
-#
-#
-# def watch_for_config_changes():
-#     config_file = "config.json"  # Replace with your actual config file path
-#     watcher = ConfigWatcher(config_file, poll_interval=.25)
-#
-#     # Run the file watcher in a separate thread
-#     watcher_thread = threading.Thread(target=watcher.watch, daemon=True)
-#     watcher_thread.start()
