@@ -1,16 +1,26 @@
 import base64
 import subprocess
+import threading
+import time
 import urllib.request
 
-import configuration
 import ffmpeg
 import notification
+import obs
+import requests as req
+
 import util
 from configuration import *
+from configuration import get_config
 from gametext import get_last_two_sentences
+from obs import get_current_game
 
 audio_in_anki = None
 screenshot_in_anki = None
+
+# Global variables to track state
+previous_note_ids = set()
+first_run = True
 
 
 def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
@@ -51,7 +61,7 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
     if get_config().anki.custom_tags:
         tags.extend(get_config().anki.custom_tags)
     if get_config().anki.add_game_tag:
-        tags.append(configuration.current_game.replace(" ", ""))
+        tags.append(get_current_game().replace(" ", ""))
     if tags:
         tag_string = " ".join(tags)
         invoke("addTags", tags=tag_string, notes=[last_note['noteId']])
@@ -171,3 +181,84 @@ def get_cards_by_sentence(sentence):
     print(f"Found Card to backfill!: {card_ids[0]}")
 
     return last_notes
+
+
+# Check for new Anki cards and save replay buffer if detected
+def check_for_new_cards():
+    global previous_note_ids, first_run
+    current_note_ids = set()
+    try:
+        current_note_ids = get_note_ids()
+    except Exception as e:
+        print(f"Error fetching Anki notes: {e}")
+        return
+    new_card_ids = current_note_ids - previous_note_ids
+    if new_card_ids and not first_run:
+        update_new_card()
+    first_run = False
+    previous_note_ids = current_note_ids  # Update the list of known notes
+
+
+def update_new_card():
+    last_card = get_last_anki_card()
+    if not check_tags_for_should_update(last_card):
+        logger.info("Card not tagged properly! Not updating!")
+        return
+
+    use_prev_audio = util.use_previous_audio
+    if util.lock.locked():
+        print("Audio still being Trimmed, Card Queued!")
+        use_prev_audio = True
+    with util.lock:
+        print(f"use previous audio: {use_prev_audio}")
+        if get_config().obs.get_game_from_scene:
+            obs.update_current_game()
+        if use_prev_audio:
+            update_anki_card(last_card, note=get_initial_card_info(last_card), reuse_audio=True)
+        else:
+            print("New card(s) detected!")
+            obs.save_replay_buffer()
+
+
+def check_tags_for_should_update(last_card):
+    if get_config().anki.tags_to_check:
+        found = False
+        for tag in last_card['tags']:
+            logger.info(tag)
+            logger.info(get_config().anki.tags_to_check)
+            if tag.lower() in get_config().anki.tags_to_check:
+                found = True
+                break
+        return found
+    else:
+        return True
+
+
+# Main function to handle the script lifecycle
+def monitor_anki():
+    try:
+        # Continuously check for new cards
+        while True:
+            check_for_new_cards()
+            time.sleep(get_config().anki.polling_rate / 1000.0)  # Check every 200ms
+    except KeyboardInterrupt:
+        print("Stopped Checking For Anki Cards...")
+
+
+# Fetch recent note IDs from Anki
+def get_note_ids():
+    response = req.post(get_config().anki.url, json={
+        "action": "findNotes",
+        "version": 6,
+        "params": {"query": "added:1"}
+    })
+    result = response.json()
+    return set(result['result'])
+
+
+def start_monitoring_anki():
+    # Start monitoring anki
+    if get_config().obs.enabled and get_config().features.full_auto:
+        obs_thread = threading.Thread(target=monitor_anki)
+        obs_thread.daemon = True  # Ensures the thread will exit when the main program exits
+        obs_thread.start()

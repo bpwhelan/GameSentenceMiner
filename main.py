@@ -2,6 +2,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import time
 
 import keyboard
 import psutil
@@ -28,7 +29,7 @@ from gametext import get_line_timing
 from util import *
 
 config_pids = []
-settings_window = config_gui.ConfigApp()
+settings_window: config_gui.ConfigApp = None
 obs_paused = False
 icon: Icon
 menu: Menu
@@ -137,6 +138,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 def initialize(reloading=False):
     if not reloading:
+        if get_config().obs.enabled:
+            obs.connect_to_obs(start_replay=True)
+            anki.start_monitoring_anki()
         if get_config().general.open_config_on_startup:
             proc = subprocess.Popen([sys.executable, "config_gui.py"])
             config_pids.append(proc.pid)
@@ -161,10 +165,6 @@ def initialize(reloading=False):
             vosk_helper.get_vosk_model()
         if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
             whisper_helper.initialize_whisper_model()
-    if not reloading:
-        if get_config().obs.enabled:
-            obs.connect_to_obs(start_replay=True)
-            obs.start_monitoring_anki()
 
 
 def register_hotkeys():
@@ -216,7 +216,8 @@ def create_image():
 
 
 def open_settings():
-    config_gui.show_gui()
+    obs.update_current_game()
+    settings_window.show()
 
 
 def open_log():
@@ -260,7 +261,7 @@ def update_icon():
     global menu, icon
     # Recreate the menu with the updated button text
     menu = Menu(
-        MenuItem("Open Settings", settings_window.show),
+        MenuItem("Open Settings", open_settings),
         MenuItem("Open Log", open_log),
         MenuItem("Resume OBS" if obs_paused else "Pause OBS", play_pause),
         MenuItem("Exit", exit_program)
@@ -273,7 +274,7 @@ def run_tray():
     global menu, icon
     """Set up the system tray icon and menu."""
     menu = Menu(
-        MenuItem("Open Settings", settings_window.show),
+        MenuItem("Open Settings", open_settings),
         MenuItem("Open Log", open_log),
         MenuItem("Pause OBS", play_pause),
         MenuItem("Exit", exit_program)
@@ -316,6 +317,7 @@ def handle_exit():
 
 
 def main(reloading=False, do_config_input=True):
+    global settings_window
     logger.info("Script started.")
     initialize(reloading)
     with tempfile.TemporaryDirectory(dir="temp_files") as temp_dir:
@@ -337,6 +339,7 @@ def main(reloading=False, do_config_input=True):
         util.run_new_thread(run_tray)
 
         try:
+            settings_window = config_gui.ConfigApp()
             settings_window.window.mainloop()
         except KeyboardInterrupt:
             cleanup()

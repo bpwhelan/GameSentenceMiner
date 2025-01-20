@@ -1,4 +1,3 @@
-import asyncio
 import os
 import random
 import re
@@ -32,6 +31,9 @@ def make_unique_file_name(path):
     current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
 
     return f"{filename}_{current_time}.{extension}"
+
+def sanitize_filename(filename):
+        return re.sub(r'[ <>:"/\\|?*\x00-\x1F]', '', filename)
 
 
 def get_random_digit_string():

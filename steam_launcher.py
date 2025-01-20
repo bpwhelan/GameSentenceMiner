@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 import psutil
 import requests
 from rapidfuzz import process
+import pygetwindow as gw
+from difflib import get_close_matches
 
 import configuration
 import obs
@@ -175,10 +177,9 @@ def wait(seconds):
 # 3. Run PowerShell script to get process ID by game title
 def get_process_id_by_title(game_title):
     powershell_command = f"Get-Process | Where-Object {{$_.MainWindowTitle -like '*{game_title}*'}} | Select-Object -First 1 -ExpandProperty Id"
-    process_id = subprocess.check_output(["powershell", "-Command", powershell_command], text=True).strip()
+    process_id = subprocess.check_output(["powershell", "-ExecutionPolicy", "Bypass", "-Command", powershell_command], text=True).strip()
     print(f"Process ID for {game_title}: {process_id}")
     return process_id
-
 
 # def run_obs():
 #     obs_path = r"C:\Program Files\obs-studio\bin\64bit\obs64.exe"
@@ -236,6 +237,8 @@ def monitor_process_and_flag(process_id):
 def launch():
     obs.connect_to_obs()
     scene = obs.get_current_scene()
+    if scene == 'OFF':
+        scene = str(input("Type in game, OBS is set to OFF: "))
     print(f"Running with game name: {scene}")
     games = search_app_by_name(scene)
 
@@ -273,5 +276,7 @@ def launch():
 
 
 if __name__ == '__main__':
-    launch()
+    get_steam_app_list()
+    print(get_process_id_by_title("Yakuza"))
+    # launch()
     pass
