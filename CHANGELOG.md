@@ -1,3 +1,23 @@
+### 1.9.2
+
+Another tiny update, added a config for whether or not the screenshot hotkey should update the last created anki card. This does not affect the general workflow, only screenshot hotkey. The config is located in the Screenshot tab.
+
+False/Unchecked -> Screenshot hotkey will only take the screenshot, re-encode it (if configured) and place it in the Screenshots folder.
+True -> Screenshot hotkey will take the screenshot, re-encode it and then shove it in the last created anki card.
+
+I don't think many people use this feature, but all it does is grab the current frame from obs. 
+
+### 1.9.1
+
+Very small update, just something that I wanted personally that I could see other people using. The commit is like 10 lines of code, no actual logic is changed.
+
+Reasoning: If you don't want to shut down the script, but you also don't want to allow OBS to just continue recording nothing and taking up resources.
+
+https://github.com/bpwhelan/GameSentenceMiner/releases/tag/1.9.1
+
+Changed
+Added another menu item to the tray to Pause/Resume the OBS Replay Buffer.
+
 ### 1.9.0
 
 Finally added something I wanted to add a while ago, was a bit simpler than i expected.
