@@ -277,6 +277,6 @@ def launch():
 
 if __name__ == '__main__':
     get_steam_app_list()
-    print(get_process_id_by_title("Yakuza"))
-    # launch()
+    # print(get_process_id_by_title("Yakuza"))
+    launch()
     pass
