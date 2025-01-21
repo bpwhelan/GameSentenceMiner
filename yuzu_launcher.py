@@ -28,10 +28,11 @@ class YuzuGame:
 def get_yuzu_games(directory):
     games = []
     # Regular expression to capture the ID between square brackets
-    pattern = re.compile(r'(.+?)\s*\[(\w+)\]')
+    pattern = re.compile(r'(.+?)\s*[\[\(](\w+)[\]\)]')
 
     # Iterate through the directory
     for filename in os.listdir(directory):
+        print(filename)
         # Check if the filename matches the pattern for extracting the ID
         match = pattern.search(filename)
         if match:
