@@ -4,6 +4,7 @@ from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
 
 import configuration
+import obs
 from configuration import *
 
 TOML_CONFIG_FILE = 'config.toml'
@@ -74,11 +75,11 @@ class ConfigApp:
         self.window.withdraw()
 
     def show(self):
-        if self.master_config.per_scene_config and (configuration.current_game and self.settings.name) and configuration.current_game != self.settings.name and self.master_config.has_config_for_current_game():
+        if self.master_config.per_scene_config and (obs.get_current_game() and self.settings.name) and obs.get_current_game() != self.settings.name and self.master_config.has_config_for_current_game():
             messagebox.showerror("Error", "OBS Scene has changed, Script must be restarted to edit config!")
             return
         if self.window is not None:
-            self.window.title(("NEW " if not self.master_config.has_config_for_current_game() else "") + "GameSentenceMiner Configuration - " + (configuration.current_game if self.master_config.per_scene_config else "Default"))
+            self.window.title(("NEW " if not self.master_config.has_config_for_current_game() else "") + "GameSentenceMiner Configuration - " + (obs.get_current_game() if self.master_config.per_scene_config else "Default"))
             self.window.deiconify()
             self.window.lift()
             return
@@ -172,8 +173,8 @@ class ConfigApp:
         self.master_config.per_scene_config = self.per_scene_config.get()
 
         if self.per_scene_config.get():
-            config.name = configuration.current_game
-            self.master_config.set_config_for_scene(configuration.current_game, config)
+            config.name = obs.get_current_game()
+            self.master_config.set_config_for_scene(obs.get_current_game(), config)
         if not self.master_config.default_config:
             self.master_config.default_config = config
 

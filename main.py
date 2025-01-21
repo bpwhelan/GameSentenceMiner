@@ -103,9 +103,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def get_audio(line_time, next_line_time, video_path):
         trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
         vad_trimmed_audio = make_unique_file_name(
-            f"{os.path.abspath(configuration.temp_directory)}/{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
+            f"{os.path.abspath(configuration.temp_directory)}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         final_audio_output = make_unique_file_name(
-            f"{get_config().paths.audio_destination}{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
+            f"{get_config().paths.audio_destination}{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         should_update_audio = True
         if get_config().vad.do_vad_postprocessing:
             match get_config().vad.selected_vad_model:
