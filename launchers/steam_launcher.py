@@ -254,13 +254,13 @@ def launch():
     #     else:
     #         game = games[0]
     # else:
-    if auto_select >= 0:
-        game = manual_config[auto_select]
+    if auto_select >= 1:
+        game = manual_config[auto_select - 1]
     elif len(manual_config) > 1:
         print("More than one manual_configured game found!")
-        for i, game in enumerate(manual_config):
+        for i, game in enumerate(manual_config, start=1):
             print(f"{i}: {game.name}")
-        game = manual_config[int(input("Select Game to Launch: (Enter for the first)") or 0)]
+        game = manual_config[int(input("Select Game to Launch: (Enter for the first)") or 1) - 1]
     else:
         game = manual_config[0]
 

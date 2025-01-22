@@ -118,4 +118,4 @@ def get_current_game(sanitize=False):
 
     if sanitize:
         return util.sanitize_filename(configuration.current_game)
-    return current_game
+    return configuration.current_game
