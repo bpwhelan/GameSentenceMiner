@@ -1,3 +1,37 @@
+### 1.10.0
+
+Lots of changes with this one.
+
+- Added Profiles to Settings: Can now change every setting based on profile, and switch between them
+- Filename sanitization : Special Characters in OBS Scene no longer breaks filenames
+- Fix/Update the way we get Screenshots while mining from previous Lines. Simply a few seconds after the line that you mine (time configurable in Screenshots tab of Settings)
+- Launchers moved into their own folder, soon there will be a massive overhaul on how the project is structured and this is the start.
+- Steam Launcher re-designed to allow you to configure your own games in steam_games.py
+
+#### Profiles
+
+![image](https://github.com/user-attachments/assets/5e66eece-ac9e-40b1-be46-12b10d5263fe)
+![image](https://github.com/user-attachments/assets/754b29d4-fff7-4e4e-86fd-f7a72edb3cfd)
+![image](https://github.com/user-attachments/assets/0fcb3639-37be-4523-a1f4-5dc7343d7a45)
+
+
+#### Screenshot Timing Setting
+
+![image](https://github.com/user-attachments/assets/867df8fa-70f0-4149-afc0-491a2aa399ba)
+
+
+#### Steam Launcher Configuration
+
+`launchers/steam_games.py`
+
+```
+manual_config = [
+    SteamGame(948740, "AI: The Somnium Files", "AI_TheSomniumFiles.exe", r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts\PC_Steam_Unity_AI_The_Somnium_Files.js"),
+    SteamGame(834530, "Yakuza Kiwami", "YakuzaKiwami.exe", r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts\PC_Steam_Yakuza.Kiwami.js")
+    # SteamGame(638970, "Yakuza 0", "Yakuza0.exe", r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts\PC_Steam_Yakuza.0.js")
+]
+```
+
 ### 1.9.2
 
 Another tiny update, added a config for whether or not the screenshot hotkey should update the last created anki card. This does not affect the general workflow, only screenshot hotkey. The config is located in the Screenshot tab.
