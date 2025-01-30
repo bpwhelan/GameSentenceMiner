@@ -27,7 +27,7 @@ WHSIPER_LARGE = 'large'
 INFO = 'INFO'
 DEBUG = 'DEBUG'
 
-DEFAULT_CONFIG = 'DEFAULT'
+DEFAULT_CONFIG = 'Default'
 
 current_game = ''
 
@@ -96,6 +96,7 @@ class Screenshot:
     extension: str = "webp"
     custom_ffmpeg_settings: str = ''
     screenshot_hotkey_updates_anki: bool = False
+    seconds_after_line: int = 1
 
 
 @dataclass_json
@@ -141,7 +142,7 @@ class VAD:
 
 @dataclass_json
 @dataclass
-class SceneConfig:
+class ProfileConfig:
     name: str = 'Default'
     general: General = field(default_factory=General)
     paths: Paths = field(default_factory=Paths)
@@ -224,20 +225,21 @@ class SceneConfig:
 @dataclass_json
 @dataclass
 class Config:
-    default_config: SceneConfig = field(default_factory=SceneConfig)
-    configs: Dict[str, SceneConfig] = field(default_factory=dict)
-    per_scene_config: bool = False
+    configs: Dict[str, ProfileConfig] = field(default_factory=dict)
+    current_profile: str = DEFAULT_CONFIG
 
-    def get_config(self) -> SceneConfig:
-        if self.per_scene_config and current_game in self.configs:
-            return self.configs[current_game]
-        return self.default_config
+    def get_config(self) -> ProfileConfig:
+        return self.configs[self.current_profile]
 
-    def set_config_for_scene(self, scene: str, config: SceneConfig):
-        self.configs[scene] = config
+    def set_config_for_profile(self, profile: str, config: ProfileConfig):
+        config.name = profile
+        self.configs[profile] = config
 
     def has_config_for_current_game(self):
         return current_game in self.configs
+
+    def get_all_profile_names(self):
+        return list(self.configs.keys())
 
 
 logger = logging.getLogger("GameSentenceMiner")
@@ -271,15 +273,17 @@ def load_config():
         try:
             with open('config.json', 'r') as file:
                 config_file = json.load(file)
-                if "per_scene_config" in config_file:
+                if "current_profile" in config_file:
                     return Config.from_dict(config_file)
                 else:
-                    print(f"Loading Scene-less Config, Converting to new Config!")
+                    print(f"Loading Profile-less Config, Converting to new Config!")
                     with open('config.json', 'r') as file:
                         config_file = json.load(file)
 
-                    config = SceneConfig.from_dict(config_file)
-                    new_config = Config(default_config=config, per_scene_config=False)
+                    config = ProfileConfig.from_dict(config_file)
+                    new_config = Config(configs = {DEFAULT_CONFIG : config}, current_profile=DEFAULT_CONFIG)
+
+                    print(new_config)
 
                     with open('config.json', 'w') as file:
                         json.dump(new_config.to_dict(), file, indent=4)
@@ -288,14 +292,13 @@ def load_config():
             print(f"Error parsing config.json: {e}")
             return None
     elif os.path.exists('config.toml'):
-        config = SceneConfig().load_from_toml('config.toml')
-        new_config = Config(default_config=config, per_scene_config=False)
+        config = ProfileConfig().load_from_toml('config.toml')
+        new_config = Config({DEFAULT_CONFIG: config}, current_profile=DEFAULT_CONFIG)
         return new_config
     else:
         with open('config.json', 'w') as file:
             json.dump(Config().to_dict(), file)
         return Config()
-
 
 
 config_instance: Config = None
@@ -323,3 +326,13 @@ def reload_config():
     if config.features.backfill_audio and config.features.full_auto:
         print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
         exit(1)
+
+def get_master_config():
+    return config_instance
+
+def switch_profile_and_save(profile_name):
+    global config_instance
+    config_instance.current_profile = profile_name
+    with open('config.json', 'w') as file:
+        json.dump(config_instance.to_dict(), file, indent=4)
+    return config_instance.get_config()

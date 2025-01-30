@@ -10,12 +10,13 @@ from util import *
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error", '-nostdin']
 
 
-def get_screenshot(video_file):
+def get_screenshot(video_file, time_from_end):
+    time_from_end_to_capture = -time_from_end if time_from_end else -1
     output_image = make_unique_file_name(
         get_config().paths.screenshot_destination + obs.get_current_game(sanitize=True) + f".{get_config().screenshot.extension}")
     # FFmpeg command to extract the last frame of the video
     ffmpeg_command = ffmpeg_base_command_list + [
-        "-sseof", "-1",  # Seek to 1 second before the end of the video
+        "-sseof", f"{time_from_end_to_capture}",  # Seek to 1 second before the end of the video
         "-i", f"{video_file}",
         "-vframes", "1"  # Extract only one frame
     ]
@@ -39,6 +40,21 @@ def get_screenshot(video_file):
     logger.info(f"Screenshot saved to: {output_image}")
 
     return output_image
+
+
+def get_screenshot_time(video_path, line_time):
+    file_length = get_video_duration(video_path)
+    file_mod_time = get_file_modification_time(video_path)
+
+    time_delta = file_mod_time - line_time
+    total_seconds = file_length - time_delta.total_seconds()
+
+    time_from_end = file_length - total_seconds - get_config().screenshot.seconds_after_line
+
+    if time_from_end < 0 or time_from_end > (file_length - total_seconds):
+        raise ValueError("Calculated screenshot time is out of bounds for trimmed video.")
+
+    return time_from_end
 
 
 def process_image(image_file):
@@ -163,7 +179,6 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_l
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
         "-ss", start_trim_time]
-
     if next_line and next_line > line_time:
         end_total_seconds = total_seconds + (next_line - line_time).total_seconds() + 1
         hours, remainder = divmod(end_total_seconds, 3600)

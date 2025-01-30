@@ -24,7 +24,7 @@ first_run = True
 
 
 def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
-                     should_update_audio=True):
+                     should_update_audio=True, ss_time=0):
     global audio_in_anki, screenshot_in_anki
     update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not
     last_note['fields'][get_config().anki.sentence_audio_field][
@@ -37,7 +37,7 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
         if update_audio:
             audio_in_anki = store_media_file(audio_path)
         if update_picture:
-            screenshot = ffmpeg.get_screenshot(video_path)
+            screenshot = ffmpeg.get_screenshot(video_path, ss_time)
             screenshot_in_anki = store_media_file(screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
