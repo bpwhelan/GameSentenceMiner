@@ -1,14 +1,16 @@
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox, simpledialog
 
 import ttkbootstrap as ttk
 
 import configuration
+import obs
 from configuration import *
 
 TOML_CONFIG_FILE = 'config.toml'
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.json')
 settings_saved = False
+on_save = []
 
 
 def new_tab(func):
@@ -53,12 +55,14 @@ class ConfigApp:
 
         self.current_row = 0
 
-        self.settings: Config = self.load_settings()
+        self.master_config: Config = configuration.load_config()
+
+        self.settings = self.master_config.get_config()
 
         self.notebook = ttk.Notebook(self.window)
         self.notebook.pack(pady=10, expand=True)
 
-        self.create_general_tab()
+        self.general_frame = self.create_general_tab()
         self.create_paths_tab()
         self.create_anki_tab()
         self.create_vad_tab()
@@ -67,11 +71,17 @@ class ConfigApp:
         self.create_audio_tab()
         self.create_obs_tab()
         self.create_hotkeys_tab()
+        self.create_profiles_tab()
 
         ttk.Button(self.window, text="Save Settings", command=self.save_settings).pack(pady=20)
+
         self.window.withdraw()
 
+
+
     def show(self):
+        obs.update_current_game()
+        self.reload_settings()
         if self.window is not None:
             self.window.deiconify()
             self.window.lift()
@@ -81,25 +91,14 @@ class ConfigApp:
         if self.window is not None:
             self.window.withdraw()
 
-    def load_settings(self):
-        if os.path.exists('config.json'):
-            try:
-                with open('config.json', 'r') as file:
-                    config_file = json.load(file)
-                    return Config.from_dict(config_file)
-            except json.JSONDecodeError as e:
-                print(f"Error parsing config.json: {e}")
-                return None
-        elif os.path.exists('config.toml'):
-            return Config().load_from_toml('config.toml')
-        else:
-            return Config()
+    def add_save_hook(self, func):
+        on_save.append(func)
 
-    def save_settings(self):
+    def save_settings(self, profile_change=False):
         global settings_saved
 
         # Create a new Config instance
-        config = Config(
+        config = ProfileConfig(
             general=General(
                 use_websocket=self.websocket_enabled.get(),
                 websocket_uri=self.websocket_uri.get(),
@@ -139,12 +138,13 @@ class ConfigApp:
                 backfill_audio=self.backfill_audio.get()
             ),
             screenshot=Screenshot(
-                width=int(self.screenshot_width.get()),
-                height=int(self.screenshot_height.get()),
-                quality=int(self.screenshot_quality.get()),
+                width=self.screenshot_width.get(),
+                height=self.screenshot_height.get(),
+                quality=self.screenshot_quality.get(),
                 extension=self.screenshot_extension.get(),
                 custom_ffmpeg_settings=self.screenshot_custom_ffmpeg_settings.get(),
-                screenshot_hotkey_updates_anki=self.screenshot_hotkey_update_anki.get()
+                screenshot_hotkey_updates_anki=self.screenshot_hotkey_update_anki.get(),
+                seconds_after_line = self.seconds_after_line.get()
             ),
             audio=Audio(
                 extension=self.audio_extension.get(),
@@ -177,13 +177,49 @@ class ConfigApp:
             )
         )
 
+        current_profile = self.profile_combobox.get()
+
+        if profile_change:
+            self.master_config.current_profile = current_profile
+        else:
+            self.master_config.current_profile = current_profile
+            self.master_config.set_config_for_profile(current_profile, config)
+
         # Serialize the config instance to JSON
         with open('config.json', 'w') as file:
-            file.write(config.to_json(indent=4))
+            file.write(self.master_config.to_json(indent=4))
 
         print("Settings saved successfully!")
         settings_saved = True
         configuration.reload_config()
+        for func in on_save:
+            func()
+
+
+    def reload_settings(self):
+        new_config = configuration.load_config()
+        current_config = new_config.get_config()
+
+        self.window.title("GameSentenceMiner Configuration - " + current_config.name)
+
+        if current_config.name != self.settings.name:
+            logger.info("Profile changed, reloading settings.")
+            self.master_config = new_config
+            self.settings = current_config
+            for frame in self.notebook.winfo_children():
+                frame.destroy()
+
+            self.general_frame = self.create_general_tab()
+            self.create_paths_tab()
+            self.create_anki_tab()
+            self.create_vad_tab()
+            self.create_features_tab()
+            self.create_screenshot_tab()
+            self.create_audio_tab()
+            self.create_obs_tab()
+            self.create_hotkeys_tab()
+            self.create_profiles_tab()
+
 
     def increment_row(self):
         """Increment the current row index and return the new value."""
@@ -219,6 +255,15 @@ class ConfigApp:
                                                                                   sticky='W')
         self.add_label_and_increment_row(general_frame, "Whether to open config when the script starts.",
                                          row=self.current_row, column=2)
+
+        # ttk.Label(general_frame, text="Per Scene Config:").grid(row=self.current_row, column=0, sticky='W')
+        # self.per_scene_config = tk.BooleanVar(value=self.master_config.per_scene_config)
+        # ttk.Checkbutton(general_frame, variable=self.per_scene_config).grid(row=self.current_row, column=1,
+        #                                                                      sticky='W')
+        # self.add_label_and_increment_row(general_frame, "Enable Per-Scene Config, REQUIRES RESTART. Disable to edit the DEFAULT Config.",
+        #                                  row=self.current_row, column=2)
+
+        return general_frame
 
     @new_tab
     def create_vad_tab(self):
@@ -318,6 +363,8 @@ class ConfigApp:
         ttk.Checkbutton(paths_frame, variable=self.remove_screenshot).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(paths_frame, "Remove screenshots after processing.", row=self.current_row,
                                          column=2)
+
+        return paths_frame
 
     def browse_folder(self, entry_widget):
         folder_selected = filedialog.askdirectory()
@@ -434,6 +481,8 @@ class ConfigApp:
         self.add_label_and_increment_row(anki_frame, "Add a new custom field for Anki cards.", row=self.current_row,
                                          column=2)
         self.display_custom_fields(anki_frame, self.current_row)
+
+        return anki_frame
 
     def add_custom_field(self, frame, start_row):
         row = len(self.custom_field_entries) + 1 + start_row
@@ -561,6 +610,13 @@ class ConfigApp:
         self.add_label_and_increment_row(screenshot_frame, "Enable to allow Screenshot hotkey/button to update the latest anki card.", row=self.current_row,
                                          column=2)
 
+        ttk.Label(screenshot_frame, text="Seconds After Line to SS:").grid(row=self.current_row, column=0, sticky='W')
+        self.seconds_after_line = ttk.Entry(screenshot_frame)
+        self.seconds_after_line.insert(0, str(self.settings.screenshot.seconds_after_line))
+        self.seconds_after_line.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(screenshot_frame, "This is only used for mining from lines from history (not current line)", row=self.current_row,
+                                         column=2)
+
     @new_tab
     def create_audio_tab(self):
         audio_frame = ttk.Frame(self.notebook)
@@ -681,6 +737,64 @@ class ConfigApp:
         self.take_screenshot_hotkey.insert(0, self.settings.hotkeys.take_screenshot)
         self.take_screenshot_hotkey.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(hotkeys_frame, "Hotkey to take a screenshot.", row=self.current_row, column=2)
+
+
+    @new_tab
+    def create_profiles_tab(self):
+        profiles_frame = ttk.Frame(self.notebook)
+        self.notebook.add(profiles_frame, text='Profiles')
+
+        ttk.Label(profiles_frame, text="Select Profile:").grid(row=self.current_row, column=0, sticky='W')
+        self.profile_var = tk.StringVar(value=self.settings.name)
+        self.profile_combobox = ttk.Combobox(profiles_frame, textvariable=self.profile_var, values=list(self.master_config.configs.keys()))
+        self.profile_combobox.grid(row=self.current_row, column=1)
+        self.profile_combobox.bind("<<ComboboxSelected>>", self.on_profile_change)
+        self.add_label_and_increment_row(profiles_frame, "Select a profile to load its settings.", row=self.current_row, column=2)
+
+        ttk.Button(profiles_frame, text="Add Profile", command=self.add_profile).grid(row=self.current_row, column=0, pady=5)
+        ttk.Button(profiles_frame, text="Copy Profile", command=self.copy_profile).grid(row=self.current_row, column=1, pady=5)
+        if self.master_config.current_profile != DEFAULT_CONFIG:
+            ttk.Button(profiles_frame, text="Delete Config", command=self.delete_profile).grid(row=self.current_row, column=2, pady=5)
+
+
+    def on_profile_change(self, event):
+        print("profile Changed!")
+        self.save_settings(profile_change=True)
+        self.reload_settings()
+
+    def add_profile(self):
+        new_profile_name = simpledialog.askstring("Input", "Enter new profile name:")
+        if new_profile_name:
+            self.master_config.configs[new_profile_name] = self.master_config.default_config
+            self.profile_combobox['values'] = list(self.master_config.configs.keys())
+            self.profile_combobox.set(new_profile_name)
+            self.save_settings()
+            self.reload_settings()
+
+    def copy_profile(self):
+        source_profile = self.profile_combobox.get()
+        new_profile_name = simpledialog.askstring("Input", "Enter new profile name:")
+        if new_profile_name and source_profile in self.master_config.configs:
+            self.master_config.configs[new_profile_name] = self.master_config.configs[source_profile]
+            self.profile_combobox['values'] = list(self.master_config.configs.keys())
+            self.profile_combobox.set(new_profile_name)
+            self.save_settings()
+            self.reload_settings()
+
+    def delete_profile(self):
+        profile_to_delete = self.profile_combobox.get()
+        if profile_to_delete == "Default":
+            messagebox.showerror("Error", "Cannot delete the Default profile.")
+            return
+
+        if profile_to_delete and profile_to_delete in self.master_config.configs:
+            confirm = messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete the profile '{profile_to_delete}'?")
+            if confirm:
+                del self.master_config.configs[profile_to_delete]
+                self.profile_combobox['values'] = list(self.master_config.configs.keys())
+                self.profile_combobox.set("Default")
+                self.save_settings()
+                self.reload_settings()
 
 
 if __name__ == '__main__':

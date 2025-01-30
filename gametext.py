@@ -1,4 +1,6 @@
 import asyncio
+import threading
+import time
 from collections import OrderedDict
 from datetime import datetime
 
@@ -110,7 +112,7 @@ def get_line_timing(last_note):
         if sentence:
             for i, (line, clip_time) in enumerate(reversed(line_history.items())):
                 similarity = similar(remove_html_tags(sentence), line)
-                if similarity >= 0.80:  # 80% similarity threshold
+                if similarity >= 0.60:  # 80% similarity threshold
                     line_time = clip_time
                     next_line = prev_clip_time
                     break

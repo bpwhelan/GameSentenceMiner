@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 import psutil
 
-import main
 import util
 
 # from steam_launcher import is_game_process_running
@@ -15,7 +14,7 @@ yuzu_cmd = r"C:\Emulation\Emulators\yuzu-windows-msvc\yuzu.exe"
 # yuzu_cmd = r"C:\Emulation\Emulators\ryujinx-1.1.1403-win_x64\publish\Ryujinx.exe"
 roms_path = r"C:\Emulation\Yuzu\Games"
 AGENT_SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
-pre_select = -1
+pre_select = 14
 
 
 @dataclass
@@ -28,10 +27,11 @@ class YuzuGame:
 def get_yuzu_games(directory):
     games = []
     # Regular expression to capture the ID between square brackets
-    pattern = re.compile(r'(.+?)\s*\[(\w+)\]')
+    pattern = re.compile(r'(.+?)\s*[\[\(](\w+)[\]\)]')
 
     # Iterate through the directory
     for filename in os.listdir(directory):
+        print(filename)
         # Check if the filename matches the pattern for extracting the ID
         match = pattern.search(filename)
         if match:

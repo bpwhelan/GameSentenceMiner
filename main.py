@@ -2,6 +2,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import time
 
 import keyboard
 import psutil
@@ -28,7 +29,7 @@ from gametext import get_line_timing
 from util import *
 
 config_pids = []
-settings_window = config_gui.ConfigApp()
+settings_window: config_gui.ConfigApp = None
 obs_paused = False
 icon: Icon
 menu: Menu
@@ -60,6 +61,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 if get_config().features.backfill_audio:
                     last_note = anki.get_cards_by_sentence(gametext.previous_line)
                 line_time, next_line_time = get_line_timing(last_note)
+                ss_timing = 0
+                if line_time and next_line_time:
+                    ss_timing = ffmpeg.get_screenshot_time(video_path, line_time)
                 if last_note:
                     logger.debug(json.dumps(last_note))
 
@@ -83,7 +87,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                         if get_config().anki.update_anki and last_note:
                             anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
                                                   tango=tango,
-                                                  should_update_audio=should_update_audio)
+                                                  should_update_audio=should_update_audio,
+                                                  ss_time=ss_timing)
                         elif get_config().features.notify_on_update and should_update_audio:
                             notification.send_audio_generated_notification(vad_trimmed_audio)
                     except Exception as e:
@@ -102,9 +107,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def get_audio(line_time, next_line_time, video_path):
         trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
         vad_trimmed_audio = make_unique_file_name(
-            f"{os.path.abspath(configuration.temp_directory)}/{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
+            f"{os.path.abspath(configuration.temp_directory)}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         final_audio_output = make_unique_file_name(
-            f"{get_config().paths.audio_destination}{configuration.current_game.replace(' ', '')}.{get_config().audio.extension}")
+            f"{get_config().paths.audio_destination}{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         should_update_audio = True
         if get_config().vad.do_vad_postprocessing:
             match get_config().vad.selected_vad_model:
@@ -120,12 +125,12 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     case configuration.OFF:
                         pass
                     case configuration.SILERO:
-                        should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio,
+                        should_update_audio  = silero_trim.process_audio_with_silero(trimmed_audio,
                                                                                     vad_trimmed_audio)
                     case configuration.VOSK:
-                        should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
+                        should_update_audio  = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
                     case configuration.WHISPER:
-                        should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio,
+                        should_update_audio  = whisper_helper.process_audio_with_whisper(trimmed_audio,
                                                                                         vad_trimmed_audio)
         if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
@@ -137,6 +142,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 def initialize(reloading=False):
     if not reloading:
+        if get_config().obs.enabled:
+            obs.connect_to_obs(start_replay=True)
+            anki.start_monitoring_anki()
         if get_config().general.open_config_on_startup:
             proc = subprocess.Popen([sys.executable, "config_gui.py"])
             config_pids.append(proc.pid)
@@ -161,10 +169,6 @@ def initialize(reloading=False):
             vosk_helper.get_vosk_model()
         if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
             whisper_helper.initialize_whisper_model()
-    if not reloading:
-        if get_config().obs.enabled:
-            obs.connect_to_obs(start_replay=True)
-            obs.start_monitoring_anki()
 
 
 def register_hotkeys():
@@ -216,7 +220,8 @@ def create_image():
 
 
 def open_settings():
-    config_gui.show_gui()
+    obs.update_current_game()
+    settings_window.show()
 
 
 def open_log():
@@ -255,27 +260,54 @@ def play_pause(icon, item):
     obs_paused = not obs_paused
     update_icon()
 
+def get_obs_icon_text():
+    return "Pause OBS" if obs_paused else "Resume OBS"
+
 
 def update_icon():
     global menu, icon
     # Recreate the menu with the updated button text
+    profile_menu = Menu(
+        *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, switch_profile) for profile in
+          get_master_config().get_all_profile_names()]
+    )
+
     menu = Menu(
-        MenuItem("Open Settings", settings_window.show),
+        MenuItem("Open Settings", open_settings),
         MenuItem("Open Log", open_log),
-        MenuItem("Resume OBS" if obs_paused else "Pause OBS", play_pause),
+        MenuItem(get_obs_icon_text(), play_pause),
+        MenuItem("Switch Profile", profile_menu),
         MenuItem("Exit", exit_program)
     )
+
     icon.menu = menu
     icon.update_menu()
+
+def switch_profile(icon, item):
+    if "Active:" in item.text:
+        logger.error("You cannot switch to the currently active profile!")
+        return
+    logger.info(f"Switching to profile: {item.text}")
+    get_master_config().current_profile = item.text
+    switch_profile_and_save(item.text)
+    settings_window.reload_settings()
+    update_icon()
 
 
 def run_tray():
     global menu, icon
-    """Set up the system tray icon and menu."""
+
+    profile_menu = Menu(
+        *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, switch_profile) for
+          profile in
+          get_master_config().get_all_profile_names()]
+    )
+
     menu = Menu(
-        MenuItem("Open Settings", settings_window.show),
+        MenuItem("Open Settings", open_settings),
         MenuItem("Open Log", open_log),
-        MenuItem("Pause OBS", play_pause),
+        MenuItem(get_obs_icon_text(), play_pause),
+        MenuItem("Switch Profile", profile_menu),
         MenuItem("Exit", exit_program)
     )
 
@@ -316,6 +348,7 @@ def handle_exit():
 
 
 def main(reloading=False, do_config_input=True):
+    global settings_window
     logger.info("Script started.")
     initialize(reloading)
     with tempfile.TemporaryDirectory(dir="temp_files") as temp_dir:
@@ -337,6 +370,8 @@ def main(reloading=False, do_config_input=True):
         util.run_new_thread(run_tray)
 
         try:
+            settings_window = config_gui.ConfigApp()
+            settings_window.add_save_hook(update_icon)
             settings_window.window.mainloop()
         except KeyboardInterrupt:
             cleanup()
