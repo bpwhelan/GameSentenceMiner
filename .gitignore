@@ -29,3 +29,4 @@ gamesentenceminer.log.1
 runGSM.bat
 runYuzuLauncher.bat
 config_back.json
+launchers/steam_games.py
