@@ -7,8 +7,6 @@ from . import configuration
 from . import obs
 from .configuration import *
 
-TOML_CONFIG_FILE = '../../config.toml'
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.json')
 settings_saved = False
 on_save = []
 
@@ -186,7 +184,7 @@ class ConfigApp:
             self.master_config.set_config_for_profile(current_profile, config)
 
         # Serialize the config instance to JSON
-        with open('../../config.json', 'w') as file:
+        with open(get_config_path(), 'w') as file:
             file.write(self.master_config.to_json(indent=4))
 
         print("Settings saved successfully!")

@@ -67,7 +67,7 @@ def download_and_cache_vosk_model(model_dir="vosk_model_cache"):
 def detect_voice_with_vosk(input_audio):
     global vosk_model_path, vosk_model
     # Convert the audio to 16kHz mono WAV
-    temp_wav = tempfile.NamedTemporaryFile(dir=configuration.temp_directory, suffix='.wav').name
+    temp_wav = tempfile.NamedTemporaryFile(dir=configuconfiguration.get_temporary_directory(), suffix='.wav').name
     ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
 
     if not vosk_model_path or not vosk_model:

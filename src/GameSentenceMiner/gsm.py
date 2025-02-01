@@ -105,7 +105,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def get_audio(line_time, next_line_time, video_path):
         trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
         vad_trimmed_audio = make_unique_file_name(
-            f"{os.path.abspath(configuration.temp_directory)}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
+            f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         final_audio_output = make_unique_file_name(
             f"{get_config().paths.audio_destination}{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         should_update_audio = True
@@ -153,15 +153,6 @@ def initialize(reloading=False):
             os.mkdir(get_config().paths.screenshot_destination)
         if not os.path.exists(get_config().paths.audio_destination):
             os.mkdir(get_config().paths.audio_destination)
-        if not os.path.exists("../temp_files"):
-            os.mkdir("../temp_files")
-        else:
-            for filename in os.scandir('../temp_files'):
-                file_path = os.path.join('../temp_files', filename.name)
-                if filename.is_file() or filename.is_symlink():
-                    os.remove(file_path)
-                elif filename.is_dir():
-                    shutil.rmtree(file_path)
     if get_config().vad.do_vad_postprocessing:
         if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
             vosk_helper.get_vosk_model()
@@ -349,36 +340,34 @@ def main(reloading=False, do_config_input=True):
     global settings_window
     logger.info("Script started.")
     initialize(reloading)
-    with tempfile.TemporaryDirectory(dir="../temp_files") as temp_dir:
-        configuration.temp_directory = temp_dir
-        event_handler = VideoToAudioHandler()
-        observer = Observer()
-        observer.schedule(event_handler, get_config().paths.folder_to_watch, recursive=False)
-        observer.start()
+    event_handler = VideoToAudioHandler()
+    observer = Observer()
+    observer.schedule(event_handler, get_config().paths.folder_to_watch, recursive=False)
+    observer.start()
 
-        logger.info("Script Initialized. Happy Mining!")
-        if not is_linux():
-            register_hotkeys()
+    logger.info("Script Initialized. Happy Mining!")
+    if not is_linux():
+        register_hotkeys()
 
-        # Register signal handlers for graceful shutdown
-        signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
-        signal.signal(signal.SIGINT, handle_exit())  # Handle Ctrl+C
-        win32api.SetConsoleCtrlHandler(handle_exit())
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
+    signal.signal(signal.SIGINT, handle_exit())  # Handle Ctrl+C
+    win32api.SetConsoleCtrlHandler(handle_exit())
 
-        util.run_new_thread(run_tray)
+    util.run_new_thread(run_tray)
 
-        try:
-            settings_window = config_gui.ConfigApp()
-            settings_window.add_save_hook(update_icon)
-            settings_window.window.mainloop()
-        except KeyboardInterrupt:
-            cleanup()
+    try:
+        settings_window = config_gui.ConfigApp()
+        settings_window.add_save_hook(update_icon)
+        settings_window.window.mainloop()
+    except KeyboardInterrupt:
+        cleanup()
 
-        try:
-            observer.stop()
-            observer.join()
-        except Exception as e:
-            logger.error(f"Error stopping observer: {e}")
+    try:
+        observer.stop()
+        observer.join()
+    except Exception as e:
+        logger.error(f"Error stopping observer: {e}")
 
 
 if __name__ == "__main__":
