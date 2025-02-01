@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import shutil
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from os.path import expanduser
@@ -228,6 +229,11 @@ class Config:
     configs: Dict[str, ProfileConfig] = field(default_factory=dict)
     current_profile: str = DEFAULT_CONFIG
 
+    @classmethod
+    def new(cls):
+        instance = cls(configs={DEFAULT_CONFIG: ProfileConfig()}, current_profile=DEFAULT_CONFIG)
+        return instance
+
     def get_config(self) -> ProfileConfig:
         return self.configs[self.current_profile]
 
@@ -267,17 +273,31 @@ logger.addHandler(file_handler)
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'get_config().json')
 temp_directory = ''
 
+def get_app_directory():
+    appdata_dir = os.getenv('APPDATA')  # Get the AppData directory
+    config_dir = os.path.join(appdata_dir, 'GameSentenceMiner')
+    os.makedirs(config_dir, exist_ok=True)  # Create the directory if it doesn't exist
+    return config_dir
+
+def get_config_path():
+    return os.path.join(get_app_directory(), 'config.json')
+
 
 def load_config():
-    if os.path.exists('config.json'):
+    config_path = get_config_path()
+
+    if os.path.exists('config.json') and not os.path.exists(config_path):
+        shutil.copy('config.json', config_path)
+
+    if os.path.exists(config_path):
         try:
-            with open('config.json', 'r') as file:
+            with open(config_path, 'r') as file:
                 config_file = json.load(file)
                 if "current_profile" in config_file:
                     return Config.from_dict(config_file)
                 else:
                     print(f"Loading Profile-less Config, Converting to new Config!")
-                    with open('config.json', 'r') as file:
+                    with open(config_path, 'r') as file:
                         config_file = json.load(file)
 
                     config = ProfileConfig.from_dict(config_file)
@@ -285,7 +305,7 @@ def load_config():
 
                     print(new_config)
 
-                    with open('config.json', 'w') as file:
+                    with open(config_path, 'w') as file:
                         json.dump(new_config.to_dict(), file, indent=4)
                     return new_config
         except json.JSONDecodeError as e:
@@ -296,9 +316,10 @@ def load_config():
         new_config = Config({DEFAULT_CONFIG: config}, current_profile=DEFAULT_CONFIG)
         return new_config
     else:
-        with open('config.json', 'w') as file:
-            json.dump(Config().to_dict(), file)
-        return Config()
+        config = Config.new()
+        with open(config_path, 'w') as file:
+            json.dump(config.to_dict(), file, indent=4)
+        return config
 
 
 config_instance: Config = None

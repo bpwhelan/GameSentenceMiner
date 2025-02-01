@@ -1,11 +1,13 @@
 import time
 
+import obswebsocket
 from obswebsocket import obsws, requests
+from obswebsocket.exceptions import ConnectionFailure
 
-import configuration
-import util
-from configuration import *
-from model import *
+from . import util
+from . import configuration
+from .configuration import *
+from .model import *
 
 client: obsws = None
 
@@ -29,7 +31,12 @@ def connect_to_obs(start_replay=False):
         client = obsws(host=get_config().obs.host, port=get_config().obs.port,
                        password=get_config().obs.password, authreconnect=1, on_connect=on_connect,
                        on_disconnect=on_disconnect)
-        client.connect()
+        try:
+            client.connect()
+        except ConnectionFailure:
+            logger.error("OBS Websocket Connection Has not been Set up, please set it up in Settings")
+            exit(1)
+
         time.sleep(1)
         if start_replay and get_config().obs.start_buffer:
             start_replay_buffer()

@@ -1,11 +1,11 @@
 import tempfile
 import time
 
-import configuration
-import obs
-import util
-from configuration import *
-from util import *
+from . import obs
+from . import util
+from . import configuration
+from .configuration import *
+from .util import *
 
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error", '-nostdin']
 

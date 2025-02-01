@@ -7,9 +7,8 @@ import requests
 import soundfile as sf
 import vosk
 
-import configuration
-import ffmpeg
-from configuration import *
+from .. import ffmpeg, configuration
+from ..configuration import *
 
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
 vosk.SetLogLevel(-1)

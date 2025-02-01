@@ -12,21 +12,19 @@ from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-import anki
-import config_gui
-import configuration
-import ffmpeg
-import gametext
-import notification
-import obs
-import silero_trim
-import util
-import vosk_helper
-import whisper_helper
-from configuration import *
-from ffmpeg import get_audio_and_trim
-from gametext import get_line_timing
-from util import *
+from . import anki
+from . import config_gui
+from . import configuration
+from . import ffmpeg
+from . import gametext
+from . import notification
+from . import obs
+from . import util
+from .vad import vosk_helper, silero_trim, whisper_helper
+from .configuration import *
+from .ffmpeg import get_audio_and_trim
+from .gametext import get_line_timing
+from .util import *
 
 config_pids = []
 settings_window: config_gui.ConfigApp = None
@@ -126,12 +124,12 @@ class VideoToAudioHandler(FileSystemEventHandler):
                         pass
                     case configuration.SILERO:
                         should_update_audio  = silero_trim.process_audio_with_silero(trimmed_audio,
-                                                                                    vad_trimmed_audio)
+                                                                                     vad_trimmed_audio)
                     case configuration.VOSK:
                         should_update_audio  = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
                     case configuration.WHISPER:
                         should_update_audio  = whisper_helper.process_audio_with_whisper(trimmed_audio,
-                                                                                        vad_trimmed_audio)
+                                                                                         vad_trimmed_audio)
         if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
                                                   get_config().audio.ffmpeg_reencode_options)
@@ -155,11 +153,11 @@ def initialize(reloading=False):
             os.mkdir(get_config().paths.screenshot_destination)
         if not os.path.exists(get_config().paths.audio_destination):
             os.mkdir(get_config().paths.audio_destination)
-        if not os.path.exists("temp_files"):
-            os.mkdir("temp_files")
+        if not os.path.exists("../temp_files"):
+            os.mkdir("../temp_files")
         else:
-            for filename in os.scandir('temp_files'):
-                file_path = os.path.join('temp_files', filename.name)
+            for filename in os.scandir('../temp_files'):
+                file_path = os.path.join('../temp_files', filename.name)
                 if filename.is_file() or filename.is_symlink():
                     os.remove(file_path)
                 elif filename.is_dir():
@@ -227,7 +225,7 @@ def open_settings():
 def open_log():
     """Function to handle opening log."""
     """Open log file with the default application."""
-    log_file_path = "gamesentenceminer.log"
+    log_file_path = "../../gamesentenceminer.log"
     if not os.path.exists(log_file_path):
         print("Log file not found!")
         return
@@ -351,7 +349,7 @@ def main(reloading=False, do_config_input=True):
     global settings_window
     logger.info("Script started.")
     initialize(reloading)
-    with tempfile.TemporaryDirectory(dir="temp_files") as temp_dir:
+    with tempfile.TemporaryDirectory(dir="../temp_files") as temp_dir:
         configuration.temp_directory = temp_dir
         event_handler = VideoToAudioHandler()
         observer = Observer()
