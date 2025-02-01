@@ -3,6 +3,7 @@ from tkinter import filedialog, messagebox, simpledialog
 
 import ttkbootstrap as ttk
 
+from .package_updater import check_for_updates, get_latest_version, update, get_current_version
 from . import configuration
 from . import obs
 from .configuration import *
@@ -89,6 +90,25 @@ class ConfigApp:
         if self.window is not None:
             self.window.withdraw()
 
+    def update_now(self):
+        update_available, version = check_for_updates()
+        if update_available:
+            success = update()
+            if success:
+                messagebox.showinfo("Update Successful", "Update successful, please restart the application.")
+        else:
+            messagebox.showinfo("No Update Found", "No update found.")
+
+    def check_update(self, show_no_update=False):
+        update_available, version = check_for_updates()
+        if update_available:
+            self.latest_version.config(text=version)
+            should_update = messagebox.askyesno("Update Found", "Update Found, would you like to update now?")
+            if should_update:
+                self.update_now()
+        elif show_no_update:
+            messagebox.showinfo("No Update Found", "No update found.")
+
     def add_save_hook(self, func):
         on_save.append(func)
 
@@ -100,7 +120,8 @@ class ConfigApp:
             general=General(
                 use_websocket=self.websocket_enabled.get(),
                 websocket_uri=self.websocket_uri.get(),
-                open_config_on_startup=self.open_config_on_startup.get()
+                open_config_on_startup=self.open_config_on_startup.get(),
+                check_for_update_on_startup=self.check_for_update_on_startup.get()
             ),
             paths=Paths(
                 folder_to_watch=self.folder_to_watch.get(),
@@ -228,6 +249,9 @@ class ConfigApp:
         HoverInfoWidget(root, label, row=self.current_row, column=column)
         self.increment_row()
 
+    def add_label_without_row_increment(self, root, label, row=0, column=0):
+        HoverInfoWidget(root, label, row=self.current_row, column=column)
+
     @new_tab
     def create_general_tab(self):
         general_frame = ttk.Frame(self.notebook)
@@ -252,6 +276,32 @@ class ConfigApp:
         ttk.Checkbutton(general_frame, variable=self.open_config_on_startup).grid(row=self.current_row, column=1,
                                                                                   sticky='W')
         self.add_label_and_increment_row(general_frame, "Whether to open config when the script starts.",
+                                         row=self.current_row, column=2)
+
+        ttk.Label(general_frame, text="Check for Updates On Startup:").grid(row=self.current_row, column=0, sticky='W')
+        self.check_for_update_on_startup = tk.BooleanVar(value=self.settings.general.check_for_update_on_startup)
+        ttk.Checkbutton(general_frame, variable=self.check_for_update_on_startup).grid(row=self.current_row, column=1,
+                                                                                  sticky='W')
+        self.add_label_and_increment_row(general_frame, "Always check for Updates On Startup.",
+                                         row=self.current_row, column=2)
+
+        ttk.Label(general_frame, text="Current Version:").grid(row=self.current_row, column=0, sticky='W')
+        self.current_version = ttk.Label(general_frame, text=get_current_version())
+        self.current_version.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(general_frame, "The current version of the application.", row=self.current_row,
+                                         column=2)
+
+        ttk.Label(general_frame, text="Latest Version:").grid(row=self.current_row, column=0, sticky='W')
+        self.latest_version = ttk.Label(general_frame, text=get_latest_version())
+        self.latest_version.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(general_frame, "The latest available version of the application.",
+                                         row=self.current_row, column=2)
+
+        ttk.Button(general_frame, text="Check Update", command=lambda: self.check_update(True)).grid(row=self.current_row, column=0,
+                                                                                       pady=5)
+        ttk.Button(general_frame, text="Update Now", command=self.update_now).grid(row=self.current_row, column=1,
+                                                                                   pady=5)
+        self.add_label_and_increment_row(general_frame, "Check for updates or update to the latest version.",
                                          row=self.current_row, column=2)
 
         # ttk.Label(general_frame, text="Per Scene Config:").grid(row=self.current_row, column=0, sticky='W')

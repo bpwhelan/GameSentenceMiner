@@ -358,6 +358,8 @@ def main(reloading=False, do_config_input=True):
 
     try:
         settings_window = config_gui.ConfigApp()
+        if get_config().general.check_for_update_on_startup:
+            settings_window.window.after(0, settings_window.check_update)
         settings_window.add_save_hook(update_icon)
         settings_window.window.mainloop()
     except KeyboardInterrupt:
