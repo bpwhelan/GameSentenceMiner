@@ -5,7 +5,7 @@ import shutil
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from os.path import expanduser
-from platform import platform
+from sys import platform
 from typing import List, Dict
 
 import toml
