@@ -1,11 +1,11 @@
 import tempfile
 import time
 
-import configuration
-import obs
-import util
-from configuration import *
-from util import *
+from . import obs
+from . import util
+from . import configuration
+from .configuration import *
+from .util import *
 
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error", '-nostdin']
 
@@ -128,7 +128,7 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
         codec_command = ["-c:a", f"{supported_formats[get_config().audio.extension]}"]
         logger.info(f"Re-encoding {codec} to {get_config().audio.extension}")
 
-    untrimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.temp_directory,
+    untrimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(),
                                                   suffix=f"_untrimmed.{get_config().audio.extension}").name
 
     command = ffmpeg_base_command_list + [
@@ -161,7 +161,7 @@ def get_video_duration(file_path):
 
 
 def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line):
-    trimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.temp_directory,
+    trimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(),
                                                 suffix=f".{get_config().audio.extension}").name
     file_mod_time = get_file_modification_time(video_path)
     file_length = get_video_duration(video_path)

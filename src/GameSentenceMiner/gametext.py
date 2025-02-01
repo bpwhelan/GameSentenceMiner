@@ -7,10 +7,10 @@ from datetime import datetime
 import pyperclip
 import websockets
 
-import util
-from configuration import *
-from configuration import get_config, logger
-from util import remove_html_tags
+from . import util
+from .configuration import *
+from .configuration import get_config, logger
+from .util import remove_html_tags
 from difflib import SequenceMatcher
 
 

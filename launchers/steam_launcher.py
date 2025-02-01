@@ -1,17 +1,11 @@
-import sqlite3
 import subprocess
 import threading
 import time
-from datetime import datetime, timedelta
 
 import psutil
-import requests
-from rapidfuzz import process
-import obs
-from configuration import *
 from steam_games import *
 
-import main
+from src import GameSentenceMiner
 
 # This looks at config.toml for current_game
 # Directory containing the scripts, Edit this.
@@ -202,7 +196,7 @@ def run_agent_and_hook(pname, agent_script):
     except Exception as e:
         print(f"Error occurred while running agent script: {e}")
 
-    main.keep_running = False
+    GameSentenceMiner.keep_running = False
 
 
 def wait_for_process(process):
@@ -219,11 +213,11 @@ def is_game_process_running(process_id):
 
 
 def monitor_process_and_flag(process_id):
-    while main.keep_running:
+    while GameSentenceMiner.keep_running:
         # Check the game process every iteration
         if not is_game_process_running(int(process_id)):
             print("Game process is no longer running.")
-            main.keep_running = False
+            GameSentenceMiner.keep_running = False
             break
 
         # Sleep for a short period to reduce CPU usage
