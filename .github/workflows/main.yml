@@ -1,85 +1,85 @@
-name: Build Executables
+# name: Build Executables
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
+# on:
+#   push:
+#     branches:
+#       - main
+#   pull_request:
 
-jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+# jobs:
+#   build-windows:
+#     runs-on: windows-latest
+#     steps:
+#       - name: Checkout Code
+#         uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: 3.12.7  # Adjust Python version as needed
+#       - name: Set up Python
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: 3.12.7  # Adjust Python version as needed
 
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+#       - name: Install Dependencies
+#         run: |
+#           python -m pip install --upgrade pip
+#           pip install -r requirements.txt
 
-      - name: Build Windows Executable
-        run: |
-          pyinstaller --noconfirm --name "GameSentenceMiner" main.py  --additional-hooks-dir=hooks
-        env:
-          PYTHONUNBUFFERED: 1
+#       - name: Build Windows Executable
+#         run: |
+#           pyinstaller --noconfirm --name "GameSentenceMiner" main.py  --additional-hooks-dir=hooks
+#         env:
+#           PYTHONUNBUFFERED: 1
 
-      - name: Upload Artifact (Windows)
-        uses: actions/upload-artifact@v4
-        with:
-          name: GameSentenceMiner
-          path: dist/GameSentenceMiner/
+#       - name: Upload Artifact (Windows)
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: GameSentenceMiner
+#           path: dist/GameSentenceMiner/
 
-      - name: Install Dependencies
-        run: |
-          pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+#       - name: Install Dependencies
+#         run: |
+#           pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
-      - name: Build Windows Executable
-        run: |
-          pyinstaller --noconfirm --name "GameSentenceMiner" main.py  --additional-hooks-dir=hooks
-        env:
-          PYTHONUNBUFFERED: 1
+#       - name: Build Windows Executable
+#         run: |
+#           pyinstaller --noconfirm --name "GameSentenceMiner" main.py  --additional-hooks-dir=hooks
+#         env:
+#           PYTHONUNBUFFERED: 1
 
-      - name: Upload Artifact (Windows CUDA)
-        uses: actions/upload-artifact@v4
-        with:
-          name: GameSentenceMiner_CUDA
-          path: dist/GameSentenceMiner/
+#       - name: Upload Artifact (Windows CUDA)
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: GameSentenceMiner_CUDA
+#           path: dist/GameSentenceMiner/
 
 
-#  build-linux:
-#    runs-on: ubuntu-latest
-#    steps:
-#      - name: Checkout Code
-#        uses: actions/checkout@v3
-#
-#      - name: Set up Python
-#        uses: actions/setup-python@v4
-#        with:
-#          python-version: 3.x
-#
-#      - name: Install Dependencies
-#        run: |
-#          python -m pip install --upgrade pip
-#          pip install -r requirements.txt
-#
-#      - name: Build Linux Executable
-#        run: |
-#          pyinstaller --noconfirm --name "GameSentenceMiner" main.py
-#        env:
-#          PYTHONUNBUFFERED: 1
-#
-#      - name: Zip Dist Folder (Linux)
-#        run: |
-#          zip -r dist/GameSentenceMinerLinux.zip dist/GameSentenceMiner
-#
-#      - name: Upload Artifact (Linux)
-#        uses: actions/upload-artifact@v3
-#        with:
-#          name: build-linux
-#          path: dist/GameSentenceMinerLinux.zip
+# #  build-linux:
+# #    runs-on: ubuntu-latest
+# #    steps:
+# #      - name: Checkout Code
+# #        uses: actions/checkout@v3
+# #
+# #      - name: Set up Python
+# #        uses: actions/setup-python@v4
+# #        with:
+# #          python-version: 3.x
+# #
+# #      - name: Install Dependencies
+# #        run: |
+# #          python -m pip install --upgrade pip
+# #          pip install -r requirements.txt
+# #
+# #      - name: Build Linux Executable
+# #        run: |
+# #          pyinstaller --noconfirm --name "GameSentenceMiner" main.py
+# #        env:
+# #          PYTHONUNBUFFERED: 1
+# #
+# #      - name: Zip Dist Folder (Linux)
+# #        run: |
+# #          zip -r dist/GameSentenceMinerLinux.zip dist/GameSentenceMiner
+# #
+# #      - name: Upload Artifact (Linux)
+# #        uses: actions/upload-artifact@v3
+# #        with:
+# #          name: build-linux
+# #          path: dist/GameSentenceMinerLinux.zip
