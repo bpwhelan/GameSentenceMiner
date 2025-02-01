@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from os.path import expanduser
+from platform import platform
 from typing import List, Dict
 
 import toml
@@ -240,6 +241,16 @@ class Config:
 
     def get_all_profile_names(self):
         return list(self.configs.keys())
+
+
+def get_app_directory():
+    if platform == 'win32':  # Windows
+        appdata_dir = os.getenv('APPDATA')
+    else:  # macOS and Linux
+        appdata_dir = os.path.expanduser('~/.config')
+    config_dir = os.path.join(appdata_dir, 'GameSentenceMiner')
+    os.makedirs(config_dir, exist_ok=True)  # Create the directory if it doesn't exist
+    return config_dir
 
 
 logger = logging.getLogger("GameSentenceMiner")
