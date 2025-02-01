@@ -24,9 +24,9 @@ jobs:
 
       - name: Build the package
         run: |
-          python setup.py sdist bdist_wheel  # For setup.py projects
+          # python setup.py sdist bdist_wheel  # For setup.py projects
           # Uncomment the line below for pyproject.toml projects (PEP 517/518)
-          # python -m build
+          python -m build
 
       - name: Publish package to PyPI
         env:
