@@ -2,7 +2,7 @@
 
 ## WARNING
 
-This project is in process of a major rewrite, and this README will be updated soon with the new process.
+This project is in process of a major overhaul, and this README will be updated soon with the new process.
 
 ---
 
