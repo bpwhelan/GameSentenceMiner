@@ -1,5 +1,11 @@
 # Sentence Mining Game Audio Trim Helper
 
+## WARNING
+
+This project is in process of a major rewrite, and this README will be updated soon with the new process.
+
+---
+
 This project automates the recording of game sentence audio to help with Anki Card Creation.
 
 This allows us to create cards from texthooker/yomitan, and automatically get screenshot and sentence audio from the
@@ -242,7 +248,7 @@ Screenshots to help with setup:
 
 1. Start game
 2. Hook Game with Agent (or textractor) with clipboard enabled
-3. start script: `python main.py`
+3. start script: `python -m src.GameSentenceMiner.gsm`
     1. Create Anki Card with target word (through a texthooker page/Yomitan)
     2. (If full-auto-mode not on) Trigger Hotkey to record replay buffer
 4. When finished gaming, end script
