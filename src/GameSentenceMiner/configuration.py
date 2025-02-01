@@ -248,12 +248,6 @@ class Config:
     def get_all_profile_names(self):
         return list(self.configs.keys())
 
-def get_app_directory():
-    appdata_dir = os.getenv('APPDATA')  # Get the AppData directory
-    config_dir = os.path.join(appdata_dir, 'GameSentenceMiner')
-    os.makedirs(config_dir, exist_ok=True)  # Create the directory if it doesn't exist
-    return config_dir
-
 
 def get_app_directory():
     if platform == 'win32':  # Windows
