@@ -91,11 +91,12 @@ class ConfigApp:
             self.window.withdraw()
 
     def update_now(self):
-        update_available, version = check_for_updates()
+        update_available, version = check_for_updates(force=True)
         if update_available:
+            messagebox.showinfo("Update", "GSM will now close and update")
             success = update()
-            if success:
-                messagebox.showinfo("Update Successful", "Update successful, please restart the application.")
+            if not success:
+                messagebox.showinfo("Update Unsuccessful", "Couldn't Start Update, please update manually.")
         else:
             messagebox.showinfo("No Update Found", "No update found.")
 
