@@ -1,0 +1,59 @@
+[build-system]
+requires = [
+  "setuptools>=61.0",  # PEP 621 support in setuptools
+  "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "GameSentenceMiner"
+version = "2.0.1"
+description = "A tool for mining sentences from games."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT License" }
+authors = [
+  { name = "Beangate", email = "bpwhelan95@gmail.com"}
+]
+urls = { Homepage = "https://github.com/bpwhelan/GameSentenceMiner", Repository = "https://github.com/bpwhelan/GameSentenceMiner" }
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+dependencies = [
+  "requests~=2.32.3",
+  "anki~=24.6.3",
+  "watchdog~=5.0.2",
+  "DateTime~=5.5",
+  "pyperclip~=1.9.0",
+  "vosk~=0.3.45",
+  "soundfile~=0.12.1",
+  "toml~=0.10.2",
+  "psutil~=6.0.0",
+  "rapidfuzz~=3.9.7",
+  "obs-websocket-py~=1.0",
+  "plyer~=2.1.0",
+  "keyboard~=0.13.5",
+  "websockets~=13.0.1",
+  "obsws_python~=1.7.0",
+  "numpy~=2.0.2",
+  "stable-ts~=2.17.5",
+  "openai-whisper",
+  "silero-vad~=5.1.2",
+  "ttkbootstrap~=1.10.1",
+  "dataclasses_json~=0.6.7",
+  "pyinstaller",
+  "pystray",
+  "pywin32"
+]
+
+# This creates a command-line script named `gamesentenceminer` that will
+# call the `main()` function defined in the package’s __main__.py (or wherever
+# you’ve placed your entry function). Adjust the import path as needed.
+[project.scripts]
+gamesentenceminer = "GameSentenceMiner.gsm:main"
+
+[tool.setuptools]
+packages = ["GameSentenceMiner", "GameSentenceMiner.vad"]
+package-dir = {"" = "src"}

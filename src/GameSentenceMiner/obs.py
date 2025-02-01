@@ -1,15 +1,57 @@
 import time
+from sys import platform
 
 from obswebsocket import obsws, requests
 
-import configuration
-import util
-from configuration import *
-from model import *
+from . import util
+from . import configuration
+from .configuration import *
+from .model import *
 
 client: obsws = None
 
 # REFERENCE: https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md
+
+
+def get_obs_websocket_config_values():
+    if platform == "win32":
+        config_path = os.path.expanduser(r"~\AppData\Roaming\obs-studio\plugin_config\obs-websocket\config.json")
+    elif platform == "darwin":  # macOS
+        config_path = os.path.expanduser(
+            "~/Library/Application Support/obs-studio/plugin_config/obs-websocket/config.json")
+    elif platform == "linux":
+        config_path = os.path.expanduser("~/.config/obs-studio/plugin_config/obs-websocket/config.json")
+    else:
+        raise Exception("Unsupported operating system.")
+
+        # Check if config file exists
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError(f"OBS WebSocket config not found at {config_path}")
+
+    # Read the JSON configuration
+    with open(config_path, 'r') as file:
+        config = json.load(file)
+
+    # Extract values
+    server_enabled = config.get("server_enabled", False)
+    server_port = config.get("server_port", 4455)  # Default to 4455 if not set
+    server_password = config.get("server_password", None)
+
+    if not server_enabled:
+        logger.info("OBS WebSocket server is not enabled. Enabling it now... Restart OBS for changes to take effect.")
+        config["server_enabled"] = True
+
+        with open(config_path, 'w') as file:
+            json.dump(config, file, indent=4)
+
+    if get_config().obs.password == 'your_password':
+        logger.info("OBS WebSocket password is not set. Setting it now...")
+        config = get_master_config()
+        config.get_config().obs.port = server_port
+        config.get_config().obs.password = server_password
+        with open(get_config_path(), 'w') as file:
+            json.dump(config.to_dict(), file, indent=4)
+        reload_config()
 
 
 def on_connect(obs):
@@ -26,10 +68,12 @@ def on_disconnect(obs):
 def connect_to_obs(start_replay=False):
     global client
     if get_config().obs.enabled:
+        get_obs_websocket_config_values()
         client = obsws(host=get_config().obs.host, port=get_config().obs.port,
                        password=get_config().obs.password, authreconnect=1, on_connect=on_connect,
                        on_disconnect=on_disconnect)
         client.connect()
+
         time.sleep(1)
         if start_replay and get_config().obs.start_buffer:
             start_replay_buffer()
@@ -94,7 +138,7 @@ def get_source_from_scene(scene_name):
 
 def get_screenshot():
     try:
-        screenshot = util.make_unique_file_name(os.path.abspath(configuration.temp_directory) + '/screenshot.png')
+        screenshot = util.make_unique_file_name(os.path.abspath(configuration.get_temporary_directory()) + '/screenshot.png')
         update_current_game()
         current_source = get_source_from_scene(get_current_game())
         current_source_name = current_source.sourceName

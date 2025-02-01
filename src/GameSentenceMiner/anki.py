@@ -4,16 +4,17 @@ import threading
 import time
 import urllib.request
 
-import ffmpeg
-import notification
-import obs
 import requests as req
 
-import util
-from configuration import *
-from configuration import get_config
-from gametext import get_last_two_sentences
-from obs import get_current_game
+from . import util
+from . import ffmpeg
+from . import notification
+from . import obs
+
+from .configuration import *
+from .configuration import get_config
+from .gametext import get_last_two_sentences
+from .obs import get_current_game
 
 audio_in_anki = None
 screenshot_in_anki = None

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import psutil
 
-import util
+from src.GameSentenceMiner import util
 
 # from steam_launcher import is_game_process_running
 yuzu_cmd = r"C:\Emulation\Emulators\yuzu-windows-msvc\yuzu.exe"
@@ -147,7 +147,7 @@ if __name__ == "__main__":
             monitor_thread.start()
 
             # Launch the Mining Script
-            # main.main(do_config_input=False)
+            # gsm.main(do_config_input=False)
 
         else:
             print("Failed to launch Yuzu.")

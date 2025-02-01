@@ -30,3 +30,7 @@ runGSM.bat
 runYuzuLauncher.bat
 config_back.json
 launchers/steam_games.py
+/.idea
+/GameSentenceMiner.egg-info
+*.pyc
+/src/GameSentenceMiner.egg-info

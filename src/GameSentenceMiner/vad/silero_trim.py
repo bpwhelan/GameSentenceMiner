@@ -2,9 +2,8 @@ import tempfile
 
 from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
 
-import configuration
-import ffmpeg
-from configuration import *
+from .. import configuration, ffmpeg
+from ..configuration import *
 
 # Silero VAD setup
 vad_model = load_silero_vad()
@@ -13,7 +12,7 @@ vad_model = load_silero_vad()
 # Use Silero to detect voice activity with timestamps in the audio
 def detect_voice_with_silero(input_audio):
     # Convert the audio to 16kHz mono WAV
-    temp_wav = tempfile.NamedTemporaryFile(dir=configuration.temp_directory, suffix='.wav').name
+    temp_wav = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(), suffix='.wav').name
     ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
 
     # Load the audio and detect speech timestamps
