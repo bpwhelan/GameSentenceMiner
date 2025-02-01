@@ -2,7 +2,8 @@ name: Publish Python Package
 
 on:
   release:
-    types: [published]
+    types: [published]  # Automatically triggers on published releases
+  workflow_dispatch:  # Allows manual trigger from the GitHub UI
 
 jobs:
   build-and-publish:
