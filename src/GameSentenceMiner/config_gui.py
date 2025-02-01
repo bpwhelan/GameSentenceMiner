@@ -91,7 +91,7 @@ class ConfigApp:
             self.window.withdraw()
 
     def update_now(self):
-        update_available, version = check_for_updates(force=True)
+        update_available, version = check_for_updates()
         if update_available:
             messagebox.showinfo("Update", "GSM will now close and update")
             success = update()
