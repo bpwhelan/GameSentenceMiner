@@ -128,7 +128,7 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
         codec_command = ["-c:a", f"{supported_formats[get_config().audio.extension]}"]
         logger.info(f"Re-encoding {codec} to {get_config().audio.extension}")
 
-    untrimmed_audio = tempfile.NamedTemporaryFile(dir=configuconfiguration.get_temporary_directory(),
+    untrimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(),
                                                   suffix=f"_untrimmed.{get_config().audio.extension}").name
 
     command = ffmpeg_base_command_list + [
@@ -161,7 +161,7 @@ def get_video_duration(file_path):
 
 
 def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line):
-    trimmed_audio = tempfile.NamedTemporaryFile(dir=configuconfiguration.get_temporary_directory(),
+    trimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(),
                                                 suffix=f".{get_config().audio.extension}").name
     file_mod_time = get_file_modification_time(video_path)
     file_length = get_video_duration(video_path)

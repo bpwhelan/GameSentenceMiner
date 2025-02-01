@@ -101,7 +101,7 @@ def get_source_from_scene(scene_name):
 
 def get_screenshot():
     try:
-        screenshot = util.make_unique_file_name(os.path.abspath(configuconfiguration.get_temporary_directory()) + '/screenshot.png')
+        screenshot = util.make_unique_file_name(os.path.abspath(configuration.get_temporary_directory()) + '/screenshot.png')
         update_current_game()
         current_source = get_source_from_scene(get_current_game())
         current_source_name = current_source.sourceName
