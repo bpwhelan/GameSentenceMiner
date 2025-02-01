@@ -93,7 +93,7 @@ class ConfigApp:
     def update_now(self):
         update_available, version = check_for_updates()
         if update_available:
-            messagebox.showinfo("Update", "GSM will now close and update")
+            messagebox.showinfo("Update", "GSM Will Copy the Update Command to your clipboard, please run it in a terminal.")
             success = update()
             if not success:
                 messagebox.showinfo("Update Unsuccessful", "Couldn't Start Update, please update manually.")

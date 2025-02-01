@@ -1,6 +1,8 @@
 import os
 from importlib import metadata
 import sys
+
+import pyperclip
 import requests
 
 from .configuration import logger, get_app_directory
@@ -40,7 +42,8 @@ def check_for_updates(force=False):
 
 def update():
     try:
-        os.execl(sys.executable, sys.executable, "-m", "pip", "install", "--upgrade", PACKAGE_NAME)
+        pyperclip.copy("pip install --upgrade GameSentenceMiner")
+        exit()
     except Exception as e:
         logger.error(f"Error updating {PACKAGE_NAME}: {e}")
     return False
