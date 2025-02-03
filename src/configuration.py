@@ -369,7 +369,7 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 
 # Create rotating file handler with level DEBUG
-file_handler = RotatingFileHandler(get_log_path(), maxBytes=10_000_000, backupCount=2, encoding='utf-8')
+file_handler = RotatingFileHandler(get_log_path(), maxBytes=10 * 1024 * 1024, backupCount=0, encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)
 
 # Create a formatter

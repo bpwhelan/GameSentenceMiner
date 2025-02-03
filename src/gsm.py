@@ -228,7 +228,7 @@ def open_settings():
 def open_log():
     """Function to handle opening log."""
     """Open log file with the default application."""
-    log_file_path = "../gamesentenceminer.log"
+    log_file_path = get_log_path()
     if not os.path.exists(log_file_path):
         print("Log file not found!")
         return
@@ -261,9 +261,6 @@ def play_pause(icon, item):
     obs_paused = not obs_paused
     update_icon()
 
-def get_obs_icon_text():
-    return "Pause OBS" if obs_paused else "Resume OBS"
-
 
 def update_icon():
     global menu, icon
@@ -276,7 +273,7 @@ def update_icon():
     menu = Menu(
         MenuItem("Open Settings", open_settings),
         MenuItem("Open Log", open_log),
-        MenuItem(get_obs_icon_text(), play_pause),
+        MenuItem("Toggle Replay Buffer", play_pause),
         MenuItem("Switch Profile", profile_menu),
         MenuItem("Exit", exit_program)
     )
@@ -307,7 +304,7 @@ def run_tray():
     menu = Menu(
         MenuItem("Open Settings", open_settings),
         MenuItem("Open Log", open_log),
-        MenuItem(get_obs_icon_text(), play_pause),
+        MenuItem("Toggle Replay Buffer", play_pause),
         MenuItem("Switch Profile", profile_menu),
         MenuItem("Exit", exit_program)
     )
