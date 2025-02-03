@@ -1,5 +1,6 @@
 import json
 import os
+import secrets
 import shutil
 import urllib.request
 import platform
@@ -57,8 +58,8 @@ def download_obs_if_needed():
             "auth_required": False,
             "first_load": False,
             "server_enabled": True,
-            "server_password": "",
-            "server_port": 4455
+            "server_password": secrets.token_urlsafe(16),
+            "server_port": 7274
         }
         with open(os.path.join(websocket_config_path, 'config.json'), 'w') as config_file:
             json.dump(websocket_config, config_file, indent=4)
