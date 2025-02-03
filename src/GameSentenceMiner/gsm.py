@@ -1,3 +1,4 @@
+import os
 import shutil
 import signal
 import sys
@@ -46,14 +47,19 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def convert_to_audio(video_path):
         try:
             with util.lock:
+                if os.path.exists(video_path) and os.access(video_path, os.R_OK):
+                    logger.debug(f"Video found and is readable: {video_path}")
+
                 if get_config().obs.minimum_replay_size and not ffmpeg.is_video_big_enough(video_path,
                                                                                            get_config().obs.minimum_replay_size):
+                    logger.debug("Checking if video is big enough")
                     notification.send_check_obs_notification(reason="Video may be empty, check scene in OBS.")
                     logger.error(
                         f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
                     return
                 util.use_previous_audio = True
                 last_note = None
+                logger.debug("Attempting to get last anki card")
                 if get_config().anki.update_anki:
                     last_note = anki.get_last_anki_card()
                 if get_config().features.backfill_audio:
@@ -70,6 +76,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 tango = last_note['fields'][get_config().anki.word_field]['value'] if last_note else ''
 
                 if get_config().anki.sentence_audio_field:
+                    logger.debug("Attempting to get audio from video")
                     final_audio_output, should_update_audio, vad_trimmed_audio = VideoToAudioHandler.get_audio(
                         line_time,
                         next_line_time,
@@ -95,7 +102,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     print(f)
                     print("Something went wrong with processing, anki card not updated")
         except Exception as e:
-            logger.error(f"Some error was hit catching to allow further work to be done: {e}")
+            logger.error(f"Some error was hit catching to allow further work to be done: {e}", exc_info=1)
         if get_config().paths.remove_video and os.path.exists(video_path):
             os.remove(video_path)  # Optionally remove the video after conversion
         if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
@@ -158,6 +165,14 @@ def initialize(reloading=False):
             vosk_helper.get_vosk_model()
         if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
             whisper_helper.initialize_whisper_model()
+
+def initial_checks():
+    try:
+        subprocess.run(ffmpeg.ffmpeg_base_command_list)
+        logger.debug("FFMPEG is installed and accessible.")
+    except FileNotFoundError:
+        logger.error("FFmpeg not found, please install it and add it to your PATH.")
+        raise
 
 
 def register_hotkeys():
@@ -339,6 +354,7 @@ def handle_exit():
 def main(reloading=False, do_config_input=True):
     global settings_window
     logger.info("Script started.")
+    initial_checks()
     initialize(reloading)
     event_handler = VideoToAudioHandler()
     observer = Observer()

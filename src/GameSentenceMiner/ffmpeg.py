@@ -139,7 +139,7 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
 
     # FFmpeg command to extract OR re-encode the audio
     # command = f"{ffmpeg_base_command} -i \"{video_path}\" -map 0:a {codec_command} \"{untrimmed_audio}\""
-
+    logger.debug("Doing initial audio extraction")
     logger.debug(" ".join(command))
 
     subprocess.run(command)
@@ -295,3 +295,4 @@ def is_video_big_enough(file_path, min_size_kb=250):
     except Exception as e:
         logger.error(f"Error: {e}")
         return False
+
