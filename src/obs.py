@@ -3,9 +3,9 @@ import time
 
 from obswebsocket import obsws, requests
 
-from . import util, configuration
-from .configuration import *
-from .model import *
+from src import util, configuration
+from src.configuration import *
+from src.model import *
 
 client: obsws = None
 
@@ -18,17 +18,24 @@ def get_obs_path():
 def start_obs():
     obs_path = get_obs_path()
     if not os.path.exists(obs_path):
-        print(f"OBS not found at {obs_path}. Please install OBS.")
+        logger.error(f"OBS not found at {obs_path}. Please install OBS.")
         return None
 
     try:
+
         # process = subprocess.Popen([obs_path], cwd=os.path.dirname(obs_path))
-        process = subprocess.Popen([obs_path, '--minimize-to-tray'], cwd=os.path.dirname(obs_path))
-        print("OBS launched")
-        return process.pid
+        # process = subprocess.Popen([obs_path, '--minimize-to-tray'], cwd=os.path.dirname(obs_path))
+        process = subprocess.Popen([obs_path, '--disable-shutdown-check'], cwd=os.path.dirname(obs_path))
+        logger.info("OBS launched")
+        return process
     except Exception as e:
-        print(f"Error launching OBS: {e}")
+        logger.error(f"Error launching OBS: {e}")
         return None
+
+def shutdown_obs():
+    client.call(requests.Quit())
+    print("OBS Studio is shutting down gracefully...")
+    print("OBS Studio has shut down.")
 
 def get_obs_websocket_config_values():
     if platform == "win32":

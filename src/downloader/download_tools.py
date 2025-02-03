@@ -6,14 +6,15 @@ import platform
 import zipfile
 
 from src.downloader.Untitled_json import scenes
-from src.configuration import get_app_directory
+from src.configuration import get_app_directory, logger
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 def download_obs_if_needed():
     obs_path = os.path.join(get_app_directory(), 'obs-studio')
     if os.path.exists(obs_path):
-        print(f"OBS already installed at {obs_path}.")
+        logger.debug(f"OBS already installed at {obs_path}.")
         return
 
     os.makedirs(obs_path, exist_ok=True)
@@ -30,7 +31,7 @@ def download_obs_if_needed():
         }.get(platform.system(), None)
 
     if obs_url is None:
-        print("Unsupported OS. Please install OBS manually.")
+        logger.error("Unsupported OS. Please install OBS manually.")
         return
 
     download_dir = os.path.join(get_app_directory(), "downloads")
@@ -38,13 +39,13 @@ def download_obs_if_needed():
     obs_installer = os.path.join(download_dir, "OBS.zip")
 
     if os.path.exists(obs_installer):
-        print("OBS installer already exists. Skipping download.")
+        logger.debug("OBS installer already exists. Skipping download.")
     else:
-        print(f"Downloading OBS from {obs_url}...")
+        logger.info(f"Downloading OBS from {obs_url}...")
         urllib.request.urlretrieve(obs_url, obs_installer)
 
     if platform.system() == "Windows":
-        print(f"OBS downloaded. Extracting to {obs_path}...")
+        logger.info(f"OBS downloaded. Extracting to {obs_path}...")
         with zipfile.ZipFile(obs_installer, 'r') as zip_ref:
             zip_ref.extractall(obs_path)
         open(os.path.join(obs_path, "portable_mode"), 'a').close()
@@ -77,15 +78,15 @@ def download_obs_if_needed():
         os.makedirs(scene_json_path, exist_ok=True)
         with open(os.path.join(scene_json_path, 'Untitled.json'), 'w') as scene_file:
             scene_file.write(scenes)
-        print(f"OBS extracted to {obs_path}.")
+        logger.info(f"OBS extracted to {obs_path}.")
     else:
-        print(f"Please install OBS manually from {obs_installer}")
+        logger.error(f"Please install OBS manually from {obs_installer}")
 
 def download_ffmpeg_if_needed():
     ffmpeg_path = os.path.join(get_app_directory(), 'ffmpeg')
 
     if os.path.exists(ffmpeg_path):
-        print(f"FFmpeg already installed at {ffmpeg_path}.")
+        logger.debug(f"FFmpeg already installed at {ffmpeg_path}.")
         return
 
     os.makedirs(ffmpeg_path, exist_ok=True)
@@ -97,7 +98,7 @@ def download_ffmpeg_if_needed():
     }.get(platform.system(), None)
 
     if ffmpeg_url is None:
-        print("Unsupported OS. Please install FFmpeg manually.")
+        logger.error("Unsupported OS. Please install FFmpeg manually.")
         return
 
     download_dir = os.path.join(get_app_directory(), "downloads")
@@ -105,11 +106,11 @@ def download_ffmpeg_if_needed():
     ffmpeg_archive = os.path.join(download_dir, "ffmpeg.zip")
 
     if os.path.exists(ffmpeg_archive):
-        print("FFmpeg archive already exists. Skipping download.")
+        logger.debug("FFmpeg archive already exists. Skipping download.")
     else:
-        print(f"Downloading FFmpeg from {ffmpeg_url}...")
+        logger.info(f"Downloading FFmpeg from {ffmpeg_url}...")
         urllib.request.urlretrieve(ffmpeg_url, ffmpeg_archive)
-        print(f"FFmpeg downloaded. Extracting to {ffmpeg_path}...")
+        logger.info(f"FFmpeg downloaded. Extracting to {ffmpeg_path}...")
     with zipfile.ZipFile(ffmpeg_archive, 'r') as zip_ref:
         for member in zip_ref.namelist():
             filename = os.path.basename(member)
@@ -118,14 +119,11 @@ def download_ffmpeg_if_needed():
                 target = open(os.path.join(ffmpeg_path, filename), "wb")
                 with source, target:
                     shutil.copyfileobj(source, target)
-    print(f"FFmpeg extracted to {ffmpeg_path}.")
+    logger.info(f"FFmpeg extracted to {ffmpeg_path}.")
 def main():
     # Run dependency checks
     download_obs_if_needed()
     download_ffmpeg_if_needed()
-
-    # Your existing main logic
-    print("Starting GameSentenceMiner...")
 
 if __name__ == "__main__":
     main()

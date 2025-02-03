@@ -1,9 +1,10 @@
+import subprocess
 import tempfile
 import time
 
-from . import obs, util, configuration
-from .configuration import *
-from .util import *
+from src import obs, util, configuration
+from src.configuration import *
+from src.util import *
 
 def get_ffmpeg_path():
     return os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if util.is_windows() else "ffmpeg"

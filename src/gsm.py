@@ -1,9 +1,8 @@
-import os
-import shutil
 import signal
+import subprocess
 import sys
-import tempfile
 import time
+from subprocess import Popen
 
 import keyboard
 import psutil
@@ -13,6 +12,7 @@ from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from obs import shutdown_obs
 from src import anki
 from src import config_gui
 from src import configuration
@@ -28,7 +28,7 @@ from src.ffmpeg import get_audio_and_trim
 from src.gametext import get_line_timing
 from src.util import *
 
-pids_to_close = []
+procs_to_close = []
 settings_window: config_gui.ConfigApp = None
 obs_paused = False
 icon: Icon
@@ -151,12 +151,9 @@ def initialize(reloading=False):
             download_obs_if_needed()
             download_ffmpeg_if_needed()
         if get_config().obs.enabled:
-            pids_to_close.append(obs.start_obs())
+            procs_to_close.append(obs.start_obs())
             obs.connect_to_obs(start_replay=True)
             anki.start_monitoring_anki()
-        if get_config().general.open_config_on_startup:
-            proc = subprocess.Popen([sys.executable, "config_gui.py"])
-            pids_to_close.append(proc.pid)
         gametext.start_text_monitor()
         os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
         os.makedirs(get_config().paths.screenshot_destination, exist_ok=True)
@@ -327,20 +324,21 @@ def cleanup():
     if get_config().obs.enabled:
         if get_config().obs.start_buffer:
             obs.stop_replay_buffer()
-        obs.disconnect_from_obs()
+    obs.disconnect_from_obs()
 
-    for pid in pids_to_close:
+    proc: Popen
+    for proc in procs_to_close:
         try:
-            p = psutil.Process(pid)
-            p.terminate()  # Gracefully terminate the process
-            try:
-                p.wait(timeout=5)  # Wait for the process to terminate
-            except psutil.TimeoutExpired:
-                p.kill()  # Forcefully terminate the process if it doesn't exit in time
+            logger.info(f"Terminating process {proc.args[0]}")
+            proc.terminate()
+            proc.wait()  # Wait for OBS to fully close
+            logger.info(f"Process {proc.args[0]} terminated.")
         except psutil.NoSuchProcess:
             logger.info("PID already closed.")
         except Exception as e:
-            logger.error(f"Error terminating process {pid}: {e}")
+            proc.kill()
+            logger.error(f"Error terminating process {proc}: {e}")
+
 
     settings_window.window.destroy()
     logger.info("Cleanup complete.")
@@ -382,6 +380,8 @@ def main(reloading=False, do_config_input=True):
         settings_window = config_gui.ConfigApp()
         if get_config().general.check_for_update_on_startup:
             settings_window.window.after(0, settings_window.check_update)
+        if get_config().general.open_config_on_startup:
+            settings_window.window.after(0, settings_window.show)
         settings_window.add_save_hook(update_icon)
         settings_window.window.mainloop()
     except KeyboardInterrupt:
