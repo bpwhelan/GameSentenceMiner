@@ -142,7 +142,12 @@ def stop_replay_buffer():
 # Save the current replay buffer
 def save_replay_buffer():
     try:
-        client.call(requests.SaveReplayBuffer())
+        replay_buffer_started = client.call(requests.GetReplayBufferStatus()).datain['outputActive']
+        if replay_buffer_started:
+            client.call(requests.SaveReplayBuffer())
+            logger.info("Replay buffer saved.")
+        else:
+            logger.error("Replay Buffer is not active, could not save Replay Buffer!")
     except Exception as e:
         print(f"Error saving replay buffer: {e}")
 
