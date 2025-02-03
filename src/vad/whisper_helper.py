@@ -4,7 +4,7 @@ import warnings
 import stable_whisper as whisper
 from stable_whisper import WhisperResult
 
-from .. import ffmpeg, configuration
+from .. import configuration, ffmpeg
 from ..configuration import *
 
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]

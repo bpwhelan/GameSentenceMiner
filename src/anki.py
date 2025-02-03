@@ -6,10 +6,7 @@ import urllib.request
 
 import requests as req
 
-from . import util
-from . import ffmpeg
-from . import notification
-from . import obs
+from . import obs, util, notification, ffmpeg
 
 from .configuration import *
 from .configuration import get_config

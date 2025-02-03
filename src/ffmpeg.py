@@ -1,19 +1,20 @@
 import tempfile
 import time
 
-from . import obs
-from . import util
-from . import configuration
+from . import obs, util, configuration
 from .configuration import *
 from .util import *
 
-ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error", '-nostdin']
+def get_ffmpeg_path():
+    return os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if util.is_windows() else "ffmpeg"
+
+ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
 
 
 def get_screenshot(video_file, time_from_end):
     time_from_end_to_capture = -time_from_end if time_from_end else -1
-    output_image = make_unique_file_name(
-        get_config().paths.screenshot_destination + obs.get_current_game(sanitize=True) + f".{get_config().screenshot.extension}")
+    output_image = make_unique_file_name(os.path.join(
+        get_config().paths.screenshot_destination, f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
     # FFmpeg command to extract the last frame of the video
     ffmpeg_command = ffmpeg_base_command_list + [
         "-sseof", f"{time_from_end_to_capture}",  # Seek to 1 second before the end of the video
@@ -59,7 +60,7 @@ def get_screenshot_time(video_path, line_time):
 
 def process_image(image_file):
     output_image = make_unique_file_name(
-        get_config().paths.screenshot_destination + obs.get_current_game(sanitize=True) + f".{get_config().screenshot.extension}")
+        os.path.join(get_config().paths.screenshot_destination, f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
 
     # FFmpeg command to process the input image
     ffmpeg_command = ffmpeg_base_command_list + [

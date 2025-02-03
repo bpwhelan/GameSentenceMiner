@@ -7,7 +7,7 @@ import requests
 import soundfile as sf
 import vosk
 
-from .. import ffmpeg, configuration
+from .. import configuration, ffmpeg
 from ..configuration import *
 
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]

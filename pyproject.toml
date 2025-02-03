@@ -52,8 +52,7 @@ dependencies = [
 # call the `main()` function defined in the package’s __main__.py (or wherever
 # you’ve placed your entry function). Adjust the import path as needed.
 [project.scripts]
-gamesentenceminer = "GameSentenceMiner.gsm:main"
+gamesentenceminer = "src.gsm:main"
 
 [tool.setuptools]
-packages = ["GameSentenceMiner", "GameSentenceMiner.vad"]
-package-dir = {"" = "src"}
+packages = ["src", "src.vad", 'src.downloader']

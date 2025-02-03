@@ -46,9 +46,9 @@ class General:
 @dataclass_json
 @dataclass
 class Paths:
-    folder_to_watch: str = expanduser("~/Videos/OBS")
-    audio_destination: str = expanduser("~/Videos/OBS/Audio/")
-    screenshot_destination: str = expanduser("~/Videos/OBS/SS/")
+    folder_to_watch: str = expanduser("~/Videos/GSM")
+    audio_destination: str = expanduser("~/Videos/GSM/Audio/")
+    screenshot_destination: str = expanduser("~/Videos/GSM/SS/")
     remove_video: bool = True
     remove_audio: bool = False
     remove_screenshot: bool = False

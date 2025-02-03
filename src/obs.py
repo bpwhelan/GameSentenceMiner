@@ -1,10 +1,9 @@
+import subprocess
 import time
-from sys import platform
 
 from obswebsocket import obsws, requests
 
-from . import util
-from . import configuration
+from . import util, configuration
 from .configuration import *
 from .model import *
 
@@ -12,6 +11,24 @@ client: obsws = None
 
 # REFERENCE: https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md
 
+
+def get_obs_path():
+    return os.path.join(configuration.get_app_directory(), 'obs-studio/bin/64bit/obs64.exe')
+
+def start_obs():
+    obs_path = get_obs_path()
+    if not os.path.exists(obs_path):
+        print(f"OBS not found at {obs_path}. Please install OBS.")
+        return None
+
+    try:
+        # process = subprocess.Popen([obs_path], cwd=os.path.dirname(obs_path))
+        process = subprocess.Popen([obs_path, '--minimize-to-tray'], cwd=os.path.dirname(obs_path))
+        print("OBS launched")
+        return process.pid
+    except Exception as e:
+        print(f"Error launching OBS: {e}")
+        return None
 
 def get_obs_websocket_config_values():
     if platform == "win32":
@@ -138,7 +155,8 @@ def get_source_from_scene(scene_name):
 
 def get_screenshot():
     try:
-        screenshot = util.make_unique_file_name(os.path.abspath(configuration.get_temporary_directory()) + '/screenshot.png')
+        screenshot = util.make_unique_file_name(os.path.abspath(
+            configuration.get_temporary_directory()) + '/screenshot.png')
         update_current_game()
         current_source = get_source_from_scene(get_current_game())
         current_source_name = current_source.sourceName

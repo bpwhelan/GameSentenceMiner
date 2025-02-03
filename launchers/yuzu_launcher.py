@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import psutil
 
-from src.GameSentenceMiner import util
+from src import util
 
 # from steam_launcher import is_game_process_running
 yuzu_cmd = r"C:\Emulation\Emulators\yuzu-windows-msvc\yuzu.exe"

@@ -13,21 +13,22 @@ from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from . import anki
-from . import config_gui
-from . import configuration
-from . import ffmpeg
-from . import gametext
-from . import notification
-from . import obs
-from . import util
-from .vad import vosk_helper, silero_trim, whisper_helper
-from .configuration import *
-from .ffmpeg import get_audio_and_trim
-from .gametext import get_line_timing
-from .util import *
+from src import anki
+from src import config_gui
+from src import configuration
+from src import ffmpeg
+from src import gametext
+from src import notification
+from src import obs
+from src import util
+from src.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
+from src.vad import vosk_helper, silero_trim, whisper_helper
+from src.configuration import *
+from src.ffmpeg import get_audio_and_trim
+from src.gametext import get_line_timing
+from src.util import *
 
-config_pids = []
+pids_to_close = []
 settings_window: config_gui.ConfigApp = None
 obs_paused = False
 icon: Icon
@@ -36,7 +37,7 @@ menu: Menu
 
 class VideoToAudioHandler(FileSystemEventHandler):
     def on_created(self, event):
-        if event.is_directory or "Replay" not in event.src_path:
+        if event.is_directory or ("Replay" not in event.src_path and "GSM" not in event.src_path):
             return
         if event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):  # Adjust based on your OBS output format
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
@@ -113,8 +114,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
         trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
         vad_trimmed_audio = make_unique_file_name(
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
-        final_audio_output = make_unique_file_name(
-            f"{get_config().paths.audio_destination}{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
+        final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination, f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
         should_update_audio = True
         if get_config().vad.do_vad_postprocessing:
             match get_config().vad.selected_vad_model:
@@ -147,19 +147,20 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 def initialize(reloading=False):
     if not reloading:
+        if is_windows():
+            download_obs_if_needed()
+            download_ffmpeg_if_needed()
         if get_config().obs.enabled:
+            pids_to_close.append(obs.start_obs())
             obs.connect_to_obs(start_replay=True)
             anki.start_monitoring_anki()
         if get_config().general.open_config_on_startup:
             proc = subprocess.Popen([sys.executable, "config_gui.py"])
-            config_pids.append(proc.pid)
+            pids_to_close.append(proc.pid)
         gametext.start_text_monitor()
-        if not os.path.exists(get_config().paths.folder_to_watch):
-            os.mkdir(get_config().paths.folder_to_watch)
-        if not os.path.exists(get_config().paths.screenshot_destination):
-            os.mkdir(get_config().paths.screenshot_destination)
-        if not os.path.exists(get_config().paths.audio_destination):
-            os.mkdir(get_config().paths.audio_destination)
+        os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
+        os.makedirs(get_config().paths.screenshot_destination, exist_ok=True)
+        os.makedirs(get_config().paths.audio_destination, exist_ok=True)
     if get_config().vad.do_vad_postprocessing:
         if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
             vosk_helper.get_vosk_model()
@@ -231,7 +232,7 @@ def open_settings():
 def open_log():
     """Function to handle opening log."""
     """Open log file with the default application."""
-    log_file_path = "../../gamesentenceminer.log"
+    log_file_path = "../gamesentenceminer.log"
     if not os.path.exists(log_file_path):
         print("Log file not found!")
         return
@@ -323,19 +324,24 @@ def cleanup():
     logger.info("Performing cleanup...")
     util.keep_running = False
 
-    for pid in config_pids:
-        try:
-            p = psutil.Process(pid)
-            p.terminate()  # Gracefully terminate the process
-        except psutil.NoSuchProcess:
-            logger.info("Config process already closed.")
-        except Exception as e:
-            logger.error(f"Error terminating process {pid}: {e}")
-
     if get_config().obs.enabled:
         if get_config().obs.start_buffer:
             obs.stop_replay_buffer()
         obs.disconnect_from_obs()
+
+    for pid in pids_to_close:
+        try:
+            p = psutil.Process(pid)
+            p.terminate()  # Gracefully terminate the process
+            try:
+                p.wait(timeout=5)  # Wait for the process to terminate
+            except psutil.TimeoutExpired:
+                p.kill()  # Forcefully terminate the process if it doesn't exit in time
+        except psutil.NoSuchProcess:
+            logger.info("PID already closed.")
+        except Exception as e:
+            logger.error(f"Error terminating process {pid}: {e}")
+
     settings_window.window.destroy()
     logger.info("Cleanup complete.")
 
@@ -354,8 +360,8 @@ def handle_exit():
 def main(reloading=False, do_config_input=True):
     global settings_window
     logger.info("Script started.")
-    initial_checks()
     initialize(reloading)
+    initial_checks()
     event_handler = VideoToAudioHandler()
     observer = Observer()
     observer.schedule(event_handler, get_config().paths.folder_to_watch, recursive=False)
