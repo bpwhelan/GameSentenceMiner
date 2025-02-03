@@ -12,7 +12,6 @@ from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from obs import shutdown_obs
 from src import anki
 from src import config_gui
 from src import configuration
