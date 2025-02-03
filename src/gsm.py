@@ -253,12 +253,7 @@ def exit_program(icon, item):
 
 def play_pause(icon, item):
     global obs_paused, menu
-    if obs_paused:
-        obs.start_replay_buffer()
-    else:
-        obs.stop_replay_buffer()
-
-    obs_paused = not obs_paused
+    obs.toggle_replay_buffer()
     update_icon()
 
 

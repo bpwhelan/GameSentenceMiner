@@ -113,6 +113,14 @@ def disconnect_from_obs():
         logger.info("Disconnected from OBS WebSocket.")
 
 
+def toggle_replay_buffer():
+    try:
+        client.call(requests.ToggleReplayBuffer())
+        print("Replay buffer Toggled.")
+    except Exception as e:
+        print(f"Error toggling buffer: {e}")
+
+
 # Start replay buffer
 def start_replay_buffer():
     try:
