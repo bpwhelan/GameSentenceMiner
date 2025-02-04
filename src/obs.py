@@ -22,7 +22,6 @@ def start_obs():
         return None
 
     try:
-
         # process = subprocess.Popen([obs_path], cwd=os.path.dirname(obs_path))
         # process = subprocess.Popen([obs_path, '--minimize-to-tray'], cwd=os.path.dirname(obs_path))
         process = subprocess.Popen([obs_path, '--disable-shutdown-check'], cwd=os.path.dirname(obs_path))
@@ -32,10 +31,6 @@ def start_obs():
         logger.error(f"Error launching OBS: {e}")
         return None
 
-def shutdown_obs():
-    client.call(requests.Quit())
-    print("OBS Studio is shutting down gracefully...")
-    print("OBS Studio has shut down.")
 
 def get_obs_websocket_config_values():
     if platform == "win32":

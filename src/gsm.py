@@ -27,6 +27,7 @@ from src.ffmpeg import get_audio_and_trim
 from src.gametext import get_line_timing
 from src.util import *
 
+obs_process: Popen
 procs_to_close = []
 settings_window: config_gui.ConfigApp = None
 obs_paused = False
@@ -145,12 +146,13 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 
 def initialize(reloading=False):
+    global obs_process
     if not reloading:
         if is_windows():
             download_obs_if_needed()
             download_ffmpeg_if_needed()
         if get_config().obs.enabled:
-            procs_to_close.append(obs.start_obs())
+            obs_process = obs.start_obs()
             obs.connect_to_obs(start_replay=True)
             anki.start_monitoring_anki()
         gametext.start_text_monitor()
@@ -269,6 +271,7 @@ def update_icon():
         MenuItem("Open Settings", open_settings),
         MenuItem("Open Log", open_log),
         MenuItem("Toggle Replay Buffer", play_pause),
+        MenuItem("Restart OBS", restart_obs),
         MenuItem("Switch Profile", profile_menu),
         MenuItem("Exit", exit_program)
     )
@@ -300,6 +303,7 @@ def run_tray():
         MenuItem("Open Settings", open_settings),
         MenuItem("Open Log", open_log),
         MenuItem("Toggle Replay Buffer", play_pause),
+        MenuItem("Restart OBS", restart_obs),
         MenuItem("Switch Profile", profile_menu),
         MenuItem("Exit", exit_program)
     )
@@ -307,6 +311,18 @@ def run_tray():
     icon = Icon("TrayApp", create_image(), "Game Sentence Miner", menu)
     icon.run()
 
+def close_obs():
+    if obs_process:
+        logger.info("Closing OBS")
+        obs_process.terminate()
+        obs_process.wait()
+
+def restart_obs():
+    global obs_process
+    close_obs()
+    time.sleep(2)
+    obs_process = obs.start_obs()
+    obs.connect_to_obs(start_replay=True)
 
 def cleanup():
     logger.info("Performing cleanup...")
@@ -316,6 +332,7 @@ def cleanup():
         if get_config().obs.start_buffer:
             obs.stop_replay_buffer()
     obs.disconnect_from_obs()
+
 
     proc: Popen
     for proc in procs_to_close:
