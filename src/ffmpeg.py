@@ -114,7 +114,7 @@ def get_audio_codec(video_path):
 
 def get_audio_and_trim(video_path, line_time, next_line_time):
     supported_formats = {
-        'opus': 'opus',
+        'opus': 'libopus',
         'mp3': 'libmp3lame',
         'ogg': 'libvorbis',
         'aac': 'aac',
