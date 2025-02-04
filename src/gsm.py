@@ -332,7 +332,7 @@ def cleanup():
         if get_config().obs.start_buffer:
             obs.stop_replay_buffer()
     obs.disconnect_from_obs()
-
+    close_obs()
 
     proc: Popen
     for proc in procs_to_close:
