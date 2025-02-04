@@ -12,11 +12,17 @@ from src.configuration import get_app_directory, logger
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
 def copy_obs_settings(src, dest):
+
     if os.path.exists(src):
-        logger.info(f"Copying OBS settings from {src} to {dest}...")
-        shutil.copytree(src, dest, dirs_exist_ok=True)
-        logger.info("OBS settings copied successfully.")
-        return True
+        user_input = input(f"Existng OBS install located. Do you want to copy OBS settings from {src} to {dest}? (y/n): ").strip().lower() or "y"
+        if user_input in ['y', 'yes', '1']:
+            logger.info(f"Copying OBS settings from {src} to {dest}...")
+            shutil.copytree(src, dest, dirs_exist_ok=True)
+            logger.info("OBS settings copied successfully.")
+            return True
+        else:
+            logger.info("Not copying settings!")
+            return False
     logger.warning(f"OBS settings directory {src} does not exist. Skipping copy.")
     return False
 
