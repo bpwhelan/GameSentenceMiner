@@ -6,15 +6,12 @@ import urllib.request
 
 import requests as req
 
-from . import util
-from . import ffmpeg
-from . import notification
-from . import obs
+from src import obs, util, notification, ffmpeg
 
-from .configuration import *
-from .configuration import get_config
-from .gametext import get_last_two_sentences
-from .obs import get_current_game
+from src.configuration import *
+from src.configuration import get_config
+from src.gametext import get_last_two_sentences
+from src.obs import get_current_game
 
 audio_in_anki = None
 screenshot_in_anki = None

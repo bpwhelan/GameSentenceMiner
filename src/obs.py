@@ -1,16 +1,35 @@
+import subprocess
 import time
-from sys import platform
 
 from obswebsocket import obsws, requests
 
-from . import util
-from . import configuration
-from .configuration import *
-from .model import *
+from src import util, configuration
+from src.configuration import *
+from src.model import *
 
 client: obsws = None
 
 # REFERENCE: https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md
+
+
+def get_obs_path():
+    return os.path.join(configuration.get_app_directory(), 'obs-studio/bin/64bit/obs64.exe')
+
+def start_obs():
+    obs_path = get_obs_path()
+    if not os.path.exists(obs_path):
+        logger.error(f"OBS not found at {obs_path}. Please install OBS.")
+        return None
+
+    try:
+        # process = subprocess.Popen([obs_path], cwd=os.path.dirname(obs_path))
+        # process = subprocess.Popen([obs_path, '--minimize-to-tray'], cwd=os.path.dirname(obs_path))
+        process = subprocess.Popen([obs_path, '--disable-shutdown-check'], cwd=os.path.dirname(obs_path))
+        logger.info("OBS launched")
+        return process
+    except Exception as e:
+        logger.error(f"Error launching OBS: {e}")
+        return None
 
 
 def get_obs_websocket_config_values():
@@ -89,6 +108,14 @@ def disconnect_from_obs():
         logger.info("Disconnected from OBS WebSocket.")
 
 
+def toggle_replay_buffer():
+    try:
+        client.call(requests.ToggleReplayBuffer())
+        print("Replay buffer Toggled.")
+    except Exception as e:
+        print(f"Error toggling buffer: {e}")
+
+
 # Start replay buffer
 def start_replay_buffer():
     try:
@@ -110,7 +137,12 @@ def stop_replay_buffer():
 # Save the current replay buffer
 def save_replay_buffer():
     try:
-        client.call(requests.SaveReplayBuffer())
+        replay_buffer_started = client.call(requests.GetReplayBufferStatus()).datain['outputActive']
+        if replay_buffer_started:
+            client.call(requests.SaveReplayBuffer())
+            logger.info("Replay buffer saved.")
+        else:
+            logger.error("Replay Buffer is not active, could not save Replay Buffer!")
     except Exception as e:
         print(f"Error saving replay buffer: {e}")
 
@@ -138,7 +170,8 @@ def get_source_from_scene(scene_name):
 
 def get_screenshot():
     try:
-        screenshot = util.make_unique_file_name(os.path.abspath(configuration.get_temporary_directory()) + '/screenshot.png')
+        screenshot = util.make_unique_file_name(os.path.abspath(
+            configuration.get_temporary_directory()) + '/screenshot.png')
         update_current_game()
         current_source = get_source_from_scene(get_current_game())
         current_source_name = current_source.sourceName

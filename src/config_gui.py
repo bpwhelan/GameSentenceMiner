@@ -3,10 +3,9 @@ from tkinter import filedialog, messagebox, simpledialog
 
 import ttkbootstrap as ttk
 
-from .package_updater import check_for_updates, get_latest_version, update, get_current_version
-from . import configuration
-from . import obs
-from .configuration import *
+from src.package_updater import check_for_updates, get_latest_version, update, get_current_version
+from src import obs, configuration
+from src.configuration import *
 
 settings_saved = False
 on_save = []

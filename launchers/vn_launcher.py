@@ -6,8 +6,7 @@ from dataclasses import dataclass
 
 import psutil
 
-from src import GameSentenceMiner
-from src.GameSentenceMiner import util
+from src import GameSentenceMiner, util
 
 # from steam_launcher import is_game_process_running
 vn_path = r"E:\Japanese Stuff\Visual Novels\Nanairo Reincarnation\nanarin\nanairo_uncen.exe"

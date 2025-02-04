@@ -1,9 +1,8 @@
-import os
-import shutil
 import signal
+import subprocess
 import sys
-import tempfile
 import time
+from subprocess import Popen
 
 import keyboard
 import psutil
@@ -13,21 +12,23 @@ from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from . import anki
-from . import config_gui
-from . import configuration
-from . import ffmpeg
-from . import gametext
-from . import notification
-from . import obs
-from . import util
-from .vad import vosk_helper, silero_trim, whisper_helper
-from .configuration import *
-from .ffmpeg import get_audio_and_trim
-from .gametext import get_line_timing
-from .util import *
+from src import anki
+from src import config_gui
+from src import configuration
+from src import ffmpeg
+from src import gametext
+from src import notification
+from src import obs
+from src import util
+from src.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
+from src.vad import vosk_helper, silero_trim, whisper_helper
+from src.configuration import *
+from src.ffmpeg import get_audio_and_trim
+from src.gametext import get_line_timing
+from src.util import *
 
-config_pids = []
+obs_process: Popen
+procs_to_close = []
 settings_window: config_gui.ConfigApp = None
 obs_paused = False
 icon: Icon
@@ -36,7 +37,7 @@ menu: Menu
 
 class VideoToAudioHandler(FileSystemEventHandler):
     def on_created(self, event):
-        if event.is_directory or "Replay" not in event.src_path:
+        if event.is_directory or ("Replay" not in event.src_path and "GSM" not in event.src_path):
             return
         if event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):  # Adjust based on your OBS output format
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
@@ -113,8 +114,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
         trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
         vad_trimmed_audio = make_unique_file_name(
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
-        final_audio_output = make_unique_file_name(
-            f"{get_config().paths.audio_destination}{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
+        final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination, f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
         should_update_audio = True
         if get_config().vad.do_vad_postprocessing:
             match get_config().vad.selected_vad_model:
@@ -146,20 +146,19 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 
 def initialize(reloading=False):
+    global obs_process
     if not reloading:
+        if is_windows():
+            download_obs_if_needed()
+            download_ffmpeg_if_needed()
         if get_config().obs.enabled:
+            obs_process = obs.start_obs()
             obs.connect_to_obs(start_replay=True)
             anki.start_monitoring_anki()
-        if get_config().general.open_config_on_startup:
-            proc = subprocess.Popen([sys.executable, "config_gui.py"])
-            config_pids.append(proc.pid)
         gametext.start_text_monitor()
-        if not os.path.exists(get_config().paths.folder_to_watch):
-            os.mkdir(get_config().paths.folder_to_watch)
-        if not os.path.exists(get_config().paths.screenshot_destination):
-            os.mkdir(get_config().paths.screenshot_destination)
-        if not os.path.exists(get_config().paths.audio_destination):
-            os.mkdir(get_config().paths.audio_destination)
+        os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
+        os.makedirs(get_config().paths.screenshot_destination, exist_ok=True)
+        os.makedirs(get_config().paths.audio_destination, exist_ok=True)
     if get_config().vad.do_vad_postprocessing:
         if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
             vosk_helper.get_vosk_model()
@@ -231,7 +230,7 @@ def open_settings():
 def open_log():
     """Function to handle opening log."""
     """Open log file with the default application."""
-    log_file_path = "../../gamesentenceminer.log"
+    log_file_path = get_log_path()
     if not os.path.exists(log_file_path):
         print("Log file not found!")
         return
@@ -256,16 +255,8 @@ def exit_program(icon, item):
 
 def play_pause(icon, item):
     global obs_paused, menu
-    if obs_paused:
-        obs.start_replay_buffer()
-    else:
-        obs.stop_replay_buffer()
-
-    obs_paused = not obs_paused
+    obs.toggle_replay_buffer()
     update_icon()
-
-def get_obs_icon_text():
-    return "Pause OBS" if obs_paused else "Resume OBS"
 
 
 def update_icon():
@@ -279,7 +270,8 @@ def update_icon():
     menu = Menu(
         MenuItem("Open Settings", open_settings),
         MenuItem("Open Log", open_log),
-        MenuItem(get_obs_icon_text(), play_pause),
+        MenuItem("Toggle Replay Buffer", play_pause),
+        MenuItem("Restart OBS", restart_obs),
         MenuItem("Switch Profile", profile_menu),
         MenuItem("Exit", exit_program)
     )
@@ -310,7 +302,8 @@ def run_tray():
     menu = Menu(
         MenuItem("Open Settings", open_settings),
         MenuItem("Open Log", open_log),
-        MenuItem(get_obs_icon_text(), play_pause),
+        MenuItem("Toggle Replay Buffer", play_pause),
+        MenuItem("Restart OBS", restart_obs),
         MenuItem("Switch Profile", profile_menu),
         MenuItem("Exit", exit_program)
     )
@@ -318,24 +311,43 @@ def run_tray():
     icon = Icon("TrayApp", create_image(), "Game Sentence Miner", menu)
     icon.run()
 
+def close_obs():
+    if obs_process:
+        logger.info("Closing OBS")
+        obs_process.terminate()
+        obs_process.wait()
+
+def restart_obs():
+    global obs_process
+    close_obs()
+    time.sleep(2)
+    obs_process = obs.start_obs()
+    obs.connect_to_obs(start_replay=True)
 
 def cleanup():
     logger.info("Performing cleanup...")
     util.keep_running = False
 
-    for pid in config_pids:
-        try:
-            p = psutil.Process(pid)
-            p.terminate()  # Gracefully terminate the process
-        except psutil.NoSuchProcess:
-            logger.info("Config process already closed.")
-        except Exception as e:
-            logger.error(f"Error terminating process {pid}: {e}")
-
     if get_config().obs.enabled:
         if get_config().obs.start_buffer:
             obs.stop_replay_buffer()
-        obs.disconnect_from_obs()
+    obs.disconnect_from_obs()
+    close_obs()
+
+    proc: Popen
+    for proc in procs_to_close:
+        try:
+            logger.info(f"Terminating process {proc.args[0]}")
+            proc.terminate()
+            proc.wait()  # Wait for OBS to fully close
+            logger.info(f"Process {proc.args[0]} terminated.")
+        except psutil.NoSuchProcess:
+            logger.info("PID already closed.")
+        except Exception as e:
+            proc.kill()
+            logger.error(f"Error terminating process {proc}: {e}")
+
+
     settings_window.window.destroy()
     logger.info("Cleanup complete.")
 
@@ -354,8 +366,8 @@ def handle_exit():
 def main(reloading=False, do_config_input=True):
     global settings_window
     logger.info("Script started.")
-    initial_checks()
     initialize(reloading)
+    initial_checks()
     event_handler = VideoToAudioHandler()
     observer = Observer()
     observer.schedule(event_handler, get_config().paths.folder_to_watch, recursive=False)
@@ -376,6 +388,8 @@ def main(reloading=False, do_config_input=True):
         settings_window = config_gui.ConfigApp()
         if get_config().general.check_for_update_on_startup:
             settings_window.window.after(0, settings_window.check_update)
+        if get_config().general.open_config_on_startup:
+            settings_window.window.after(0, settings_window.show)
         settings_window.add_save_hook(update_icon)
         settings_window.window.mainloop()
     except KeyboardInterrupt:
