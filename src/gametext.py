@@ -51,7 +51,7 @@ async def listen_websocket():
         try:
             async with websockets.connect(f'ws://{get_config().general.websocket_uri}', ping_interval=None) as websocket:
                 if reconnecting:
-                    print(f"Texthooker WebSocket connected Successfully!")
+                    logger.info(f"Texthooker WebSocket connected Successfully!")
                     reconnecting = False
                 while True:
                     message = await websocket.recv()
@@ -71,7 +71,7 @@ async def listen_websocket():
 
         except (websockets.ConnectionClosed, ConnectionError) as e:
             if not reconnecting:
-                print(f"Texthooker WebSocket connection lost: {e}. Attempting to Reconnect...")
+                logger.warning(f"Texthooker WebSocket connection lost: {e}. Attempting to Reconnect...")
             reconnecting = True
             await asyncio.sleep(5)
 

@@ -9,6 +9,8 @@ from sys import platform
 
 from rapidfuzz import process
 
+from src.configuration import logger
+
 SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
 
 # Global variables to control script execution
@@ -56,7 +58,7 @@ def get_file_modification_time(file_path):
 def get_process_id_by_title(game_title):
     powershell_command = f"Get-Process | Where-Object {{$_.MainWindowTitle -like '*{game_title}*'}} | Select-Object -First 1 -ExpandProperty Id"
     process_id = subprocess.check_output(["powershell", "-Command", powershell_command], text=True).strip()
-    print(f"Process ID for {game_title}: {process_id}")
+    logger.info(f"Process ID for {game_title}: {process_id}")
     return process_id
 
 
@@ -101,21 +103,21 @@ def find_script_for_game(game_title):
     best_script, matched_game_name, confidence = find_most_similar_script(game_title, steam_scripts)
 
     if best_script:
-        print(f"Found Script: {best_script}")
+        logger.info(f"Found Script: {best_script}")
         return best_script
     else:
-        print("No similar script found.")
+        logger.warning("No similar script found.")
 
 
 def run_agent_and_hook(pname, agent_script):
     command = f'agent --script=\"{agent_script}\" --pname={pname}'
-    print("Running and Hooking Agent!")
+    logger.info("Running and Hooking Agent!")
     try:
         dos_process = subprocess.Popen(command, shell=True)
         dos_process.wait()  # Wait for the process to complete
-        print("Agent script finished or closed.")
+        logger.info("Agent script finished or closed.")
     except Exception as e:
-        print(f"Error occurred while running agent script: {e}")
+        logger.error(f"Error occurred while running agent script: {e}")
 
     keep_running = False
 

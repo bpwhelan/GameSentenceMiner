@@ -305,13 +305,11 @@ def load_config():
                     config = ProfileConfig.from_dict(config_file)
                     new_config = Config(configs = {DEFAULT_CONFIG : config}, current_profile=DEFAULT_CONFIG)
 
-                    print(new_config)
-
                     with open(config_path, 'w') as file:
                         json.dump(new_config.to_dict(), file, indent=4)
                     return new_config
         except json.JSONDecodeError as e:
-            print(f"Error parsing config.json: {e}")
+            logger.error(f"Error parsing config.json: {e}")
             return None
     elif os.path.exists('config.toml'):
         config = ProfileConfig().load_from_toml('config.toml')
@@ -334,7 +332,7 @@ def get_config():
         config = config_instance.get_config()
 
         if config.features.backfill_audio and config.features.full_auto:
-            print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
+            logger.error("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
             exit(1)
 
     # print(config_instance.get_config())

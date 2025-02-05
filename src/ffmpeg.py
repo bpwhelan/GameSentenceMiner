@@ -9,6 +9,9 @@ from src.util import *
 def get_ffmpeg_path():
     return os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if util.is_windows() else "ffmpeg"
 
+def get_ffprobe_path():
+    return os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if util.is_windows() else "ffprobe"
+
 ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
 
 
@@ -90,7 +93,7 @@ def process_image(image_file):
 
 def get_audio_codec(video_path):
     command = [
-        "ffprobe",
+        f"{get_ffprobe_path()}",
         "-v", "error",
         "-select_streams", "a:0",
         "-show_entries", "stream=codec_name",
@@ -151,12 +154,13 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
 
 def get_video_duration(file_path):
     ffprobe_command = [
-        "ffprobe",
+        f"{get_ffprobe_path()}",
         "-v", "error",
         "-show_entries", "format=duration",
         "-of", "json",
         file_path
     ]
+    logger.debug(" ".join(ffprobe_command))
     result = subprocess.run(ffprobe_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     duration_info = json.loads(result.stdout)
     return float(duration_info["format"]["duration"])  # Return the duration in seconds

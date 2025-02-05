@@ -168,15 +168,15 @@ def get_cards_by_sentence(sentence):
     card_ids = invoke("findCards", query=query)
 
     if not card_ids:
-        print(f"Didn't find any cards matching query:\n{query}")
+        logger.warning(f"Didn't find any cards matching query:\n{query}")
         return {}
     if len(card_ids) > 1:
-        print(f'Found more than 1, and not updating cards for query: \n{query}')
+        logger.warning(f'Found more than 1, and not updating cards for query: \n{query}')
         return {}
 
     last_notes = invoke('notesInfo', notes=[card_ids[0]])[0]
 
-    print(f"Found Card to backfill!: {card_ids[0]}")
+    logger.info(f"Found Card to backfill!: {card_ids[0]}")
 
     return last_notes
 
@@ -188,7 +188,7 @@ def check_for_new_cards():
     try:
         current_note_ids = get_note_ids()
     except Exception as e:
-        print(f"Error fetching Anki notes: {e}")
+        logger.error(f"Error fetching Anki notes: {e}")
         return
     new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
@@ -205,16 +205,16 @@ def update_new_card():
 
     use_prev_audio = util.use_previous_audio
     if util.lock.locked():
-        print("Audio still being Trimmed, Card Queued!")
+        logger.info("Audio still being Trimmed, Card Queued!")
         use_prev_audio = True
     with util.lock:
-        print(f"use previous audio: {use_prev_audio}")
+        logger.info(f"use previous audio: {use_prev_audio}")
         if get_config().obs.get_game_from_scene:
             obs.update_current_game()
         if use_prev_audio:
             update_anki_card(last_card, note=get_initial_card_info(last_card), reuse_audio=True)
         else:
-            print("New card(s) detected!")
+            logger.info("New card(s) detected!")
             obs.save_replay_buffer()
 
 

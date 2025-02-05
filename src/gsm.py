@@ -100,8 +100,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     except Exception as e:
                         logger.error(f"Card failed to update! Maybe it was removed? {e}")
                 except FileNotFoundError as f:
-                    print(f)
-                    print("Something went wrong with processing, anki card not updated")
+                    logger.error("Something went wrong with processing, anki card not updated")
         except Exception as e:
             logger.error(f"Some error was hit catching to allow further work to be done: {e}", exc_info=1)
         if get_config().paths.remove_video and os.path.exists(video_path):
@@ -232,7 +231,7 @@ def open_log():
     """Open log file with the default application."""
     log_file_path = get_log_path()
     if not os.path.exists(log_file_path):
-        print("Log file not found!")
+        logger.error("Log file not found!")
         return
 
     if sys.platform.startswith("win"):  # Windows
@@ -242,13 +241,13 @@ def open_log():
     elif sys.platform.startswith("linux"):  # Linux
         subprocess.call(["xdg-open", log_file_path])
     else:
-        print("Unsupported platform!")
-    print("Log opened.")
+        logger.error("Unsupported platform!")
+    logger.info("Log opened.")
 
 
 def exit_program(icon, item):
     """Exit the application."""
-    print("Exiting...")
+    logger.info("Exiting...")
     icon.stop()
     cleanup()
 
