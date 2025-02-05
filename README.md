@@ -5,6 +5,10 @@ This project automates the recording of game sentence audio to help with Anki Ca
 This allows us to create cards from texthooker/yomitan, and automatically get screenshot and sentence audio from the
 game we are playing.
 
+Short Demo (Watch this first): https://www.youtube.com/watch?v=J2At52oWieU
+
+Installation: https://www.youtube.com/watch?v=b-L4g9tA508
+
 ## Features:
 
 - **OBS Replay Buffer**: Constantly records the last X seconds of gameplay.
