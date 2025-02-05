@@ -16,7 +16,7 @@ game we are playing.
 
 ## Prerequisites
 
-- [Python 3.11+](https://www.python.org/downloads/)
+- [Python 3.11+](https://www.python.org/downloads/release/python-3119/)
 - Important: 3.13 is [NOT supported](https://stackoverflow.com/questions/79175945/keyerror-version-installing-openai-whisper-on-python-3-13).
 
 ---
