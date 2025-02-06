@@ -18,7 +18,7 @@ This is the #1 question I get, and knowing this helps clear up a lot of misunder
 
 That's it. 
 
-There are settings in GSM that may help accomodate for a poor hook, but if you encounter wild inconsistencies in your audio, it's likely due to a poorly timed hook, or some other external factor, not GSM. I have not touched the audio trimming logic for months and it's been excellent for many many people.
+There are settings in GSM that may help accomodate for a poor hook, but if you encounter wild inconsistencies in your audio, it's likely due to a poorly timed hook, very loud BGM, or some other external factor, not GSM. I have not touched the audio trimming logic for months and it's been excellent for many many people.
 
 ## Features:
 
