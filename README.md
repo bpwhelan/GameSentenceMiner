@@ -13,7 +13,7 @@ Installation: https://www.youtube.com/watch?v=b-L4g9tA508
 
 This is the #1 question I get, and knowing this helps clear up a lot of misunderstanding on issues you may encounter while using GSM.
 
-1. The beginning of the voiceline is marked by a text event, usually this comes in the form of an event from textractor/agent, or any other texthooking engine. GSM handles both listening for clipboard copy, as well as on a websocket server (configurable in GSM).
+1. The beginning of the voiceline is marked by a text event. Usually this comes in the form of an event from textractor/agent, or any other texthooking engine. GSM handles both listening for clipboard copy, as well as on a websocket server (configurable in GSM).
 2. The end of the voiceline is found using a Voice Activation Detection (VAD) library running on your local machine. ([Example](https://github.com/snakers4/silero-vad))
 
 That's it. 
