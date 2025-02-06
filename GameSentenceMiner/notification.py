@@ -1,7 +1,7 @@
 import requests
 from plyer import notification
 
-from src.configuration import logger
+from GameSentenceMiner.configuration import logger
 
 
 def open_anki_card(note_id):

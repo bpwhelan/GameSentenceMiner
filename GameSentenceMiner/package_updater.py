@@ -5,7 +5,7 @@ import sys
 import pyperclip
 import requests
 
-from src.configuration import logger, get_app_directory
+from GameSentenceMiner.configuration import logger, get_app_directory
 
 PACKAGE_NAME = "GameSentenceMiner"
 VERSION_FILE_PATH = os.path.join(get_app_directory(), 'version.txt')

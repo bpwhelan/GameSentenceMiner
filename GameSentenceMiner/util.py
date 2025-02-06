@@ -9,7 +9,7 @@ from sys import platform
 
 from rapidfuzz import process
 
-from src.configuration import logger
+from GameSentenceMiner.configuration import logger
 
 SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
 
@@ -101,6 +101,7 @@ def find_script_for_game(game_title):
     steam_scripts = filter_steam_scripts(script_files)
 
     best_script, matched_game_name, confidence = find_most_similar_script(game_title, steam_scripts)
+
 
     if best_script:
         logger.info(f"Found Script: {best_script}")

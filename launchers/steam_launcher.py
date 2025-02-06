@@ -5,7 +5,7 @@ import time
 import psutil
 from steam_games import *
 
-from src import GameSentenceMiner
+from GameSentenceMiner import GameSentenceMiner
 
 # This looks at config.toml for current_game
 # Directory containing the scripts, Edit this.

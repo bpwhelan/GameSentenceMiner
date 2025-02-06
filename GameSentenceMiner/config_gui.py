@@ -3,9 +3,9 @@ from tkinter import filedialog, messagebox, simpledialog
 
 import ttkbootstrap as ttk
 
-from src.package_updater import check_for_updates, get_latest_version, update, get_current_version
-from src import obs, configuration
-from src.configuration import *
+from GameSentenceMiner.package_updater import check_for_updates, get_latest_version, update, get_current_version
+from GameSentenceMiner import obs, configuration
+from GameSentenceMiner.configuration import *
 
 settings_saved = False
 on_save = []

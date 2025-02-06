@@ -2,9 +2,9 @@ import subprocess
 import tempfile
 import time
 
-from src import obs, util, configuration
-from src.configuration import *
-from src.util import *
+from GameSentenceMiner import obs, util, configuration
+from GameSentenceMiner.configuration import *
+from GameSentenceMiner.util import *
 
 def get_ffmpeg_path():
     return os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if util.is_windows() else "ffmpeg"

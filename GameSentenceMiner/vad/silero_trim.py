@@ -2,8 +2,8 @@ import tempfile
 
 from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
 
-from src  import configuration, ffmpeg
-from src.configuration import *
+from GameSentenceMiner  import configuration, ffmpeg
+from GameSentenceMiner.configuration import *
 
 # Silero VAD setup
 vad_model = load_silero_vad()

@@ -33,4 +33,4 @@ launchers/steam_games.py
 /.idea
 /GameSentenceMiner.egg-info
 *.pyc
-/src/GameSentenceMiner.egg-info
+/GameSentenceMiner/GameSentenceMiner.egg-info

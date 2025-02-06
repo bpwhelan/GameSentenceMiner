@@ -7,10 +7,10 @@ from datetime import datetime
 import pyperclip
 import websockets
 
-from src import util
-from src.configuration import *
-from src.configuration import get_config, logger
-from src.util import remove_html_tags
+from GameSentenceMiner import util
+from GameSentenceMiner.configuration import *
+from GameSentenceMiner.configuration import get_config, logger
+from GameSentenceMiner.util import remove_html_tags
 from difflib import SequenceMatcher
 
 

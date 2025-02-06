@@ -7,8 +7,8 @@ import requests
 import soundfile as sf
 import vosk
 
-from src  import configuration, ffmpeg
-from src.configuration import *
+from GameSentenceMiner  import configuration, ffmpeg
+from GameSentenceMiner.configuration import *
 
 ffmpeg_base_command_list = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
 vosk.SetLogLevel(-1)

@@ -12,20 +12,20 @@ from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from src import anki
-from src import config_gui
-from src import configuration
-from src import ffmpeg
-from src import gametext
-from src import notification
-from src import obs
-from src import util
-from src.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
-from src.vad import vosk_helper, silero_trim, whisper_helper
-from src.configuration import *
-from src.ffmpeg import get_audio_and_trim
-from src.gametext import get_line_timing
-from src.util import *
+from GameSentenceMiner import anki
+from GameSentenceMiner import config_gui
+from GameSentenceMiner import configuration
+from GameSentenceMiner import ffmpeg
+from GameSentenceMiner import gametext
+from GameSentenceMiner import notification
+from GameSentenceMiner import obs
+from GameSentenceMiner import util
+from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
+from GameSentenceMiner.vad import vosk_helper, silero_trim, whisper_helper
+from GameSentenceMiner.configuration import *
+from GameSentenceMiner.ffmpeg import get_audio_and_trim
+from GameSentenceMiner.gametext import get_line_timing
+from GameSentenceMiner.util import *
 
 obs_process: Popen
 procs_to_close = []

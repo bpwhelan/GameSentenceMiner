@@ -6,8 +6,8 @@ import urllib.request
 import platform
 import zipfile
 
-from src.downloader.Untitled_json import scenes
-from src.configuration import get_app_directory, logger
+from GameSentenceMiner.downloader.Untitled_json import scenes
+from GameSentenceMiner.configuration import get_app_directory, logger
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 

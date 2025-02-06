@@ -3,9 +3,9 @@ import time
 
 from obswebsocket import obsws, requests
 
-from src import util, configuration
-from src.configuration import *
-from src.model import *
+from GameSentenceMiner import util, configuration
+from GameSentenceMiner.configuration import *
+from GameSentenceMiner.model import *
 
 client: obsws = None
 
@@ -33,15 +33,7 @@ def start_obs():
 
 
 def get_obs_websocket_config_values():
-    if platform == "win32":
-        config_path = os.path.expanduser(r"~\AppData\Roaming\obs-studio\plugin_config\obs-websocket\config.json")
-    elif platform == "darwin":  # macOS
-        config_path = os.path.expanduser(
-            "~/Library/Application Support/obs-studio/plugin_config/obs-websocket/config.json")
-    elif platform == "linux":
-        config_path = os.path.expanduser("~/.config/obs-studio/plugin_config/obs-websocket/config.json")
-    else:
-        raise Exception("Unsupported operating system.")
+    config_path = os.path.join(get_app_directory(), 'obs-studio', 'config', 'obs-studio', 'plugin_config', 'obs-websocket', 'config.json')
 
         # Check if config file exists
     if not os.path.isfile(config_path):
