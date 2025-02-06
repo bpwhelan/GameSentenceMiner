@@ -9,6 +9,17 @@ Short Demo (Watch this first): https://www.youtube.com/watch?v=J2At52oWieU
 
 Installation: https://www.youtube.com/watch?v=b-L4g9tA508
 
+## How Does it Work?
+
+This is the #1 question I get, and knowing this helps clear up a lot of misunderstanding on issues you may encounter while using GSM.
+
+1. The beginning of the voiceline is marked by a text event, usually this comes in the form of an event from textractor/agent, or any other texthooking engine. GSM handles both listening for clipboard copy, as well as on a websocket server (configurable in GSM).
+2. The end of the voiceline is found using a Voice Activation Detection (VAD) library running on your local machine. ([Example](https://github.com/snakers4/silero-vad))
+
+That's it. 
+
+There are settings in GSM that may help accomodate for a poor hook, but if you encounter wild inconsistencies in your audio, it's likely due to a poorly timed hook, or some other external factor, not GSM. I have not touched the audio trimming logic for months and it's been excellent for many many people.
+
 ## Features:
 
 - **OBS Replay Buffer**: Constantly records the last X seconds of gameplay.
