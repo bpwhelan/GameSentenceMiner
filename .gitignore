@@ -34,3 +34,4 @@ launchers/steam_games.py
 /GameSentenceMiner.egg-info
 *.pyc
 /GameSentenceMiner/GameSentenceMiner.egg-info
+/.venv

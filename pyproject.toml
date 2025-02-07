@@ -10,7 +10,7 @@ name = "GameSentenceMiner"
 version = "2.2.2.post1"
 description = "A tool for mining sentences from games. Update: Use ffprobe from GSM Directory"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { text = "MIT License" }
 authors = [
   { name = "Beangate", email = "bpwhelan95@gmail.com"}

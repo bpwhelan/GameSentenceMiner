@@ -79,7 +79,8 @@ def on_disconnect(obs):
 def connect_to_obs(start_replay=False):
     global client
     if get_config().obs.enabled:
-        get_obs_websocket_config_values()
+        if util.is_windows():
+            get_obs_websocket_config_values()
         client = obsws(host=get_config().obs.host, port=get_config().obs.port,
                        password=get_config().obs.password, authreconnect=1, on_connect=on_connect,
                        on_disconnect=on_disconnect)
