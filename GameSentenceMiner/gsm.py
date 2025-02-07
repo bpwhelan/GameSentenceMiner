@@ -6,7 +6,6 @@ from subprocess import Popen
 
 import keyboard
 import psutil
-import win32api
 from PIL import Image, ImageDraw
 from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
@@ -26,6 +25,9 @@ from GameSentenceMiner.configuration import *
 from GameSentenceMiner.ffmpeg import get_audio_and_trim
 from GameSentenceMiner.gametext import get_line_timing
 from GameSentenceMiner.util import *
+
+if is_windows():
+    import win32api
 
 obs_process: Popen
 procs_to_close = []
@@ -379,7 +381,8 @@ def main(reloading=False, do_config_input=True):
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
     signal.signal(signal.SIGINT, handle_exit())  # Handle Ctrl+C
-    win32api.SetConsoleCtrlHandler(handle_exit())
+    if is_windows():
+        win32api.SetConsoleCtrlHandler(handle_exit())
 
     util.run_new_thread(run_tray)
 

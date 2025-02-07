@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.2.2"
+version = "2.2.2.post1"
 description = "A tool for mining sentences from games. Update: Use ffprobe from GSM Directory"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -41,7 +41,7 @@ dependencies = [
   "dataclasses_json~=0.6.7",
   "numpy",
   "pystray",
-  "pywin32"
+  "pywin32; sys_platform == 'win32'"
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
