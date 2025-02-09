@@ -813,7 +813,7 @@ class ConfigApp:
     def add_profile(self):
         new_profile_name = simpledialog.askstring("Input", "Enter new profile name:")
         if new_profile_name:
-            self.master_config.configs[new_profile_name] = self.master_config.default_config
+            self.master_config.configs[new_profile_name] = self.master_config.get_default_config()
             self.profile_combobox['values'] = list(self.master_config.configs.keys())
             self.profile_combobox.set(new_profile_name)
             self.save_settings()

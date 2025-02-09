@@ -249,6 +249,9 @@ class Config:
     def get_all_profile_names(self):
         return list(self.configs.keys())
 
+    def get_default_config(self):
+        return self.configs[DEFAULT_CONFIG]
+
 
 def get_app_directory():
     if platform == 'win32':  # Windows

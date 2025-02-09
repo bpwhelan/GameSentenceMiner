@@ -89,22 +89,19 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     should_update_audio = False
                     vad_trimmed_audio = ""
                     logger.info("No SentenceAudio Field in config, skipping audio processing!")
-                try:
                     # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
-                    try:
-                        if get_config().anki.update_anki and last_note:
-                            anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
-                                                  tango=tango,
-                                                  should_update_audio=should_update_audio,
-                                                  ss_time=ss_timing)
-                        elif get_config().features.notify_on_update and should_update_audio:
-                            notification.send_audio_generated_notification(vad_trimmed_audio)
-                    except Exception as e:
-                        logger.error(f"Card failed to update! Maybe it was removed? {e}")
-                except FileNotFoundError as f:
-                    logger.error("Something went wrong with processing, anki card not updated")
+                try:
+                    if get_config().anki.update_anki and last_note:
+                        anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
+                                              tango=tango,
+                                              should_update_audio=should_update_audio,
+                                              ss_time=ss_timing)
+                    elif get_config().features.notify_on_update and should_update_audio:
+                        notification.send_audio_generated_notification(vad_trimmed_audio)
+                except Exception as e:
+                    logger.exception(f"Card failed to update! Maybe it was removed? {e}")
         except Exception as e:
-            logger.error(f"Some error was hit catching to allow further work to be done: {e}", exc_info=1)
+            logger.exception(f"Some error was hit catching to allow further work to be done: {e}")
         if get_config().paths.remove_video and os.path.exists(video_path):
             os.remove(video_path)  # Optionally remove the video after conversion
         if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
