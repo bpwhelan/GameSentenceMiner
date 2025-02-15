@@ -112,7 +112,7 @@ def get_line_timing(last_note):
         if sentence:
             for i, (line, clip_time) in enumerate(reversed(line_history.items())):
                 similarity = similar(remove_html_tags(sentence), line)
-                if similarity >= 0.60:  # 80% similarity threshold
+                if similarity >= 0.60 or line in remove_html_tags(sentence):  # 80% similarity threshold
                     line_time = clip_time
                     next_line = prev_clip_time
                     break
@@ -123,6 +123,35 @@ def get_line_timing(last_note):
     return line_time, next_line
 
 
-def get_last_two_sentences():
+def get_last_two_sentences(last_note):
+    def similar(a, b):
+        return SequenceMatcher(None, a, b).ratio()
     lines = list(line_history.items())
-    return lines[-1][0] if lines else '', lines[-2][0] if len(lines) > 1 else ''
+
+    if not last_note:
+        return lines[-1][0] if lines else '', lines[-2][0] if len(lines) > 1 else ''
+
+    current_line = ""
+    prev_line = ""
+
+    sentence = last_note['fields'][get_config().anki.sentence_field]['value']
+    if sentence:
+        found = False
+        for i, (line, clip_time) in enumerate(reversed(lines)):
+            similarity = similar(remove_html_tags(sentence), line)
+            logger.debug(f"Comparing: {remove_html_tags(sentence)} with {line} - Similarity: {similarity}")
+            if found:
+                prev_line = line
+                break
+            if similarity >= 0.60 or line in remove_html_tags(sentence):  # 80% similarity threshold
+                found = True
+                current_line = line
+
+    logger.debug(f"Current Line: {current_line}")
+    logger.debug(f"Previous Line: {prev_line}")
+
+    if not current_line or not prev_line:
+        logger.debug("Couldn't find lines in history, using last two lines")
+        return lines[-1][0] if lines else '', lines[-2][0] if len(lines) > 1 else ''
+
+    return current_line, prev_line

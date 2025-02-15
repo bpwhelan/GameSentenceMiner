@@ -107,7 +107,7 @@ def get_initial_card_info(last_note):
     note = {'id': last_note['noteId'], 'fields': {}}
     if not last_note:
         return note
-    current_line, previous_line = get_last_two_sentences()
+    current_line, previous_line = get_last_two_sentences(last_note)
     logger.debug(f"Previous Sentence {previous_line}")
     logger.debug(f"Current Sentence {current_line}")
     util.use_previous_audio = True
@@ -200,7 +200,6 @@ def check_for_new_cards():
 def update_new_card():
     last_card = get_last_anki_card()
     if not check_tags_for_should_update(last_card):
-        logger.info("Card not tagged properly! Not updating!")
         return
 
     use_prev_audio = util.use_previous_audio
@@ -222,11 +221,11 @@ def check_tags_for_should_update(last_card):
     if get_config().anki.tags_to_check:
         found = False
         for tag in last_card['tags']:
-            logger.info(tag)
-            logger.info(get_config().anki.tags_to_check)
             if tag.lower() in get_config().anki.tags_to_check:
                 found = True
                 break
+        if not found:
+            logger.info(f"Card not tagged properly! Not updating! Note Tags: {last_card['tags']}, Tags_To_Check {get_config().anki.tags_to_check}")
         return found
     else:
         return True

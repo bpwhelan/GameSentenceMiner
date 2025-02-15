@@ -1,14 +1,16 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 
+import pyperclip
 import ttkbootstrap as ttk
 
-from GameSentenceMiner.package_updater import check_for_updates, get_latest_version, update, get_current_version
+from GameSentenceMiner.package_updater import check_for_updates, get_latest_version, get_current_version
 from GameSentenceMiner import obs, configuration
 from GameSentenceMiner.configuration import *
 
 settings_saved = False
 on_save = []
+exit_func = None
 
 
 def new_tab(func):
@@ -45,6 +47,7 @@ class HoverInfoWidget:
             self.tooltip = None
 
 
+
 class ConfigApp:
     def __init__(self):
         self.window = ttk.Window(themename='darkly')
@@ -75,7 +78,12 @@ class ConfigApp:
 
         self.window.withdraw()
 
+    def add_save_hook(self, func):
+        on_save.append(func)
 
+    def add_exit_hook(self, func):
+        global exit_func
+        exit_func = func
 
     def show(self):
         obs.update_current_game()
@@ -93,9 +101,8 @@ class ConfigApp:
         update_available, version = check_for_updates()
         if update_available:
             messagebox.showinfo("Update", "GSM Will Copy the Update Command to your clipboard, please run it in a terminal.")
-            success = update()
-            if not success:
-                messagebox.showinfo("Update Unsuccessful", "Couldn't Start Update, please update manually.")
+            pyperclip.copy("pip install --upgrade GameSentenceMiner")
+            exit_func(None, None)
         else:
             messagebox.showinfo("No Update Found", "No update found.")
 
@@ -108,9 +115,6 @@ class ConfigApp:
                 self.update_now()
         elif show_no_update:
             messagebox.showinfo("No Update Found", "No update found.")
-
-    def add_save_hook(self, func):
-        on_save.append(func)
 
     def save_settings(self, profile_change=False):
         global settings_saved
@@ -139,6 +143,7 @@ class ConfigApp:
                 picture_field=self.picture_field.get(),
                 word_field=self.word_field.get(),
                 previous_sentence_field=self.previous_sentence_field.get(),
+                previous_image_field=self.previous_image_field.get(),
                 custom_tags=[tag.strip() for tag in self.custom_tags.get().split(',') if tag.strip()],
                 tags_to_check=[tag.strip().lower() for tag in self.tags_to_check.get().split(',') if tag.strip()],
                 add_game_tag=self.add_game_tag.get(),
@@ -473,6 +478,15 @@ class ConfigApp:
         self.previous_sentence_field.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame,
                                          "Field in Anki for the previous line of dialogue. If Empty, will not populate",
+                                         row=self.current_row,
+                                         column=2)
+
+        ttk.Label(anki_frame, text="Previous Image Field:").grid(row=self.current_row, column=0, sticky='W')
+        self.previous_image_field = ttk.Entry(anki_frame)
+        self.previous_image_field.insert(0, self.settings.anki.previous_image_field)
+        self.previous_image_field.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(anki_frame,
+                                         "Field in Anki for the image line of previous Image. If Empty, will not populate",
                                          row=self.current_row,
                                          column=2)
 
