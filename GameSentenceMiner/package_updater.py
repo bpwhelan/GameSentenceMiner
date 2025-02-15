@@ -39,11 +39,3 @@ def check_for_updates(force=False):
             return False, latest_version
     except Exception as e:
         logger.error(f"Error checking for updates: {e}")
-
-def update():
-    try:
-        pyperclip.copy("pip install --upgrade GameSentenceMiner")
-        exit()
-    except Exception as e:
-        logger.error(f"Error updating {PACKAGE_NAME}: {e}")
-    return False

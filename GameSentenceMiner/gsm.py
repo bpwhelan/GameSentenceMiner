@@ -29,7 +29,7 @@ from GameSentenceMiner.util import *
 if is_windows():
     import win32api
 
-obs_process: Popen
+obs_process: Popen = None
 procs_to_close = []
 settings_window: config_gui.ConfigApp = None
 obs_paused = False
@@ -317,10 +317,11 @@ def close_obs():
 
 def restart_obs():
     global obs_process
-    close_obs()
-    time.sleep(2)
-    obs_process = obs.start_obs()
-    obs.connect_to_obs(start_replay=True)
+    if obs_process:
+        close_obs()
+        time.sleep(2)
+        obs_process = obs.start_obs()
+        obs.connect_to_obs(start_replay=True)
 
 def cleanup():
     logger.info("Performing cleanup...")
@@ -390,6 +391,7 @@ def main(reloading=False, do_config_input=True):
         if get_config().general.open_config_on_startup:
             settings_window.window.after(0, settings_window.show)
         settings_window.add_save_hook(update_icon)
+        settings_window.on_exit = exit_program
         settings_window.window.mainloop()
     except KeyboardInterrupt:
         cleanup()

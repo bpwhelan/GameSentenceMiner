@@ -64,6 +64,7 @@ class Anki:
     picture_field: str = "Picture"
     word_field: str = 'Word'
     previous_sentence_field: str = ''
+    previous_image_field: str = ''
     custom_tags: List[str] = None  # Initialize to None and set it in __post_init__
     tags_to_check: List[str] = None
     add_game_tag: bool = True
