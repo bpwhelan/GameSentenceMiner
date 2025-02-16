@@ -63,14 +63,14 @@ class TextCheckboxApp:
             chk.pack(anchor='w')
             self.checkboxes.append(chk)
 
-    def update_multi_mine_window(self):
-        for widget in self.multi_mine_window.winfo_children():
-            widget.destroy()
-
-        for i, (text, var, time) in enumerate(self.items):
-            time: datetime
-            chk = ttk.Checkbutton(self.frame, text=f"{time.strftime('%H:%M:%S')} - {text}", variable=var)
-            chk.pack(anchor='w')
+    # def update_multi_mine_window(self):
+    #     for widget in self.multi_mine_window.winfo_children():
+    #         widget.destroy()
+    #
+    #     for i, (text, var, time) in enumerate(self.items):
+    #         time: datetime
+    #         chk = ttk.Checkbutton(self.checkbox_frame, text=f"{time.strftime('%H:%M:%S')} - {text}", variable=var)
+    #         chk.pack(anchor='w')
 
     def get_selected_lines(self):
         filtered_items = [text for text, var, _ in self.items if var.get()]
@@ -117,7 +117,8 @@ class TextCheckboxApp:
         for _, var, _ in self.items:
             var.set(False)
         if self.multi_mine_window:
-            self.update_multi_mine_window()
+            for checkbox in self.checkboxes:
+                checkbox.set(False)
 
 
 if __name__ == "__main__":
