@@ -10,40 +10,66 @@ class TextCheckboxApp:
         self.root = root
 
         self.items = []
+        self.checkboxes = []
         self.multi_mine_window = None  # Store the multi-mine window reference
+        self.checkbox_frame = None
 
         style = ttk.Style()
         style.configure("TCheckbutton", font=("Arial", 20))  # Change the font and size
 
+    # def show(self):
+    #     if self.multi_mine_window is None or not tk.Toplevel.winfo_exists(self.multi_mine_window):
+    #         self.multi_mine_window = tk.Toplevel(self.root)
+    #         self.multi_mine_window.title("Multi-Mine Window")
+    #         self.update_multi_mine_window()
+    #
+    def show(self):
+        """ Open the multi-mine window only if it doesn't exist. """
+        if not self.multi_mine_window or not tk.Toplevel.winfo_exists(self.multi_mine_window):
+            logger.info("opening multi-mine_window")
+            self.multi_mine_window = tk.Toplevel(self.root)
+            self.multi_mine_window.title("Multi Mine Window")
+
+            self.multi_mine_window.minsize(800, 400)  # Set a minimum size to prevent shrinking too
+
+            self.checkbox_frame = ttk.Frame(self.multi_mine_window)
+            self.checkbox_frame.pack(padx=10, pady=10, fill="both", expand=True)
+
+            # Add existing items
+            for text, var, time in self.items:
+                self.add_checkbox_to_gui(text, var, time)
+        else:
+            self.multi_mine_window.deiconify()
+            self.multi_mine_window.lift()
 
     def add_text(self, text, time):
         if text:
             var = tk.BooleanVar()
-            # var.trace_add("write", self.validate_checkboxes)
             self.items.append((text, var, time))
-            if self.multi_mine_window and tk.Toplevel.winfo_exists(self.multi_mine_window):
-                self.update_multi_mine_window()
 
-    def show(self):
-        if self.multi_mine_window is None or not tk.Toplevel.winfo_exists(self.multi_mine_window):
-            self.multi_mine_window = tk.Toplevel(self.root)
-            self.multi_mine_window.title("Multi-Mine Window")
-            self.update_multi_mine_window()
-        else:
-            self.update_multi_mine_window()
-            self.multi_mine_window.deiconify()
-            self.multi_mine_window.lift()
+            # Remove the first checkbox if there are more than 10
+            if len(self.items) > 10:
+                self.checkboxes[0].destroy()
+                self.checkboxes.pop(0)
+                self.items.pop(0)
+
+            if self.multi_mine_window and tk.Toplevel.winfo_exists(self.multi_mine_window):
+                self.add_checkbox_to_gui(text, var, time)
+
+    def add_checkbox_to_gui(self, text, var, time):
+        """ Add a single checkbox without repainting everything. """
+        if self.checkbox_frame:
+            chk = ttk.Checkbutton(self.checkbox_frame, text=f"{time.strftime('%H:%M:%S')} - {text}", variable=var)
+            chk.pack(anchor='w')
+            self.checkboxes.append(chk)
 
     def update_multi_mine_window(self):
         for widget in self.multi_mine_window.winfo_children():
             widget.destroy()
 
-        frame = ttk.Frame(self.multi_mine_window)
-        frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
-
         for i, (text, var, time) in enumerate(self.items):
             time: datetime
-            chk = ttk.Checkbutton(frame, text=f"{time.strftime('%H:%M:%S')} - {text}", variable=var)
+            chk = ttk.Checkbutton(self.frame, text=f"{time.strftime('%H:%M:%S')} - {text}", variable=var)
             chk.pack(anchor='w')
 
     def get_selected_lines(self):

@@ -182,6 +182,7 @@ def initial_checks():
 def register_hotkeys():
     keyboard.add_hotkey(get_config().hotkeys.reset_line, gametext.reset_line_hotkey_pressed)
     keyboard.add_hotkey(get_config().hotkeys.take_screenshot, get_screenshot)
+    keyboard.add_hotkey('ctrl+m', open_multimine)
 
 
 def get_screenshot():
