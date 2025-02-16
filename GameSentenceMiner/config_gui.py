@@ -49,8 +49,9 @@ class HoverInfoWidget:
 
 
 class ConfigApp:
-    def __init__(self):
-        self.window = ttk.Window(themename='darkly')
+    def __init__(self, root):
+        self.window = root
+        # self.window = ttk.Window(themename='darkly')
         self.window.title('GameSentenceMiner Configuration')
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
 

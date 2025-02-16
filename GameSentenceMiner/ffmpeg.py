@@ -192,7 +192,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_l
         end_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
         ffmpeg_command.extend(['-to', end_trim_time])
         logger.info(
-            f"Looks like Clipboard/Websocket was modified before the script knew about the anki card! Trimming end of video to {end_trim_time}")
+            f"Looks Like this is mining from History, or Multiple Lines were selected Trimming end of audio to {end_trim_time}")
 
     ffmpeg_command.extend([
         "-c", "copy",  # Using copy to avoid re-encoding, adjust if needed

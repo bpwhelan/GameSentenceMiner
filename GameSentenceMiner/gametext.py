@@ -3,6 +3,7 @@ import threading
 import time
 from collections import OrderedDict
 from datetime import datetime
+from typing import Callable
 
 import pyperclip
 import websockets
@@ -14,11 +15,12 @@ from GameSentenceMiner.util import remove_html_tags
 from difflib import SequenceMatcher
 
 
-previous_line = ''
-previous_line_time = datetime.now()
+current_line = ''
+current_line_time = datetime.now()
 
 line_history = OrderedDict()
 reconnecting = False
+multi_mine_event_bus: Callable[[str, datetime], None] = None
 
 
 class ClipboardMonitor(threading.Thread):
@@ -28,25 +30,27 @@ class ClipboardMonitor(threading.Thread):
         self.daemon = True
 
     def run(self):
-        global previous_line_time, previous_line, line_history
+        global current_line_time, current_line, line_history
 
         # Initial clipboard content
-        previous_line = pyperclip.paste()
+        current_line = pyperclip.paste()
 
         while True:
             current_clipboard = pyperclip.paste()
 
-            if current_clipboard != previous_line:
-                previous_line = current_clipboard
-                previous_line_time = datetime.now()
-                line_history[previous_line] = previous_line_time
+            if current_clipboard != current_line:
+                current_line = current_clipboard
+                current_line_time = datetime.now()
+                line_history[current_line] = current_line_time
                 util.use_previous_audio = False
+                multi_mine_event_bus(current_clipboard, current_line_time)
+                logger.debug(f"New Line: {current_clipboard}")
 
             time.sleep(0.05)
 
 
 async def listen_websocket():
-    global previous_line, previous_line_time, line_history, reconnecting
+    global current_line, current_line_time, line_history, reconnecting
     while True:
         try:
             async with websockets.connect(f'ws://{get_config().general.websocket_uri}', ping_interval=None) as websocket:
@@ -63,12 +67,13 @@ async def listen_websocket():
                     except json.JSONDecodeError:
                         current_clipboard = message
 
-                    if current_clipboard != previous_line:
-                        previous_line = current_clipboard
-                        previous_line_time = datetime.now()
-                        line_history[previous_line] = previous_line_time
+                    if current_clipboard != current_line:
+                        current_line = current_clipboard
+                        current_line_time = datetime.now()
+                        line_history[current_line] = current_line_time
                         util.use_previous_audio = False
-
+                        multi_mine_event_bus(current_clipboard, current_line_time)
+                        logger.debug(f"New Line: {current_clipboard}")
         except (websockets.ConnectionClosed, ConnectionError) as e:
             if not reconnecting:
                 logger.warning(f"Texthooker WebSocket connection lost: {e}. Attempting to Reconnect...")
@@ -77,10 +82,10 @@ async def listen_websocket():
 
 
 def reset_line_hotkey_pressed():
-    global previous_line_time
+    global current_line_time
     logger.info("LINE RESET HOTKEY PRESSED")
-    previous_line_time = datetime.now()
-    line_history[previous_line] = previous_line_time
+    current_line_time = datetime.now()
+    line_history[current_line] = current_line_time
     util.use_previous_audio = False
 
 
@@ -88,7 +93,9 @@ def run_websocket_listener():
     asyncio.run(listen_websocket())
 
 
-def start_text_monitor():
+def start_text_monitor(send_to_mine_event_bus):
+    global multi_mine_event_bus
+    multi_mine_event_bus = send_to_mine_event_bus
     if get_config().general.use_websocket:
         text_thread = threading.Thread(target=run_websocket_listener, daemon=True)
     else:
@@ -101,9 +108,9 @@ def get_line_timing(last_note):
         return SequenceMatcher(None, a, b).ratio()
 
     if not last_note:
-        return previous_line_time, 0
+        return current_line_time, 0
 
-    line_time = previous_line_time
+    line_time = current_line_time
     next_line = 0
     prev_clip_time = 0
 
