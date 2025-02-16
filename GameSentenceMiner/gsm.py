@@ -12,7 +12,7 @@ from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-import multi_mine_gui
+from GameSentenceMiner import utility_gui
 from GameSentenceMiner import anki
 from GameSentenceMiner import config_gui
 from GameSentenceMiner import configuration
@@ -34,7 +34,7 @@ if is_windows():
 obs_process: Popen = None
 procs_to_close = []
 settings_window: config_gui.ConfigApp = None
-multi_mine_window: multi_mine_gui.TextCheckboxApp = None
+utility_window: utility_gui.UtilityApp = None
 obs_paused = False
 icon: Icon
 menu: Menu
@@ -72,15 +72,15 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 if get_config().features.backfill_audio:
                     last_note = anki.get_cards_by_sentence(gametext.current_line)
                 line_time, next_line_time = get_line_timing(last_note)
-                if multi_mine_window.lines_selected():
-                    line_time, next_line_time = multi_mine_window.get_selected_times()
+                if utility_window.lines_selected():
+                    line_time, next_line_time = utility_window.get_selected_times()
                 ss_timing = 0
                 if line_time and next_line_time:
                     ss_timing = ffmpeg.get_screenshot_time(video_path, line_time)
                 if last_note:
                     logger.debug(json.dumps(last_note))
 
-                note = anki.get_initial_card_info(last_note)
+                note = anki.get_initial_card_info(last_note, utility_window.get_selected_lines())
 
                 tango = last_note['fields'][get_config().anki.word_field]['value'] if last_note else ''
 
@@ -112,7 +112,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             os.remove(video_path)  # Optionally remove the video after conversion
         if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
             os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
-        multi_mine_window.reset_checkboxes()
+        utility_window.reset_checkboxes()
 
     @staticmethod
     def get_audio(line_time, next_line_time, video_path):
@@ -160,7 +160,7 @@ def initialize(reloading=False):
             obs_process = obs.start_obs()
             obs.connect_to_obs(start_replay=True)
             anki.start_monitoring_anki()
-        gametext.start_text_monitor(multi_mine_window.add_text)
+        gametext.start_text_monitor(utility_window.add_text)
         os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
         os.makedirs(get_config().paths.screenshot_destination, exist_ok=True)
         os.makedirs(get_config().paths.audio_destination, exist_ok=True)
@@ -233,7 +233,7 @@ def open_settings():
 
 def open_multimine():
     obs.update_current_game()
-    multi_mine_window.show()
+    utility_window.show()
 
 
 def open_log():
@@ -376,11 +376,11 @@ def handle_exit():
 
 
 def main(reloading=False, do_config_input=True):
-    global root, settings_window, multi_mine_window
+    global root, settings_window, utility_window
     logger.info("Script started.")
     root = ttk.Window(themename='darkly')
     settings_window = config_gui.ConfigApp(root)
-    multi_mine_window = multi_mine_gui.TextCheckboxApp(root)
+    utility_window = utility_gui.UtilityApp(root)
     initialize(reloading)
     initial_checks()
     event_handler = VideoToAudioHandler()

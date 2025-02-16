@@ -1,11 +1,10 @@
 import tkinter as tk
-from datetime import datetime
-from tkinter import ttk, messagebox
+from tkinter import ttk
 
 from GameSentenceMiner.configuration import logger
 
 
-class TextCheckboxApp:
+class UtilityApp:
     def __init__(self, root):
         self.root = root
 
@@ -63,6 +62,7 @@ class TextCheckboxApp:
             chk.pack(anchor='w')
             self.checkboxes.append(chk)
 
+
     # def update_multi_mine_window(self):
     #     for widget in self.multi_mine_window.winfo_children():
     #         widget.destroy()
@@ -116,12 +116,12 @@ class TextCheckboxApp:
     def reset_checkboxes(self):
         for _, var, _ in self.items:
             var.set(False)
-        if self.multi_mine_window:
-            for checkbox in self.checkboxes:
-                checkbox.set(False)
+        # if self.multi_mine_window:
+        #     for checkbox in self.checkboxes:
+        #         checkbox.set(False)
 
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = TextCheckboxApp(root)
+    app = UtilityApp(root)
     root.mainloop()

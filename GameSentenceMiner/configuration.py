@@ -41,6 +41,7 @@ class General:
     websocket_uri: str = 'localhost:6677'
     open_config_on_startup: bool = False
     check_for_update_on_startup: bool = False
+    texthook_replacement_regex: str = ""
 
 
 @dataclass_json
@@ -71,6 +72,7 @@ class Anki:
     polling_rate: int = 200
     overwrite_audio: bool = False
     overwrite_picture: bool = True
+    multi_overwrites_sentence: bool = True
     anki_custom_fields: Dict[str, str] = None  # Initialize to None and set it in __post_init__
 
     def __post_init__(self):
@@ -112,6 +114,7 @@ class Audio:
     ffmpeg_reencode_options: str = ''
     external_tool: str = ""
     anki_media_collection: str = ""
+    mining_from_history_grab_all_audio: bool = False
 
 
 @dataclass_json
