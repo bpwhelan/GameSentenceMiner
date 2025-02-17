@@ -9,7 +9,6 @@ from typing import Callable
 import pyperclip
 import websockets
 
-from GameSentenceMiner import util
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config, logger
 from GameSentenceMiner.util import remove_html_tags
@@ -80,7 +79,6 @@ def handle_new_text_event(current_clipboard):
         current_line_after_regex = current_line
     current_line_time = datetime.now()
     line_history[current_line_after_regex] = current_line_time
-    util.use_previous_audio = False
     multi_mine_event_bus(current_line_after_regex, current_line_time)
     logger.debug(f"New Line: {current_clipboard}")
 
@@ -90,7 +88,6 @@ def reset_line_hotkey_pressed():
     logger.info("LINE RESET HOTKEY PRESSED")
     current_line_time = datetime.now()
     line_history[current_line_after_regex] = current_line_time
-    util.use_previous_audio = False
 
 
 def run_websocket_listener():

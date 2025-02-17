@@ -14,10 +14,16 @@ from GameSentenceMiner.configuration import logger
 SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
 
 # Global variables to control script execution
-use_previous_audio = False
 keep_running = True
 lock = threading.Lock()
+last_mined_line = None
 
+def get_last_mined_line():
+    return last_mined_line
+
+def set_last_mined_line(line):
+    global last_mined_line
+    last_mined_line = line
 
 def run_new_thread(func):
     thread = threading.Thread(target=func, daemon=True)

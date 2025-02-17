@@ -12,6 +12,7 @@ from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
 from GameSentenceMiner.gametext import get_last_two_sentences
 from GameSentenceMiner.obs import get_current_game
+from util import remove_html_tags
 
 audio_in_anki = None
 screenshot_in_anki = None
@@ -69,6 +70,8 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
     if get_config().features.open_anki_edit:
         notification.open_anki_card(last_note['noteId'])
 
+    util.set_last_mined_line(get_sentence(last_note))
+
     if get_config().audio.external_tool:
         open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
 
@@ -110,12 +113,9 @@ def get_initial_card_info(last_note, selected_lines):
     current_line, previous_line = get_last_two_sentences(last_note)
     logger.debug(f"Previous Sentence {previous_line}")
     logger.debug(f"Current Sentence {current_line}")
-    util.use_previous_audio = True
 
     if get_config().audio.mining_from_history_grab_all_audio and get_config().anki.multi_overwrites_sentence:
         lines = gametext.get_line_and_future_lines(last_note)
-        logger.info(lines)
-        logger.info("".join(lines))
         if lines:
             note['fields'][get_config().anki.sentence_field] = "".join(lines)
 
@@ -212,11 +212,11 @@ def update_new_card():
     if not check_tags_for_should_update(last_card):
         return
 
-    use_prev_audio = util.use_previous_audio
     if util.lock.locked():
         logger.info("Audio still being Trimmed, Card Queued!")
-        use_prev_audio = True
     with util.lock:
+        use_prev_audio = sentence_is_same_as_previous(last_card)
+        logger.info(f"last mined line: {util.get_last_mined_line()}, current sentence: {get_sentence(last_card)}")
         logger.info(f"use previous audio: {use_prev_audio}")
         if get_config().obs.get_game_from_scene:
             obs.update_current_game()
@@ -226,6 +226,13 @@ def update_new_card():
             logger.info("New card(s) detected!")
             obs.save_replay_buffer()
 
+def sentence_is_same_as_previous(last_card):
+    if not util.get_last_mined_line():
+        return False
+    return remove_html_tags(get_sentence(last_card)) == remove_html_tags(util.get_last_mined_line())
+
+def get_sentence(card):
+    return card['fields'][get_config().anki.sentence_field]['value']
 
 def check_tags_for_should_update(last_card):
     if get_config().anki.tags_to_check:

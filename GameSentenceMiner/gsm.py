@@ -64,7 +64,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     logger.error(
                         f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
                     return
-                util.use_previous_audio = True
                 last_note = None
                 logger.debug("Attempting to get last anki card")
                 if get_config().anki.update_anki:
@@ -157,7 +156,8 @@ def initialize(reloading=False):
             download_obs_if_needed()
             download_ffmpeg_if_needed()
         if get_config().obs.enabled:
-            obs_process = obs.start_obs()
+            if get_config().obs.open_obs:
+                obs_process = obs.start_obs()
             obs.connect_to_obs(start_replay=True)
             anki.start_monitoring_anki()
         gametext.start_text_monitor(utility_window.add_text)
@@ -344,7 +344,8 @@ def cleanup():
         if get_config().obs.start_buffer:
             obs.stop_replay_buffer()
     obs.disconnect_from_obs()
-    close_obs()
+    if get_config().obs.close_obs:
+        close_obs()
 
     proc: Popen
     for proc in procs_to_close:

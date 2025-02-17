@@ -184,6 +184,8 @@ class ConfigApp:
             ),
             obs=OBS(
                 enabled=self.obs_enabled.get(),
+                open_obs=self.open_obs.get(),
+                close_obs=self.close_obs.get(),
                 host=self.obs_host.get(),
                 port=int(self.obs_port.get()),
                 password=self.obs_password.get(),
@@ -764,6 +766,18 @@ class ConfigApp:
         self.obs_enabled = tk.BooleanVar(value=self.settings.obs.enabled)
         ttk.Checkbutton(obs_frame, variable=self.obs_enabled).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(obs_frame, "Enable or disable OBS integration.", row=self.current_row,
+                                         column=2)
+
+        ttk.Label(obs_frame, text="Open OBS:").grid(row=self.current_row, column=0, sticky='W')
+        self.open_obs = tk.BooleanVar(value=self.settings.obs.open_obs)
+        ttk.Checkbutton(obs_frame, variable=self.open_obs).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(obs_frame, "Open OBS when the GSM starts.", row=self.current_row,
+                                         column=2)
+
+        ttk.Label(obs_frame, text="Close OBS:").grid(row=self.current_row, column=0, sticky='W')
+        self.close_obs = tk.BooleanVar(value=self.settings.obs.close_obs)
+        ttk.Checkbutton(obs_frame, variable=self.close_obs).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(obs_frame, "Close OBS when the GSM closes.", row=self.current_row,
                                          column=2)
 
         ttk.Label(obs_frame, text="Host:").grid(row=self.current_row, column=0, sticky='W')

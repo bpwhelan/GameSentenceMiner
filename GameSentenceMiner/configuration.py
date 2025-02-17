@@ -121,6 +121,8 @@ class Audio:
 @dataclass
 class OBS:
     enabled: bool = True
+    open_obs: bool = True
+    close_obs: bool = False
     host: str = "localhost"
     port: int = 4455
     password: str = "your_password"
