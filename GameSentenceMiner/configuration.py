@@ -102,7 +102,7 @@ class Screenshot:
     extension: str = "webp"
     custom_ffmpeg_settings: str = ''
     screenshot_hotkey_updates_anki: bool = False
-    seconds_after_line: int = 1
+    seconds_after_line: float = 1.0
     use_beginning_of_line_as_screenshot: bool = True
 
 
