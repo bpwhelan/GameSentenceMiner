@@ -12,7 +12,7 @@ from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
 from GameSentenceMiner.gametext import get_last_two_sentences
 from GameSentenceMiner.obs import get_current_game
-from util import remove_html_tags
+from GameSentenceMiner.util import remove_html_tags
 
 audio_in_anki = None
 screenshot_in_anki = None
