@@ -9,6 +9,7 @@ from typing import Callable
 import pyperclip
 import websockets
 
+import util
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config, logger
 from GameSentenceMiner.util import remove_html_tags
@@ -88,6 +89,7 @@ def reset_line_hotkey_pressed():
     logger.info("LINE RESET HOTKEY PRESSED")
     current_line_time = datetime.now()
     line_history[current_line_after_regex] = current_line_time
+    util.set_last_mined_line("")
 
 
 def run_websocket_listener():
@@ -139,8 +141,8 @@ def get_last_two_sentences(last_note):
     if not last_note:
         return lines[-1][0] if lines else '', lines[-2][0] if len(lines) > 1 else ''
 
-    current_line = ""
-    prev_line = ""
+    current = ""
+    previous = ""
 
     sentence = last_note['fields'][get_config().anki.sentence_field]['value']
     if sentence:
@@ -149,20 +151,20 @@ def get_last_two_sentences(last_note):
             similarity = similar(remove_html_tags(sentence), line)
             logger.debug(f"Comparing: {remove_html_tags(sentence)} with {line} - Similarity: {similarity}")
             if found:
-                prev_line = line
+                previous = line
                 break
             if similarity >= 0.60 or line in remove_html_tags(sentence):  # 80% similarity threshold
                 found = True
-                current_line = line
+                current = line
 
-    logger.debug(f"Current Line: {current_line}")
-    logger.debug(f"Previous Line: {prev_line}")
+    logger.debug(f"Current Line: {current}")
+    logger.debug(f"Previous Line: {previous}")
 
-    if not current_line or not prev_line:
+    if not current or not previous:
         logger.debug("Couldn't find lines in history, using last two lines")
         return lines[-1][0] if lines else '', lines[-2][0] if len(lines) > 1 else ''
 
-    return current_line, prev_line
+    return current, previous
 
 
 def get_line_and_future_lines(last_note):

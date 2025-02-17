@@ -46,10 +46,10 @@ class UtilityApp:
             var = tk.BooleanVar()
             self.items.append((text, var, time))
 
-            # Remove the first checkbox if there are more than 10
             if len(self.items) > 10:
-                self.checkboxes[0].destroy()
-                self.checkboxes.pop(0)
+                if self.checkboxes:
+                    self.checkboxes[0].destroy()
+                    self.checkboxes.pop(0)
                 self.items.pop(0)
 
             if self.multi_mine_window and tk.Toplevel.winfo_exists(self.multi_mine_window):

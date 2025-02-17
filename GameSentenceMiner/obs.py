@@ -1,6 +1,7 @@
 import subprocess
 import time
 
+import psutil
 from obswebsocket import obsws, requests
 
 from GameSentenceMiner import util, configuration
@@ -22,15 +23,25 @@ def start_obs():
         return None
 
     try:
-        # process = subprocess.Popen([obs_path], cwd=os.path.dirname(obs_path))
-        # process = subprocess.Popen([obs_path, '--minimize-to-tray'], cwd=os.path.dirname(obs_path))
-        process = subprocess.Popen([obs_path, '--disable-shutdown-check'], cwd=os.path.dirname(obs_path))
+        obs_pid = is_obs_running(obs_path)
+        if obs_pid:
+            return obs_pid
+        process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable'], cwd=os.path.dirname(obs_path))
         logger.info("OBS launched")
-        return process
+        return process.pid
     except Exception as e:
         logger.error(f"Error launching OBS: {e}")
         return None
 
+def is_obs_running(obs_path):
+    obs_path = os.path.abspath(obs_path)  # Normalize path
+    for process in psutil.process_iter(['exe']):
+        try:
+            if process.info['exe'] and os.path.abspath(process.info['exe']) == obs_path:
+                return process.pid
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+    return False
 
 def get_obs_websocket_config_values():
     config_path = os.path.join(get_app_directory(), 'obs-studio', 'config', 'obs-studio', 'plugin_config', 'obs-websocket', 'config.json')

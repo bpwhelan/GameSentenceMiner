@@ -31,7 +31,7 @@ from GameSentenceMiner.util import *
 if is_windows():
     import win32api
 
-obs_process: Popen = None
+obs_process = None
 procs_to_close = []
 settings_window: config_gui.ConfigApp = None
 utility_window: utility_gui.UtilityApp = None
@@ -54,6 +54,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def convert_to_audio(video_path):
         try:
             with util.lock:
+                if anki.card_queue and len(anki.card_queue) > 0:
+                    last_note = anki.card_queue.pop(0)
                 if os.path.exists(video_path) and os.access(video_path, os.R_OK):
                     logger.debug(f"Video found and is readable: {video_path}")
 
@@ -64,17 +66,17 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     logger.error(
                         f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
                     return
-                last_note = None
-                logger.debug("Attempting to get last anki card")
-                if get_config().anki.update_anki:
-                    last_note = anki.get_last_anki_card()
-                if get_config().features.backfill_audio:
-                    last_note = anki.get_cards_by_sentence(gametext.current_line)
+                if not last_note:
+                    logger.debug("Attempting to get last anki card")
+                    if get_config().anki.update_anki:
+                        last_note = anki.get_last_anki_card()
+                    if get_config().features.backfill_audio:
+                        last_note = anki.get_cards_by_sentence(gametext.current_line)
                 line_time, next_line_time = get_line_timing(last_note)
                 if utility_window.lines_selected():
                     line_time, next_line_time = utility_window.get_selected_times()
                 ss_timing = 0
-                if line_time and next_line_time:
+                if line_time and next_line_time or line_time and get_config().screenshot.use_beginning_of_line_as_screenshot:
                     ss_timing = ffmpeg.get_screenshot_time(video_path, line_time)
                 if last_note:
                     logger.debug(json.dumps(last_note))
@@ -322,11 +324,33 @@ def run_tray():
     icon = Icon("TrayApp", create_image(), "Game Sentence Miner", menu)
     icon.run()
 
+# def close_obs():
+#     if obs_process:
+#         logger.info("Closing OBS")
+#         proc = None
+#         if obs_process:
+#             try:
+#                 logger.info("Closing OBS")
+#                 proc = psutil.Process(obs_process)
+#                 proc.send_signal(signal.CTRL_BREAK_EVENT)
+#                 proc.wait(timeout=5)
+#                 logger.info("Process closed gracefully.")
+#             except psutil.NoSuchProcess:
+#                 logger.info("PID already closed.")
+#             except psutil.TimeoutExpired:
+#                 logger.info("Process did not close gracefully, terminating.")
+#                 proc.terminate()
+#                 proc.wait()
+
 def close_obs():
     if obs_process:
-        logger.info("Closing OBS")
-        obs_process.terminate()
-        obs_process.wait()
+        try:
+            subprocess.run(["taskkill", "/PID", str(obs_process), "/F"], check=True, capture_output=True, text=True)
+            print(f"OBS (PID {obs_process}) has been terminated.")
+        except subprocess.CalledProcessError as e:
+            print(f"Error terminating OBS: {e.stderr}")
+    else:
+        print("OBS is not running.")
 
 def restart_obs():
     global obs_process

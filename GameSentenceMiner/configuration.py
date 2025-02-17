@@ -103,6 +103,7 @@ class Screenshot:
     custom_ffmpeg_settings: str = ''
     screenshot_hotkey_updates_anki: bool = False
     seconds_after_line: int = 1
+    use_beginning_of_line_as_screenshot: bool = True
 
 
 @dataclass_json

@@ -171,7 +171,8 @@ class ConfigApp:
                 extension=self.screenshot_extension.get(),
                 custom_ffmpeg_settings=self.screenshot_custom_ffmpeg_settings.get(),
                 screenshot_hotkey_updates_anki=self.screenshot_hotkey_update_anki.get(),
-                seconds_after_line = self.seconds_after_line.get()
+                seconds_after_line = self.seconds_after_line.get(),
+                use_beginning_of_line_as_screenshot=self.use_beginning_of_line_as_screenshot.get()
             ),
             audio=Audio(
                 extension=self.audio_extension.get(),
@@ -699,6 +700,11 @@ class ConfigApp:
         self.seconds_after_line.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(screenshot_frame, "This is only used for mining from lines from history (not current line)", row=self.current_row,
                                          column=2)
+
+        ttk.Label(screenshot_frame, text="Use Beginning of Line as Screenshot:").grid(row=self.current_row, column=0, sticky='W')
+        self.use_beginning_of_line_as_screenshot = tk.BooleanVar(value=self.settings.screenshot.use_beginning_of_line_as_screenshot)
+        ttk.Checkbutton(screenshot_frame, variable=self.use_beginning_of_line_as_screenshot).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(screenshot_frame, "Enable to use the beginning of the line as the screenshot point. Adjust the above setting to fine-tine timing.", row=self.current_row, column=2)
 
     @new_tab
     def create_audio_tab(self):

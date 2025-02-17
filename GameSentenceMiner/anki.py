@@ -1,4 +1,5 @@
 import base64
+import queue
 import subprocess
 import threading
 import time
@@ -20,6 +21,7 @@ screenshot_in_anki = None
 # Global variables to track state
 previous_note_ids = set()
 first_run = True
+card_queue = []
 
 
 def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
@@ -40,6 +42,7 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
             screenshot_in_anki = store_media_file(screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
+        util.set_last_mined_line(get_sentence(last_note))
     audio_html = f"[sound:{audio_in_anki}]"
     image_html = f"<img src=\"{screenshot_in_anki}\">"
 
@@ -69,8 +72,6 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
         notification.send_notification(tango)
     if get_config().features.open_anki_edit:
         notification.open_anki_card(last_note['noteId'])
-
-    util.set_last_mined_line(get_sentence(last_note))
 
     if get_config().audio.external_tool:
         open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
@@ -211,20 +212,18 @@ def update_new_card():
     last_card = get_last_anki_card()
     if not check_tags_for_should_update(last_card):
         return
+    use_prev_audio = sentence_is_same_as_previous(last_card)
+    logger.info(f"last mined line: {util.get_last_mined_line()}, current sentence: {get_sentence(last_card)}")
+    logger.info(f"use previous audio: {use_prev_audio}")
+    if get_config().obs.get_game_from_scene:
+        obs.update_current_game()
+    if use_prev_audio:
+        update_anki_card(last_card, note=get_initial_card_info(last_card, []), reuse_audio=True)
+    else:
+        logger.info("New card(s) detected! Added to Processing Queue!")
+        card_queue.append(last_card)
+        obs.save_replay_buffer()
 
-    if util.lock.locked():
-        logger.info("Audio still being Trimmed, Card Queued!")
-    with util.lock:
-        use_prev_audio = sentence_is_same_as_previous(last_card)
-        logger.info(f"last mined line: {util.get_last_mined_line()}, current sentence: {get_sentence(last_card)}")
-        logger.info(f"use previous audio: {use_prev_audio}")
-        if get_config().obs.get_game_from_scene:
-            obs.update_current_game()
-        if use_prev_audio:
-            update_anki_card(last_card, note=get_initial_card_info(last_card, []), reuse_audio=True)
-        else:
-            logger.info("New card(s) detected!")
-            obs.save_replay_buffer()
 
 def sentence_is_same_as_previous(last_card):
     if not util.get_last_mined_line():
@@ -276,3 +275,4 @@ def start_monitoring_anki():
         obs_thread = threading.Thread(target=monitor_anki)
         obs_thread.daemon = True  # Ensures the thread will exit when the main program exits
         obs_thread.start()
+
