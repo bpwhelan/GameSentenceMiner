@@ -193,7 +193,8 @@ class ConfigApp:
             ),
             hotkeys=Hotkeys(
                 reset_line=self.reset_line_hotkey.get(),
-                take_screenshot=self.take_screenshot_hotkey.get()
+                take_screenshot=self.take_screenshot_hotkey.get(),
+                open_utility=self.open_utility_hotkey.get()
             ),
             vad=VAD(
                 whisper_model=self.whisper_model.get(),
@@ -824,6 +825,12 @@ class ConfigApp:
         self.take_screenshot_hotkey.insert(0, self.settings.hotkeys.take_screenshot)
         self.take_screenshot_hotkey.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(hotkeys_frame, "Hotkey to take a screenshot.", row=self.current_row, column=2)
+
+        ttk.Label(hotkeys_frame, text="Open Utility Hotkey:").grid(row=self.current_row, column=0, sticky='W')
+        self.open_utility_hotkey = ttk.Entry(hotkeys_frame)
+        self.open_utility_hotkey.insert(0, self.settings.hotkeys.open_utility)
+        self.open_utility_hotkey.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(hotkeys_frame, "Hotkey to open the text utility.", row=self.current_row, column=2)
 
 
     @new_tab

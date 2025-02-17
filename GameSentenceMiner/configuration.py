@@ -134,6 +134,7 @@ class OBS:
 class Hotkeys:
     reset_line: str = 'f5'
     take_screenshot: str = 'f6'
+    open_utility: str = 'ctrl+m'
 
 
 @dataclass_json

@@ -221,7 +221,7 @@ def update_new_card():
         if get_config().obs.get_game_from_scene:
             obs.update_current_game()
         if use_prev_audio:
-            update_anki_card(last_card, note=get_initial_card_info(last_card), reuse_audio=True)
+            update_anki_card(last_card, note=get_initial_card_info(last_card, []), reuse_audio=True)
         else:
             logger.info("New card(s) detected!")
             obs.save_replay_buffer()
