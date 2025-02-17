@@ -49,8 +49,9 @@ class HoverInfoWidget:
 
 
 class ConfigApp:
-    def __init__(self):
-        self.window = ttk.Window(themename='darkly')
+    def __init__(self, root):
+        self.window = root
+        # self.window = ttk.Window(themename='darkly')
         self.window.title('GameSentenceMiner Configuration')
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
 
@@ -125,7 +126,8 @@ class ConfigApp:
                 use_websocket=self.websocket_enabled.get(),
                 websocket_uri=self.websocket_uri.get(),
                 open_config_on_startup=self.open_config_on_startup.get(),
-                check_for_update_on_startup=self.check_for_update_on_startup.get()
+                check_for_update_on_startup=self.check_for_update_on_startup.get(),
+                texthook_replacement_regex=self.texthook_replacement_regex.get()
             ),
             paths=Paths(
                 folder_to_watch=self.folder_to_watch.get(),
@@ -150,6 +152,7 @@ class ConfigApp:
                 polling_rate=int(self.polling_rate.get()),
                 overwrite_audio=self.overwrite_audio.get(),
                 overwrite_picture=self.overwrite_picture.get(),
+                multi_overwrites_sentence=self.multi_overwrites_sentence.get(),
                 anki_custom_fields={
                     key_entry.get(): value_entry.get() for key_entry, value_entry, delete_button in
                     self.custom_field_entries if key_entry.get()
@@ -176,7 +179,8 @@ class ConfigApp:
                 end_offset=float(self.end_offset.get()),
                 ffmpeg_reencode_options=self.ffmpeg_reencode_options.get(),
                 external_tool = self.external_tool.get(),
-                anki_media_collection=self.anki_media_collection.get()
+                anki_media_collection=self.anki_media_collection.get(),
+                mining_from_history_grab_all_audio=self.mining_from_history_grab_all_audio.get()
             ),
             obs=OBS(
                 enabled=self.obs_enabled.get(),
@@ -189,7 +193,8 @@ class ConfigApp:
             ),
             hotkeys=Hotkeys(
                 reset_line=self.reset_line_hotkey.get(),
-                take_screenshot=self.take_screenshot_hotkey.get()
+                take_screenshot=self.take_screenshot_hotkey.get(),
+                open_utility=self.open_utility_hotkey.get()
             ),
             vad=VAD(
                 whisper_model=self.whisper_model.get(),
@@ -262,11 +267,11 @@ class ConfigApp:
         general_frame = ttk.Frame(self.notebook)
         self.notebook.add(general_frame, text='General')
 
-        ttk.Label(general_frame, text="Websocket Enabled:").grid(row=self.current_row, column=0, sticky='W')
+        ttk.Label(general_frame, text="Websocket Enabled (Clipboard Disabled):").grid(row=self.current_row, column=0, sticky='W')
         self.websocket_enabled = tk.BooleanVar(value=self.settings.general.use_websocket)
         ttk.Checkbutton(general_frame, variable=self.websocket_enabled).grid(row=self.current_row, column=1,
                                                                              sticky='W')
-        self.add_label_and_increment_row(general_frame, "Enable or disable WebSocket communication.",
+        self.add_label_and_increment_row(general_frame, "Enable or disable WebSocket communication. Enabling this will disable the clipboard monitor. RESTART REQUIRED.",
                                          row=self.current_row, column=2)
 
         ttk.Label(general_frame, text="Websocket URI:").grid(row=self.current_row, column=0, sticky='W')
@@ -274,6 +279,13 @@ class ConfigApp:
         self.websocket_uri.insert(0, self.settings.general.websocket_uri)
         self.websocket_uri.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(general_frame, "WebSocket URI for connecting.", row=self.current_row,
+                                         column=2)
+
+        ttk.Label(general_frame, text="TextHook Replacement Regex:").grid(row=self.current_row, column=0, sticky='W')
+        self.texthook_replacement_regex = ttk.Entry(general_frame)
+        self.texthook_replacement_regex.insert(0, self.settings.general.texthook_replacement_regex)
+        self.texthook_replacement_regex.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(general_frame, "Regex to run replacement on texthook input, set this to the same as what you may have in your texthook page.", row=self.current_row,
                                          column=2)
 
         ttk.Label(general_frame, text="Open Config on Startup:").grid(row=self.current_row, column=0, sticky='W')
@@ -532,6 +544,13 @@ class ConfigApp:
         self.add_label_and_increment_row(anki_frame, "Overwrite existing pictures in Anki cards.", row=self.current_row,
                                          column=2)
 
+        ttk.Label(anki_frame, text="Multi-line Mining Overwrite Sentence:").grid(row=self.current_row, column=0, sticky='W')
+        self.multi_overwrites_sentence = tk.BooleanVar(
+            value=self.settings.anki.multi_overwrites_sentence)
+        ttk.Checkbutton(anki_frame, variable=self.multi_overwrites_sentence).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(anki_frame, "When using Multi-line Mining, overrwrite the sentence with a concatenation of the lines selected.", row=self.current_row,
+                                         column=2)
+
         self.anki_custom_fields = self.settings.anki.anki_custom_fields
         self.custom_field_entries = []
 
@@ -729,6 +748,13 @@ class ConfigApp:
                                          row=self.current_row,
                                          column=2)
 
+        ttk.Label(audio_frame, text="Grab all Future Audio when Mining from History:").grid(row=self.current_row, column=0, sticky='W')
+        self.mining_from_history_grab_all_audio = tk.BooleanVar(
+            value=self.settings.audio.mining_from_history_grab_all_audio)
+        ttk.Checkbutton(audio_frame, variable=self.mining_from_history_grab_all_audio).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(audio_frame, "When mining from History, this option will allow the script to get all audio from that line to the current time.", row=self.current_row,
+                                         column=2)
+
     @new_tab
     def create_obs_tab(self):
         obs_frame = ttk.Frame(self.notebook)
@@ -799,6 +825,12 @@ class ConfigApp:
         self.take_screenshot_hotkey.insert(0, self.settings.hotkeys.take_screenshot)
         self.take_screenshot_hotkey.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(hotkeys_frame, "Hotkey to take a screenshot.", row=self.current_row, column=2)
+
+        ttk.Label(hotkeys_frame, text="Open Utility Hotkey:").grid(row=self.current_row, column=0, sticky='W')
+        self.open_utility_hotkey = ttk.Entry(hotkeys_frame)
+        self.open_utility_hotkey.insert(0, self.settings.hotkeys.open_utility)
+        self.open_utility_hotkey.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(hotkeys_frame, "Hotkey to open the text utility.", row=self.current_row, column=2)
 
 
     @new_tab

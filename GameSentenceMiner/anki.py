@@ -6,7 +6,7 @@ import urllib.request
 
 import requests as req
 
-from GameSentenceMiner import obs, util, notification, ffmpeg
+from GameSentenceMiner import obs, util, notification, ffmpeg, gametext
 
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
@@ -103,7 +103,7 @@ def add_image_to_card(last_note, image_path):
     logger.info(f"UPDATED IMAGE FOR ANKI CARD {last_note['noteId']}")
 
 
-def get_initial_card_info(last_note):
+def get_initial_card_info(last_note, selected_lines):
     note = {'id': last_note['noteId'], 'fields': {}}
     if not last_note:
         return note
@@ -111,6 +111,16 @@ def get_initial_card_info(last_note):
     logger.debug(f"Previous Sentence {previous_line}")
     logger.debug(f"Current Sentence {current_line}")
     util.use_previous_audio = True
+
+    if get_config().audio.mining_from_history_grab_all_audio and get_config().anki.multi_overwrites_sentence:
+        lines = gametext.get_line_and_future_lines(last_note)
+        logger.info(lines)
+        logger.info("".join(lines))
+        if lines:
+            note['fields'][get_config().anki.sentence_field] = "".join(lines)
+
+    if selected_lines and get_config().anki.multi_overwrites_sentence:
+        note['fields'][get_config().anki.sentence_field] = "".join(selected_lines)
 
     logger.debug(
         f"Adding Previous Sentence: {get_config().anki.previous_sentence_field and previous_line and not last_note['fields'][get_config().anki.previous_sentence_field]['value']}")
@@ -211,7 +221,7 @@ def update_new_card():
         if get_config().obs.get_game_from_scene:
             obs.update_current_game()
         if use_prev_audio:
-            update_anki_card(last_card, note=get_initial_card_info(last_card), reuse_audio=True)
+            update_anki_card(last_card, note=get_initial_card_info(last_card, []), reuse_audio=True)
         else:
             logger.info("New card(s) detected!")
             obs.save_replay_buffer()

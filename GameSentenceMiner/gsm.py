@@ -2,6 +2,7 @@ import signal
 import subprocess
 import sys
 import time
+import ttkbootstrap as ttk
 from subprocess import Popen
 
 import keyboard
@@ -11,6 +12,7 @@ from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from GameSentenceMiner import utility_gui
 from GameSentenceMiner import anki
 from GameSentenceMiner import config_gui
 from GameSentenceMiner import configuration
@@ -32,9 +34,11 @@ if is_windows():
 obs_process: Popen = None
 procs_to_close = []
 settings_window: config_gui.ConfigApp = None
+utility_window: utility_gui.UtilityApp = None
 obs_paused = False
 icon: Icon
 menu: Menu
+root = None
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -66,15 +70,17 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 if get_config().anki.update_anki:
                     last_note = anki.get_last_anki_card()
                 if get_config().features.backfill_audio:
-                    last_note = anki.get_cards_by_sentence(gametext.previous_line)
+                    last_note = anki.get_cards_by_sentence(gametext.current_line)
                 line_time, next_line_time = get_line_timing(last_note)
+                if utility_window.lines_selected():
+                    line_time, next_line_time = utility_window.get_selected_times()
                 ss_timing = 0
                 if line_time and next_line_time:
                     ss_timing = ffmpeg.get_screenshot_time(video_path, line_time)
                 if last_note:
                     logger.debug(json.dumps(last_note))
 
-                note = anki.get_initial_card_info(last_note)
+                note = anki.get_initial_card_info(last_note, utility_window.get_selected_lines())
 
                 tango = last_note['fields'][get_config().anki.word_field]['value'] if last_note else ''
 
@@ -106,6 +112,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             os.remove(video_path)  # Optionally remove the video after conversion
         if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
             os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
+        utility_window.reset_checkboxes()
 
     @staticmethod
     def get_audio(line_time, next_line_time, video_path):
@@ -153,7 +160,7 @@ def initialize(reloading=False):
             obs_process = obs.start_obs()
             obs.connect_to_obs(start_replay=True)
             anki.start_monitoring_anki()
-        gametext.start_text_monitor()
+        gametext.start_text_monitor(utility_window.add_text)
         os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
         os.makedirs(get_config().paths.screenshot_destination, exist_ok=True)
         os.makedirs(get_config().paths.audio_destination, exist_ok=True)
@@ -175,6 +182,7 @@ def initial_checks():
 def register_hotkeys():
     keyboard.add_hotkey(get_config().hotkeys.reset_line, gametext.reset_line_hotkey_pressed)
     keyboard.add_hotkey(get_config().hotkeys.take_screenshot, get_screenshot)
+    keyboard.add_hotkey(get_config().hotkeys.open_utility, open_multimine)
 
 
 def get_screenshot():
@@ -189,7 +197,7 @@ def get_screenshot():
             if last_note:
                 logger.debug(json.dumps(last_note))
             if get_config().features.backfill_audio:
-                last_note = anki.get_cards_by_sentence(gametext.previous_line)
+                last_note = anki.get_cards_by_sentence(gametext.current_line)
             if last_note:
                 anki.add_image_to_card(last_note, encoded_image)
                 notification.send_screenshot_updated(last_note['fields'][get_config().anki.word_field]['value'])
@@ -219,10 +227,13 @@ def create_image():
 
     return image
 
-
 def open_settings():
     obs.update_current_game()
     settings_window.show()
+
+def open_multimine():
+    obs.update_current_game()
+    utility_window.show()
 
 
 def open_log():
@@ -267,6 +278,7 @@ def update_icon():
 
     menu = Menu(
         MenuItem("Open Settings", open_settings),
+        MenuItem("Open Multi-Mine GUI", open_multimine),
         MenuItem("Open Log", open_log),
         MenuItem("Toggle Replay Buffer", play_pause),
         MenuItem("Restart OBS", restart_obs),
@@ -299,6 +311,7 @@ def run_tray():
 
     menu = Menu(
         MenuItem("Open Settings", open_settings),
+        MenuItem("Open Multi-Mine GUI", open_multimine),
         MenuItem("Open Log", open_log),
         MenuItem("Toggle Replay Buffer", play_pause),
         MenuItem("Restart OBS", restart_obs),
@@ -363,8 +376,11 @@ def handle_exit():
 
 
 def main(reloading=False, do_config_input=True):
-    global settings_window
+    global root, settings_window, utility_window
     logger.info("Script started.")
+    root = ttk.Window(themename='darkly')
+    settings_window = config_gui.ConfigApp(root)
+    utility_window = utility_gui.UtilityApp(root)
     initialize(reloading)
     initial_checks()
     event_handler = VideoToAudioHandler()
@@ -385,14 +401,13 @@ def main(reloading=False, do_config_input=True):
     util.run_new_thread(run_tray)
 
     try:
-        settings_window = config_gui.ConfigApp()
         if get_config().general.check_for_update_on_startup:
-            settings_window.window.after(0, settings_window.check_update)
+            root.after(0, settings_window.check_update)
         if get_config().general.open_config_on_startup:
-            settings_window.window.after(0, settings_window.show)
+            root.after(0, settings_window.show)
         settings_window.add_save_hook(update_icon)
         settings_window.on_exit = exit_program
-        settings_window.window.mainloop()
+        root.mainloop()
     except KeyboardInterrupt:
         cleanup()
 
