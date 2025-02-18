@@ -9,7 +9,7 @@ from typing import Callable
 import pyperclip
 import websockets
 
-import util
+from GameSentenceMiner import util
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config, logger
 from GameSentenceMiner.util import remove_html_tags
