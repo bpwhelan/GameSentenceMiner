@@ -188,3 +188,7 @@ def get_line_and_future_lines(last_note):
                 found = True
                 found_lines.append(line)
     return found_lines
+
+
+def get_time_of_line(line):
+    return line_history[line]
