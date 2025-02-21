@@ -5,9 +5,9 @@ This project automates the recording of game sentence audio to help with Anki Ca
 This allows us to create cards from texthooker/yomitan, and automatically get screenshot and sentence audio from the
 game we are playing.
 
-Short Demo (Watch this first): https://www.youtube.com/watch?v=J2At52oWieU
+Short Demo (Watch this first): https://www.youtube.com/watch?v=FeFBL7py6HY
 
-Installation: https://www.youtube.com/watch?v=b-L4g9tA508
+Installation: https://www.youtube.com/watch?v=ybRRB1eIYhk
 
 ## How Does it Work?
 
