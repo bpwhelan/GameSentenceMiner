@@ -53,9 +53,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
     @staticmethod
     def convert_to_audio(video_path):
         try:
+            last_note = None
+            if anki.card_queue and len(anki.card_queue) > 0:
+                last_note = anki.card_queue.pop(0)
             with util.lock:
-                if anki.card_queue and len(anki.card_queue) > 0:
-                    last_note = anki.card_queue.pop(0)
                 if os.path.exists(video_path) and os.access(video_path, os.R_OK):
                     logger.debug(f"Video found and is readable: {video_path}")
 
@@ -109,6 +110,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     logger.exception(f"Card failed to update! Maybe it was removed? {e}")
         except Exception as e:
             logger.exception(f"Some error was hit catching to allow further work to be done: {e}")
+            # settings_window.show_error_box("Error", f"Some error was hit, check logs for more info: {e}")
         if get_config().paths.remove_video and os.path.exists(video_path):
             os.remove(video_path)  # Optionally remove the video after conversion
         if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
