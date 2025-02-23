@@ -911,6 +911,10 @@ class ConfigApp:
                 self.reload_settings()
 
 
+    def show_error_box(self, title, message):
+        messagebox.showerror(title, message)
+
+
 if __name__ == '__main__':
     window = ConfigApp()
     window.show()

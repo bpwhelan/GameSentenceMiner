@@ -163,6 +163,7 @@ def get_video_duration(file_path):
     logger.debug(" ".join(ffprobe_command))
     result = subprocess.run(ffprobe_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     duration_info = json.loads(result.stdout)
+    logger.debug(f"Video duration: {duration_info}")
     return float(duration_info["format"]["duration"])  # Return the duration in seconds
 
 

@@ -17,6 +17,7 @@ from GameSentenceMiner.util import remove_html_tags
 
 audio_in_anki = None
 screenshot_in_anki = None
+prev_screenshot_in_anki = None
 
 # Global variables to track state
 previous_note_ids = set()
@@ -26,7 +27,7 @@ card_queue = []
 
 def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
                      should_update_audio=True, ss_time=0):
-    global audio_in_anki, screenshot_in_anki
+    global audio_in_anki, screenshot_in_anki, prev_screenshot_in_anki
     update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not
     last_note['fields'][get_config().anki.sentence_audio_field][
         'value'] or get_config().anki.overwrite_audio)
@@ -42,9 +43,16 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
             screenshot_in_anki = store_media_file(screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
+        if get_config().anki.previous_image_field:
+            _, previous_sentence = get_last_two_sentences(last_note)
+            prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, gametext.get_time_of_line(previous_sentence)))
+            prev_screenshot_in_anki = store_media_file(prev_screenshot)
+            if get_config().paths.remove_screenshot:
+                os.remove(prev_screenshot)
         util.set_last_mined_line(get_sentence(last_note))
     audio_html = f"[sound:{audio_in_anki}]"
     image_html = f"<img src=\"{screenshot_in_anki}\">"
+    prev_screenshot_html = f"<img src=\"{prev_screenshot_in_anki}\">"
 
     # note = {'id': last_note['noteId'], 'fields': {}}
 
@@ -53,6 +61,9 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
 
     if update_picture:
         note['fields'][get_config().anki.picture_field] = image_html
+
+    if prev_screenshot_in_anki:
+        note['fields'][get_config().anki.previous_image_field] = prev_screenshot_html
 
     if get_config().anki.anki_custom_fields:
         for key, value in get_config().anki.anki_custom_fields.items():
@@ -112,8 +123,6 @@ def get_initial_card_info(last_note, selected_lines):
     if not last_note:
         return note
     current_line, previous_line = get_last_two_sentences(last_note)
-    logger.debug(f"Previous Sentence {previous_line}")
-    logger.debug(f"Current Sentence {current_line}")
 
     if get_config().audio.mining_from_history_grab_all_audio and get_config().anki.multi_overwrites_sentence:
         lines = gametext.get_line_and_future_lines(last_note)
