@@ -496,12 +496,12 @@ class ConfigApp:
                                          row=self.current_row,
                                          column=2)
 
-        ttk.Label(anki_frame, text="Previous Image Field:").grid(row=self.current_row, column=0, sticky='W')
+        ttk.Label(anki_frame, text="Previous VoiceLine SS Field:").grid(row=self.current_row, column=0, sticky='W')
         self.previous_image_field = ttk.Entry(anki_frame)
         self.previous_image_field.insert(0, self.settings.anki.previous_image_field)
         self.previous_image_field.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame,
-                                         "Field in Anki for the image line of previous Image. If Empty, will not populate",
+                                         "Field in Anki for the screenshot of previous line. If Empty, will not populate",
                                          row=self.current_row,
                                          column=2)
 
