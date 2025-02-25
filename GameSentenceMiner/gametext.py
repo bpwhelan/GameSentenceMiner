@@ -16,6 +16,7 @@ from GameSentenceMiner.util import remove_html_tags
 from difflib import SequenceMatcher
 
 
+initial_time = datetime.now()
 current_line = ''
 current_line_after_regex = ''
 current_line_time = datetime.now()
@@ -191,4 +192,6 @@ def get_line_and_future_lines(last_note):
 
 
 def get_time_of_line(line):
-    return line_history[line]
+    if line and line in line_history:
+        return line_history[line]
+    return initial_time
