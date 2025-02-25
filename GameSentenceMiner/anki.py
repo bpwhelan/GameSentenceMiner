@@ -45,14 +45,15 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
                 os.remove(screenshot)
         if get_config().anki.previous_image_field:
             _, previous_sentence = get_last_two_sentences(last_note)
-            prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, gametext.get_time_of_line(previous_sentence)))
-            prev_screenshot_in_anki = store_media_file(prev_screenshot)
-            if get_config().paths.remove_screenshot:
-                os.remove(prev_screenshot)
+            prev_screenshot_in_anki = None
+            if previous_sentence:
+                prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, gametext.get_time_of_line(previous_sentence)))
+                prev_screenshot_in_anki = store_media_file(prev_screenshot)
+                if get_config().paths.remove_screenshot:
+                    os.remove(prev_screenshot)
         util.set_last_mined_line(get_sentence(last_note))
     audio_html = f"[sound:{audio_in_anki}]"
     image_html = f"<img src=\"{screenshot_in_anki}\">"
-    prev_screenshot_html = f"<img src=\"{prev_screenshot_in_anki}\">"
 
     # note = {'id': last_note['noteId'], 'fields': {}}
 
@@ -63,6 +64,7 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
         note['fields'][get_config().anki.picture_field] = image_html
 
     if prev_screenshot_in_anki:
+        prev_screenshot_html = f"<img src=\"{prev_screenshot_in_anki}\">"
         note['fields'][get_config().anki.previous_image_field] = prev_screenshot_html
 
     if get_config().anki.anki_custom_fields:
