@@ -39,19 +39,26 @@ class GameText:
         return self.values[key]
 
     def get_time(self, line_text):
-        for game_line in self.values:
-            if game_line.text == line_text:
-                return game_line.time
-        raise KeyError(f"Line {line_text} not found")
+        if line_text:
+            for game_line in reversed(self.values):
+                if game_line.text == line_text:
+                    return game_line.time
+        return initial_time
 
     def get_event(self, line_text):
-        for game_line in self.values:
+        for game_line in reversed(self.values):
             if game_line.text == line_text:
                 return game_line
         raise KeyError(f"Line {line_text} not found")
 
     def add_line(self, line_text):
         self.values.append(GameLine(line_text, datetime.now()))
+
+    def has_line(self, line_text):
+        for game_line in self.values:
+            if game_line.text == line_text:
+                return True
+        return False
 
 line_history = GameText()
 
@@ -213,13 +220,11 @@ def get_line_and_future_lines(last_note):
             logger.debug(f"Comparing: {remove_html_tags(sentence)} with {line.text} - Similarity: {similarity}")
             if found:
                 found_lines.append(line.text)
-            if similarity >= 0.60 or line in remove_html_tags(sentence):  # 80% similarity threshold
+            if similarity >= 0.60 or line.text in remove_html_tags(sentence):  # 80% similarity threshold
                 found = True
                 found_lines.append(line.text)
     return found_lines
 
 
 def get_time_of_line(line):
-    if line and line in line_history:
-        return line_history.get_time(line)
-    return initial_time
+    return line_history.get_time(line)
