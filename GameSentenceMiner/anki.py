@@ -1,5 +1,4 @@
 import base64
-import queue
 import subprocess
 import threading
 import time
@@ -11,7 +10,7 @@ from GameSentenceMiner import obs, util, notification, ffmpeg, gametext
 
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
-from GameSentenceMiner.gametext import get_last_two_sentences
+from GameSentenceMiner.gametext import get_last_two_sentences, get_last_two_text_events
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util import remove_html_tags
 
@@ -44,8 +43,8 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
         if get_config().anki.previous_image_field:
-            _, previous_sentence = get_last_two_sentences(last_note)
-            prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, gametext.get_time_of_line(previous_sentence)))
+            _, previous_line = get_last_two_text_events(last_note)
+            prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, previous_line.time))
             prev_screenshot_in_anki = store_media_file(prev_screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(prev_screenshot)

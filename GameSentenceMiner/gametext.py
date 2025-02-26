@@ -38,23 +38,22 @@ class GameText:
     def __getitem__(self, key):
         return self.values[key]
 
-    def get_time(self, line_text):
-        if line_text:
-            for game_line in reversed(self.values):
-                if game_line.text == line_text:
-                    return game_line.time
+    def get_time(self, line_text: str, occurrence: int = -1) -> datetime:
+        matches = [line for line in self.values if line.text == line_text]
+        if matches:
+            return matches[occurrence].time  # Default to latest
         return initial_time
 
-    def get_event(self, line_text):
-        for game_line in reversed(self.values):
-            if game_line.text == line_text:
-                return game_line
-        raise KeyError(f"Line {line_text} not found")
+    def get_event(self, line_text: str, occurrence: int = -1) -> GameLine | None:
+        matches = [line for line in self.values if line.text == line_text]
+        if matches:
+            return matches[occurrence]
+        return None
 
     def add_line(self, line_text):
         self.values.append(GameLine(line_text, datetime.now()))
 
-    def has_line(self, line_text):
+    def has_line(self, line_text) -> bool:
         for game_line in self.values:
             if game_line.text == line_text:
                 return True
@@ -171,7 +170,7 @@ def get_line_timing(last_note):
     return line_time, next_line
 
 
-def get_last_two_sentences(last_note):
+def get_last_two_sentences(last_note) -> (str, str):
     def similar(a, b):
         return SequenceMatcher(None, a, b).ratio()
 
@@ -200,6 +199,39 @@ def get_last_two_sentences(last_note):
     if not current or not previous:
         logger.debug("Couldn't find lines in history, using last two lines")
         return lines[-1].text if lines else '', lines[-2].text if len(lines) > 1 else ''
+
+    return current, previous
+
+
+def get_last_two_text_events(last_note) -> (GameLine, GameLine):
+    def similar(a, b):
+        return SequenceMatcher(None, a, b).ratio()
+
+    lines = line_history.values
+
+    if not last_note:
+        return lines[-1] if lines else '', lines[-2].text if len(lines) > 1 else ''
+
+    sentence = last_note['fields'][get_config().anki.sentence_field]['value']
+    if not sentence:
+        return lines[-1] if lines else '', lines[-2] if len(lines) > 1 else ''
+
+    current, previous = "", ""
+    found = False
+
+    for line in reversed(lines):
+        similarity = similar(remove_html_tags(sentence), line.text)
+        logger.debug(f"Comparing: {remove_html_tags(sentence)} with {line.text} - Similarity: {similarity}")
+        if found:
+            previous = line
+            break
+        if similarity >= 0.60 or line.text in remove_html_tags(sentence):
+            found = True
+            current = line
+
+    if not current or not previous:
+        logger.debug("Couldn't find lines in history, using last two lines")
+        return lines[-1] if lines else '', lines[-2] if len(lines) > 1 else ''
 
     return current, previous
 

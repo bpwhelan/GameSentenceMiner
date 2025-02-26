@@ -74,12 +74,12 @@ class UtilityApp:
 
     def get_selected_lines(self):
         filtered_items = [text for text, var, _ in self.items if var.get()]
-        return filtered_items if len(filtered_items) >= 2 else []
+        return filtered_items if len(filtered_items) > 0 else []
 
     def get_selected_times(self):
         filtered_times = [time for _, var, time in self.items if var.get()]
 
-        if len(filtered_times) >= 2:
+        if len(filtered_times) > 0:
             logger.info(filtered_times)
             # Find the index of the last checked checkbox
             last_checked_index = max(i for i, (_, var, _) in enumerate(self.items) if var.get())
@@ -96,7 +96,7 @@ class UtilityApp:
 
     def lines_selected(self):
         filter_times = [time for _, var, time in self.items if var.get()]
-        if len(filter_times) >= 2:
+        if len(filter_times) > 0:
             return True
         return False
 
