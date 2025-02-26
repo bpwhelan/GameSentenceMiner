@@ -5,6 +5,8 @@ import time
 from GameSentenceMiner import obs, util, configuration
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.util import *
+from gametext import initial_time
+
 
 def get_ffmpeg_path():
     return os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if util.is_windows() else "ffmpeg"
@@ -47,7 +49,12 @@ def get_screenshot(video_file, time_from_end):
     return output_image
 
 
-def get_screenshot_time(video_path, line_time):
+def get_screenshot_time(video_path, game_line):
+    if game_line:
+        line_time = game_line.time
+    else:
+        line_time = initial_time
+
     file_length = get_video_duration(video_path)
     file_mod_time = get_file_modification_time(video_path)
 
@@ -115,7 +122,7 @@ def get_audio_codec(video_path):
         return None
 
 
-def get_audio_and_trim(video_path, line_time, next_line_time):
+def get_audio_and_trim(video_path, game_line, next_line_time):
     supported_formats = {
         'opus': 'libopus',
         'mp3': 'libmp3lame',
@@ -149,7 +156,7 @@ def get_audio_and_trim(video_path, line_time, next_line_time):
 
     subprocess.run(command)
 
-    return trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line_time)
+    return trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line_time)
 
 
 def get_video_duration(file_path):
@@ -167,12 +174,12 @@ def get_video_duration(file_path):
     return float(duration_info["format"]["duration"])  # Return the duration in seconds
 
 
-def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_line):
+def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line):
     trimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(),
                                                 suffix=f".{get_config().audio.extension}").name
     file_mod_time = get_file_modification_time(video_path)
     file_length = get_video_duration(video_path)
-    time_delta = file_mod_time - line_time
+    time_delta = file_mod_time - game_line.time
     # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)
     total_seconds = file_length - time_delta.total_seconds() + get_config().audio.beginning_offset
     if total_seconds < 0 or total_seconds >= file_length:
@@ -186,8 +193,8 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, line_time, next_l
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
         "-ss", start_trim_time]
-    if next_line and next_line > line_time and not get_config().audio.mining_from_history_grab_all_audio:
-        end_total_seconds = total_seconds + (next_line - line_time).total_seconds() + 1
+    if next_line and next_line > game_line.time and not get_config().audio.mining_from_history_grab_all_audio:
+        end_total_seconds = total_seconds + (next_line - game_line.time).total_seconds() + 1
         hours, remainder = divmod(end_total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         end_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
