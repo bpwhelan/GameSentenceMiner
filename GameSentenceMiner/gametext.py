@@ -153,7 +153,7 @@ def get_line_timing(last_note):
         if sentence:
             for line in reversed(lines):
                 similarity = similar(remove_html_tags(sentence), line.text)
-                if similarity >= 0.60 or line in remove_html_tags(sentence):  # 80% similarity threshold
+                if similarity >= 0.60 or line.text in remove_html_tags(sentence):  # 80% similarity threshold
                     line_time = line.time
                     next_line = prev_clip_time
                     break
