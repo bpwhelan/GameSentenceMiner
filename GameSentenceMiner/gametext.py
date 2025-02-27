@@ -212,12 +212,10 @@ def start_text_monitor(send_to_mine_event_bus):
 #
 #     return current, previous
 
-
+def similar(a, b):
+    return SequenceMatcher(None, a, b).ratio()
 
 def get_text_event(last_note) -> GameLine:
-    def similar(a, b):
-        return SequenceMatcher(None, a, b).ratio()
-
     lines = line_history.values
 
     if not last_note:
@@ -238,9 +236,6 @@ def get_text_event(last_note) -> GameLine:
 
 
 def get_line_and_future_lines(last_note):
-    def similar(a, b):
-        return SequenceMatcher(None, a, b).ratio()
-
     if not last_note:
         return []
 
@@ -257,6 +252,17 @@ def get_line_and_future_lines(last_note):
                 found = True
                 found_lines.append(line.text)
     return found_lines
+
+def get_mined_line(last_note, lines):
+    if not last_note:
+        return lines[0]
+
+    sentence = last_note['fields'][get_config().anki.sentence_field]['value']
+    for line2 in lines:
+        similarity = similar(remove_html_tags(sentence), line2.text)
+        if similarity >= 0.60 or line2.text in remove_html_tags(sentence):
+            return line2
+    return lines[0]
 
 
 def get_time_of_line(line):

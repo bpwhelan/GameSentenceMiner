@@ -25,7 +25,7 @@ from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, 
 from GameSentenceMiner.vad import vosk_helper, silero_trim, whisper_helper
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.ffmpeg import get_audio_and_trim
-from GameSentenceMiner.gametext import get_text_event
+from GameSentenceMiner.gametext import get_text_event, get_mined_line
 from GameSentenceMiner.util import *
 
 if is_windows():
@@ -81,7 +81,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
                 if utility_window.lines_selected():
                     lines = utility_window.get_selected_lines()
-                    game_line = lines[0]
+                    game_line = get_mined_line(last_note, lines)
                     if len(lines) > 1:
                         line_cutoff = lines[-1].time
                     else:
