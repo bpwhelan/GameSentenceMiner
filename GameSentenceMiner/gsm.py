@@ -74,22 +74,22 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     if get_config().features.backfill_audio:
                         last_note = anki.get_cards_by_sentence(gametext.current_line)
                 line_cutoff = None
-                game_line = get_text_event(last_note)
-                if game_line:
-                    if game_line.next:
-                        line_cutoff = game_line.next.time
+                start_line = None
+                mined_line = get_text_event(last_note)
+                if mined_line:
+                    start_line = mined_line
+                    if mined_line.next:
+                        line_cutoff = mined_line.next.time
 
                 if utility_window.lines_selected():
                     lines = utility_window.get_selected_lines()
-                    game_line = get_mined_line(last_note, lines)
-                    if len(lines) > 1:
-                        line_cutoff = lines[-1].time
-                    else:
-                        line_cutoff = game_line.next.time
+                    start_line = lines[0]
+                    mined_line = get_mined_line(last_note, lines)
+                    line_cutoff = utility_window.get_next_line_timing()
 
                 ss_timing = 0
-                if game_line and line_cutoff or game_line and get_config().screenshot.use_beginning_of_line_as_screenshot:
-                    ss_timing = ffmpeg.get_screenshot_time(video_path, game_line)
+                if mined_line and line_cutoff or mined_line and get_config().screenshot.use_beginning_of_line_as_screenshot:
+                    ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line)
                 if last_note:
                     logger.debug(json.dumps(last_note))
 
@@ -100,7 +100,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 if get_config().anki.sentence_audio_field:
                     logger.debug("Attempting to get audio from video")
                     final_audio_output, should_update_audio, vad_trimmed_audio = VideoToAudioHandler.get_audio(
-                        game_line,
+                        start_line,
                         line_cutoff,
                         video_path)
                 else:
@@ -115,7 +115,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                                               tango=tango,
                                               should_update_audio=should_update_audio,
                                               ss_time=ss_timing,
-                                              game_line=game_line)
+                                              game_line=start_line)
                     elif get_config().features.notify_on_update and should_update_audio:
                         notification.send_audio_generated_notification(vad_trimmed_audio)
                 except Exception as e:

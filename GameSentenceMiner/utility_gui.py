@@ -77,6 +77,24 @@ class UtilityApp:
         return filtered_items if len(filtered_items) > 0 else []
 
 
+    def get_next_line_timing(self):
+        selected_lines = [line for line, var in self.items if var.get()]
+
+        if len(selected_lines) >= 2:
+            last_checked_index = max(i for i, (_, var) in enumerate(self.items) if var.get())
+
+            if last_checked_index + 1 < len(self.items):
+                next_time = self.items[last_checked_index + 1][0].time
+            else:
+                next_time = 0
+
+            return next_time
+        if len(selected_lines) == 1:
+            return selected_lines[0].get_next_time()
+
+        return None
+
+
     def lines_selected(self):
         filter_times = [line.time for line, var in self.items if var.get()]
         if len(filter_times) > 0:

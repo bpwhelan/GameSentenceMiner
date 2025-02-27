@@ -35,6 +35,11 @@ class GameLine:
             return self.prev.time
         return initial_time
 
+    def get_next_time(self):
+        if self.next:
+            return self.next.time
+        return 0
+
 @dataclass
 class GameText:
     values: list[GameLine]
