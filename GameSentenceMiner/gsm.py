@@ -57,6 +57,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if anki.card_queue and len(anki.card_queue) > 0:
                 last_note = anki.card_queue.pop(0)
             with util.lock:
+                util.set_last_mined_line(anki.get_sentence(last_note))
                 if os.path.exists(video_path) and os.access(video_path, os.R_OK):
                     logger.debug(f"Video found and is readable: {video_path}")
 

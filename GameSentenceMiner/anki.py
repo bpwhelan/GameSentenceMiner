@@ -47,7 +47,6 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
             prev_screenshot_in_anki = store_media_file(prev_screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(prev_screenshot)
-        util.set_last_mined_line(get_sentence(last_note))
     audio_html = f"[sound:{audio_in_anki}]"
     image_html = f"<img src=\"{screenshot_in_anki}\">"
     prev_screenshot_html = f"<img src=\"{prev_screenshot_in_anki}\">"
@@ -225,7 +224,8 @@ def update_new_card():
     if get_config().obs.get_game_from_scene:
         obs.update_current_game()
     if use_prev_audio:
-        update_anki_card(last_card, note=get_initial_card_info(last_card, []), reuse_audio=True)
+        with util.lock:
+            update_anki_card(last_card, note=get_initial_card_info(last_card, []), reuse_audio=True)
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         card_queue.append(last_card)
