@@ -272,10 +272,12 @@ def open_log():
     logger.info("Log opened.")
 
 
-def exit_program(icon, item):
+def exit_program(passed_icon, item):
     """Exit the application."""
+    if not passed_icon:
+        passed_icon = icon
     logger.info("Exiting...")
-    icon.stop()
+    passed_icon.stop()
     cleanup()
 
 

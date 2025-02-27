@@ -51,6 +51,7 @@ class HoverInfoWidget:
 class ConfigApp:
     def __init__(self, root):
         self.window = root
+        self.on_exit = None
         # self.window = ttk.Window(themename='darkly')
         self.window.title('GameSentenceMiner Configuration')
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
@@ -82,10 +83,6 @@ class ConfigApp:
     def add_save_hook(self, func):
         on_save.append(func)
 
-    def add_exit_hook(self, func):
-        global exit_func
-        exit_func = func
-
     def show(self):
         obs.update_current_game()
         self.reload_settings()
@@ -103,7 +100,7 @@ class ConfigApp:
         if update_available:
             messagebox.showinfo("Update", "GSM Will Copy the Update Command to your clipboard, please run it in a terminal.")
             pyperclip.copy("pip install --upgrade GameSentenceMiner")
-            exit_func(None, None)
+            self.on_exit(None, None)
         else:
             messagebox.showinfo("No Update Found", "No update found.")
 
