@@ -35,16 +35,16 @@ class UtilityApp:
             self.checkbox_frame.pack(padx=10, pady=10, fill="both", expand=True)
 
             # Add existing items
-            for text, var, time in self.items:
-                self.add_checkbox_to_gui(text, var, time)
+            for line, var in self.items:
+                self.add_checkbox_to_gui(line, var)
         else:
             self.multi_mine_window.deiconify()
             self.multi_mine_window.lift()
 
-    def add_text(self, text, time):
-        if text:
+    def add_text(self, line):
+        if line.text:
             var = tk.BooleanVar()
-            self.items.append((text, var, time))
+            self.items.append((line, var))
 
             if len(self.items) > 10:
                 if self.checkboxes:
@@ -53,12 +53,12 @@ class UtilityApp:
                 self.items.pop(0)
 
             if self.multi_mine_window and tk.Toplevel.winfo_exists(self.multi_mine_window):
-                self.add_checkbox_to_gui(text, var, time)
+                self.add_checkbox_to_gui(line, var)
 
-    def add_checkbox_to_gui(self, text, var, time):
+    def add_checkbox_to_gui(self, line, var):
         """ Add a single checkbox without repainting everything. """
         if self.checkbox_frame:
-            chk = ttk.Checkbutton(self.checkbox_frame, text=f"{time.strftime('%H:%M:%S')} - {text}", variable=var)
+            chk = ttk.Checkbutton(self.checkbox_frame, text=f"{line.time.strftime('%H:%M:%S')} - {line.text}", variable=var)
             chk.pack(anchor='w')
             self.checkboxes.append(chk)
 
@@ -73,30 +73,31 @@ class UtilityApp:
     #         chk.pack(anchor='w')
 
     def get_selected_lines(self):
-        filtered_items = [text for text, var, _ in self.items if var.get()]
-        return filtered_items if len(filtered_items) >= 2 else []
+        filtered_items = [line for line, var in self.items if var.get()]
+        return filtered_items if len(filtered_items) > 0 else []
 
-    def get_selected_times(self):
-        filtered_times = [time for _, var, time in self.items if var.get()]
 
-        if len(filtered_times) >= 2:
-            logger.info(filtered_times)
-            # Find the index of the last checked checkbox
-            last_checked_index = max(i for i, (_, var, _) in enumerate(self.items) if var.get())
+    def get_next_line_timing(self):
+        selected_lines = [line for line, var in self.items if var.get()]
 
-            # Get the time AFTER the last checked checkbox, if it exists
+        if len(selected_lines) >= 2:
+            last_checked_index = max(i for i, (_, var) in enumerate(self.items) if var.get())
+
             if last_checked_index + 1 < len(self.items):
-                next_time = self.items[last_checked_index + 1][2]
+                next_time = self.items[last_checked_index + 1][0].time
             else:
                 next_time = 0
 
-            return filtered_times[0], next_time
+            return next_time
+        if len(selected_lines) == 1:
+            return selected_lines[0].get_next_time()
 
         return None
 
+
     def lines_selected(self):
-        filter_times = [time for _, var, time in self.items if var.get()]
-        if len(filter_times) >= 2:
+        filter_times = [line.time for line, var in self.items if var.get()]
+        if len(filter_times) > 0:
             return True
         return False
 
@@ -114,7 +115,7 @@ class UtilityApp:
     #             found_unchecked = True
 
     def reset_checkboxes(self):
-        for _, var, _ in self.items:
+        for _, var in self.items:
             var.set(False)
         # if self.multi_mine_window:
         #     for checkbox in self.checkboxes:

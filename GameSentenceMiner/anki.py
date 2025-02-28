@@ -1,5 +1,4 @@
 import base64
-import queue
 import subprocess
 import threading
 import time
@@ -11,7 +10,7 @@ from GameSentenceMiner import obs, util, notification, ffmpeg, gametext
 
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
-from GameSentenceMiner.gametext import get_last_two_sentences
+from GameSentenceMiner.gametext import get_text_event
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util import remove_html_tags
 
@@ -26,7 +25,7 @@ card_queue = []
 
 
 def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
-                     should_update_audio=True, ss_time=0):
+                     should_update_audio=True, ss_time=0, game_line=None):
     global audio_in_anki, screenshot_in_anki, prev_screenshot_in_anki
     update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not
     last_note['fields'][get_config().anki.sentence_audio_field][
@@ -44,12 +43,10 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
         if get_config().anki.previous_image_field:
-            _, previous_sentence = get_last_two_sentences(last_note)
-            prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, gametext.get_time_of_line(previous_sentence)))
+            prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, game_line.prev))
             prev_screenshot_in_anki = store_media_file(prev_screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(prev_screenshot)
-        util.set_last_mined_line(get_sentence(last_note))
     audio_html = f"[sound:{audio_in_anki}]"
     image_html = f"<img src=\"{screenshot_in_anki}\">"
     prev_screenshot_html = f"<img src=\"{prev_screenshot_in_anki}\">"
@@ -122,7 +119,7 @@ def get_initial_card_info(last_note, selected_lines):
     note = {'id': last_note['noteId'], 'fields': {}}
     if not last_note:
         return note
-    current_line, previous_line = get_last_two_sentences(last_note)
+    game_line = get_text_event(last_note)
 
     if get_config().audio.mining_from_history_grab_all_audio and get_config().anki.multi_overwrites_sentence:
         lines = gametext.get_line_and_future_lines(last_note)
@@ -130,13 +127,13 @@ def get_initial_card_info(last_note, selected_lines):
             note['fields'][get_config().anki.sentence_field] = "".join(lines)
 
     if selected_lines and get_config().anki.multi_overwrites_sentence:
-        note['fields'][get_config().anki.sentence_field] = "".join(selected_lines)
+        note['fields'][get_config().anki.sentence_field] = "".join([line.text for line in selected_lines])
 
-    logger.debug(
-        f"Adding Previous Sentence: {get_config().anki.previous_sentence_field and previous_line and not last_note['fields'][get_config().anki.previous_sentence_field]['value']}")
-    if get_config().anki.previous_sentence_field and previous_line and not \
+    if get_config().anki.previous_sentence_field and game_line.prev and not \
             last_note['fields'][get_config().anki.previous_sentence_field]['value']:
-        note['fields'][get_config().anki.previous_sentence_field] = previous_line
+        logger.debug(
+            f"Adding Previous Sentence: {get_config().anki.previous_sentence_field and game_line.prev.text and not last_note['fields'][get_config().anki.previous_sentence_field]['value']}")
+        note['fields'][get_config().anki.previous_sentence_field] = game_line.prev.text
     return note
 
 
@@ -227,7 +224,8 @@ def update_new_card():
     if get_config().obs.get_game_from_scene:
         obs.update_current_game()
     if use_prev_audio:
-        update_anki_card(last_card, note=get_initial_card_info(last_card, []), reuse_audio=True)
+        with util.lock:
+            update_anki_card(last_card, note=get_initial_card_info(last_card, []), reuse_audio=True)
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         card_queue.append(last_card)

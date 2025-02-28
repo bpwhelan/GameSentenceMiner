@@ -25,7 +25,7 @@ from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, 
 from GameSentenceMiner.vad import vosk_helper, silero_trim, whisper_helper
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.ffmpeg import get_audio_and_trim
-from GameSentenceMiner.gametext import get_line_timing
+from GameSentenceMiner.gametext import get_text_event, get_mined_line
 from GameSentenceMiner.util import *
 
 if is_windows():
@@ -57,6 +57,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if anki.card_queue and len(anki.card_queue) > 0:
                 last_note = anki.card_queue.pop(0)
             with util.lock:
+                util.set_last_mined_line(anki.get_sentence(last_note))
                 if os.path.exists(video_path) and os.access(video_path, os.R_OK):
                     logger.debug(f"Video found and is readable: {video_path}")
 
@@ -73,12 +74,23 @@ class VideoToAudioHandler(FileSystemEventHandler):
                         last_note = anki.get_last_anki_card()
                     if get_config().features.backfill_audio:
                         last_note = anki.get_cards_by_sentence(gametext.current_line)
-                line_time, next_line_time = get_line_timing(last_note)
+                line_cutoff = None
+                start_line = None
+                mined_line = get_text_event(last_note)
+                if mined_line:
+                    start_line = mined_line
+                    if mined_line.next:
+                        line_cutoff = mined_line.next.time
+
                 if utility_window.lines_selected():
-                    line_time, next_line_time = utility_window.get_selected_times()
+                    lines = utility_window.get_selected_lines()
+                    start_line = lines[0]
+                    mined_line = get_mined_line(last_note, lines)
+                    line_cutoff = utility_window.get_next_line_timing()
+
                 ss_timing = 0
-                if line_time and next_line_time or line_time and get_config().screenshot.use_beginning_of_line_as_screenshot:
-                    ss_timing = ffmpeg.get_screenshot_time(video_path, line_time)
+                if mined_line and line_cutoff or mined_line and get_config().screenshot.use_beginning_of_line_as_screenshot:
+                    ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line)
                 if last_note:
                     logger.debug(json.dumps(last_note))
 
@@ -89,8 +101,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 if get_config().anki.sentence_audio_field:
                     logger.debug("Attempting to get audio from video")
                     final_audio_output, should_update_audio, vad_trimmed_audio = VideoToAudioHandler.get_audio(
-                        line_time,
-                        next_line_time,
+                        start_line,
+                        line_cutoff,
                         video_path)
                 else:
                     final_audio_output = ""
@@ -103,7 +115,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                         anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
                                               tango=tango,
                                               should_update_audio=should_update_audio,
-                                              ss_time=ss_timing)
+                                              ss_time=ss_timing,
+                                              game_line=start_line)
                     elif get_config().features.notify_on_update and should_update_audio:
                         notification.send_audio_generated_notification(vad_trimmed_audio)
                 except Exception as e:
@@ -118,8 +131,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
         utility_window.reset_checkboxes()
 
     @staticmethod
-    def get_audio(line_time, next_line_time, video_path):
-        trimmed_audio = get_audio_and_trim(video_path, line_time, next_line_time)
+    def get_audio(game_line, next_line_time, video_path):
+        trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time)
         vad_trimmed_audio = make_unique_file_name(
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination, f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
@@ -259,10 +272,12 @@ def open_log():
     logger.info("Log opened.")
 
 
-def exit_program(icon, item):
+def exit_program(passed_icon, item):
     """Exit the application."""
+    if not passed_icon:
+        passed_icon = icon
     logger.info("Exiting...")
-    icon.stop()
+    passed_icon.stop()
     cleanup()
 
 
