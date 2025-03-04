@@ -6,7 +6,7 @@ on:
   workflow_dispatch:  # Allows manual trigger from the GitHub UI
 jobs:
   electron-build-windows:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
