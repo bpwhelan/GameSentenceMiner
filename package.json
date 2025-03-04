@@ -14,7 +14,7 @@
 
   },
   "build": {
-    "asar": false,
+    "asar": true,
     "appId": "com.bpwhelan.gsm",
     "files": [
       "dist/main/**/*",
