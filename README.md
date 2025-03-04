@@ -38,6 +38,12 @@ There are settings in GSM that may help accomodate for a poor hook, but if you e
 
 ## 1. Installing and Running the Script
 
+### New Way as of 2.4.0
+
+Grab the latest Installer or Zip from [Releases](https://github.com/bpwhelan/GameSentenceMiner/releases), and then either run the installer or run GameSentenceMiner.exe.
+
+### Old Way - Will still work for the forseeable future
+
 https://pypi.org/project/GameSentenceMiner/
 
 Python + pip needs to be installed, make sure you install 3.11 or higher, since older versions may not be supported.
