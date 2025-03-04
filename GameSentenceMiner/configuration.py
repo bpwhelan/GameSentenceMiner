@@ -7,6 +7,7 @@ from logging.handlers import RotatingFileHandler
 from os.path import expanduser
 from sys import platform
 from typing import List, Dict
+import sys
 
 import toml
 from dataclasses_json import dataclass_json
@@ -370,11 +371,14 @@ def switch_profile_and_save(profile_name):
     return config_instance.get_config()
 
 
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
 logger = logging.getLogger("GameSentenceMiner")
 logger.setLevel(logging.DEBUG)  # Set the base level to DEBUG so that all messages are captured
 
 # Create console handler with level INFO
-console_handler = logging.StreamHandler()
+console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
 
 # Create rotating file handler with level DEBUG
