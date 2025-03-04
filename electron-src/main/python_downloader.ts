@@ -2,7 +2,7 @@ import * as path from "path";
 import * as fs from "fs";
 import {Downloader} from "nodejs-file-downloader";
 import * as tar from "tar";
-import {BASE_DIR, execFileAsync, isArmMac, SupportedPlatform} from "./util";
+import {BASE_DIR, execFileAsync, getPlatform, isArmMac, SupportedPlatform} from "./util";
 
 interface PythonDownload {
     url: string;
@@ -37,7 +37,7 @@ const PYTHON_DIR = path.join(BASE_DIR, 'python');
  */
 function isPythonInstalled(): boolean {
     return fs.existsSync(
-        path.join(BASE_DIR, downloads[process.platform as SupportedPlatform].path)
+        path.join(BASE_DIR, downloads[getPlatform()].path)
     );
 }
 
@@ -111,7 +111,7 @@ async function installPython(): Promise<void> {
         fs.mkdirSync(PYTHON_DIR, { recursive: true });
     }
 
-    const pythonDownload = downloads[process.platform as SupportedPlatform];
+    const pythonDownload = downloads[getPlatform()];
     const archivePath = path.join(BASE_DIR, 'downloads');
     const tarPath = path.join(archivePath, 'python.tar.gz');
 
@@ -127,7 +127,7 @@ async function installPython(): Promise<void> {
 }
 
 export async function getOrInstallPython(): Promise<string> {
-    const pythonPath = path.join(BASE_DIR, downloads[process.platform as SupportedPlatform].path);
+    const pythonPath = path.join(BASE_DIR, downloads[getPlatform()].path);
 
     if (!isPythonInstalled()) {
         console.log('Python not found. Installing...');

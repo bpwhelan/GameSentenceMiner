@@ -1,6 +1,6 @@
 {
   "name": "gamesentenceminer",
-  "version": "1.0.1",
+  "version": "2.4.0",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -8,22 +8,29 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "app:dir": "electron-builder --dir",
-    "app:dist": "electron-builder",
-    "app:publish": "electron-builder --publish always"
+    "app:dist": "tsc && electron-builder"
   },
-  "tsc": {},
+  "tsc": {
+
+  },
   "build": {
     "asar": false,
     "appId": "com.bpwhelan.gsm",
     "files": [
       "dist/main/**/*",
-      "icon.png",
-      "texthooker/docs/index.html"
+      "electron-src/main/index.html",
+      "icon.png"
     ],
-    "extraFiles": {
-      "from": "texthooker/docs/index.html",
-      "to": "index.html"
-    },
+    "extraFiles": [
+      {
+      "from": "electron-src/main/index.html",
+      "to": "resources/app/dist/main/index.html"
+      },
+      {
+        "from": "icon.png",
+        "to": "resources/app/dist/main/icon.png"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "icon.png"
@@ -51,9 +58,10 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
+    "@xterm/xterm": "^5.5.0",
     "decompress": "^4.2.1",
-    "electron-chrome-extensions": "^4.6.0",
     "nodejs-file-downloader": "^4.13.0",
-    "tar": "^7.4.3"
+    "tar": "^7.4.3",
+    "xterm-addon-fit": "^0.8.0"
   }
 }

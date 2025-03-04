@@ -1,18 +1,15 @@
 import signal
-import subprocess
-import sys
 import time
-import ttkbootstrap as ttk
 from subprocess import Popen
 
 import keyboard
 import psutil
+import ttkbootstrap as ttk
 from PIL import Image, ImageDraw
 from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from GameSentenceMiner import utility_gui
 from GameSentenceMiner import anki
 from GameSentenceMiner import config_gui
 from GameSentenceMiner import configuration
@@ -21,12 +18,13 @@ from GameSentenceMiner import gametext
 from GameSentenceMiner import notification
 from GameSentenceMiner import obs
 from GameSentenceMiner import util
-from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
-from GameSentenceMiner.vad import vosk_helper, silero_trim, whisper_helper
+from GameSentenceMiner import utility_gui
 from GameSentenceMiner.configuration import *
+from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
 from GameSentenceMiner.ffmpeg import get_audio_and_trim
 from GameSentenceMiner.gametext import get_text_event, get_mined_line
 from GameSentenceMiner.util import *
+from GameSentenceMiner.vad import vosk_helper, silero_trim, whisper_helper
 
 if is_windows():
     import win32api
@@ -135,7 +133,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
         trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time)
         vad_trimmed_audio = make_unique_file_name(
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
-        final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination, f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
+        final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination,
+                                                                f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
         should_update_audio = True
         if get_config().vad.do_vad_postprocessing:
             match get_config().vad.selected_vad_model:
@@ -151,13 +150,13 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     case configuration.OFF:
                         pass
                     case configuration.SILERO:
-                        should_update_audio  = silero_trim.process_audio_with_silero(trimmed_audio,
-                                                                                     vad_trimmed_audio)
+                        should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio,
+                                                                                    vad_trimmed_audio)
                     case configuration.VOSK:
-                        should_update_audio  = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
+                        should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
                     case configuration.WHISPER:
-                        should_update_audio  = whisper_helper.process_audio_with_whisper(trimmed_audio,
-                                                                                         vad_trimmed_audio)
+                        should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio,
+                                                                                        vad_trimmed_audio)
         if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
                                                   get_config().audio.ffmpeg_reencode_options)
@@ -186,6 +185,7 @@ def initialize(reloading=False):
             vosk_helper.get_vosk_model()
         if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
             whisper_helper.initialize_whisper_model()
+
 
 def initial_checks():
     try:
@@ -244,9 +244,11 @@ def create_image():
 
     return image
 
+
 def open_settings():
     obs.update_current_game()
     settings_window.show()
+
 
 def open_multimine():
     obs.update_current_game()
@@ -291,7 +293,8 @@ def update_icon():
     global menu, icon
     # Recreate the menu with the updated button text
     profile_menu = Menu(
-        *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, switch_profile) for profile in
+        *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, switch_profile) for
+          profile in
           get_master_config().get_all_profile_names()]
     )
 
@@ -307,6 +310,7 @@ def update_icon():
 
     icon.menu = menu
     icon.update_menu()
+
 
 def switch_profile(icon, item):
     if "Active:" in item.text:
@@ -341,6 +345,7 @@ def run_tray():
     icon = Icon("TrayApp", create_image(), "Game Sentence Miner", menu)
     icon.run()
 
+
 # def close_obs():
 #     if obs_process:
 #         logger.info("Closing OBS")
@@ -369,6 +374,7 @@ def close_obs():
     else:
         print("OBS is not running.")
 
+
 def restart_obs():
     global obs_process
     if obs_process:
@@ -376,6 +382,7 @@ def restart_obs():
         time.sleep(2)
         obs_process = obs.start_obs()
         obs.connect_to_obs(start_replay=True)
+
 
 def cleanup():
     logger.info("Performing cleanup...")
@@ -401,9 +408,21 @@ def cleanup():
             proc.kill()
             logger.error(f"Error terminating process {proc}: {e}")
 
-
     settings_window.window.destroy()
     logger.info("Cleanup complete.")
+
+
+def check_for_stdin():
+    while True:
+        for line in sys.stdin:
+            match line:
+                case "exit":
+                    cleanup()
+                    sys.exit(0)
+                case "restart_obs":
+                    restart_obs()
+                case "update":
+                    update_icon()
 
 
 def handle_exit():
@@ -420,10 +439,12 @@ def handle_exit():
 def main(reloading=False, do_config_input=True):
     global root, settings_window, utility_window
     logger.info("Script started.")
+    util.run_new_thread(check_for_stdin)
     root = ttk.Window(themename='darkly')
     settings_window = config_gui.ConfigApp(root)
     utility_window = utility_gui.UtilityApp(root)
     initialize(reloading)
+    util.run_new_thread(run_tray)
     initial_checks()
     event_handler = VideoToAudioHandler()
     observer = Observer()
@@ -439,8 +460,6 @@ def main(reloading=False, do_config_input=True):
     signal.signal(signal.SIGINT, handle_exit())  # Handle Ctrl+C
     if is_windows():
         win32api.SetConsoleCtrlHandler(handle_exit())
-
-    util.run_new_thread(run_tray)
 
     try:
         if get_config().general.check_for_update_on_startup:

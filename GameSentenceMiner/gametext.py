@@ -129,10 +129,10 @@ def handle_new_text_event(current_clipboard):
         current_line_after_regex = re.sub(get_config().general.texthook_replacement_regex, '', current_line)
     else:
         current_line_after_regex = current_line
+    logger.info(f"Line Received: {current_line_after_regex}")
     current_line_time = datetime.now()
     line_history.add_line(current_line_after_regex)
     multi_mine_event_bus(line_history[-1])
-    logger.debug(f"New Line: {current_clipboard}")
 
 
 def reset_line_hotkey_pressed():
