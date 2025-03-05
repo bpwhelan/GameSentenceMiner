@@ -1,3 +1,50 @@
+
+## 2.4.0 - [Electron App](https://discord.com/channels/1286409772383342664/1344865618498945144)!
+
+This is currently very simple app that allows me to install Python and GSM for new and existing users.
+
+## What is Changing
+
+No update to the actual audio trimming/python logic, but with this update comes the new way I want to distribute GSM, and how you should run GSM. the old way will work for the forseeable future, but there will now be an executable package/installer that you can run instead of ever touching the terminal. (uses the same system as familiar tools like discord, kamui, etc.)
+
+### Install: Old -> New
+
+- Install Python and pip install gamesentenceminer -> Run Installer and/or GameSentenceMiner.exe and it installs python/gsm for you
+
+You can find them here https://github.com/bpwhelan/GameSentenceMiner/releases/tag/2.4.0. The screenshots I've attached are after I've run the Installer.
+
+## Future Plans
+
+I have a few more improvements already planned that moving to an electron app makes possible.
+
+- Auto Updater / 1 click Update - This is first, I dont want people to have to go into the appdata dir and update from there.
+- Integrate More tools into gsm like my yuzu launcher/steam launcher
+
+## Limitations/Issues
+
+Currently only on Windows so far since im building from my personal machine, but Linux support should be very easy when i get around to it.
+
+Nothing else that I know of yet, the only thing to note is that this installs a portable version of python in `%APPDATA%/GameSentenceMiner/python` with all the dependencies there too. If you want to clean up the previous global install you can run `pip uninstall gamesentenceminer` or if you want to cleanup dependencies as well: 
+
+```
+pip install pip3-autoremove
+pip-autoremove gamesentenceminer
+```
+
+This also means that if you need to override dependencies you need to do them in the new python directory. for example, the CUDA version of torch if you use whisper and want to use your GPU (this might not be your exact command)... `C:/Users/Beangate/Appdata/Roaming/GameSentenceMiner/python/python.exe -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126`
+
+
+
+### 1.10.0 to Today
+
+- pip install
+- previous sentence
+- previous sentence screenshot
+- multi-line mining
+- open audio in external program
+- screenshot timing setting
+
+
 ### 1.10.0
 
 Lots of changes with this one.
