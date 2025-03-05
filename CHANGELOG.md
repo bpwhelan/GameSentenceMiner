@@ -33,7 +33,7 @@ pip-autoremove gamesentenceminer
 
 This also means that if you need to override dependencies you need to do them in the new python directory. for example, the CUDA version of torch if you use whisper and want to use your GPU (this might not be your exact command)... `C:/Users/Beangate/Appdata/Roaming/GameSentenceMiner/python/python.exe -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126`
 
-
+---
 
 ### 1.10.0 to Today
 
@@ -44,6 +44,7 @@ This also means that if you need to override dependencies you need to do them in
 - open audio in external program
 - screenshot timing setting
 
+---
 
 ### 1.10.0
 
