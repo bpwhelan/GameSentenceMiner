@@ -98,7 +98,6 @@ async function extractPython(archivePath: string, extractPath: string): Promise<
  */
 async function installPython(): Promise<void> {
     if (isPythonInstalled()) {
-        console.log('Python is already installed.');
         return;
     }
 

@@ -415,14 +415,15 @@ def cleanup():
 def check_for_stdin():
     while True:
         for line in sys.stdin:
-            match line:
-                case "exit":
-                    cleanup()
-                    sys.exit(0)
-                case "restart_obs":
-                    restart_obs()
-                case "update":
-                    update_icon()
+            logger.info(f"Got stdin: {line}")
+            if "exit" in line:
+                cleanup()
+                sys.exit(0)
+            elif "restart_obs" in line:
+                restart_obs()
+            elif "update" in line:
+                update_icon()
+            sys.stdin.flush()
 
 
 def handle_exit():
