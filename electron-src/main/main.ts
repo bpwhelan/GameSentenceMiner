@@ -124,7 +124,7 @@ async function updateGSM() {
     setTimeout(() => {
         getOrInstallPython().then(async (pythonPath) => {
             console.log("Updating GSM...")
-            await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", '-v', PACKAGE_NAME], true, true);
+            await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
             console.log("Update Finished, restarting...");
             restart();
         })
