@@ -67,37 +67,37 @@ def download_obs_if_needed():
         with zipfile.ZipFile(obs_installer, 'r') as zip_ref:
             zip_ref.extractall(obs_path)
         open(os.path.join(obs_path, "portable_mode"), 'a').close()
-        websocket_config_path = os.path.join(obs_path, 'config', 'obs-studio')
-        if not copy_obs_settings(os.path.join(os.getenv('APPDATA'), 'obs-studio'), websocket_config_path):
-            websocket_config_path = os.path.join(obs_path, 'config', 'obs-studio', 'plugin_config', 'obs-websocket')
-            os.makedirs(websocket_config_path, exist_ok=True)
+        # websocket_config_path = os.path.join(obs_path, 'config', 'obs-studio')
+        # if not copy_obs_settings(os.path.join(os.getenv('APPDATA'), 'obs-studio'), websocket_config_path):
+        websocket_config_path = os.path.join(obs_path, 'config', 'obs-studio', 'plugin_config', 'obs-websocket')
+        os.makedirs(websocket_config_path, exist_ok=True)
 
-            websocket_config = {
-                "alerts_enabled": False,
-                "auth_required": False,
-                "first_load": False,
-                "server_enabled": True,
-                "server_password": secrets.token_urlsafe(16),
-                "server_port": 7274
-            }
-            with open(os.path.join(websocket_config_path, 'config.json'), 'w') as config_file:
-                json.dump(websocket_config, config_file, indent=4)
-            basic_ini_path = os.path.join(obs_path, 'config', 'obs-studio', 'basic', 'profiles', 'Untitled')
-            os.makedirs(basic_ini_path, exist_ok=True)
-            with open(os.path.join(basic_ini_path, 'basic.ini'), 'w') as basic_ini_file:
-                basic_ini_file.write(
-                    "[SimpleOutput]\n"
-                    f"FilePath={os.path.expanduser('~')}/Videos/GSM\n"
-                    "RecRB=true\n"
-                    "RecRBTime=60\n"
-                    "RecRBSize=512\n"
-                    "RecRBPrefix=GSM\n"
-                    "RecAudioEncoder=opus\n"
-                )
-            scene_json_path = os.path.join(obs_path, 'config', 'obs-studio', 'basic', 'scenes')
-            os.makedirs(scene_json_path, exist_ok=True)
-            with open(os.path.join(scene_json_path, 'Untitled.json'), 'w') as scene_file:
-                scene_file.write(scenes)
+        websocket_config = {
+            "alerts_enabled": False,
+            "auth_required": False,
+            "first_load": False,
+            "server_enabled": True,
+            "server_password": secrets.token_urlsafe(16),
+            "server_port": 7274
+        }
+        with open(os.path.join(websocket_config_path, 'config.json'), 'w') as config_file:
+            json.dump(websocket_config, config_file, indent=4)
+        basic_ini_path = os.path.join(obs_path, 'config', 'obs-studio', 'basic', 'profiles', 'Untitled')
+        os.makedirs(basic_ini_path, exist_ok=True)
+        with open(os.path.join(basic_ini_path, 'basic.ini'), 'w') as basic_ini_file:
+            basic_ini_file.write(
+                "[SimpleOutput]\n"
+                f"FilePath={os.path.expanduser('~')}/Videos/GSM\n"
+                "RecRB=true\n"
+                "RecRBTime=60\n"
+                "RecRBSize=512\n"
+                "RecRBPrefix=GSM\n"
+                "RecAudioEncoder=opus\n"
+            )
+        scene_json_path = os.path.join(obs_path, 'config', 'obs-studio', 'basic', 'scenes')
+        os.makedirs(scene_json_path, exist_ok=True)
+        with open(os.path.join(scene_json_path, 'Untitled.json'), 'w') as scene_file:
+            scene_file.write(scenes)
         logger.info(f"OBS extracted to {obs_path}.")
     else:
         logger.error(f"Please install OBS manually from {obs_installer}")
