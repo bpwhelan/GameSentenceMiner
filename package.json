@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "2.4.1",
+  "version": "1.1.0",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -11,11 +11,9 @@
     "app:dir": "electron-builder --dir",
     "app:dist": "tsc && electron-builder"
   },
-  "tsc": {
-
-  },
+  "tsc": {},
   "build": {
-    "asar": false,
+    "asar": true,
     "appId": "com.bpwhelan.gsm",
     "files": [
       "dist/main/**/*",
@@ -24,17 +22,15 @@
     ],
     "extraFiles": [
       {
-      "from": "electron-src/main/index.html",
-      "to": "resources/app/dist/main/index.html"
-      },
-      {
-        "from": "icon.png",
-        "to": "resources/app/dist/main/icon.png"
+        "from": "electron-src/assets",
+        "to": "resources/assets"
       }
     ],
     "win": {
       "target": "nsis",
-      "icon": "icon.png"
+      "icon": "icon.png",
+      "sign": false,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "mac": {
       "target": "dmg"
@@ -51,6 +47,10 @@
       }
     ]
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bpwhelan/GameSentenceMiner.git"
+  },
   "author": "Beangate",
   "license": "LGPL-3.0-only",
   "devDependencies": {
@@ -60,7 +60,10 @@
   },
   "dependencies": {
     "@xterm/xterm": "^5.5.0",
+    "axios": "^1.8.1",
     "decompress": "^4.2.1",
+    "electron-log": "^5.3.2",
+    "electron-updater": "^6.3.9",
     "nodejs-file-downloader": "^4.13.0",
     "tar": "^7.4.3",
     "xterm-addon-fit": "^0.8.0"

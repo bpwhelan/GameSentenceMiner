@@ -4,6 +4,7 @@ on:
   release:
     types: [published]  # Automatically triggers on published releases
   workflow_dispatch:  # Allows manual trigger from the GitHub UI
+
 jobs:
   electron-build-windows:
     runs-on: windows-latest
@@ -28,17 +29,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifacts to release
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-unpacked
-          path: dist/win-unpacked  # Adjust based on your target platform(s)
+#      - name: Upload artifacts to release
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: windows-unpacked
+#          path: dist/win-unpacked  # Adjust based on your target platform(s)
 
       - name: Upload installer to release
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: dist/gamesentenceminer Setup*.exe  # Adjust based on your target platform(s)
+          path: dist/gamesentenceminer-Setup*.exe  # Adjust based on your target platform(s)
 
       - name: Attach artifacts to release
         uses: softprops/action-gh-release@v1
@@ -46,6 +47,5 @@ jobs:
         with:
           files: |
             dist/gamesentenceminer Setup*.exe
-            dist/win-unpacked/*.exe  # Adjust to match specific files in win-unpacked
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
