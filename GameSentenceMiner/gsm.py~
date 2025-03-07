@@ -463,6 +463,8 @@ def main(reloading=False, do_config_input=True):
         win32api.SetConsoleCtrlHandler(handle_exit())
 
     try:
+        if get_config().general.check_for_update_on_startup:
+            root.after(0, settings_window.check_update)
         if get_config().general.open_config_on_startup:
             root.after(0, settings_window.show)
         settings_window.add_save_hook(update_icon)

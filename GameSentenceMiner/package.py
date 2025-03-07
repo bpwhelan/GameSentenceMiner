@@ -1,8 +1,6 @@
 import os
 from importlib import metadata
-import sys
 
-import pyperclip
 import requests
 
 from GameSentenceMiner.configuration import logger, get_app_directory

@@ -4,9 +4,9 @@ from tkinter import filedialog, messagebox, simpledialog
 import pyperclip
 import ttkbootstrap as ttk
 
-from GameSentenceMiner.package_updater import check_for_updates, get_latest_version, get_current_version
 from GameSentenceMiner import obs, configuration
 from GameSentenceMiner.configuration import *
+from GameSentenceMiner.package import get_current_version, get_latest_version
 
 settings_saved = False
 on_save = []
@@ -95,25 +95,6 @@ class ConfigApp:
         if self.window is not None:
             self.window.withdraw()
 
-    def update_now(self):
-        update_available, version = check_for_updates()
-        if update_available:
-            messagebox.showinfo("Update", "GSM Will Copy the Update Command to your clipboard, please run it in a terminal.")
-            pyperclip.copy("pip install --upgrade GameSentenceMiner")
-            self.on_exit(None, None)
-        else:
-            messagebox.showinfo("No Update Found", "No update found.")
-
-    def check_update(self, show_no_update=False):
-        update_available, version = check_for_updates()
-        if update_available:
-            self.latest_version.config(text=version)
-            should_update = messagebox.askyesno("Update Found", "Update Found, would you like to update now?")
-            if should_update:
-                self.update_now()
-        elif show_no_update:
-            messagebox.showinfo("No Update Found", "No update found.")
-
     def save_settings(self, profile_change=False):
         global settings_saved
 
@@ -123,7 +104,6 @@ class ConfigApp:
                 use_websocket=self.websocket_enabled.get(),
                 websocket_uri=self.websocket_uri.get(),
                 open_config_on_startup=self.open_config_on_startup.get(),
-                check_for_update_on_startup=self.check_for_update_on_startup.get(),
                 texthook_replacement_regex=self.texthook_replacement_regex.get()
             ),
             paths=Paths(
@@ -295,13 +275,6 @@ class ConfigApp:
         self.add_label_and_increment_row(general_frame, "Whether to open config when the script starts.",
                                          row=self.current_row, column=2)
 
-        ttk.Label(general_frame, text="Check for Updates On Startup:").grid(row=self.current_row, column=0, sticky='W')
-        self.check_for_update_on_startup = tk.BooleanVar(value=self.settings.general.check_for_update_on_startup)
-        ttk.Checkbutton(general_frame, variable=self.check_for_update_on_startup).grid(row=self.current_row, column=1,
-                                                                                  sticky='W')
-        self.add_label_and_increment_row(general_frame, "Always check for Updates On Startup.",
-                                         row=self.current_row, column=2)
-
         ttk.Label(general_frame, text="Current Version:").grid(row=self.current_row, column=0, sticky='W')
         self.current_version = ttk.Label(general_frame, text=get_current_version())
         self.current_version.grid(row=self.current_row, column=1)
@@ -312,13 +285,6 @@ class ConfigApp:
         self.latest_version = ttk.Label(general_frame, text=get_latest_version())
         self.latest_version.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(general_frame, "The latest available version of the application.",
-                                         row=self.current_row, column=2)
-
-        ttk.Button(general_frame, text="Check Update", command=lambda: self.check_update(True)).grid(row=self.current_row, column=0,
-                                                                                       pady=5)
-        ttk.Button(general_frame, text="Update Now", command=self.update_now).grid(row=self.current_row, column=1,
-                                                                                   pady=5)
-        self.add_label_and_increment_row(general_frame, "Check for updates or update to the latest version.",
                                          row=self.current_row, column=2)
 
         # ttk.Label(general_frame, text="Per Scene Config:").grid(row=self.current_row, column=0, sticky='W')

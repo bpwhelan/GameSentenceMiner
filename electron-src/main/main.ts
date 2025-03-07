@@ -1,15 +1,74 @@
-import {app, BrowserWindow, Tray, Menu} from 'electron';
+import {app, BrowserWindow, Tray, Menu, dialog} from 'electron';
 import * as path from 'path';
-import {spawn, execFile, ChildProcessWithoutNullStreams} from 'child_process';
+import {spawn, ChildProcessWithoutNullStreams} from 'child_process';
 import {getOrInstallPython} from "./python_downloader";
 import {APP_NAME, BASE_DIR, PACKAGE_NAME} from "./util";
+import {checkForUpdates} from "./update_checker";
 
-const iconPath = path.join(__dirname, 'icon.png'); // Reference it directly
+const {autoUpdater} = require("electron-updater");
+const log = require("electron-log");
+
 let mainWindow: BrowserWindow | null;
 let tray: Tray;
 let pyProc: ChildProcessWithoutNullStreams;
 let isQuitting = false;
 let isUpdating: boolean = false;
+let electronUpdateReady: boolean = false;
+let pythonPath: string;
+
+
+// Enable logging
+autoUpdater.logger = log;
+autoUpdater.logger.transports.file.level = "info";
+
+// Event listeners for autoUpdater
+autoUpdater.on("update-available", () => {
+    log.info("Update available.");
+    dialog.showMessageBox({
+        type: "info",
+        title: "Update Available",
+        message: "A new version is available. Downloading now...",
+    });
+});
+
+autoUpdater.on("update-downloaded", () => {
+    log.info("Update downloaded.");
+    dialog
+        .showMessageBox({
+            type: "info",
+            title: "Update Ready",
+            message: "A new version has been downloaded. Restart now to install?",
+            buttons: ["Restart", "Later"],
+        })
+        .then((result) => {
+            if (result.response === 0) {
+                autoUpdater.quitAndInstall();
+            }
+        });
+});
+
+autoUpdater.on("error", (err: any) => {
+    log.error("Update error: " + err.message);
+});
+
+
+const isDev = !app.isPackaged;
+
+/**
+ * Get the base directory for assets.
+ * Handles both development and production (ASAR) environments.
+ * @returns {string} - Path to the assets directory.
+ */
+function getAssetsDir() {
+    return isDev
+        ? path.join(__dirname, "../../electron-src/assets") // Development path
+        : path.join(process.resourcesPath, "assets"); // Production (ASAR-safe)
+}
+
+function getIconPath(size: number = 0): string {
+    const filename = size ? `icon${size}.png` : "icon.png";
+    return path.join(getAssetsDir(), filename);
+}
 
 /**
  * Runs a command and returns a promise that resolves when the command exits.
@@ -90,14 +149,14 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 720,
-        icon: iconPath,
+        icon: getIconPath(64),
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
         },
     });
 
-    mainWindow.loadFile(path.join(__dirname, 'index.html'));
+    mainWindow.loadFile(path.join(getAssetsDir(), 'index.html'));
 
     mainWindow.setMenu(null);
 
@@ -119,20 +178,23 @@ function createWindow() {
 
 async function updateGSM() {
     isUpdating = true;
-    console.log("Closing GSM...");
-    closeGSM();
     setTimeout(() => {
-        getOrInstallPython().then(async (pythonPath) => {
-            console.log("Updating GSM...")
-            await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
-            console.log("Update Finished, restarting...");
-            restart();
-        })
+        checkForUpdates(pythonPath).then(async ({updateAvailable, latestVersion}) => {
+            if (updateAvailable) {
+                console.log("Closing GSM...");
+                closeGSM();
+                console.log(`Updating GSM Python Application to ${latestVersion}...`)
+                await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
+                restart();
+            } else {
+                console.log("You're already using the latest version.");
+            }
+        });
     }, 3000);
 }
 
 function createTray() {
-    tray = new Tray(iconPath); // Replace with a valid icon path
+    tray = new Tray(getIconPath(16)); // Replace with a valid icon path
     const contextMenu = Menu.buildFromTemplate([
         {label: 'Show Console', click: () => mainWindow?.show()},
         {label: 'Update GSM', click: () => updateGSM()},
@@ -185,9 +247,13 @@ app.setPath('userData', path.join(BASE_DIR, 'electron'));
 
 
 app.whenReady().then(() => {
+    if (!isDev) {
+        autoUpdater.checkForUpdatesAndNotify();
+    }
     createWindow();
     createTray();
-    getOrInstallPython().then((pythonPath) => {
+    getOrInstallPython().then((path) => {
+        pythonPath = path;
         ensureAndRunGSM(pythonPath).then(() => {
             if (!isUpdating) {
                 quit();

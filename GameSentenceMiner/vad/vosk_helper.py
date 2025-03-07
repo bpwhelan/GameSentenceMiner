@@ -19,12 +19,12 @@ vosk_model = None
 # Function to download and cache the Vosk model
 def download_and_cache_vosk_model(model_dir="vosk_model_cache"):
     # Ensure the cache directory exists
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
+    if not os.path.exists(os.path.join(get_app_directory(), model_dir)):
+        os.makedirs(os.path.join(get_app_directory(), model_dir))
 
     # Extract the model name from the URL
     model_filename = get_config().vad.vosk_url.split("/")[-1]
-    model_path = os.path.join(model_dir, model_filename)
+    model_path = os.path.join(get_app_directory(), model_dir, model_filename)
 
     # If the model is already downloaded, skip the download
     if not os.path.exists(model_path):
@@ -38,7 +38,7 @@ def download_and_cache_vosk_model(model_dir="vosk_model_cache"):
         logger.info("Download complete.")
 
     # Extract the model if it's a zip or tar file
-    model_extract_path = os.path.join(model_dir, "vosk_model")
+    model_extract_path = os.path.join(get_app_directory(), model_dir, "vosk_model")
     if not os.path.exists(model_extract_path):
         logger.info("Extracting the Vosk model...")
         if model_filename.endswith(".zip"):

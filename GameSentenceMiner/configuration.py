@@ -41,7 +41,6 @@ class General:
     use_websocket: bool = True
     websocket_uri: str = 'localhost:6677'
     open_config_on_startup: bool = False
-    check_for_update_on_startup: bool = False
     texthook_replacement_regex: str = ""
 
 
