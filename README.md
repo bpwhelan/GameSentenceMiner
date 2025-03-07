@@ -40,7 +40,7 @@ There are settings in GSM that may help accomodate for a poor hook, but if you e
 
 ### New Way as of 2.4.0
 
-Grab the latest Installer or Zip from [Releases](https://github.com/bpwhelan/GameSentenceMiner/releases), and then either run the installer or run GameSentenceMiner.exe.
+Grab the latest Installer from [Releases](https://github.com/bpwhelan/GameSentenceMiner/releases).
 
 ### Old Way - Will still work for the forseeable future
 
