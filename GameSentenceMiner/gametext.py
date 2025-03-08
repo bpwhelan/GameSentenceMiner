@@ -156,69 +156,9 @@ def start_text_monitor(send_to_mine_event_bus):
     text_thread.start()
 
 
-# def get_line_timing(last_note):
-#     def similar(a, b):
-#         return SequenceMatcher(None, a, b).ratio()
-#
-#     if not last_note:
-#         return current_line_time, 0
-#
-#     lines = line_history.values
-#
-#     line_time = current_line_time
-#     next_line = 0
-#     prev_clip_time = 0
-#
-#     try:
-#         sentence = last_note['fields'][get_config().anki.sentence_field]['value']
-#         if sentence:
-#             for line in reversed(lines):
-#                 similarity = similar(remove_html_tags(sentence), line.text)
-#                 if similarity >= 0.60 or line.text in remove_html_tags(sentence):  # 80% similarity threshold
-#                     line_time = line.time
-#                     next_line = prev_clip_time
-#                     break
-#                 prev_clip_time = line.time
-#     except Exception as e:
-#         logger.error(f"Using Default clipboard/websocket timing - reason: {e}")
-#
-#     return line_time, next_line
-#
-#
-# def get_last_two_sentences(last_note) -> (str, str):
-#     def similar(a, b):
-#         return SequenceMatcher(None, a, b).ratio()
-#
-#     lines = line_history.values
-#
-#     if not last_note:
-#         return lines[-1].text if lines else '', lines[-2].text if len(lines) > 1 else ''
-#
-#     sentence = last_note['fields'][get_config().anki.sentence_field]['value']
-#     if not sentence:
-#         return lines[-1].text if lines else '', lines[-2].text if len(lines) > 1 else ''
-#
-#     current, previous = "", ""
-#     found = False
-#
-#     for line in reversed(lines):
-#         similarity = similar(remove_html_tags(sentence), line.text)
-#         logger.debug(f"Comparing: {remove_html_tags(sentence)} with {line.text} - Similarity: {similarity}")
-#         if found:
-#             previous = line.text
-#             break
-#         if similarity >= 0.60 or line.text in remove_html_tags(sentence):
-#             found = True
-#             current = line.text
-#
-#     if not current or not previous:
-#         logger.debug("Couldn't find lines in history, using last two lines")
-#         return lines[-1].text if lines else '', lines[-2].text if len(lines) > 1 else ''
-#
-#     return current, previous
-
 def similar(a, b):
     return SequenceMatcher(None, a, b).ratio()
+
 
 def get_text_event(last_note) -> GameLine:
     lines = line_history.values

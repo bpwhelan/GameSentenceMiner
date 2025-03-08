@@ -181,12 +181,13 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     file_length = get_video_duration(video_path)
     time_delta = file_mod_time - game_line.time
     # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)
-    total_seconds = file_length - time_delta.total_seconds() + get_config().audio.beginning_offset
+    total_seconds = file_length - time_delta.total_seconds()
+    total_seconds_after_offset = total_seconds + get_config().audio.beginning_offset
     if total_seconds < 0 or total_seconds >= file_length:
         logger.info(f"0 seconds trimmed off of beginning")
         return untrimmed_audio
 
-    hours, remainder = divmod(total_seconds, 3600)
+    hours, remainder = divmod(total_seconds_after_offset, 3600)
     minutes, seconds = divmod(remainder, 60)
     start_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
 
@@ -210,7 +211,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     logger.debug(" ".join(ffmpeg_command))
     subprocess.run(ffmpeg_command)
 
-    logger.info(f"{total_seconds} trimmed off of beginning")
+    logger.info(f"{total_seconds_after_offset} trimmed off of beginning")
 
     logger.info(f"Audio trimmed and saved to {trimmed_audio}")
     return trimmed_audio
