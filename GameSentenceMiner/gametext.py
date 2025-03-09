@@ -118,7 +118,7 @@ async def listen_websocket():
                         handle_new_text_event(current_clipboard)
         except (websockets.ConnectionClosed, ConnectionError) as e:
             if not reconnecting:
-                logger.warning(f"Texthooker WebSocket connection lost: {e}. Attempting to Reconnect...")
+                logger.warning(f"Texthooker WebSocket connection lost: {e}. IF USING CLIPBOARD, WEBSOCKET NEEDS TO BE TURNED OFF IN SETTINGS. Attempting to Reconnect...")
             reconnecting = True
             await asyncio.sleep(5)
 

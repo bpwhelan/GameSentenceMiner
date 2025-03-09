@@ -40,7 +40,6 @@ def download_obs_if_needed():
         logger.info("OBS directory exists but executable is missing. Re-downloading OBS...")
         shutil.rmtree(obs_path)
 
-    os.makedirs(obs_path, exist_ok=True)
     latest_release_url = "https://api.github.com/repos/obsproject/obs-studio/releases/latest"
     with urllib.request.urlopen(latest_release_url) as response:
         latest_release = json.load(response)
@@ -63,6 +62,8 @@ def download_obs_if_needed():
 
     logger.info(f"Downloading OBS from {obs_url}...")
     urllib.request.urlretrieve(obs_url, obs_installer)
+
+    os.makedirs(obs_path, exist_ok=True)
 
     if platform.system() == "Windows":
 
@@ -119,8 +120,6 @@ def download_ffmpeg_if_needed():
         logger.info("FFmpeg directory exists but executables are missing. Re-downloading FFmpeg...")
         shutil.rmtree(ffmpeg_dir)
 
-    os.makedirs(ffmpeg_dir, exist_ok=True)
-
     ffmpeg_url = {
         "Windows": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
         "Linux": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
@@ -138,6 +137,9 @@ def download_ffmpeg_if_needed():
     logger.info(f"Downloading FFmpeg from {ffmpeg_url}...")
     urllib.request.urlretrieve(ffmpeg_url, ffmpeg_archive)
     logger.info(f"FFmpeg downloaded. Extracting to {ffmpeg_dir}...")
+
+    os.makedirs(ffmpeg_dir, exist_ok=True)
+
     with zipfile.ZipFile(ffmpeg_archive, 'r') as zip_ref:
         for member in zip_ref.namelist():
             filename = os.path.basename(member)

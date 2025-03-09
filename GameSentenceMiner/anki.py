@@ -3,6 +3,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+from datetime import datetime, timedelta
 
 import requests as req
 
@@ -197,15 +198,18 @@ def get_cards_by_sentence(sentence):
 
     return last_notes
 
+last_connection_error = datetime.now()
 
 # Check for new Anki cards and save replay buffer if detected
 def check_for_new_cards():
-    global previous_note_ids, first_run
+    global previous_note_ids, first_run, last_connection_error
     current_note_ids = set()
     try:
         current_note_ids = get_note_ids()
     except Exception as e:
-        logger.error(f"Error fetching Anki notes: {e}")
+        if datetime.now() - last_connection_error > timedelta(seconds=10):
+            logger.error(f"Error fetching Anki notes, Make sure Anki is running, ankiconnect add-on is installed, and url/port is configured correctly in GSM Settings")
+            last_connection_error = datetime.now()
         return
     new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
