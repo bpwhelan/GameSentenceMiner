@@ -7,7 +7,7 @@ game we are playing.
 
 Short Demo (Watch this first): https://www.youtube.com/watch?v=FeFBL7py6HY
 
-Installation: https://www.youtube.com/watch?v=ybRRB1eIYhk
+Installation (Outdated): https://www.youtube.com/watch?v=ybRRB1eIYhk
 
 ## How Does it Work?
 
