@@ -63,7 +63,7 @@ def get_screenshot_time(video_path, game_line):
 
     time_from_end = file_length - total_seconds - get_config().screenshot.seconds_after_line
 
-    if time_from_end < 0 or time_from_end > (file_length - total_seconds):
+    if time_from_end < 0 or time_from_end > file_length:
         raise ValueError("Calculated screenshot time is out of bounds for trimmed video.")
 
     return time_from_end
