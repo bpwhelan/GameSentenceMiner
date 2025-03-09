@@ -21,6 +21,7 @@ from GameSentenceMiner import util
 from GameSentenceMiner import utility_gui
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
+from GameSentenceMiner.electron_messaging import signal_restart_settings_change
 from GameSentenceMiner.ffmpeg import get_audio_and_trim
 from GameSentenceMiner.gametext import get_text_event, get_mined_line
 from GameSentenceMiner.util import *
@@ -321,6 +322,7 @@ def switch_profile(icon, item):
     switch_profile_and_save(item.text)
     settings_window.reload_settings()
     update_icon()
+    signal_restart_settings_change()
 
 
 def run_tray():

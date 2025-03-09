@@ -8,6 +8,8 @@ import zipfile
 
 from GameSentenceMiner.downloader.Untitled_json import scenes
 from GameSentenceMiner.configuration import get_app_directory, logger
+from GameSentenceMiner.ffmpeg import get_ffmpeg_path, get_ffprobe_path
+from GameSentenceMiner.obs import get_obs_path
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -29,9 +31,14 @@ def copy_obs_settings(src, dest):
 
 def download_obs_if_needed():
     obs_path = os.path.join(get_app_directory(), 'obs-studio')
-    if os.path.exists(obs_path):
+    obs_exe_path = get_obs_path()
+    if os.path.exists(obs_path) and os.path.exists(obs_exe_path):
         logger.debug(f"OBS already installed at {obs_path}.")
         return
+
+    if os.path.exists(obs_path) and not os.path.exists(obs_exe_path):
+        logger.info("OBS directory exists but executable is missing. Re-downloading OBS...")
+        shutil.rmtree(obs_path)
 
     os.makedirs(obs_path, exist_ok=True)
     latest_release_url = "https://api.github.com/repos/obsproject/obs-studio/releases/latest"
@@ -54,11 +61,8 @@ def download_obs_if_needed():
     os.makedirs(download_dir, exist_ok=True)
     obs_installer = os.path.join(download_dir, "OBS.zip")
 
-    if os.path.exists(obs_installer):
-        logger.debug("OBS installer already exists. Skipping download.")
-    else:
-        logger.info(f"Downloading OBS from {obs_url}...")
-        urllib.request.urlretrieve(obs_url, obs_installer)
+    logger.info(f"Downloading OBS from {obs_url}...")
+    urllib.request.urlretrieve(obs_url, obs_installer)
 
     if platform.system() == "Windows":
 
@@ -103,13 +107,19 @@ def download_obs_if_needed():
         logger.error(f"Please install OBS manually from {obs_installer}")
 
 def download_ffmpeg_if_needed():
-    ffmpeg_path = os.path.join(get_app_directory(), 'ffmpeg')
+    ffmpeg_dir = os.path.join(get_app_directory(), 'ffmpeg')
+    ffmpeg_exe_path = get_ffmpeg_path()
+    ffprobe_exe_path = get_ffprobe_path()
 
-    if os.path.exists(ffmpeg_path):
-        logger.debug(f"FFmpeg already installed at {ffmpeg_path}.")
+    if os.path.exists(ffmpeg_dir) and os.path.exists(ffmpeg_exe_path) and os.path.exists(ffprobe_exe_path):
+        logger.debug(f"FFmpeg already installed at {ffmpeg_dir}.")
         return
 
-    os.makedirs(ffmpeg_path, exist_ok=True)
+    if os.path.exists(ffmpeg_dir) and (not os.path.exists(ffmpeg_exe_path) or not os.path.exists(ffprobe_exe_path)):
+        logger.info("FFmpeg directory exists but executables are missing. Re-downloading FFmpeg...")
+        shutil.rmtree(ffmpeg_dir)
+
+    os.makedirs(ffmpeg_dir, exist_ok=True)
 
     ffmpeg_url = {
         "Windows": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
@@ -125,21 +135,18 @@ def download_ffmpeg_if_needed():
     os.makedirs(download_dir, exist_ok=True)
     ffmpeg_archive = os.path.join(download_dir, "ffmpeg.zip")
 
-    if os.path.exists(ffmpeg_archive):
-        logger.debug("FFmpeg archive already exists. Skipping download.")
-    else:
-        logger.info(f"Downloading FFmpeg from {ffmpeg_url}...")
-        urllib.request.urlretrieve(ffmpeg_url, ffmpeg_archive)
-        logger.info(f"FFmpeg downloaded. Extracting to {ffmpeg_path}...")
+    logger.info(f"Downloading FFmpeg from {ffmpeg_url}...")
+    urllib.request.urlretrieve(ffmpeg_url, ffmpeg_archive)
+    logger.info(f"FFmpeg downloaded. Extracting to {ffmpeg_dir}...")
     with zipfile.ZipFile(ffmpeg_archive, 'r') as zip_ref:
         for member in zip_ref.namelist():
             filename = os.path.basename(member)
             if filename:  # Skip directories
                 source = zip_ref.open(member)
-                target = open(os.path.join(ffmpeg_path, filename), "wb")
+                target = open(os.path.join(ffmpeg_dir, filename), "wb")
                 with source, target:
                     shutil.copyfileobj(source, target)
-    logger.info(f"FFmpeg extracted to {ffmpeg_path}.")
+    logger.info(f"FFmpeg extracted to {ffmpeg_dir}.")
 def main():
     # Run dependency checks
     download_obs_if_needed()

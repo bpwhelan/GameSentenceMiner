@@ -29,23 +29,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-#      - name: Upload artifacts to release
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: windows-unpacked
-#          path: dist/win-unpacked  # Adjust based on your target platform(s)
-
-      - name: Upload installer to release
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: dist/gamesentenceminer-Setup*.exe  # Adjust based on your target platform(s)
-
-      - name: Attach artifacts to release
+      - name: Upload artifacts to release
         uses: softprops/action-gh-release@v1
         if: github.event_name == 'release' && github.event.action == 'published'
         with:
           files: |
-            dist/gamesentenceminer Setup*.exe
+            dist/*Setup*.exe
+            dist/latest.yml
+            dist/*.blockmap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -233,6 +233,19 @@ class ProfileConfig:
 
         return self
 
+    def restart_required(self, previous):
+        previous: ProfileConfig
+        if any([previous.general.use_websocket != self.general.use_websocket,
+                previous.general.websocket_uri != self.general.websocket_uri,
+                previous.paths.folder_to_watch != self.paths.folder_to_watch,
+                previous.obs.open_obs != self.obs.open_obs,
+                previous.obs.host != self.obs.host,
+                previous.obs.port != self.obs.port
+                ]):
+            return True
+        return False
+
+
 @dataclass_json
 @dataclass
 class Config:

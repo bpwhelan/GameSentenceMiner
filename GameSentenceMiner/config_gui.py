@@ -6,6 +6,7 @@ import ttkbootstrap as ttk
 
 from GameSentenceMiner import obs, configuration
 from GameSentenceMiner.configuration import *
+from GameSentenceMiner.electron_messaging import signal_restart_settings_change
 from GameSentenceMiner.package import get_current_version, get_latest_version
 
 settings_saved = False
@@ -187,7 +188,7 @@ class ConfigApp:
         )
 
         current_profile = self.profile_combobox.get()
-
+        prev_config = self.master_config.get_config()
         if profile_change:
             self.master_config.current_profile = current_profile
         else:
@@ -198,7 +199,11 @@ class ConfigApp:
         with open(get_config_path(), 'w') as file:
             file.write(self.master_config.to_json(indent=4))
 
-        print("Settings saved successfully!")
+        logger.info("Settings saved successfully!")
+
+        if self.master_config.get_config().restart_required(prev_config):
+            logger.info("Restart Required for some settings to take affect!")
+            signal_restart_settings_change()
         settings_saved = True
         configuration.reload_config()
         for func in on_save:

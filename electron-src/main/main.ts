@@ -13,8 +13,9 @@ let tray: Tray;
 let pyProc: ChildProcessWithoutNullStreams;
 let isQuitting = false;
 let isUpdating: boolean = false;
-let electronUpdateReady: boolean = false;
+let restartingGSM: boolean = false;
 let pythonPath: string;
+const originalLog = console.log;
 
 
 // Enable logging
@@ -37,12 +38,14 @@ autoUpdater.on("update-downloaded", () => {
         .showMessageBox({
             type: "info",
             title: "Update Ready",
-            message: "A new version has been downloaded. Restart now to install?",
+            message: "A new version has been downloaded. Restart now to install, This will also attempt to update the python app?",
             buttons: ["Restart", "Later"],
         })
         .then((result) => {
             if (result.response === 0) {
-                autoUpdater.quitAndInstall();
+                updateGSM().then(() => {
+                    autoUpdater.quitAndInstall();
+                });
             }
         });
 });
@@ -59,10 +62,14 @@ const isDev = !app.isPackaged;
  * Handles both development and production (ASAR) environments.
  * @returns {string} - Path to the assets directory.
  */
-function getAssetsDir() {
+function getAssetsDir(): string {
     return isDev
         ? path.join(__dirname, "../../electron-src/assets") // Development path
         : path.join(process.resourcesPath, "assets"); // Production (ASAR-safe)
+}
+
+function getGSMModulePath(): string {
+    return "GameSentenceMiner.gsm";
 }
 
 function getIconPath(size: number = 0): string {
@@ -120,6 +127,12 @@ function runGSM(command: string, args: string[]): Promise<void> {
         pyProc = proc;
 
         proc.stdout.on('data', (data) => {
+            originalLog(`stdout: ${data}`)
+            if (data.toString().toLowerCase().includes("restart_for_settings_change")) {
+                console.log("Restart Required for some of the settings saved to take affect! Restarting...")
+                restartGSM();
+                return;
+            }
             mainWindow?.webContents.send('terminal-output', data.toString());
         });
 
@@ -129,6 +142,10 @@ function runGSM(command: string, args: string[]): Promise<void> {
         });
 
         proc.on("close", (code) => {
+            if (restartingGSM) {
+                restartingGSM = false;
+                return;
+            }
             if (code === 0) {
                 resolve();
             } else {
@@ -160,7 +177,6 @@ function createWindow() {
 
     mainWindow.setMenu(null);
 
-    const originalLog = console.log;
     console.log = function (...args) {
         const message = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : arg)).join(' ');
         mainWindow?.webContents.send('terminal-output', `${message}\r\n`);
@@ -178,19 +194,17 @@ function createWindow() {
 
 async function updateGSM() {
     isUpdating = true;
-    setTimeout(() => {
-        checkForUpdates(pythonPath).then(async ({updateAvailable, latestVersion}) => {
-            if (updateAvailable) {
-                console.log("Closing GSM...");
-                closeGSM();
-                console.log(`Updating GSM Python Application to ${latestVersion}...`)
-                await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
-                restart();
-            } else {
-                console.log("You're already using the latest version.");
-            }
-        });
-    }, 3000);
+    checkForUpdates(pythonPath).then(async ({updateAvailable, latestVersion}) => {
+        if (updateAvailable) {
+            console.log("Closing GSM...");
+            closeGSM();
+            console.log(`Updating GSM Python Application to ${latestVersion}...`)
+            await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
+            restart();
+        } else {
+            console.log("You're already using the latest version.");
+        }
+    });
 }
 
 function createTray() {
@@ -198,6 +212,7 @@ function createTray() {
     const contextMenu = Menu.buildFromTemplate([
         {label: 'Show Console', click: () => mainWindow?.show()},
         {label: 'Update GSM', click: () => updateGSM()},
+        {label: 'Restart GSM', click: () => restartGSM()},
         {label: 'Quit', click: () => quit()},
     ]);
 
@@ -237,10 +252,11 @@ async function ensureAndRunGSM(pythonPath: string): Promise<void> {
 
     console.log("Starting GameSentenceMiner...");
     try {
-        return await runGSM(pythonPath, ["-m", "GameSentenceMiner.gsm"]);
+        return await runGSM(pythonPath, ["-m", getGSMModulePath()]);
     } catch (err) {
         console.error("Failed to start GameSentenceMiner:", err);
     }
+    restartingGSM = false;
 }
 
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
@@ -276,6 +292,16 @@ function closeGSM(): void {
     if (pyProc !== null) {
         pyProc.stdin.write('exit\n');
     }
+}
+
+function restartGSM(): void {
+    restartingGSM = true;
+    if (pyProc !== null) {
+        pyProc.stdin.write('exit\n');
+    }
+    ensureAndRunGSM(pythonPath).then(() => {
+        console.log('GSM Successfully Restarted!')
+    });
 }
 
 function quit(): void {
