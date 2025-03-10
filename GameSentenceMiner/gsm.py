@@ -46,8 +46,27 @@ class VideoToAudioHandler(FileSystemEventHandler):
             return
         if event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):  # Adjust based on your OBS output format
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
-            time.sleep(.5)  # Small Sleep to allow for replay to be fully written
+            self.wait_for_stable_file(event.src_path)
             self.convert_to_audio(event.src_path)
+
+    @staticmethod
+    def wait_for_stable_file(file_path, timeout=10, check_interval=0.5):
+        elapsed_time = 0
+        last_size = -1
+
+        while elapsed_time < timeout:
+            try:
+                current_size = os.path.getsize(file_path)
+                if current_size == last_size:
+                    return True
+                last_size = current_size
+                time.sleep(check_interval)
+                elapsed_time += check_interval
+            except Exception as e:
+                logger.warning(f"Error checking file size, will still try updating Anki Card!: {e}")
+                return False
+        logger.warning("File size did not stabilize within the timeout period. Continuing...")
+        return False
 
     @staticmethod
     def convert_to_audio(video_path):
