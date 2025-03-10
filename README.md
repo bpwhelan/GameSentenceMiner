@@ -31,7 +31,7 @@ There are settings in GSM that may help accomodate for a poor hook, but if you e
 
 ---
 
-## Wiki
+## Documentation
 
 Help with Installation, Setup, and other information can be found in the project's [Wiki](https://github.com/bpwhelan/GameSentenceMiner/wiki).
 
