@@ -187,6 +187,10 @@ class ConfigApp:
             )
         )
 
+        if config.features.backfill_audio and config.features.full_auto:
+            messagebox.showerror("Configuration Error", "Cannot have Full Auto and Backfill mode on at the same time! Note: Backfill is a very niche workflow.")
+            return
+
         current_profile = self.profile_combobox.get()
         prev_config = self.master_config.get_config()
         if profile_change:
