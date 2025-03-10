@@ -356,8 +356,8 @@ def get_config():
         config = config_instance.get_config()
 
         if config.features.backfill_audio and config.features.full_auto:
-            logger.error("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
-            exit(1)
+            logger.warning("Backfill audio is enabled, but full auto is also enabled. Disabling backfill...")
+            config.features.backfill_audio = False
 
     # print(config_instance.get_config())
     return config_instance.get_config()
@@ -369,8 +369,8 @@ def reload_config():
     config = config_instance.get_config()
 
     if config.features.backfill_audio and config.features.full_auto:
-        print("Cannot have backfill_audio and obs_full_auto_mode turned on at the same time!")
-        exit(1)
+        logger.warning("Backfill is enabled, but full auto is also enabled. Disabling backfill...")
+        config.features.backfill_audio = False
 
 def get_master_config():
     return config_instance
