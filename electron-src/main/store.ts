@@ -25,6 +25,7 @@ const store = new Store({
         autoUpdateElectron: true,
         autoUpdateGSMApp: false,
     },
+    cwd: "electron"
 });
 
 export function getAutoUpdateGSMApp(): boolean {
