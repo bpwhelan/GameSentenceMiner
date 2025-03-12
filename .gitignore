@@ -99,3 +99,4 @@ out/
 /GameSentenceMiner.egg-info
 package-lock.json
 *.py~
+*.ts~

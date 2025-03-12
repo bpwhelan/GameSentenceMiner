@@ -1,17 +1,15 @@
 {
   "compilerOptions": {
-    "lib": [
-      "ESNext",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "module": "CommonJS",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "module": "node16",
     "target": "ESNext",
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": "electron-src",
-    "strict": true
+    "strict": true,
+    "esModuleInterop": true,
+    "moduleResolution": "node16",
+    "resolveJsonModule": true
   },
-  "include": ["electron-src/**/*"],
+  "include": ["electron-src/**/*"]
 }
-

@@ -1,14 +1,17 @@
-import {app, BrowserWindow, Tray, Menu, dialog} from 'electron';
+import {app, BrowserWindow, Tray, Menu, dialog, shell} from 'electron';
 import * as path from 'path';
 import {spawn, ChildProcessWithoutNullStreams} from 'child_process';
-import {getOrInstallPython} from "./python_downloader";
-import {APP_NAME, BASE_DIR, PACKAGE_NAME} from "./util";
-import {checkForUpdates} from "./update_checker";
+import {getOrInstallPython} from "./python/python_downloader.js";
+import {APP_NAME, BASE_DIR, PACKAGE_NAME} from "./util.js";
+import {checkForUpdates} from "./update_checker.js";
+import { fileURLToPath } from "node:url";
 
-const {autoUpdater} = require("electron-updater");
-const log = require("electron-log");
+import log from "electron-log";
+import {getStartConsoleMinimized, setPythonPath} from "./store.js";
+import {registerYuzuIPC} from "./launchers/yuzu.js";
 
-let mainWindow: BrowserWindow | null;
+let mainWindow: BrowserWindow | null = null;
+let yuzuWindow: BrowserWindow | null = null;
 let tray: Tray;
 let pyProc: ChildProcessWithoutNullStreams;
 let isQuitting = false;
@@ -17,42 +20,46 @@ let restartingGSM: boolean = false;
 let pythonPath: string;
 const originalLog = console.log;
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Enable logging
-autoUpdater.logger = log;
-autoUpdater.logger.transports.file.level = "info";
 
-// Event listeners for autoUpdater
-autoUpdater.on("update-available", () => {
-    log.info("Update available.");
-    dialog.showMessageBox({
-        type: "info",
-        title: "Update Available",
-        message: "A new version is available. Downloading now...",
-    });
-});
-
-autoUpdater.on("update-downloaded", () => {
-    log.info("Update downloaded.");
-    dialog
-        .showMessageBox({
+async function autoUpdate() {
+    const { autoUpdater } = await import("electron-updater");
+    // Event listeners for autoUpdater
+    autoUpdater.on("update-available", () => {
+        log.info("Update available.");
+        dialog.showMessageBox({
             type: "info",
-            title: "Update Ready",
-            message: "A new version has been downloaded. Restart now to install, This will also attempt to update the python app?",
-            buttons: ["Restart", "Later"],
-        })
-        .then((result) => {
-            if (result.response === 0) {
-                updateGSM().then(() => {
-                    autoUpdater.quitAndInstall();
-                });
-            }
+            title: "Update Available",
+            message: "A new version is available. Downloading now...",
         });
-});
+    });
 
-autoUpdater.on("error", (err: any) => {
-    log.error("Update error: " + err.message);
-});
+    autoUpdater.on("update-downloaded", () => {
+        log.info("Update downloaded.");
+        dialog
+            .showMessageBox({
+                type: "info",
+                title: "Update Ready",
+                message: "A new version has been downloaded. Restart now to install, This will also attempt to update the python app?",
+                buttons: ["Restart", "Later"],
+            })
+            .then((result) => {
+                if (result.response === 0) {
+                    updateGSM().then(() => {
+                        autoUpdater.quitAndInstall();
+                    });
+                }
+            });
+    });
+
+    autoUpdater.on("error", (err: any) => {
+        log.error("Update error: " + err.message);
+    });
+
+    autoUpdater.checkForUpdatesAndNotify();
+}
 
 
 const isDev = !app.isPackaged;
@@ -167,15 +174,42 @@ function createWindow() {
         width: 1280,
         height: 720,
         icon: getIconPath(64),
+        show: !getStartConsoleMinimized(),
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
+            devTools: true,
         },
     });
 
     mainWindow.loadFile(path.join(getAssetsDir(), 'index.html'));
 
-    mainWindow.setMenu(null);
+    const menu = Menu.buildFromTemplate([
+        {
+            label: "File",
+            submenu: [
+                {
+                    label: "Open Yuzu Launcher",
+                    click: () => openYuzuWindow(),
+                },
+                { type: "separator" },
+                { label: "Exit", role: "quit" },
+            ],
+        },
+        {
+            label: "Help",
+            submenu: [
+                {
+                    label: "Open Documentation",
+                    click: () => {
+                        shell.openExternal("https://github.com/bpwhelan/GameSentenceMiner/wiki")
+                    },
+                },
+            ],
+        },
+    ]);
+
+    mainWindow.setMenu(menu);
 
     console.log = function (...args) {
         const message = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : arg)).join(' ');
@@ -190,6 +224,29 @@ function createWindow() {
         }
         mainWindow = null;
     })
+}
+
+function openYuzuWindow() {
+    if (yuzuWindow) {
+        yuzuWindow.focus();
+        return;
+    }
+
+    yuzuWindow = new BrowserWindow({
+        width: 800,
+        height: 600,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            devTools: true,
+        },
+    });
+
+    yuzuWindow.loadFile(path.join(getAssetsDir(), "yuzu.html"));
+
+    yuzuWindow.on("closed", () => {
+        yuzuWindow = null;
+    });
 }
 
 async function updateGSM() {
@@ -263,13 +320,15 @@ app.setPath('userData', path.join(BASE_DIR, 'electron'));
 
 
 app.whenReady().then(() => {
+    registerYuzuIPC();
     if (!isDev) {
-        autoUpdater.checkForUpdatesAndNotify();
+        autoUpdate()
     }
     createWindow();
     createTray();
-    getOrInstallPython().then((path) => {
+    getOrInstallPython().then((path: string) => {
         pythonPath = path;
+        setPythonPath(pythonPath);
         ensureAndRunGSM(pythonPath).then(() => {
             if (!isUpdating) {
                 quit();

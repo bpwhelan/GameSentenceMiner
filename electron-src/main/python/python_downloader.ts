@@ -2,7 +2,7 @@ import * as path from "path";
 import * as fs from "fs";
 import {Downloader} from "nodejs-file-downloader";
 import * as tar from "tar";
-import {BASE_DIR, execFileAsync, getPlatform, isArmMac, SupportedPlatform} from "./util";
+import {BASE_DIR, execFileAsync, getPlatform, isArmMac, SupportedPlatform} from "../util.js";
 
 interface PythonDownload {
     url: string;

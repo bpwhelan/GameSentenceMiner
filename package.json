@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -10,6 +10,10 @@
     "dev": "tsc --watch",
     "app:dir": "electron-builder --dir",
     "app:dist": "tsc && electron-builder"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18"
   },
   "tsc": {},
   "build": {
@@ -54,7 +58,7 @@
   "author": "Beangate",
   "license": "LGPL-3.0-only",
   "devDependencies": {
-    "electron": "23.1.3",
+    "electron": "^35.0.1",
     "electron-builder": "^25.1.8",
     "typescript": "^5.8.2"
   },
@@ -63,8 +67,10 @@
     "axios": "^1.8.1",
     "decompress": "^4.2.1",
     "electron-log": "^5.3.2",
+    "electron-store": "^10.0.1",
     "electron-updater": "^6.3.9",
     "nodejs-file-downloader": "^4.13.0",
+    "python-shell": "^5.0.0",
     "tar": "^7.4.3",
     "xterm-addon-fit": "^0.8.0"
   }
