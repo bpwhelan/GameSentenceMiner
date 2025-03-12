@@ -888,6 +888,7 @@ class ConfigApp:
 
 
 if __name__ == '__main__':
-    window = ConfigApp()
+    root = ttk.Window(themename='darkly')
+    window = ConfigApp(root)
     window.show()
     window.window.mainloop()

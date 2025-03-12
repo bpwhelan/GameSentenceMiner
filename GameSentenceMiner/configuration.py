@@ -123,7 +123,7 @@ class Audio:
 class OBS:
     enabled: bool = True
     open_obs: bool = True
-    close_obs: bool = False
+    close_obs: bool = True
     host: str = "localhost"
     port: int = 4455
     password: str = "your_password"

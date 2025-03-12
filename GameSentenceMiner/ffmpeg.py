@@ -49,7 +49,7 @@ def get_screenshot(video_file, time_from_end):
     return output_image
 
 
-def get_screenshot_time(video_path, game_line):
+def get_screenshot_time(video_path, game_line, default_beginning=False):
     if game_line:
         line_time = game_line.time
     else:
@@ -64,7 +64,13 @@ def get_screenshot_time(video_path, game_line):
     time_from_end = file_length - total_seconds - get_config().screenshot.seconds_after_line
 
     if time_from_end < 0 or time_from_end > file_length:
-        raise ValueError("Calculated screenshot time is out of bounds for trimmed video.")
+        logger.error(
+            "Calculated screenshot time is out of bounds for trimmed video")
+        if default_beginning:
+            logger.info("Defaulting to using the beginning of the Replay Buffer")
+            return file_length - 1.0
+        logger.info("Defaulting to using the end of the Replay Buffer")
+        return 0
 
     return time_from_end
 
