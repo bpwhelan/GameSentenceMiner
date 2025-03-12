@@ -10,6 +10,8 @@ interface StoreConfig {
     agentScriptsPath: string;
     startConsoleMinimized: boolean;
     pythonPath: string;
+    autoUpdateElectron: boolean;
+    autoUpdateGSMApp: boolean;
 }
 
 const store = new Store({
@@ -19,11 +21,27 @@ const store = new Store({
             romsPath: `C:\\Emulation\\Yuzu\\Games`,
         },
         agentScriptsPath: `E:\\Japanese Stuff\\agent-v0.1.4-win32-x64\\data\\scripts`,
-        startConsoleMinimized: true
+        startConsoleMinimized: true,
+        autoUpdateElectron: true,
+        autoUpdateGSMApp: false,
     },
 });
 
+export function getAutoUpdateGSMApp(): boolean {
+    return store.get("autoUpdateGSMApp");
+}
 
+export function setAutoUpdateGSMApp(autoUpdate: boolean): void {
+    store.set("autoUpdateGSMApp", autoUpdate);
+}
+
+export function getAutoUpdateElectron(): boolean {
+    return store.get("autoUpdateElectron");
+}
+
+export function setAutoUpdateElectron(autoUpdate: boolean): void {
+    store.set("autoUpdateElectron", autoUpdate);
+}
 
 export function getPythonPath(): string {
     return store.get("pythonPath");

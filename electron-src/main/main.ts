@@ -6,8 +6,8 @@ import {APP_NAME, BASE_DIR, PACKAGE_NAME} from "./util.js";
 import {checkForUpdates} from "./update_checker.js";
 import { fileURLToPath } from "node:url";
 
-import log from "electron-log";
-import {getStartConsoleMinimized, setPythonPath} from "./store.js";
+import log from 'electron-log/main.js';
+import {getAutoUpdateElectron, getAutoUpdateGSMApp, getStartConsoleMinimized, setPythonPath} from "./store.js";
 import {registerYuzuIPC} from "./launchers/yuzu.js";
 
 let mainWindow: BrowserWindow | null = null;
@@ -253,7 +253,7 @@ async function updateGSM() {
     isUpdating = true;
     checkForUpdates(pythonPath).then(async ({updateAvailable, latestVersion}) => {
         if (updateAvailable) {
-            console.log("Closing GSM...");
+            console.log("Update available. Closing GSM...");
             closeGSM();
             console.log(`Updating GSM Python Application to ${latestVersion}...`)
             await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
@@ -321,8 +321,11 @@ app.setPath('userData', path.join(BASE_DIR, 'electron'));
 
 app.whenReady().then(() => {
     registerYuzuIPC();
-    if (!isDev) {
+    if (!isDev && getAutoUpdateElectron()) {
         autoUpdate()
+    }
+    if (getAutoUpdateGSMApp()) {
+        updateGSM();
     }
     createWindow();
     createTray();
