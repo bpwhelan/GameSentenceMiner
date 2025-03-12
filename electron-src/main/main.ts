@@ -3,12 +3,13 @@ import * as path from 'path';
 import {spawn, ChildProcessWithoutNullStreams} from 'child_process';
 import {getOrInstallPython} from "./python/python_downloader.js";
 import {APP_NAME, BASE_DIR, PACKAGE_NAME} from "./util.js";
-import {checkForUpdates} from "./update_checker.js";
+import electronUpdater, { type AppUpdater } from 'electron-updater';
 import { fileURLToPath } from "node:url";
 
 import log from 'electron-log/main.js';
 import {getAutoUpdateElectron, getAutoUpdateGSMApp, getStartConsoleMinimized, setPythonPath} from "./store.js";
 import {registerYuzuIPC} from "./launchers/yuzu.js";
+import {checkForUpdates} from "./update_checker.js";
 
 let mainWindow: BrowserWindow | null = null;
 let yuzuWindow: BrowserWindow | null = null;
@@ -23,9 +24,13 @@ const originalLog = console.log;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function getAutoUpdater(): AppUpdater {
+    const { autoUpdater } = electronUpdater;
+    return autoUpdater;
+}
 
 async function autoUpdate() {
-    const { autoUpdater } = await import("electron-updater");
+    const autoUpdater = getAutoUpdater();
     // Event listeners for autoUpdater
     autoUpdater.on("update-available", () => {
         log.info("Update available.");
