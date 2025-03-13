@@ -39,6 +39,7 @@ current_game = ''
 @dataclass
 class General:
     use_websocket: bool = True
+    use_clipboard: bool = True
     websocket_uri: str = 'localhost:6677'
     open_config_on_startup: bool = False
     texthook_replacement_regex: str = ""
@@ -63,7 +64,7 @@ class Anki:
     sentence_field: str = "Sentence"
     sentence_audio_field: str = "SentenceAudio"
     picture_field: str = "Picture"
-    word_field: str = 'Word'
+    word_field: str = 'Expression'
     previous_sentence_field: str = ''
     previous_image_field: str = ''
     custom_tags: List[str] = None  # Initialize to None and set it in __post_init__
@@ -236,6 +237,7 @@ class ProfileConfig:
     def restart_required(self, previous):
         previous: ProfileConfig
         if any([previous.general.use_websocket != self.general.use_websocket,
+                previous.general.use_clipboard != self.general.use_clipboard,
                 previous.general.websocket_uri != self.general.websocket_uri,
                 previous.paths.folder_to_watch != self.paths.folder_to_watch,
                 previous.obs.open_obs != self.obs.open_obs,

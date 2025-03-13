@@ -103,6 +103,7 @@ class ConfigApp:
         config = ProfileConfig(
             general=General(
                 use_websocket=self.websocket_enabled.get(),
+                use_clipboard=self.clipboard_enabled.get(),
                 websocket_uri=self.websocket_uri.get(),
                 open_config_on_startup=self.open_config_on_startup.get(),
                 texthook_replacement_regex=self.texthook_replacement_regex.get()
@@ -191,6 +192,10 @@ class ConfigApp:
             messagebox.showerror("Configuration Error", "Cannot have Full Auto and Backfill mode on at the same time! Note: Backfill is a very niche workflow.")
             return
 
+        if not config.general.use_websocket and not config.general.use_clipboard:
+            messagebox.showerror("Configuration Error", "Cannot have both Clipboard and Websocket Disabled.")
+            return
+
         current_profile = self.profile_combobox.get()
         prev_config = self.master_config.get_config()
         if profile_change:
@@ -256,11 +261,18 @@ class ConfigApp:
         general_frame = ttk.Frame(self.notebook)
         self.notebook.add(general_frame, text='General')
 
-        ttk.Label(general_frame, text="Websocket Enabled (Clipboard Disabled):").grid(row=self.current_row, column=0, sticky='W')
+        ttk.Label(general_frame, text="Websocket Enabled:").grid(row=self.current_row, column=0, sticky='W')
         self.websocket_enabled = tk.BooleanVar(value=self.settings.general.use_websocket)
         ttk.Checkbutton(general_frame, variable=self.websocket_enabled).grid(row=self.current_row, column=1,
                                                                              sticky='W')
         self.add_label_and_increment_row(general_frame, "Enable or disable WebSocket communication. Enabling this will disable the clipboard monitor. RESTART REQUIRED.",
+                                         row=self.current_row, column=2)
+
+        ttk.Label(general_frame, text="Clipboard Enabled:").grid(row=self.current_row, column=0, sticky='W')
+        self.clipboard_enabled = tk.BooleanVar(value=self.settings.general.use_clipboard)
+        ttk.Checkbutton(general_frame, variable=self.clipboard_enabled).grid(row=self.current_row, column=1,
+                                                                             sticky='W')
+        self.add_label_and_increment_row(general_frame, "Enable to allow GSM to see clipboard for text and line timing.",
                                          row=self.current_row, column=2)
 
         ttk.Label(general_frame, text="Websocket URI:").grid(row=self.current_row, column=0, sticky='W')

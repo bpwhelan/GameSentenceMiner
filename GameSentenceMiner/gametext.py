@@ -21,6 +21,7 @@ current_line_after_regex = ''
 current_line_time = datetime.now()
 
 reconnecting = False
+websocket_connected = False
 multi_mine_event_bus: Callable[[str, datetime], None] = None
 
 @dataclass
@@ -89,6 +90,9 @@ class ClipboardMonitor(threading.Thread):
         current_line = pyperclip.paste()
 
         while True:
+            if websocket_connected:
+                time.sleep(1)
+                continue
             current_clipboard = pyperclip.paste()
 
             if current_clipboard != current_line:
@@ -98,13 +102,14 @@ class ClipboardMonitor(threading.Thread):
 
 
 async def listen_websocket():
-    global current_line, current_line_time, line_history, reconnecting
+    global current_line, current_line_time, line_history, reconnecting, websocket_connected
     while True:
         try:
             async with websockets.connect(f'ws://{get_config().general.websocket_uri}', ping_interval=None) as websocket:
                 if reconnecting:
-                    logger.info(f"Texthooker WebSocket connected Successfully!")
+                    logger.info(f"Texthooker WebSocket connected Successfully!" + " Disabling Clipboard Monitor." if get_config().general.use_clipboard else "")
                     reconnecting = False
+                websocket_connected = True
                 while True:
                     message = await websocket.recv()
 
@@ -117,8 +122,9 @@ async def listen_websocket():
                     if current_clipboard != current_line:
                         handle_new_text_event(current_clipboard)
         except (websockets.ConnectionClosed, ConnectionError) as e:
+            websocket_connected = False
             if not reconnecting:
-                logger.warning(f"Texthooker WebSocket connection lost: {e}. IF USING CLIPBOARD, WEBSOCKET NEEDS TO BE TURNED OFF IN SETTINGS. Attempting to Reconnect...")
+                logger.warning(f"Texthooker WebSocket connection lost, Defaulting to clipboard if enabled. Attempting to Reconnect...")
             reconnecting = True
             await asyncio.sleep(5)
 
@@ -150,10 +156,11 @@ def start_text_monitor(send_to_mine_event_bus):
     global multi_mine_event_bus
     multi_mine_event_bus = send_to_mine_event_bus
     if get_config().general.use_websocket:
-        text_thread = threading.Thread(target=run_websocket_listener, daemon=True)
-    else:
-        text_thread = ClipboardMonitor()
-    text_thread.start()
+        threading.Thread(target=run_websocket_listener, daemon=True).start()
+    if get_config().general.use_clipboard:
+        if get_config().general.use_websocket:
+            logger.info("Both WebSocket and Clipboard monitoring are enabled. WebSocket will take precedence if connected.")
+        ClipboardMonitor().start()
 
 
 def similar(a, b):
@@ -165,6 +172,9 @@ def get_text_event(last_note) -> GameLine:
 
     if not last_note:
         return lines[-1]
+
+    if not lines:
+        raise Exception("No lines in history. Text is required from either clipboard or websocket for GSM to work. Please check your setup/config.")
 
     sentence = last_note['fields'][get_config().anki.sentence_field]['value']
     if not sentence:
