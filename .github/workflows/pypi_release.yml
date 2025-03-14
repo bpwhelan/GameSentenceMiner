@@ -29,7 +29,6 @@ jobs:
           python -m build
 
       - name: Publish package to PyPI
-        if: env.version_exists == 'false'
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
