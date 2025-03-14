@@ -166,6 +166,9 @@ def start_text_monitor(send_to_mine_event_bus):
 def similar(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
+def one_contains_the_other(a, b):
+    return a in b or b in a
+
 
 def get_text_event(last_note) -> GameLine:
     lines = line_history.values
@@ -183,7 +186,7 @@ def get_text_event(last_note) -> GameLine:
     for line in reversed(lines):
         similarity = similar(remove_html_tags(sentence), line.text)
         logger.debug(f"Comparing: {remove_html_tags(sentence)} with {line.text} - Similarity: {similarity}")
-        if similarity >= 0.60 or line.text in remove_html_tags(sentence):
+        if similarity >= 0.60 or one_contains_the_other(line.text, remove_html_tags(sentence)):
             return line
 
     logger.debug("Couldn't find a match in history, using last event")
@@ -203,21 +206,21 @@ def get_line_and_future_lines(last_note):
             logger.debug(f"Comparing: {remove_html_tags(sentence)} with {line.text} - Similarity: {similarity}")
             if found:
                 found_lines.append(line.text)
-            if similarity >= 0.60 or line.text in remove_html_tags(sentence):  # 80% similarity threshold
+            if similarity >= 0.60 or one_contains_the_other(line.text, remove_html_tags(sentence)):  # 80% similarity threshold
                 found = True
                 found_lines.append(line.text)
     return found_lines
 
 def get_mined_line(last_note, lines):
     if not last_note:
-        return lines[0]
+        return lines[-1]
 
     sentence = last_note['fields'][get_config().anki.sentence_field]['value']
-    for line2 in lines:
-        similarity = similar(remove_html_tags(sentence), line2.text)
-        if similarity >= 0.60 or line2.text in remove_html_tags(sentence):
-            return line2
-    return lines[0]
+    for line in lines:
+        similarity = similar(remove_html_tags(sentence), line.text)
+        if similarity >= 0.60 or one_contains_the_other(line.text, remove_html_tags(sentence)):
+            return line
+    return lines[-1]
 
 
 def get_time_of_line(line):
