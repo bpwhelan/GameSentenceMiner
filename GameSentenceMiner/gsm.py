@@ -18,13 +18,13 @@ from GameSentenceMiner import gametext
 from GameSentenceMiner import notification
 from GameSentenceMiner import obs
 from GameSentenceMiner import util
-from GameSentenceMiner import utility_gui
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
 from GameSentenceMiner.electron_messaging import signal_restart_settings_change
 from GameSentenceMiner.ffmpeg import get_audio_and_trim
 from GameSentenceMiner.gametext import get_text_event, get_mined_line
 from GameSentenceMiner.util import *
+from GameSentenceMiner.utility_gui import init_utility_window, get_utility_window
 from GameSentenceMiner.vad import vosk_helper, silero_trim, whisper_helper
 
 if is_windows():
@@ -33,7 +33,6 @@ if is_windows():
 obs_process = None
 procs_to_close = []
 settings_window: config_gui.ConfigApp = None
-utility_window: utility_gui.UtilityApp = None
 obs_paused = False
 icon: Icon
 menu: Menu
@@ -91,7 +90,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     if get_config().anki.update_anki:
                         last_note = anki.get_last_anki_card()
                     if get_config().features.backfill_audio:
-                        last_note = anki.get_cards_by_sentence(gametext.current_line)
+                        last_note = anki.get_cards_by_sentence(gametext.current_line_after_regex)
                 line_cutoff = None
                 start_line = None
                 mined_line = get_text_event(last_note)
@@ -100,21 +99,21 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     if mined_line.next:
                         line_cutoff = mined_line.next.time
 
-                if utility_window.lines_selected():
-                    lines = utility_window.get_selected_lines()
+                if get_utility_window().lines_selected():
+                    lines = get_utility_window().get_selected_lines()
                     start_line = lines[0]
                     mined_line = get_mined_line(last_note, lines)
-                    line_cutoff = utility_window.get_next_line_timing()
+                    line_cutoff = get_utility_window().get_next_line_timing()
 
                 ss_timing = 0
                 if mined_line and line_cutoff or mined_line and get_config().screenshot.use_beginning_of_line_as_screenshot:
                     ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line)
                 if last_note:
-                    logger.debug(json.dumps(last_note))
+                    logger.debug(last_note.to_json())
 
-                note = anki.get_initial_card_info(last_note, utility_window.get_selected_lines())
+                note = anki.get_initial_card_info(last_note, get_utility_window().get_selected_lines())
 
-                tango = last_note['fields'][get_config().anki.word_field]['value'] if last_note else ''
+                tango = last_note.get_field(get_config().anki.word_field) if last_note else ''
 
                 if get_config().anki.sentence_audio_field:
                     logger.debug("Attempting to get audio from video")
@@ -127,26 +126,23 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     should_update_audio = False
                     vad_trimmed_audio = ""
                     logger.info("No SentenceAudio Field in config, skipping audio processing!")
-                    # Only update sentenceaudio if it's not present. Want to avoid accidentally overwriting sentence audio
-                try:
-                    if get_config().anki.update_anki and last_note:
-                        anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
-                                              tango=tango,
-                                              should_update_audio=should_update_audio,
-                                              ss_time=ss_timing,
-                                              game_line=start_line)
-                    elif get_config().features.notify_on_update and should_update_audio:
-                        notification.send_audio_generated_notification(vad_trimmed_audio)
-                except Exception as e:
-                    logger.exception(f"Card failed to update! Maybe it was removed? {e}")
+                if get_config().anki.update_anki and last_note:
+                    anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
+                                          tango=tango,
+                                          should_update_audio=should_update_audio,
+                                          ss_time=ss_timing,
+                                          game_line=start_line)
+                elif get_config().features.notify_on_update and should_update_audio:
+                    notification.send_audio_generated_notification(vad_trimmed_audio)
         except Exception as e:
-            logger.exception(f"Some error was hit catching to allow further work to be done: {e}")
-            # settings_window.show_error_box("Error", f"Some error was hit, check logs for more info: {e}")
+            logger.error(f"Failed Processing and/or adding to Anki: Reason {e}")
+            logger.debug(f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
+            notification.send_error_no_anki_update()
         if get_config().paths.remove_video and os.path.exists(video_path):
             os.remove(video_path)  # Optionally remove the video after conversion
         if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
             os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
-        utility_window.reset_checkboxes()
+        get_utility_window().reset_checkboxes()
 
     @staticmethod
     def get_audio(game_line, next_line_time, video_path):
@@ -177,6 +173,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     case configuration.WHISPER:
                         should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio,
                                                                                         vad_trimmed_audio)
+            if not should_update_audio and get_config().vad.add_audio_on_no_results:
+                logger.info("No voice activity detected, using full audio.")
+                vad_trimmed_audio = trimmed_audio
+                should_update_audio = True
         if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
                                                   get_config().audio.ffmpeg_reencode_options)
@@ -196,7 +196,7 @@ def initialize(reloading=False):
                 obs_process = obs.start_obs()
             obs.connect_to_obs(start_replay=True)
             anki.start_monitoring_anki()
-        gametext.start_text_monitor(utility_window.add_text)
+        gametext.start_text_monitor()
         os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
         os.makedirs(get_config().paths.screenshot_destination, exist_ok=True)
         os.makedirs(get_config().paths.audio_destination, exist_ok=True)
@@ -237,9 +237,9 @@ def get_screenshot():
                 last_note = anki.get_cards_by_sentence(gametext.current_line)
             if last_note:
                 anki.add_image_to_card(last_note, encoded_image)
-                notification.send_screenshot_updated(last_note['fields'][get_config().anki.word_field]['value'])
+                notification.send_screenshot_updated(last_note.get_field(get_config().anki.word_field))
                 if get_config().features.open_anki_edit:
-                    notification.open_anki_card(last_note['noteId'])
+                    notification.open_anki_card(last_note.noteId)
             else:
                 notification.send_screenshot_saved(encoded_image)
         else:
@@ -272,7 +272,7 @@ def open_settings():
 
 def open_multimine():
     obs.update_current_game()
-    utility_window.show()
+    get_utility_window().show()
 
 
 def open_log():
@@ -459,12 +459,12 @@ def handle_exit():
 
 
 def main(reloading=False, do_config_input=True):
-    global root, settings_window, utility_window
+    global root, settings_window
     logger.info("Script started.")
     util.run_new_thread(check_for_stdin)
     root = ttk.Window(themename='darkly')
     settings_window = config_gui.ConfigApp(root)
-    utility_window = utility_gui.UtilityApp(root)
+    init_utility_window(root)
     initialize(reloading)
     util.run_new_thread(run_tray)
     initial_checks()
@@ -486,6 +486,8 @@ def main(reloading=False, do_config_input=True):
     try:
         if get_config().general.open_config_on_startup:
             root.after(0, settings_window.show)
+        if get_config().general.open_multimine_on_startup:
+            root.after(0, get_utility_window().show)
         settings_window.add_save_hook(update_icon)
         settings_window.on_exit = exit_program
         root.mainloop()

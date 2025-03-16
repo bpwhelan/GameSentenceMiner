@@ -42,6 +42,7 @@ class General:
     use_clipboard: bool = True
     websocket_uri: str = 'localhost:6677'
     open_config_on_startup: bool = False
+    open_multimine_on_startup: bool = False
     texthook_replacement_regex: str = ""
 
 
@@ -116,7 +117,6 @@ class Audio:
     ffmpeg_reencode_options: str = ''
     external_tool: str = ""
     anki_media_collection: str = ""
-    mining_from_history_grab_all_audio: bool = False
 
 
 @dataclass_json
@@ -150,6 +150,8 @@ class VAD:
     selected_vad_model: str = SILERO
     backup_vad_model: str = OFF
     trim_beginning: bool = False
+    beginning_offset: float = -0.5
+    add_audio_on_no_results: bool = False
 
 
 @dataclass_json
@@ -276,6 +278,17 @@ class Config:
         return self.configs[DEFAULT_CONFIG]
 
 
+def get_default_anki_path():
+    if platform == 'win32':  # Windows
+        base_dir = os.getenv('APPDATA')
+    else:  # macOS and Linux
+        base_dir = '~/.local/share/'
+    config_dir = os.path.join(base_dir, 'Anki2')
+    return config_dir
+
+def get_default_anki_media_collection_path():
+    return os.path.join(get_default_anki_path(), 'User 1', 'collection.media')
+
 def get_app_directory():
     if platform == 'win32':  # Windows
         appdata_dir = os.getenv('APPDATA')
@@ -377,11 +390,14 @@ def reload_config():
 def get_master_config():
     return config_instance
 
+def save_config(config):
+    with open(get_config_path(), 'w') as file:
+        json.dump(config.to_dict(), file, indent=4)
+
 def switch_profile_and_save(profile_name):
     global config_instance
     config_instance.current_profile = profile_name
-    with open(get_config_path(), 'w') as file:
-        json.dump(config_instance.to_dict(), file, indent=4)
+    save_config(config_instance)
     return config_instance.get_config()
 
 

@@ -3,7 +3,6 @@ from tkinter import ttk
 
 from GameSentenceMiner.configuration import logger
 
-
 class UtilityApp:
     def __init__(self, root):
         self.root = root
@@ -120,6 +119,16 @@ class UtilityApp:
         # if self.multi_mine_window:
         #     for checkbox in self.checkboxes:
         #         checkbox.set(False)
+
+def init_utility_window(root):
+    global utility_window
+    utility_window = UtilityApp(root)
+    return utility_window
+
+def get_utility_window():
+    return utility_window
+
+utility_window: UtilityApp = None
 
 
 if __name__ == "__main__":

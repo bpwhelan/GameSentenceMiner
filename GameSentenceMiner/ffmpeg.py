@@ -200,7 +200,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
         "-ss", start_trim_time]
-    if next_line and next_line > game_line.time and not get_config().audio.mining_from_history_grab_all_audio:
+    if next_line and next_line > game_line.time:
         end_total_seconds = total_seconds + (next_line - game_line.time).total_seconds() + 1
         hours, remainder = divmod(end_total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
