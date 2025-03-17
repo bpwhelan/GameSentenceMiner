@@ -150,6 +150,8 @@ class VAD:
     selected_vad_model: str = SILERO
     backup_vad_model: str = OFF
     trim_beginning: bool = False
+    beginning_offset: float = -0.25
+    add_audio_on_no_results: bool = False
 
 
 @dataclass_json
