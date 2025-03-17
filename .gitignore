@@ -100,3 +100,4 @@ out/
 package-lock.json
 *.py~
 *.ts~
+test.py

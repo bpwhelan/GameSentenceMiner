@@ -149,10 +149,39 @@ def download_ffmpeg_if_needed():
                 with source, target:
                     shutil.copyfileobj(source, target)
     logger.info(f"FFmpeg extracted to {ffmpeg_dir}.")
+
+def download_ocenaudio_if_needed():
+    ocenaudio_dir = os.path.join(get_app_directory(), 'ocenaudio', 'ocenaudio')
+    ocenaudio_exe_path = os.path.join(ocenaudio_dir, 'ocenaudio.exe')
+    if os.path.exists(ocenaudio_dir) and os.path.exists(ocenaudio_exe_path):
+        logger.info(f"Ocenaudio already installed at {ocenaudio_dir}.")
+        return ocenaudio_exe_path
+
+    if os.path.exists(ocenaudio_dir) and not os.path.exists(ocenaudio_exe_path):
+        logger.info("Ocenaudio directory exists but executable is missing. Re-downloading Ocenaudio...")
+        shutil.rmtree(ocenaudio_dir)
+
+    ocenaudio_url = "https://www.ocenaudio.com/downloads/ocenaudio_windows64.zip"
+
+    download_dir = os.path.join(get_app_directory(), "downloads")
+    os.makedirs(download_dir, exist_ok=True)
+    ocenaudio_archive = os.path.join(download_dir, "ocenaudio.zip")
+
+    logger.info(f"Downloading Ocenaudio from {ocenaudio_url}...")
+    urllib.request.urlretrieve(ocenaudio_url, ocenaudio_archive)
+    logger.info(f"Ocenaudio downloaded. Extracting to {ocenaudio_dir}...")
+
+    os.makedirs(ocenaudio_dir, exist_ok=True)
+    with zipfile.ZipFile(ocenaudio_archive, 'r') as zip_ref:
+        zip_ref.extractall(ocenaudio_dir)
+
+    logger.info(f"Ocenaudio extracted to {ocenaudio_dir}.")
+    return ocenaudio_exe_path
+
 def main():
-    # Run dependency checks
     download_obs_if_needed()
     download_ffmpeg_if_needed()
+    download_ocenaudio_if_needed()
 
 if __name__ == "__main__":
     main()

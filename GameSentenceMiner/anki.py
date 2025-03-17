@@ -12,8 +12,10 @@ from GameSentenceMiner import obs, util, notification, ffmpeg, gametext
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
 from GameSentenceMiner.gametext import get_text_event
+from GameSentenceMiner.model import AnkiCard
+from GameSentenceMiner.utility_gui import utility_window, get_utility_window
 from GameSentenceMiner.obs import get_current_game
-from GameSentenceMiner.util import remove_html_tags
+from GameSentenceMiner.util import remove_html_and_cloze_tags
 
 audio_in_anki = None
 screenshot_in_anki = None
@@ -25,15 +27,13 @@ first_run = True
 card_queue = []
 
 
-def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
+def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
                      should_update_audio=True, ss_time=0, game_line=None):
     global audio_in_anki, screenshot_in_anki, prev_screenshot_in_anki
     update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not
-    last_note['fields'][get_config().anki.sentence_audio_field][
-        'value'] or get_config().anki.overwrite_audio)
+    last_note.get_field(get_config().anki.sentence_audio_field) or get_config().anki.overwrite_audio)
     update_picture = (get_config().anki.picture_field and get_config().anki.overwrite_picture) or not \
-    last_note['fields'][get_config().anki.picture_field][
-        'value']
+    last_note.get_field(get_config().anki.picture_field)
 
     if not reuse_audio:
         if update_audio:
@@ -52,7 +52,7 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
     image_html = f"<img src=\"{screenshot_in_anki}\">"
     prev_screenshot_html = f"<img src=\"{prev_screenshot_in_anki}\">"
 
-    # note = {'id': last_note['noteId'], 'fields': {}}
+    # note = {'id': last_note.noteId, 'fields': {}}
 
     if update_audio:
         note['fields'][get_config().anki.sentence_audio_field] = audio_html
@@ -75,12 +75,12 @@ def update_anki_card(last_note, note=None, audio_path='', video_path='', tango='
         tags.append(get_current_game().replace(" ", ""))
     if tags:
         tag_string = " ".join(tags)
-        invoke("addTags", tags=tag_string, notes=[last_note['noteId']])
-    logger.info(f"UPDATED ANKI CARD FOR {last_note['noteId']}")
+        invoke("addTags", tags=tag_string, notes=[last_note.noteId])
+    logger.info(f"UPDATED ANKI CARD FOR {last_note.noteId}")
     if get_config().features.notify_on_update:
         notification.send_notification(tango)
     if get_config().features.open_anki_edit:
-        notification.open_anki_card(last_note['noteId'])
+        notification.open_anki_card(last_note.noteId)
 
     if get_config().audio.external_tool:
         open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
@@ -94,10 +94,9 @@ def open_audio_in_external(fileabspath, shell=False):
         subprocess.Popen([get_config().audio.external_tool, fileabspath])
 
 
-def add_image_to_card(last_note, image_path):
+def add_image_to_card(last_note: AnkiCard, image_path):
     global screenshot_in_anki
-    update_picture = get_config().anki.overwrite_picture or not last_note['fields'][get_config().anki.picture_field][
-        'value']
+    update_picture = get_config().anki.overwrite_picture or not last_note.get_field(get_config().anki.picture_field)
 
     if update_picture:
         screenshot_in_anki = store_media_file(image_path)
@@ -106,34 +105,37 @@ def add_image_to_card(last_note, image_path):
 
     image_html = f"<img src=\"{screenshot_in_anki}\">"
 
-    note = {'id': last_note['noteId'], 'fields': {}}
+    note = {'id': last_note.noteId, 'fields': {}}
 
     if update_picture:
         note['fields'][get_config().anki.picture_field] = image_html
 
     invoke("updateNoteFields", note=note)
 
-    logger.info(f"UPDATED IMAGE FOR ANKI CARD {last_note['noteId']}")
+    logger.info(f"UPDATED IMAGE FOR ANKI CARD {last_note.noteId}")
 
 
-def get_initial_card_info(last_note, selected_lines):
-    note = {'id': last_note['noteId'], 'fields': {}}
+def get_initial_card_info(last_note: AnkiCard, selected_lines):
+    note = {'id': last_note.noteId, 'fields': {}}
     if not last_note:
         return note
     game_line = get_text_event(last_note)
 
-    if get_config().audio.mining_from_history_grab_all_audio and get_config().anki.multi_overwrites_sentence:
-        lines = gametext.get_line_and_future_lines(last_note)
-        if lines:
-            note['fields'][get_config().anki.sentence_field] = "".join(lines)
-
     if selected_lines and get_config().anki.multi_overwrites_sentence:
-        note['fields'][get_config().anki.sentence_field] = "".join([line.text for line in selected_lines])
+        sentences = "".join([line.text for line in selected_lines])
+        try:
+            sentence_in_anki = last_note.get_field(get_config().anki.sentence_field)
+            logger.info(f"Attempting Preserve HTML for multi-line: {remove_html_and_cloze_tags(sentence_in_anki)}, {sentences}, {remove_html_and_cloze_tags(sentence_in_anki) in sentences}")
+            sentences = sentences.replace(remove_html_and_cloze_tags(sentence_in_anki), sentence_in_anki)
+        except Exception as e:
+            logger.debug(f"Error preserving HTML for multi-line: {e}")
+            pass
+        note['fields'][get_config().anki.sentence_field] = sentences
 
     if get_config().anki.previous_sentence_field and game_line.prev and not \
-            last_note['fields'][get_config().anki.previous_sentence_field]['value']:
+            last_note.get_field(get_config().anki.previous_sentence_field):
         logger.debug(
-            f"Adding Previous Sentence: {get_config().anki.previous_sentence_field and game_line.prev.text and not last_note['fields'][get_config().anki.previous_sentence_field]['value']}")
+            f"Adding Previous Sentence: {get_config().anki.previous_sentence_field and game_line.prev.text and not last_note.get_field(get_config().anki.previous_sentence_field)}")
         note['fields'][get_config().anki.previous_sentence_field] = game_line.prev.text
     return note
 
@@ -168,11 +170,11 @@ def invoke(action, **params):
     return response['result']
 
 
-def get_last_anki_card():
+def get_last_anki_card() -> AnkiCard | dict:
     added_ids = invoke('findNotes', query='added:1')
     if not added_ids:
         return {}
-    last_note = invoke('notesInfo', notes=[added_ids[-1]])[0]
+    last_note = AnkiCard.from_dict(invoke('notesInfo', notes=[added_ids[-1]])[0])
     return last_note
 
 
@@ -213,14 +215,17 @@ def check_for_new_cards():
         return
     new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
-        update_new_card()
+        try:
+            update_new_card()
+        except Exception as e:
+            logger.error("Error updating new card, Reason:", e)
     first_run = False
     previous_note_ids = current_note_ids  # Update the list of known notes
 
 
 def update_new_card():
     last_card = get_last_anki_card()
-    if not check_tags_for_should_update(last_card):
+    if not last_card or not check_tags_for_should_update(last_card):
         return
     use_prev_audio = sentence_is_same_as_previous(last_card)
     logger.info(f"last mined line: {util.get_last_mined_line()}, current sentence: {get_sentence(last_card)}")
@@ -229,7 +234,7 @@ def update_new_card():
         obs.update_current_game()
     if use_prev_audio:
         with util.lock:
-            update_anki_card(last_card, note=get_initial_card_info(last_card, []), reuse_audio=True)
+            update_anki_card(last_card, note=get_initial_card_info(last_card, get_utility_window().get_selected_lines()), reuse_audio=True)
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         card_queue.append(last_card)
@@ -239,20 +244,20 @@ def update_new_card():
 def sentence_is_same_as_previous(last_card):
     if not util.get_last_mined_line():
         return False
-    return remove_html_tags(get_sentence(last_card)) == remove_html_tags(util.get_last_mined_line())
+    return remove_html_and_cloze_tags(get_sentence(last_card)) == remove_html_and_cloze_tags(util.get_last_mined_line())
 
 def get_sentence(card):
-    return card['fields'][get_config().anki.sentence_field]['value']
+    return card.get_field(get_config().anki.sentence_field)
 
 def check_tags_for_should_update(last_card):
     if get_config().anki.tags_to_check:
         found = False
-        for tag in last_card['tags']:
+        for tag in last_card.tags:
             if tag.lower() in get_config().anki.tags_to_check:
                 found = True
                 break
         if not found:
-            logger.info(f"Card not tagged properly! Not updating! Note Tags: {last_card['tags']}, Tags_To_Check {get_config().anki.tags_to_check}")
+            logger.info(f"Card not tagged properly! Not updating! Note Tags: {last_card.tags}, Tags_To_Check {get_config().anki.tags_to_check}")
         return found
     else:
         return True
