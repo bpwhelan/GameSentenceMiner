@@ -256,7 +256,7 @@ function openYuzuWindow() {
 
 async function updateGSM() {
     isUpdating = true;
-    checkForUpdates(pythonPath).then(async ({updateAvailable, latestVersion}) => {
+    checkForUpdates().then(async ({updateAvailable, latestVersion}) => {
         if (updateAvailable) {
             console.log("Update available. Closing GSM...");
             closeGSM();
@@ -329,14 +329,14 @@ app.whenReady().then(() => {
     if (!isDev && getAutoUpdateElectron()) {
         autoUpdate()
     }
-    if (getAutoUpdateGSMApp()) {
-        updateGSM();
-    }
     createWindow();
     createTray();
     getOrInstallPython().then((path: string) => {
         pythonPath = path;
         setPythonPath(pythonPath);
+        if (getAutoUpdateGSMApp()) {
+            updateGSM();
+        }
         ensureAndRunGSM(pythonPath).then(() => {
             if (!isUpdating) {
                 quit();

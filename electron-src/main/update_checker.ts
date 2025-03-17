@@ -1,13 +1,14 @@
 import { execSync } from "child_process";
 import axios from "axios";
 import log from "electron-log";
+import {getPythonPath} from "./store.js";
 
 const PACKAGE_NAME = "GameSentenceMiner";
 
 // Get current installed version using `pip show`
-function getCurrentVersion(pythonPath: string): string | null {
+function getCurrentVersion(): string | null {
     try {
-        const output = execSync(`${pythonPath} -m pip show ${PACKAGE_NAME}`, { encoding: "utf-8" });
+        const output = execSync(`${getPythonPath()} -m pip show ${PACKAGE_NAME}`, { encoding: "utf-8" });
         console.log(output);
         const versionMatch = output.match(/Version: ([\d.]+)/);
         return versionMatch ? versionMatch[1] : null;
@@ -29,9 +30,9 @@ async function getLatestVersion(): Promise<string | null> {
 }
 
 // Check for updates
-async function checkForUpdates(pythonPath: string, force: boolean = false): Promise<{ updateAvailable: boolean; latestVersion: string | null }> {
+async function checkForUpdates(force: boolean = false): Promise<{ updateAvailable: boolean; latestVersion: string | null }> {
     try {
-        const installedVersion = getCurrentVersion(pythonPath);
+        const installedVersion = getCurrentVersion();
         const latestVersion = await getLatestVersion();
 
         console.log(`Installed version: ${installedVersion}`);

@@ -42,6 +42,7 @@ class General:
     use_clipboard: bool = True
     websocket_uri: str = 'localhost:6677'
     open_config_on_startup: bool = False
+    open_multimine_on_startup: bool = False
     texthook_replacement_regex: str = ""
 
 
@@ -116,7 +117,6 @@ class Audio:
     ffmpeg_reencode_options: str = ''
     external_tool: str = ""
     anki_media_collection: str = ""
-    mining_from_history_grab_all_audio: bool = False
 
 
 @dataclass_json
@@ -246,8 +246,12 @@ class ProfileConfig:
                 previous.obs.host != self.obs.host,
                 previous.obs.port != self.obs.port
                 ]):
+            logger.info("Restart Required for Some Settings that were Changed")
             return True
         return False
+
+    def config_changed(self, new: 'ProfileConfig') -> bool:
+        return self != new
 
 
 @dataclass_json
@@ -277,6 +281,17 @@ class Config:
     def get_default_config(self):
         return self.configs[DEFAULT_CONFIG]
 
+
+def get_default_anki_path():
+    if platform == 'win32':  # Windows
+        base_dir = os.getenv('APPDATA')
+    else:  # macOS and Linux
+        base_dir = '~/.local/share/'
+    config_dir = os.path.join(base_dir, 'Anki2')
+    return config_dir
+
+def get_default_anki_media_collection_path():
+    return os.path.join(get_default_anki_path(), 'User 1', 'collection.media')
 
 def get_app_directory():
     if platform == 'win32':  # Windows
@@ -379,11 +394,19 @@ def reload_config():
 def get_master_config():
     return config_instance
 
+def save_full_config(config):
+    with open(get_config_path(), 'w') as file:
+        json.dump(config.to_dict(), file, indent=4)
+
+def save_current_config(config):
+    global config_instance
+    config_instance.set_config_for_profile(config_instance.current_profile, config)
+    save_full_config(config_instance)
+
 def switch_profile_and_save(profile_name):
     global config_instance
     config_instance.current_profile = profile_name
-    with open(get_config_path(), 'w') as file:
-        json.dump(config_instance.to_dict(), file, indent=4)
+    save_full_config(config_instance)
     return config_instance.get_config()
 
 

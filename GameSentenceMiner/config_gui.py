@@ -6,6 +6,7 @@ import ttkbootstrap as ttk
 
 from GameSentenceMiner import obs, configuration
 from GameSentenceMiner.configuration import *
+from GameSentenceMiner.downloader.download_tools import download_ocenaudio_if_needed
 from GameSentenceMiner.electron_messaging import signal_restart_settings_change
 from GameSentenceMiner.package import get_current_version, get_latest_version
 
@@ -85,6 +86,7 @@ class ConfigApp:
         on_save.append(func)
 
     def show(self):
+        logger.info("Showing Configuration Window")
         obs.update_current_game()
         self.reload_settings()
         if self.window is not None:
@@ -106,6 +108,7 @@ class ConfigApp:
                 use_clipboard=self.clipboard_enabled.get(),
                 websocket_uri=self.websocket_uri.get(),
                 open_config_on_startup=self.open_config_on_startup.get(),
+                open_multimine_on_startup=self.open_multimine_on_startup.get(),
                 texthook_replacement_regex=self.texthook_replacement_regex.get()
             ),
             paths=Paths(
@@ -160,7 +163,6 @@ class ConfigApp:
                 ffmpeg_reencode_options=self.ffmpeg_reencode_options.get(),
                 external_tool = self.external_tool.get(),
                 anki_media_collection=self.anki_media_collection.get(),
-                mining_from_history_grab_all_audio=self.mining_from_history_grab_all_audio.get()
             ),
             obs=OBS(
                 enabled=self.obs_enabled.get(),
@@ -184,7 +186,9 @@ class ConfigApp:
                 vosk_url='https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip' if self.vosk_url.get() == VOSK_BASE else "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip",
                 selected_vad_model=self.selected_vad_model.get(),
                 backup_vad_model=self.backup_vad_model.get(),
-                trim_beginning=self.vad_trim_beginning.get()
+                trim_beginning=self.vad_trim_beginning.get(),
+                beginning_offset=float(self.vad_beginning_offset.get()),
+                add_audio_on_no_results=self.add_audio_on_no_results.get(),
             )
         )
 
@@ -215,6 +219,7 @@ class ConfigApp:
             signal_restart_settings_change()
         settings_saved = True
         configuration.reload_config()
+        self.settings = get_config()
         for func in on_save:
             func()
 
@@ -225,8 +230,9 @@ class ConfigApp:
 
         self.window.title("GameSentenceMiner Configuration - " + current_config.name)
 
-        if current_config.name != self.settings.name:
-            logger.info("Profile changed, reloading settings.")
+
+        if current_config.name != self.settings.name or self.settings.config_changed(current_config):
+            logger.info("Config changed, reloading settings.")
             self.master_config = new_config
             self.settings = current_config
             for frame in self.notebook.winfo_children():
@@ -294,6 +300,13 @@ class ConfigApp:
         ttk.Checkbutton(general_frame, variable=self.open_config_on_startup).grid(row=self.current_row, column=1,
                                                                                   sticky='W')
         self.add_label_and_increment_row(general_frame, "Whether to open config when the script starts.",
+                                         row=self.current_row, column=2)
+
+        ttk.Label(general_frame, text="Open Multimine on Startup:").grid(row=self.current_row, column=0, sticky='W')
+        self.open_multimine_on_startup = tk.BooleanVar(value=self.settings.general.open_multimine_on_startup)
+        ttk.Checkbutton(general_frame, variable=self.open_multimine_on_startup).grid(row=self.current_row, column=1,
+                                                                                  sticky='W')
+        self.add_label_and_increment_row(general_frame, "Whether to open multimining window when the script starts.",
                                          row=self.current_row, column=2)
 
         ttk.Label(general_frame, text="Current Version:").grid(row=self.current_row, column=0, sticky='W')
@@ -364,6 +377,17 @@ class ConfigApp:
         ttk.Checkbutton(vad_frame, variable=self.vad_trim_beginning).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(vad_frame, "Trim the beginning of the audio based on Voice Detection Results",
                                          row=self.current_row, column=2)
+
+        ttk.Label(vad_frame, text="Beginning Offset After Beginning Trim:").grid(row=self.current_row, column=0, sticky='W')
+        self.vad_beginning_offset = ttk.Entry(vad_frame)
+        self.vad_beginning_offset.insert(0, str(self.settings.vad.beginning_offset))
+        self.vad_beginning_offset.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(vad_frame, 'Beginning offset after VAD Trim, Only active if "Trim Beginning" is ON. Negative values = more time at the beginning', row=self.current_row, column=2)
+
+        ttk.Label(vad_frame, text="Add Audio on No Results:").grid(row=self.current_row, column=0, sticky='W')
+        self.add_audio_on_no_results = tk.BooleanVar(value=self.settings.vad.add_audio_on_no_results)
+        ttk.Checkbutton(vad_frame, variable=self.add_audio_on_no_results).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(vad_frame, "Add audio even if no results are found by VAD.", row=self.current_row, column=2)
 
 
     @new_tab
@@ -740,12 +764,14 @@ class ConfigApp:
                                          row=self.current_row,
                                          column=2)
 
-        ttk.Label(audio_frame, text="Grab all Future Audio when Mining from History:").grid(row=self.current_row, column=0, sticky='W')
-        self.mining_from_history_grab_all_audio = tk.BooleanVar(
-            value=self.settings.audio.mining_from_history_grab_all_audio)
-        ttk.Checkbutton(audio_frame, variable=self.mining_from_history_grab_all_audio).grid(row=self.current_row, column=1, sticky='W')
-        self.add_label_and_increment_row(audio_frame, "When mining from History, this option will allow the script to get all audio from that line to the current time.", row=self.current_row,
-                                         column=2)
+        ttk.Button(audio_frame, text="Install Ocenaudio", command=self.download_and_install_ocen).grid(
+            row=self.current_row, column=0, pady=5)
+        ttk.Button(audio_frame, text="Get Anki Media Collection",
+                   command=self.set_default_anki_media_collection).grid(row=self.current_row, column=1, pady=5)
+        self.add_label_and_increment_row(audio_frame,
+                                         "These Two buttons both help set up the External Audio Editing Tool. The first one downloads and installs OcenAudio, a free audio editing software. The second one sets the default Anki media collection path.",
+                                         row=self.current_row,
+                                         column=3)
 
     @new_tab
     def create_obs_tab(self):
@@ -897,6 +923,24 @@ class ConfigApp:
 
     def show_error_box(self, title, message):
         messagebox.showerror(title, message)
+
+    def download_and_install_ocen(self):
+        confirm = messagebox.askyesno("Download OcenAudio?", "Would you like to download and install OcenAudio? It is a free audio editing software that works extremely well with GSM.")
+        if confirm:
+            exe_path = download_ocenaudio_if_needed()
+            messagebox.showinfo("OcenAudio Downloaded", f"OcenAudio has been downloaded and installed. You can find it at {exe_path}.")
+            self.external_tool.delete(0, tk.END)
+            self.external_tool.insert(0, exe_path)
+            self.save_settings()
+
+    def set_default_anki_media_collection(self):
+        confirm = messagebox.askyesno("Set Default Anki Media Collection?", "Would you like to set the default Anki media collection path? This will help the script find the media collection for external trimming.\n\nDefault: %APPDATA%/Anki2/User 1/collection.media")
+        if confirm:
+            default_path = get_default_anki_media_collection_path()
+            if default_path != self.settings.audio.external_tool:
+                self.anki_media_collection.delete(0, tk.END)
+                self.anki_media_collection.insert(0, default_path)
+                self.save_settings()
 
 
 if __name__ == '__main__':

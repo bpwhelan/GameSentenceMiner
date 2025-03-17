@@ -3,17 +3,18 @@ import re
 import threading
 import time
 from datetime import datetime
-from typing import Callable
 
 import pyperclip
 import websockets
 
 from GameSentenceMiner import util
+from GameSentenceMiner.model import AnkiCard
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config, logger
-from GameSentenceMiner.util import remove_html_tags
+from GameSentenceMiner.util import remove_html_and_cloze_tags
 from difflib import SequenceMatcher
 
+from GameSentenceMiner.utility_gui import get_utility_window
 
 initial_time = datetime.now()
 current_line = ''
@@ -22,7 +23,6 @@ current_line_time = datetime.now()
 
 reconnecting = False
 websocket_connected = False
-multi_mine_event_bus: Callable[[str, datetime], None] = None
 
 @dataclass
 class GameLine:
@@ -89,14 +89,17 @@ class ClipboardMonitor(threading.Thread):
         # Initial clipboard content
         current_line = pyperclip.paste()
 
+        skip_next_clipboard = False
         while True:
             if websocket_connected:
                 time.sleep(1)
+                skip_next_clipboard = True
                 continue
             current_clipboard = pyperclip.paste()
 
-            if current_clipboard != current_line:
+            if current_clipboard != current_line and not skip_next_clipboard:
                 handle_new_text_event(current_clipboard)
+                skip_next_clipboard = False
 
             time.sleep(0.05)
 
@@ -138,7 +141,7 @@ def handle_new_text_event(current_clipboard):
     logger.info(f"Line Received: {current_line_after_regex}")
     current_line_time = datetime.now()
     line_history.add_line(current_line_after_regex)
-    multi_mine_event_bus(line_history[-1])
+    get_utility_window().add_text(line_history[-1])
 
 
 def reset_line_hotkey_pressed():
@@ -152,9 +155,7 @@ def run_websocket_listener():
     asyncio.run(listen_websocket())
 
 
-def start_text_monitor(send_to_mine_event_bus):
-    global multi_mine_event_bus
-    multi_mine_event_bus = send_to_mine_event_bus
+def start_text_monitor():
     if get_config().general.use_websocket:
         threading.Thread(target=run_websocket_listener, daemon=True).start()
     if get_config().general.use_clipboard:
@@ -169,24 +170,26 @@ def similar(a, b):
 def one_contains_the_other(a, b):
     return a in b or b in a
 
+def lines_match(a, b):
+    similarity = similar(a, b)
+    logger.debug(f"Comparing: {a} with {b} - Similarity: {similarity}, Or One contains the other: {one_contains_the_other(a, b)}")
+    return similar(a, b) >= 0.60 or one_contains_the_other(a, b)
 
 def get_text_event(last_note) -> GameLine:
     lines = line_history.values
 
-    if not last_note:
-        return lines[-1]
-
     if not lines:
         raise Exception("No lines in history. Text is required from either clipboard or websocket for GSM to work. Please check your setup/config.")
 
-    sentence = last_note['fields'][get_config().anki.sentence_field]['value']
+    if not last_note:
+        return lines[-1]
+
+    sentence = last_note.get_field(get_config().anki.sentence_field)
     if not sentence:
         return lines[-1]
 
     for line in reversed(lines):
-        similarity = similar(remove_html_tags(sentence), line.text)
-        logger.debug(f"Comparing: {remove_html_tags(sentence)} with {line.text} - Similarity: {similarity}")
-        if similarity >= 0.60 or one_contains_the_other(line.text, remove_html_tags(sentence)):
+        if lines_match(line.text, remove_html_and_cloze_tags(sentence)):
             return line
 
     logger.debug("Couldn't find a match in history, using last event")
@@ -197,28 +200,25 @@ def get_line_and_future_lines(last_note):
     if not last_note:
         return []
 
-    sentence = last_note['fields'][get_config().anki.sentence_field]['value']
+    sentence = last_note.get_field(get_config().anki.sentence_field)
     found_lines = []
     if sentence:
         found = False
         for line in line_history.values:
-            similarity = similar(remove_html_tags(sentence), line.text)
-            logger.debug(f"Comparing: {remove_html_tags(sentence)} with {line.text} - Similarity: {similarity}")
             if found:
                 found_lines.append(line.text)
-            if similarity >= 0.60 or one_contains_the_other(line.text, remove_html_tags(sentence)):  # 80% similarity threshold
+            if lines_match(line.text, remove_html_and_cloze_tags(sentence)):  # 80% similarity threshold
                 found = True
                 found_lines.append(line.text)
     return found_lines
 
-def get_mined_line(last_note, lines):
+def get_mined_line(last_note: AnkiCard, lines):
     if not last_note:
         return lines[-1]
 
-    sentence = last_note['fields'][get_config().anki.sentence_field]['value']
+    sentence = last_note.get_field(get_config().anki.sentence_field)
     for line in lines:
-        similarity = similar(remove_html_tags(sentence), line.text)
-        if similarity >= 0.60 or one_contains_the_other(line.text, remove_html_tags(sentence)):
+        if lines_match(line.text, remove_html_and_cloze_tags(sentence)):
             return line
     return lines[-1]
 

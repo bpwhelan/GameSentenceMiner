@@ -143,6 +143,6 @@ def is_windows():
 #     else:
 #         return subprocess.run(command, shell=shell, input=input, capture_output=capture_output, timeout=timeout,
 #                               check=check, **kwargs)
-def remove_html_tags(text):
-    clean_text = re.sub(r'<.*?>', '', text)
-    return clean_text
+def remove_html_and_cloze_tags(text):
+    text = re.sub(r'<.*?>', '', re.sub(r'{{c\d+::(.*?)(::.*?)?}}', r'\1', text))
+    return text

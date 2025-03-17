@@ -69,3 +69,12 @@ def send_check_obs_notification(reason):
         app_name="GameSentenceMiner",
         timeout=5  # Notification disappears after 5 seconds
     )
+
+
+def send_error_no_anki_update():
+    notification.notify(
+        title="Error",
+        message=f"Anki Card not updated, Check Console for Reason!",
+        app_name="GameSentenceMiner",
+        timeout=5  # Notification disappears after 5 seconds
+    )

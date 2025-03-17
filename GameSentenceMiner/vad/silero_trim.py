@@ -38,6 +38,6 @@ def process_audio_with_silero(input_audio, output_audio):
     end_time = voice_activity[-1]['end'] if voice_activity else 0
 
     # Trim the audio using FFmpeg
-    ffmpeg.trim_audio(input_audio, start_time, end_time + get_config().audio.end_offset, output_audio)
+    ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio)
     logger.info(f"Trimmed audio saved to: {output_audio}")
     return True

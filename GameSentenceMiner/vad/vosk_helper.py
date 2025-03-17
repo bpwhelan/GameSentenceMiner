@@ -140,7 +140,7 @@ def process_audio_with_vosk(input_audio, output_audio):
     logger.info(f"Trimmed End of Audio to {end_time} seconds:")
 
     # Trim the audio using FFmpeg
-    ffmpeg.trim_audio(input_audio, start_time, end_time + get_config().audio.end_offset, output_audio)
+    ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio)
     logger.info(f"Trimmed audio saved to: {output_audio}")
     return True
 
