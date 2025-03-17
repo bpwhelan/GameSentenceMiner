@@ -246,8 +246,12 @@ class ProfileConfig:
                 previous.obs.host != self.obs.host,
                 previous.obs.port != self.obs.port
                 ]):
+            logger.info("Restart Required for Some Settings that were Changed")
             return True
         return False
+
+    def config_changed(self, new: 'ProfileConfig') -> bool:
+        return self != new
 
 
 @dataclass_json
@@ -390,14 +394,19 @@ def reload_config():
 def get_master_config():
     return config_instance
 
-def save_config(config):
+def save_full_config(config):
     with open(get_config_path(), 'w') as file:
         json.dump(config.to_dict(), file, indent=4)
+
+def save_current_config(config):
+    global config_instance
+    config_instance.set_config_for_profile(config_instance.current_profile, config)
+    save_full_config(config_instance)
 
 def switch_profile_and_save(profile_name):
     global config_instance
     config_instance.current_profile = profile_name
-    save_config(config_instance)
+    save_full_config(config_instance)
     return config_instance.get_config()
 
 

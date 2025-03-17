@@ -215,7 +215,10 @@ def check_for_new_cards():
         return
     new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
-        update_new_card()
+        try:
+            update_new_card()
+        except Exception as e:
+            logger.error("Error updating new card, Reason:", e)
     first_run = False
     previous_note_ids = current_note_ids  # Update the list of known notes
 

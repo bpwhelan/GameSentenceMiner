@@ -3,7 +3,7 @@ from typing import Optional, List
 
 from dataclasses_json import dataclass_json
 
-from GameSentenceMiner.configuration import get_config, logger, save_config
+from GameSentenceMiner.configuration import get_config, logger, save_current_config
 
 
 # OBS
@@ -95,9 +95,10 @@ class AnkiCard:
     mod: int
     cards: list[int]
     alternatives = {
-        "word_field": ["Front", "Word", "TargetWord"],
-        "sentence_field": ["Example", "Context", "Back"],
-        "picture_field": ["Image", "Visual", "Media"]
+        "word_field": ["Front", "Word", "TargetWord", "Expression"],
+        "sentence_field": ["Example", "Context", "Back", "Sentence"],
+        "picture_field": ["Image", "Visual", "Media", "Picture", "Screenshot", 'AnswerImage'],
+        "sentence_audio_field": ["SentenceAudio"]
     }
 
     def get_field(self, field_name: str) -> str:
@@ -115,32 +116,41 @@ class AnkiCard:
         if not self.has_field(config.anki.word_field):
             found_alternative_field, field = self.find_field(config.anki.word_field, "word_field")
             if found_alternative_field:
-                logger.warning(f"Saving alternative field '{field}' for word_field to settings.")
+                logger.warning(f"{config.anki.word_field} Not found in Anki Card! Saving alternative field '{field}' for word_field to settings.")
                 config.anki.word_field = field
                 changes_found = True
 
         if not self.has_field(config.anki.sentence_field):
             found_alternative_field, field = self.find_field(config.anki.sentence_field, "sentence_field")
             if found_alternative_field:
-                logger.warning(f"Saving alternative field '{field}' for sentence_field to settings.")
+                logger.warning(f"{config.anki.sentence_field} Not found in Anki Card! Saving alternative field '{field}' for sentence_field to settings.")
                 config.anki.sentence_field = field
                 changes_found = True
 
         if not self.has_field(config.anki.picture_field):
             found_alternative_field, field = self.find_field(config.anki.picture_field, "picture_field")
             if found_alternative_field:
-                logger.warning(f"Saving alternative field '{field}' for picture_field to settings.")
+                logger.warning(f"{config.anki.picture_field} Not found in Anki Card! Saving alternative field '{field}' for picture_field to settings.")
                 config.anki.picture_field = field
                 changes_found = True
+
+        if not self.has_field(config.anki.sentence_audio_field):
+            found_alternative_field, field = self.find_field(config.anki.sentence_audio_field, "sentence_audio_field")
+            if found_alternative_field:
+                logger.warning(f"{config.anki.sentence_audio_field} Not found in Anki Card! Saving alternative field '{field}' for sentence_audio_field to settings.")
+                config.anki.sentence_audio_field = field
+                changes_found = True
+
         if changes_found:
-            save_config(config)
+            save_current_config(config)
 
     def find_field(self, field, field_type):
         if field in self.fields:
             return False, field
 
         for alt_field in self.alternatives[field_type]:
-            if alt_field in self.fields:
-                return True, alt_field
+            for key in self.fields:
+                if alt_field.lower() == key.lower():
+                    return True, key
 
         return False, None

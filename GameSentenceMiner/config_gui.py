@@ -86,6 +86,7 @@ class ConfigApp:
         on_save.append(func)
 
     def show(self):
+        logger.info("Showing Configuration Window")
         obs.update_current_game()
         self.reload_settings()
         if self.window is not None:
@@ -218,6 +219,7 @@ class ConfigApp:
             signal_restart_settings_change()
         settings_saved = True
         configuration.reload_config()
+        self.settings = get_config()
         for func in on_save:
             func()
 
@@ -228,8 +230,9 @@ class ConfigApp:
 
         self.window.title("GameSentenceMiner Configuration - " + current_config.name)
 
-        if current_config.name != self.settings.name:
-            logger.info("Profile changed, reloading settings.")
+
+        if current_config.name != self.settings.name or self.settings.config_changed(current_config):
+            logger.info("Config changed, reloading settings.")
             self.master_config = new_config
             self.settings = current_config
             for frame in self.notebook.winfo_children():

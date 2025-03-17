@@ -290,12 +290,14 @@ def convert_audio_to_wav(input_audio, output_wav):
 def trim_audio(input_audio, start_time, end_time, output_audio):
     command = ffmpeg_base_command_list.copy()
 
+    command.extend(['-i', input_audio])
+
     if get_config().vad.trim_beginning and start_time > 0:
+        logger.info(f"trimming beginning to {start_time}")
         command.extend(['-ss', f"{start_time:.2f}"])
 
     command.extend([
         '-to', f"{end_time:.2f}",
-        '-i', input_audio,
         '-c', 'copy',
         output_audio
     ])

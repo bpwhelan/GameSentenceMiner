@@ -337,11 +337,13 @@ def switch_profile(icon, item):
         logger.error("You cannot switch to the currently active profile!")
         return
     logger.info(f"Switching to profile: {item.text}")
+    prev_config = get_config()
     get_master_config().current_profile = item.text
     switch_profile_and_save(item.text)
     settings_window.reload_settings()
     update_icon()
-    signal_restart_settings_change()
+    if get_config().restart_required(prev_config):
+        signal_restart_settings_change()
 
 
 def run_tray():
