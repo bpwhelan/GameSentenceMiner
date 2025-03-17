@@ -1,3 +1,37 @@
+# 2.5.0
+
+Been cooking up some good stuff in this update. Somewhat aimed at new users, but there are some nice QoL upgrades for existing users as well. Lots of small changes here, but I tested quite a bit longer than i normally do. 
+
+## New
+
+- Config option to open Multi-line window when GSM starts (Default: **OFF**)
+- Config Option to add Audio even when no voice is found by VAD (Default: **OFF**)
+- Option for beginning offset for the VAD result (aka start of voice + beginning offset, negative = more time before voice starts), Only Active if `Vad Trim Beginning` is ON (Default: **-0.25**)
+- Button for Install ocenaudio + Select Anki Default Media Directory for "Open in External Program" Workflow (In `Audio` Tab)
+
+- Try to Verify Anki Fields and find alternatives, if no alternatives found, print useful error instead of the stacktrace
+- Added notification when it errors to check the console/debug for more info.
+
+## Changed
+
+- Backend Anki Card Object changes, shouldn't change any logic, just makes the Anki card easier to work with in Python
+- Removed "Get all future audio when mining from history" option, redundant, confusing
+- Updated the `remove_html_tags` logic when finding the sentence in history to also remove cloze tags, this will not reflect in your anki card, it will just make finding the sentence you are actually mining more reliable
+- Made some errors give more information than just printing the stacktrace (i.e. when there are no lines recieved)
+
+## Fixed
+
+- Preserve HTML/Cloze Tags in Anki when multi-mining and replacing Sentence is **enabled.**
+- Beginning VAD Trimming being weird, sometimes it would just add arbitrary space, or remove space at random
+
+## 2.4.0 - 2.5.0
+
+Mostly small things, the biggest things were
+
+- Auto Updater
+- Start GSM Minimized
+- Option to keep clipboard and websocket both open
+- Maybe some other small fixes
 
 ## 2.4.0 - [Electron App](https://discord.com/channels/1286409772383342664/1344865618498945144)!
 
