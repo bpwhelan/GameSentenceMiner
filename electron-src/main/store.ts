@@ -1,4 +1,5 @@
 import Store from "electron-store";
+import { SteamGame } from "./launchers/steam.js";
 
 interface YuzuConfig {
     emuPath: string;
@@ -21,6 +22,7 @@ const store = new Store({
             romsPath: `C:\\Emulation\\Yuzu\\Games`,
         },
         agentScriptsPath: `E:\\Japanese Stuff\\agent-v0.1.4-win32-x64\\data\\scripts`,
+        textractorPath: `E:\\Japanese Stuff\\Textractor\\Textractor.exe`,
         startConsoleMinimized: true,
         autoUpdateElectron: true,
         autoUpdateGSMApp: false,
@@ -80,6 +82,14 @@ export function setYuzuRomsPath(path: string): void {
     store.set('yuzu.romsPath', path);
 }
 
+export function getLaunchYuzuGameOnStart(): string {
+    return store.get("yuzu.launchGameOnStart");
+}
+
+export function setLaunchYuzuGameOnStart(path: string): void {
+    store.set("yuzu.launchGameOnStart", path);
+}
+
 // Agent scripts path getters and setters
 export function getAgentScriptsPath(): string {
     return store.get('agentScriptsPath');
@@ -89,10 +99,66 @@ export function setAgentScriptsPath(path: string): void {
     store.set('agentScriptsPath', path);
 }
 
+export function setAgentPath(path: string): void {
+    store.set('agentPath', path);
+}
+
+export function getAgentPath(): string {
+    return store.get('agentPath');
+}
+
 export function getStartConsoleMinimized(): boolean {
     return store.get("startConsoleMinimized");
 }
 
 export function setStartConsoleMinimized(shouldMinimize: boolean): void {
     store.set("startConsoleMinimized", shouldMinimize);
+}
+
+export function getVNs(): string[] {
+    return store.get('VN.vns');
+}
+
+export function setVNs(vns: string[]): void {
+    store.set('VN.vns', vns);
+}
+
+export function getTextractorPath(): string {
+    return store.get("VN.textractorPath");
+}
+
+export function setTextractorPath(path: string): void {
+    store.set("VN.textractorPath", path);
+}
+
+export function getLaunchVNOnStart(): string {
+    return store.get("VN.launchVNOnStart");
+}
+
+export function setLaunchVNOnStart(VN: string): void {
+    store.set("VN.launchVNOnStart", VN);
+}
+
+export function getSteamPath(): string {
+    return store.get('steam.steamPath');
+}
+
+export function setSteamPath(path: string): void {
+    store.set('steam.steamPath', path);
+}
+
+export function getLaunchSteamOnStart(): number {
+    return store.get('steam.launchSteamOnStart');
+}
+
+export function setLaunchSteamOnStart(gameId: number): void {
+    store.set('steam.launchSteamOnStart', Number(gameId));
+}
+
+export function getSteamGames(): SteamGame[] {
+    return store.get('steam.steamGames');
+}
+
+export function setSteamGames(games: SteamGame[]): void {
+    store.set('steam.steamGames', games);
 }

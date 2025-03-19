@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Configuration</title>
+    <style>
+        body {
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        h1 {
+            color: #ffffff;
+            text-align: center;
+        }
+
+        .inputField {
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            padding: 8px;
+            width: 100%;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        #saveBtn {
+            background-color: #0078d4;
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        #saveBtn:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        #saveBtn:hover:not(:disabled) {
+            background-color: #005ea2;
+        }
+
+        button {
+            background-color: #3a3a3a;
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-right: 10px;
+        }
+
+        p {
+            color: #b0b0b0;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+<h1>Game Configuration</h1>
+<div>
+    <label>
+        Steam ID:
+        <input type="text" id="steamIdInput" class="inputField" placeholder="Enter Steam ID">
+    </label>
+</div>
+<div>
+    <label>
+        Game Name:
+        <input type="text" id="gameNameInput" class="inputField" placeholder="Enter Game Name">
+    </label>
+</div>
+<div>
+    <label>
+        Executable Name:
+        <input type="text" id="executableNameInput" class="inputField"
+               placeholder="Enter Executable Name (not Path, i.e. Yakuza0.exe)">
+    </label>
+</div>
+<div>
+    <button id="selectScriptBtn">Select Script</button>
+    <span id="scriptPathLabel"></span>
+</div>
+<br>
+<div>
+    <button id="saveBtn" disabled>Save</button>
+</div>
+
+<p id="status"></p>
+
+<script>
+    const {ipcRenderer} = require('electron');
+
+    const steamIdInput = document.getElementById('steamIdInput');
+    const gameNameInput = document.getElementById('gameNameInput');
+    const executableNameInput = document.getElementById('executableNameInput');
+    const selectScriptBtn = document.getElementById('selectScriptBtn');
+    const status = document.getElementById('status');
+    const scriptPathLabel = document.getElementById('scriptPathLabel');
+    const saveBtn = document.getElementById('saveBtn');
+
+    steamIdInput.addEventListener('input', () => {
+        validate();
+    });
+
+    gameNameInput.addEventListener('input', () => {
+        validate();
+    });
+
+    executableNameInput.addEventListener('input', () => {
+        validate();
+    })
+
+
+    function validate() {
+        const steamId = steamIdInput.value?.trim();
+        const gameName = gameNameInput.value?.trim();
+        const executableName = executableNameInput.value?.trim();
+
+        saveBtn.disabled = !(steamId && gameName && executableName);
+    }
+
+
+    selectScriptBtn.addEventListener('click', () => {
+        ipcRenderer.invoke('getAgentScriptPath').then(result => {
+            if (result.canceled) {
+                status.textContent = 'No script selected.';
+                saveBtn.disabled = true;
+            } else {
+                scriptPathLabel.innerText = result.path;
+                status.textContent = `Selected script: ${result.filePaths[0]}`;
+                validate();
+            }
+        });
+    })
+
+    saveBtn.addEventListener('click', async () => {
+        const steamId = steamIdInput.value;
+        const gameName = gameNameInput.value;
+        const executablePath = executableNameInput.value;
+        const scriptPath = scriptPathLabel.textContent;
+
+        const result = await ipcRenderer.invoke('saveSteamGame', {steamId, gameName, executablePath, scriptPath});
+        if (result.status === 'success') {
+            status.textContent = 'Configuration saved successfully!';
+
+            // Clear input fields for adding another game
+            steamIdInput.value = '';
+            gameNameInput.value = '';
+            executableNameInput.value = '';
+            scriptPathLabel.innerText = '';
+            validate();
+        } else {
+            status.textContent = result.message;
+        }
+    });
+</script>
+</body>
+</html>

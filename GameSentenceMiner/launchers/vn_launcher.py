@@ -25,8 +25,7 @@ def launch_textractor():
     except Exception as e:
         print(f"Error launching VN: {e}")
 
-
-if __name__ == "__main__":
+def main():
     path = os.getcwd()
     vn_pid = launch_vn()
     os.chdir(path)
@@ -37,3 +36,7 @@ if __name__ == "__main__":
         launch_textractor()
     else:
         print("Failed to launch VN.")
+
+
+if __name__ == "__main__":
+    main()
