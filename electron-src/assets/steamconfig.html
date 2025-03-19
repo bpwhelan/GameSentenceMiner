@@ -130,7 +130,7 @@
 
 
     selectScriptBtn.addEventListener('click', () => {
-        ipcRenderer.invoke('getAgentScriptPath').then(result => {
+        ipcRenderer.invoke('steam.getAgentScriptPath').then(result => {
             if (result.canceled) {
                 status.textContent = 'No script selected.';
                 saveBtn.disabled = true;
@@ -148,7 +148,7 @@
         const executablePath = executableNameInput.value;
         const scriptPath = scriptPathLabel.textContent;
 
-        const result = await ipcRenderer.invoke('saveSteamGame', {steamId, gameName, executablePath, scriptPath});
+        const result = await ipcRenderer.invoke('steam.saveSteamGame', {steamId, gameName, executablePath, scriptPath});
         if (result.status === 'success') {
             status.textContent = 'Configuration saved successfully!';
 
