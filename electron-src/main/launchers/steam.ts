@@ -218,11 +218,11 @@ function registerIPC() {
         }
     });
 
-    ipcMain.handle('getLaunchOnStart', async () => {
+    ipcMain.handle('steam.getLaunchOnStart', async () => {
         return getLaunchSteamOnStart();
     });
 
-    ipcMain.handle('showGameConfigDialog', async () => {
+    ipcMain.handle('steam.showGameConfigDialog', async () => {
         if (steamWindow) {
             // Show the game configuration dialog
             gameConfigWindow = new BrowserWindow({
