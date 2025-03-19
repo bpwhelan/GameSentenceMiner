@@ -70,23 +70,22 @@
     </style>
 </head>
 <body>
-<h1>Yuzu Game Launcher</h1>
+<h1>VN Game Launcher</h1>
 <div>
     <label>
-        Game Select:
+        VNS:
         <select id="gameSelect" class="gameSelect">
-            <option value="" disabled selected>Select a game</option>
+            <option value="">Select a Visual Novel</option>
         </select>
     </label>
-    <button id="launchBtn" class="pathBtn" disabled>Launch Game</button>
-</div>
-<div>
-    <button id="setScriptsPathBtn" class="pathBtn">Set Scripts Path</button>
-    <button id="setAgentBtn" class="pathBtn">Set Agent Path</button>
-    <button id="setYuzuPathBtn" class="pathBtn">Set Yuzu Path</button>
-    <button id="setRomPathBtn" class="pathBtn">Set ROMS Path</button>
+<button id="addVNBtn">Add VN</button>
+<button id="removeVNBtn">Remove VN</button>
+<button id="setTextractorPathBtn">Set Textractor Path</button>
 </div>
 
+<div>
+    <button id="launchBtn" disabled>Launch</button>
+</div>
 
 <div>
     <label>
@@ -98,77 +97,86 @@
 </div>
 
 <p id="status"></p>
-
 <script>
-    const {ipcRenderer} = require('electron');
+    const { ipcRenderer } = require('electron');
 
     const gameSelect = document.getElementById('gameSelect');
-    const setAgentBtn = document.getElementById('setAgentBtn');
-    const setYuzuPathBtn = document.getElementById('setYuzuPathBtn');
-    const setRomPathBtn = document.getElementById('setRomPathBtn');
-    const setScriptsPathBtn = document.getElementById('setScriptsPathBtn');
+    const launchBtn = document.getElementById('launchBtn');
+    const addVNBtn = document.getElementById('addVNBtn');
+    const removeVNBtn = document.getElementById('removeVNBtn');
+    const setTextractorPathBtn = document.getElementById('setTextractorPathBtn');
+    const status = document.getElementById('status');
+    const launchOnStartSelect = document.getElementById('launchOnStartSelect');
 
-    async function loadGames() {
-        const games = await ipcRenderer.invoke("yuzu.getYuzuGames");
+    async function loadVNs() {
+        const vns = await ipcRenderer.invoke('vn.getVNs') || []
+        console.log(vns);
+        gameSelect.innerHTML = '<option value="">Select a Visual Novel</option>';
         launchOnStartSelect.innerHTML = '<option value="">Disabled</option>';
-
-        while (gameSelect.options.length > 1) {
-            gameSelect.remove(1);
-        }
-
-        games.forEach(game => {
-            const option = document.createElement("option");
-            option.value = game.id;
-            option.textContent = game.name;
+        vns.forEach(vn => {
+            const option = document.createElement('option');
+            option.value = vn;
+            option.textContent = vn;
             gameSelect.appendChild(option);
             launchOnStartSelect.appendChild(option.cloneNode(true));
-        });
-
-        gameSelect.addEventListener('change', () => {
-            const selectedId = gameSelect.value;
-            document.getElementById("launchBtn").disabled = !selectedId;
         });
     }
 
     async function init() {
-        await loadGames();
-        const launchOnStart = await ipcRenderer.invoke('yuzu.getYuzuLaunchOnStart');
+        await loadVNs();
+        const launchOnStart = await ipcRenderer.invoke('vn.getVNLaunchOnStart');
         if (launchOnStart) {
             launchOnStartSelect.value = launchOnStart;
         }
     }
 
-    setAgentBtn.addEventListener('click', () => {
-        ipcRenderer.invoke("yuzu.setAgentPath");
+    gameSelect.addEventListener('change', () => {
+        launchBtn.disabled = !gameSelect.value;
     });
 
-    setYuzuPathBtn.addEventListener('click', () => {
-        ipcRenderer.invoke("yuzu.setYuzuPath");
+    launchBtn.addEventListener('click', async () => {
+        const vnPath = gameSelect.value;
+        const result = await ipcRenderer.invoke('vn.launchVN', vnPath);
+        if (result.status === 'error') {
+            status.textContent = result.message;
+        } else {
+            status.textContent = 'VN launched successfully!';
+        }
     });
 
-    setRomPathBtn.addEventListener('click', async () => {
-        await ipcRenderer.invoke("yuzu.setRomsPath");
-        await loadGames();
+    addVNBtn.addEventListener('click', async () => {
+        const result = await ipcRenderer.invoke('vn.addVN');
+        if (result.status === 'error' || result.status === 'cancelled') {
+            status.textContent = result.message;
+        } else {
+            status.textContent = 'VN added successfully!';
+            await loadVNs();
+        }
     });
 
-    setScriptsPathBtn.addEventListener('click', async () => {
-      await ipcRenderer.invoke("yuzu.setAgentScriptsPath");
+    removeVNBtn.addEventListener('click', async () => {
+        const vnPath = gameSelect.value;
+        const result = await ipcRenderer.invoke('vn.removeVN', vnPath);
+        if (result.status === 'error') {
+            status.textContent = result.message;
+        } else {
+            status.textContent = 'VN removed successfully!';
+            await loadVNs();
+        }
+    });
+
+    setTextractorPathBtn.addEventListener('click', async () => {
+        const result = await ipcRenderer.invoke('vn.setTextractorPath');
+        if (result.status === 'success') {
+            status.textContent = 'Textractor path set successfully!';
+        } else {
+            status.textContent = result.message;
+        }
     });
 
     launchOnStartSelect.addEventListener('change', () => {
-        ipcRenderer.invoke("yuzu.setYuzuLaunchOnStart", launchOnStartSelect.value);
+        ipcRenderer.invoke('vn.setVNLaunchOnStart');
     });
-
-    document.getElementById("launchBtn").onclick = async () => {
-        const gameSelect = document.getElementById("gameSelect");
-        const selectedGameId = gameSelect.value;
-        if (!selectedGameId) return;
-
-        document.getElementById("status").textContent = "Launching...";
-        const result = await ipcRenderer.invoke("yuzu.launchYuzuGame", selectedGameId);
-        document.getElementById("status").textContent =
-            result.status === "launched" ? "Game Launched!" : "Error!";
-    };
 
     document.addEventListener("DOMContentLoaded", init);
 </script>

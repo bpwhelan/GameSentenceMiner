@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Steam Launcher</title>
+    <style>
+        body {
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        h1 {
+            color: #ffffff;
+            text-align: center;
+        }
+
+        .gameSelect {
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            padding: 8px;
+            width: 200px;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .gameSelect option {
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+        }
+
+        #launchBtn {
+            background-color: #0078d4;
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        #launchBtn:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        #launchBtn:hover:not(:disabled) {
+            background-color: #005ea2;
+        }
+
+        button {
+            background-color: #3a3a3a;
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-right: 10px;
+        }
+
+        #status {
+            color: #b0b0b0;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+<h1>Steam Game Launcher</h1>
+<div>
+    <label>
+        Game Select:
+        <select id="gameSelect" class="gameSelect">
+            <option value="" disabled selected>Select a game</option>
+        </select>
+    </label>
+    <button id="configGameBtn" class="pathBtn">Add Game</button>
+    <button id="removeGameBtn">Remove Game</button>
+    <button id="launchBtn" class="pathBtn" disabled>Launch Game</button>
+</div>
+<br>
+<div>
+    <button id="setAgentBtn" class="pathBtn">Set Agent Path</button>
+    <button id="setSteamPathBtn" class="pathBtn">Set Steam Path</button>
+</div>
+<br>
+<div>
+    <label>
+        Launch on start:
+        <select id="launchOnStartSelect" class="gameSelect">
+            <option value="">Disabled</option>
+        </select>
+    </label>
+</div>
+
+<p id="status"></p>
+
+<script>
+    const { ipcRenderer } = require('electron');
+
+    const gameSelect = document.getElementById('gameSelect');
+    const removeGameBtn = document.getElementById('removeGameBtn');
+    const setAgentBtn = document.getElementById('setAgentBtn');
+    const setSteamPathBtn = document.getElementById('setSteamPathBtn');
+    const launchBtn = document.getElementById('launchBtn');
+    const configGameBtn = document.getElementById('configGameBtn');
+    const status = document.getElementById('status');
+    const launchOnStartSelect = document.getElementById('launchOnStartSelect');
+
+    async function loadGames() {
+        const games = await ipcRenderer.invoke('steam.getSteamGames');
+        gameSelect.innerHTML = '<option value="">Select a game</option>';
+        launchOnStartSelect.innerHTML = '<option value="">Disabled</option>';
+
+        while (gameSelect.options.length > 1) {
+            gameSelect.remove(1);
+        }
+
+        games.forEach(game => {
+            const option = document.createElement('option');
+            option.value = game.id;
+            option.textContent = game.name;
+            gameSelect.appendChild(option);
+            launchOnStartSelect.appendChild(option.cloneNode(true));
+        });
+
+        gameSelect.addEventListener('change', () => {
+            const selectedId = gameSelect.value;
+            launchBtn.disabled = !selectedId;
+        });
+    }
+
+    async function init() {
+        await loadGames();
+        const launchOnStart = await ipcRenderer.invoke('steam.getSteamLaunchOnStart');
+        if (launchOnStart) {
+            launchOnStartSelect.value = launchOnStart;
+        }
+    }
+    ipcRenderer.on('steamGamesUpdated', loadGames);
+
+    removeGameBtn.addEventListener('click', () => {
+       ipcRenderer.invoke('steam.removeSteamGame', gameSelect.value);
+       loadGames()
+    });
+
+    setAgentBtn.addEventListener('click', () => {
+        ipcRenderer.invoke('steam.setAgentPath');
+    });
+
+    setSteamPathBtn.addEventListener('click', () => {
+        ipcRenderer.invoke('steam.setSteamPath');
+    });
+
+    launchBtn.addEventListener('click', async () => {
+        const selectedGameId = gameSelect.value;
+        if (!selectedGameId) return;
+
+        status.textContent = 'Launching...';
+        const result = await ipcRenderer.invoke('steam.launchSteamGame', parseInt(selectedGameId));
+        status.textContent = result.status === 'launched' ? 'Game Launched!' : 'Error!';
+    });
+
+    configGameBtn.addEventListener('click', () => {
+        ipcRenderer.invoke('steam.showGameConfigDialog');
+    });
+
+    launchOnStartSelect.addEventListener('change', () => {
+        ipcRenderer.invoke('steam.setSteamLaunchOnStart', launchOnStartSelect.value);
+    });
+
+    document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

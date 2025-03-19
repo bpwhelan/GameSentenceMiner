@@ -1,12 +1,14 @@
+import json
+import os
 import tkinter as tk
 from tkinter import ttk
 
-from GameSentenceMiner.configuration import logger
+from GameSentenceMiner.configuration import logger, get_app_directory
+
 
 class UtilityApp:
     def __init__(self, root):
         self.root = root
-
         self.items = []
         self.checkboxes = []
         self.multi_mine_window = None  # Store the multi-mine window reference
@@ -14,31 +16,59 @@ class UtilityApp:
 
         style = ttk.Style()
         style.configure("TCheckbutton", font=("Arial", 20))  # Change the font and size
+        self.config_file = os.path.join(get_app_directory(), "multi-mine-window-config.json")
+        self.load_window_config()
 
-    # def show(self):
-    #     if self.multi_mine_window is None or not tk.Toplevel.winfo_exists(self.multi_mine_window):
-    #         self.multi_mine_window = tk.Toplevel(self.root)
-    #         self.multi_mine_window.title("Multi-Mine Window")
-    #         self.update_multi_mine_window()
-    #
+
+    def save_window_config(self):
+        if self.multi_mine_window:
+            config = {
+                "x": self.multi_mine_window.winfo_x(),
+                "y": self.multi_mine_window.winfo_y(),
+                "width": self.multi_mine_window.winfo_width(),
+                "height": self.multi_mine_window.winfo_height()
+            }
+            print(config)
+            with open(self.config_file, "w") as f:
+                json.dump(config, f)
+
+    def load_window_config(self):
+        if os.path.exists(self.config_file):
+            with open(self.config_file, "r") as f:
+                config = json.load(f)
+                self.window_x = config.get("x", 100)
+                self.window_y = config.get("y", 100)
+                self.window_width = config.get("width", 800)
+                self.window_height = config.get("height", 400)
+        else:
+            self.window_x = 100
+            self.window_y = 100
+            self.window_width = 800
+            self.window_height = 400
+
     def show(self):
-        """ Open the multi-mine window only if it doesn't exist. """
         if not self.multi_mine_window or not tk.Toplevel.winfo_exists(self.multi_mine_window):
-            logger.info("opening multi-mine_window")
             self.multi_mine_window = tk.Toplevel(self.root)
             self.multi_mine_window.title("Multi Mine Window")
 
-            self.multi_mine_window.minsize(800, 400)  # Set a minimum size to prevent shrinking too
+            self.multi_mine_window.geometry(f"{self.window_width}x{self.window_height}+{self.window_x}+{self.window_y}")
+
+            self.multi_mine_window.minsize(800, 400)
 
             self.checkbox_frame = ttk.Frame(self.multi_mine_window)
             self.checkbox_frame.pack(padx=10, pady=10, fill="both", expand=True)
 
-            # Add existing items
             for line, var in self.items:
                 self.add_checkbox_to_gui(line, var)
+
+            self.multi_mine_window.protocol("WM_DELETE_WINDOW", self.on_close)
         else:
             self.multi_mine_window.deiconify()
             self.multi_mine_window.lift()
+
+    def on_close(self):
+        self.save_window_config()
+        self.multi_mine_window.withdraw()
 
     def add_text(self, line):
         if line.text:

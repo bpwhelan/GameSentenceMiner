@@ -1,28 +1,35 @@
-import {app, BrowserWindow, Tray, Menu, dialog, shell} from 'electron';
+import {app, BrowserWindow, dialog, Menu, shell, Tray} from 'electron';
 import * as path from 'path';
-import {spawn, ChildProcessWithoutNullStreams} from 'child_process';
+import {ChildProcessWithoutNullStreams, spawn} from 'child_process';
 import {getOrInstallPython} from "./python/python_downloader.js";
-import {APP_NAME, BASE_DIR, PACKAGE_NAME} from "./util.js";
-import electronUpdater, { type AppUpdater } from 'electron-updater';
-import { fileURLToPath } from "node:url";
+import {APP_NAME, BASE_DIR, getAssetsDir, isDev, PACKAGE_NAME} from "./util.js";
+import electronUpdater, {type AppUpdater} from 'electron-updater';
+import {fileURLToPath} from "node:url";
 
 import log from 'electron-log/main.js';
-import {getAutoUpdateElectron, getAutoUpdateGSMApp, getStartConsoleMinimized, setPythonPath} from "./store.js";
-import {registerYuzuIPC} from "./launchers/yuzu.js";
+import {
+    getAutoUpdateElectron,
+    getAutoUpdateGSMApp, getLaunchSteamOnStart,
+    getLaunchVNOnStart, getLaunchYuzuGameOnStart,
+    getStartConsoleMinimized,
+    setPythonPath
+} from "./store.js";
+import {launchYuzuGameID, openYuzuWindow} from "./launchers/yuzu.js";
 import {checkForUpdates} from "./update_checker.js";
+import {launchVNWorkflow, openVNWindow} from "./launchers/vn.js";
+import {launchSteamGameID, openSteamWindow} from "./launchers/steam.js";
 
 let mainWindow: BrowserWindow | null = null;
-let yuzuWindow: BrowserWindow | null = null;
 let tray: Tray;
 let pyProc: ChildProcessWithoutNullStreams;
-let isQuitting = false;
+export let isQuitting = false;
 let isUpdating: boolean = false;
 let restartingGSM: boolean = false;
 let pythonPath: string;
 const originalLog = console.log;
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+export const __dirname = path.dirname(__filename);
 
 function getAutoUpdater(): AppUpdater {
     const { autoUpdater } = electronUpdater;
@@ -66,19 +73,6 @@ async function autoUpdate() {
     autoUpdater.checkForUpdatesAndNotify();
 }
 
-
-const isDev = !app.isPackaged;
-
-/**
- * Get the base directory for assets.
- * Handles both development and production (ASAR) environments.
- * @returns {string} - Path to the assets directory.
- */
-function getAssetsDir(): string {
-    return isDev
-        ? path.join(__dirname, "../../electron-src/assets") // Development path
-        : path.join(process.resourcesPath, "assets"); // Production (ASAR-safe)
-}
 
 function getGSMModulePath(): string {
     return "GameSentenceMiner.gsm";
@@ -197,6 +191,14 @@ function createWindow() {
                     label: "Open Yuzu Launcher",
                     click: () => openYuzuWindow(),
                 },
+                {
+                    label: "Open VN Launcher",
+                    click: () => openVNWindow(),
+                },
+                {
+                    label: "Open Steam Launcher",
+                    click: () => openSteamWindow(),
+                },
                 { type: "separator" },
                 { label: "Exit", role: "quit" },
             ],
@@ -226,33 +228,14 @@ function createWindow() {
         if (!isQuitting) {
             event.preventDefault();
             mainWindow?.hide();
+            return;
         }
         mainWindow = null;
     })
 }
 
-function openYuzuWindow() {
-    if (yuzuWindow) {
-        yuzuWindow.focus();
-        return;
-    }
 
-    yuzuWindow = new BrowserWindow({
-        width: 800,
-        height: 600,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            devTools: true,
-        },
-    });
 
-    yuzuWindow.loadFile(path.join(getAssetsDir(), "yuzu.html"));
-
-    yuzuWindow.on("closed", () => {
-        yuzuWindow = null;
-    });
-}
 
 async function updateGSM() {
     isUpdating = true;
@@ -324,13 +307,51 @@ async function ensureAndRunGSM(pythonPath: string): Promise<void> {
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 
 
-app.whenReady().then(() => {
-    registerYuzuIPC();
+app.whenReady().then(async () => {
     if (!isDev && getAutoUpdateElectron()) {
-        autoUpdate()
+        await autoUpdate()
     }
     createWindow();
     createTray();
+    if (getLaunchVNOnStart()) {
+        dialog.showMessageBox(mainWindow!, {
+            type: 'question',
+            buttons: ['Yes', 'No'],
+            defaultId: 0,
+            title: 'Launch Game',
+            message: 'Do you want to launch the pre-configured VN?',
+        }).then(async (response) => {
+            if (response.response === 0) {
+                await launchVNWorkflow(getLaunchVNOnStart());
+            }
+        });
+    }
+    if (getLaunchYuzuGameOnStart()) {
+        dialog.showMessageBox(mainWindow!, {
+            type: 'question',
+            buttons: ['Yes', 'No'],
+            defaultId: 0,
+            title: 'Launch Game',
+            message: 'Do you want to launch the pre-configured Yuzu Game?',
+        }).then(async (response) => {
+            if (response.response === 0) {
+                await launchYuzuGameID(getLaunchYuzuGameOnStart());
+            }
+        });
+    }
+    if (getLaunchSteamOnStart()) {
+        dialog.showMessageBox(mainWindow!, {
+            type: 'question',
+            buttons: ['Yes', 'No'],
+            defaultId: 0,
+            title: 'Launch Game',
+            message: 'Do you want to launch the pre-configured Steam Game?',
+        }).then(async (response) => {
+            if (response.response === 0) {
+                await launchSteamGameID(getLaunchSteamOnStart());
+            }
+        });
+    }
     getOrInstallPython().then((path: string) => {
         pythonPath = path;
         setPythonPath(pythonPath);

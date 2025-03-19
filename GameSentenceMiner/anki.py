@@ -233,8 +233,9 @@ def update_new_card():
     if get_config().obs.get_game_from_scene:
         obs.update_current_game()
     if use_prev_audio:
+        lines = get_utility_window().get_selected_lines()
         with util.lock:
-            update_anki_card(last_card, note=get_initial_card_info(last_card, get_utility_window().get_selected_lines()), reuse_audio=True)
+            update_anki_card(last_card, note=get_initial_card_info(last_card, lines), reuse_audio=True)
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         card_queue.append(last_card)
