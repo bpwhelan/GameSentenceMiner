@@ -23,9 +23,9 @@
 </head>
 <body>
 <div id="terminal"></div>
+<script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
 <script>
-    const Terminal = require('xterm').Terminal;
-    const FitAddon = require('xterm-addon-fit');
     const {ipcRenderer, clipboard} = require('electron');
     const term = new Terminal({
         fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace', // Japanese-supporting fonts
