@@ -59,7 +59,7 @@ async function autoUpdate() {
             })
             .then((result) => {
                 if (result.response === 0) {
-                    updateGSM().then(() => {
+                    updateGSM(false).then(() => {
                         autoUpdater.quitAndInstall();
                     });
                 }
@@ -212,6 +212,18 @@ function createWindow() {
                         shell.openExternal("https://github.com/bpwhelan/GameSentenceMiner/wiki")
                     },
                 },
+                {
+                    label: "Discord",
+                    click: () => {
+                        shell.openExternal("https://discord.gg/yP8Qse6bb8")
+                    },
+                },
+                {
+                    label: "Open Developer Console",
+                    click: () => {
+                        mainWindow?.webContents.openDevTools();
+                    },
+                }
             ],
         },
     ]);
@@ -235,7 +247,7 @@ function createWindow() {
 }
 
 
-async function updateGSM() {
+async function updateGSM(shouldRestart: boolean = false): Promise<void> {
     isUpdating = true;
     checkForUpdates().then(async ({updateAvailable, latestVersion}) => {
         if (updateAvailable) {
@@ -243,7 +255,9 @@ async function updateGSM() {
             closeGSM();
             console.log(`Updating GSM Python Application to ${latestVersion}...`)
             await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
-            restart();
+            if (shouldRestart) {
+                restart();
+            }
         } else {
             console.log("You're already using the latest version.");
         }
@@ -254,7 +268,7 @@ function createTray() {
     tray = new Tray(getIconPath(16)); // Replace with a valid icon path
     const contextMenu = Menu.buildFromTemplate([
         {label: 'Show Console', click: () => mainWindow?.show()},
-        {label: 'Update GSM', click: () => updateGSM()},
+        {label: 'Update GSM', click: () => updateGSM(false)},
         {label: 'Restart GSM', click: () => restartGSM()},
         {label: 'Quit', click: () => quit()},
     ]);
@@ -293,6 +307,11 @@ async function ensureAndRunGSM(pythonPath: string): Promise<void> {
         }
     }
 
+    if (getAutoUpdateGSMApp()) {
+        console.log("Checking for Updates...")
+        await updateGSM();
+    }
+
     console.log("Starting GameSentenceMiner...");
     try {
         return await runGSM(pythonPath, ["-m", getGSMModulePath()]);
@@ -320,8 +339,6 @@ if (!app.requestSingleInstanceLock()) {
         if (!isDev && getAutoUpdateElectron()) {
             await autoUpdate()
         }
-        createWindow();
-        createTray();
         if (getLaunchVNOnStart()) {
             dialog.showMessageBox(mainWindow!, {
                 type: 'question',
@@ -361,12 +378,11 @@ if (!app.requestSingleInstanceLock()) {
                 }
             });
         }
-        getOrInstallPython().then((path: string) => {
+        createWindow();
+        createTray();
+        getOrInstallPython().then(async (path: string) => {
             pythonPath = path;
             setPythonPath(pythonPath);
-            if (getAutoUpdateGSMApp()) {
-                updateGSM();
-            }
             ensureAndRunGSM(pythonPath).then(() => {
                 if (!isUpdating) {
                     quit();
@@ -387,7 +403,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 function closeGSM(): void {
-    if (pyProc !== null) {
+    if (pyProc?.stdin) {
         pyProc.stdin.write('exit\n');
     }
 }

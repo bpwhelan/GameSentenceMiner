@@ -88,11 +88,8 @@ class SceneItemsResponse:
 @dataclass
 class AnkiCard:
     noteId: int
-    profile: str
     tags: list[str]
     fields: dict[str, dict[str, str]]
-    modelName: str
-    mod: int
     cards: list[int]
     alternatives = {
         "word_field": ["Front", "Word", "TargetWord", "Expression"],

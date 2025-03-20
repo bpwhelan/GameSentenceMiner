@@ -191,8 +191,14 @@ def get_last_anki_card() -> AnkiCard | dict:
     added_ids = invoke('findNotes', query='added:1')
     if not added_ids:
         return {}
-    last_note = AnkiCard.from_dict(invoke('notesInfo', notes=[added_ids[-1]])[0])
-    return last_note
+
+    card_dict = invoke('notesInfo', notes=[added_ids[-1]])[0]
+    try:
+        return AnkiCard.from_dict(card_dict)
+    except Exception as e:
+        logger.error(f"Error fetching last card: {e}")
+        logger.info(card_dict)
+        raise e
 
 
 def add_wildcards(expression):

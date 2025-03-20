@@ -1,40 +1,72 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GameSentenceMiner</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css">
-  <style>
-    body { margin: 0; display: flex; height: 100vh; justify-content: center; align-items: center; background: black; }
-    #terminal { width: 100%; height: 100%; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GameSentenceMiner</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            justify-content: center;
+            align-items: center;
+            background: black;
+        }
+
+        #terminal {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
 </head>
 <body>
 <div id="terminal"></div>
-<script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
 <script>
-  const term = new Terminal({
-    fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace', // Japanese-supporting fonts
-    fontSize: 14,
-    cursorBlink: false,
-  });
-  const fitAddon = new FitAddon.FitAddon();
-  const { ipcRenderer } = require('electron');
-  term.loadAddon(fitAddon);
-  term.open(document.getElementById('terminal'));
-  fitAddon.fit();
+    const Terminal = require('xterm').Terminal;
+    const FitAddon = require('xterm-addon-fit');
+    const {ipcRenderer, clipboard} = require('electron');
+    const term = new Terminal({
+        fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace', // Japanese-supporting fonts
+        fontSize: 14,
+        cursorBlink: false,
+        allowProposedApi: true
+    });
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
 
-  window.addEventListener('resize', () => fitAddon.fit());
+    window.addEventListener('resize', () => fitAddon.fit());
 
-  ipcRenderer.on('terminal-output', (event, data) => {
-    term.write(data);
-  });
+    ipcRenderer.on('terminal-output', (event, data) => {
+        term.write(data);
+    });
 
-  ipcRenderer.on('terminal-error', (event, data) => {
-    term.write(`\x1b[31mERROR: ${data}\x1b[0m`); // Red text for errors
-  });
+    ipcRenderer.on('terminal-error', (event, data) => {
+        term.write(`\x1b[31mERROR: ${data}\x1b[0m`); // Red text for errors
+    });
+
+    term.attachCustomKeyEventHandler((arg) => {
+        if (arg.ctrlKey && arg.code === "KeyC" && arg.type === "keydown") {
+            const selection = term.getSelection();
+            if (selection) {
+                clipboard.writeText(selection);
+                return false;
+            }
+        }
+        return true;
+    });
+
+    document.getElementById("terminal").addEventListener('contextmenu', () => {
+        if (term.hasSelection()) {
+            document.execCommand('copy')
+            term.select(0, 0, 0)
+        } else {
+            ipcRenderer.send('terminal-data', clipboard.readText())
+        }
+    })
 </script>
 </body>
 </html>
