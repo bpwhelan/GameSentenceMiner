@@ -138,6 +138,7 @@ export async function launchYuzuGameID(gameId: string) {
 
 export function openYuzuWindow() {
     if (yuzuWindow) {
+        yuzuWindow.show();
         yuzuWindow.focus();
         return;
     }

@@ -62,6 +62,7 @@ export async function launchVNWorkflow(vnPath: string) {
 
 export function openVNWindow() {
     if (VNWindow) {
+        VNWindow.show();
         VNWindow.focus();
         return;
     }
@@ -82,9 +83,11 @@ export function openVNWindow() {
         if (!isQuitting) {
             event.preventDefault();
             VNWindow?.hide()
-        } else {
-            VNWindow = null;
         }
+    });
+
+    VNWindow.on("closed", () => {
+        VNWindow = null;
     });
 
     ipcMain.handle("vn.launchVN", async (_, vnPath: string) => {

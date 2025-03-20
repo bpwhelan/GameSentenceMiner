@@ -102,6 +102,7 @@ export async function launchSteamGameID(gameId: number) {
 
 export function openSteamWindow() {
     if (steamWindow) {
+        steamWindow.show();
         steamWindow.focus();
         return;
     }
