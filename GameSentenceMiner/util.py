@@ -146,3 +146,35 @@ def is_windows():
 def remove_html_and_cloze_tags(text):
     text = re.sub(r'<.*?>', '', re.sub(r'{{c\d+::(.*?)(::.*?)?}}', r'\1', text))
     return text
+
+
+def combine_dialogue(dialogue_lines, new_lines=None):
+    if not dialogue_lines:  # Handle empty input
+        return []
+
+    if new_lines is None:
+        new_lines = []
+
+    if '「' not in dialogue_lines[0]:
+        new_lines.append(dialogue_lines[0] + "<br>")
+        return new_lines
+
+    character_name = dialogue_lines[0].split("「")[0]
+    text = character_name + "「"
+    next_character = ''
+
+    for i, line in enumerate(dialogue_lines):
+        if not line.startswith(character_name + "「"):
+            text = text + "」<br>"
+            next_character = line.split("「")[0]
+            new_lines.append(text)
+            new_lines.extend(combine_dialogue(dialogue_lines[i:]))
+            break
+        else:
+            text +=  ("<br>" if i > 0 else "") + line.split("「")[1].rstrip("」") + ""
+    else:
+        text = text + "」"
+        new_lines.append(text)
+
+    return new_lines
+

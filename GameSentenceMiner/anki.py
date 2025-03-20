@@ -15,7 +15,7 @@ from GameSentenceMiner.gametext import get_text_event
 from GameSentenceMiner.model import AnkiCard
 from GameSentenceMiner.utility_gui import utility_window, get_utility_window
 from GameSentenceMiner.obs import get_current_game
-from GameSentenceMiner.util import remove_html_and_cloze_tags
+from GameSentenceMiner.util import remove_html_and_cloze_tags, combine_dialogue
 
 audio_in_anki = None
 screenshot_in_anki = None
@@ -122,15 +122,32 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines):
     game_line = get_text_event(last_note)
 
     if selected_lines and get_config().anki.multi_overwrites_sentence:
-        sentences = "".join([line.text for line in selected_lines])
+        sentences = []
+        sentences_text = ''
         try:
             sentence_in_anki = last_note.get_field(get_config().anki.sentence_field)
-            logger.info(f"Attempting Preserve HTML for multi-line: {remove_html_and_cloze_tags(sentence_in_anki)}, {sentences}, {remove_html_and_cloze_tags(sentence_in_anki) in sentences}")
-            sentences = sentences.replace(remove_html_and_cloze_tags(sentence_in_anki), sentence_in_anki)
+            logger.info(f"Attempting Preserve HTML for multi-line")
+            for line in selected_lines:
+                if remove_html_and_cloze_tags(sentence_in_anki) in line.text:
+                    sentences.append(sentence_in_anki)
+                    logger.info("Found matching line in Anki, Preserving HTML!")
+                else:
+                    sentences.append(line.text)
+
+            logger.info(f"Attempting to Fix Character Dialogue Format")
+            logger.info([f"'{line.text}'" for line in selected_lines])
+            try:
+                combined_lines = combine_dialogue(sentences)
+
+                if combined_lines:
+                    sentences = "".join(combined_lines)
+            except Exception as e:
+                logger.debug(f'Error combining dialogue: {e}, defaulting')
+                pass
         except Exception as e:
             logger.debug(f"Error preserving HTML for multi-line: {e}")
             pass
-        note['fields'][get_config().anki.sentence_field] = sentences
+        note['fields'][get_config().anki.sentence_field] = sentences_text if sentences_text else "<br>".join(sentences)
 
     if get_config().anki.previous_sentence_field and game_line.prev and not \
             last_note.get_field(get_config().anki.previous_sentence_field):

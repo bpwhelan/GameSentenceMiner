@@ -150,6 +150,7 @@ class UtilityApp:
         #     for checkbox in self.checkboxes:
         #         checkbox.set(False)
 
+
 def init_utility_window(root):
     global utility_window
     utility_window = UtilityApp(root)

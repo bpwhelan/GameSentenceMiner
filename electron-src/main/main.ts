@@ -235,8 +235,6 @@ function createWindow() {
 }
 
 
-
-
 async function updateGSM() {
     isUpdating = true;
     checkForUpdates().then(async ({updateAvailable, latestVersion}) => {
@@ -306,75 +304,87 @@ async function ensureAndRunGSM(pythonPath: string): Promise<void> {
 
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 
+if (!app.requestSingleInstanceLock()) {
+    app.whenReady().then(() => {
+        dialog.showMessageBoxSync({
+            type: 'warning',
+            title: 'GSM Running',
+            message: 'Another instance of GSM is already running.',
+            buttons: ['OK']
+        });
+        app.quit()
+    });
+} else {
 
-app.whenReady().then(async () => {
-    if (!isDev && getAutoUpdateElectron()) {
-        await autoUpdate()
-    }
-    createWindow();
-    createTray();
-    if (getLaunchVNOnStart()) {
-        dialog.showMessageBox(mainWindow!, {
-            type: 'question',
-            buttons: ['Yes', 'No'],
-            defaultId: 0,
-            title: 'Launch Game',
-            message: 'Do you want to launch the pre-configured VN?',
-        }).then(async (response) => {
-            if (response.response === 0) {
-                await launchVNWorkflow(getLaunchVNOnStart());
-            }
-        });
-    }
-    if (getLaunchYuzuGameOnStart()) {
-        dialog.showMessageBox(mainWindow!, {
-            type: 'question',
-            buttons: ['Yes', 'No'],
-            defaultId: 0,
-            title: 'Launch Game',
-            message: 'Do you want to launch the pre-configured Yuzu Game?',
-        }).then(async (response) => {
-            if (response.response === 0) {
-                await launchYuzuGameID(getLaunchYuzuGameOnStart());
-            }
-        });
-    }
-    if (getLaunchSteamOnStart()) {
-        dialog.showMessageBox(mainWindow!, {
-            type: 'question',
-            buttons: ['Yes', 'No'],
-            defaultId: 0,
-            title: 'Launch Game',
-            message: 'Do you want to launch the pre-configured Steam Game?',
-        }).then(async (response) => {
-            if (response.response === 0) {
-                await launchSteamGameID(getLaunchSteamOnStart());
-            }
-        });
-    }
-    getOrInstallPython().then((path: string) => {
-        pythonPath = path;
-        setPythonPath(pythonPath);
-        if (getAutoUpdateGSMApp()) {
-            updateGSM();
+    app.whenReady().then(async () => {
+        if (!isDev && getAutoUpdateElectron()) {
+            await autoUpdate()
         }
-        ensureAndRunGSM(pythonPath).then(() => {
-            if (!isUpdating) {
+        createWindow();
+        createTray();
+        if (getLaunchVNOnStart()) {
+            dialog.showMessageBox(mainWindow!, {
+                type: 'question',
+                buttons: ['Yes', 'No'],
+                defaultId: 0,
+                title: 'Launch Game',
+                message: 'Do you want to launch the pre-configured VN?',
+            }).then(async (response) => {
+                if (response.response === 0) {
+                    await launchVNWorkflow(getLaunchVNOnStart());
+                }
+            });
+        }
+        if (getLaunchYuzuGameOnStart()) {
+            dialog.showMessageBox(mainWindow!, {
+                type: 'question',
+                buttons: ['Yes', 'No'],
+                defaultId: 0,
+                title: 'Launch Game',
+                message: 'Do you want to launch the pre-configured Yuzu Game?',
+            }).then(async (response) => {
+                if (response.response === 0) {
+                    await launchYuzuGameID(getLaunchYuzuGameOnStart());
+                }
+            });
+        }
+        if (getLaunchSteamOnStart()) {
+            dialog.showMessageBox(mainWindow!, {
+                type: 'question',
+                buttons: ['Yes', 'No'],
+                defaultId: 0,
+                title: 'Launch Game',
+                message: 'Do you want to launch the pre-configured Steam Game?',
+            }).then(async (response) => {
+                if (response.response === 0) {
+                    await launchSteamGameID(getLaunchSteamOnStart());
+                }
+            });
+        }
+        getOrInstallPython().then((path: string) => {
+            pythonPath = path;
+            setPythonPath(pythonPath);
+            if (getAutoUpdateGSMApp()) {
+                updateGSM();
+            }
+            ensureAndRunGSM(pythonPath).then(() => {
+                if (!isUpdating) {
+                    quit();
+                }
+            });
+        });
+
+        app.on('window-all-closed', () => {
+            if (process.platform !== 'darwin') {
                 quit();
             }
         });
-    });
 
-    app.on('window-all-closed', () => {
-        if (process.platform !== 'darwin') {
-            quit();
-        }
+        app.on('before-quit', () => {
+            isQuitting = true;
+        });
     });
-
-    app.on('before-quit', () => {
-        isQuitting = true;
-    });
-});
+}
 
 function closeGSM(): void {
     if (pyProc !== null) {
