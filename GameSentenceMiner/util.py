@@ -155,7 +155,7 @@ def combine_dialogue(dialogue_lines, new_lines=None):
     if new_lines is None:
         new_lines = []
 
-    if '「' not in dialogue_lines[0]:
+    if len(dialogue_lines) == 1 and '「' not in dialogue_lines[0]:
         new_lines.append(dialogue_lines[0] + "<br>")
         return new_lines
 

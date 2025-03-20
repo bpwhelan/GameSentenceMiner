@@ -135,12 +135,12 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines):
                     sentences.append(line.text)
 
             logger.info(f"Attempting to Fix Character Dialogue Format")
-            logger.info([f"'{line.text}'" for line in selected_lines])
+            logger.info([f"{line.text}" for line in sentences])
             try:
                 combined_lines = combine_dialogue(sentences)
 
                 if combined_lines:
-                    sentences = "".join(combined_lines)
+                    sentences_text = "".join(combined_lines)
             except Exception as e:
                 logger.debug(f'Error combining dialogue: {e}, defaulting')
                 pass
