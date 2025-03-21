@@ -1,7 +1,18 @@
+import platform
+
 import requests
 from plyer import notification
+from win10toast import ToastNotifier
 
 from GameSentenceMiner.configuration import logger
+
+system = platform.system()
+if system == "Windows":
+    notifier = ToastNotifier()
+else:
+    notifier = notification
+
+windows = system == "Windows"
 
 
 def open_anki_card(note_id):
@@ -26,55 +37,62 @@ def open_anki_card(note_id):
         logger.info(f"Error connecting to AnkiConnect: {e}")
 
 
-def send_notification(tango):
-    notification.notify(
+
+def send_notification(title, message, timeout):
+    if windows:
+        notifier.show_toast(title, message, duration=timeout)
+    else:
+        notification.notify(
+            title=title,
+            message=message,
+            app_name="GameSentenceMiner",
+            timeout=timeout  # Notification disappears after 5 seconds
+        )
+
+def send_note_updated(tango):
+    send_notification(
         title="Anki Card Updated",
         message=f"Audio and/or Screenshot added to note: {tango}",
-        app_name="GameSentenceMiner",
         timeout=5  # Notification disappears after 5 seconds
     )
 
-
 def send_screenshot_updated(tango):
-    notification.notify(
+    send_notification(
         title="Anki Card Updated",
         message=f"Screenshot updated on note: {tango}",
-        app_name="GameSentenceMiner",
         timeout=5  # Notification disappears after 5 seconds
     )
 
 
 def send_screenshot_saved(path):
-    notification.notify(
+    send_notification(
         title="Screenshot Saved",
         message=f"Screenshot saved to : {path}",
-        app_name="GameSentenceMiner",
         timeout=5  # Notification disappears after 5 seconds
     )
 
 
 def send_audio_generated_notification(audio_path):
-    notification.notify(
+    send_notification(
         title="Audio Trimmed",
         message=f"Audio Trimmed and placed at {audio_path}",
-        app_name="VideoGameMiner",
         timeout=5  # Notification disappears after 5 seconds
     )
 
 
 def send_check_obs_notification(reason):
-    notification.notify(
+    send_notification(
         title="OBS Replay Invalid",
         message=f"Check OBS Settings! Reason: {reason}",
-        app_name="GameSentenceMiner",
         timeout=5  # Notification disappears after 5 seconds
     )
 
 
 def send_error_no_anki_update():
-    notification.notify(
+    send_notification(
         title="Error",
         message=f"Anki Card not updated, Check Console for Reason!",
-        app_name="GameSentenceMiner",
         timeout=5  # Notification disappears after 5 seconds
     )
+
+

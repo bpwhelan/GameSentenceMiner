@@ -431,6 +431,9 @@ def cleanup():
             proc.kill()
             logger.error(f"Error terminating process {proc}: {e}")
 
+    if icon:
+        icon.stop()
+
     settings_window.window.destroy()
     logger.info("Cleanup complete.")
 

@@ -78,7 +78,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         invoke("addTags", tags=tag_string, notes=[last_note.noteId])
     logger.info(f"UPDATED ANKI CARD FOR {last_note.noteId}")
     if get_config().features.notify_on_update:
-        notification.send_notification(tango)
+        notification.send_note_updated(tango)
     if get_config().features.open_anki_edit:
         notification.open_anki_card(last_note.noteId)
 
