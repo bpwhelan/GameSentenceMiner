@@ -133,8 +133,13 @@
     async function init() {
         await loadGames();
         const launchOnStart = await ipcRenderer.invoke('yuzu.getYuzuLaunchOnStart');
+        const lastGameLaunched = await ipcRenderer.invoke('yuzu.getLastYuzuGameLaunched');
         if (launchOnStart) {
             launchOnStartSelect.value = launchOnStart;
+        }
+        if (lastGameLaunched) {
+            gameSelect.value = lastGameLaunched;
+            document.getElementById("launchBtn").disabled = false;
         }
     }
 

@@ -1,3 +1,4 @@
+import logging
 import subprocess
 import time
 
@@ -9,6 +10,8 @@ from GameSentenceMiner.configuration import *
 from GameSentenceMiner.model import *
 
 client: obsws = None
+obs_process = None
+logging.getLogger('obswebsocket').setLevel(logging.CRITICAL)
 
 # REFERENCE: https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md
 
@@ -17,6 +20,7 @@ def get_obs_path():
     return os.path.join(configuration.get_app_directory(), 'obs-studio/bin/64bit/obs64.exe')
 
 def start_obs():
+    global obs_process
     obs_path = get_obs_path()
     if not os.path.exists(obs_path):
         logger.error(f"OBS not found at {obs_path}. Please install OBS.")
@@ -26,9 +30,9 @@ def start_obs():
         obs_pid = is_obs_running(obs_path)
         if obs_pid:
             return obs_pid
-        process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable'], cwd=os.path.dirname(obs_path))
+        obs_process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable'], cwd=os.path.dirname(obs_path))
         logger.info("OBS launched")
-        return process.pid
+        return obs_process.pid
     except Exception as e:
         logger.error(f"Error launching OBS: {e}")
         return None
@@ -87,7 +91,7 @@ def on_disconnect(obs):
     logger.error("OBS Connection Lost!")
 
 
-def connect_to_obs(start_replay=False):
+def connect_to_obs():
     global client
     if get_config().obs.enabled:
         if util.is_windows():
@@ -97,8 +101,7 @@ def connect_to_obs(start_replay=False):
                        on_disconnect=on_disconnect)
         client.connect()
 
-        time.sleep(1)
-        if start_replay and get_config().obs.start_buffer:
+        if get_config().obs.start_buffer:
             start_replay_buffer()
         update_current_game()
 
@@ -111,22 +114,45 @@ def disconnect_from_obs():
         client = None
         logger.info("Disconnected from OBS WebSocket.")
 
+def do_obs_call(request, from_dict = None, retry=5):
+    try:
+        response = client.call(request)
+        if not response.status and retry > 0:
+            time.sleep(1)
+            return do_obs_call(request, from_dict, retry - 1)
+        if from_dict:
+            return from_dict(response.datain)
+        return None
+    except Exception as e:
+        if "socket is already closed" in str(e) or "object has no attribute" in str(e):
+            if retry > 0:
+                time.sleep(1)
+                return do_obs_call(request, from_dict, retry - 1)
+            else:
+                logger.error(f"Error doing obs call: {e}")
+                raise e
+        return None
 
 def toggle_replay_buffer():
     try:
-        client.call(requests.ToggleReplayBuffer())
+        do_obs_call(requests.ToggleReplayBuffer())
         logger.info("Replay buffer Toggled.")
     except Exception as e:
         logger.error(f"Error toggling buffer: {e}")
 
 
 # Start replay buffer
-def start_replay_buffer():
+def start_replay_buffer(retry=5):
     try:
         client.call(requests.GetVersion())
         client.call(requests.StartReplayBuffer())
     except Exception as e:
-        logger.error(f"Error starting replay buffer: {e}")
+        if "socket is already closed" in str(e):
+            if retry > 0:
+                time.sleep(1)
+                start_replay_buffer(retry - 1)
+            else:
+                logger.error(f"Error starting replay buffer: {e}")
 
 
 # Stop replay buffer
@@ -153,9 +179,7 @@ def save_replay_buffer():
 
 def get_current_scene():
     try:
-        response = client.call(requests.GetCurrentProgramScene())
-        scene_info = SceneInfo.from_dict(response.datain)
-        return scene_info.sceneName
+        return do_obs_call(requests.GetCurrentProgramScene(), SceneInfo.from_dict).sceneName
     except Exception as e:
         logger.error(f"Couldn't get scene: {e}")
     return ''
@@ -163,9 +187,7 @@ def get_current_scene():
 
 def get_source_from_scene(scene_name):
     try:
-        response = client.call(requests.GetSceneItemList(sceneName=scene_name))
-        scene_list = SceneItemsResponse.from_dict(response.datain)
-        return scene_list.sceneItems[0]
+        return do_obs_call(requests.GetSceneItemList(sceneName=scene_name), SceneItemsResponse.from_dict).sceneItems[0]
     except Exception as e:
         logger.error(f"Error getting source from scene: {e}")
         return ''

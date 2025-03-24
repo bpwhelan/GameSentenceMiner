@@ -8,7 +8,7 @@ import {
     setSteamPath,
     setLaunchSteamOnStart,
     getLaunchSteamOnStart,
-    setAgentPath, setSteamGames, getAgentPath, getAgentScriptsPath,
+    setAgentPath, setSteamGames, getAgentPath, getAgentScriptsPath, getLastSteamGameLaunched, setLastSteamGameLaunched,
 } from '../store.js';
 import path from "path";
 
@@ -58,26 +58,45 @@ async function getPidByProcessName(processName: string): Promise<number> {
             command = `pgrep ${processName}`;
         }
 
-        exec(command, (error, stdout) => {
-            if (error) {
-                return reject(-1);
-            }
+        const startTime = Date.now();
+        const retryInterval = 1000; // Retry every second
+        const timeout = 30000; // Timeout after 10 seconds
 
-            const pids = stdout
-                .trim()
-                .split("\n")
-                .map(line => {
-                    if (process.platform === "win32") {
-                        const match = line.match(/"([^"]+)",\s*"(\d+)"/);
-                        console.log(match ? parseInt(match[2], 10) : -1);
-                        return match ? parseInt(match[2], 10) : -1;
+        const tryGetPid = () => {
+            exec(command, (error, stdout) => {
+                if (error) {
+                    if (Date.now() - startTime >= timeout) {
+                        return resolve(-1);
+                    } else {
+                        console.log("Error getting PID for Steam Game, Retrying in 1 second, Retries Left:" + Math.floor((timeout - (Date.now() - startTime)) / retryInterval));
+                        return setTimeout(tryGetPid, retryInterval);
                     }
-                    return parseInt(line.trim(), 10);
-                })
-                .filter(pid => pid !== -1) as number[];
+                }
 
-            resolve(pids[0] ?? -1);
-        });
+                const pids = stdout
+                    .trim()
+                    .split("\n")
+                    .map(line => {
+                        if (process.platform === "win32") {
+                            const match = line.match(/"([^"]+)",\s*"(\d+)"/);
+                            return match ? parseInt(match[2], 10) : -1;
+                        }
+                        return parseInt(line.trim(), 10);
+                    })
+                    .filter(pid => pid !== -1) as number[];
+
+                if (pids.length > 0) {
+                    return resolve(pids[0]);
+                } else if (Date.now() - startTime >= timeout) {
+                    return resolve(-1);
+                } else {
+                    console.log("Error getting PID for Steam Game, Retrying in 1 second, Retries Left:" + Math.floor((timeout - (Date.now() - startTime)) / retryInterval));
+                    setTimeout(tryGetPid, retryInterval);
+                }
+            });
+        };
+
+        tryGetPid();
     });
 }
 
@@ -94,7 +113,7 @@ export async function launchSteamGameID(gameId: number) {
                 }
                 runAgentScript(gameId, gamePid, selectedGame.script);
             });
-        }, 5000);
+        }, 3000);
     } else {
         console.log(JSON.stringify({status: 'error', message: 'Game not found'}));
     }
@@ -149,9 +168,15 @@ function registerIPC() {
         setLaunchSteamOnStart(gameId || 0);
     });
 
+    ipcMain.handle("steam.getLastSteamGameLaunched", async () => {
+        return getLastSteamGameLaunched();
+    });
+
     ipcMain.handle('steam.launchSteamGame', async (_, gameId: number) => {
         try {
             await launchSteamGameID(gameId);
+            setLastSteamGameLaunched(gameId);
+            return {status: 'success', message: 'Game launched successfully'};
         } catch (error) {
             console.error('Error launching game:', error);
             return {status: 'error', message: 'Failed to launch game'};

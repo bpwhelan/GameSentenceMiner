@@ -20,5 +20,8 @@ silero-vad~=5.1.2
 ttkbootstrap~=1.10.1
 dataclasses_json~=0.6.7
 pyinstaller
-pystray
-pywin32
+pystray~=0.19.5
+pywin32~=310
+pillow~=11.1.0
+dataclasses-json~=0.6.7
+win10toast~=0.9

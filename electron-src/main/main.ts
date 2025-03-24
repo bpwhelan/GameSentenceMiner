@@ -18,6 +18,7 @@ import {launchYuzuGameID, openYuzuWindow} from "./launchers/yuzu.js";
 import {checkForUpdates} from "./update_checker.js";
 import {launchVNWorkflow, openVNWindow} from "./launchers/vn.js";
 import {launchSteamGameID, openSteamWindow} from "./launchers/steam.js";
+import { webSocketManager } from "./communication/websocket.js";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray;
@@ -307,11 +308,6 @@ async function ensureAndRunGSM(pythonPath: string): Promise<void> {
         }
     }
 
-    if (getAutoUpdateGSMApp()) {
-        console.log("Checking for Updates...")
-        await updateGSM();
-    }
-
     console.log("Starting GameSentenceMiner...");
     try {
         return await runGSM(pythonPath, ["-m", getGSMModulePath()]);
@@ -383,12 +379,17 @@ if (!app.requestSingleInstanceLock()) {
         getOrInstallPython().then(async (path: string) => {
             pythonPath = path;
             setPythonPath(pythonPath);
-            ensureAndRunGSM(pythonPath).then(() => {
+            ensureAndRunGSM(pythonPath).then(async () => {
                 if (!isUpdating) {
                     quit();
                 }
             });
         });
+        if (getAutoUpdateGSMApp()) {
+            console.log("Checking for Updates...")
+            await updateGSM();
+        }
+
 
         app.on('window-all-closed', () => {
             if (process.platform !== 'darwin') {
@@ -403,23 +404,19 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 function closeGSM(): void {
-    if (pyProc?.stdin) {
-        pyProc.stdin.write('exit\n');
-    }
+    webSocketManager.sendQuitMessage();
 }
 
 function restartGSM(): void {
     restartingGSM = true;
-    if (pyProc !== null) {
-        pyProc.stdin.write('exit\n');
-    }
+    webSocketManager.sendQuitMessage();
     ensureAndRunGSM(pythonPath).then(() => {
         console.log('GSM Successfully Restarted!')
     });
 }
 
 function quit(): void {
-    closeGSM();
+    webSocketManager.sendQuitMessage();
     app.quit();
 }
 

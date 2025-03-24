@@ -1,13 +1,12 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 
-import pyperclip
 import ttkbootstrap as ttk
 
 from GameSentenceMiner import obs, configuration
+from GameSentenceMiner.communication.send import send_restart_signal
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.downloader.download_tools import download_ocenaudio_if_needed
-from GameSentenceMiner.electron_messaging import signal_restart_settings_change
 from GameSentenceMiner.package import get_current_version, get_latest_version
 
 settings_saved = False
@@ -77,6 +76,7 @@ class ConfigApp:
         self.create_obs_tab()
         self.create_hotkeys_tab()
         self.create_profiles_tab()
+        self.create_advanced_tab()
 
         ttk.Button(self.window, text="Save Settings", command=self.save_settings).pack(pady=20)
 
@@ -178,7 +178,8 @@ class ConfigApp:
             hotkeys=Hotkeys(
                 reset_line=self.reset_line_hotkey.get(),
                 take_screenshot=self.take_screenshot_hotkey.get(),
-                open_utility=self.open_utility_hotkey.get()
+                open_utility=self.open_utility_hotkey.get(),
+                play_latest_audio=self.play_latest_audio_hotkey.get()
             ),
             vad=VAD(
                 whisper_model=self.whisper_model.get(),
@@ -189,6 +190,13 @@ class ConfigApp:
                 trim_beginning=self.vad_trim_beginning.get(),
                 beginning_offset=float(self.vad_beginning_offset.get()),
                 add_audio_on_no_results=self.add_audio_on_no_results.get(),
+            ),
+            advanced=Advanced(
+                audio_player_path=self.audio_player_path.get(),
+                video_player_path=self.video_player_path.get(),
+                show_screenshot_buttons=self.show_screenshot_button.get(),
+                multi_line_line_break=self.multi_line_line_break.get(),
+                multi_line_sentence_storage_field=self.multi_line_sentence_storage_field.get(),
             )
         )
 
@@ -216,7 +224,7 @@ class ConfigApp:
 
         if self.master_config.get_config().restart_required(prev_config):
             logger.info("Restart Required for some settings to take affect!")
-            signal_restart_settings_change()
+            send_restart_signal()
         settings_saved = True
         configuration.reload_config()
         self.settings = get_config()
@@ -248,6 +256,7 @@ class ConfigApp:
             self.create_obs_tab()
             self.create_hotkeys_tab()
             self.create_profiles_tab()
+            self.create_advanced_tab()
 
 
     def increment_row(self):
@@ -441,6 +450,12 @@ class ConfigApp:
                                          column=2)
 
         return paths_frame
+
+    def browse_file(self, entry_widget):
+        file_selected = filedialog.askopenfilename()
+        if file_selected:
+            entry_widget.delete(0, tk.END)
+            entry_widget.insert(0, file_selected)
 
     def browse_folder(self, entry_widget):
         folder_selected = filedialog.askdirectory()
@@ -880,6 +895,51 @@ class ConfigApp:
         if self.master_config.current_profile != DEFAULT_CONFIG:
             ttk.Button(profiles_frame, text="Delete Config", command=self.delete_profile).grid(row=self.current_row, column=2, pady=5)
 
+    @new_tab
+    def create_advanced_tab(self):
+        advanced_frame = ttk.Frame(self.notebook)
+        self.notebook.add(advanced_frame, text='Advanced')
+
+        ttk.Label(advanced_frame, text="Note: Only one of these will take effect, prioritizing audio.", foreground="red").grid(row=self.current_row, column=0, columnspan=3, sticky='W')
+        self.current_row += 1
+
+        ttk.Label(advanced_frame, text="Audio Player Path:").grid(row=self.current_row, column=0, sticky='W')
+        self.audio_player_path = ttk.Entry(advanced_frame, width=50)
+        self.audio_player_path.insert(0, self.settings.advanced.audio_player_path)
+        self.audio_player_path.grid(row=self.current_row, column=1)
+        ttk.Button(advanced_frame, text="Browse", command=lambda: self.browse_file(self.audio_player_path)).grid(row=self.current_row, column=2)
+        self.add_label_and_increment_row(advanced_frame, "Path to the audio player executable. Will open the trimmed Audio", row=self.current_row, column=3)
+
+        ttk.Label(advanced_frame, text="Video Player Path:").grid(row=self.current_row, column=0, sticky='W')
+        self.video_player_path = ttk.Entry(advanced_frame, width=50)
+        self.video_player_path.insert(0, self.settings.advanced.video_player_path)
+        self.video_player_path.grid(row=self.current_row, column=1)
+        ttk.Button(advanced_frame, text="Browse", command=lambda: self.browse_file(self.video_player_path)).grid(row=self.current_row, column=2)
+        self.add_label_and_increment_row(advanced_frame, "Path to the video player executable. Will seek to the location of the line in the replay", row=self.current_row, column=3)
+
+
+        ttk.Label(advanced_frame, text="Play Latest Video/Audio Hotkey:").grid(row=self.current_row, column=0, sticky='W')
+        self.play_latest_audio_hotkey = ttk.Entry(advanced_frame)
+        self.play_latest_audio_hotkey.insert(0, self.settings.hotkeys.play_latest_audio)
+        self.play_latest_audio_hotkey.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(advanced_frame, "Hotkey to trim and play the latest audio.", row=self.current_row, column=2)
+
+        ttk.Label(advanced_frame, text="Show Screenshot Button:").grid(row=self.current_row, column=0, sticky='W')
+        self.show_screenshot_button = tk.BooleanVar(value=self.settings.advanced.show_screenshot_buttons)
+        ttk.Checkbutton(advanced_frame, variable=self.show_screenshot_button).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(advanced_frame, "Show the screenshot button in the utility gui.", row=self.current_row, column=2)
+
+        ttk.Label(advanced_frame, text="Multi-line Line-Break:").grid(row=self.current_row, column=0, sticky='W')
+        self.multi_line_line_break = ttk.Entry(advanced_frame)
+        self.multi_line_line_break.insert(0, self.settings.advanced.multi_line_line_break)
+        self.multi_line_line_break.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(advanced_frame, "Line break for multi-line mining. This goes between each sentence", row=self.current_row, column=2)
+
+        ttk.Label(advanced_frame, text="Multi-Line Sentence Storage Field:").grid(row=self.current_row, column=0, sticky='W')
+        self.multi_line_sentence_storage_field = ttk.Entry(advanced_frame)
+        self.multi_line_sentence_storage_field.insert(0, self.settings.advanced.multi_line_sentence_storage_field)
+        self.multi_line_sentence_storage_field.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(advanced_frame, "Field in Anki for storing the multi-line sentence temporarily.", row=self.current_row, column=2)
 
     def on_profile_change(self, event):
         print("profile Changed!")

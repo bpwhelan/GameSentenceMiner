@@ -139,6 +139,7 @@ class Hotkeys:
     reset_line: str = 'f5'
     take_screenshot: str = 'f6'
     open_utility: str = 'ctrl+m'
+    play_latest_audio: str = 'f7'
 
 
 @dataclass_json
@@ -152,6 +153,26 @@ class VAD:
     trim_beginning: bool = False
     beginning_offset: float = -0.25
     add_audio_on_no_results: bool = False
+
+    def is_silero(self):
+        return self.selected_vad_model == SILERO or self.backup_vad_model == SILERO
+
+    def is_whisper(self):
+        return self.selected_vad_model == WHISPER or self.backup_vad_model == WHISPER
+
+    def is_vosk(self):
+        return self.selected_vad_model == VOSK or self.backup_vad_model == VOSK
+
+
+@dataclass_json
+@dataclass
+class Advanced:
+    audio_player_path: str = ''
+    video_player_path: str = ''
+    show_screenshot_buttons: bool = False
+    multi_line_line_break: str = '<br>'
+    multi_line_sentence_storage_field: str = ''
+
 
 
 @dataclass_json
@@ -167,6 +188,7 @@ class ProfileConfig:
     obs: OBS = field(default_factory=OBS)
     hotkeys: Hotkeys = field(default_factory=Hotkeys)
     vad: VAD = field(default_factory=VAD)
+    advanced: Advanced = field(default_factory=Advanced)
 
 
     # This is just for legacy support
@@ -421,7 +443,7 @@ console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
 
 # Create rotating file handler with level DEBUG
-file_handler = RotatingFileHandler(get_log_path(), maxBytes=10 * 1024 * 1024, backupCount=0, encoding='utf-8')
+file_handler = RotatingFileHandler(get_log_path(), maxBytes=1024 * 1024, backupCount=5, encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)
 
 # Create a formatter

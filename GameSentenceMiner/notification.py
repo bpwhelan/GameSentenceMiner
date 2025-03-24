@@ -40,7 +40,7 @@ def open_anki_card(note_id):
 
 def send_notification(title, message, timeout):
     if windows:
-        notifier.show_toast(title, message, duration=timeout)
+        notifier.show_toast(title, message, duration=timeout, threaded=True)
     else:
         notification.notify(
             title=title,

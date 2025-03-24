@@ -1,9 +1,10 @@
 import {execFile} from 'child_process';
 import * as path from 'path';
 import {
+    getLastSteamGameLaunched, getLastVNLaunched,
     getLaunchVNOnStart,
     getTextractorPath,
-    getVNs,
+    getVNs, setLastVNLaunched,
     setLaunchVNOnStart,
     setTextractorPath,
     setVNs
@@ -93,12 +94,14 @@ export function openVNWindow() {
     ipcMain.handle("vn.launchVN", async (_, vnPath: string) => {
         try {
             await launchVNWorkflow(vnPath);
+            setLastVNLaunched(vnPath);
             return {status: "success", message: "VN launched successfully"};
         } catch (error) {
             console.error("Error launching VN:", error);
             return {status: "error", message: "Failed to launch VN"};
         }
     });
+
 
     ipcMain.handle("vn.addVN", async () => {
         console.log("Adding VN");
@@ -178,5 +181,9 @@ export function openVNWindow() {
 
     ipcMain.handle("vn.getVNLaunchOnStart", async (_,) => {
         return getLaunchVNOnStart();
+    });
+
+    ipcMain.handle("vn.getLastVNLaunched", async () => {
+        return getLastVNLaunched();
     });
 }

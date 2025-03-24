@@ -3,16 +3,22 @@ import os
 import tkinter as tk
 from tkinter import ttk
 
-from GameSentenceMiner.configuration import logger, get_app_directory
+from GameSentenceMiner import obs
+from GameSentenceMiner.configuration import logger, get_app_directory, get_config
 
 
 class UtilityApp:
     def __init__(self, root):
         self.root = root
         self.items = []
+        self.play_audio_buttons = []
+        self.get_screenshot_buttons = []
         self.checkboxes = []
         self.multi_mine_window = None  # Store the multi-mine window reference
         self.checkbox_frame = None
+        self.line_for_audio = None
+        self.line_for_screenshot = None
+        self.line_counter = 0
 
         style = ttk.Style()
         style.configure("TCheckbutton", font=("Arial", 20))  # Change the font and size
@@ -80,16 +86,48 @@ class UtilityApp:
                     self.checkboxes[0].destroy()
                     self.checkboxes.pop(0)
                 self.items.pop(0)
+                if self.play_audio_buttons:
+                    self.play_audio_buttons[0].destroy()
+                    self.play_audio_buttons.pop(0)
+                if self.get_screenshot_buttons:
+                    self.get_screenshot_buttons[0].destroy()
+                    self.get_screenshot_buttons.pop(0)
 
             if self.multi_mine_window and tk.Toplevel.winfo_exists(self.multi_mine_window):
                 self.add_checkbox_to_gui(line, var)
+        self.line_for_audio = None
+        self.line_for_screenshot = None
 
     def add_checkbox_to_gui(self, line, var):
         """ Add a single checkbox without repainting everything. """
         if self.checkbox_frame:
+            column = 0
+            if get_config().advanced.show_screenshot_buttons:
+                get_screenshot_button = ttk.Button(self.checkbox_frame, text="📸", command=lambda: self.take_screenshot(line))
+                get_screenshot_button.grid(row=self.line_counter, column=column, sticky='w', padx=5)
+                self.get_screenshot_buttons.append(get_screenshot_button)
+                column += 1
+
+            if get_config().advanced.video_player_path or get_config().advanced.audio_player_path:
+                play_audio_button = ttk.Button(self.checkbox_frame, text="🔊", command=lambda: self.play_audio(line))
+                play_audio_button.grid(row=self.line_counter, column=column, sticky='w', padx=5)
+                self.play_audio_buttons.append(play_audio_button)
+                column += 1
+
             chk = ttk.Checkbutton(self.checkbox_frame, text=f"{line.time.strftime('%H:%M:%S')} - {line.text}", variable=var)
-            chk.pack(anchor='w')
+            chk.grid(row=self.line_counter, column=column, sticky='w', padx=5)
             self.checkboxes.append(chk)
+
+            self.line_counter += 1
+
+
+    def play_audio(self, line):
+        self.line_for_audio = line
+        obs.save_replay_buffer()
+
+    def take_screenshot(self, line):
+        self.line_for_screenshot = line
+        obs.save_replay_buffer()
 
 
     # def update_multi_mine_window(self):

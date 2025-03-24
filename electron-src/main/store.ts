@@ -1,31 +1,68 @@
 import Store from "electron-store";
 import { SteamGame } from "./launchers/steam.js";
 
+
 interface YuzuConfig {
     emuPath: string;
     romsPath: string;
+    launchGameOnStart: string;
+    lastGameLaunched: string;
+}
+
+interface VNConfig {
+    vns: string[];
+    textractorPath: string;
+    launchVNOnStart: string;
+    lastVNLaunched: string;
+}
+
+interface SteamConfig {
+    steamPath: string;
+    steamGames: SteamGame[];
+    launchSteamOnStart: number;
+    lastGameLaunched: number;
 }
 
 interface StoreConfig {
     yuzu: YuzuConfig;
     agentScriptsPath: string;
+    textractorPath: string;
     startConsoleMinimized: boolean;
-    pythonPath: string;
     autoUpdateElectron: boolean;
     autoUpdateGSMApp: boolean;
+    pythonPath: string;
+    VN: VNConfig;
+    steam: SteamConfig;
+    agentPath: string;
 }
 
-const store = new Store({
+const store = new Store<StoreConfig>({
     defaults: {
         yuzu: {
             emuPath: "C:\\Emulation\\Emulators\\yuzu-windows-msvc\\yuzu.exe",
             romsPath: `C:\\Emulation\\Yuzu\\Games`,
+            launchGameOnStart: "",
+            lastGameLaunched: ""
         },
         agentScriptsPath: `E:\\Japanese Stuff\\agent-v0.1.4-win32-x64\\data\\scripts`,
         textractorPath: `E:\\Japanese Stuff\\Textractor\\Textractor.exe`,
         startConsoleMinimized: true,
         autoUpdateElectron: true,
         autoUpdateGSMApp: false,
+        VN: {
+            vns: [],
+            textractorPath: "",
+            launchVNOnStart: "",
+            lastVNLaunched: ""
+        },
+        pythonPath: "",
+        steam: {
+            steamPath: "",
+            steamGames: [],
+            launchSteamOnStart: 0,
+            lastGameLaunched: 0
+        },
+        agentPath: ""
     },
     cwd: "electron"
 });
@@ -90,6 +127,14 @@ export function setLaunchYuzuGameOnStart(path: string): void {
     store.set("yuzu.launchGameOnStart", path);
 }
 
+export function getLastYuzuGameLaunched(): string {
+    return store.get("yuzu.lastGameLaunched");
+}
+
+export function setLastYuzuGameLaunched(path: string): void {
+    store.set("yuzu.lastGameLaunched", path);
+}
+
 // Agent scripts path getters and setters
 export function getAgentScriptsPath(): string {
     return store.get('agentScriptsPath');
@@ -139,6 +184,14 @@ export function setLaunchVNOnStart(VN: string): void {
     store.set("VN.launchVNOnStart", VN);
 }
 
+export function getLastVNLaunched(): string {
+    return store.get("VN.lastVNLaunched");
+}
+
+export function setLastVNLaunched(VN: string): void {
+    store.set("VN.lastVNLaunched", VN);
+}
+
 export function getSteamPath(): string {
     return store.get('steam.steamPath');
 }
@@ -153,6 +206,14 @@ export function getLaunchSteamOnStart(): number {
 
 export function setLaunchSteamOnStart(gameId: number): void {
     store.set('steam.launchSteamOnStart', Number(gameId));
+}
+
+export function getLastSteamGameLaunched(): number {
+    return store.get('steam.lastGameLaunched');
+}
+
+export function setLastSteamGameLaunched(gameId: number): void {
+    store.set('steam.lastGameLaunched', Number(gameId));
 }
 
 export function getSteamGames(): SteamGame[] {

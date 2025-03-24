@@ -48,6 +48,10 @@ def get_screenshot(video_file, time_from_end):
 
     return output_image
 
+def get_screenshot_for_line(video_file, game_line):
+    return get_screenshot(video_file, get_screenshot_time(video_file, game_line))
+
+
 
 def get_screenshot_time(video_path, game_line, default_beginning=False):
     if game_line:
@@ -183,19 +187,7 @@ def get_video_duration(file_path):
 def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line):
     trimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(),
                                                 suffix=f".{get_config().audio.extension}").name
-    file_mod_time = get_file_modification_time(video_path)
-    file_length = get_video_duration(video_path)
-    time_delta = file_mod_time - game_line.time
-    # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)
-    total_seconds = file_length - time_delta.total_seconds()
-    total_seconds_after_offset = total_seconds + get_config().audio.beginning_offset
-    if total_seconds < 0 or total_seconds >= file_length:
-        logger.info(f"0 seconds trimmed off of beginning")
-        return untrimmed_audio
-
-    hours, remainder = divmod(total_seconds_after_offset, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    start_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
+    start_trim_time, total_seconds, total_seconds_after_offset = get_video_timings(video_path, game_line)
 
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
@@ -221,6 +213,22 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
 
     logger.info(f"Audio trimmed and saved to {trimmed_audio}")
     return trimmed_audio
+
+def get_video_timings(video_path, game_line):
+    file_mod_time = get_file_modification_time(video_path)
+    file_length = get_video_duration(video_path)
+    time_delta = file_mod_time - game_line.time
+    # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)
+    total_seconds = file_length - time_delta.total_seconds()
+    total_seconds_after_offset = total_seconds + get_config().audio.beginning_offset
+    if total_seconds < 0 or total_seconds >= file_length:
+        logger.info(f"0 seconds trimmed off of beginning")
+        return 0, 0, 0
+
+    hours, remainder = divmod(total_seconds_after_offset, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    start_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
+    return start_trim_time, total_seconds, total_seconds_after_offset
 
 
 def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_options):
@@ -251,7 +259,7 @@ def create_temp_file_with_same_name(input_file: str):
 def replace_file_with_retry(temp_file, input_file, retries=5, delay=1):
     for attempt in range(retries):
         try:
-            os.replace(temp_file, input_file)
+            shutil.move(temp_file, input_file)
             logger.info(f'Re-encode Finished!')
             return
         except OSError as e:

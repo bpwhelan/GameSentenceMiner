@@ -125,8 +125,13 @@
     async function init() {
         await loadVNs();
         const launchOnStart = await ipcRenderer.invoke('vn.getVNLaunchOnStart');
+        const lastVNLaunched = await ipcRenderer.invoke('vn.getLastVNLaunched');
         if (launchOnStart) {
             launchOnStartSelect.value = launchOnStart;
+        }
+        if (lastVNLaunched) {
+            gameSelect.value = lastVNLaunched;
+            launchBtn.disabled = false;
         }
     }
 

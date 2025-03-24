@@ -18,19 +18,20 @@ from GameSentenceMiner import gametext
 from GameSentenceMiner import notification
 from GameSentenceMiner import obs
 from GameSentenceMiner import util
+from GameSentenceMiner.communication import Message
+from GameSentenceMiner.communication.send import send_restart_signal
+from GameSentenceMiner.communication.websocket import connect_websocket, register_websocket_message_handler
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
-from GameSentenceMiner.electron_messaging import signal_restart_settings_change
-from GameSentenceMiner.ffmpeg import get_audio_and_trim
-from GameSentenceMiner.gametext import get_text_event, get_mined_line
+from GameSentenceMiner.ffmpeg import get_audio_and_trim, get_video_timings
+from GameSentenceMiner.gametext import get_text_event, get_mined_line, GameLine
 from GameSentenceMiner.util import *
 from GameSentenceMiner.utility_gui import init_utility_window, get_utility_window
-from GameSentenceMiner.vad import vosk_helper, silero_trim, whisper_helper
+from GameSentenceMiner.vad import silero_trim, whisper_helper, vosk_helper
 
 if is_windows():
     import win32api
 
-obs_process = None
 procs_to_close = []
 settings_window: config_gui.ConfigApp = None
 obs_paused = False
@@ -69,6 +70,23 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     @staticmethod
     def convert_to_audio(video_path):
+        if get_utility_window().line_for_audio:
+            line: GameLine = get_utility_window().line_for_audio
+            get_utility_window().line_for_audio = None
+            if get_config().advanced.audio_player_path:
+                audio = VideoToAudioHandler.get_audio(line, line.next.time if line.next else None, video_path, temporary=True)
+                play_audio_in_external(audio)
+                os.remove(video_path)
+            elif get_config().advanced.video_player_path:
+                play_video_in_external(line, video_path)
+            return
+        if get_utility_window().line_for_screenshot:
+            line: GameLine = get_utility_window().line_for_screenshot
+            get_utility_window().line_for_screenshot = None
+            screenshot = ffmpeg.get_screenshot_for_line(video_path, line)
+            os.startfile(screenshot)
+            os.remove(video_path)
+            return
         try:
             last_note = None
             if anki.card_queue and len(anki.card_queue) > 0:
@@ -112,8 +130,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     logger.debug(last_note.to_json())
 
                 note = anki.get_initial_card_info(last_note, get_utility_window().get_selected_lines())
-
                 tango = last_note.get_field(get_config().anki.word_field) if last_note else ''
+                get_utility_window().reset_checkboxes()
 
                 if get_config().anki.sentence_audio_field:
                     logger.debug("Attempting to get audio from video")
@@ -142,11 +160,13 @@ class VideoToAudioHandler(FileSystemEventHandler):
             os.remove(video_path)  # Optionally remove the video after conversion
         if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
             os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
-        get_utility_window().reset_checkboxes()
+
 
     @staticmethod
-    def get_audio(game_line, next_line_time, video_path):
+    def get_audio(game_line, next_line_time, video_path, temporary=False):
         trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time)
+        if temporary:
+            return trimmed_audio
         vad_trimmed_audio = make_unique_file_name(
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination,
@@ -181,31 +201,54 @@ class VideoToAudioHandler(FileSystemEventHandler):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
                                                   get_config().audio.ffmpeg_reencode_options)
         elif os.path.exists(vad_trimmed_audio):
-            os.replace(vad_trimmed_audio, final_audio_output)
+            shutil.move(vad_trimmed_audio, final_audio_output)
         return final_audio_output, should_update_audio, vad_trimmed_audio
 
+def play_audio_in_external(filepath):
+    exe = get_config().advanced.audio_player_path
 
-def initialize(reloading=False):
-    global obs_process
-    if not reloading:
-        if is_windows():
-            download_obs_if_needed()
-            download_ffmpeg_if_needed()
-        if get_config().obs.enabled:
-            if get_config().obs.open_obs:
-                obs_process = obs.start_obs()
-            obs.connect_to_obs(start_replay=True)
-            anki.start_monitoring_anki()
-        gametext.start_text_monitor()
-        os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
-        os.makedirs(get_config().paths.screenshot_destination, exist_ok=True)
-        os.makedirs(get_config().paths.audio_destination, exist_ok=True)
-    if get_config().vad.do_vad_postprocessing:
-        if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
-            vosk_helper.get_vosk_model()
-        if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
-            whisper_helper.initialize_whisper_model()
+    filepath = os.path.normpath(filepath)
 
+    command = [exe, filepath]
+
+    try:
+        subprocess.Popen(command)
+        print(f"Opened {filepath} in {exe}.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+def play_video_in_external(line, filepath):
+    def remove_video_when_closed(p, fp):
+        p.wait()
+        os.remove(fp)
+
+    command = [get_config().advanced.video_player_path, os.path.normpath(filepath)]
+
+    start, _, _ = get_video_timings(filepath, line)
+
+    print(start)
+
+    if start:
+        command.extend(["--start-time", convert_to_vlc_seconds(start)])
+
+    try:
+        proc = subprocess.Popen(command)
+        print(f"Opened {filepath} in VLC.")
+        threading.Thread(target=remove_video_when_closed, args=(proc, filepath)).start()
+    except FileNotFoundError:
+        print("VLC not found. Make sure it's installed and in your PATH.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+def convert_to_vlc_seconds(time_str):
+    """Converts HH:MM:SS.milliseconds to VLC-compatible seconds."""
+    try:
+        hours, minutes, seconds_ms = time_str.split(":")
+        seconds, milliseconds = seconds_ms.split(".")
+        total_seconds = (int(hours) * 3600) + (int(minutes) * 60) + int(seconds) + (int(milliseconds) / 1000.0)
+        return str(total_seconds)
+    except ValueError:
+        return "Invalid time format"
 
 def initial_checks():
     try:
@@ -220,6 +263,7 @@ def register_hotkeys():
     keyboard.add_hotkey(get_config().hotkeys.reset_line, gametext.reset_line_hotkey_pressed)
     keyboard.add_hotkey(get_config().hotkeys.take_screenshot, get_screenshot)
     keyboard.add_hotkey(get_config().hotkeys.open_utility, open_multimine)
+    keyboard.add_hotkey(get_config().hotkeys.play_latest_audio, play_most_recent_audio)
 
 
 def get_screenshot():
@@ -273,6 +317,13 @@ def open_settings():
 def open_multimine():
     obs.update_current_game()
     get_utility_window().show()
+
+def play_most_recent_audio():
+    if get_config().advanced.audio_player_path or get_config().advanced.video_player_path and len(gametext.line_history) > 0:
+        get_utility_window().line_for_audio = gametext.line_history.values[-1]
+        obs.save_replay_buffer()
+    else:
+        logger.error("Feature Disabled. No audio or video player path set in config!")
 
 
 def open_log():
@@ -343,7 +394,7 @@ def switch_profile(icon, item):
     settings_window.reload_settings()
     update_icon()
     if get_config().restart_required(prev_config):
-        signal_restart_settings_change()
+        send_restart_signal()
 
 
 def run_tray():
@@ -388,10 +439,10 @@ def run_tray():
 #                 proc.wait()
 
 def close_obs():
-    if obs_process:
+    if obs.obs_process:
         try:
-            subprocess.run(["taskkill", "/PID", str(obs_process), "/F"], check=True, capture_output=True, text=True)
-            print(f"OBS (PID {obs_process}) has been terminated.")
+            subprocess.run(["taskkill", "/PID", str(obs.obs_process.pid), "/F"], check=True, capture_output=True, text=True)
+            print(f"OBS (PID {obs.obs_process.pid}) has been terminated.")
         except subprocess.CalledProcessError as e:
             print(f"Error terminating OBS: {e.stderr}")
     else:
@@ -399,12 +450,11 @@ def close_obs():
 
 
 def restart_obs():
-    global obs_process
-    if obs_process:
+    if obs.obs_process:
         close_obs()
         time.sleep(2)
-        obs_process = obs.start_obs()
-        obs.connect_to_obs(start_replay=True)
+        obs.start_obs()
+        obs.connect_to_obs()
 
 
 def cleanup():
@@ -438,20 +488,6 @@ def cleanup():
     logger.info("Cleanup complete.")
 
 
-def check_for_stdin():
-    while True:
-        for line in sys.stdin:
-            logger.info(f"Got stdin: {line}")
-            if "exit" in line:
-                cleanup()
-                sys.exit(0)
-            elif "restart_obs" in line:
-                restart_obs()
-            elif "update" in line:
-                update_icon()
-            sys.stdin.flush()
-
-
 def handle_exit():
     """Signal handler for graceful termination."""
 
@@ -462,23 +498,74 @@ def handle_exit():
 
     return _handle_exit
 
+def initialize(reloading=False):
+    global obs_process
+    if not reloading:
+        if is_windows():
+            download_obs_if_needed()
+            download_ffmpeg_if_needed()
+        # if get_config().obs.enabled:
+            # if get_config().obs.open_obs:
+                # obs_process = obs.start_obs()
+            # obs.connect_to_obs(start_replay=True)
+            # anki.start_monitoring_anki()
+        # gametext.start_text_monitor()
+        os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
+        os.makedirs(get_config().paths.screenshot_destination, exist_ok=True)
+        os.makedirs(get_config().paths.audio_destination, exist_ok=True)
+    initial_checks()
+    register_websocket_message_handler(handle_websocket_message)
+    # if get_config().vad.do_vad_postprocessing:
+    #     if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
+    #         vosk_helper.get_vosk_model()
+    #     if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
+    #         whisper_helper.initialize_whisper_model()
 
-def main(reloading=False, do_config_input=True):
+def initialize_async():
+    tasks = [gametext.start_text_monitor, connect_websocket, run_tray]
+    threads = []
+    if get_config().obs.enabled:
+        if get_config().obs.open_obs:
+            tasks.append(obs.start_obs)
+        tasks.append(obs.connect_to_obs)
+        tasks.append(anki.start_monitoring_anki)
+    if get_config().vad.do_vad_postprocessing:
+        if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
+            tasks.append(vosk_helper.get_vosk_model)
+    if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
+            tasks.append(whisper_helper.initialize_whisper_model)
+    for task in tasks:
+        threads.append(util.run_new_thread(task))
+    return threads
+
+def check_async_init_done(threads):
+    while True:
+        if all(not thread.is_alive() for thread in threads):
+            break
+        time.sleep(0.5)
+    logger.info("Script Fully Initialized. Happy Mining!")
+
+
+def handle_websocket_message(message: Message):
+    match message.function:
+        case "quit":
+            cleanup()
+            sys.exit(0)
+        case _:
+            logger.debug(f"unknown message from electron websocket: {message.to_json()}")
+
+
+def main(reloading=False):
     global root, settings_window
     logger.info("Script started.")
-    util.run_new_thread(check_for_stdin)
     root = ttk.Window(themename='darkly')
     settings_window = config_gui.ConfigApp(root)
     init_utility_window(root)
     initialize(reloading)
-    util.run_new_thread(run_tray)
-    initial_checks()
-    event_handler = VideoToAudioHandler()
+    initialize_async()
     observer = Observer()
-    observer.schedule(event_handler, get_config().paths.folder_to_watch, recursive=False)
+    observer.schedule(VideoToAudioHandler(), get_config().paths.folder_to_watch, recursive=False)
     observer.start()
-
-    logger.info("Script Initialized. Happy Mining!")
     if not is_linux():
         register_hotkeys()
 

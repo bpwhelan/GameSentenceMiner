@@ -137,8 +137,13 @@
     async function init() {
         await loadGames();
         const launchOnStart = await ipcRenderer.invoke('steam.getSteamLaunchOnStart');
+        const lastGameLaunched = await ipcRenderer.invoke('steam.getLastSteamGameLaunched');
         if (launchOnStart) {
             launchOnStartSelect.value = launchOnStart;
+        }
+        if (lastGameLaunched) {
+            gameSelect.value = lastGameLaunched;
+            launchBtn.disabled = false;
         }
     }
     ipcRenderer.on('steamGamesUpdated', loadGames);

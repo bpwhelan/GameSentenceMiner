@@ -1,15 +1,17 @@
+import importlib
 import os
 import random
 import re
 import string
 import subprocess
+import sys
 import threading
 from datetime import datetime
 from sys import platform
 
 from rapidfuzz import process
 
-from GameSentenceMiner.configuration import logger
+from GameSentenceMiner.configuration import logger, get_config
 
 SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
 
@@ -156,25 +158,58 @@ def combine_dialogue(dialogue_lines, new_lines=None):
         new_lines = []
 
     if len(dialogue_lines) == 1 and '「' not in dialogue_lines[0]:
-        new_lines.append(dialogue_lines[0] + "<br>")
+        new_lines.append(dialogue_lines[0])
         return new_lines
 
     character_name = dialogue_lines[0].split("「")[0]
     text = character_name + "「"
-    next_character = ''
 
     for i, line in enumerate(dialogue_lines):
         if not line.startswith(character_name + "「"):
-            text = text + "」<br>"
-            next_character = line.split("「")[0]
+            text = text + "」" + get_config().advanced.multi_line_line_break
             new_lines.append(text)
             new_lines.extend(combine_dialogue(dialogue_lines[i:]))
             break
         else:
-            text +=  ("<br>" if i > 0 else "") + line.split("「")[1].rstrip("」") + ""
+            text +=  (get_config().advanced.multi_line_line_break if i > 0 else "") + line.split("「")[1].rstrip("」") + ""
     else:
         text = text + "」"
         new_lines.append(text)
 
     return new_lines
 
+# def import_vad_models():
+#     silero_trim, whisper_helper, vosk_helper = None, None, None
+#
+#     def check_and_install(package_name):
+#         try:
+#             importlib.import_module(package_name)
+#             return True
+#         except ImportError:
+#             logger.warning(f"{package_name} is not installed. Attempting to install...")
+#             try:
+#                 python_executable = sys.executable
+#                 subprocess.check_call([python_executable, "-m", "pip", "install", package_name])
+#                 logger.info(f"{package_name} installed successfully.")
+#                 return True
+#             except subprocess.CalledProcessError as e:
+#                 logger.error(f"Failed to install {package_name}: {e}")
+#                 return False
+#
+#     if get_config().vad.is_silero():
+#         if check_and_install("silero_vad"):
+#             from GameSentenceMiner.vad import silero_trim
+#         else:
+#             logger.error("Silero VAD is enabled and silero_vad package could not be installed.")
+#     if get_config().vad.is_whisper():
+#         if check_and_install("stable-ts"):
+#             from GameSentenceMiner.vad import whisper_helper
+#         else:
+#             logger.error("Whisper is enabled and whisper package could not be installed.")
+#     if get_config().vad.is_vosk():
+#         if check_and_install("vosk"):
+#             from GameSentenceMiner.vad import vosk_helper
+#         else:
+#             logger.error("Vosk is enabled and vosk package could not be installed.")
+#
+#     return silero_trim, whisper_helper, vosk_helper

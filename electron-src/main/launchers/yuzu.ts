@@ -4,10 +4,18 @@ import {join, resolve} from "path";
 import {isMainThread, parentPort, Worker} from "worker_threads";
 import {
     getAgentPath,
-    getAgentScriptsPath, getLaunchVNOnStart, getLaunchYuzuGameOnStart,
+    getAgentScriptsPath,
+    getLastSteamGameLaunched,
+    getLastYuzuGameLaunched,
+    getLaunchVNOnStart,
+    getLaunchYuzuGameOnStart,
     getYuzuEmuPath,
     getYuzuRomsPath,
-    setAgentPath, setAgentScriptsPath, setLaunchVNOnStart, setLaunchYuzuGameOnStart,
+    setAgentPath,
+    setAgentScriptsPath,
+    setLastYuzuGameLaunched,
+    setLaunchVNOnStart,
+    setLaunchYuzuGameOnStart,
     setYuzuEmuPath,
     setYuzuRomsPath
 } from "../store.js";
@@ -206,6 +214,8 @@ function registerIPC() {
         try {
             console.log(`Launching game with ID: ${gameId}`);
             await launchYuzuGameID(gameId);
+            setLastYuzuGameLaunched(gameId);
+            return {status: "success", message: "Game launched successfully"};
         } catch (error) {
             console.error("Error launching game:", error);
             return {status: "error", message: "Failed to launch game"};
@@ -289,5 +299,9 @@ function registerIPC() {
 
     ipcMain.handle("yuzu.getYuzuLaunchOnStart", async (_,) => {
         return getLaunchYuzuGameOnStart();
+    });
+
+    ipcMain.handle("yuzu.getLastYuzuGameLaunched", async () => {
+        return getLastYuzuGameLaunched();
     });
 }

@@ -120,10 +120,9 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines):
     if not last_note:
         return note
     game_line = get_text_event(last_note)
-
-    if selected_lines and get_config().anki.multi_overwrites_sentence:
-        sentences = []
-        sentences_text = ''
+    sentences = []
+    sentences_text = ''
+    if selected_lines:
         try:
             sentence_in_anki = last_note.get_field(get_config().anki.sentence_field)
             logger.info(f"Attempting Preserve HTML for multi-line")
@@ -134,11 +133,11 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines):
                 else:
                     sentences.append(line.text)
 
-            logger.info(f"Attempting to Fix Character Dialogue Format")
-            logger.info([f"{line.text}" for line in sentences])
+            logger.debug(f"Attempting to Fix Character Dialogue Format")
+            logger.debug([f"{line}" for line in sentences])
             try:
                 combined_lines = combine_dialogue(sentences)
-
+                logger.debug(combined_lines)
                 if combined_lines:
                     sentences_text = "".join(combined_lines)
             except Exception as e:
@@ -147,7 +146,13 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines):
         except Exception as e:
             logger.debug(f"Error preserving HTML for multi-line: {e}")
             pass
-        note['fields'][get_config().anki.sentence_field] = sentences_text if sentences_text else "<br>".join(sentences)
+        multi_line_sentence = sentences_text if sentences_text else get_config().advanced.multi_line_line_break.join(sentences)
+        if get_config().anki.multi_overwrites_sentence:
+            note['fields'][get_config().anki.sentence_field] = multi_line_sentence
+        else:
+            logger.info(f"Configured to not overwrite sentence field, Multi-line Sentence If you want it, Note you need to do ctrl+shift+x in anki to paste properly:\n\n" + (sentences_text if sentences_text else get_config().advanced.multi_line_line_break.join(sentences)) + "\n")
+        if get_config().advanced.multi_line_sentence_storage_field:
+            note['fields'][get_config().advanced.multi_line_sentence_storage_field] = multi_line_sentence
 
     if get_config().anki.previous_sentence_field and game_line.prev and not \
             last_note.get_field(get_config().anki.previous_sentence_field):
@@ -259,6 +264,7 @@ def update_new_card():
         lines = get_utility_window().get_selected_lines()
         with util.lock:
             update_anki_card(last_card, note=get_initial_card_info(last_card, lines), reuse_audio=True)
+        get_utility_window().reset_checkboxes()
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         card_queue.append(last_card)
