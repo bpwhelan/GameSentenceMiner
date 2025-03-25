@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.5.6"
+version = "2.5.7"
 description = "A tool for mining sentences from games. Update: Multi-Line Mining! Fixed!"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -52,4 +52,4 @@ dependencies = [
 gamesentenceminer = "GameSentenceMiner.gsm:main"
 
 [tool.setuptools]
-packages = ["GameSentenceMiner", "GameSentenceMiner.vad", 'GameSentenceMiner.downloader']
+packages = ["GameSentenceMiner", "GameSentenceMiner.vad", 'GameSentenceMiner.downloader', "GameSentenceMiner.communication"]

@@ -18,6 +18,7 @@ async def do_websocket_connection(port):
     Connects to the WebSocket server running in the Electron app.
     """
     global websocket
+
     uri = f"ws://localhost:{port}"  # Use the port from Electron
     logger.debug(f"Electron Communication : Connecting to server at {uri}...")
     try:
@@ -45,7 +46,7 @@ async def do_websocket_connection(port):
                     logger.debug(f"Electron Communication : Connection closed with error: {e}")
                     break
     except ConnectionRefusedError:
-        logger.debug(f"Electron Communication : Error: Could not connect to server at {uri}.  Make sure the Electron app is running.")
+        logger.debug(f"Electron Communication : Error: Could not connect to server at {uri}.  Electron App not running..")
     except Exception as e:
         logger.debug(f"Electron Communication : An error occurred: {e}")
 
