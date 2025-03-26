@@ -264,10 +264,14 @@ def initial_checks():
 
 
 def register_hotkeys():
-    keyboard.add_hotkey(get_config().hotkeys.reset_line, gametext.reset_line_hotkey_pressed)
-    keyboard.add_hotkey(get_config().hotkeys.take_screenshot, get_screenshot)
-    keyboard.add_hotkey(get_config().hotkeys.open_utility, open_multimine)
-    keyboard.add_hotkey(get_config().hotkeys.play_latest_audio, play_most_recent_audio)
+    if get_config().hotkeys.reset_line:
+        keyboard.add_hotkey(get_config().hotkeys.reset_line, gametext.reset_line_hotkey_pressed)
+    if get_config().hotkeys.take_screenshot:
+        keyboard.add_hotkey(get_config().hotkeys.take_screenshot, get_screenshot)
+    if get_config().hotkeys.open_utility:
+        keyboard.add_hotkey(get_config().hotkeys.open_utility, open_multimine)
+    if get_config().hotkeys.play_latest_audio:
+        keyboard.add_hotkey(get_config().hotkeys.play_latest_audio, play_most_recent_audio)
 
 
 def get_screenshot():
