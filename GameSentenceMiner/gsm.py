@@ -222,14 +222,18 @@ def play_video_in_external(line, filepath):
         p.wait()
         os.remove(fp)
 
-    command = [get_config().advanced.video_player_path, os.path.normpath(filepath)]
+    command = [get_config().advanced.video_player_path]
 
     start, _, _ = get_video_timings(filepath, line)
 
     print(start)
 
-    if start:
-        command.extend(["--start-time", convert_to_vlc_seconds(start)])
+    if "vlc" in get_config().advanced.video_player_path:
+        command.append("--start-time")
+    else:
+        command.append("--start")
+
+    command.extend([convert_to_vlc_seconds(start), os.path.normpath(filepath)])
 
     try:
         proc = subprocess.Popen(command)
@@ -319,7 +323,7 @@ def open_multimine():
     get_utility_window().show()
 
 def play_most_recent_audio():
-    if get_config().advanced.audio_player_path or get_config().advanced.video_player_path and len(gametext.line_history) > 0:
+    if get_config().advanced.audio_player_path or get_config().advanced.video_player_path and len(gametext.line_history.values) > 0:
         get_utility_window().line_for_audio = gametext.line_history.values[-1]
         obs.save_replay_buffer()
     else:
