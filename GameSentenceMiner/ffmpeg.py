@@ -191,7 +191,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
 
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
-        "-ss", start_trim_time]
+        "-ss", str(start_trim_time)]
     if next_line and next_line > game_line.time:
         end_total_seconds = total_seconds + (next_line - game_line.time).total_seconds() + 1
         hours, remainder = divmod(end_total_seconds, 3600)
@@ -222,7 +222,8 @@ def get_video_timings(video_path, game_line):
     total_seconds = file_length - time_delta.total_seconds()
     total_seconds_after_offset = total_seconds + get_config().audio.beginning_offset
     if total_seconds < 0 or total_seconds >= file_length:
-        logger.info(f"0 seconds trimmed off of beginning")
+        logger.error("Line mined is outside of the replay buffer! Defaulting to the beginning of the replay buffer. ")
+        logger.info("Recommend either increasing replay buffer length in OBS Settings or mining faster.")
         return 0, 0, 0
 
     hours, remainder = divmod(total_seconds_after_offset, 3600)

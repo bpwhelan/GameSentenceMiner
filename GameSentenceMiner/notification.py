@@ -6,9 +6,17 @@ from win10toast import ToastNotifier
 
 from GameSentenceMiner.configuration import logger
 
+class MyToastNotifier(ToastNotifier):
+    def __init__(self):
+        super().__init__()
+
+    def on_destroy(self, hwnd, msg, wparam, lparam):
+        super().on_destroy(hwnd, msg, wparam, lparam)
+        return 0
+
 system = platform.system()
 if system == "Windows":
-    notifier = ToastNotifier()
+    notifier = MyToastNotifier()
 else:
     notifier = notification
 

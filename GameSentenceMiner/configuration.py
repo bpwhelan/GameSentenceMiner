@@ -303,6 +303,58 @@ class Config:
     def get_default_config(self):
         return self.configs[DEFAULT_CONFIG]
 
+    def sync_shared_fields(self):
+        config = self.get_config()
+        for profile in self.configs.values():
+            self.sync_shared_field(config.hotkeys, profile.hotkeys, "reset_line")
+            self.sync_shared_field(config.hotkeys, profile.hotkeys, "take_screenshot")
+            self.sync_shared_field(config.hotkeys, profile.hotkeys, "open_utility")
+            self.sync_shared_field(config.hotkeys, profile.hotkeys, "play_latest_audio")
+            # self.sync_shared_field(config.advanced, profile.advanced, "audio_player_path")
+            # self.sync_shared_field(config.advanced, profile.advanced, "video_player_path")
+            # self.sync_shared_field(config.advanced, profile.advanced, "show_screenshot_buttons")
+            self.sync_shared_field(config.anki, profile.anki, "url")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_field")
+            self.sync_shared_field(config.anki, profile.anki, "sentence_audio_field")
+            self.sync_shared_field(config.anki, profile.anki, "picture_field")
+            self.sync_shared_field(config.anki, profile.anki, "word_field")
+            self.sync_shared_field(config.anki, profile.anki, "previous_sentence_field")
+            self.sync_shared_field(config.anki, profile.anki, "previous_image_field")
+            self.sync_shared_field(config.anki, profile.anki, "tags_to_check")
+            self.sync_shared_field(config.anki, profile.anki, "add_game_tag")
+            self.sync_shared_field(config.anki, profile.anki, "polling_rate")
+            self.sync_shared_field(config.anki, profile.anki, "overwrite_audio")
+            self.sync_shared_field(config.anki, profile.anki, "overwrite_picture")
+            self.sync_shared_field(config.anki, profile.anki, "multi_overwrites_sentence")
+            self.sync_shared_field(config.anki, profile.anki, "anki_custom_fields")
+            self.sync_shared_field(config.general, profile.general, "open_config_on_startup")
+            self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
+            self.sync_shared_field(config.general, profile.general, "websocket_uri")
+            self.sync_shared_field(config.audio, profile.audio, "external_tool")
+            self.sync_shared_field(config.audio, profile.audio, "anki_media_collection")
+            self.sync_shared_field(config, profile, "advanced")
+            self.sync_shared_field(config, profile, "paths")
+            self.sync_shared_field(config, profile, "obs")
+
+        return self
+
+    def sync_shared_field(self, config, config2, field_name):
+        try:
+            config_value = getattr(config, field_name, None)
+            config2_value = getattr(config2, field_name, None)
+
+            if config_value != config2_value:  # Check if values are different.
+                if config_value is not None:
+                    logging.info(f"Syncing shared field '{field_name}' to other profile.")
+                    setattr(config2, field_name, config_value)
+                elif config2_value is not None:
+                    logging.info(f"Syncing shared field '{field_name}' to current profile.")
+                    setattr(config, field_name, config2_value)
+        except AttributeError as e:
+            logging.error(f"AttributeError during sync of '{field_name}': {e}")
+        except Exception as e:
+            logging.error(f"An unexpected error occurred during sync of '{field_name}': {e}")
+
 
 def get_default_anki_path():
     if platform == 'win32':  # Windows

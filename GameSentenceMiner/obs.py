@@ -1,4 +1,5 @@
 import logging
+import os.path
 import subprocess
 import time
 
@@ -32,10 +33,20 @@ def start_obs():
             return obs_pid
         obs_process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable'], cwd=os.path.dirname(obs_path))
         logger.info("OBS launched")
+        connect_to_obs()
         return obs_process.pid
     except Exception as e:
         logger.error(f"Error launching OBS: {e}")
         return None
+
+def check_obs_folder_is_correct():
+    obs_record_directory = get_record_directory()
+    if obs_record_directory and os.path.normpath(obs_record_directory) != os.path.normpath(
+            get_config().paths.folder_to_watch):
+        logger.info("OBS Path Setting wrong, OBS Recording folder in GSM Config")
+        get_config().paths.folder_to_watch = os.path.normpath(obs_record_directory)
+        get_master_config().sync_shared_fields()
+        save_full_config(get_master_config())
 
 def is_obs_running(obs_path):
     obs_path = os.path.abspath(obs_path)  # Normalize path
@@ -114,7 +125,7 @@ def disconnect_from_obs():
         client = None
         logger.info("Disconnected from OBS WebSocket.")
 
-def do_obs_call(request, from_dict = None, retry=5):
+def do_obs_call(request, from_dict = None, retry=10):
     try:
         response = client.call(request)
         if not response.status and retry > 0:
@@ -163,14 +174,13 @@ def stop_replay_buffer():
     except Exception as e:
         logger.error(f"Error stopping replay buffer: {e}")
 
-
 # Save the current replay buffer
 def save_replay_buffer():
     try:
         replay_buffer_started = client.call(requests.GetReplayBufferStatus()).datain['outputActive']
         if replay_buffer_started:
             client.call(requests.SaveReplayBuffer())
-            logger.info("Replay buffer saved.")
+            logger.info("Replay buffer saved. If your log stops bere, make sure your obs output path matches \"Path To Watch\" in GSM settings.")
         else:
             logger.error("Replay Buffer is not active, could not save Replay Buffer!")
     except Exception as e:
@@ -190,6 +200,13 @@ def get_source_from_scene(scene_name):
         return do_obs_call(requests.GetSceneItemList(sceneName=scene_name), SceneItemsResponse.from_dict).sceneItems[0]
     except Exception as e:
         logger.error(f"Error getting source from scene: {e}")
+        return ''
+
+def get_record_directory():
+    try:
+        return do_obs_call(requests.GetRecordDirectory(), RecordDirectory.from_dict).recordDirectory
+    except Exception as e:
+        logger.error(f"Error getting recording folder: {e}")
         return ''
 
 
