@@ -28,7 +28,7 @@ card_queue = []
 
 
 def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
-                     should_update_audio=True, ss_time=0, game_line=None):
+                     should_update_audio=True, ss_time=0, game_line=None, selected_lines=None):
     global audio_in_anki, screenshot_in_anki, prev_screenshot_in_anki
     update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not
     last_note.get_field(get_config().anki.sentence_audio_field) or get_config().anki.overwrite_audio)
@@ -44,7 +44,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
         if get_config().anki.previous_image_field:
-            prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, game_line.prev))
+            prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, selected_lines[0].prev if selected_lines else game_line.prev))
             prev_screenshot_in_anki = store_media_file(prev_screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(prev_screenshot)
@@ -158,7 +158,10 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines):
             last_note.get_field(get_config().anki.previous_sentence_field):
         logger.debug(
             f"Adding Previous Sentence: {get_config().anki.previous_sentence_field and game_line.prev.text and not last_note.get_field(get_config().anki.previous_sentence_field)}")
-        note['fields'][get_config().anki.previous_sentence_field] = game_line.prev.text
+        if selected_lines:
+            note['fields'][get_config().anki.previous_sentence_field] = selected_lines[0].prev.text
+        else:
+            note['fields'][get_config().anki.previous_sentence_field] = game_line.prev.text
     return note
 
 

@@ -25,6 +25,7 @@ from GameSentenceMiner.configuration import *
 from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
 from GameSentenceMiner.ffmpeg import get_audio_and_trim, get_video_timings
 from GameSentenceMiner.gametext import get_text_event, get_mined_line, GameLine
+from GameSentenceMiner.obs import check_obs_folder_is_correct
 from GameSentenceMiner.util import *
 from GameSentenceMiner.utility_gui import init_utility_window, get_utility_window
 from GameSentenceMiner.vad import silero_trim, whisper_helper, vosk_helper
@@ -128,8 +129,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line)
                 if last_note:
                     logger.debug(last_note.to_json())
-
-                note = anki.get_initial_card_info(last_note, get_utility_window().get_selected_lines())
+                selected_lines = get_utility_window().get_selected_lines()
+                note = anki.get_initial_card_info(last_note, selected_lines)
                 tango = last_note.get_field(get_config().anki.word_field) if last_note else ''
                 get_utility_window().reset_checkboxes()
 
@@ -149,7 +150,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                                           tango=tango,
                                           should_update_audio=should_update_audio,
                                           ss_time=ss_timing,
-                                          game_line=start_line)
+                                          game_line=start_line,
+                                          selected_lines=selected_lines)
                 elif get_config().features.notify_on_update and should_update_audio:
                     notification.send_audio_generated_notification(vad_trimmed_audio)
         except Exception as e:
@@ -535,7 +537,8 @@ def initialize_async():
     if get_config().obs.enabled:
         if get_config().obs.open_obs:
             tasks.append(obs.start_obs)
-        tasks.append(obs.connect_to_obs)
+        else:
+            tasks.append(obs.connect_to_obs)
         tasks.append(anki.start_monitoring_anki)
     if get_config().vad.do_vad_postprocessing:
         if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
@@ -571,6 +574,7 @@ def main(reloading=False):
     init_utility_window(root)
     initialize(reloading)
     initialize_async()
+    check_obs_folder_is_correct()
     observer = Observer()
     observer.schedule(VideoToAudioHandler(), get_config().paths.folder_to_watch, recursive=False)
     observer.start()

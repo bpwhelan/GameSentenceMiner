@@ -216,6 +216,8 @@ class ConfigApp:
             self.master_config.current_profile = current_profile
             self.master_config.set_config_for_profile(current_profile, config)
 
+        self.master_config = self.master_config.sync_shared_fields()
+
         # Serialize the config instance to JSON
         with open(get_config_path(), 'w') as file:
             file.write(self.master_config.to_json(indent=4))
@@ -225,6 +227,7 @@ class ConfigApp:
         if self.master_config.get_config().restart_required(prev_config):
             logger.info("Restart Required for some settings to take affect!")
             send_restart_signal()
+
         settings_saved = True
         configuration.reload_config()
         self.settings = get_config()

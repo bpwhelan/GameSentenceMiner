@@ -77,6 +77,12 @@ class SceneItemsResponse:
     # def __init__(self, **kwargs):
     #     self.sceneItems = [SceneItem(**item) for item in kwargs['sceneItems']]
 
+
+@dataclass_json
+@dataclass
+class RecordDirectory:
+    recordDirectory: str
+
 #
 # @dataclass_json
 # @dataclass

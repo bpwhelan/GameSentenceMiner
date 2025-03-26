@@ -78,8 +78,12 @@ class UtilityApp:
 
     def add_text(self, line):
         if line.text:
-            var = tk.BooleanVar()
-            self.items.append((line, var))
+            try:
+                var = tk.BooleanVar()
+                self.items.append((line, var))
+            except Exception as e:
+                logger.error(f"NOT AN ERROR: Attempted to add text to multi-mine window, before it was initialized: {e}")
+                return
 
             if len(self.items) > 10:
                 if self.checkboxes:

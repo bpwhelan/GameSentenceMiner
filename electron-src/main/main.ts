@@ -271,6 +271,7 @@ function createTray() {
         {label: 'Show Console', click: () => mainWindow?.show()},
         {label: 'Update GSM', click: () => updateGSM(false)},
         {label: 'Restart GSM', click: () => restartGSM()},
+        {label: "Open GSM Folder", click: () => shell.openPath(BASE_DIR)},
         {label: 'Quit', click: () => quit()},
     ]);
 
