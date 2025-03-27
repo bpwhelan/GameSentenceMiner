@@ -60,7 +60,7 @@ steps before making an issue:
 
 - Try Restarting OBS
 - Make sure your hook is the best you can find. (Preferably it gives you the text RIGHT when the voice line starts)
-- Try Adjusting Offset Configuration in `config.toml` to better match your situation. (i.e. if the hook is late, add a
+- Try Adjusting Offset Configuration in the config to better match your situation. (i.e. if the hook is late, add a
   negative beginning offset)
 - Try using "Trim beginning" in `VAD` settings.
 
