@@ -1,3 +1,4 @@
+import os.path
 import signal
 import time
 from subprocess import Popen
@@ -71,21 +72,27 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     @staticmethod
     def convert_to_audio(video_path):
-        if get_utility_window().line_for_audio:
-            line: GameLine = get_utility_window().line_for_audio
-            get_utility_window().line_for_audio = None
-            if get_config().advanced.audio_player_path:
-                audio = VideoToAudioHandler.get_audio(line, line.next.time if line.next else None, video_path, temporary=True)
-                play_audio_in_external(audio)
+        try:
+            if get_utility_window().line_for_audio:
+                line: GameLine = get_utility_window().line_for_audio
+                get_utility_window().line_for_audio = None
+                if get_config().advanced.audio_player_path:
+                    audio = VideoToAudioHandler.get_audio(line, line.next.time if line.next else None, video_path, temporary=True)
+                    play_audio_in_external(audio)
+                    os.remove(video_path)
+                elif get_config().advanced.video_player_path:
+                    play_video_in_external(line, video_path)
+                return
+            if get_utility_window().line_for_screenshot:
+                line: GameLine = get_utility_window().line_for_screenshot
+                get_utility_window().line_for_screenshot = None
+                screenshot = ffmpeg.get_screenshot_for_line(video_path, line)
+                os.startfile(screenshot)
                 os.remove(video_path)
-            elif get_config().advanced.video_player_path:
-                play_video_in_external(line, video_path)
-            return
-        if get_utility_window().line_for_screenshot:
-            line: GameLine = get_utility_window().line_for_screenshot
-            get_utility_window().line_for_screenshot = None
-            screenshot = ffmpeg.get_screenshot_for_line(video_path, line)
-            os.startfile(screenshot)
+                return
+        except Exception as e:
+            logger.error(f"Error Playing Audio/Video: {e}")
+            logger.debug(f"Error Playing Audio/Video: {e}", exc_info=True)
             os.remove(video_path)
             return
         try:
@@ -158,10 +165,11 @@ class VideoToAudioHandler(FileSystemEventHandler):
             logger.error(f"Failed Processing and/or adding to Anki: Reason {e}")
             logger.debug(f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
             notification.send_error_no_anki_update()
-        if get_config().paths.remove_video and os.path.exists(video_path):
-            os.remove(video_path)  # Optionally remove the video after conversion
-        if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
-            os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
+        finally:
+            if get_config().paths.remove_video and os.path.exists(video_path):
+                os.remove(video_path)  # Optionally remove the video after conversion
+            if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
+                os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
 
 
     @staticmethod
@@ -228,18 +236,17 @@ def play_video_in_external(line, filepath):
 
     start, _, _ = get_video_timings(filepath, line)
 
-    print(start)
-
-    if "vlc" in get_config().advanced.video_player_path:
-        command.append("--start-time")
-    else:
-        command.append("--start")
-
-    command.extend([convert_to_vlc_seconds(start), os.path.normpath(filepath)])
+    if start:
+        if "vlc" in get_config().advanced.video_player_path:
+            command.append("--start-time")
+        else:
+            command.append("--start")
+        command.append(convert_to_vlc_seconds(start))
+    command.append(os.path.normpath(filepath))
 
     try:
         proc = subprocess.Popen(command)
-        print(f"Opened {filepath} in VLC.")
+        print(f"Opened {filepath} in {get_config().advanced.video_player_path}.")
         threading.Thread(target=remove_video_when_closed, args=(proc, filepath)).start()
     except FileNotFoundError:
         print("VLC not found. Make sure it's installed and in your PATH.")
