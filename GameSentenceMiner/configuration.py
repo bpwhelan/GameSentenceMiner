@@ -128,7 +128,6 @@ class OBS:
     host: str = "localhost"
     port: int = 4455
     password: str = "your_password"
-    start_buffer: bool = True
     get_game_from_scene: bool = True
     minimum_replay_size: int = 0
 

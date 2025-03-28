@@ -258,6 +258,8 @@ async function updateGSM(shouldRestart: boolean = false): Promise<void> {
             await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
             if (shouldRestart) {
                 restart();
+            } else {
+                ensureAndRunGSM(pythonPath)
             }
         } else {
             console.log("You're already using the latest version.");

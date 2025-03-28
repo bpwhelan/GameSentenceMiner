@@ -28,12 +28,9 @@ def start_obs():
         return None
 
     try:
-        obs_pid = is_obs_running(obs_path)
-        if obs_pid:
-            return obs_pid
-        obs_process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable'], cwd=os.path.dirname(obs_path))
+        obs_process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable', '--startreplaybuffer'], cwd=os.path.dirname(obs_path))
+
         logger.info("OBS launched")
-        connect_to_obs()
         return obs_process.pid
     except Exception as e:
         logger.error(f"Error launching OBS: {e}")
@@ -48,15 +45,6 @@ def check_obs_folder_is_correct():
         get_master_config().sync_shared_fields()
         save_full_config(get_master_config())
 
-def is_obs_running(obs_path):
-    obs_path = os.path.abspath(obs_path)  # Normalize path
-    for process in psutil.process_iter(['exe']):
-        try:
-            if process.info['exe'] and os.path.abspath(process.info['exe']) == obs_path:
-                return process.pid
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            continue
-    return False
 
 def get_obs_websocket_config_values():
     config_path = os.path.join(get_app_directory(), 'obs-studio', 'config', 'obs-studio', 'plugin_config', 'obs-websocket', 'config.json')
@@ -92,10 +80,8 @@ def get_obs_websocket_config_values():
 
 
 def on_connect(obs):
-    logger.info("Connected to OBS WebSocket.")
-    time.sleep(2)
-    if get_config().obs.start_buffer:
-        start_replay_buffer()
+    logger.info("Reconnected to OBS WebSocket.")
+    start_replay_buffer()
 
 
 def on_disconnect(obs):
@@ -111,9 +97,6 @@ def connect_to_obs():
                        password=get_config().obs.password, authreconnect=1, on_connect=on_connect,
                        on_disconnect=on_disconnect)
         client.connect()
-
-        if get_config().obs.start_buffer:
-            start_replay_buffer()
         update_current_game()
 
 
@@ -135,6 +118,7 @@ def do_obs_call(request, from_dict = None, retry=10):
             return from_dict(response.datain)
         return None
     except Exception as e:
+        logger.error(e)
         if "socket is already closed" in str(e) or "object has no attribute" in str(e):
             if retry > 0:
                 time.sleep(1)

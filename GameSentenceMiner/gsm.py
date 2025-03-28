@@ -1,6 +1,6 @@
+
 import os.path
 import signal
-import time
 from subprocess import Popen
 
 import keyboard
@@ -10,6 +10,8 @@ from PIL import Image, ImageDraw
 from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+
+import time
 
 from GameSentenceMiner import anki
 from GameSentenceMiner import config_gui
@@ -29,11 +31,11 @@ from GameSentenceMiner.gametext import get_text_event, get_mined_line, GameLine
 from GameSentenceMiner.obs import check_obs_folder_is_correct
 from GameSentenceMiner.util import *
 from GameSentenceMiner.utility_gui import init_utility_window, get_utility_window
-from GameSentenceMiner.vad import silero_trim, whisper_helper, vosk_helper
 
 if is_windows():
     import win32api
 
+silero_trim, whisper_helper, vosk_helper = None, None, None
 procs_to_close = []
 settings_window: config_gui.ConfigApp = None
 obs_paused = False
@@ -42,33 +44,15 @@ menu: Menu
 root = None
 
 
+
 class VideoToAudioHandler(FileSystemEventHandler):
     def on_created(self, event):
         if event.is_directory or ("Replay" not in event.src_path and "GSM" not in event.src_path):
             return
         if event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):  # Adjust based on your OBS output format
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
-            self.wait_for_stable_file(event.src_path)
+            wait_for_stable_file(event.src_path)
             self.convert_to_audio(event.src_path)
-
-    @staticmethod
-    def wait_for_stable_file(file_path, timeout=10, check_interval=0.5):
-        elapsed_time = 0
-        last_size = -1
-
-        while elapsed_time < timeout:
-            try:
-                current_size = os.path.getsize(file_path)
-                if current_size == last_size:
-                    return True
-                last_size = current_size
-                time.sleep(check_interval)
-                elapsed_time += check_interval
-            except Exception as e:
-                logger.warning(f"Error checking file size, will still try updating Anki Card!: {e}")
-                return False
-        logger.warning("File size did not stabilize within the timeout period. Continuing...")
-        return False
 
     @staticmethod
     def convert_to_audio(video_path):
@@ -183,26 +167,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
                                                                 f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
         should_update_audio = True
         if get_config().vad.do_vad_postprocessing:
-            match get_config().vad.selected_vad_model:
-                case configuration.SILERO:
-                    should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio, vad_trimmed_audio)
-                case configuration.VOSK:
-                    should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
-                case configuration.WHISPER:
-                    should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio,
-                                                                                    vad_trimmed_audio)
+            should_update_audio = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio, vad_trimmed_audio)
             if not should_update_audio:
-                match get_config().vad.backup_vad_model:
-                    case configuration.OFF:
-                        pass
-                    case configuration.SILERO:
-                        should_update_audio = silero_trim.process_audio_with_silero(trimmed_audio,
-                                                                                    vad_trimmed_audio)
-                    case configuration.VOSK:
-                        should_update_audio = vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
-                    case configuration.WHISPER:
-                        should_update_audio = whisper_helper.process_audio_with_whisper(trimmed_audio,
-                                                                                        vad_trimmed_audio)
+                should_update_audio = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio,
+                                                        vad_trimmed_audio)
             if not should_update_audio and get_config().vad.add_audio_on_no_results:
                 logger.info("No voice activity detected, using full audio.")
                 vad_trimmed_audio = trimmed_audio
@@ -213,6 +181,22 @@ class VideoToAudioHandler(FileSystemEventHandler):
         elif os.path.exists(vad_trimmed_audio):
             shutil.move(vad_trimmed_audio, final_audio_output)
         return final_audio_output, should_update_audio, vad_trimmed_audio
+
+
+def do_vad_processing(model, trimmed_audio, vad_trimmed_audio, second_pass=False):
+    match model:
+        case configuration.OFF:
+            pass
+        case configuration.SILERO:
+            from GameSentenceMiner.vad import silero_trim
+            return silero_trim.process_audio_with_silero(trimmed_audio, vad_trimmed_audio)
+        case configuration.VOSK:
+            from GameSentenceMiner.vad import vosk_helper
+            return vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
+        case configuration.WHISPER:
+            from GameSentenceMiner.vad import whisper_helper
+            return whisper_helper.process_audio_with_whisper(trimmed_audio, vad_trimmed_audio)
+
 
 def play_audio_in_external(filepath):
     exe = get_config().advanced.audio_player_path
@@ -243,6 +227,8 @@ def play_video_in_external(line, filepath):
             command.append("--start")
         command.append(convert_to_vlc_seconds(start))
     command.append(os.path.normpath(filepath))
+
+    logger.info(" ".join(command))
 
     try:
         proc = subprocess.Popen(command)
@@ -286,7 +272,7 @@ def register_hotkeys():
 def get_screenshot():
     try:
         image = obs.get_screenshot()
-        time.sleep(2)  # Wait for ss to save
+        wait_for_stable_file(image, timeout=3)
         if not image:
             raise Exception("Failed to get Screenshot from OBS")
         encoded_image = ffmpeg.process_image(image)
@@ -479,9 +465,8 @@ def cleanup():
     util.keep_running = False
 
     if get_config().obs.enabled:
-        if get_config().obs.start_buffer:
-            obs.stop_replay_buffer()
-    obs.disconnect_from_obs()
+        obs.stop_replay_buffer()
+        obs.disconnect_from_obs()
     if get_config().obs.close_obs:
         close_obs()
 
@@ -521,9 +506,9 @@ def initialize(reloading=False):
         if is_windows():
             download_obs_if_needed()
             download_ffmpeg_if_needed()
-        # if get_config().obs.enabled:
-            # if get_config().obs.open_obs:
-                # obs_process = obs.start_obs()
+        if get_config().obs.enabled:
+            if get_config().obs.open_obs:
+                obs_process = obs.start_obs()
             # obs.connect_to_obs(start_replay=True)
             # anki.start_monitoring_anki()
         # gametext.start_text_monitor()
@@ -541,27 +526,29 @@ def initialize(reloading=False):
 def initialize_async():
     tasks = [gametext.start_text_monitor, connect_websocket, run_tray]
     threads = []
-    if get_config().obs.enabled:
-        if get_config().obs.open_obs:
-            tasks.append(obs.start_obs)
-        else:
-            tasks.append(obs.connect_to_obs)
-        tasks.append(anki.start_monitoring_anki)
-    if get_config().vad.do_vad_postprocessing:
-        if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
-            tasks.append(vosk_helper.get_vosk_model)
-    if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
-            tasks.append(whisper_helper.initialize_whisper_model)
+    tasks.append(anki.start_monitoring_anki)
     for task in tasks:
         threads.append(util.run_new_thread(task))
     return threads
 
-def check_async_init_done(threads):
-    while True:
-        if all(not thread.is_alive() for thread in threads):
-            break
-        time.sleep(0.5)
-    logger.info("Script Fully Initialized. Happy Mining!")
+
+def post_init():
+    def do_post_init():
+        global silero_trim, whisper_helper, vosk_helper
+        logger.info("Post-Initialization started.")
+        if get_config().obs.enabled:
+            obs.connect_to_obs()
+            check_obs_folder_is_correct()
+            from GameSentenceMiner.vad import vosk_helper
+            from GameSentenceMiner.vad import whisper_helper
+            if get_config().vad.is_vosk():
+                vosk_helper.get_vosk_model()
+            if get_config().vad.is_whisper():
+                whisper_helper.initialize_whisper_model()
+            if get_config().vad.is_silero():
+                from GameSentenceMiner.vad import silero_trim
+
+    util.run_new_thread(do_post_init)
 
 
 def handle_websocket_message(message: Message):
@@ -581,7 +568,6 @@ def main(reloading=False):
     init_utility_window(root)
     initialize(reloading)
     initialize_async()
-    check_obs_folder_is_correct()
     observer = Observer()
     observer.schedule(VideoToAudioHandler(), get_config().paths.folder_to_watch, recursive=False)
     observer.start()
@@ -599,6 +585,7 @@ def main(reloading=False):
             root.after(0, settings_window.show)
         if get_config().general.open_multimine_on_startup:
             root.after(0, get_utility_window().show)
+        root.after(0, post_init)
         settings_window.add_save_hook(update_icon)
         settings_window.on_exit = exit_program
         root.mainloop()
@@ -613,4 +600,5 @@ def main(reloading=False):
 
 
 if __name__ == "__main__":
+    logger.info("Starting GSM")
     main()

@@ -6,6 +6,7 @@ import string
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime
 from sys import platform
 
@@ -178,38 +179,31 @@ def combine_dialogue(dialogue_lines, new_lines=None):
 
     return new_lines
 
-# def import_vad_models():
-#     silero_trim, whisper_helper, vosk_helper = None, None, None
-#
-#     def check_and_install(package_name):
-#         try:
-#             importlib.import_module(package_name)
-#             return True
-#         except ImportError:
-#             logger.warning(f"{package_name} is not installed. Attempting to install...")
-#             try:
-#                 python_executable = sys.executable
-#                 subprocess.check_call([python_executable, "-m", "pip", "install", package_name])
-#                 logger.info(f"{package_name} installed successfully.")
-#                 return True
-#             except subprocess.CalledProcessError as e:
-#                 logger.error(f"Failed to install {package_name}: {e}")
-#                 return False
-#
-#     if get_config().vad.is_silero():
-#         if check_and_install("silero_vad"):
-#             from GameSentenceMiner.vad import silero_trim
-#         else:
-#             logger.error("Silero VAD is enabled and silero_vad package could not be installed.")
-#     if get_config().vad.is_whisper():
-#         if check_and_install("stable-ts"):
-#             from GameSentenceMiner.vad import whisper_helper
-#         else:
-#             logger.error("Whisper is enabled and whisper package could not be installed.")
-#     if get_config().vad.is_vosk():
-#         if check_and_install("vosk"):
-#             from GameSentenceMiner.vad import vosk_helper
-#         else:
-#             logger.error("Vosk is enabled and vosk package could not be installed.")
-#
-#     return silero_trim, whisper_helper, vosk_helper
+def wait_for_stable_file(file_path, timeout=10, check_interval=0.1):
+    elapsed_time = 0
+    last_size = -1
+
+    while elapsed_time < timeout:
+        try:
+            current_size = os.path.getsize(file_path)
+            if current_size == last_size:
+                return True
+            last_size = current_size
+            time.sleep(check_interval)
+            elapsed_time += check_interval
+        except Exception as e:
+            logger.warning(f"Error checking file size, will still try updating Anki Card!: {e}")
+            return False
+    logger.warning("File size did not stabilize within the timeout period. Continuing...")
+    return False
+
+
+def import_vad_models():
+    silero_trim, whisper_helper, vosk_helper = None, None, None
+    if get_config().vad.is_silero():
+        from GameSentenceMiner.vad import silero_trim
+    if get_config().vad.is_whisper():
+        from GameSentenceMiner.vad import whisper_helper
+    if get_config().vad.is_vosk():
+        from GameSentenceMiner.vad import vosk_helper
+    return silero_trim, whisper_helper, vosk_helper

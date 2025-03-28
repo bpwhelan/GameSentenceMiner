@@ -1,21 +1,21 @@
+import time
+
 import base64
 import subprocess
 import threading
-import time
 import urllib.request
 from datetime import datetime, timedelta
+from requests import post
 
-import requests as req
-
-from GameSentenceMiner import obs, util, notification, ffmpeg, gametext
-
+from GameSentenceMiner import obs, util, notification, ffmpeg
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
 from GameSentenceMiner.gametext import get_text_event
 from GameSentenceMiner.model import AnkiCard
-from GameSentenceMiner.utility_gui import utility_window, get_utility_window
+from GameSentenceMiner.utility_gui import get_utility_window
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util import remove_html_and_cloze_tags, combine_dialogue
+
 
 audio_in_anki = None
 screenshot_in_anki = None
@@ -309,7 +309,7 @@ def monitor_anki():
 
 # Fetch recent note IDs from Anki
 def get_note_ids():
-    response = req.post(get_config().anki.url, json={
+    response = post(get_config().anki.url, json={
         "action": "findNotes",
         "version": 6,
         "params": {"query": "added:1"}
