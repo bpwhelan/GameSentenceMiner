@@ -98,6 +98,7 @@ class Features:
 @dataclass_json
 @dataclass
 class Screenshot:
+    enabled: bool = True
     width: str = 0
     height: str = 0
     quality: str = 85
@@ -111,12 +112,14 @@ class Screenshot:
 @dataclass_json
 @dataclass
 class Audio:
+    enabled: bool = True
     extension: str = 'opus'
     beginning_offset: float = 0.0
     end_offset: float = 0.5
     ffmpeg_reencode_options: str = ''
     external_tool: str = ""
     anki_media_collection: str = ""
+    external_tool_enabled: bool = True
 
 
 @dataclass_json

@@ -125,7 +125,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 tango = last_note.get_field(get_config().anki.word_field) if last_note else ''
                 get_utility_window().reset_checkboxes()
 
-                if get_config().anki.sentence_audio_field:
+                if get_config().anki.sentence_audio_field and get_config().audio.enabled:
                     logger.debug("Attempting to get audio from video")
                     final_audio_output, should_update_audio, vad_trimmed_audio = VideoToAudioHandler.get_audio(
                         start_line,
@@ -135,7 +135,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     final_audio_output = ""
                     should_update_audio = False
                     vad_trimmed_audio = ""
-                    logger.info("No SentenceAudio Field in config, skipping audio processing!")
+                    if not get_config().audio.enabled:
+                        logger.info("Audio is disabled in config, skipping audio processing!")
+                    elif not get_config().anki.sentence_audio_field:
+                        logger.info("No SentenceAudio Field in config, skipping audio processing!")
                 if get_config().anki.update_anki and last_note:
                     anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
                                           tango=tango,
