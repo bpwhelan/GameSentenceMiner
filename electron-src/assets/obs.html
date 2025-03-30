@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OBS Controller</title>
+  <style>
+    body {
+      background-color: #1e1e1e;
+      color: #e0e0e0;
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+
+    h1 {
+      color: #ffffff;
+      text-align: center;
+    }
+
+    .control {
+      margin-bottom: 10px;
+    }
+
+    button {
+      background-color: #0078d4;
+      color: #ffffff;
+      border: none;
+      padding: 8px 16px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    button:disabled {
+      background-color: #555;
+      cursor: not-allowed;
+    }
+
+    button:hover:not(:disabled) {
+      background-color: #005ea2;
+    }
+
+    select {
+      background-color: #2d2d2d;
+      color: #e0e0e0;
+      border: 1px solid #444;
+      padding: 8px;
+      width: 200px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+<h1>OBS Controller</h1>
+<div class="control">
+  <button id="launchObsBtn">Launch OBS</button>
+</div>
+<div class="control">
+  <button id="saveReplayBtn">Save Replay Buffer</button>
+</div>
+<div class="control">
+  <label for="sceneSelect">Scenes:</label>
+  <select id="sceneSelect"></select>
+</div>
+<div class="control">
+  <label for="windowSelect">Windows:</label>
+  <select id="windowSelect"></select>
+  <button id="refreshWindowsBtn">&#x21bb;</button>
+  <button id="createNewSceneBtn">Create New Scene</button>
+</div>
+<script>
+  const { ipcRenderer } = require('electron');
+
+  document.getElementById('launchObsBtn').addEventListener('click', () => {
+    ipcRenderer.invoke('obs.launch');
+  });
+
+  document.getElementById('saveReplayBtn').addEventListener('click', () => {
+    ipcRenderer.invoke('obs.saveReplay');
+  });
+
+  document.getElementById('sceneSelect').addEventListener('change', (event) => {
+    ipcRenderer.invoke('obs.switchScene', event.target.value);
+  });
+
+  document.getElementById('windowSelect').addEventListener('change', (event) => {
+    const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
+    console.log(selectedWindow)
+    const windowData = {
+      title: selectedWindow.textContent,
+      path: selectedWindow.value
+    };
+    console.log(windowData)
+  });
+
+  document.getElementById('refreshWindowsBtn').addEventListener('click', () => {
+    ipcRenderer.invoke('obs.getWindows').then(windows => {
+      const windowSelect = document.getElementById('windowSelect');
+      windowSelect.innerHTML = '';
+      windows.forEach(window => {
+        console.log(window)
+        console.log(window.value)
+        const option = document.createElement('option');
+        option.value = window.value;
+        option.textContent = window.title;
+        windowSelect.appendChild(option);
+      });
+    });
+  });
+
+  document.getElementById('createNewSceneBtn').addEventListener('click', () => {
+    const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
+    console.log(selectedWindow)
+    const windowData = {
+      title: selectedWindow.textContent,
+      value: selectedWindow.value
+    };
+    console.log(windowData)
+    ipcRenderer.invoke('obs.createScene', windowData);
+  })
+
+  ipcRenderer.invoke('obs.getScenes').then(scenes => {
+    const sceneSelect = document.getElementById('sceneSelect');
+    scenes.forEach(scene => {
+      const option = document.createElement('option');
+      option.value = scene;
+      option.textContent = scene;
+      sceneSelect.appendChild(option);
+    });
+  });
+
+  ipcRenderer.invoke('obs.getWindows').then(windows => {
+    const windowSelect = document.getElementById('windowSelect');
+    windows.forEach(window => {
+      console.log(window)
+      console.log(window.value)
+      const option = document.createElement('option');
+      option.value = window.value;
+      option.textContent = window.title;
+      windowSelect.appendChild(option);
+    });
+  });
+</script>
+</body>
+</html>

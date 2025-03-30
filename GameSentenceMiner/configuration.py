@@ -309,9 +309,6 @@ class Config:
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "take_screenshot")
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "open_utility")
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "play_latest_audio")
-            # self.sync_shared_field(config.advanced, profile.advanced, "audio_player_path")
-            # self.sync_shared_field(config.advanced, profile.advanced, "video_player_path")
-            # self.sync_shared_field(config.advanced, profile.advanced, "show_screenshot_buttons")
             self.sync_shared_field(config.anki, profile.anki, "url")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field")
             self.sync_shared_field(config.anki, profile.anki, "sentence_audio_field")
@@ -336,6 +333,7 @@ class Config:
             self.sync_shared_field(config, profile, "obs")
 
         return self
+
 
     def sync_shared_field(self, config, config2, field_name):
         try:

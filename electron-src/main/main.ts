@@ -14,11 +14,12 @@ import {
     getStartConsoleMinimized,
     setPythonPath
 } from "./store.js";
-import {launchYuzuGameID, openYuzuWindow} from "./launchers/yuzu.js";
+import {launchYuzuGameID, openYuzuWindow} from "./ui/yuzu.js";
 import {checkForUpdates} from "./update_checker.js";
-import {launchVNWorkflow, openVNWindow} from "./launchers/vn.js";
-import {launchSteamGameID, openSteamWindow} from "./launchers/steam.js";
+import {launchVNWorkflow, openVNWindow} from "./ui/vn.js";
+import {launchSteamGameID, openSteamWindow} from "./ui/steam.js";
 import { webSocketManager } from "./communication/websocket.js";
+import {openOBSWindow} from "./ui/obs.js";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray;
@@ -199,6 +200,10 @@ function createWindow() {
                 {
                     label: "Open Steam Launcher",
                     click: () => openSteamWindow(),
+                },
+                {
+                    label: "Open OBS Controller",
+                    click: () => openOBSWindow(),
                 },
                 { type: "separator" },
                 { label: "Exit", role: "quit" },
