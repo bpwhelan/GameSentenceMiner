@@ -147,6 +147,7 @@ class ConfigApp:
                 backfill_audio=self.backfill_audio.get()
             ),
             screenshot=Screenshot(
+                enabled=self.screenshot_enabled.get(),
                 width=self.screenshot_width.get(),
                 height=self.screenshot_height.get(),
                 quality=self.screenshot_quality.get(),
@@ -157,12 +158,14 @@ class ConfigApp:
                 use_beginning_of_line_as_screenshot=self.use_beginning_of_line_as_screenshot.get()
             ),
             audio=Audio(
+                enabled=self.audio_enabled.get(),
                 extension=self.audio_extension.get(),
                 beginning_offset=float(self.beginning_offset.get()),
                 end_offset=float(self.end_offset.get()),
                 ffmpeg_reencode_options=self.ffmpeg_reencode_options.get(),
                 external_tool = self.external_tool.get(),
                 anki_media_collection=self.anki_media_collection.get(),
+                external_tool_enabled=self.external_tool_enabled.get(),
             ),
             obs=OBS(
                 enabled=self.obs_enabled.get(),
@@ -171,7 +174,6 @@ class ConfigApp:
                 host=self.obs_host.get(),
                 port=int(self.obs_port.get()),
                 password=self.obs_password.get(),
-                start_buffer=self.obs_start_buffer.get(),
                 get_game_from_scene=self.get_game_from_scene_name.get(),
                 minimum_replay_size=int(self.minimum_replay_size.get())
             ),
@@ -679,6 +681,11 @@ class ConfigApp:
         screenshot_frame = ttk.Frame(self.notebook)
         self.notebook.add(screenshot_frame, text='Screenshot')
 
+        ttk.Label(screenshot_frame, text="Enabled:").grid(row=self.current_row, column=0, sticky='W')
+        self.screenshot_enabled = tk.BooleanVar(value=self.settings.screenshot.enabled)
+        ttk.Checkbutton(screenshot_frame, variable=self.screenshot_enabled).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(screenshot_frame, "Enable or disable screenshot processing.", row=self.current_row, column=2)
+
         ttk.Label(screenshot_frame, text="Width:").grid(row=self.current_row, column=0, sticky='W')
         self.screenshot_width = ttk.Entry(screenshot_frame)
         self.screenshot_width.insert(0, str(self.settings.screenshot.width))
@@ -737,6 +744,11 @@ class ConfigApp:
         audio_frame = ttk.Frame(self.notebook)
         self.notebook.add(audio_frame, text='Audio')
 
+        ttk.Label(audio_frame, text="Enabled:").grid(row=self.current_row, column=0, sticky='W')
+        self.audio_enabled = tk.BooleanVar(value=self.settings.audio.enabled)
+        ttk.Checkbutton(audio_frame, variable=self.audio_enabled).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(audio_frame, "Enable or disable audio processing.", row=self.current_row, column=2)
+
         ttk.Label(audio_frame, text="Audio Extension:").grid(row=self.current_row, column=0, sticky='W')
         self.audio_extension = ttk.Combobox(audio_frame, values=['opus', 'mp3', 'ogg', 'aac', 'm4a'])
         self.audio_extension.insert(0, self.settings.audio.extension)
@@ -777,10 +789,13 @@ class ConfigApp:
         self.external_tool = ttk.Entry(audio_frame)
         self.external_tool.insert(0, self.settings.audio.external_tool)
         self.external_tool.grid(row=self.current_row, column=1)
+        ttk.Label(audio_frame, text="Enabled:").grid(row=self.current_row, column=2, sticky='W')
+        self.external_tool_enabled = tk.BooleanVar(value=self.settings.audio.external_tool_enabled)
+        ttk.Checkbutton(audio_frame, variable=self.external_tool_enabled).grid(row=self.current_row, column=3, sticky='W')
         self.add_label_and_increment_row(audio_frame,
                                          "Path to External tool that opens the audio up for manual trimming. I recommend OcenAudio for in-place Editing.",
                                          row=self.current_row,
-                                         column=2)
+                                         column=4)
 
         ttk.Button(audio_frame, text="Install Ocenaudio", command=self.download_and_install_ocen).grid(
             row=self.current_row, column=0, pady=5)

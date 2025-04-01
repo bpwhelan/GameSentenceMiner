@@ -32,8 +32,9 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
     global audio_in_anki, screenshot_in_anki, prev_screenshot_in_anki
     update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not
     last_note.get_field(get_config().anki.sentence_audio_field) or get_config().anki.overwrite_audio)
-    update_picture = (get_config().anki.picture_field and get_config().anki.overwrite_picture) or not \
-    last_note.get_field(get_config().anki.picture_field)
+    update_picture = (get_config().anki.picture_field and get_config().screenshot.enabled
+                      and (get_config().anki.overwrite_picture or not last_note.get_field(get_config().anki.picture_field)))
+
 
     if not reuse_audio:
         if update_audio:
@@ -54,11 +55,13 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
 
     # note = {'id': last_note.noteId, 'fields': {}}
 
-    if update_audio:
+    if update_audio and audio_in_anki:
         note['fields'][get_config().anki.sentence_audio_field] = audio_html
 
-    if update_picture:
+    if update_picture and screenshot_in_anki:
         note['fields'][get_config().anki.picture_field] = image_html
+    if not get_config().screenshot.enabled:
+        logger.info("Skipping Adding Screenshot to Anki, Screenshot is disabled in settings")
 
     if prev_screenshot_in_anki:
         note['fields'][get_config().anki.previous_image_field] = prev_screenshot_html
@@ -82,7 +85,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
     if get_config().features.open_anki_edit:
         notification.open_anki_card(last_note.noteId)
 
-    if get_config().audio.external_tool:
+    if get_config().audio.external_tool and get_config().audio.external_tool_enabled and update_audio:
         open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
 
 
