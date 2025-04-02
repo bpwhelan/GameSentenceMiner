@@ -23,7 +23,8 @@ from GameSentenceMiner import obs
 from GameSentenceMiner import util
 from GameSentenceMiner.communication import Message
 from GameSentenceMiner.communication.send import send_restart_signal
-from GameSentenceMiner.communication.websocket import connect_websocket, register_websocket_message_handler
+from GameSentenceMiner.communication.websocket import connect_websocket, register_websocket_message_handler, \
+    FunctionName
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
 from GameSentenceMiner.ffmpeg import get_audio_and_trim, get_video_timings
@@ -445,6 +446,7 @@ def run_tray():
 #                 proc.wait()
 
 def close_obs():
+    obs.disconnect_from_obs()
     if obs.obs_process:
         try:
             subprocess.run(["taskkill", "/PID", str(obs.obs_process.pid), "/F"], check=True, capture_output=True, text=True)
@@ -553,12 +555,16 @@ def post_init():
 
     util.run_new_thread(do_post_init)
 
-
 def handle_websocket_message(message: Message):
-    match message.function:
-        case "quit":
+    match FunctionName(message.function):
+        case FunctionName.QUIT:
             cleanup()
             sys.exit(0)
+        case FunctionName.QUIT_OBS:
+            close_obs()
+        case FunctionName.START_OBS:
+            obs.start_obs()
+            obs.connect_to_obs()
         case _:
             logger.debug(f"unknown message from electron websocket: {message.to_json()}")
 

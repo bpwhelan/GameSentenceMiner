@@ -1,5 +1,5 @@
 import Store from "electron-store";
-import { SteamGame } from "./launchers/steam.js";
+import { SteamGame } from "./ui/steam.js";
 
 
 interface YuzuConfig {

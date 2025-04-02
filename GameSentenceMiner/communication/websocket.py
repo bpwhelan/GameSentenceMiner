@@ -3,6 +3,7 @@ import os.path
 
 import websockets
 import json
+from enum import Enum
 
 from websocket import WebSocket
 
@@ -12,6 +13,14 @@ from GameSentenceMiner.configuration import get_app_directory, logger
 CONFIG_FILE = os.path.join(get_app_directory(), "shared_config.json")
 websocket: WebSocket = None
 handle_websocket_message = None
+
+
+class FunctionName(Enum):
+    QUIT = "quit"
+    START = "start"
+    STOP = "stop"
+    QUIT_OBS = "quit_obs"
+    START_OBS = "start_obs"
 
 async def do_websocket_connection(port):
     """

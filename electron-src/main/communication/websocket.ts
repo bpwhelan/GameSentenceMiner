@@ -18,6 +18,8 @@ enum FunctionName {
     Start = "start",
     Stop = "stop",
     Restart = "restart",
+    QuitOBS = "quit_obs",
+    StartOBS = "start_obs",
 }
 
 interface Message {
@@ -74,6 +76,14 @@ class WebSocketManager {
 
     sendQuitMessage(): void {
         this.sendMessage({ function: FunctionName.Quit });
+    }
+
+    sendQuitOBS(): void {
+        this.sendMessage({ function: FunctionName.QuitOBS });
+    }
+
+    sendStartOBS(): void {
+        this.sendMessage({ function: FunctionName.StartOBS });
     }
 
     private receiveMessage(message: Message) {
