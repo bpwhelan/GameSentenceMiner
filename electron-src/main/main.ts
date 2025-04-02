@@ -279,6 +279,27 @@ function createTray() {
         {label: 'Update GSM', click: () => updateGSM(false)},
         {label: 'Restart GSM', click: () => restartGSM()},
         {label: "Open GSM Folder", click: () => shell.openPath(BASE_DIR)},
+        {
+            label: 'Utilities',
+            submenu: [
+                {
+                    label: "Open Yuzu Launcher",
+                    click: () => openYuzuWindow(),
+                },
+                {
+                    label: "Open VN Launcher",
+                    click: () => openVNWindow(),
+                },
+                {
+                    label: "Open Steam Launcher",
+                    click: () => openSteamWindow(),
+                },
+                {
+                    label: "Open OBS Controller",
+                    click: () => openOBSWindow(),
+                },
+            ],
+        },
         {label: 'Quit', click: () => quit()},
     ]);
 
