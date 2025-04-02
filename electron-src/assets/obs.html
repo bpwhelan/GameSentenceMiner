@@ -153,10 +153,11 @@
         console.log(selectedWindow)
         const windowData = {
             title: selectedWindow.textContent,
-            value: selectedWindow.value
+            value: selectedWindow.value,
+            sceneName: selectedWindow.textContent,
         };
         if (document.getElementById('sceneNameInput').value) {
-            windowData.title = document.getElementById('sceneNameInput').value.trim();
+            windowData.sceneName = document.getElementById('sceneNameInput').value.trim();
         }
         console.log(windowData)
         ipcRenderer.invoke('obs.createScene', windowData);

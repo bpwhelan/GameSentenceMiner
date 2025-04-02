@@ -26,7 +26,7 @@ const obsConfig: ObsConfig = store.get('configs.Default.obs') as ObsConfig || {
 const OBS_CONFIG_PATH = path.join(BASE_DIR, 'obs-studio');
 const SCENE_CONFIG_PATH = path.join(OBS_CONFIG_PATH, 'config', 'obs-studio', 'basic', 'scenes');
 let obs = new OBSWebSocket();
-let obs_connected = false;
+let obsConnected = false;
 const obsPort = obsConfig.port;
 const obsPassword = obsConfig.password;
 const HELPER_SCENE = 'GSM Helper';
@@ -36,7 +36,7 @@ async function connectOBSWebSocket(retries = 5, delay = 2000): Promise<void> {
     for (let i = 0; i < retries; i++) {
         try {
             await obs.connect(`ws://${obsConfig.host}:${obsPort}`, obsPassword);
-            obs_connected = true;
+            obsConnected = true;
             console.log('Connected to OBS WebSocket');
             return;
         } catch (error: any) {
@@ -97,7 +97,7 @@ export function openOBSWindow() {
 async function waitForObsConnection(): Promise<void> {
     return new Promise((resolve, reject) => {
         const interval = setInterval(() => {
-            if (obs_connected) {
+            if (obsConnected) {
                 clearInterval(interval);
                 resolve();
             }
@@ -156,7 +156,7 @@ function registerOBSIPC() {
         try {
             await waitForObsConnection();
             // Create a new scene
-            const sceneName = `${window.title}`;
+            const sceneName = `${window.sceneName}`;
             await obs.call('CreateScene', {sceneName});
 
             // Set the new scene as the current program scene
@@ -313,7 +313,7 @@ function registerOBSIPC() {
             await waitForObsConnection();
             const response = await getWindowList();
             return response.map((item: any) => ({
-                title: item.itemName.split(': ')[1],
+                title: item.itemName.split(':').slice(1).join(':').trim(),
                 value: item.itemValue
             }));
         } catch (error) {
