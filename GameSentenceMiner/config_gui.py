@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import filedialog, messagebox, simpledialog, scrolledtext
 
 import ttkbootstrap as ttk
 
@@ -77,6 +77,7 @@ class ConfigApp:
         self.create_hotkeys_tab()
         self.create_profiles_tab()
         self.create_advanced_tab()
+        self.create_ai_tab()
 
         ttk.Button(self.window, text="Save Settings", command=self.save_settings).pack(pady=20)
 
@@ -155,7 +156,8 @@ class ConfigApp:
                 custom_ffmpeg_settings=self.screenshot_custom_ffmpeg_settings.get(),
                 screenshot_hotkey_updates_anki=self.screenshot_hotkey_update_anki.get(),
                 seconds_after_line = self.seconds_after_line.get(),
-                use_beginning_of_line_as_screenshot=self.use_beginning_of_line_as_screenshot.get()
+                use_beginning_of_line_as_screenshot=self.use_beginning_of_line_as_screenshot.get(),
+                use_new_screenshot_logic=self.use_new_screenshot_logic.get()
             ),
             audio=Audio(
                 enabled=self.audio_enabled.get(),
@@ -199,6 +201,15 @@ class ConfigApp:
                 show_screenshot_buttons=self.show_screenshot_button.get(),
                 multi_line_line_break=self.multi_line_line_break.get(),
                 multi_line_sentence_storage_field=self.multi_line_sentence_storage_field.get(),
+            ),
+            ai=Ai(
+                enabled=self.ai_enabled.get(),
+                # provider=self.provider.get(),
+                anki_field=self.ai_anki_field.get(),
+                api_key=self.ai_api_key.get(),
+                use_canned_translation_prompt=self.use_canned_translation_prompt.get(),
+                use_canned_context_prompt=self.use_canned_context_prompt.get(),
+                custom_prompt=self.custom_prompt.get("1.0", tk.END)
             )
         )
 
@@ -262,6 +273,7 @@ class ConfigApp:
             self.create_hotkeys_tab()
             self.create_profiles_tab()
             self.create_advanced_tab()
+            self.create_ai_tab()
 
 
     def increment_row(self):
@@ -739,6 +751,11 @@ class ConfigApp:
         ttk.Checkbutton(screenshot_frame, variable=self.use_beginning_of_line_as_screenshot).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(screenshot_frame, "Enable to use the beginning of the line as the screenshot point. Adjust the above setting to fine-tine timing.", row=self.current_row, column=2)
 
+        ttk.Label(screenshot_frame, text="Use alternative screenshot logic:").grid(row=self.current_row, column=0, sticky='W')
+        self.use_new_screenshot_logic = tk.BooleanVar(value=self.settings.screenshot.use_new_screenshot_logic)
+        ttk.Checkbutton(screenshot_frame, variable=self.use_new_screenshot_logic).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(screenshot_frame, "Enable to use the new screenshot logic. This will try to take the screenshot in the middle of the voiceline, or middle of the line if no audio/vad.", row=self.current_row, column=2)
+
     @new_tab
     def create_audio_tab(self):
         audio_frame = ttk.Frame(self.notebook)
@@ -952,6 +969,63 @@ class ConfigApp:
         self.multi_line_sentence_storage_field.insert(0, self.settings.advanced.multi_line_sentence_storage_field)
         self.multi_line_sentence_storage_field.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(advanced_frame, "Field in Anki for storing the multi-line sentence temporarily.", row=self.current_row, column=2)
+
+
+    @new_tab
+    def create_ai_tab(self):
+        ai_frame = ttk.Frame(self.notebook)
+        self.notebook.add(ai_frame, text='AI')
+
+        ttk.Label(ai_frame, text="Enabled:").grid(row=self.current_row, column=0, sticky='W')
+        self.ai_enabled = tk.BooleanVar(value=self.settings.ai.enabled)
+        ttk.Checkbutton(ai_frame, variable=self.ai_enabled).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(ai_frame, "Enable or disable AI integration.", row=self.current_row, column=2)
+
+        ttk.Label(ai_frame, text="Anki Field:").grid(row=self.current_row, column=0, sticky='W')
+        self.ai_anki_field = ttk.Entry(ai_frame)
+        self.ai_anki_field.insert(0, self.settings.ai.anki_field)
+        self.ai_anki_field.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(ai_frame, "Field in Anki for AI-generated content.", row=self.current_row,
+                                         column=2)
+
+        # ttk.Label(ai_frame, text="Provider:").grid(row=self.current_row, column=0, sticky='W')
+        # self.provider = ttk.Combobox(ai_frame,
+        #                              values=[AI_GEMINI])
+        # self.provider.set(self.settings.ai.provider)
+        # self.provider.grid(row=self.current_row, column=1)
+        # self.add_label_and_increment_row(ai_frame, "Select the AI provider. Currently only Gemini is supported.", row=self.current_row, column=2)
+
+        ttk.Label(ai_frame, text="API Key:").grid(row=self.current_row, column=0, sticky='W')
+        self.ai_api_key = ttk.Entry(ai_frame, show="*")  # Mask the API key for security
+        self.ai_api_key.insert(0, self.settings.ai.api_key)
+        self.ai_api_key.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(ai_frame, "API key for the selected AI provider (Gemini only currently).", row=self.current_row,
+                                         column=2)
+
+        ttk.Label(ai_frame, text="Use Canned Translation Prompt:").grid(row=self.current_row, column=0, sticky='W')
+        self.use_canned_translation_prompt = tk.BooleanVar(value=self.settings.ai.use_canned_translation_prompt)
+        ttk.Checkbutton(ai_frame, variable=self.use_canned_translation_prompt).grid(row=self.current_row, column=1,
+                                                                                    sticky='W')
+        self.add_label_and_increment_row(ai_frame, "Use a pre-defined translation prompt for AI.", row=self.current_row,
+                                         column=2)
+
+        ttk.Label(ai_frame, text="Use Canned Context Prompt:").grid(row=self.current_row, column=0, sticky='W')
+        self.use_canned_context_prompt = tk.BooleanVar(value=self.settings.ai.use_canned_context_prompt)
+        ttk.Checkbutton(ai_frame, variable=self.use_canned_context_prompt).grid(row=self.current_row, column=1,
+                                                                                sticky='W')
+        self.add_label_and_increment_row(ai_frame, "Use a pre-defined context prompt for AI.", row=self.current_row,
+                                         column=2)
+
+        ttk.Label(ai_frame, text="Custom Prompt:").grid(row=self.current_row, column=0, sticky='W')
+
+        self.custom_prompt = scrolledtext.ScrolledText(ai_frame, width=50, height=5)  # Adjust height as needed
+        self.custom_prompt.insert(tk.END, self.settings.ai.custom_prompt)
+        self.custom_prompt.grid(row=self.current_row, column=1)
+
+        self.add_label_and_increment_row(ai_frame, "Custom prompt for AI processing.", row=self.current_row, column=2)
+
+        return ai_frame
+
 
     def on_profile_change(self, event):
         print("profile Changed!")

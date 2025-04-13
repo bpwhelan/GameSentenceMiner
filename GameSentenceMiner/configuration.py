@@ -27,6 +27,8 @@ WHISPER_SMALL = 'small'
 WHISPER_MEDIUM = 'medium'
 WHSIPER_LARGE = 'large'
 
+AI_GEMINI = 'gemini'
+
 INFO = 'INFO'
 DEBUG = 'DEBUG'
 
@@ -107,6 +109,7 @@ class Screenshot:
     screenshot_hotkey_updates_anki: bool = False
     seconds_after_line: float = 1.0
     use_beginning_of_line_as_screenshot: bool = True
+    use_new_screenshot_logic: bool = False
 
 
 @dataclass_json
@@ -175,6 +178,16 @@ class Advanced:
     multi_line_line_break: str = '<br>'
     multi_line_sentence_storage_field: str = ''
 
+@dataclass_json
+@dataclass
+class Ai:
+    enabled: bool = False
+    anki_field: str = ''
+    provider: str = AI_GEMINI
+    api_key: str = ''
+    use_canned_translation_prompt: bool = True
+    use_canned_context_prompt: bool = False
+    custom_prompt: str = ''
 
 
 @dataclass_json
@@ -191,6 +204,7 @@ class ProfileConfig:
     hotkeys: Hotkeys = field(default_factory=Hotkeys)
     vad: VAD = field(default_factory=VAD)
     advanced: Advanced = field(default_factory=Advanced)
+    ai: Ai = field(default_factory=Ai)
 
 
     # This is just for legacy support

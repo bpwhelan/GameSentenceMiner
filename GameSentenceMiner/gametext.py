@@ -6,6 +6,7 @@ from datetime import datetime
 
 import pyperclip
 import websockets
+from websockets import InvalidStatusCode
 
 from GameSentenceMiner import util
 from GameSentenceMiner.model import AnkiCard
@@ -30,6 +31,7 @@ class GameLine:
     time: datetime
     prev: 'GameLine'
     next: 'GameLine'
+    index: int = 0
 
     def get_previous_time(self):
         if self.prev:
@@ -44,6 +46,7 @@ class GameLine:
 @dataclass
 class GameText:
     values: list[GameLine]
+    game_line_index = 0
 
     def __init__(self):
         self.values = []
@@ -64,7 +67,8 @@ class GameText:
         return None
 
     def add_line(self, line_text):
-        new_line = GameLine(line_text, datetime.now(), self.values[-1] if self.values else None, None)
+        new_line = GameLine(line_text, datetime.now(), self.values[-1] if self.values else None, None, self.game_line_index)
+        self.game_line_index += 1
         if self.values:
             self.values[-1].next = new_line
         self.values.append(new_line)
@@ -106,25 +110,38 @@ class ClipboardMonitor(threading.Thread):
 
 async def listen_websocket():
     global current_line, current_line_time, line_history, reconnecting, websocket_connected
+    try_other = False
+    websocket_url = f'ws://{get_config().general.websocket_uri}'
     while True:
+        if try_other:
+            websocket_url = f'ws://{get_config().general.websocket_uri}/api/ws/text/origin'
         try:
-            async with websockets.connect(f'ws://{get_config().general.websocket_uri}', ping_interval=None) as websocket:
+            async with websockets.connect(websocket_url, ping_interval=None) as websocket:
+                logger.info("TextHooker Websocket Connected!")
                 if reconnecting:
                     logger.info(f"Texthooker WebSocket connected Successfully!" + " Disabling Clipboard Monitor." if get_config().general.use_clipboard else "")
                     reconnecting = False
                 websocket_connected = True
+                try_other = True
                 while True:
                     message = await websocket.recv()
-
+                    logger.debug(message)
                     try:
                         data = json.loads(message)
                         if "sentence" in data:
                             current_clipboard = data["sentence"]
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError or TypeError:
                         current_clipboard = message
                     if current_clipboard != current_line:
                         handle_new_text_event(current_clipboard)
-        except (websockets.ConnectionClosed, ConnectionError) as e:
+        except (websockets.ConnectionClosed, ConnectionError, InvalidStatusCode) as e:
+            if isinstance(e, InvalidStatusCode):
+                e: InvalidStatusCode
+                if e.status_code == 404:
+                    logger.info("Texthooker WebSocket connection failed. Attempting some fixes...")
+                    try_other = True
+
+                logger.error(f"Texthooker WebSocket connection failed. Please check if the Texthooker is running and the WebSocket URI is correct.")
             websocket_connected = False
             if not reconnecting:
                 logger.warning(f"Texthooker WebSocket connection lost, Defaulting to clipboard if enabled. Attempting to Reconnect...")
@@ -225,3 +242,11 @@ def get_mined_line(last_note: AnkiCard, lines):
 
 def get_time_of_line(line):
     return line_history.get_time(line)
+
+
+def get_all_lines():
+    return line_history.values
+
+
+def get_line_history():
+    return line_history

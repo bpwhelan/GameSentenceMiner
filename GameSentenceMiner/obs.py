@@ -118,7 +118,6 @@ def do_obs_call(request, from_dict = None, retry=10):
             return from_dict(response.datain)
         return None
     except Exception as e:
-        logger.error(e)
         if "socket is already closed" in str(e) or "object has no attribute" in str(e):
             if retry > 0:
                 time.sleep(1)

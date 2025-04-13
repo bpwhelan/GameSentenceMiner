@@ -59,7 +59,7 @@ def timedelta_to_ffmpeg_friendly_format(td_obj):
 
 
 def get_file_modification_time(file_path):
-    mod_time_epoch = os.path.getmtime(file_path)
+    mod_time_epoch = os.path.getctime(file_path)
     mod_time = datetime.fromtimestamp(mod_time_epoch)
     return mod_time
 

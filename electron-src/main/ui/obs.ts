@@ -171,7 +171,7 @@ function registerOBSIPC() {
                     mode: 'window',
                     window: window.value,
                     capture_audio: true,
-                    method: 2
+                    capture_cursor: false,
                 }
             });
 

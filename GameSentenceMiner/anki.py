@@ -8,9 +8,10 @@ from datetime import datetime, timedelta
 from requests import post
 
 from GameSentenceMiner import obs, util, notification, ffmpeg
+from GameSentenceMiner.ai.gemini import translate_with_context
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
-from GameSentenceMiner.gametext import get_text_event
+from GameSentenceMiner.gametext import get_text_event, get_all_lines
 from GameSentenceMiner.model import AnkiCard
 from GameSentenceMiner.utility_gui import get_utility_window
 from GameSentenceMiner.obs import get_current_game
@@ -62,6 +63,19 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         note['fields'][get_config().anki.picture_field] = image_html
     if not get_config().screenshot.enabled:
         logger.info("Skipping Adding Screenshot to Anki, Screenshot is disabled in settings")
+
+    if get_config().ai.enabled:
+        sentence_field = note['fields'].get(get_config().anki.sentence_field, {})
+        sentence_to_translate = sentence_field if sentence_field else last_note.get_field(
+            get_config().anki.sentence_field)
+
+    if note and 'fields' in note:
+        translation = translate_with_context(get_all_lines(), sentence_to_translate,
+                                                                   game_line.index, get_current_game())
+        logger.info(translation)
+        note['fields']['SentenceMeaning'] = translation
+    else:
+        logger.error("Invalid note object. Cannot update SentenceMeaning.")
 
     if prev_screenshot_in_anki:
         note['fields'][get_config().anki.previous_image_field] = prev_screenshot_html

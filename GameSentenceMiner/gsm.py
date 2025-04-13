@@ -116,9 +116,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     mined_line = get_mined_line(last_note, lines)
                     line_cutoff = get_utility_window().get_next_line_timing()
 
-                ss_timing = 0
-                if mined_line and line_cutoff or mined_line and get_config().screenshot.use_beginning_of_line_as_screenshot:
-                    ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line)
                 if last_note:
                     logger.debug(last_note.to_json())
                 selected_lines = get_utility_window().get_selected_lines()
@@ -128,7 +125,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
                 if get_config().anki.sentence_audio_field and get_config().audio.enabled:
                     logger.debug("Attempting to get audio from video")
-                    final_audio_output, should_update_audio, vad_trimmed_audio = VideoToAudioHandler.get_audio(
+                    final_audio_output, should_update_audio, vad_trimmed_audio, vad_beginning, vad_end = VideoToAudioHandler.get_audio(
                         start_line,
                         line_cutoff,
                         video_path)
@@ -136,10 +133,17 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     final_audio_output = ""
                     should_update_audio = False
                     vad_trimmed_audio = ""
+                    vad_beginning = 0
+                    vad_end = 0
                     if not get_config().audio.enabled:
                         logger.info("Audio is disabled in config, skipping audio processing!")
                     elif not get_config().anki.sentence_audio_field:
                         logger.info("No SentenceAudio Field in config, skipping audio processing!")
+
+                ss_timing = 1
+                if mined_line and line_cutoff or mined_line and get_config().screenshot.use_beginning_of_line_as_screenshot:
+                    ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_beginning, vad_end)
+
                 if get_config().anki.update_anki and last_note:
                     anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
                                           tango=tango,
@@ -170,10 +174,11 @@ class VideoToAudioHandler(FileSystemEventHandler):
         final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination,
                                                                 f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
         should_update_audio = True
+        vad_beginning, vad_end = 0, 0
         if get_config().vad.do_vad_postprocessing:
-            should_update_audio = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio, vad_trimmed_audio)
+            should_update_audio, vad_beginning, vad_end = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio, vad_trimmed_audio)
             if not should_update_audio:
-                should_update_audio = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio,
+                should_update_audio, vad_beginning, vad_end = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio,
                                                         vad_trimmed_audio)
             if not should_update_audio and get_config().vad.add_audio_on_no_results:
                 logger.info("No voice activity detected, using full audio.")
@@ -184,7 +189,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                                                   get_config().audio.ffmpeg_reencode_options)
         elif os.path.exists(vad_trimmed_audio):
             shutil.move(vad_trimmed_audio, final_audio_output)
-        return final_audio_output, should_update_audio, vad_trimmed_audio
+        return final_audio_output, should_update_audio, vad_trimmed_audio, vad_beginning, vad_end
 
 
 def do_vad_processing(model, trimmed_audio, vad_trimmed_audio, second_pass=False):
@@ -226,10 +231,9 @@ def play_video_in_external(line, filepath):
 
     if start:
         if "vlc" in get_config().advanced.video_player_path:
-            command.append("--start-time")
+            command.extend(["--start-time", convert_to_vlc_seconds(start), '--one-instance'])
         else:
-            command.append("--start")
-        command.append(convert_to_vlc_seconds(start))
+            command.extend(["--start", convert_to_vlc_seconds(start)])
     command.append(os.path.normpath(filepath))
 
     logger.info(" ".join(command))

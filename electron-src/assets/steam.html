@@ -167,7 +167,7 @@
 
         status.textContent = 'Launching...';
         const result = await ipcRenderer.invoke('steam.launchSteamGame', parseInt(selectedGameId));
-        status.textContent = result.status === 'launched' ? 'Game Launched!' : 'Error!';
+        status.textContent = result.status === 'success' ? 'Game Launched!' : 'Error!';
     });
 
     configGameBtn.addEventListener('click', () => {

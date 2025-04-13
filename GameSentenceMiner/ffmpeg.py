@@ -17,13 +17,13 @@ def get_ffprobe_path():
 ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
 
 
-def get_screenshot(video_file, time_from_end):
-    time_from_end_to_capture = -time_from_end if time_from_end else -1
+def get_screenshot(video_file, screenshot_timing):
+    screenshot_timing = screenshot_timing if screenshot_timing else 1
     output_image = make_unique_file_name(os.path.join(
         get_config().paths.screenshot_destination, f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
     # FFmpeg command to extract the last frame of the video
     ffmpeg_command = ffmpeg_base_command_list + [
-        "-sseof", f"{time_from_end_to_capture}",  # Seek to 1 second before the end of the video
+        "-ss", f"{screenshot_timing}",  # Seek to 1 second after the beginning
         "-i", f"{video_file}",
         "-vframes", "1"  # Extract only one frame
     ]
@@ -52,31 +52,51 @@ def get_screenshot_for_line(video_file, game_line):
     return get_screenshot(video_file, get_screenshot_time(video_file, game_line))
 
 
-
-def get_screenshot_time(video_path, game_line, default_beginning=False):
+def get_screenshot_time(video_path, game_line, default_beginning=False, vad_beginning=None, vad_end=None):
     if game_line:
         line_time = game_line.time
     else:
+        # Assuming initial_time is defined elsewhere if game_line is None
         line_time = initial_time
 
     file_length = get_video_duration(video_path)
     file_mod_time = get_file_modification_time(video_path)
 
+    # Calculate when the line occurred within the video file (seconds from start)
     time_delta = file_mod_time - line_time
-    total_seconds = file_length - time_delta.total_seconds()
+    line_timestamp_in_video = file_length - time_delta.total_seconds()
+    screenshot_offset = get_config().screenshot.seconds_after_line
 
-    time_from_end = file_length - total_seconds - get_config().screenshot.seconds_after_line
+    # Calculate screenshot time from the beginning by adding the offset
+    if vad_beginning and vad_end:
+        logger.debug("Using VAD to determine screenshot time")
+        screenshot_time_from_beginning = line_timestamp_in_video + vad_end - screenshot_offset
+    elif get_config().screenshot.use_new_screenshot_logic:
+        if game_line.next:
+            logger.debug("Finding time between lines for screenshot")
+            screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next.time - game_line.time).total_seconds() / 2)
+        else:
+            logger.debug("Using end of line for screenshot")
+            screenshot_time_from_beginning = file_length - screenshot_offset
+    else:
+        screenshot_time_from_beginning = line_timestamp_in_video + screenshot_offset
 
-    if time_from_end < 0 or time_from_end > file_length:
+    # Check if the calculated time is out of bounds
+    if screenshot_time_from_beginning < 0 or screenshot_time_from_beginning > file_length:
         logger.error(
-            "Calculated screenshot time is out of bounds for trimmed video")
+             f"Calculated screenshot time ({screenshot_time_from_beginning:.2f}s) is out of bounds for video (length {file_length:.2f}s)."
+        )
         if default_beginning:
-            logger.info("Defaulting to using the beginning of the Replay Buffer")
-            return file_length - 1.0
-        logger.info("Defaulting to using the end of the Replay Buffer")
-        return 0
+            logger.info("Defaulting to using the beginning of the video (1.0s)")
+            # Return time for the start of the video
+            return 1.0
+        logger.info(f"Defaulting to using the end of the video ({file_length:.2f}s)")
+        return file_length - screenshot_offset
 
-    return time_from_end
+    logger.info("Screenshot time from beginning: " + str(screenshot_time_from_beginning))
+
+    # Return the calculated time from the beginning
+    return screenshot_time_from_beginning
 
 
 def process_image(image_file):
