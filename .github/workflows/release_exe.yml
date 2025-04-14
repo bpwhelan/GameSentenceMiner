@@ -30,7 +30,7 @@ jobs:
       - name: Check Version vs Latest Release and Determine Build/Release
         id: version_check
         env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Use the default token for gh CLI
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Use the default token for gh CLI
         run: |
           echo "Fetching version from package.json..."
           $PACKAGE_VERSION = (Get-Content -Raw -Path ./package.json | ConvertFrom-Json).version
