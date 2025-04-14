@@ -20,6 +20,7 @@ import {launchVNWorkflow, openVNWindow, registerVNIPC} from "./ui/vn.js";
 import {launchSteamGameID, openSteamWindow, registerSteamIPC} from "./ui/steam.js";
 import { webSocketManager } from "./communication/websocket.js";
 import {openOBSWindow, registerOBSIPC} from "./ui/obs.js";
+import {registerSettingsIPC} from "./ui/settings.js";
 
 export let mainWindow: BrowserWindow | null = null;
 let tray: Tray;
@@ -43,14 +44,7 @@ function registerIPC() {
     registerYuzuIPC();
     registerOBSIPC();
     registerSteamIPC();
-
-    ipcMain.on('load-page', (event, url) => {
-        console.log(url)
-        const win = BrowserWindow.getFocusedWindow(); // Get the currently focused window
-        if (win) {
-            win.loadFile(path.join(getAssetsDir(), url));
-        }
-    });
+    registerSettingsIPC();
 }
 
 async function autoUpdate() {
@@ -207,22 +201,6 @@ function createWindow() {
         {
             label: "File",
             submenu: [
-                {
-                    label: "Open Yuzu Launcher",
-                    click: () => openYuzuWindow(),
-                },
-                {
-                    label: "Open VN Launcher",
-                    click: () => openVNWindow(),
-                },
-                {
-                    label: "Open Steam Launcher",
-                    click: () => openSteamWindow(),
-                },
-                {
-                    label: "Open OBS Controller",
-                    click: () => openOBSWindow(),
-                },
                 { type: "separator" },
                 { label: "Exit", role: "quit" },
             ],
@@ -296,27 +274,6 @@ function createTray() {
         {label: 'Update GSM', click: () => updateGSM(false)},
         {label: 'Restart GSM', click: () => restartGSM()},
         {label: "Open GSM Folder", click: () => shell.openPath(BASE_DIR)},
-        {
-            label: 'Utilities',
-            submenu: [
-                {
-                    label: "Open Yuzu Launcher",
-                    click: () => openYuzuWindow(),
-                },
-                {
-                    label: "Open VN Launcher",
-                    click: () => openVNWindow(),
-                },
-                {
-                    label: "Open Steam Launcher",
-                    click: () => openSteamWindow(),
-                },
-                {
-                    label: "Open OBS Controller",
-                    click: () => openOBSWindow(),
-                },
-            ],
-        },
         {label: 'Quit', click: () => quit()},
     ]);
 
