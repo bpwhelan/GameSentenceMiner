@@ -1,9 +1,10 @@
 name: Build Electron App
 
 on:
-  branches:
-    - main # Or your default branch
-  workflow_dispatch:  # Allows manual trigger from the GitHub UI
+  push:
+    branches:
+      - main # Or your default branch
+    workflow_dispatch: # Allow manual trigger
 
 # Grant read permissions for checking releases and write for uploading assets
 permissions:
