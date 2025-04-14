@@ -48,7 +48,7 @@ export const store = new Store<StoreConfig>({
         textractorPath: `E:\\Japanese Stuff\\Textractor\\Textractor.exe`,
         startConsoleMinimized: false,
         autoUpdateElectron: true,
-        autoUpdateGSMApp: true,
+        autoUpdateGSMApp: false,
         VN: {
             vns: [],
             textractorPath: "",

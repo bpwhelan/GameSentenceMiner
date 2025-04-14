@@ -85,7 +85,7 @@ async function autoUpdate() {
         log.error("Update error: " + err.message);
     });
 
-    autoUpdater.checkForUpdatesAndNotify();
+    await autoUpdater.checkForUpdatesAndNotify();
 }
 
 
