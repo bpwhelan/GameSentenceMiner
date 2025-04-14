@@ -1,3 +1,19 @@
+name: Build Electron App
+
+on:
+  push:
+    branches:
+      - main # Or your default branch
+    workflow_dispatch: # Allow manual trigger
+
+# Grant read permissions for checking releases and write for uploading assets
+permissions:
+  contents: write  # Needed for checkout and release asset upload
+  packages: none   # Not needed
+  actions: read    # Not needed unless using specific actions requiring it
+  pull-requests: none # Not needed
+  issues: none        # Not needed
+
 jobs:
   electron-build-windows:
     runs-on: windows-latest
