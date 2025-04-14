@@ -27,7 +27,6 @@ jobs:
         with:
           node-version: '18'  # Adjust based on your Electron requirements
 
-      # ---- Step 1: Check if version matches latest release tag ----
       - name: Check Version vs Latest Release and Determine Build/Release
         id: version_check
         env:
@@ -40,13 +39,17 @@ jobs:
             exit 1
           }
           echo "Package Version: $PACKAGE_VERSION"
-
+          
           echo "Fetching release for tag v$PACKAGE_VERSION..."
           # Get the release matching the package.json version tag.
           # If it exists, we skip the build and upload.
-          $EXISTING_RELEASE = gh release view "v$PACKAGE_VERSION" --repo ${{ github.repository }} --json tagName --jq ".tagName // \"\""
+          $EXISTING_RELEASE = gh release view "v$PACKAGE_VERSION" --json tagName --jq ".tagName // \"\""
+          if ($LASTEXITCODE -ne 0) {
+            echo "No release found for v$PACKAGE_VERSION"
+            $EXISTING_RELEASE = ""
+          }
           echo "Existing Release Tag: $EXISTING_RELEASE"
-
+          
           if ($EXISTING_RELEASE -eq "v$PACKAGE_VERSION") {
             echo "Release v$PACKAGE_VERSION already exists. Skipping build and upload."
             echo "should_build=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
