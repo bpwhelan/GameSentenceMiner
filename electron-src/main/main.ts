@@ -73,6 +73,10 @@ async function autoUpdate() {
                     updateGSM(false).then(() => {
                         autoUpdater.quitAndInstall();
                     });
+                } else {
+                    if (result.response === 0) {
+                        updateGSM(true);
+                    }
                 }
             });
     });
@@ -258,9 +262,9 @@ async function updateGSM(shouldRestart: boolean = false): Promise<void> {
         console.log(`Updating GSM Python Application to ${latestVersion}...`)
         await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
         if (shouldRestart) {
-            restart();
-        } else {
-            await ensureAndRunGSM(pythonPath)
+            ensureAndRunGSM(pythonPath).then(r => {
+                console.log('GSM Successfully Restarted!')
+            });
         }
     } else {
         console.log("You're already using the latest version.");
@@ -271,7 +275,7 @@ function createTray() {
     tray = new Tray(getIconPath(16)); // Replace with a valid icon path
     const contextMenu = Menu.buildFromTemplate([
         {label: 'Show Console', click: () => mainWindow?.show()},
-        {label: 'Update GSM', click: () => updateGSM(false)},
+        {label: 'Update GSM', click: () => updateGSM(true)},
         {label: 'Restart GSM', click: () => restartGSM()},
         {label: "Open GSM Folder", click: () => shell.openPath(BASE_DIR)},
         {label: 'Quit', click: () => quit()},
