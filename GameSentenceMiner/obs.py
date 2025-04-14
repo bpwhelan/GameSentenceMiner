@@ -110,13 +110,17 @@ def disconnect_from_obs():
 
 def do_obs_call(request, from_dict = None, retry=10):
     try:
+        if not client:
+            time.sleep(1)
+            return do_obs_call(request, from_dict, retry - 1)
         response = client.call(request)
         if not response.status and retry > 0:
             time.sleep(1)
             return do_obs_call(request, from_dict, retry - 1)
         if from_dict:
             return from_dict(response.datain)
-        return None
+        else:
+            return response.datain
     except Exception as e:
         if "socket is already closed" in str(e) or "object has no attribute" in str(e):
             if retry > 0:
@@ -138,8 +142,8 @@ def toggle_replay_buffer():
 # Start replay buffer
 def start_replay_buffer(retry=5):
     try:
-        client.call(requests.GetVersion())
-        client.call(requests.StartReplayBuffer())
+        do_obs_call(requests.GetVersion())
+        do_obs_call(requests.StartReplayBuffer())
     except Exception as e:
         if "socket is already closed" in str(e):
             if retry > 0:
@@ -160,7 +164,7 @@ def stop_replay_buffer():
 # Save the current replay buffer
 def save_replay_buffer():
     try:
-        replay_buffer_started = client.call(requests.GetReplayBufferStatus()).datain['outputActive']
+        replay_buffer_started = do_obs_call(requests.GetReplayBufferStatus())['outputActive']
         if replay_buffer_started:
             client.call(requests.SaveReplayBuffer())
             logger.info("Replay buffer saved. If your log stops bere, make sure your obs output path matches \"Path To Watch\" in GSM settings.")
@@ -203,8 +207,7 @@ def get_screenshot():
         if not current_source_name:
             logger.error("No active scene found.")
             return
-        client.call(
-            requests.SaveSourceScreenshot(sourceName=current_source_name, imageFormat='png', imageFilePath=screenshot))
+        do_obs_call(requests.SaveSourceScreenshot(sourceName=current_source_name, imageFormat='png', imageFilePath=screenshot))
         return screenshot
     except Exception as e:
         logger.error(f"Error getting screenshot: {e}")

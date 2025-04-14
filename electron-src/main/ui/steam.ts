@@ -1,7 +1,7 @@
 import {exec, execFile} from 'child_process';
 import {BrowserWindow, ipcMain, dialog} from 'electron';
 import {getAssetsDir} from '../util.js';
-import {isQuitting} from '../main.js';
+import {isQuitting, mainWindow} from '../main.js';
 import {
     getSteamGames,
     getSteamPath,
@@ -147,10 +147,10 @@ export function openSteamWindow() {
         }
     });
 
-    registerIPC();
+    registerSteamIPC();
 }
 
-function registerIPC() {
+export function registerSteamIPC() {
     ipcMain.handle('steam.getSteamGames', async (): Promise<SteamGame[]> => {
         try {
             return getSteamGames();
@@ -249,12 +249,12 @@ function registerIPC() {
     });
 
     ipcMain.handle('steam.showGameConfigDialog', async () => {
-        if (steamWindow) {
+        if (mainWindow) {
             // Show the game configuration dialog
             gameConfigWindow = new BrowserWindow({
                 width: 800,
                 height: 600,
-                parent: steamWindow,
+                parent: mainWindow,
                 modal: true,
                 webPreferences: {
                     nodeIntegration: true,
@@ -283,7 +283,7 @@ function registerIPC() {
                         };
                         games.push(newGame);
                         setSteamGames(games);
-                        steamWindow?.webContents.send('steamGamesUpdated');
+                        mainWindow?.webContents.send('steamGamesUpdated');
                         return {status: 'success', message: 'Configuration saved successfully!'};
                     } catch (error) {
                         console.error('Error saving configuration:', error);

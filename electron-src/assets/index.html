@@ -8,13 +8,55 @@
     <style>
         body {
             margin: 0;
-            display: flex;
+            padding: 0;
             height: 100vh;
-            justify-content: center;
-            align-items: center;
-            background: black;
+            background: #1a1a1a;
+            color: #ffffff;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
         }
 
+        .tab-bar {
+            background: #2a2a2a;
+            padding: 10px;
+            display: flex;
+            gap: 5px;
+        }
+
+        .tab-button {
+            background: #3a3a3a;
+            border: none;
+            color: #ffffff;
+            padding: 8px 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+
+        .tab-button:hover {
+            background: #4a4a4a;
+        }
+
+        .tab-button.active {
+            background: #5a5a5a;
+        }
+
+        .tab-content {
+            flex: 1;
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            height: 100%;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
         #terminal {
             width: 100%;
             height: 100%;
@@ -22,51 +64,119 @@
     </style>
 </head>
 <body>
-<div id="terminal"></div>
-<script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
-<script>
-    const {ipcRenderer, clipboard} = require('electron');
-    const term = new Terminal({
-        fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace', // Japanese-supporting fonts
-        fontSize: 14,
-        cursorBlink: false,
-        allowProposedApi: true
-    });
-    const fitAddon = new FitAddon.FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(document.getElementById('terminal'));
-    fitAddon.fit();
+    <div class="tab-bar">
+        <button class="tab-button active" data-tab="console">Console</button>
+        <button class="tab-button" data-tab="obs">OBS</button>
+        <button class="tab-button" data-tab="steam">Steam</button>
+        <button class="tab-button" data-tab="vn">VN</button>
+        <button class="tab-button" data-tab="yuzu">Yuzu</button>
+        <button class="tab-button" data-tab="settings">Settings</button>
+    </div>
 
-    window.addEventListener('resize', () => fitAddon.fit());
+    <div id="console" class="tab-content active">
+        <div id="terminal"></div>
+        <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+        <script>
+            const {ipcRenderer, clipboard} = require('electron');
+            const term = new Terminal({
+                fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace', // Japanese-supporting fonts
+                fontSize: 14,
+                cursorBlink: false,
+                allowProposedApi: true
+            });
+            const fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+            term.open(document.getElementById('terminal'));
+            fitAddon.fit();
 
-    ipcRenderer.on('terminal-output', (event, data) => {
-        term.write(data);
-    });
+            window.addEventListener('resize', () => fitAddon.fit());
 
-    ipcRenderer.on('terminal-error', (event, data) => {
-        term.write(`\x1b[31mERROR: ${data}\x1b[0m`); // Red text for errors
-    });
+            ipcRenderer.on('terminal-output', (event, data) => {
+                term.write(data);
+            });
 
-    term.attachCustomKeyEventHandler((arg) => {
-        if (arg.ctrlKey && arg.code === "KeyC" && arg.type === "keydown") {
-            const selection = term.getSelection();
-            if (selection) {
-                clipboard.writeText(selection);
-                return false;
-            }
-        }
-        return true;
-    });
+            ipcRenderer.on('terminal-error', (event, data) => {
+                term.write(`\x1b[31mERROR: ${data}\x1b[0m`); // Red text for errors
+            });
 
-    document.getElementById("terminal").addEventListener('contextmenu', () => {
-        if (term.hasSelection()) {
-            document.execCommand('copy')
-            term.select(0, 0, 0)
-        } else {
-            ipcRenderer.send('terminal-data', clipboard.readText())
-        }
-    })
-</script>
+            term.attachCustomKeyEventHandler((arg) => {
+                if (arg.ctrlKey && arg.code === "KeyC" && arg.type === "keydown") {
+                    const selection = term.getSelection();
+                    if (selection) {
+                        clipboard.writeText(selection);
+                        return false;
+                    }
+                }
+                return true;
+            });
+
+            document.getElementById("terminal").addEventListener('contextmenu', () => {
+                if (term.hasSelection()) {
+                    document.execCommand('copy')
+                    term.select(0, 0, 0)
+                } else {
+                    ipcRenderer.send('terminal-data', clipboard.readText())
+                }
+            })
+        </script>
+    </div>
+    <div id="obs" class="tab-content">
+        <iframe src="obs.html"></iframe>
+    </div>
+    <div id="steam" class="tab-content">
+        <iframe src="steam.html"></iframe>
+    </div>
+    <div id="vn" class="tab-content">
+        <iframe src="VN.html"></iframe>
+    </div>
+    <div id="yuzu" class="tab-content">
+        <iframe src="yuzu.html"></iframe>
+    </div>
+    <div id="settings" class="tab-content">
+        <iframe src="settings.html"></iframe>
+    </div>
+    <script>
+
+        // const { ipcRenderer } = require('electron');
+
+        // function loadNewPage(url) {
+        //     ipcRenderer.send('load-page', url); // Send the URL to the main process
+        // }
+
+        // Example usage: load a new page when a button is clicked
+        // const tabButtons = document.querySelectorAll('.tab-button');
+        // tabButtons.forEach(button => {
+        //     button.addEventListener('click', () => {
+        //         const selectedTab = button.dataset.tab;
+        //         const otherContents = document.querySelectorAll('.tab-content:not(#' + selectedTab + ')');
+        //
+        //         document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+        //         button.classList.add('active');
+        //
+        //         // Hide all other contents and show the selected one
+        //         otherContents.forEach(content => content.classList.remove('active'));
+        //
+        //         // Load the selected page
+        //         loadNewPage(selectedTab + '.html');
+        //     });
+        // });
+        //
+        // loadNewPage("console.html")
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', () => {
+                // Remove active class from all buttons and content
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+                // Add active class to clicked button and corresponding content
+                const tabId = button.getAttribute('data-tab');
+                document.getElementById(tabId).classList.add('active');
+
+                // Notify main process of tab change
+                ipcRenderer.send('tab-changed', tabId);
+            });
+        });
+    </script>
 </body>
 </html>

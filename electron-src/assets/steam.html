@@ -4,70 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Steam Launcher</title>
-    <style>
-        body {
-            background-color: #1e1e1e;
-            color: #e0e0e0;
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-
-        h1 {
-            color: #ffffff;
-            text-align: center;
-        }
-
-        .gameSelect {
-            background-color: #2d2d2d;
-            color: #e0e0e0;
-            border: 1px solid #444;
-            padding: 8px;
-            width: 200px;
-            font-size: 16px;
-            margin-bottom: 10px;
-        }
-
-        .gameSelect option {
-            background-color: #2d2d2d;
-            color: #e0e0e0;
-        }
-
-        #launchBtn {
-            background-color: #0078d4;
-            color: #ffffff;
-            border: none;
-            padding: 8px 16px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-
-        #launchBtn:disabled {
-            background-color: #555;
-            cursor: not-allowed;
-        }
-
-        #launchBtn:hover:not(:disabled) {
-            background-color: #005ea2;
-        }
-
-        button {
-            background-color: #3a3a3a;
-            color: #ffffff;
-            border: none;
-            padding: 8px 16px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            margin-right: 10px;
-        }
-
-        #status {
-            color: #b0b0b0;
-            font-weight: bold;
-            margin-top: 10px;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <h1>Steam Game Launcher</h1>
@@ -82,12 +19,10 @@
     <button id="removeGameBtn">Remove Game</button>
     <button id="launchBtn" class="pathBtn" disabled>Launch Game</button>
 </div>
-<br>
 <div>
     <button id="setAgentBtn" class="pathBtn">Set Agent Path</button>
     <button id="setSteamPathBtn" class="pathBtn">Set Steam Path</button>
 </div>
-<br>
 <div>
     <label>
         Launch on start:

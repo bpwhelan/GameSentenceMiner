@@ -36,7 +36,7 @@ interface StoreConfig {
     agentPath: string;
 }
 
-const store = new Store<StoreConfig>({
+export const store = new Store<StoreConfig>({
     defaults: {
         yuzu: {
             emuPath: "C:\\Emulation\\Emulators\\yuzu-windows-msvc\\yuzu.exe",

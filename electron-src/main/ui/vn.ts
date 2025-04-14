@@ -11,7 +11,7 @@ import {
 } from "../store.js";
 import {BrowserWindow, dialog, ipcMain} from "electron";
 import {getAssetsDir} from "../util.js";
-import {isQuitting} from "../main.js";
+import {isQuitting, mainWindow} from "../main.js";
 
 let VNWindow: BrowserWindow | null = null;
 
@@ -91,6 +91,10 @@ export function openVNWindow() {
         VNWindow = null;
     });
 
+    registerVNIPC();
+}
+
+export function registerVNIPC() {
     ipcMain.handle("vn.launchVN", async (_, vnPath: string) => {
         try {
             await launchVNWorkflow(vnPath);
@@ -105,10 +109,10 @@ export function openVNWindow() {
 
     ipcMain.handle("vn.addVN", async () => {
         console.log("Adding VN");
-        if (VNWindow) {
+        if (mainWindow) {
             console.log("VNWindow is open");
             try {
-                const {canceled, filePaths} = await dialog.showOpenDialog(VNWindow, {
+                const {canceled, filePaths} = await dialog.showOpenDialog(mainWindow, {
                     properties: ['openFile'],
                     filters: [
                         {name: 'Executables', extensions: ['exe']}, // Adjust filters as needed
@@ -152,9 +156,9 @@ export function openVNWindow() {
     });
 
     ipcMain.handle("vn.setTextractorPath", async (_, path: string) => {
-        if (VNWindow) {
+        if (mainWindow) {
             try {
-                const {canceled, filePaths} = await dialog.showOpenDialog(VNWindow, {
+                const {canceled, filePaths} = await dialog.showOpenDialog(mainWindow, {
                     properties: ['openFile'],
                     filters: [
                         {name: 'Executables', extensions: ['exe']}, // Adjust filters as needed

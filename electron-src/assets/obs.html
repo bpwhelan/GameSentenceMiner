@@ -4,63 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OBS Controller</title>
-    <style>
-        body {
-            background-color: #1e1e1e;
-            color: #e0e0e0;
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-
-        h1 {
-            color: #ffffff;
-            text-align: center;
-        }
-
-        .inputField {
-            background-color: #2d2d2d;
-            color: #e0e0e0;
-            border: 1px solid #444;
-            padding: 8px;
-            font-size: 16px;
-            margin-bottom: 10px;
-        }
-
-        .control {
-            margin-bottom: 10px;
-        }
-
-        button {
-            background-color: #0078d4;
-            color: #ffffff;
-            border: none;
-            padding: 8px 16px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-
-        button:disabled {
-            background-color: #555;
-            cursor: not-allowed;
-        }
-
-        button:hover:not(:disabled) {
-            background-color: #005ea2;
-        }
-
-        select {
-            background-color: #2d2d2d;
-            color: #e0e0e0;
-            border: 1px solid #444;
-            padding: 8px;
-            width: 200px;
-            font-size: 16px;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>OBS Controller</h1>
 <!--<div class="control">-->
 <!--    <button id="launchObsBtn">Launch OBS</button>-->
 <!--</div>-->
@@ -74,13 +20,16 @@
     <button id="removeSceneBtn">Remove Scene</button>
 </div>
 <div class="control">
-    <label for="windowSelect">Windows:</label>
-    <select id="windowSelect"></select>
-    <label for="sceneNameInput">
-        <input type="text" id="sceneNameInput" class="inputField" placeholder="Override Scene Name">
-    </label>
-    <button id="refreshWindowsBtn">&#x21bb;</button>
-    <button id="createNewSceneBtn">Create New Scene</button>
+    <div style="display: flex; align-items: center;">
+        <label for="windowSelect">Windows:</label>
+        <select id="windowSelect"></select>
+        <button id="refreshWindowsBtn">&#x21bb;</button>
+    </div>
+    <div>
+        <label for="sceneNameInput">Override Scene Name:</label>
+        <input type="text" id="sceneNameInput" class="inputField"  placeholder="Enter a name for the new scene">
+        <button id="createNewSceneBtn">Create New Scene</button>
+    </div>
 </div>
 <script>
     const {ipcRenderer} = require('electron');
@@ -115,8 +64,6 @@
             const windowSelect = document.getElementById('windowSelect');
             windowSelect.innerHTML = '';
             windows.forEach(window => {
-                console.log(window)
-                console.log(window.value)
                 const option = document.createElement('option');
                 option.value = window.value;
                 option.textContent = window.title;
@@ -136,12 +83,10 @@
 
     document.getElementById('windowSelect').addEventListener('change', (event) => {
         const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
-        console.log(selectedWindow)
         const windowData = {
             title: selectedWindow.textContent,
             path: selectedWindow.value
         };
-        console.log(windowData)
     });
 
     document.getElementById('refreshWindowsBtn').addEventListener('click', () => {

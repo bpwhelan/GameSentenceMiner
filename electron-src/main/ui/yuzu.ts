@@ -22,7 +22,7 @@ import {
 import {BrowserWindow, ipcMain, dialog} from "electron";
 import path from "path";
 import {getAssetsDir} from "../util.js";
-import {isQuitting} from "../main.js";
+import {isQuitting, mainWindow} from "../main.js";
 
 export let yuzuWindow: BrowserWindow | null = null;
 
@@ -171,10 +171,10 @@ export function openYuzuWindow() {
             yuzuWindow = null;
         }
     });
-    registerIPC();
+    registerYuzuIPC();
 }
 
-function registerIPC() {
+export function registerYuzuIPC() {
     ipcMain.handle("yuzu.getYuzuGames", async (): Promise<YuzuGame[]> => {
         try {
             return getYuzuGames(getYuzuRomsPath()) // Convert JSON string to array of YuzuGame
@@ -185,9 +185,9 @@ function registerIPC() {
     });
 
     ipcMain.handle("yuzu.setAgentScriptsPath", async () => {
-        if (yuzuWindow) {
+        if (mainWindow) {
             try {
-                const {canceled, filePaths} = await dialog.showOpenDialog(yuzuWindow, {
+                const {canceled, filePaths} = await dialog.showOpenDialog(mainWindow, {
                     properties: ['openDirectory'],
                     filters: [
                         {name: 'All Files', extensions: ['*']}

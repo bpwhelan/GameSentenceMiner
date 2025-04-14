@@ -99,13 +99,15 @@ async function waitForObsConnection(): Promise<void> {
         const interval = setInterval(() => {
             if (obsConnected) {
                 clearInterval(interval);
-                resolve();
+                setTimeout(() => {
+                    resolve();
+                }, 3000);
             }
         }, 1000);
     });
 }
 
-function registerOBSIPC() {
+export function registerOBSIPC() {
     ipcMain.handle('obs.launch', async () => {
         exec('obs', (error: any) => {
             if (error) {

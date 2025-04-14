@@ -1,4 +1,4 @@
-import {app, BrowserWindow, dialog, Menu, shell, Tray} from 'electron';
+import {app, BrowserWindow, dialog, ipcMain, Menu, shell, Tray} from 'electron';
 import * as path from 'path';
 import {ChildProcessWithoutNullStreams, spawn} from 'child_process';
 import {getOrInstallPython} from "./python/python_downloader.js";
@@ -14,14 +14,14 @@ import {
     getStartConsoleMinimized,
     setPythonPath
 } from "./store.js";
-import {launchYuzuGameID, openYuzuWindow} from "./ui/yuzu.js";
+import {launchYuzuGameID, openYuzuWindow, registerYuzuIPC} from "./ui/yuzu.js";
 import {checkForUpdates} from "./update_checker.js";
-import {launchVNWorkflow, openVNWindow} from "./ui/vn.js";
-import {launchSteamGameID, openSteamWindow} from "./ui/steam.js";
+import {launchVNWorkflow, openVNWindow, registerVNIPC} from "./ui/vn.js";
+import {launchSteamGameID, openSteamWindow, registerSteamIPC} from "./ui/steam.js";
 import { webSocketManager } from "./communication/websocket.js";
-import {openOBSWindow} from "./ui/obs.js";
+import {openOBSWindow, registerOBSIPC} from "./ui/obs.js";
 
-let mainWindow: BrowserWindow | null = null;
+export let mainWindow: BrowserWindow | null = null;
 let tray: Tray;
 let pyProc: ChildProcessWithoutNullStreams;
 export let isQuitting = false;
@@ -36,6 +36,21 @@ export const __dirname = path.dirname(__filename);
 function getAutoUpdater(): AppUpdater {
     const { autoUpdater } = electronUpdater;
     return autoUpdater;
+}
+
+function registerIPC() {
+    registerVNIPC();
+    registerYuzuIPC();
+    registerOBSIPC();
+    registerSteamIPC();
+
+    ipcMain.on('load-page', (event, url) => {
+        console.log(url)
+        const win = BrowserWindow.getFocusedWindow(); // Get the currently focused window
+        if (win) {
+            win.loadFile(path.join(getAssetsDir(), url));
+        }
+    });
 }
 
 async function autoUpdate() {
@@ -180,8 +195,11 @@ function createWindow() {
             nodeIntegration: true,
             contextIsolation: false,
             devTools: true,
+            nodeIntegrationInSubFrames: true
         },
     });
+
+    registerIPC();
 
     mainWindow.loadFile(path.join(getAssetsDir(), 'index.html'));
 
@@ -255,21 +273,20 @@ function createWindow() {
 
 async function updateGSM(shouldRestart: boolean = false): Promise<void> {
     isUpdating = true;
-    checkForUpdates().then(async ({updateAvailable, latestVersion}) => {
-        if (updateAvailable) {
-            console.log("Update available. Closing GSM...");
-            closeGSM();
-            console.log(`Updating GSM Python Application to ${latestVersion}...`)
-            await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
-            if (shouldRestart) {
-                restart();
-            } else {
-                ensureAndRunGSM(pythonPath)
-            }
+    const { updateAvailable, latestVersion } = await checkForUpdates();
+    if (updateAvailable) {
+        console.log("Update available. Closing GSM...");
+        closeGSM();
+        console.log(`Updating GSM Python Application to ${latestVersion}...`)
+        await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
+        if (shouldRestart) {
+            restart();
         } else {
-            console.log("You're already using the latest version.");
+            await ensureAndRunGSM(pythonPath)
         }
-    });
+    } else {
+        console.log("You're already using the latest version.");
+    }
 }
 
 function createTray() {

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings</title>
+  <style>
+    body {
+      background-color: #1e1e1e;
+      color: #e0e0e0;
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+
+    h1 {
+      color: #ffffff;
+      text-align: center;
+    }
+
+    .setting-group {
+      margin-bottom: 20px;
+    }
+
+    .setting-group label {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .setting-input, .setting-select, .setting-checkbox {
+      background-color: #2d2d2d;
+      color: #e0e0e0;
+      border: 1px solid #444;
+      padding: 8px;
+      width: 300px;
+      font-size: 16px;
+    }
+
+    .setting-checkbox {
+      width: auto;
+    }
+
+    .setting-button {
+      background-color: #0078d4;
+      color: #ffffff;
+      border: none;
+      padding: 8px 16px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .setting-button:hover {
+      background-color: #005ea2;
+    }
+
+    .setting-status {
+      color: #b0b0b0;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+
+  </style>
+</head>
+<body>
+<h1>Settings</h1>
+
+<div class="setting-group">
+  <label for="autoUpdateGSMApp">Auto Update GSM App:</label>
+  <input type="checkbox" id="autoUpdateGSMApp" class="setting-checkbox">
+</div>
+
+<div class="setting-group">
+  <label for="autoUpdateElectron">Auto Update Electron:</label>
+  <input type="checkbox" id="autoUpdateElectron" class="setting-checkbox">
+</div>
+
+<!--<div class="setting-group">-->
+<!--  <label for="pythonPath">Python Path:</label>-->
+<!--  <input type="text" id="pythonPath" class="setting-input">-->
+<!--  <button id="selectPythonPath" class="setting-button">Select Python Path</button>-->
+<!--</div>-->
+
+<!--<div class="setting-group">-->
+<!--  <label for="agentScriptsPath">Agent Scripts Path:</label>-->
+<!--  <input type="text" id="agentScriptsPath" class="setting-input">-->
+<!--  <button id="selectAgentScriptsPath" class="setting-button">Select Agent Scripts Path</button>-->
+<!--</div>-->
+
+<div class="setting-group">
+  <label for="startConsoleMinimized">Start Console Minimized:</label>
+  <input type="checkbox" id="startConsoleMinimized" class="setting-checkbox">
+</div>
+<script>
+  const { ipcRenderer } = require('electron');
+  const autoUpdateGSMAppCheckbox = document.getElementById('autoUpdateGSMApp');
+  const autoUpdateElectronCheckbox = document.getElementById('autoUpdateElectron');
+  // const pythonPathInput = document.getElementById('pythonPath');
+  // const selectPythonPathButton = document.getElementById('selectPythonPath');
+  // const agentScriptsPathInput = document.getElementById('agentScriptsPath');
+  // const selectAgentScriptsPathButton = document.getElementById('selectAgentScriptsPath');
+  const startConsoleMinimizedCheckbox = document.getElementById('startConsoleMinimized');
+
+  async function loadSettings() {
+    const settings = await ipcRenderer.invoke('settings.getSettings');
+    if (settings) {
+      autoUpdateGSMAppCheckbox.checked = settings.autoUpdateGSMApp || false;
+      autoUpdateElectronCheckbox.checked = settings.autoUpdateElectron || false;
+      // pythonPathInput.value = settings.pythonPath || '';
+      // agentScriptsPathInput.value = settings.agentScriptsPath || '';
+      startConsoleMinimizedCheckbox.checked = settings.startConsoleMinimized || false;
+    }
+  }
+
+  autoUpdateGSMAppCheckbox.addEventListener('change', async () => {
+    await ipcRenderer.invoke('settings.setAutoUpdateGSMApp', autoUpdateGSMAppCheckbox.checked);
+  });
+
+  autoUpdateElectronCheckbox.addEventListener('change', async () => {
+    await ipcRenderer.invoke('settings.setAutoUpdateElectron', autoUpdateElectronCheckbox.checked);
+  });
+
+  // selectPythonPathButton.addEventListener('click', async () => {
+  //   const result = await ipcRenderer.invoke('settings.selectPythonPath');
+  //   if (result && result.filePath) {
+  //     pythonPathInput.value = result.filePath;
+  //   }
+  // });
+  //
+  // selectAgentScriptsPathButton.addEventListener('click', async () => {
+  //   const result = await ipcRenderer.invoke('settings.selectAgentScriptsPath');
+  //   if (result && result.filePath) {
+  //     agentScriptsPathInput.value = result.filePath;
+  //   }
+  // });
+
+  startConsoleMinimizedCheckbox.addEventListener('change', async () => {
+    await ipcRenderer.invoke('settings.setStartConsoleMinimized', startConsoleMinimizedCheckbox.checked);
+  });
+
+  document.addEventListener('DOMContentLoaded', loadSettings);
+</script>
+</body>
+</html>

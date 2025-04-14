@@ -4,70 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yuzu Launcher</title>
-    <style>
-        body {
-            background-color: #1e1e1e; /* Dark gray background */
-            color: #e0e0e0; /* Light gray text */
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-
-        h1 {
-            color: #ffffff; /* White header */
-            text-align: center;
-        }
-
-        .gameSelect {
-            background-color: #2d2d2d; /* Darker dropdown background */
-            color: #e0e0e0; /* Light text */
-            border: 1px solid #444; /* Subtle border */
-            padding: 8px;
-            width: 200px; /* Fixed width for consistency */
-            font-size: 16px;
-            margin-bottom: 10px;
-        }
-
-        .gameSelect option {
-            background-color: #2d2d2d; /* Match dropdown background */
-            color: #e0e0e0; /* Light text */
-        }
-
-        #launchBtn {
-            background-color: #0078d4; /* Blue button */
-            color: #ffffff; /* White text */
-            border: none;
-            padding: 8px 16px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-
-        #launchBtn:disabled {
-            background-color: #555; /* Grayed out when disabled */
-            cursor: not-allowed;
-        }
-
-        #launchBtn:hover:not(:disabled) {
-            background-color: #005ea2; /* Darker blue on hover */
-        }
-
-        button {
-            background-color: #3a3a3a; /* Nicer gray button */
-            color: #ffffff; /* White text */
-            border: none;
-            padding: 8px 16px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            margin-right: 10px; /* Space between buttons */
-        }
-
-        #status {
-            color: #b0b0b0; /* Slightly dimmer status text */
-            font-weight: bold;
-            margin-top: 10px;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <h1>Yuzu Game Launcher</h1>

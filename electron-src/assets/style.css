@@ -1,0 +1,61 @@
+body {
+    background-color: #121212;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 20px;
+}
+
+h1 {
+    color: #ffffff;
+    text-align: center;
+    font-weight: 300;
+}
+
+.inputField {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+    border: 1px solid #333;
+    padding: 10px;
+    font-size: 16px;
+    margin-bottom: 15px;
+    border-radius: 5px;
+}
+
+.control {
+    margin-bottom: 15px;
+}
+
+button {
+    background-color: #1a73e8;
+    color: #ffffff;
+    border: none;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    border-radius: 5px;
+}
+
+button:disabled {
+    background-color: #444;
+    cursor: not-allowed;
+}
+
+button:hover:not(:disabled) {
+    background-color: #1669c1;
+}
+
+select {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+    border: 1px solid #333;
+    padding: 10px;
+    width: 220px;
+    font-size: 16px;
+    margin-left: 5px;
+    margin-right: 5px;
+}
+
+div {
+    margin-bottom: 15px;
+}
