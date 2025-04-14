@@ -1,36 +1,20 @@
-name: Build Electron App
-
-on:
-  push:
-    branches:
-      - main # Or your default branch
-    workflow_dispatch: # Allow manual trigger
-
-# Grant read permissions for checking releases and write for uploading assets
-permissions:
-  contents: write  # Needed for checkout and release asset upload
-  packages: none   # Not needed
-  actions: read    # Not needed unless using specific actions requiring it
-  pull-requests: none # Not needed
-  issues: none        # Not needed
-
 jobs:
   electron-build-windows:
     runs-on: windows-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4 # Use v4
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4 # Use v4
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'  # Adjust based on your Electron requirements
+          node-version: '18'
 
       - name: Check Version vs Latest Release and Determine Build/Release
         id: version_check
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Use the default token for gh CLI
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Fetching version from package.json..."
           $PACKAGE_VERSION = (Get-Content -Raw -Path ./package.json | ConvertFrom-Json).version
@@ -50,33 +34,31 @@ jobs:
           } else {
             echo "Release tag v$PACKAGE_VERSION does not exist. Proceeding with build and new release."
             echo "should_build=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            echo "PACKAGE_VERSION=$PACKAGE_VERSION" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append # Added this line
           }
         continue-on-error: true
 
-      # ---- Step 2: Install dependencies (Conditional) ----
       - name: Install dependencies
         if: steps.version_check.outputs.should_build == 'true'
         run: |
           npm install
           npm install --save-dev electron electron-builder
 
-      # ---- Step 3: Build Electron app (Conditional) ----
       - name: Build Electron app
         if: steps.version_check.outputs.should_build == 'true'
         run: |
-          npm run app:dist  # Assumes you have a build script in package.json
+          npm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---- Step 4: Create and Upload artifacts to release (Conditional) ----
       - name: Create and Upload release
         if: steps.version_check.outputs.should_build == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version_check.outputs.PACKAGE_VERSION }}
-          name: Release v${{ steps.version_check.outputs.PACKAGE_VERSION }}
+          tag_name: v${{ steps.version_check.outputs.PACKAGE_VERSION }} # Corrected access
+          name: Release v${{ steps.version_check.outputs.PACKAGE_VERSION }} # Corrected access
           draft: false
-          prerelease: false # Or true, depending on your needs.
+          prerelease: false
           files: |
             dist/*Setup*.exe
             dist/latest.yml
@@ -84,7 +66,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---- Optional Step: Report Skipped Build ----
       - name: Report skipped build (if applicable)
         if: steps.version_check.outputs.should_build == 'false'
         run: |
