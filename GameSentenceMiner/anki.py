@@ -71,9 +71,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         translation = translate_with_context(get_all_lines(), sentence_to_translate,
                                                                    game_line.index, get_current_game())
         logger.info(translation)
-        note['fields']['SentenceMeaning'] = translation
-    else:
-        logger.error("Invalid note object. Cannot update SentenceMeaning.")
+        note['fields'][get_config().ai.anki_field] = translation
 
     if prev_screenshot_in_anki:
         note['fields'][get_config().anki.previous_image_field] = prev_screenshot_html
