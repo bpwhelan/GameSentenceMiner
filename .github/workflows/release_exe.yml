@@ -1,12 +1,17 @@
 name: Build Electron App
 
 on:
-  release:
-    types: [published]  # Automatically triggers on published releases
+  branches:
+    - main # Or your default branch
   workflow_dispatch:  # Allows manual trigger from the GitHub UI
 
+# Grant read permissions for checking releases and write for uploading assets
 permissions:
-  contents: write  # Grant write permissions to modify release assets
+  contents: write  # Needed for checkout and release asset upload
+  packages: none   # Not needed
+  actions: read    # Not needed unless using specific actions requiring it
+  pull-requests: none # Not needed
+  issues: none        # Not needed
 
 jobs:
   electron-build-windows:
@@ -14,31 +19,94 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # Use v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4 # Use v4
         with:
           node-version: '18'  # Adjust based on your Electron requirements
 
+      # ---- Step 1: Check if version matches latest release tag ----
+      - name: Check Version vs Latest Release
+        id: version_check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Use the default token for gh CLI
+        run: |
+          echo "Fetching version from package.json..."
+          $PACKAGE_VERSION = (Get-Content -Raw -Path ./package.json | ConvertFrom-Json).version
+          if (-not $PACKAGE_VERSION) {
+            echo "Error: Could not extract version from package.json"
+            exit 1
+          }
+          echo "Package Version: $PACKAGE_VERSION"
+
+          echo "Fetching latest release tag..."
+          # Get the tag name of the latest release. Handles no releases existing.
+          # Uses GitHub CLI (pre-installed on runners)
+          $LATEST_TAG = gh release list --repo ${{ github.repository }} --limit 1 --json tagName --jq ".[0].tagName // \"\""
+          # Use `// ""` in jq to return empty string if no releases exist, prevents errors
+
+          echo "Latest Release Tag: $LATEST_TAG"
+
+          if (-not $LATEST_TAG) {
+              echo "No previous releases found. Proceeding with build."
+              echo "should_build=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+              exit 0
+          }
+
+          # Standardize tag by removing potential leading 'v'
+          $LATEST_TAG_STD = $LATEST_TAG.TrimStart('v')
+          echo "Standardized Latest Tag: $LATEST_TAG_STD"
+
+          # Compare package version with standardized latest tag
+          if ($PACKAGE_VERSION -eq $LATEST_TAG_STD) {
+            echo "Version $PACKAGE_VERSION matches latest release tag $LATEST_TAG. Skipping build."
+            echo "should_build=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } else {
+            echo "Version $PACKAGE_VERSION is different from latest release tag $LATEST_TAG. Proceeding with build."
+            echo "should_build=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+        # Continue workflow even if check determines build should be skipped
+        continue-on-error: true
+
+      # ---- Step 2: Install dependencies (Conditional) ----
       - name: Install dependencies
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           npm install
+          # Consider if electron-builder really needs to be in --save-dev
+          # If it's only for building, `npm install --save-dev` is correct
+          # If it's also a runtime dep (unlikely), it should be in dependencies
           npm install --save-dev electron electron-builder
 
+      # ---- Step 3: Build Electron app (Conditional) ----
       - name: Build Electron app
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           npm run app:dist  # Assumes you have a build script in package.json
         env:
+          # GH_TOKEN is often needed by electron-builder for auto-updates/publishing steps
+          # It uses the default token provided by Actions unless overridden
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # ---- Step 4: Upload artifacts to release (Conditional) ----
       - name: Upload artifacts to release
-        uses: softprops/action-gh-release@v1
-        if: github.event_name == 'release' && github.event.action == 'published'
+        # Only run if:
+        # 1. This was triggered by a published release event
+        # 2. The version check determined we *should* build
+        if: github.event_name == 'release' && github.event.action == 'published' && steps.version_check.outputs.should_build == 'true'
+        uses: softprops/action-gh-release@v2 # Use v2 or latest stable
         with:
+          # Ensure these paths match your electron-builder output configuration
           files: |
             dist/*Setup*.exe
             dist/latest.yml
             dist/*.blockmap
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Action requires this token
+
+      # ---- Optional Step: Report Skipped Build ----
+      - name: Report skipped build (if applicable)
+        if: steps.version_check.outputs.should_build == 'false'
+        run: |
+          echo "Build and upload skipped because package.json version matches the latest release tag."
