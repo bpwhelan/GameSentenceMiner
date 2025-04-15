@@ -97,7 +97,7 @@ export function getYuzuConfig(): YuzuConfig {
 }
 
 export function setYuzuConfig(config: YuzuConfig): void {
-    store.set('yuzu.emuPath', config);
+    store.set('yuzu', config);
 }
 
 

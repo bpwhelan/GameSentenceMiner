@@ -1,4 +1,4 @@
-import {app, BrowserWindow, dialog, ipcMain, Menu, shell, Tray} from 'electron';
+import {app, BrowserWindow, dialog, ipcMain, Menu, shell, Tray, Notification} from 'electron';
 import * as path from 'path';
 import {ChildProcessWithoutNullStreams, spawn} from 'child_process';
 import {getOrInstallPython} from "./python/python_downloader.js";
@@ -18,7 +18,7 @@ import {launchYuzuGameID, openYuzuWindow, registerYuzuIPC} from "./ui/yuzu.js";
 import {checkForUpdates} from "./update_checker.js";
 import {launchVNWorkflow, openVNWindow, registerVNIPC} from "./ui/vn.js";
 import {launchSteamGameID, openSteamWindow, registerSteamIPC} from "./ui/steam.js";
-import { webSocketManager } from "./communication/websocket.js";
+import {webSocketManager} from "./communication/websocket.js";
 import {openOBSWindow, registerOBSIPC} from "./ui/obs.js";
 import {registerSettingsIPC} from "./ui/settings.js";
 
@@ -35,7 +35,7 @@ const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
 
 function getAutoUpdater(): AppUpdater {
-    const { autoUpdater } = electronUpdater;
+    const {autoUpdater} = electronUpdater;
     return autoUpdater;
 }
 
@@ -205,8 +205,8 @@ function createWindow() {
         {
             label: "File",
             submenu: [
-                { type: "separator" },
-                { label: "Exit", role: "quit" },
+                {type: "separator"},
+                {label: "Exit", role: "quit"},
             ],
         },
         {
@@ -255,7 +255,7 @@ function createWindow() {
 
 async function updateGSM(shouldRestart: boolean = false): Promise<void> {
     isUpdating = true;
-    const { updateAvailable, latestVersion } = await checkForUpdates();
+    const {updateAvailable, latestVersion} = await checkForUpdates();
     if (updateAvailable) {
         console.log("Update available. Closing GSM...");
         closeGSM();
@@ -342,6 +342,9 @@ if (!app.requestSingleInstanceLock()) {
         if (!isDev && getAutoUpdateElectron()) {
             await autoUpdate()
         }
+        if (getAutoUpdateGSMApp()) {
+            await updateGSM(false);
+        }
         if (getLaunchVNOnStart()) {
             dialog.showMessageBox(mainWindow!, {
                 type: 'question',
@@ -392,11 +395,26 @@ if (!app.requestSingleInstanceLock()) {
                 }
             });
         });
-        if (getAutoUpdateGSMApp()) {
-            console.log("Checking for Updates...")
-            await updateGSM();
-        }
 
+        checkForUpdates().then(({ updateAvailable, latestVersion }) => {
+            if (updateAvailable) {
+                const notification = new Notification({
+                    title: 'Update Available',
+                    body: `A new version of ${APP_NAME} is available: ${latestVersion}. Click here to update.`,
+                    actions: [{ type: 'button', text: 'Update Now' }],
+                });
+
+                notification.on('action', () => {
+                    updateGSM(true).then(() => {
+                        if (!isQuitting) {
+                            quit();
+                        }
+                    });
+                });
+
+                notification.show();
+            }
+        });
 
         app.on('window-all-closed', () => {
             if (process.platform !== 'darwin') {
