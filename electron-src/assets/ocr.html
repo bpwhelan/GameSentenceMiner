@@ -128,8 +128,7 @@
     // });
 
     document.getElementById('start-ocr').addEventListener('click', () => {
-        const twoPassState = document.getElementById('two-pass-ocr').checked;
-        ipcRenderer.send('ocr.start-ocr', {twoPassState});
+        ipcRenderer.send('ocr.start-ocr');
     });
 
     document.getElementById('two-pass-ocr').addEventListener('change', () => {
