@@ -223,10 +223,10 @@ def get_screenshot(compression=-1):
             logger.error("No active scene found.")
             return
         start = time.time()
-        print(current_source_name)
+        logger.debug(f"Current source name: {current_source_name}")
         response = client.call(requests.SaveSourceScreenshot(sourceName=current_source_name, imageFormat='png', imageFilePath=screenshot, imageCompressionQuality=compression))
-        print(response)
-        print(f"Screenshot took {time.time() - start:.3f} seconds to save")
+        logger.debug(f"Screenshot response: {response}")
+        logger.debug(f"Screenshot took {time.time() - start:.3f} seconds to save")
         return screenshot
     except Exception as e:
         logger.error(f"Error getting screenshot: {e}")
