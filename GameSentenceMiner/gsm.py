@@ -1,4 +1,3 @@
-
 import os.path
 import signal
 from subprocess import Popen
@@ -496,6 +495,7 @@ def cleanup():
         icon.stop()
 
     settings_window.window.destroy()
+    time.sleep(5)
     logger.info("Cleanup complete.")
 
 
@@ -594,8 +594,8 @@ def main(reloading=False):
         win32api.SetConsoleCtrlHandler(handle_exit())
 
     try:
-        if get_config().general.open_config_on_startup:
-            root.after(0, settings_window.show)
+        # if get_config().general.open_config_on_startup:
+        #     root.after(0, settings_window.show)
         if get_config().general.open_multimine_on_startup:
             root.after(0, get_utility_window().show)
         root.after(0, post_init)
@@ -614,4 +614,8 @@ def main(reloading=False):
 
 if __name__ == "__main__":
     logger.info("Starting GSM")
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger.exception(e)
+        time.sleep(5)

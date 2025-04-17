@@ -23,6 +23,13 @@ interface SteamConfig {
     lastGameLaunched: number;
 }
 
+interface OCRConfig {
+    twoPassOCR: boolean;
+    ocr1: string;
+    ocr2: string;
+    window_name: string;
+}
+
 interface StoreConfig {
     yuzu: YuzuConfig;
     agentScriptsPath: string;
@@ -34,6 +41,7 @@ interface StoreConfig {
     VN: VNConfig;
     steam: SteamConfig;
     agentPath: string;
+    OCR: OCRConfig;
 }
 
 export const store = new Store<StoreConfig>({
@@ -62,7 +70,13 @@ export const store = new Store<StoreConfig>({
             launchSteamOnStart: 0,
             lastGameLaunched: 0
         },
-        agentPath: ""
+        agentPath: "",
+        OCR: {
+            twoPassOCR: false,
+            ocr1: "oneOCR",
+            ocr2: "glens",
+            window_name: ""
+        }
     },
     cwd: "electron"
 });
@@ -89,6 +103,48 @@ export function getPythonPath(): string {
 
 export function setPythonPath(path: string): void {
     store.set("pythonPath", path);
+}
+
+//OCR
+
+export function getOCRConfig(): OCRConfig {
+    return store.get("OCR");
+}
+
+export function setOCRConfig(config: OCRConfig): void {
+    store.set("OCR", config);
+}
+
+export function getTwoPassOCR(): boolean {
+    return store.get("OCR.twoPassOCR");
+}
+
+export function setTwoPassOCR(twoPass: boolean): void {
+    store.set("OCR.twoPassOCR", twoPass);
+}
+
+export function getOCR1(): string {
+    return store.get("OCR.ocr1");
+}
+
+export function setOCR1(ocr: string): void {
+    store.set("OCR.ocr1", ocr);
+}
+
+export function getOCR2(): string {
+    return store.get("OCR.ocr2");
+}
+
+export function setOCR2(ocr: string): void {
+    store.set("OCR.ocr2", ocr);
+}
+
+export function getWindowName(): string {
+    return store.get("OCR.window_name");
+}
+
+export function setWindowName(name: string): void {
+    store.set("OCR.window_name", name);
 }
 
 // Yuzu config getters and setters

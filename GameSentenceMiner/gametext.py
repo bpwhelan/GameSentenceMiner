@@ -1,12 +1,13 @@
 import asyncio
+import difflib
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pyperclip
 import websockets
-from websockets import InvalidStatusCode
+from websockets import InvalidStatus
 
 from GameSentenceMiner import util
 from GameSentenceMiner.model import AnkiCard
@@ -66,18 +67,24 @@ class GameText:
             return matches[occurrence]
         return None
 
-    def add_line(self, line_text):
-        new_line = GameLine(line_text, datetime.now(), self.values[-1] if self.values else None, None, self.game_line_index)
+    def add_line(self, line_text, line_time=None):
+        if not line_text:
+            return
+        new_line = GameLine(line_text, line_time if line_time else datetime.now(), self.values[-1] if self.values else None, None, self.game_line_index)
         self.game_line_index += 1
         if self.values:
             self.values[-1].next = new_line
         self.values.append(new_line)
+        # self.remove_old_events(datetime.now() - timedelta(minutes=10))
 
     def has_line(self, line_text) -> bool:
         for game_line in self.values:
             if game_line.text == line_text:
                 return True
         return False
+
+    # def remove_old_events(self, cutoff_time: datetime):
+    #     self.values = [line for line in self.values if line.time >= cutoff_time]
 
 line_history = GameText()
 
@@ -111,7 +118,7 @@ class ClipboardMonitor(threading.Thread):
 async def listen_websocket():
     global current_line, current_line_time, line_history, reconnecting, websocket_connected
     try_other = False
-    websocket_url = f'ws://{get_config().general.websocket_uri}'
+    websocket_url = f'ws://{get_config().general.websocket_uri}/gsm'
     while True:
         if try_other:
             websocket_url = f'ws://{get_config().general.websocket_uri}/api/ws/text/origin'
@@ -123,6 +130,7 @@ async def listen_websocket():
                     reconnecting = False
                 websocket_connected = True
                 try_other = True
+                line_time = None
                 while True:
                     message = await websocket.recv()
                     logger.debug(message)
@@ -130,14 +138,17 @@ async def listen_websocket():
                         data = json.loads(message)
                         if "sentence" in data:
                             current_clipboard = data["sentence"]
+                        if "time" in data:
+                            line_time = datetime.fromisoformat(data["time"])
+                            print(line_time)
                     except json.JSONDecodeError or TypeError:
                         current_clipboard = message
                     if current_clipboard != current_line:
-                        handle_new_text_event(current_clipboard)
-        except (websockets.ConnectionClosed, ConnectionError, InvalidStatusCode) as e:
-            if isinstance(e, InvalidStatusCode):
-                e: InvalidStatusCode
-                if e.status_code == 404:
+                        handle_new_text_event(current_clipboard, line_time if line_time else None)
+        except (websockets.ConnectionClosed, ConnectionError, InvalidStatus) as e:
+            if isinstance(e, InvalidStatus):
+                e: InvalidStatus
+                if e.response.status_code == 404:
                     logger.info("Texthooker WebSocket connection failed. Attempting some fixes...")
                     try_other = True
 
@@ -148,7 +159,7 @@ async def listen_websocket():
             reconnecting = True
             await asyncio.sleep(5)
 
-def handle_new_text_event(current_clipboard):
+def handle_new_text_event(current_clipboard, line_time=None):
     global current_line, current_line_time, line_history, current_line_after_regex
     current_line = current_clipboard
     if get_config().general.texthook_replacement_regex:
@@ -156,9 +167,10 @@ def handle_new_text_event(current_clipboard):
     else:
         current_line_after_regex = current_line
     logger.info(f"Line Received: {current_line_after_regex}")
-    current_line_time = datetime.now()
-    line_history.add_line(current_line_after_regex)
-    get_utility_window().add_text(line_history[-1])
+    current_line_time = line_time if line_time else datetime.now()
+    line_history.add_line(current_line_after_regex, line_time)
+    if get_utility_window():
+        get_utility_window().add_text(line_history[-1])
 
 
 def reset_line_hotkey_pressed():
@@ -232,6 +244,8 @@ def get_line_and_future_lines(last_note):
 def get_mined_line(last_note: AnkiCard, lines):
     if not last_note:
         return lines[-1]
+    if not lines:
+        lines = get_all_lines()
 
     sentence = last_note.get_field(get_config().anki.sentence_field)
     for line in lines:
