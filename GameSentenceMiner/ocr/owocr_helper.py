@@ -3,6 +3,7 @@ import asyncio
 import base64
 import difflib
 import logging
+import os
 import queue
 import threading
 import time
@@ -29,8 +30,8 @@ logger = logging.getLogger("GSM_OCR")
 logger.setLevel(logging.DEBUG)
 
 # Create a file handler for logging
-log_file = get_app_directory() / "logs" / "ocr_log.txt"
-log_file.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
+log_file = os.path.join(get_app_directory(), "logs", "ocr_log.txt")
+os.makedirs(os.path.join(get_app_directory(), "logs"), exist_ok=True)
 
 file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024, backupCount=5, encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)
@@ -154,7 +155,6 @@ def text_callback(text, rectangle):
         return
     with mss.mss() as sct:
         line_time = datetime.now()
-        get_line_history().add_secondary_line(text)
         logger.info(f"Received message: {text}, ATTEMPTING LENS OCR")
         if rectangles:
             cords = rectangles[rectangle]
@@ -179,7 +179,7 @@ def text_callback(text, rectangle):
                 left, top, right, bottom = exclusion
                 draw.rectangle((left, top, right, bottom), fill=(0, 0, 0, 0))
                 # draw.rectangle((left, top, right, bottom), fill=(0,0,0))
-            orig_text, text = run.process_and_write_results(img, "results.txt", None, last_result, TextFiltering(),
+            orig_text, text = run.process_and_write_results(img, None, None, last_result, TextFiltering(),
                                                             engine=ocr2)
             if ":gsm_prefix:" in text:
                 text = text.split(":gsm_prefix:")[1]

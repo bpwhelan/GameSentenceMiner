@@ -15,13 +15,13 @@ let ocrProcess: any = null;
 
 export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.install-owocr-deps', () => {
-        const command = `${getPythonPath()} -m pip install owocr`;
+        const command = `${getPythonPath()} -m pip install owocr & exit`;
         spawn('cmd', ['/c', 'start', 'cmd', '/k', command], { detached: false }); // Open in new cmd window
         mainWindow?.webContents.send('terminal-output', `Installing OWOCR dependencies in new terminal...`);
     });
 
     ipcMain.on('ocr.install-selected-dep', (_, dependency: string) => {
-        const command = `${getPythonPath()} -m pip install ${dependency}`;
+        const command = `${getPythonPath()} -m pip install ${dependency} & exit`;
         spawn('cmd', ['/c', 'start', 'cmd', '/k', command], { detached: false }); // Open in new cmd window
         mainWindow?.webContents.send('terminal-output', `Installing ${dependency} dependencies in new terminal...`);
     });
@@ -37,17 +37,18 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.start-ocr', () => {
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
-            const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"}`;
+            const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"} & exit`;
             ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', command], { detached: false }); // Open in new cmd window
+
             console.log(`Starting OCR process with command: ${command}`);
 
-            ocrProcess.on('ocr.exit', (code:any, signal:any) => {
+            ocrProcess.on('exit', (code:any, signal:any) => {
                 ocrProcess = null;
-                console.debug(`OCR process exited with code: ${code}, signal: ${signal}`);
+                console.log(`OCR process exited with code: ${code}, signal: ${signal}`);
             });
 
-            ocrProcess.on('ocr.error', (err:any) => {
-                console.debug(`OCR process error: ${err}`);
+            ocrProcess.on('error', (err:any) => {
+                console.log(`OCR process error: ${err}`);
                 ocrProcess = null;
             });
         }
