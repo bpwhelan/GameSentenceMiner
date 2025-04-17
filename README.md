@@ -81,9 +81,9 @@ If you run into issues ask in my [Discord](https://discord.gg/yP8Qse6bb8), or ma
 
 ## Acknowledgements
 
-[OwOCR](https://github.com/AuroraWright/owocr) for their amazing implementation of OCR that I was able to integrate into GSM.
-[chaiNNer](https://github.com/chaiNNer-org/chaiNNer) for the idea of installing python in an electron app.
-[OBS](https://obsproject.com/) and [FFMPEG](https://ffmpeg.org/), without these two, GSM would not be a thing.
+- [OwOCR](https://github.com/AuroraWright/owocr) for their amazing implementation of OCR that I was able to integrate into GSM.
+- [chaiNNer](https://github.com/chaiNNer-org/chaiNNer) for the idea of installing python in an electron app.
+- [OBS](https://obsproject.com/) and [FFMPEG](https://ffmpeg.org/), without these two, GSM would not be a thing.
 
 ## Donations
 
