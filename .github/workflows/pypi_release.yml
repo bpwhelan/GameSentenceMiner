@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main # Or your default branch
-    workflow_dispatch: # Allow manual trigger
+  workflow_dispatch: # Allow manual trigger
 
 jobs:
   build-and-publish-python:
