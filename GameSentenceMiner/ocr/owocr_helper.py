@@ -148,6 +148,7 @@ all_cords = None
 rectangles = None
 
 def text_callback(text, rectangle):
+    global twopassocr, ocr2, last_oneocr_results
     if not text:
         return
     if not twopassocr or not ocr2:
