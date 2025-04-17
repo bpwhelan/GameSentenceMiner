@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.6.5"
+version = "2.7.0"
 description = "A tool for mining sentences from games. Update: Multi-Line Mining! Fixed!"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,7 +34,7 @@ dependencies = [
   "obs-websocket-py~=1.0",
   "plyer~=2.1.0",
   "keyboard~=0.13.5",
-  "websockets~=13.0.1",
+  "websockets~=15.0.1",
   "stable-ts~=2.17.5",
   "silero-vad~=5.1.2",
   "ttkbootstrap~=1.10.1",
@@ -53,4 +53,4 @@ dependencies = [
 gamesentenceminer = "GameSentenceMiner.gsm:main"
 
 [tool.setuptools]
-packages = ["GameSentenceMiner", "GameSentenceMiner.vad", 'GameSentenceMiner.downloader', "GameSentenceMiner.communication", "GameSentenceMiner.ai"]
+packages = ["GameSentenceMiner", "GameSentenceMiner.vad", 'GameSentenceMiner.downloader', "GameSentenceMiner.communication", "GameSentenceMiner.ai", "GameSentenceMiner.ocr", "GameSentenceMiner.owocr"]

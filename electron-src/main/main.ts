@@ -21,6 +21,7 @@ import {launchSteamGameID, openSteamWindow, registerSteamIPC} from "./ui/steam.j
 import {webSocketManager} from "./communication/websocket.js";
 import {openOBSWindow, registerOBSIPC} from "./ui/obs.js";
 import {registerSettingsIPC} from "./ui/settings.js";
+import {registerOCRUtilsIPC} from "./ui/ocr.js";
 
 export let mainWindow: BrowserWindow | null = null;
 let tray: Tray;
@@ -45,6 +46,7 @@ function registerIPC() {
     registerOBSIPC();
     registerSteamIPC();
     registerSettingsIPC();
+    registerOCRUtilsIPC();
 }
 
 async function autoUpdate() {
@@ -206,7 +208,7 @@ function createWindow() {
             label: "File",
             submenu: [
                 {type: "separator"},
-                {label: "Exit", role: "quit"},
+                {label: "Exit", click: () => { quit(); }},
             ],
         },
         {
@@ -320,6 +322,7 @@ async function ensureAndRunGSM(pythonPath: string): Promise<void> {
         return await runGSM(pythonPath, ["-m", getGSMModulePath()]);
     } catch (err) {
         console.error("Failed to start GameSentenceMiner:", err);
+        await new Promise(resolve => setTimeout(resolve, 2000));
     }
     restartingGSM = false;
 }
@@ -401,10 +404,11 @@ if (!app.requestSingleInstanceLock()) {
                 const notification = new Notification({
                     title: 'Update Available',
                     body: `A new version of ${APP_NAME} is available: ${latestVersion}. Click here to update.`,
-                    actions: [{ type: 'button', text: 'Update Now' }],
+                    timeoutType: 'default',
                 });
 
-                notification.on('action', () => {
+                notification.on('click', () => {
+                    console.log("Notification Clicked, Updating GSM...");
                     updateGSM(true).then(() => {
                         if (!isQuitting) {
                             quit();
@@ -413,6 +417,7 @@ if (!app.requestSingleInstanceLock()) {
                 });
 
                 notification.show();
+                setTimeout(() => notification.close(), 5000); // Close after 5 seconds
             }
         });
 

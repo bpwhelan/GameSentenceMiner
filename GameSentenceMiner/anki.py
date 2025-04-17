@@ -7,7 +7,7 @@ import urllib.request
 from datetime import datetime, timedelta
 from requests import post
 
-from GameSentenceMiner import obs, util, notification, ffmpeg
+from GameSentenceMiner import obs, util, notification, ffmpeg, gametext
 from GameSentenceMiner.ai.gemini import translate_with_context
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
@@ -279,7 +279,7 @@ def update_new_card():
     if use_prev_audio:
         lines = get_utility_window().get_selected_lines()
         with util.lock:
-            update_anki_card(last_card, note=get_initial_card_info(last_card, lines), reuse_audio=True)
+            update_anki_card(last_card, note=get_initial_card_info(last_card, lines), game_line=gametext.get_mined_line(last_card, lines), reuse_audio=True)
         get_utility_window().reset_checkboxes()
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")

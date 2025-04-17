@@ -1,6 +1,7 @@
 import logging
 import os.path
 import subprocess
+import tempfile
 import time
 
 import psutil
@@ -72,20 +73,27 @@ def get_obs_websocket_config_values():
     if get_config().obs.password == 'your_password':
         logger.info("OBS WebSocket password is not set. Setting it now...")
         config = get_master_config()
-        config.get_config().obs.port = server_port
-        config.get_config().obs.password = server_password
+        config.get_scene_ocr_config().obs.port = server_port
+        config.get_scene_ocr_config().obs.password = server_password
         with open(get_config_path(), 'w') as file:
             json.dump(config.to_dict(), file, indent=4)
         reload_config()
 
 
+reconnecting = False
+
 def on_connect(obs):
+    global reconnecting
     logger.info("Reconnected to OBS WebSocket.")
-    start_replay_buffer()
+    if reconnecting:
+        start_replay_buffer()
+        reconnecting = False
 
 
 def on_disconnect(obs):
+    global reconnecting
     logger.error("OBS Connection Lost!")
+    reconnecting = True
 
 
 def connect_to_obs():
@@ -113,6 +121,7 @@ def do_obs_call(request, from_dict = None, retry=10):
         if not client:
             time.sleep(1)
             return do_obs_call(request, from_dict, retry - 1)
+        logger.debug("Sending obs call: " + str(request))
         response = client.call(request)
         if not response.status and retry > 0:
             time.sleep(1)
@@ -142,8 +151,8 @@ def toggle_replay_buffer():
 # Start replay buffer
 def start_replay_buffer(retry=5):
     try:
-        do_obs_call(requests.GetVersion())
-        do_obs_call(requests.StartReplayBuffer())
+        if not get_replay_buffer_status()['outputActive']:
+            do_obs_call(requests.StartReplayBuffer(), retry=0)
     except Exception as e:
         if "socket is already closed" in str(e):
             if retry > 0:
@@ -151,6 +160,12 @@ def start_replay_buffer(retry=5):
                 start_replay_buffer(retry - 1)
             else:
                 logger.error(f"Error starting replay buffer: {e}")
+
+def get_replay_buffer_status():
+    try:
+        return do_obs_call(requests.GetReplayBufferStatus())
+    except Exception as e:
+        logger.error(f"Error getting replay buffer status: {e}")
 
 
 # Stop replay buffer
@@ -176,7 +191,7 @@ def save_replay_buffer():
 
 def get_current_scene():
     try:
-        return do_obs_call(requests.GetCurrentProgramScene(), SceneInfo.from_dict).sceneName
+        return do_obs_call(requests.GetCurrentProgramScene(), SceneInfo.from_dict, retry=0).sceneName
     except Exception as e:
         logger.error(f"Couldn't get scene: {e}")
     return ''
@@ -197,7 +212,7 @@ def get_record_directory():
         return ''
 
 
-def get_screenshot():
+def get_screenshot(compression=-1):
     try:
         screenshot = util.make_unique_file_name(os.path.abspath(
             configuration.get_temporary_directory()) + '/screenshot.png')
@@ -207,11 +222,29 @@ def get_screenshot():
         if not current_source_name:
             logger.error("No active scene found.")
             return
-        do_obs_call(requests.SaveSourceScreenshot(sourceName=current_source_name, imageFormat='png', imageFilePath=screenshot))
+        start = time.time()
+        print(current_source_name)
+        response = client.call(requests.SaveSourceScreenshot(sourceName=current_source_name, imageFormat='png', imageFilePath=screenshot, imageCompressionQuality=compression))
+        print(response)
+        print(f"Screenshot took {time.time() - start:.3f} seconds to save")
         return screenshot
     except Exception as e:
         logger.error(f"Error getting screenshot: {e}")
 
+def get_screenshot_base64():
+    try:
+        update_current_game()
+        current_source = get_source_from_scene(get_current_game())
+        current_source_name = current_source.sourceName
+        if not current_source_name:
+            logger.error("No active scene found.")
+            return
+        response = do_obs_call(requests.GetSourceScreenshot(sourceName=current_source_name, imageFormat='png', imageCompressionQuality=0))
+        with open('screenshot_response.txt', 'wb') as f:
+            f.write(str(response).encode())
+        return response['imageData']
+    except Exception as e:
+        logger.error(f"Error getting screenshot: {e}")
 
 def update_current_game():
     configuration.current_game = get_current_scene()

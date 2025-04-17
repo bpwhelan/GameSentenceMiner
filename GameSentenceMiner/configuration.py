@@ -392,7 +392,9 @@ def get_app_directory():
 
 
 def get_log_path():
-    return os.path.join(get_app_directory(), 'gamesentenceminer.log')
+    path = os.path.join(get_app_directory(), "logs", 'gamesentenceminer.log')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return path
 
 temp_directory = ''
 
