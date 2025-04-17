@@ -75,7 +75,7 @@ export function registerOCRUtilsIPC() {
             });
             ocrProcess = null;
         }
-        ipcMain.emit('start-ocr');
+        ipcMain.emit('ocr.start-ocr');
     });
 
     ipcMain.on('ocr.save-two-pass', (_, twoPass: boolean) => {
