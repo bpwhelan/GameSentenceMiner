@@ -73,8 +73,8 @@ def get_obs_websocket_config_values():
     if get_config().obs.password == 'your_password':
         logger.info("OBS WebSocket password is not set. Setting it now...")
         config = get_master_config()
-        config.get_scene_ocr_config().obs.port = server_port
-        config.get_scene_ocr_config().obs.password = server_password
+        config.obs.port = server_port
+        config.obs.password = server_password
         with open(get_config_path(), 'w') as file:
             json.dump(config.to_dict(), file, indent=4)
         reload_config()
