@@ -28,6 +28,8 @@ interface OCRConfig {
     ocr1: string;
     ocr2: string;
     window_name: string;
+    requiresOpenWindow?: boolean;
+    scanRate?: number;
 }
 
 interface StoreConfig {
@@ -145,6 +147,22 @@ export function getWindowName(): string {
 
 export function setWindowName(name: string): void {
     store.set("OCR.window_name", name);
+}
+
+export function getRequiresOpenWindow(): boolean {
+    return store.get("OCR.requiresOpenWindow");
+}
+
+export function setRequiresOpenWindow(requiresOpenWindow: boolean): void {
+    store.set("OCR.requiresOpenWindow", requiresOpenWindow);
+}
+
+export function getOCRScanRate(): number {
+    return store.get("OCR.scanRate");
+}
+
+export function setOCRScanRate(scanRate: number): void {
+    store.set("OCR.scanRate", scanRate);
 }
 
 // Yuzu config getters and setters

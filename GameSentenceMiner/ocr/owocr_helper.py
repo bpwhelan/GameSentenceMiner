@@ -22,6 +22,7 @@ from GameSentenceMiner.configuration import get_config, get_app_directory
 from GameSentenceMiner.gametext import get_line_history
 from GameSentenceMiner.owocr.owocr import screen_coordinate_picker, run
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
+from GameSentenceMiner.electron_config import store, get_ocr_scan_rate, get_requires_open_window
 
 CONFIG_FILE = Path("ocr_config.json")
 DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHANGE THIS
@@ -201,8 +202,8 @@ def run_oneocr(ocr_config, i):
     run.run(read_from="screencapture", write_to="callback",
             screen_capture_area=",".join(str(c) for c in ocr_config['rectangles'][i]) if ocr_config['rectangles'] else 'screen_1',
             screen_capture_window=ocr_config.get("window", None),
-            screen_capture_only_active_windows=True if ocr_config.get("window", None) else False,
-            screen_capture_delay_secs=.25, engine=ocr1,
+            screen_capture_only_active_windows=get_requires_open_window(),
+            screen_capture_delay_secs=get_ocr_scan_rate(), engine=ocr1,
             text_callback=text_callback,
             screen_capture_exclusions=ocr_config.get('excluded_rectangles', None),
             rectangle=i)

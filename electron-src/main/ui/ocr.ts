@@ -6,7 +6,7 @@ import {
     getOCRConfig,
     getPythonPath, getStartConsoleMinimized,
     setOCR1,
-    setOCR2, setTwoPassOCR,
+    setOCR2, setOCRConfig, setOCRScanRate, setRequiresOpenWindow, setTwoPassOCR,
     setWindowName
 } from "../store.js";
 import { mainWindow } from "../main.js";
@@ -100,6 +100,16 @@ export function registerOCRUtilsIPC() {
         setOCR2(ocr2); // Save to persistent storage
         mainWindow?.webContents.send('terminal-output', `OCR Option 2 saved: ${ocr2}`);
     });
+
+    ipcMain.on('ocr.save-ocr-config', (_, config: any) => {
+        setOCR1(config.ocr1);
+        setOCR2(config.ocr2);
+        setTwoPassOCR(config.twoPassOCR);
+        setWindowName(config.window_name);
+        setRequiresOpenWindow(config.requiresOpenWindow);
+        setOCRScanRate(config.ocrScanRate);
+        console.log(`OCR config saved: ${JSON.stringify(config)}`);
+    })
 
     ipcMain.handle("ocr.get-ocr-config", () => {
         const ocr_config = getOCRConfig();

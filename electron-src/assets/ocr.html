@@ -19,13 +19,14 @@
             <option value="owocr">OWOCR Dependencies</option>
             <option value="owocr[lens]">Google Lens (Recommended)</option>
             <option value="owocr[oneocr]">OneOCR (Recommended)</option>
+            <option value="owocr[faster-png]">Faster PNG (Recommended if w11)</option>
+            <option value="owocr[accurate-filtering]">Accurate Filtering (Recommended?)</option>
             <option value="owocr[winrtocr]">WindowsOCR</option>
             <option value="owocr[mangaocr]">MangaOCR</option>
             <option value="owocr[easyocr]">EasyOCR</option>
             <option value="owocr[rapidocr]">RapidOCR</option>
             <option value="owocr[gvision]">Google Vision (apikey required)</option>
             <option value="owocr[azure]">Azure (apikey required)</option>
-            <option value="owocr[faster-png]">Faster PNG (Recommended if w11)</option>
             <option value="owocr[ocrspace]">OCRSpace (apikey required)</option>
         </select>
     </label>
@@ -77,9 +78,20 @@
         <input type="checkbox" id="two-pass-ocr">
     </label>
 </div>
+
+<div>
+    <label for="require-open-window">
+        Require Open Window:
+        <input type="checkbox" id="require-open-window">
+    </label>
+    <label for="ocr-scan-rate">
+        OCR Scan Rate (s):
+        <input type="number" id="ocr-scan-rate" value=".5" min=".1" step=".1">
+    </label>
+</div>
 <button id="start-ocr">Start OCR</button>
-<button id="kill-ocr">Kill OCR</button>
-<button id="restart-ocr">Restart OCR</button>
+<!--<button id="kill-ocr">Kill OCR</button>-->
+<!--<button id="restart-ocr">Restart OCR</button>-->
 
 <script>
     const {ipcRenderer} = require('electron');
@@ -105,20 +117,28 @@
         ipcRenderer.send('ocr.run-screen-selector', windowName);
     });
 
-    document.getElementById('two-pass-ocr').addEventListener('click', () => {
-       ipcRenderer.send('ocr.save-two-pass', document.getElementById('two-pass-ocr').checked);
+    document.getElementById('two-pass-ocr').addEventListener('change', () => {
+        saveOCRConfig();
     });
 
     document.getElementById('window-name-input').addEventListener('input', () => {
-        ipcRenderer.send('ocr.save-window-name', document.getElementById('window-name-input').value.trim());
+        saveOCRConfig();
     });
 
     document.getElementById('ocr1-input').addEventListener('input', () => {
-        ipcRenderer.send('ocr.save-ocr1', document.getElementById('ocr1-input').value.trim());
+        saveOCRConfig();
     });
 
     document.getElementById('ocr2-input').addEventListener('input', () => {
-        ipcRenderer.send('ocr.save-ocr2', document.getElementById('ocr2-input').value.trim());
+        saveOCRConfig();
+    });
+
+    document.getElementById('ocr-scan-rate').addEventListener('change', () => {
+        saveOCRConfig();
+    });
+
+    document.getElementById('require-open-window').addEventListener('change', () => {
+        saveOCRConfig();
     });
 
     // document.getElementById('window-name-input').addEventListener('input', () => {
@@ -131,18 +151,27 @@
         ipcRenderer.send('ocr.start-ocr');
     });
 
-    document.getElementById('two-pass-ocr').addEventListener('change', () => {
-        const twoPassState = document.getElementById('two-pass-ocr').checked;
-        ipcRenderer.send('ocr.two-pass-ocr-set', {twoPassState});
-    });
+    // document.getElementById('kill-ocr').addEventListener('click', () => {
+    //     ipcRenderer.send('ocr.kill-ocr');
+    // });
+    //
+    // document.getElementById('restart-ocr').addEventListener('click', () => {
+    //     ipcRenderer.send('ocr.restart-ocr');
+    // });
 
-    document.getElementById('kill-ocr').addEventListener('click', () => {
-        ipcRenderer.send('ocr.kill-ocr');
-    });
+    async function saveOCRConfig() {
+        const ocrConfig = {
+            window_name: document.getElementById('window-name-input').value.trim(),
+            ocr1: document.getElementById('ocr1-input').value,
+            ocr2: document.getElementById('ocr2-input').value,
+            twoPassOCR: document.getElementById('two-pass-ocr').checked,
+            requiresOpenWindow: document.getElementById('require-open-window').checked,
+            ocrScanRate: document.getElementById('ocr-scan-rate').value,
+        };
+        await ipcRenderer.send('ocr.save-ocr-config', ocrConfig);
+    }
 
-    document.getElementById('restart-ocr').addEventListener('click', () => {
-        ipcRenderer.send('ocr.restart-ocr');
-    });
+
 
     async function initialize() {
         const ocr_settings = await ipcRenderer.invoke('ocr.get-ocr-config');
@@ -152,6 +181,8 @@
             document.getElementById('ocr1-input').value = ocr_settings.ocr1 || '';
             document.getElementById('ocr2-input').value = ocr_settings.ocr2 || '';
             document.getElementById('two-pass-ocr').checked = ocr_settings.twoPassOCR || false;
+            document.getElementById('require-open-window').checked = ocr_settings.requiresOpenWindow || false;
+            document.getElementById('ocr-scan-rate').value = ocr_settings.ocrScanRate || 0.5;
         }
     }
     document.addEventListener('DOMContentLoaded', initialize);
