@@ -177,6 +177,7 @@ class Advanced:
     show_screenshot_buttons: bool = False
     multi_line_line_break: str = '<br>'
     multi_line_sentence_storage_field: str = ''
+    ocr_sends_to_clipboard: bool = True
 
 @dataclass_json
 @dataclass

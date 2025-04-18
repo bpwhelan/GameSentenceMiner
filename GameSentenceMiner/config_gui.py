@@ -201,6 +201,7 @@ class ConfigApp:
                 show_screenshot_buttons=self.show_screenshot_button.get(),
                 multi_line_line_break=self.multi_line_line_break.get(),
                 multi_line_sentence_storage_field=self.multi_line_sentence_storage_field.get(),
+                ocr_sends_to_clipboard=self.ocr_sends_to_clipboard.get(),
             ),
             ai=Ai(
                 enabled=self.ai_enabled.get(),
@@ -969,6 +970,12 @@ class ConfigApp:
         self.multi_line_sentence_storage_field.insert(0, self.settings.advanced.multi_line_sentence_storage_field)
         self.multi_line_sentence_storage_field.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(advanced_frame, "Field in Anki for storing the multi-line sentence temporarily.", row=self.current_row, column=2)
+
+        ttk.Label(advanced_frame, text="OCR Sends to Clipboard:").grid(row=self.current_row, column=0, sticky='W')
+        self.ocr_sends_to_clipboard = tk.BooleanVar(value=self.settings.advanced.ocr_sends_to_clipboard)
+        ttk.Checkbutton(advanced_frame, variable=self.ocr_sends_to_clipboard).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(advanced_frame, "Enable to send OCR results to clipboard.", row=self.current_row, column=2)
+
 
 
     @new_tab

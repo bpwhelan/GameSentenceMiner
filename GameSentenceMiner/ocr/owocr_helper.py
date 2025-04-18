@@ -184,6 +184,9 @@ def text_callback(text, rectangle):
                                                             engine=ocr2)
             if ":gsm_prefix:" in text:
                 text = text.split(":gsm_prefix:")[1]
+            if get_config().advanced.ocr_sends_to_clipboard:
+                import pyperclip
+                pyperclip.copy(text)
             websocket_server_thread.send_text(text, line_time)
         except json.JSONDecodeError:
             print("Invalid JSON received.")
