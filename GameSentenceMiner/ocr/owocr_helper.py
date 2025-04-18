@@ -148,7 +148,7 @@ class WebsocketServerThread(threading.Thread):
 all_cords = None
 rectangles = None
 
-def text_callback(text, rectangle):
+def text_callback(text, rectangle, time):
     global twopassocr, ocr2, last_oneocr_results
     if not text:
         return
@@ -156,7 +156,7 @@ def text_callback(text, rectangle):
         websocket_server_thread.send_text(text, datetime.now())
         return
     with mss.mss() as sct:
-        line_time = datetime.now()
+        line_time = time if time else datetime.now()
         logger.info(f"Received message: {text}, ATTEMPTING LENS OCR")
         if rectangles:
             cords = rectangles[rectangle]
