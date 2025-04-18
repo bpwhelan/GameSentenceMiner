@@ -44,6 +44,9 @@ class GameLine:
             return self.next.time
         return 0
 
+    def __str__(self):
+        return str({"text": self.text, "time": self.time})
+
 @dataclass
 class GameText:
     values: list[GameLine]
@@ -71,6 +74,7 @@ class GameText:
         if not line_text:
             return
         new_line = GameLine(line_text, line_time if line_time else datetime.now(), self.values[-1] if self.values else None, None, self.game_line_index)
+        logger.debug(f"Adding line: {new_line}")
         self.game_line_index += 1
         if self.values:
             self.values[-1].next = new_line
