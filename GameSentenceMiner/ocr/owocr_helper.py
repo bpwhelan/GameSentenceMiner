@@ -153,7 +153,7 @@ def text_callback(text, rectangle, time):
     if not text:
         return
     if not twopassocr or not ocr2:
-        websocket_server_thread.send_text(text, datetime.now())
+        websocket_server_thread.send_text(text, time if time else datetime.now())
         return
     with mss.mss() as sct:
         line_time = time if time else datetime.now()
