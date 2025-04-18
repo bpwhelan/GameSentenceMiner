@@ -189,10 +189,10 @@ def set_requires_open_window(requires_open_window: Optional[bool]):
     store.set("OCR.requiresOpenWindow", requires_open_window)
 
 def get_ocr_scan_rate() -> Optional[int]:
-    return store.get("OCR.ocrScanRate")
+    return store.get("OCR.scanRate")
 
 def set_ocr_scan_rate(scan_rate: Optional[int]):
-    store.set("OCR.ocrScanRate", scan_rate)
+    store.set("OCR.scanRate", scan_rate)
 
 # Yuzu config getters and setters
 def get_yuzu_config() -> YuzuConfig:
