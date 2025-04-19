@@ -60,7 +60,7 @@ def get_obs_websocket_config_values():
 
     # Extract values
     server_enabled = config.get("server_enabled", False)
-    server_port = config.get("server_port", 4455)  # Default to 4455 if not set
+    server_port = config.get("server_port", 7274)  # Default to 4455 if not set
     server_password = config.get("server_password", None)
 
     if not server_enabled:
