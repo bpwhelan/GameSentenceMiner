@@ -180,7 +180,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
     });
 }
 
-function createWindow() {
+async function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 720,
@@ -340,12 +340,6 @@ if (!app.requestSingleInstanceLock()) {
         if (!isDev && getAutoUpdateElectron()) {
             await autoUpdate()
         }
-        if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
-                await updateGSM(false);
-                if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
-                    fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
-                }
-        }
         if (getLaunchVNOnStart()) {
             dialog.showMessageBox(mainWindow!, {
                 type: 'question',
@@ -385,38 +379,45 @@ if (!app.requestSingleInstanceLock()) {
                 }
             });
         }
-        createWindow();
-        createTray();
-        getOrInstallPython().then(async (path: string) => {
-            pythonPath = path;
-            setPythonPath(pythonPath);
-            ensureAndRunGSM(pythonPath).then(async () => {
-                if (!isUpdating) {
-                    quit();
+        createWindow().then(async () => {
+            createTray();
+            getOrInstallPython().then(async (pyPath: string) => {
+                pythonPath = pyPath;
+                setPythonPath(pythonPath);
+                if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
+                    await updateGSM(false);
+                    if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
+                        fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
+                    }
+                }
+                ensureAndRunGSM(pythonPath).then(async () => {
+                    if (!isUpdating) {
+                        quit();
+                    }
+                });
+            });
+
+            checkForUpdates().then(({ updateAvailable, latestVersion }) => {
+                if (updateAvailable) {
+                    const notification = new Notification({
+                        title: 'Update Available',
+                        body: `A new version of ${APP_NAME} is available: ${latestVersion}. Click here to update.`,
+                        timeoutType: 'default',
+                    });
+
+                    notification.on('click', () => {
+                        console.log("Notification Clicked, Updating GSM...");
+                        updateGSM(true).then(() => {
+                            if (!isQuitting) {
+                                quit();
+                            }
+                        });
+                    });
+
+                    notification.show();
+                    setTimeout(() => notification.close(), 5000); // Close after 5 seconds
                 }
             });
-        });
-
-        checkForUpdates().then(({ updateAvailable, latestVersion }) => {
-            if (updateAvailable) {
-                const notification = new Notification({
-                    title: 'Update Available',
-                    body: `A new version of ${APP_NAME} is available: ${latestVersion}. Click here to update.`,
-                    timeoutType: 'default',
-                });
-
-                notification.on('click', () => {
-                    console.log("Notification Clicked, Updating GSM...");
-                    updateGSM(true).then(() => {
-                        if (!isQuitting) {
-                            quit();
-                        }
-                    });
-                });
-
-                notification.show();
-                setTimeout(() => notification.close(), 5000); // Close after 5 seconds
-            }
         });
 
         app.on('window-all-closed', () => {
