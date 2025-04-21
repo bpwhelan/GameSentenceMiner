@@ -37,7 +37,7 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.start-ocr', () => {
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
-            const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"} & exit`;
+            const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"}`;
             ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', command], { detached: false }); // Open in new cmd window
 
             console.log(`Starting OCR process with command: ${command}`);

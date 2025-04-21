@@ -1,275 +1,294 @@
-import ctypes
 import sys
+from multiprocessing import Process, Manager
+import mss
+from GameSentenceMiner import obs
+
+from GameSentenceMiner.util import sanitize_filename
+from PIL import Image, ImageTk
 import tkinter as tk
-from tkinter import messagebox, simpledialog
 import json
 from pathlib import Path
-import time  # Optional: for debugging timing if needed
-from PIL import Image, ImageTk
-import io
-import keyboard
+import re
 
-from GameSentenceMiner import obs, util
+try:
+    import tkinter as tk
+    selector_available = True
+except:
+    selector_available = False
 
-class DynamicAreaSelector(tk.Tk):
-    def __init__(self, window_title):
-        super().__init__()
-        self.title("Dynamic Area Selector")
-        self.attributes('-fullscreen', True)
-        self.attributes("-topmost", True)  # Make the window always on top
-        self.attributes("-alpha", 0.20)
+MIN_RECT_WIDTH = 25  # Minimum width in pixels
+MIN_RECT_HEIGHT = 25 # Minimum height in pixels
 
-        self.window_title = window_title
-        self.rects = []
+class ScreenSelector:
+    def __init__(self, result, window_name):
+        obs.connect_to_obs()
+        self.window_name = window_name
+        print(window_name)
+        self.sct = mss.mss()
+        self.monitors = self.sct.monitors[1:]
+        self.root = None
+        self.result = result
+        self.rectangles = []  # List to store (monitor, coordinates, is_excluded) tuples
+        self.drawn_rect_ids = []  # List to store canvas rectangle IDs
+        self.current_rect_id = None
         self.start_x = None
         self.start_y = None
-        self.current_rect_id = None
-        self.drawn_rect_ids = []
-        self.saved_rect_coords = []
-        self.excluded_rect_coords = []  # New list for excluded rectangles
-        self.drawn_excluded_rect_ids = []  # New list for excluded rect ids
-        self.image_mode = False
-        self.image_item = None
-        self.image_tk = None
-        self.canvas = None
+        self.canvas_windows = {}  # Dictionary to store canvas per monitor
+        self.load_existing_rectangles()
+        self.image_mode = True
+        self.monitor_windows = {}
+        self.redo_stack = []
 
-        if not self.initialize_ui():
-            self.after(0, self.destroy)
-            return
+    def get_scene_ocr_config(self):
+        """Return the path to the OCR config file in GameSentenceMiner/ocr_config."""
+        app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
+        ocr_config_dir = app_dir / "ocr_config"
+        ocr_config_dir.mkdir(parents=True, exist_ok=True)
+        scene = sanitize_filename(obs.get_current_scene())
+        config_path = ocr_config_dir / f"{scene}.json"
+        return config_path
 
-        self.canvas.bind("<ButtonPress-1>", self.on_press)
-        self.canvas.bind("<B1-Motion>", self.on_drag)
-        self.canvas.bind("<ButtonRelease-1>", self.on_release)
-        self.canvas.bind("<Button-3>", self.on_right_click)  # Bind right-click
-        self.bind("<Control-s>", self.save_rects_event)
-        self.bind("<Control-z>", self.undo_last_rect)
-        self.bind("<Escape>", self.quit_app)
-        self.bind("<Control-i>", self.toggle_image_mode)
-
-        self.protocol("WM_DELETE_WINDOW", self.on_close)
-
-    def initialize_ui(self):
+    def load_existing_rectangles(self):
+        config_path = self.get_scene_ocr_config()
         try:
-            self.canvas = tk.Canvas(self, highlightthickness=0)
-            self.canvas.pack(fill=tk.BOTH, expand=True)
-
-            self.load_and_draw_existing_rects()
-            return True
-
+            with open(config_path, 'r') as f:
+                config_data = json.load(f)
+                if "rectangles" in config_data:
+                    self.rectangles = []
+                    for rect_data in config_data["rectangles"]:
+                        monitor_data = rect_data.get("monitor")
+                        coords = rect_data.get("coordinates")
+                        is_excluded = rect_data.get("is_excluded", False)
+                        if monitor_data and isinstance(coords, list) and len(coords) == 4:
+                            x, y, w, h = coords
+                            if w >= MIN_RECT_WIDTH and h >= MIN_RECT_HEIGHT:
+                                self.rectangles.append((monitor_data, tuple(coords), is_excluded))
+                            else:
+                                print(f"Skipping small rectangle from config: {coords}")
+            print(f"Loaded existing rectangles from {config_path}")
+        except FileNotFoundError:
+            print(f"No existing config found at {config_path}")
+        except json.JSONDecodeError:
+            print(f"Error decoding JSON from {config_path}")
         except Exception as e:
-            messagebox.showerror("Initialization Error", f"Failed: {e}")
-            print(f"Initialization error details: {e}")
-            return False
+            print(f"An error occurred while loading rectangles: {e}")
 
-    def load_and_draw_existing_rects(self):
-        if self.get_scene_ocr_config().exists():
-            try:
-                with open(self.get_scene_ocr_config(), 'r') as f:
-                    config_data = json.load(f)
-                    loaded_rects = []
-                    loaded_excluded_rects = []
-                    for r in config_data.get("rectangles", []):
-                        try:
-                            coords = tuple(map(float, r))
-                            if len(coords) == 4:
-                                loaded_rects.append(coords)
-                            else:
-                                print(f"Skipping invalid rectangle data: {r}")
-                        except (ValueError, TypeError) as coord_err:
-                            print(f"Skipping invalid coordinate data in rectangle {r}: {coord_err}")
-
-                    for r in config_data.get("excluded_rectangles", []):
-                        try:
-                            coords = tuple(map(float, r))
-                            if len(coords) == 4:
-                                loaded_excluded_rects.append(coords)
-                            else:
-                                print(f"Skipping invalid excluded rectangle data: {r}")
-                        except (ValueError, TypeError) as coord_err:
-                            print(f"Skipping invalid coordinate data in excluded rectangle {r}: {coord_err}")
-
-                    self.saved_rect_coords = loaded_rects
-                    self.excluded_rect_coords = loaded_excluded_rects
-                    for rect_id in self.drawn_rect_ids:
-                        self.canvas.delete(rect_id)
-                    for rect_id in self.drawn_excluded_rect_ids:
-                        self.canvas.delete(rect_id)
-                    self.drawn_rect_ids = []
-                    self.drawn_excluded_rect_ids = []
-
-                    for rect in self.saved_rect_coords:
-                        x1, y1, x2, y2 = rect
-                        rect_id = self.canvas.create_rectangle(x1, y1, x2, y2, outline='blue', width=2)
-                        self.drawn_rect_ids.append(rect_id)
-
-                    for rect in self.excluded_rect_coords:
-                        x1, y1, x2, y2 = rect
-                        rect_id = self.canvas.create_rectangle(x1, y1, x2, y2, outline='orange', width=2)
-                        self.drawn_excluded_rect_ids.append(rect_id)
-
-            except json.JSONDecodeError:
-                messagebox.showwarning("Config Load Warning", f"Could not parse {self.get_scene_ocr_config()}. Starting with no rectangles.")
-                self.saved_rect_coords = []
-                self.excluded_rect_coords = []
-            except FileNotFoundError:
-                self.saved_rect_coords = []
-                self.excluded_rect_coords = []
-            except Exception as e:
-                messagebox.showerror("Config Load Error", f"Error loading rectangles: {e}")
-                self.saved_rect_coords = []
-                self.excluded_rect_coords = []
-
-    def on_press(self, event):
-        if self.current_rect_id is None:
-            self.start_x = self.canvas.canvasx(event.x)
-            self.start_y = self.canvas.canvasy(event.y)
-            outline_color = 'red' if not event.state & 0x0001 else 'purple'  # check if shift is pressed
-            self.current_rect_id = self.canvas.create_rectangle(
-                self.start_x, self.start_y, self.start_x, self.start_y,
-                outline=outline_color, width=2
-            )
-
-    def on_drag(self, event):
-        if self.current_rect_id is not None:
-            cur_x = self.canvas.canvasx(event.x)
-            cur_y = self.canvas.canvasy(event.y)
-            self.canvas.coords(self.current_rect_id, self.start_x, self.start_y, cur_x, cur_y)
-
-    def on_release(self, event):
-        if self.current_rect_id is not None:
-            end_x = self.canvas.canvasx(event.x)
-            end_y = self.canvas.canvasy(event.y)
-            x1 = min(self.start_x, end_x)
-            y1 = min(self.start_y, end_y)
-            x2 = max(self.start_x, end_x)
-            y2 = max(self.start_y, end_y)
-
-            self.canvas.coords(self.current_rect_id, x1, y1, x2, y2)
-            if event.state & 0x0001:  # shift is pressed
-                self.canvas.itemconfig(self.current_rect_id, outline='orange')
-                self.excluded_rect_coords.append((x1, y1, x2, y2))
-                self.drawn_excluded_rect_ids.append(self.current_rect_id)
-            else:
-                self.canvas.itemconfig(self.current_rect_id, outline='green')
-                self.saved_rect_coords.append((x1, y1, x2, y2))
-                self.drawn_rect_ids.append(self.current_rect_id)
-
-            self.current_rect_id = None
-            self.start_x = None
-            self.start_y = None
-
-    def save_rects(self):
+    def save_rects(self, event=None):
         try:
-            serializable_rects = [
-                tuple(map(int, rect)) for rect in self.saved_rect_coords
-            ]
-            serializable_excluded_rects = [
-                tuple(map(int, rect)) for rect in self.excluded_rect_coords
-            ]
-            with open(self.get_scene_ocr_config(), 'w') as f:
-                json.dump({"window": self.window_title if self.window_title else "", "scene": obs.get_current_scene(), "rectangles": serializable_rects, "excluded_rectangles": serializable_excluded_rects}, f, indent=4)
-            for rect_id in self.drawn_rect_ids:
-                if self.canvas.winfo_exists():
-                    try:
-                        self.canvas.itemconfig(rect_id, outline='blue')
-                    except tk.TclError:
-                        pass
-            for rect_id in self.drawn_excluded_rect_ids:
-                if self.canvas.winfo_exists():
-                    try:
-                        self.canvas.itemconfig(rect_id, outline='orange')
-                    except tk.TclError:
-                        pass
+            print("Saving rectangles...")
+            config_path = self.get_scene_ocr_config()
+            print(config_path)
+            serializable_rects = []
+            for monitor, coords, is_excluded in self.rectangles:
+                rect_data = {
+                    "monitor": monitor,
+                    "coordinates": list(coords),  # Convert tuple to list for JSON
+                    "is_excluded": is_excluded
+                }
+                serializable_rects.append(rect_data)
+
+            print(serializable_rects)
+            with open(config_path, 'w') as f:
+                json.dump({"scene": sanitize_filename(obs.get_current_scene()), "window": self.window_name, "rectangles": serializable_rects}, f, indent=4)
             print("Rectangles saved.")
-            self.on_close()
+            self.result['rectangles'] = self.rectangles.copy()
+            self.root.destroy()
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to save rectangles: {e}")
-
-    def save_rects_event(self, event=None):
-        self.save_rects()
+            print(f"Failed to save rectangles: {e}")
 
     def undo_last_rect(self, event=None):
-        if self.saved_rect_coords and self.drawn_rect_ids:
-            self.saved_rect_coords.pop()
+        if self.rectangles and self.drawn_rect_ids:
+            last_rect = self.rectangles.pop()
             last_rect_id = self.drawn_rect_ids.pop()
-            if self.canvas.winfo_exists():
-                self.canvas.delete(last_rect_id)
-        elif self.excluded_rect_coords and self.drawn_excluded_rect_ids:
-            self.excluded_rect_coords.pop()
-            last_rect_id = self.drawn_excluded_rect_ids.pop()
-            if self.canvas.winfo_exists():
-                self.canvas.delete(last_rect_id)
+
+            monitor, coords, is_excluded = last_rect
+            self.redo_stack.append((monitor, coords, is_excluded, last_rect_id))
+
+            for canvas in self.canvas_windows.values():
+                try:
+                    canvas.delete(last_rect_id)
+                except tk.TclError:
+                    pass
         elif self.current_rect_id is not None:
-            if self.canvas.winfo_exists():
-                self.canvas.delete(self.current_rect_id)
+            for canvas in self.canvas_windows.values():
+                try:
+                    canvas.delete(self.current_rect_id)
+                except tk.TclError:
+                    pass
             self.current_rect_id = None
             self.start_x = None
             self.start_y = None
+
+
+    def redo_last_rect(self, event=None):
+        if not self.redo_stack:
+            return
+
+        monitor, coords, is_excluded, rect_id = self.redo_stack.pop()
+        canvas = self.canvas_windows.get(monitor['index'])
+        if canvas:
+            x, y, w, h = coords
+            outline_color = 'green' if not is_excluded else 'orange'
+            new_rect_id = canvas.create_rectangle(x, y, x + w, y + h, outline=outline_color, width=2)
+            self.rectangles.append((monitor, coords, is_excluded))
+            self.drawn_rect_ids.append(new_rect_id)
+
+
+    def create_window(self, monitor):
+        screenshot = self.sct.grab(monitor)
+        img = Image.frombytes('RGB', screenshot.size, screenshot.rgb)
+
+        if img.width != monitor['width']:
+            img = img.resize((monitor['width'], monitor['height']), Image.Resampling.LANCZOS)
+
+        AscendingScale = 1.0  # For semi-transparent background
+        window = tk.Toplevel(self.root)
+        window.geometry(f"{monitor['width']}x{monitor['height']}+{monitor['left']}+{monitor['top']}")
+        window.overrideredirect(1)
+        window.attributes('-topmost', 1)
+
+        img_tk = ImageTk.PhotoImage(img)
+
+        canvas = tk.Canvas(window, cursor='cross', highlightthickness=0)
+        canvas.pack(fill=tk.BOTH, expand=True)
+        canvas.image = img_tk
+        canvas.bg_img_id = canvas.create_image(0, 0, image=img_tk, anchor=tk.NW)  # Store image ID
+        self.canvas_windows[monitor['index']] = canvas
+
+        # Save monitor and window references for refreshing
+        self.monitor_windows[monitor['index']] = {
+            'window': window,
+            'canvas': canvas,
+            'bg_img_id': canvas.bg_img_id,
+        }
+
+        # Draw existing rectangles for this monitor
+        for mon, coords, is_excluded in self.rectangles:
+            if mon['index'] == monitor['index']:
+                x, y, w, h = coords
+                outline_color = 'green' if not is_excluded else 'orange'
+                rect_id = canvas.create_rectangle(x, y, x + w, y + h, outline=outline_color, width=2)
+                self.drawn_rect_ids.append(rect_id)
+
+        def on_click(event):
+            if self.current_rect_id is None:
+                self.start_x, self.start_y = event.x, event.y
+                outline_color = 'red' if not event.state & 0x0001 else 'purple'  # Shift for exclusion
+                self.current_rect_id = canvas.create_rectangle(
+                    self.start_x, self.start_y, self.start_x, self.start_y,
+                    outline=outline_color, width=2
+                )
+
+        def on_drag(event):
+            if self.current_rect_id:
+                canvas.coords(self.current_rect_id, self.start_x, self.start_y, event.x, event.y)
+
+        def on_release(event):
+            if self.current_rect_id:
+                end_x, end_y = event.x, event.y
+                x1 = min(self.start_x, end_x)
+                y1 = min(self.start_y, end_y)
+                x2 = max(self.start_x, end_x)
+                y2 = max(self.start_y, end_y)
+                width = abs(x2 - x1)
+                height = abs(y2 - y1)
+                if width >= MIN_RECT_WIDTH and height >= MIN_RECT_HEIGHT:
+                    is_excluded = bool(event.state & 0x0001)  # Shift key for exclusion
+                    canvas.itemconfig(self.current_rect_id, outline='green' if not is_excluded else 'orange')
+                    self.rectangles.append((monitor, (x1, y1, width, height), is_excluded))
+                    self.drawn_rect_ids.append(self.current_rect_id)
+                else:
+                    canvas.delete(self.current_rect_id)
+                    print(f"Skipping small rectangle: width={width}, height={height}")
+                self.current_rect_id = None
+                self.start_x = None
+                self.start_y = None
+
+        def on_right_click(event):
+            item = canvas.find_closest(event.x, event.y)
+            if item:
+                for idx, rect_id in enumerate(self.drawn_rect_ids):
+                    if rect_id == item[0]:
+                        canvas.delete(rect_id)
+                        # Need to find the corresponding rectangle in self.rectangles and remove it
+                        for i, (mon, coords, excluded) in enumerate(self.rectangles):
+                            if mon['index'] == monitor['index']:
+                                x_r, y_r, w_r, h_r = coords
+                                item_coords = canvas.coords(item[0])
+                                if x_r == item_coords[0] and y_r == item_coords[1] and x_r + w_r == item_coords[2] and y_r + h_r == item_coords[3]:
+                                    del self.rectangles[i]
+                                    break
+                        del self.drawn_rect_ids[idx]
+                        break
+
+        def toggle_image_mode(event=None):
+            self.image_mode = not self.image_mode
+            if self.image_mode:
+                window.attributes("-alpha", 1.0)
+            else:
+                window.attributes("-alpha", 0.20)
+
+
+        canvas.bind('<ButtonPress-1>', on_click)
+        canvas.bind('<B1-Motion>', on_drag)
+        canvas.bind('<ButtonRelease-1>', on_release)
+        canvas.bind('<Button-3>', on_right_click)
+        window.bind('<Control-s>', self.save_rects)
+        window.bind('<Control-z>', self.undo_last_rect)
+        window.bind('<s>', self.save_rects)
+        window.bind('<z>', self.undo_last_rect)
+        window.bind("<Escape>", self.quit_app)
+        window.bind("<m>", toggle_image_mode)
+        window.bind('<Control-y>', self.redo_last_rect)
+        window.bind('<y>', self.redo_last_rect)
+
+    def start(self):
+        self.root = tk.Tk()
+        self.root.withdraw()
+
+        for monitor in self.monitors:
+            monitor['index'] = self.monitors.index(monitor)
+            self.create_window(monitor)
+
+        self.root.mainloop()
 
     def quit_app(self, event=None):
         print("Escape pressed, closing application.")
         self.on_close()
 
     def on_close(self):
-        self.destroy()
+        self.root.destroy()
 
-    def get_scene_ocr_config(self):
-        app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
-        ocr_config_dir = app_dir / "ocr_config"
-        ocr_config_dir.mkdir(parents=True, exist_ok=True)
-        scene = util.sanitize_filename(obs.get_current_scene())
-        config_path = ocr_config_dir / f"{scene}.json"
-        return config_path
 
-    def on_right_click(self, event):
-        """Deletes the rectangle clicked with the right mouse button."""
-        item = self.canvas.find_closest(event.x, event.y)
+def run_screen_selector(result, window_name):
+    selector = ScreenSelector(result, window_name)
+    selector.start()
 
-        if item:
-            if item[0] in self.drawn_rect_ids:  # Check if it's a saved rectangle
-                index = self.drawn_rect_ids.index(item[0])
-                self.canvas.delete(item[0])
-                del self.drawn_rect_ids[index]
-                del self.saved_rect_coords[index]
-            elif item[0] in self.drawn_excluded_rect_ids:
-                index = self.drawn_excluded_rect_ids.index(item[0])
-                self.canvas.delete(item[0])
-                del self.drawn_excluded_rect_ids[index]
-                del self.excluded_rect_coords[index]
 
-    def setup_hotkey(self):
-        keyboard.add_hotkey('F13', self.lift_window)  # Example hotkey
+def get_screen_selection(window_name):
+    if not selector_available:
+        raise ValueError('tkinter is not installed, unable to open picker')
 
-    def lift_window(self):
-        self.lift()  # Bring the window to the front
+    with Manager() as manager:
+        res = manager.dict()
+        process = Process(target=run_screen_selector, args=(res,window_name))
 
-    def toggle_image_mode(self, event=None):
-        self.image_mode = not self.image_mode
-        if self.image_mode:
-            self.attributes("-alpha", 1.0)
-            self.load_image_from_obs()
+        process.start()
+        process.join()
+
+        if 'rectangles' in res:
+            return res.copy()
         else:
-            self.attributes("-alpha", 0.20)
-            if self.image_item:
-                self.canvas.delete(self.image_item)
-                self.image_item = None
-                self.image_tk = None
+            return False
 
-    def load_image_from_obs(self):
-        try:
-            image_path = obs.get_screenshot()
-            image = Image.open(image_path)
-            self.image_tk = ImageTk.PhotoImage(image)
-            self.image_item = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.image_tk)
-            self.canvas.tag_lower(self.image_item)
-        except Exception as e:
-            messagebox.showerror("Image Load Error", f"Failed to load image from OBS: {e}")
-
-def run_screen_picker(window_title):
-    app = DynamicAreaSelector(window_title)
-    app.mainloop()
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    obs.connect_to_obs()
-    run_screen_picker(args[0] if len(args) > 0 else None)
+    window_name = args[0] if args else None
+    selection = get_screen_selection(window_name)
+    if selection:
+        print("Selected rectangles:")
+        for monitor, coords, is_excluded in selection['rectangles']:
+            print(f"Monitor: {monitor}, Coordinates: {coords}, Excluded: {is_excluded}")
+    else:
+        print("No selection made or process was interrupted.")

@@ -1,7 +1,6 @@
-# area_selector.py
 import asyncio
-import base64
 import difflib
+import json
 import logging
 import os
 import queue
@@ -9,52 +8,61 @@ import threading
 import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from tkinter import messagebox
 
 import mss
 import websockets
 from PIL import Image, ImageDraw
-import json
-from pathlib import Path
 
 from GameSentenceMiner import obs, util
 from GameSentenceMiner.configuration import get_config, get_app_directory
-from GameSentenceMiner.gametext import get_line_history
+from GameSentenceMiner.electron_config import get_ocr_scan_rate, get_requires_open_window
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, Rectangle
 from GameSentenceMiner.owocr.owocr import screen_coordinate_picker, run
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
-from GameSentenceMiner.electron_config import store, get_ocr_scan_rate, get_requires_open_window
+
+from dataclasses import dataclass
+from typing import List, Optional
 
 CONFIG_FILE = Path("ocr_config.json")
 DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHANGE THIS
-
 logger = logging.getLogger("GSM_OCR")
 logger.setLevel(logging.DEBUG)
-
 # Create a file handler for logging
 log_file = os.path.join(get_app_directory(), "logs", "ocr_log.txt")
 os.makedirs(os.path.join(get_app_directory(), "logs"), exist_ok=True)
-
 file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024, backupCount=5, encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)
-
 # Create a formatter and set it for the handler
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
-
 # Add the handler to the logger
 logger.addHandler(file_handler)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
 
 def get_new_game_cords():
     """Allows multiple coordinate selections."""
     coords_list = []
-    while True:
-        cords = screen_coordinate_picker.get_screen_selection()
-        coords_list.append({"coordinates": cords})
-        if messagebox.askyesno("Add Another Region", "Do you want to add another region?"):
-            continue
-        else:
-            break
-
+    with mss.mss() as sct:
+        monitors = sct.monitors
+        monitor_map = {i: mon for i, mon in enumerate(monitors)}
+        while True:
+            selected_monitor_index, cords = screen_coordinate_picker.get_screen_selection_with_monitor(monitor_map)
+            selected_monitor = monitor_map[selected_monitor_index]
+            coords_list.append({"monitor": {"left": selected_monitor["left"], "top": selected_monitor["top"],
+                                            "width": selected_monitor["width"], "height": selected_monitor["height"],
+                                            "index": selected_monitor_index}, "coordinates": cords,
+                                "is_excluded": False})
+            if messagebox.askyesno("Add Another Region", "Do you want to add another region?"):
+                continue
+            else:
+                break
     app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
     ocr_config_dir = app_dir / "ocr_config"
     ocr_config_dir.mkdir(parents=True, exist_ok=True)
@@ -62,13 +70,13 @@ def get_new_game_cords():
     scene = util.sanitize_filename(obs.get_current_scene())
     config_path = ocr_config_dir / f"{scene}.json"
     with open(config_path, 'w') as f:
-        json.dump(coords_list, f, indent=4)
+        json.dump({"scene": scene, "window": None, "rectangles": coords_list}, f, indent=4)
     print(f"Saved OCR config to {config_path}")
     return coords_list
 
 
 def get_ocr_config():
-    """Loads multiple screen capture areas from the corresponding JSON file."""
+    """Loads and updates screen capture areas from the corresponding JSON file."""
     app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
     ocr_config_dir = app_dir / "ocr_config"
     obs.connect_to_obs()
@@ -76,14 +84,58 @@ def get_ocr_config():
     config_path = ocr_config_dir / f"{scene}.json"
     if not config_path.exists():
         raise Exception(f"No config file found at {config_path}.")
-
-    if not config_path.exists():
-        print("Config Screen picker failed to make file. Please run again.")
-        return
-
-    with open(config_path, 'r') as f:
-        coords_list = json.load(f)
-        return coords_list
+    try:
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
+        if "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
+                isinstance(item, list) and len(item) == 4 for item in config_data["rectangles"]):
+            # Old config format, convert to new
+            new_rectangles = []
+            with mss.mss() as sct:
+                monitors = sct.monitors
+                default_monitor = monitors[1] if len(monitors) > 1 else monitors[0]
+                for rect in config_data["rectangles"]:
+                    new_rectangles.append({
+                        "monitor": {
+                            "left": default_monitor["left"],
+                            "top": default_monitor["top"],
+                            "width": default_monitor["width"],
+                            "height": default_monitor["height"],
+                            "index": 0  # Assuming single monitor for old config
+                        },
+                        "coordinates": rect,
+                        "is_excluded": False
+                    })
+                for rect in config_data['excluded_rectangles']:
+                    new_rectangles.append({
+                        "monitor": {
+                            "left": default_monitor["left"],
+                            "top": default_monitor["top"],
+                            "width": default_monitor["width"],
+                            "height": default_monitor["height"],
+                            "index": 0  # Assuming single monitor for old config
+                        },
+                        "coordinates": rect,
+                        "is_excluded": True
+                    })
+            new_config_data = {"scene": config_data.get("scene", scene), "window": config_data.get("window", None),
+                               "rectangles": new_rectangles}
+            with open(config_path, 'w') as f:
+                json.dump(new_config_data, f, indent=4)
+            return OCRConfig.from_dict(new_config_data)
+        elif "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
+                isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"]):
+            logger.info("Loading new OCR config format.")
+            logger.info(config_data)
+            return OCRConfig.from_dict(config_data)
+        else:
+            raise Exception(f"Invalid config format in {config_path}.")
+    except json.JSONDecodeError:
+        print("Error decoding JSON. Please check your config file.")
+        return None
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        return None
 
 
 websocket_server_thread = None
@@ -130,7 +182,8 @@ class WebsocketServerThread(threading.Thread):
 
     def send_text(self, text, line_time: datetime):
         if text:
-            return asyncio.run_coroutine_threadsafe(self.send_text_coroutine(json.dumps({"sentence": text, "time": line_time.isoformat()})), self.loop)
+            return asyncio.run_coroutine_threadsafe(
+                self.send_text_coroutine(json.dumps({"sentence": text, "time": line_time.isoformat()})), self.loop)
 
     def stop_server(self):
         self.loop.call_soon_threadsafe(self._stop_event.set)
@@ -140,15 +193,21 @@ class WebsocketServerThread(threading.Thread):
             self._loop = asyncio.get_running_loop()
             self._stop_event = stop_event = asyncio.Event()
             self._event.set()
-            self.server = start_server = websockets.serve(self.server_handler, get_config().general.websocket_uri.split(":")[0], get_config().general.websocket_uri.split(":")[1], max_size=1000000000)
+            self.server = start_server = websockets.serve(self.server_handler,
+                                                          get_config().general.websocket_uri.split(":")[0],
+                                                          get_config().general.websocket_uri.split(":")[1],
+                                                          max_size=1000000000)
             async with start_server:
                 await stop_event.wait()
+
         asyncio.run(main())
+
 
 all_cords = None
 rectangles = None
 
-def text_callback(text, rectangle, time):
+
+def text_callback(text, rectangle_index, time, img=None):
     global twopassocr, ocr2, last_oneocr_results
     if not text:
         return
@@ -159,8 +218,9 @@ def text_callback(text, rectangle, time):
         line_time = time if time else datetime.now()
         logger.info(f"Received message: {text}, ATTEMPTING LENS OCR")
         if rectangles:
-            cords = rectangles[rectangle]
-            i = rectangle
+            rect_data: Rectangle = rectangles[rectangle_index]
+            cords = rect_data.coordinates
+            i = rectangle_index
         else:
             i = 0
             mon = sct.monitors
@@ -172,15 +232,23 @@ def text_callback(text, rectangle, time):
         last_oneocr_results[i] = text
         last_result = ([], -1)
         try:
-            sct_params = {'left': cords[0], 'top': cords[1], 'width': cords[2], 'height': cords[3]}
-            sct_img = sct.grab(sct_params)
-            img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
-            img = img.convert("RGBA")
-            draw = ImageDraw.Draw(img)
-            for exclusion in ocr_config.get("excluded_rectangles", []):
-                left, top, right, bottom = exclusion
-                draw.rectangle((left, top, right, bottom), fill=(0, 0, 0, 0))
-                # draw.rectangle((left, top, right, bottom), fill=(0,0,0))
+            # sct_params = {'left': cords[0], 'top': cords[1], 'width': cords[2], 'height': cords[3]}
+            # sct_img = sct.grab(sct_params)
+            # img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+            # img = img.convert("RGBA")
+            # draw = ImageDraw.Draw(img)
+            # excluded_rects = ocr_config.get("excluded_rectangles", [])
+            # if isinstance(excluded_rects, list) and all(
+            #         isinstance(item, list) and len(item) == 4 for item in excluded_rects):
+            #     for exclusion in excluded_rects:
+            #         left, top, right, bottom = exclusion
+            #         draw.rectangle((left, top, right, bottom), fill=(0, 0, 0, 0))
+            # elif isinstance(excluded_rects, list) and all(
+            #         isinstance(item, dict) and "coordinates" in item and isinstance(item["coordinates"], list) and len(
+            #                 item["coordinates"]) == 4 for item in excluded_rects):
+            #     for exclusion in excluded_rects:
+            #         left, top, right, bottom = exclusion["coordinates"]
+            #         draw.rectangle((left, top, right, bottom), fill=(0, 0, 0, 0))
             orig_text, text = run.process_and_write_results(img, None, None, last_result, TextFiltering(),
                                                             engine=ocr2)
             if ":gsm_prefix:" in text:
@@ -195,66 +263,27 @@ def text_callback(text, rectangle, time):
             logger.exception(e)
             print(f"Error processing message: {e}")
 
+
 done = False
 
-def run_oneocr(ocr_config, i):
+
+def run_oneocr(ocr_config: OCRConfig, i):
     global done
+    rect_config = ocr_config.rectangles[i]
+    coords = rect_config.coordinates
+    monitor_config = rect_config.monitor
+    exclusions = (rect.coordinates for rect in list(filter(lambda x: x.is_excluded, ocr_config.rectangles)))
+    screen_area = ",".join(str(c) for c in coords)
     run.run(read_from="screencapture", write_to="callback",
-            screen_capture_area=",".join(str(c) for c in ocr_config['rectangles'][i]) if ocr_config['rectangles'] else 'screen_1',
-            screen_capture_window=ocr_config.get("window", None),
+            screen_capture_area=screen_area,
+            # screen_capture_monitor=monitor_config['index'],
+            screen_capture_window=ocr_config.window,
             screen_capture_only_active_windows=get_requires_open_window(),
             screen_capture_delay_secs=get_ocr_scan_rate(), engine=ocr1,
             text_callback=text_callback,
-            screen_capture_exclusions=ocr_config.get('excluded_rectangles', None),
+            screen_capture_exclusions=exclusions,
             rectangle=i)
     done = True
-
-
-# async def websocket_client():
-#     uri = "ws://localhost:7331"  # Replace with your hosted websocket address
-#     print("Connecting to WebSocket...")
-#     async with websockets.connect(uri) as websocket:
-#         print("Connected to WebSocket.")
-#
-#         try:
-#             while True:
-#                 message = await websocket.recv()
-#                 if not message:
-#                     continue
-#                 line_time = datetime.now()
-#                 get_line_history().add_secondary_line(message)
-#                 print(f"Received message: {message}, ATTEMPTING LENS OCR")
-#                 if ":gsm_prefix:" in message:
-#                     i = int(message.split(":gsm_prefix:")[0])
-#                 cords = all_cords[i] if i else all_cords[0]
-#                 similarity = difflib.SequenceMatcher(None, last_oneocr_results[i], message).ratio()
-#                 if similarity > .8:
-#                     continue
-#                 print(f"Similarity for region {i}: {similarity}")
-#                 last_oneocr_results[i] = message
-#                 last_result = ([], -1)
-#                 try:
-#                     sct_params = {'top': cords[1], 'left': cords[0], 'width': cords[2], 'height': cords[3]}
-#                     with mss.mss() as sct:
-#                         sct_img = sct.grab(sct_params)
-#                     img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
-#                     draw = ImageDraw.Draw(img)
-#                     for exclusion in ocr_config.get("excluded_rectangles", []):
-#                         exclusion = tuple(exclusion)
-#                         draw.rectangle(exclusion, fill="black")
-#                     orig_text, text = run.process_and_write_results(img, "results.txt", None, last_result, TextFiltering(), engine="glens")
-#                     if ":gsm_prefix:" in text:
-#                         text = text.split(":gsm_prefix:")[1]
-#                     websocket_server_thread.send_text(text, line_time)
-#                 except json.JSONDecodeError:
-#                     print("Invalid JSON received.")
-#                 except Exception as e:
-#                     logger.exception(e)
-#                     print(f"Error processing message: {e}")
-#         except websockets.exceptions.ConnectionClosed:
-#             print("WebSocket connection closed.")
-#         except Exception as e:
-#             print(f"WebSocket error: {e}")
 
 
 if __name__ == "__main__":
@@ -262,7 +291,6 @@ if __name__ == "__main__":
     import sys
 
     args = sys.argv[1:]
-
     if len(args) == 3:
         ocr1 = args[0]
         ocr2 = args[1]
@@ -277,34 +305,32 @@ if __name__ == "__main__":
         twopassocr = False
     else:
         ocr1 = "oneocr"
-
     logger.info(f"Received arguments: ocr1={ocr1}, ocr2={ocr2}, twopassocr={twopassocr}")
     global ocr_config
-    ocr_config = get_ocr_config()
-    rectangles = ocr_config['rectangles']
-    last_oneocr_results = [""] * len(rectangles) if rectangles else [""]
-    oneocr_threads = []
-    run.init_config(False)
-    if rectangles:
-        for i, rectangle in enumerate(rectangles):
-            thread = threading.Thread(target=run_oneocr, args=(ocr_config,i,), daemon=True)
-            oneocr_threads.append(thread)
-            thread.start()
+    ocr_config: OCRConfig = get_ocr_config()
+    if ocr_config and ocr_config.rectangles:
+        rectangles = ocr_config.rectangles
+        last_oneocr_results = [""] * len(rectangles) if rectangles else [""]
+        oneocr_threads = []
+        run.init_config(False)
+        if rectangles:
+            for i, rectangle in enumerate(rectangles):
+                thread = threading.Thread(target=run_oneocr, args=(ocr_config, i,), daemon=True)
+                oneocr_threads.append(thread)
+                thread.start()
+        else:
+            single_ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config, 0,), daemon=True)
+            oneocr_threads.append(single_ocr_thread)
+            single_ocr_thread.start()
+        websocket_server_thread = WebsocketServerThread(read=True)
+        websocket_server_thread.start()
+        try:
+            while not done:
+                time.sleep(1)
+        except KeyboardInterrupt as e:
+            pass
+        for thread in oneocr_threads:
+            thread.join()
+        # asyncio.run(websocket_client())
     else:
-        single_ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config, 0,), daemon=True)
-        oneocr_threads.append(single_ocr_thread)
-        single_ocr_thread.start()
-
-    websocket_server_thread = WebsocketServerThread(read=True)
-    websocket_server_thread.start()
-
-    try:
-        while not done:
-            time.sleep(1)
-    except KeyboardInterrupt as e:
-        pass
-
-    for thread in oneocr_threads:
-        thread.join()
-
-    # asyncio.run(websocket_client())
+        print("Failed to load OCR configuration. Please check the logs.")
