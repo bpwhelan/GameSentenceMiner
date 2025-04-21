@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -28,6 +28,10 @@
       {
         "from": "electron-src/assets",
         "to": "resources/assets"
+      },
+      {
+        "from": "GameSentenceMiner",
+        "to": "resources/GameSentenceMiner"
       }
     ],
     "win": {

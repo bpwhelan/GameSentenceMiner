@@ -13,6 +13,7 @@ from tkinter import messagebox
 
 import mss
 import websockets
+from rapidfuzz import fuzz
 from PIL import Image, ImageDraw
 
 from GameSentenceMiner import obs, util
@@ -75,7 +76,7 @@ def get_new_game_cords():
     return coords_list
 
 
-def get_ocr_config():
+def get_ocr_config() -> OCRConfig:
     """Loads and updates screen capture areas from the corresponding JSON file."""
     app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
     ocr_config_dir = app_dir / "ocr_config"
@@ -85,7 +86,7 @@ def get_ocr_config():
     if not config_path.exists():
         raise Exception(f"No config file found at {config_path}.")
     try:
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding="utf-8") as f:
             config_data = json.load(f)
         if "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
                 isinstance(item, list) and len(item) == 4 for item in config_data["rectangles"]):
@@ -120,7 +121,7 @@ def get_ocr_config():
                     })
             new_config_data = {"scene": config_data.get("scene", scene), "window": config_data.get("window", None),
                                "rectangles": new_rectangles}
-            with open(config_path, 'w') as f:
+            with open(config_path, 'w', encoding="utf-8") as f:
                 json.dump(new_config_data, f, indent=4)
             return OCRConfig.from_dict(new_config_data)
         elif "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
@@ -206,63 +207,78 @@ class WebsocketServerThread(threading.Thread):
 all_cords = None
 rectangles = None
 
+def do_second_ocr(ocr1_text, rectangle_index, time, img):
+    global twopassocr, ocr2, last_ocr1_results, last_ocr2_results
+    last_result = ([], -1)
+
+    previous_ocr1_text = last_ocr1_results[rectangle_index]
+    if fuzz.ratio(previous_ocr1_text, ocr1_text) >= 80:
+        logger.info("Seems like the same text, not doing 2nd pass")
+    last_ocr1_results[rectangle_index] = ocr1_text
+    try:
+        orig_text, text = run.process_and_write_results(img, None, None, last_result, TextFiltering(),
+                                                        engine=ocr2)
+        previous_ocr2_text = last_ocr2_results[rectangle_index]
+        if fuzz.ratio(previous_ocr2_text, text) >= 80:
+            logger.info("Seems like the same text from previous ocr2 result, not sending")
+            return
+        last_ocr2_results[rectangle_index] = text
+        if get_config().advanced.ocr_sends_to_clipboard:
+            import pyperclip
+            pyperclip.copy(text)
+        websocket_server_thread.send_text(text, time)
+    except json.JSONDecodeError:
+        print("Invalid JSON received.")
+    except Exception as e:
+        logger.exception(e)
+        print(f"Error processing message: {e}")
+
+
+last_oneocr_results_to_check = {}  # Store last OCR result for each rectangle
+last_oneocr_times = {}    # Store last OCR time for each rectangle
+text_stable_start_times = {} # Store the start time when text becomes stable for each rectangle
+TEXT_APPEARENCE_DELAY = get_ocr_scan_rate() * 1000 + 500  # Adjust as needed
 
 def text_callback(text, rectangle_index, time, img=None):
-    global twopassocr, ocr2, last_oneocr_results
-    if not text:
-        return
-    if not twopassocr or not ocr2:
-        websocket_server_thread.send_text(text, time if time else datetime.now())
-        return
-    with mss.mss() as sct:
-        line_time = time if time else datetime.now()
-        logger.info(f"Received message: {text}, ATTEMPTING LENS OCR")
-        if rectangles:
-            rect_data: Rectangle = rectangles[rectangle_index]
-            cords = rect_data.coordinates
-            i = rectangle_index
-        else:
-            i = 0
-            mon = sct.monitors
-            cords = [mon[1]['left'], mon[1]['top'], mon[1]['width'], mon[1]['height']]
-        similarity = difflib.SequenceMatcher(None, last_oneocr_results[i], text).ratio()
-        if similarity > .8:
-            return
-        logger.debug(f"Similarity for region {i}: {similarity}")
-        last_oneocr_results[i] = text
-        last_result = ([], -1)
-        try:
-            # sct_params = {'left': cords[0], 'top': cords[1], 'width': cords[2], 'height': cords[3]}
-            # sct_img = sct.grab(sct_params)
-            # img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
-            # img = img.convert("RGBA")
-            # draw = ImageDraw.Draw(img)
-            # excluded_rects = ocr_config.get("excluded_rectangles", [])
-            # if isinstance(excluded_rects, list) and all(
-            #         isinstance(item, list) and len(item) == 4 for item in excluded_rects):
-            #     for exclusion in excluded_rects:
-            #         left, top, right, bottom = exclusion
-            #         draw.rectangle((left, top, right, bottom), fill=(0, 0, 0, 0))
-            # elif isinstance(excluded_rects, list) and all(
-            #         isinstance(item, dict) and "coordinates" in item and isinstance(item["coordinates"], list) and len(
-            #                 item["coordinates"]) == 4 for item in excluded_rects):
-            #     for exclusion in excluded_rects:
-            #         left, top, right, bottom = exclusion["coordinates"]
-            #         draw.rectangle((left, top, right, bottom), fill=(0, 0, 0, 0))
-            orig_text, text = run.process_and_write_results(img, None, None, last_result, TextFiltering(),
-                                                            engine=ocr2)
-            if ":gsm_prefix:" in text:
-                text = text.split(":gsm_prefix:")[1]
-            if get_config().advanced.ocr_sends_to_clipboard:
-                import pyperclip
-                pyperclip.copy(text)
-            websocket_server_thread.send_text(text, line_time)
-        except json.JSONDecodeError:
-            print("Invalid JSON received.")
-        except Exception as e:
-            logger.exception(e)
-            print(f"Error processing message: {e}")
+    global twopassocr, ocr2, last_oneocr_results_to_check, last_oneocr_times, text_stable_start_times
 
+    current_time = time if time else datetime.now()
+
+    previous_text = last_oneocr_results_to_check.get(rectangle_index, "")
+
+    if not text:
+        if previous_text:
+            if rectangle_index in text_stable_start_times:
+                stable_time = text_stable_start_times[rectangle_index]
+                if twopassocr:
+                    do_second_ocr(previous_text, rectangle_index, time, img)
+                else:
+                    previous_ocr1_text = last_ocr1_results[rectangle_index]
+                    if fuzz.ratio(previous_ocr1_text, text) >= 80:
+                        logger.info("Seems like the same text, not sending")
+                    last_ocr1_results[rectangle_index] = text
+                    websocket_server_thread.send_text(previous_text, stable_time)
+                del text_stable_start_times[rectangle_index]
+            del last_oneocr_results_to_check[rectangle_index]
+        return
+
+    if rectangle_index not in last_oneocr_results_to_check:
+        last_oneocr_results_to_check[rectangle_index] = text
+        last_oneocr_times[rectangle_index] = current_time
+        text_stable_start_times[rectangle_index] = current_time
+        return
+
+    stable = text_stable_start_times.get(rectangle_index)
+
+    if stable:
+        time_since_stable_ms = int((current_time - stable).total_seconds() * 1000)
+
+        if time_since_stable_ms >= TEXT_APPEARENCE_DELAY:
+            last_oneocr_results_to_check[rectangle_index] = text
+            last_oneocr_times[rectangle_index] = current_time
+    else:
+        last_oneocr_results_to_check[rectangle_index] = text
+        last_oneocr_times[rectangle_index] = current_time
 
 done = False
 
@@ -305,12 +321,15 @@ if __name__ == "__main__":
         twopassocr = False
     else:
         ocr1 = "oneocr"
+        ocr2 = "glens"
+        twopassocr = True
     logger.info(f"Received arguments: ocr1={ocr1}, ocr2={ocr2}, twopassocr={twopassocr}")
     global ocr_config
     ocr_config: OCRConfig = get_ocr_config()
     if ocr_config and ocr_config.rectangles:
         rectangles = ocr_config.rectangles
-        last_oneocr_results = [""] * len(rectangles) if rectangles else [""]
+        last_ocr1_results = [""] * len(rectangles) if rectangles else [""]
+        last_ocr2_results = [""] * len(rectangles) if rectangles else [""]
         oneocr_threads = []
         run.init_config(False)
         if rectangles:

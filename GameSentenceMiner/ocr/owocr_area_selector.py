@@ -88,7 +88,7 @@ class ScreenSelector:
                 serializable_rects.append(rect_data)
 
             print(serializable_rects)
-            with open(config_path, 'w') as f:
+            with open(config_path, 'w', encoding="utf-8") as f:
                 json.dump({"scene": sanitize_filename(obs.get_current_scene()), "window": self.window_name, "rectangles": serializable_rects}, f, indent=4)
             print("Rectangles saved.")
             self.result['rectangles'] = self.rectangles.copy()

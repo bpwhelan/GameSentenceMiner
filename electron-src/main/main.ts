@@ -22,6 +22,7 @@ import {webSocketManager} from "./communication/websocket.js";
 import {openOBSWindow, registerOBSIPC} from "./ui/obs.js";
 import {registerSettingsIPC} from "./ui/settings.js";
 import {registerOCRUtilsIPC} from "./ui/ocr.js";
+import * as fs from "node:fs";
 
 export let mainWindow: BrowserWindow | null = null;
 let tray: Tray;
@@ -71,15 +72,9 @@ async function autoUpdate() {
                 buttons: ["Restart", "Later"],
             })
             .then((result) => {
-                if (result.response === 0) {
-                    updateGSM(false).then(() => {
-                        autoUpdater.quitAndInstall();
-                    });
-                } else {
-                    if (result.response === 0) {
-                        updateGSM(true);
-                    }
-                }
+                const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
+                fs.writeFileSync(updateFilePath, '');
+                autoUpdater.quitAndInstall();
             });
     });
 
@@ -345,8 +340,11 @@ if (!app.requestSingleInstanceLock()) {
         if (!isDev && getAutoUpdateElectron()) {
             await autoUpdate()
         }
-        if (getAutoUpdateGSMApp()) {
-            await updateGSM(false);
+        if (getAutoUpdateGSMApp() || fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
+                await updateGSM(false);
+                if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
+                    fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
+                }
         }
         if (getLaunchVNOnStart()) {
             dialog.showMessageBox(mainWindow!, {

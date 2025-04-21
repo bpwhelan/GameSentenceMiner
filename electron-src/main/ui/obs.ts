@@ -185,6 +185,37 @@ export function registerOBSIPC() {
         }
     });
 
+    ipcMain.handle('obs.createScene.Game', async (_, window) => {
+        try {
+            await waitForObsConnection();
+            // Create a new scene
+            const sceneName = `${window.sceneName}`;
+            await obs.call('CreateScene', {sceneName});
+
+            // Set the new scene as the current program scene
+            await obs.call('SetCurrentProgramScene', {sceneName});
+
+            // Add a game capture source to the new scene
+            await obs.call('CreateInput', {
+                sceneName,
+                inputName: `${window.title} - Game Capture`,
+                inputKind: 'game_capture',
+                inputSettings: {
+                    capture_mode: 'window',
+                    window: window.value,
+                    capture_audio: true,
+                    capture_cursor: false,
+                }
+            });
+
+            await modifyAutoSceneSwitcherInJSON(sceneName, window.title)
+
+            console.log(`Scene and game capture setup for window: ${window.title}`);
+        } catch (error) {
+            console.error('Error setting up scene and game capture:', error);
+        }
+    });
+
     ipcMain.handle('obs.removeScene', async (_, sceneName) => {
         try {
             await waitForObsConnection();

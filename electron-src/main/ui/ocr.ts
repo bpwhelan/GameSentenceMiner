@@ -1,5 +1,5 @@
-import { exec, spawn } from 'child_process';
-import { ipcMain } from 'electron';
+import {exec, spawn} from 'child_process';
+import {ipcMain} from 'electron';
 import {
     getAutoUpdateElectron,
     getAutoUpdateGSMApp,
@@ -9,27 +9,36 @@ import {
     setOCR2, setOCRConfig, setOCRScanRate, setRequiresOpenWindow, setTwoPassOCR,
     setWindowName
 } from "../store.js";
-import { mainWindow } from "../main.js";
+import {mainWindow} from "../main.js";
 
 let ocrProcess: any = null;
 
 export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.install-owocr-deps', () => {
         const command = `${getPythonPath()} -m pip install owocr & exit`;
-        spawn('cmd', ['/c', 'start', 'cmd', '/k', command], { detached: false }); // Open in new cmd window
+        spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
         mainWindow?.webContents.send('terminal-output', `Installing OWOCR dependencies in new terminal...`);
     });
 
     ipcMain.on('ocr.install-selected-dep', (_, dependency: string) => {
         const command = `${getPythonPath()} -m pip install ${dependency} & exit`;
-        spawn('cmd', ['/c', 'start', 'cmd', '/k', command], { detached: false }); // Open in new cmd window
+        spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
         mainWindow?.webContents.send('terminal-output', `Installing ${dependency} dependencies in new terminal...`);
+    });
+
+    ipcMain.on('ocr.uninstall-selected-dep', (_, dependency: string) => {
+        const command = `${getPythonPath()} -m pip uninstall -y ${dependency}`;
+        spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
+        mainWindow?.webContents.send('terminal-output', `Uninstalling ${dependency} dependencies in new terminal...`);
     });
 
     ipcMain.on('ocr.run-screen-selector', (_, window_title: string) => {
         setTimeout(() => {
             const ocr_config = getOCRConfig();
-            spawn(getPythonPath(), ['-m', 'GameSentenceMiner.ocr.owocr_area_selector', window_title], { detached: false, stdio: 'ignore' });
+            spawn(getPythonPath(), ['-m', 'GameSentenceMiner.ocr.owocr_area_selector', window_title], {
+                detached: false,
+                stdio: 'ignore'
+            });
             mainWindow?.webContents.send('terminal-output', `Running screen area selector in background...`);
         }, 3000);
     });
@@ -38,16 +47,16 @@ export function registerOCRUtilsIPC() {
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
             const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"}`;
-            ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', command], { detached: false }); // Open in new cmd window
+            ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
 
             console.log(`Starting OCR process with command: ${command}`);
 
-            ocrProcess.on('exit', (code:any, signal:any) => {
+            ocrProcess.on('exit', (code: any, signal: any) => {
                 ocrProcess = null;
                 console.log(`OCR process exited with code: ${code}, signal: ${signal}`);
             });
 
-            ocrProcess.on('error', (err:any) => {
+            ocrProcess.on('error', (err: any) => {
                 console.log(`OCR process error: ${err}`);
                 ocrProcess = null;
             });
@@ -57,7 +66,7 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.kill-ocr', () => {
         if (ocrProcess) {
             exec(`taskkill /F /PID ${ocrProcess.pid}`, (error, stdout, stderr) => {
-                if(error){
+                if (error) {
                     mainWindow?.webContents.send('terminal-error', `Error killing OCR process: ${stderr}`);
                 }
                 mainWindow?.webContents.send('terminal-output', `Killing OCR Process...`);
@@ -69,7 +78,7 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.restart-ocr', () => {
         if (ocrProcess) {
             exec(`taskkill /F /PID ${ocrProcess.pid}`, (error, stdout, stderr) => {
-                if(error){
+                if (error) {
                     mainWindow?.webContents.send('terminal-error', `Error killing OCR process: ${stderr}`);
                 }
                 mainWindow?.webContents.send('terminal-output', `Restarting OCR Process...`);
@@ -107,7 +116,7 @@ export function registerOCRUtilsIPC() {
         setTwoPassOCR(config.twoPassOCR);
         setWindowName(config.window_name);
         setRequiresOpenWindow(config.requiresOpenWindow);
-        setOCRScanRate(config.ocrScanRate);
+        setOCRScanRate(config.scanRate);
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     })
 

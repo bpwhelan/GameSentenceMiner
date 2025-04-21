@@ -24,19 +24,3 @@ class OCRConfig:
     scene: str
     rectangles: List[Rectangle]
     window: Optional[str] = None
-
-# Example of how you might use from_dict (assuming you have a dictionary called 'data')
-data = {
-    "scene": "CODEVEIN",
-    "window": "CODE VEIN",
-    "rectangles": [
-        {
-            "monitor": {"left": 0, "top": 0, "width": 2560, "height": 1440, "index": 0},
-            "coordinates": [749, 1178, 1100, 147],
-            "is_excluded": False,
-        }
-    ],
-}
-
-config = OCRConfig.from_dict(data)
-print(config)

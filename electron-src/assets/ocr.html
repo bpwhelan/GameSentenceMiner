@@ -20,7 +20,7 @@
             <option value="owocr[lens]">Google Lens (Recommended)</option>
             <option value="owocr[oneocr]">OneOCR (Recommended)</option>
             <option value="owocr[faster-png]">Faster PNG (Recommended if w11)</option>
-            <option value="owocr[accurate-filtering]">Accurate Filtering (Recommended?)</option>
+            <option value="owocr[accurate-filtering]">Accurate Filtering (Not recommended)</option>
             <option value="owocr[winrtocr]">WindowsOCR</option>
             <option value="owocr[mangaocr]">MangaOCR</option>
             <option value="owocr[easyocr]">EasyOCR</option>
@@ -28,17 +28,36 @@
             <option value="owocr[gvision]">Google Vision (apikey required)</option>
             <option value="owocr[azure]">Azure (apikey required)</option>
             <option value="owocr[ocrspace]">OCRSpace (apikey required)</option>
-            <option value="torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118">CUDA (idk if this does anything</option>
+            <option value="torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118">CUDA (idk if this does anything other than for easyocr)</option>
         </select>
     </label>
     <button id="install-selected-dep">Install Selected Dependency</button>
 </div>
 <div>
-    <label for="window-name-input">
-        Window Name:
-        <input type="text" id="window-name-input" class="inputField"
-               placeholder="Enter the name of the window to associate area with">
+    <label for="dependency-select-removal">
+        Select Dependency to Uninstall:
+        <select id="dependency-select-removal">
+            <option value="owocr">OWOCR Base</option>
+            <option value="betterproto">Google Lens</option>
+            <option value="oneocr">OneOCR</option>
+            <option value="fpng-py">Faster PNG</option>
+            <option value="transformers sentencepiece">Accurate Filtering</option>
+            <option value="winocr">WindowsOCR</option>
+            <option value="manga-ocr">MangaOCR</option>
+            <option value="easyocr">EasyOCR</option>
+            <option value="rapidocr onnxruntime rapidocr_onnxruntime">RapidOCR</option>
+            <option value="google-cloud-vision">Google Vision</option>
+            <option value="azure-ai-vision-imageanalysis">Azure</option>
+            <option value="ocrspace">OCRSpace</option>
+        </select>
     </label>
+    <button id="uninstall-selected-dep">Uninstall Selected Dependency</button>
+    <div id="uninstall-status"></div>
+</div>
+<div>
+    <label for="windowSelect">Windows:</label>
+    <select id="windowSelect"></select>
+    <button id="refreshWindowsBtn">&#x21bb;</button>
     <button id="run-screen-selector">Run Screen Area Selector</button>
 </div>
 <div>
@@ -97,6 +116,7 @@
 
 <script>
     const {ipcRenderer} = require('electron');
+    let ocr_settings = null;
     ipcRenderer.on('ocr-log-update', (event, data) => {
         ocr_term.write(data);
     });
@@ -109,13 +129,22 @@
         ipcRenderer.send('ocr.install-owocr-deps');
     });
 
+    document.getElementById('refreshWindowsBtn').addEventListener('click', () => {
+        getWindows();
+    });
+
     document.getElementById('install-selected-dep').addEventListener('click', () => {
         const selectedDep = document.getElementById('dependency-select').value;
         ipcRenderer.send('ocr.install-selected-dep', selectedDep);
     });
 
+    document.getElementById('uninstall-selected-dep').addEventListener('click', () => {
+        const selectedDep = document.getElementById('dependency-select-removal').value;
+        ipcRenderer.send('ocr.uninstall-selected-dep', selectedDep);
+    });
+
     document.getElementById('run-screen-selector').addEventListener('click', () => {
-        const windowName = document.getElementById('window-name-input').value.trim();
+        const windowName = document.getElementById('windowSelect').value.trim();
         ipcRenderer.send('ocr.run-screen-selector', windowName);
     });
 
@@ -123,7 +152,7 @@
         saveOCRConfig();
     });
 
-    document.getElementById('window-name-input').addEventListener('input', () => {
+    document.getElementById('windowSelect').addEventListener('change', () => {
         saveOCRConfig();
     });
 
@@ -161,31 +190,48 @@
     //     ipcRenderer.send('ocr.restart-ocr');
     // });
 
+    function getWindows() {
+        const windowSelect = document.getElementById('windowSelect');
+        windowSelect.innerHTML = '<option>Loading...</option>'; // Set "Loading..." message
+        ipcRenderer.invoke('obs.getWindows').then(windows => {
+            windowSelect.innerHTML = '';
+            windows.forEach(window => {
+                const option = document.createElement('option');
+                if (window.value === ocr_settings?.window_name) {
+                    option.selected = true;
+                }
+                option.value = window.title;
+                option.textContent = window.title;
+                windowSelect.appendChild(option);
+            });
+        });
+    }
+
     async function saveOCRConfig() {
-        const ocrConfig = {
-            window_name: document.getElementById('window-name-input').value.trim(),
+        ocr_settings = {
+            window_name: document.getElementById('windowSelect').value.trim(),
             ocr1: document.getElementById('ocr1-input').value,
             ocr2: document.getElementById('ocr2-input').value,
             twoPassOCR: document.getElementById('two-pass-ocr').checked,
             requiresOpenWindow: document.getElementById('require-open-window').checked,
-            ocrScanRate: document.getElementById('ocr-scan-rate').value,
+            scanRate: document.getElementById('ocr-scan-rate').value,
         };
-        await ipcRenderer.send('ocr.save-ocr-config', ocrConfig);
+        await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
     }
 
 
 
     async function initialize() {
-        const ocr_settings = await ipcRenderer.invoke('ocr.get-ocr-config');
-        console.log(ocr_settings);
+        ocr_settings = await ipcRenderer.invoke('ocr.get-ocr-config');
         if (ocr_settings) {
-            document.getElementById('window-name-input').value = ocr_settings.window_name || '';
+            // document.getElementById('window-name-input').value = ocr_settings.window_name || '';
             document.getElementById('ocr1-input').value = ocr_settings.ocr1 || '';
             document.getElementById('ocr2-input').value = ocr_settings.ocr2 || '';
             document.getElementById('two-pass-ocr').checked = ocr_settings.twoPassOCR || false;
             document.getElementById('require-open-window').checked = ocr_settings.requiresOpenWindow || false;
-            document.getElementById('ocr-scan-rate').value = ocr_settings.ocrScanRate || 0.5;
+            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
         }
+        getWindows()
     }
     document.addEventListener('DOMContentLoaded', initialize);
 

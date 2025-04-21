@@ -1,7 +1,7 @@
 import json
 import os
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, Scrollbar
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.configuration import logger, get_app_directory, get_config
@@ -13,18 +13,18 @@ class UtilityApp:
         self.items = []
         self.play_audio_buttons = []
         self.get_screenshot_buttons = []
-        self.checkboxes = []
+        self.checkbox_vars = []
         self.multi_mine_window = None  # Store the multi-mine window reference
         self.checkbox_frame = None
+        self.canvas = None
+        self.scrollbar = None
         self.line_for_audio = None
         self.line_for_screenshot = None
-        self.line_counter = 0
 
         style = ttk.Style()
         style.configure("TCheckbutton", font=("Arial", 20))  # Change the font and size
         self.config_file = os.path.join(get_app_directory(), "multi-mine-window-config.json")
         self.load_window_config()
-
 
     def save_window_config(self):
         if self.multi_mine_window:
@@ -58,19 +58,32 @@ class UtilityApp:
             self.multi_mine_window.title("Multi Mine Window")
 
             self.multi_mine_window.geometry(f"{self.window_width}x{self.window_height}+{self.window_x}+{self.window_y}")
-
             self.multi_mine_window.minsize(800, 400)
 
-            self.checkbox_frame = ttk.Frame(self.multi_mine_window)
-            self.checkbox_frame.pack(padx=10, pady=10, fill="both", expand=True)
+            self.canvas = tk.Canvas(self.multi_mine_window)
+            self.scrollbar = Scrollbar(self.multi_mine_window, orient="vertical", command=self.canvas.yview)
+            self.checkbox_frame = ttk.Frame(self.canvas)
+
+            self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+            self.scrollbar.pack(side="right", fill="y")
+            self.canvas.pack(side="left", fill="both", expand=True)
+            self.canvas.create_window((0, 0), window=self.checkbox_frame, anchor="nw")
+
+            self.checkbox_frame.bind("<Configure>", self.on_frame_configure)
 
             for line, var in self.items:
                 self.add_checkbox_to_gui(line, var)
+            self.scroll_to_bottom()
 
             self.multi_mine_window.protocol("WM_DELETE_WINDOW", self.on_close)
         else:
             self.multi_mine_window.deiconify()
             self.multi_mine_window.lift()
+
+    def on_frame_configure(self, event):
+        """Reset the scroll region to encompass the inner frame"""
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def on_close(self):
         self.save_window_config()
@@ -81,48 +94,44 @@ class UtilityApp:
             try:
                 var = tk.BooleanVar()
                 self.items.append((line, var))
+                if self.multi_mine_window and tk.Toplevel.winfo_exists(self.multi_mine_window):
+                    self.add_checkbox_to_gui(line, var)
+                self.scroll_to_bottom()
             except Exception as e:
                 logger.error(f"NOT AN ERROR: Attempted to add text to multi-mine window, before it was initialized: {e}")
                 return
 
-            if len(self.items) > 10:
-                if self.checkboxes:
-                    self.checkboxes[0].destroy()
-                    self.checkboxes.pop(0)
-                self.items.pop(0)
-                if self.play_audio_buttons:
-                    self.play_audio_buttons[0].destroy()
-                    self.play_audio_buttons.pop(0)
-                if self.get_screenshot_buttons:
-                    self.get_screenshot_buttons[0].destroy()
-                    self.get_screenshot_buttons.pop(0)
-
-            if self.multi_mine_window and tk.Toplevel.winfo_exists(self.multi_mine_window):
-                self.add_checkbox_to_gui(line, var)
         self.line_for_audio = None
         self.line_for_screenshot = None
 
     def add_checkbox_to_gui(self, line, var):
         """ Add a single checkbox without repainting everything. """
         if self.checkbox_frame:
+            row = len(self.checkbox_vars)
             column = 0
+
             if get_config().advanced.show_screenshot_buttons:
                 get_screenshot_button = ttk.Button(self.checkbox_frame, text="📸", command=lambda: self.take_screenshot(line))
-                get_screenshot_button.grid(row=self.line_counter, column=column, sticky='w', padx=5)
-                self.get_screenshot_buttons.append(get_screenshot_button)
+                get_screenshot_button.grid(row=row, column=column, sticky='w', padx=5)
                 column += 1
 
             if get_config().advanced.video_player_path or get_config().advanced.audio_player_path:
                 play_audio_button = ttk.Button(self.checkbox_frame, text="🔊", command=lambda: self.play_audio(line))
-                play_audio_button.grid(row=self.line_counter, column=column, sticky='w', padx=5)
-                self.play_audio_buttons.append(play_audio_button)
+                play_audio_button.grid(row=row, column=column, sticky='w', padx=5)
                 column += 1
 
             chk = ttk.Checkbutton(self.checkbox_frame, text=f"{line.time.strftime('%H:%M:%S')} - {line.text}", variable=var)
-            chk.grid(row=self.line_counter, column=column, sticky='w', padx=5)
-            self.checkboxes.append(chk)
+            chk.grid(row=row, column=column, sticky='w', padx=5)
+            self.checkbox_vars.append(var)
 
-            self.line_counter += 1
+            # Update scroll region after adding a new item
+            self.checkbox_frame.update_idletasks()
+            self.canvas.config(scrollregion=self.canvas.bbox("all"))
+
+
+    def scroll_to_bottom(self):
+        """Scroll the canvas to the bottom"""
+        self.canvas.yview_moveto(1.0)
 
 
     def play_audio(self, line):
@@ -134,25 +143,16 @@ class UtilityApp:
         obs.save_replay_buffer()
 
 
-    # def update_multi_mine_window(self):
-    #     for widget in self.multi_mine_window.winfo_children():
-    #         widget.destroy()
-    #
-    #     for i, (text, var, time) in enumerate(self.items):
-    #         time: datetime
-    #         chk = ttk.Checkbutton(self.checkbox_frame, text=f"{time.strftime('%H:%M:%S')} - {text}", variable=var)
-    #         chk.pack(anchor='w')
-
     def get_selected_lines(self):
-        filtered_items = [line for line, var in self.items if var.get()]
+        filtered_items = [line for (line, _), var in zip(self.items, self.checkbox_vars) if var.get()]
         return filtered_items if len(filtered_items) > 0 else []
 
 
     def get_next_line_timing(self):
-        selected_lines = [line for line, var in self.items if var.get()]
+        selected_lines = [line for (line, _), var in zip(self.items, self.checkbox_vars) if var.get()]
 
         if len(selected_lines) >= 2:
-            last_checked_index = max(i for i, (_, var) in enumerate(self.items) if var.get())
+            last_checked_index = max(i for i, var in enumerate(self.checkbox_vars) if var.get())
 
             if last_checked_index + 1 < len(self.items):
                 next_time = self.items[last_checked_index + 1][0].time
@@ -167,30 +167,14 @@ class UtilityApp:
 
 
     def lines_selected(self):
-        filter_times = [line.time for line, var in self.items if var.get()]
+        filter_times = [line.time for (line, _), var in zip(self.items, self.checkbox_vars) if var.get()]
         if len(filter_times) > 0:
             return True
         return False
 
-    # def validate_checkboxes(self, *args):
-    #     logger.debug("Validating checkboxes")
-    #     found_checked = False
-    #     found_unchecked = False
-    #     for _, var in self.items:
-    #         if var.get():
-    #             if found_unchecked:
-    #                 messagebox.showinfo("Invalid", "Can only select neighboring checkboxes.")
-    #                 break
-    #             found_checked = True
-    #         if found_checked and not var.get():
-    #             found_unchecked = True
-
     def reset_checkboxes(self):
-        for _, var in self.items:
+        for var in self.checkbox_vars:
             var.set(False)
-        # if self.multi_mine_window:
-        #     for checkbox in self.checkboxes:
-        #         checkbox.set(False)
 
 
 def init_utility_window(root):
@@ -207,4 +191,14 @@ utility_window: UtilityApp = None
 if __name__ == "__main__":
     root = tk.Tk()
     app = UtilityApp(root)
+
+    # Simulate adding a lot of lines
+    import datetime
+    now = datetime.datetime.now()
+    for i in range(100):
+        from GameSentenceMiner.gametext import GameLine
+        line = GameLine(f"This is line {i}", now + datetime.timedelta(seconds=i), prev=None, next=None)
+        app.add_text(line)
+    app.show()
+
     root.mainloop()

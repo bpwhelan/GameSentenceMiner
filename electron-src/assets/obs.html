@@ -28,7 +28,8 @@
     <div>
         <label for="sceneNameInput">Override Scene Name:</label>
         <input type="text" id="sceneNameInput" class="inputField"  placeholder="Enter a name for the new scene">
-        <button id="createNewSceneBtn">Create New Scene</button>
+        <button id="createNewSceneBtn">Create New Scene (Window Capture)</button>
+        <button id="createNewSceneGameBtn">Create New Scene (Game Capture)</button>
     </div>
 </div>
 <script>
@@ -60,8 +61,9 @@
     }
 
     function getWindows() {
+        const windowSelect = document.getElementById('windowSelect');
+        windowSelect.innerHTML = '<option>Loading...</option>'; // Set "Loading..." message
         ipcRenderer.invoke('obs.getWindows').then(windows => {
-            const windowSelect = document.getElementById('windowSelect');
             windowSelect.innerHTML = '';
             windows.forEach(window => {
                 const option = document.createElement('option');
@@ -106,6 +108,21 @@
         }
         console.log(windowData)
         ipcRenderer.invoke('obs.createScene', windowData);
+    })
+
+    document.getElementById('createNewSceneGameBtn').addEventListener('click', () => {
+        const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
+        console.log(selectedWindow)
+        const windowData = {
+            title: selectedWindow.textContent,
+            value: selectedWindow.value,
+            sceneName: selectedWindow.textContent,
+        };
+        if (document.getElementById('sceneNameInput').value) {
+            windowData.sceneName = document.getElementById('sceneNameInput').value.trim();
+        }
+        console.log(windowData)
+        ipcRenderer.invoke('obs.createScene.Game', windowData);
     })
 
     getWindows();

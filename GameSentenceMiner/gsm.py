@@ -141,7 +141,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
                 ss_timing = 1
                 if mined_line and line_cutoff or mined_line and get_config().screenshot.use_beginning_of_line_as_screenshot:
-                    ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_beginning, vad_end)
+                    ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_beginning, vad_end, bool(selected_lines))
 
                 if get_config().anki.update_anki and last_note:
                     anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
