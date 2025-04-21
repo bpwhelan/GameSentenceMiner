@@ -340,7 +340,7 @@ if (!app.requestSingleInstanceLock()) {
         if (!isDev && getAutoUpdateElectron()) {
             await autoUpdate()
         }
-        if (getAutoUpdateGSMApp() || fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
+        if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
                 await updateGSM(false);
                 if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
                     fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
