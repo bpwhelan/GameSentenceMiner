@@ -264,7 +264,7 @@ def check_for_new_cards():
         except Exception as e:
             logger.error("Error updating new card, Reason:", e)
     first_run = False
-    previous_note_ids = current_note_ids  # Update the list of known notes
+    previous_note_ids.update(new_card_ids)  # Update the list of known notes
 
 
 def update_new_card():
@@ -284,7 +284,11 @@ def update_new_card():
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         card_queue.append(last_card)
-        obs.save_replay_buffer()
+        try:
+            obs.save_replay_buffer()
+        except Exception as e:
+            logger.error(f"Error saving replay buffer: {e}")
+            return
 
 
 def sentence_is_same_as_previous(last_card):

@@ -100,9 +100,7 @@ async function waitForObsConnection(): Promise<void> {
         const interval = setInterval(() => {
             obs.call("GetVersion").then((version) => {
                 clearInterval(interval);
-                setTimeout(() => {
-                    resolve();
-                }, 3000);
+                resolve();
             }).catch(async () => {
                 await connectOBSWebSocket()
                 console.error('OBS not connected yet, retrying...');
@@ -227,6 +225,10 @@ export function registerOBSIPC() {
         } catch (error) {
             console.error('Error removing scene:', error);
         }
+    });
+
+    ipcMain.handle('obs.getActiveScene', async () => {
+        return await getCurrentScene();
     });
 
 
@@ -361,4 +363,15 @@ export function registerOBSIPC() {
 
     connectOBSWebSocket().then(() => {
     });
+}
+
+export async function getCurrentScene(): Promise<string> {
+    try {
+        await waitForObsConnection();
+        const response = await obs.call('GetCurrentProgramScene');
+        return response.sceneName;
+    } catch (error) {
+        console.error('Error getting current scene:', error);
+        return '';
+    }
 }

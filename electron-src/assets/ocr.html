@@ -59,6 +59,8 @@
     <select id="windowSelect"></select>
     <button id="refreshWindowsBtn">&#x21bb;</button>
     <button id="run-screen-selector">Run Screen Area Selector</button>
+    <button id="open-config-json">Open Config File</button>
+    <button id="open-config-folder">Open OCR Config Folder</button>
 </div>
 <div>
     <label for="ocr1-input">
@@ -107,7 +109,7 @@
     </label>
     <label for="ocr-scan-rate">
         OCR Scan Rate (s):
-        <input type="number" id="ocr-scan-rate" value=".5" min=".1" step=".1">
+        <input type="number" id="ocr-scan-rate" value=".5" min=".0" step=".1">
     </label>
 </div>
 <button id="start-ocr">Start OCR</button>
@@ -146,6 +148,22 @@
     document.getElementById('run-screen-selector').addEventListener('click', () => {
         const windowName = document.getElementById('windowSelect').value.trim();
         ipcRenderer.send('ocr.run-screen-selector', windowName);
+    });
+
+    document.getElementById('open-config-json').addEventListener('click', () => {
+        ipcRenderer.invoke('ocr.open-config-json').then(() => {
+            console.log('Config file opened successfully');
+        }).catch(err => {
+            console.error('Error opening config file:', err);
+        });
+    });
+
+    document.getElementById('open-config-folder').addEventListener('click', () => {
+        ipcRenderer.invoke('ocr.open-config-folder').then(() => {
+            console.log('Config folder opened successfully');
+        }).catch(err => {
+            console.error('Error opening config folder:', err);
+        });
     });
 
     document.getElementById('two-pass-ocr').addEventListener('change', () => {
@@ -197,12 +215,22 @@
             windowSelect.innerHTML = '';
             windows.forEach(window => {
                 const option = document.createElement('option');
-                if (window.value === ocr_settings?.window_name) {
+                if (window.title === ocr_settings?.window_name) {
                     option.selected = true;
                 }
                 option.value = window.title;
                 option.textContent = window.title;
                 windowSelect.appendChild(option);
+            });
+
+            ipcRenderer.invoke('ocr.getActiveOCRConfigWindowName').then(windowName => {
+                if (windowName && !windows.some(window => window.title === windowName)) {
+                    const option = document.createElement('option');
+                    option.value = windowName;
+                    option.textContent = windowName;
+                    windowSelect.appendChild(option);
+                }
+                windowSelect.value = windowName; // Set the selected value
             });
         });
     }

@@ -45,3 +45,7 @@ export function getAssetsDir(): string {
         ? path.join(__dirname, "../../electron-src/assets") // Development path
         : path.join(process.resourcesPath, "assets"); // Production (ASAR-safe)
 }
+
+export function sanitizeFilename(filename: string): string {
+    return filename.replace(/[ <>:"/\\|?*\x00-\x1F]/g, '');
+}

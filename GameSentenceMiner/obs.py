@@ -178,15 +178,12 @@ def stop_replay_buffer():
 
 # Save the current replay buffer
 def save_replay_buffer():
-    try:
-        replay_buffer_started = do_obs_call(requests.GetReplayBufferStatus())['outputActive']
-        if replay_buffer_started:
-            client.call(requests.SaveReplayBuffer())
-            logger.info("Replay buffer saved. If your log stops bere, make sure your obs output path matches \"Path To Watch\" in GSM settings.")
-        else:
-            logger.error("Replay Buffer is not active, could not save Replay Buffer!")
-    except Exception as e:
-        logger.error(f"Error saving replay buffer: {e}")
+    replay_buffer_started = do_obs_call(requests.GetReplayBufferStatus())['outputActive']
+    if replay_buffer_started:
+        client.call(requests.SaveReplayBuffer())
+        logger.info("Replay buffer saved. If your log stops bere, make sure your obs output path matches \"Path To Watch\" in GSM settings.")
+    else:
+        logger.error("Replay Buffer is not active, could not save Replay Buffer!")
 
 
 def get_current_scene():

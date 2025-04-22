@@ -1,26 +1,68 @@
 from dataclasses import dataclass
+from math import floor, ceil
+
 from dataclasses_json import dataclass_json
-from typing import List, Optional
+from typing import List, Optional, Union
+
 
 @dataclass_json
 @dataclass
 class Monitor:
-    left: int
-    top: int
-    width: int
-    height: int
     index: int
+    left: Optional[int] = None
+    top: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+# @dataclass_json
+# @dataclass
+# class Coordinates:
+#     coordinates: List[Union[float, int]]
+#     coordinate_system: str = None
 
 @dataclass_json
 @dataclass
 class Rectangle:
     monitor: Monitor
-    coordinates: List[int]
+    coordinates: List[Union[float, int]]
     is_excluded: bool
+
+@dataclass_json
+@dataclass
+class WindowGeometry:
+    left: int
+    top: int
+    width: int
+    height: int
 
 @dataclass_json
 @dataclass
 class OCRConfig:
     scene: str
     rectangles: List[Rectangle]
+    coordinate_system: str = None
+    window_geometry: Optional[WindowGeometry] = None
     window: Optional[str] = None
+
+    def __post_init__(self):
+        if self.coordinate_system and self.coordinate_system == "percentage" and self.window:
+            import pygetwindow as gw
+            try:
+                window = gw.getWindowsWithTitle(self.window)[0]
+                self.window_geometry = WindowGeometry(
+                    left=window.left,
+                    top=window.top,
+                    width=window.width,
+                    height=window.height,
+                )
+                print(self.window_geometry)
+            except IndexError:
+                raise ValueError(f"Window with title '{self.window}' not found.")
+            for rectangle in self.rectangles:
+                rectangle.coordinates = [
+                    ceil(rectangle.coordinates[0] * self.window_geometry.width),
+                    ceil(rectangle.coordinates[1] * self.window_geometry.height),
+                    ceil(rectangle.coordinates[2] * self.window_geometry.width),
+                    ceil(rectangle.coordinates[3] * self.window_geometry.height),
+                ]
+

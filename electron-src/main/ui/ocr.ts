@@ -10,6 +10,10 @@ import {
     setWindowName
 } from "../store.js";
 import {mainWindow} from "../main.js";
+import {getCurrentScene} from "./obs.js";
+import {BASE_DIR, sanitizeFilename} from "../util.js";
+import path from "path";
+import * as fs from "node:fs";
 
 let ocrProcess: any = null;
 
@@ -41,6 +45,28 @@ export function registerOCRUtilsIPC() {
             });
             mainWindow?.webContents.send('terminal-output', `Running screen area selector in background...`);
         }, 3000);
+    });
+
+    ipcMain.handle('ocr.open-config-json', async () => {
+        try {
+            const ocrConfigPath = await getActiveOCRConfigPath();
+            console.log(ocrConfigPath);
+            exec(`start "" "${ocrConfigPath}"`); // Opens the file with the default editor
+            return true;
+        } catch (error: any) {
+            console.error('Error opening config file:', error.message);
+            throw error;
+        }
+    });
+
+    ipcMain.handle('ocr.open-config-folder', async () => {
+        try {
+            exec(`start "" "${path.join(BASE_DIR, 'ocr_config')}"`); // Opens the folder in Explorer
+            return true;
+        } catch (error: any) {
+            console.error('Error opening config folder:', error.message);
+            throw error;
+        }
     });
 
     ipcMain.on('ocr.start-ocr', () => {
@@ -120,6 +146,15 @@ export function registerOCRUtilsIPC() {
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     })
 
+    ipcMain.handle('ocr.getActiveOCRConfig', async () => {
+        return await getActiveOCRCOnfig();
+    });
+
+    ipcMain.handle('ocr.getActiveOCRConfigWindowName', async () => {
+        const ocrConfig = await getActiveOCRCOnfig();
+        return ocrConfig ? ocrConfig.window : null;
+    });
+
     ipcMain.handle("ocr.get-ocr-config", () => {
         const ocr_config = getOCRConfig();
         return ocr_config;
@@ -130,4 +165,24 @@ export function registerOCRUtilsIPC() {
         //     window_name: ocr_config.window_name,
         // }
     });
+}
+
+export async function getActiveOCRCOnfig() {
+    const sceneConfigPath = await getActiveOCRConfigPath();
+    try {
+        const fileContent = await fs.promises.readFile(sceneConfigPath, 'utf-8');
+        return JSON.parse(fileContent);
+    } catch (error: any) {
+        console.error(`Error reading or parsing OCR config file at ${sceneConfigPath}:`, error.message);
+        throw error;
+    }
+}
+
+export async function getActiveOCRConfigPath() {
+    const currentScene = await getCurrentScene();
+    return getSceneOCRConfig(sanitizeFilename(currentScene));
+}
+
+function getSceneOCRConfig(sceneName: string) {
+    return path.join(BASE_DIR, 'ocr_config', `${sceneName}.json`);
 }

@@ -57,6 +57,16 @@
                 option.textContent = scene;
                 sceneSelect.appendChild(option);
             });
+
+            ipcRenderer.invoke('obs.getActiveScene').then(sceneName => {
+                if (sceneName && !scenes.some(scene => scene === sceneName)) {
+                    const option = document.createElement('option');
+                    option.value = sceneName;
+                    option.textContent = sceneName;
+                    sceneSelect.appendChild(option);
+                }
+                sceneSelect.value = sceneName; // Set the selected value
+            });
         });
     }
 

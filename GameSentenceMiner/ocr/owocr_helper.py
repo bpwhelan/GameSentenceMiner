@@ -210,11 +210,6 @@ rectangles = None
 def do_second_ocr(ocr1_text, rectangle_index, time, img):
     global twopassocr, ocr2, last_ocr1_results, last_ocr2_results
     last_result = ([], -1)
-
-    previous_ocr1_text = last_ocr1_results[rectangle_index]
-    if fuzz.ratio(previous_ocr1_text, ocr1_text) >= 80:
-        logger.info("Seems like the same text, not doing 2nd pass")
-    last_ocr1_results[rectangle_index] = ocr1_text
     try:
         orig_text, text = run.process_and_write_results(img, None, None, last_result, TextFiltering(),
                                                         engine=ocr2)
@@ -222,6 +217,7 @@ def do_second_ocr(ocr1_text, rectangle_index, time, img):
         if fuzz.ratio(previous_ocr2_text, text) >= 80:
             logger.info("Seems like the same text from previous ocr2 result, not sending")
             return
+        img.save(os.path.join(get_app_directory(), "temp", "last_successful_ocr.png"))
         last_ocr2_results[rectangle_index] = text
         if get_config().advanced.ocr_sends_to_clipboard:
             import pyperclip
@@ -244,7 +240,7 @@ def text_callback(text, rectangle_index, time, img=None):
 
     current_time = time if time else datetime.now()
 
-    previous_text = last_oneocr_results_to_check.get(rectangle_index, "")
+    previous_text = last_oneocr_results_to_check.get(rectangle_index, "").strip()
 
     if not text:
         if previous_text:
@@ -253,15 +249,19 @@ def text_callback(text, rectangle_index, time, img=None):
                 if twopassocr:
                     do_second_ocr(previous_text, rectangle_index, time, img)
                 else:
-                    previous_text = last_ocr1_results[rectangle_index]
-                    if fuzz.ratio(previous_text, text) >= 80:
+                    previous_result = last_ocr1_results[rectangle_index]
+                    if previous_result and fuzz.ratio(previous_result, previous_text) >= 80:
                         logger.info("Seems like the same text, not sending")
+                        return
                     if get_config().advanced.ocr_sends_to_clipboard:
                         import pyperclip
                         pyperclip.copy(text)
                     websocket_server_thread.send_text(previous_text, stable_time)
+                    img.save(os.path.join(get_app_directory(), "temp", "last_successful_ocr.png"))
+                    last_ocr1_results[rectangle_index] = previous_text
                 del text_stable_start_times[rectangle_index]
             del last_oneocr_results_to_check[rectangle_index]
+            return
         return
 
     if rectangle_index not in last_oneocr_results_to_check:
@@ -285,13 +285,16 @@ def text_callback(text, rectangle_index, time, img=None):
 done = False
 
 
-def run_oneocr(ocr_config: OCRConfig, i):
+def run_oneocr(ocr_config: OCRConfig, i, area=False):
     global done
     rect_config = ocr_config.rectangles[i]
     coords = rect_config.coordinates
     monitor_config = rect_config.monitor
     exclusions = (rect.coordinates for rect in list(filter(lambda x: x.is_excluded, ocr_config.rectangles)))
-    screen_area = ",".join(str(c) for c in coords)
+    screen_area = ",".join(str(c) for c in coords) if area else None
+    print(ocr_config)
+    print(area)
+    print(screen_area)
     run.run(read_from="screencapture", write_to="callback",
             screen_capture_area=screen_area,
             # screen_capture_monitor=monitor_config['index'],
@@ -329,18 +332,18 @@ if __name__ == "__main__":
     global ocr_config
     ocr_config: OCRConfig = get_ocr_config()
     if ocr_config and ocr_config.rectangles:
-        rectangles = ocr_config.rectangles
+        rectangles = list(filter(lambda rect: not rect.is_excluded, ocr_config.rectangles))
         last_ocr1_results = [""] * len(rectangles) if rectangles else [""]
         last_ocr2_results = [""] * len(rectangles) if rectangles else [""]
         oneocr_threads = []
         run.init_config(False)
         if rectangles:
             for i, rectangle in enumerate(rectangles):
-                thread = threading.Thread(target=run_oneocr, args=(ocr_config, i,), daemon=True)
+                thread = threading.Thread(target=run_oneocr, args=(ocr_config, i,True, ), daemon=True)
                 oneocr_threads.append(thread)
                 thread.start()
         else:
-            single_ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config, 0,), daemon=True)
+            single_ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config, 0,False, ), daemon=True)
             oneocr_threads.append(single_ocr_thread)
             single_ocr_thread.start()
         websocket_server_thread = WebsocketServerThread(read=True)
