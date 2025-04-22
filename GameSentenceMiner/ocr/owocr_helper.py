@@ -253,10 +253,12 @@ def text_callback(text, rectangle_index, time, img=None):
                 if twopassocr:
                     do_second_ocr(previous_text, rectangle_index, time, img)
                 else:
-                    previous_ocr1_text = last_ocr1_results[rectangle_index]
-                    if fuzz.ratio(previous_ocr1_text, text) >= 80:
+                    previous_text = last_ocr1_results[rectangle_index]
+                    if fuzz.ratio(previous_text, text) >= 80:
                         logger.info("Seems like the same text, not sending")
-                    last_ocr1_results[rectangle_index] = text
+                    if get_config().advanced.ocr_sends_to_clipboard:
+                        import pyperclip
+                        pyperclip.copy(text)
                     websocket_server_thread.send_text(previous_text, stable_time)
                 del text_stable_start_times[rectangle_index]
             del last_oneocr_results_to_check[rectangle_index]

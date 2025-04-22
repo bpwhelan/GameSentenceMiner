@@ -131,7 +131,7 @@ class OBS:
     enabled: bool = True
     open_obs: bool = True
     close_obs: bool = True
-    host: str = "localhost"
+    host: str = "127.0.0.1"
     port: int = 4455
     password: str = "your_password"
     get_game_from_scene: bool = True

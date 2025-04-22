@@ -35,6 +35,7 @@ const WINDOW_GETTER_INPUT = 'window_getter';
 async function connectOBSWebSocket(retries = 5, delay = 2000): Promise<void> {
     for (let i = 0; i < retries; i++) {
         try {
+            console.log(obsConfig);
             await obs.connect(`ws://${obsConfig.host}:${obsPort}`, obsPassword);
             obsConnected = true;
             console.log('Connected to OBS WebSocket');
@@ -97,12 +98,15 @@ export function openOBSWindow() {
 async function waitForObsConnection(): Promise<void> {
     return new Promise((resolve, reject) => {
         const interval = setInterval(() => {
-            if (obsConnected) {
+            obs.call("GetVersion").then((version) => {
                 clearInterval(interval);
                 setTimeout(() => {
                     resolve();
                 }, 3000);
-            }
+            }).catch(async () => {
+                await connectOBSWebSocket()
+                console.error('OBS not connected yet, retrying...');
+            });
         }, 1000);
     });
 }
@@ -355,5 +359,6 @@ export function registerOBSIPC() {
         }
     });
 
-    connectOBSWebSocket().then(() => {});
+    connectOBSWebSocket().then(() => {
+    });
 }
