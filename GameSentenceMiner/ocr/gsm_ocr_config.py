@@ -55,7 +55,6 @@ class OCRConfig:
                     width=window.width,
                     height=window.height,
                 )
-                print(self.window_geometry)
             except IndexError:
                 raise ValueError(f"Window with title '{self.window}' not found.")
             for rectangle in self.rectangles:

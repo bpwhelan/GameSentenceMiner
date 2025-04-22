@@ -126,8 +126,6 @@ def get_ocr_config() -> OCRConfig:
             return OCRConfig.from_dict(new_config_data)
         elif "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
                 isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"]):
-            logger.info("Loading new OCR config format.")
-            logger.info(config_data)
             return OCRConfig.from_dict(config_data)
         else:
             raise Exception(f"Invalid config format in {config_path}.")
@@ -290,11 +288,8 @@ def run_oneocr(ocr_config: OCRConfig, i, area=False):
     rect_config = ocr_config.rectangles[i]
     coords = rect_config.coordinates
     monitor_config = rect_config.monitor
-    exclusions = (rect.coordinates for rect in list(filter(lambda x: x.is_excluded, ocr_config.rectangles)))
+    exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, ocr_config.rectangles)))
     screen_area = ",".join(str(c) for c in coords) if area else None
-    print(ocr_config)
-    print(area)
-    print(screen_area)
     run.run(read_from="screencapture", write_to="callback",
             screen_capture_area=screen_area,
             # screen_capture_monitor=monitor_config['index'],
@@ -331,6 +326,8 @@ if __name__ == "__main__":
     logger.info(f"Received arguments: ocr1={ocr1}, ocr2={ocr2}, twopassocr={twopassocr}")
     global ocr_config
     ocr_config: OCRConfig = get_ocr_config()
+
+    logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {len(ocr_config.rectangles)}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
     if ocr_config and ocr_config.rectangles:
         rectangles = list(filter(lambda rect: not rect.is_excluded, ocr_config.rectangles))
         last_ocr1_results = [""] * len(rectangles) if rectangles else [""]
