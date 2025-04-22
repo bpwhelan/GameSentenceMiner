@@ -283,7 +283,7 @@ class ScreenSelector:
                 win_w = window_geom_to_save['width']
                 win_h = window_geom_to_save['height']
                 # Basic check for valid dimensions needed for percentage calculation
-                if win_w > 0 and win_h > 0 and win_h > 0 and win_t > 0:
+                if win_w > 0 and win_h > 0 and win_h >= 0 and win_t >= 0:
                     save_coord_system = COORD_SYSTEM_PERCENTAGE
                     win_l = max(0, window_geom_to_save['left'])
                     win_t = max(0, window_geom_to_save['top'])
@@ -306,7 +306,7 @@ class ScreenSelector:
                 coords_to_save = []
 
                 # --- Convert absolute pixels to the chosen system ---
-                if save_coord_system == COORD_SYSTEM_PERCENTAGE and window_geom_to_save and 0 <= win_l < monitor_dict['left'] and 0 <= win_t < monitor_dict['top']:
+                if save_coord_system == COORD_SYSTEM_PERCENTAGE and window_geom_to_save and 0 <= win_l <= monitor_dict['width'] and 0 <= win_t <= monitor_dict['height']:
                     # Calculate percentages (handle potential float precision issues if necessary)
                     x_pct = (x_abs - win_l) / win_w
                     y_pct = (y_abs - win_t) / win_h
