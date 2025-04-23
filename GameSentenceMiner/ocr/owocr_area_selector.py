@@ -283,10 +283,10 @@ class ScreenSelector:
                 win_w = window_geom_to_save['width']
                 win_h = window_geom_to_save['height']
                 # Basic check for valid dimensions needed for percentage calculation
-                if win_w > 0 and win_h > 0 and win_h >= 0 and win_t >= 0:
+                if win_w > 0 and win_h > 0:
                     save_coord_system = COORD_SYSTEM_PERCENTAGE
-                    win_l = max(0, window_geom_to_save['left'])
-                    win_t = max(0, window_geom_to_save['top'])
+                    win_l = window_geom_to_save['left']
+                    win_t = window_geom_to_save['top']
                     print(f"Saving using coordinate system: {save_coord_system} relative to {window_geom_to_save}")
                 else:
                     print(
@@ -306,14 +306,14 @@ class ScreenSelector:
                 coords_to_save = []
 
                 # --- Convert absolute pixels to the chosen system ---
-                if save_coord_system == COORD_SYSTEM_PERCENTAGE and window_geom_to_save and 0 <= win_l <= monitor_dict['width'] and 0 <= win_t <= monitor_dict['height']:
+                if save_coord_system == COORD_SYSTEM_PERCENTAGE and window_geom_to_save:
                     # Calculate percentages (handle potential float precision issues if necessary)
                     x_pct = (x_abs - win_l) / win_w
                     y_pct = (y_abs - win_t) / win_h
                     w_pct = w_abs / win_w
                     h_pct = h_abs / win_h
                     # Round percentages slightly to avoid overly long floats? Optional.
-                    # precision = 6
+                    # precision = 6+
                     # coords_to_save = [round(x_pct, precision), round(y_pct, precision), round(w_pct, precision), round(h_pct, precision)]
                     coords_to_save = [x_pct, y_pct, w_pct, h_pct]
                 else:
@@ -861,8 +861,8 @@ if __name__ == "__main__":
         # Example: uncomment below to target Calculator on Windows by default if no arg given
         # if sys.platform == "win32": target_window_title = "Calculator"
 
-    if not target_window_title:
-        target_window_title = get_ocr_config().window
+    # if not target_window_title:
+    #     target_window_title = get_ocr_config().window
 
     # Get the selection result
     selection_result = get_screen_selection(target_window_title)

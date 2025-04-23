@@ -11,9 +11,10 @@ import {
 } from "../store.js";
 import {mainWindow} from "../main.js";
 import {getCurrentScene} from "./obs.js";
-import {BASE_DIR, sanitizeFilename} from "../util.js";
-import path from "path";
+import {BASE_DIR, getPlatform, sanitizeFilename} from "../util.js";
+import path, {resolve} from "path";
 import * as fs from "node:fs";
+import { windowManager, Window } from 'node-window-manager'; // Import the library
 
 let ocrProcess: any = null;
 
@@ -165,7 +166,39 @@ export function registerOCRUtilsIPC() {
         //     window_name: ocr_config.window_name,
         // }
     });
+
+    ipcMain.handle('ocr.getWindows', async (): Promise<string[]> => {
+        const windowsList: LibraryWindowInfo[] = getWindowsListWithLibrary();
+        return windowsList.map(window => window.title).sort((a, b) => a.localeCompare(b));
+    });
 }
+
+// Check library docs for exact properties. Example:
+interface LibraryWindowInfo {
+    title: string;
+    path: string; // Executable path
+}
+
+function getWindowsListWithLibrary(): LibraryWindowInfo[] {
+    // Ensure you only get visible windows with titles if needed
+    const windows = windowManager.getWindows();
+    const uniqueTitles = new Set<string>();
+    return windows
+        .filter(win => win.isVisible() && win.getTitle()?.length > 0) // Example filter
+        .map(win => ({ // Map to your desired structure
+            title: win.getTitle(),
+            path: win.path,
+            // Add other properties as needed: win.getBounds(), win.processId etc.
+        }))
+        .filter(win => {
+            if (uniqueTitles.has(win.title)) {
+                return false;
+            }
+            uniqueTitles.add(win.title);
+            return true;
+        });
+}
+
 
 export async function getActiveOCRCOnfig() {
     const sceneConfigPath = await getActiveOCRConfigPath();

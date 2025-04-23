@@ -39,6 +39,7 @@ interface StoreConfig {
     startConsoleMinimized: boolean;
     autoUpdateElectron: boolean;
     autoUpdateGSMApp: boolean;
+    customPythonPackage: string;
     pythonPath: string;
     VN: VNConfig;
     steam: SteamConfig;
@@ -78,7 +79,8 @@ export const store = new Store<StoreConfig>({
             ocr1: "oneOCR",
             ocr2: "glens",
             window_name: ""
-        }
+        },
+        customPythonPackage: "GameSentenceMiner"
     },
     cwd: "electron"
 });
@@ -105,6 +107,14 @@ export function getPythonPath(): string {
 
 export function setPythonPath(path: string): void {
     store.set("pythonPath", path);
+}
+
+export function getCustomPythonPackage(): string {
+    return store.get("customPythonPackage");
+}
+
+export function setCustomPythonPackage(packageName: string): void {
+    store.set("customPythonPackage", packageName);
 }
 
 //OCR

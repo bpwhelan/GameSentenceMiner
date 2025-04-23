@@ -2,9 +2,9 @@
 import { ipcMain, dialog } from 'electron';
 import {
     getAutoUpdateElectron,
-    getAutoUpdateGSMApp, getStartConsoleMinimized,
+    getAutoUpdateGSMApp, getCustomPythonPackage, getStartConsoleMinimized,
     setAutoUpdateElectron,
-    setAutoUpdateGSMApp,
+    setAutoUpdateGSMApp, setCustomPythonPackage,
     setStartConsoleMinimized,
     store
 } from "../store.js";
@@ -17,6 +17,7 @@ export function registerSettingsIPC() {
             // pythonPath: getPythonPath(),
             // agentScriptsPath: getAgentScriptsPath(),
             startConsoleMinimized: getStartConsoleMinimized(),
+            customPythonPackage: getCustomPythonPackage(),
         };
     });
 
@@ -26,6 +27,15 @@ export function registerSettingsIPC() {
 
     ipcMain.handle('settings.setAutoUpdateElectron', async (_, value: boolean) => {
         setAutoUpdateElectron(value);
+    });
+
+    ipcMain.handle('settings.saveSettings', async (_, settings: any) => {
+        setAutoUpdateGSMApp(settings.autoUpdateGSMApp);
+        setAutoUpdateElectron(settings.autoUpdateElectron);
+        setStartConsoleMinimized(settings.startConsoleMinimized);
+        setCustomPythonPackage(settings.customPythonPackage);
+
+        return { success: true };
     });
 
     // ipcMain.handle('settings.selectPythonPath', async () => {

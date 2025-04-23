@@ -9,7 +9,7 @@ import {fileURLToPath} from "node:url";
 import log from 'electron-log/main.js';
 import {
     getAutoUpdateElectron,
-    getAutoUpdateGSMApp, getLaunchSteamOnStart,
+    getAutoUpdateGSMApp, getCustomPythonPackage, getLaunchSteamOnStart,
     getLaunchVNOnStart, getLaunchYuzuGameOnStart,
     getStartConsoleMinimized,
     setPythonPath
@@ -257,7 +257,12 @@ async function updateGSM(shouldRestart: boolean = false): Promise<void> {
         console.log("Update available. Closing GSM...");
         closeGSM();
         console.log(`Updating GSM Python Application to ${latestVersion}...`)
-        await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "git+https://github.com/bpwhelan/GameSentenceMiner.git@main"], true, true);
+        try {
+            await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", getCustomPythonPackage()], true, true);
+        } catch (err) {
+            console.error("Failed to install custom Python package. Falling back to default package: GameSentenceMiner.", err);
+            await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "GameSentenceMiner"], true, true);
+        }
         if (shouldRestart) {
             ensureAndRunGSM(pythonPath).then(r => {
                 console.log('GSM Successfully Restarted!')

@@ -211,20 +211,20 @@
     function getWindows() {
         const windowSelect = document.getElementById('windowSelect');
         windowSelect.innerHTML = '<option>Loading...</option>'; // Set "Loading..." message
-        ipcRenderer.invoke('obs.getWindows').then(windows => {
+        ipcRenderer.invoke('ocr.getWindows').then(windows => {
             windowSelect.innerHTML = '';
             windows.forEach(window => {
                 const option = document.createElement('option');
-                if (window.title === ocr_settings?.window_name) {
+                if (window === ocr_settings?.window_name) {
                     option.selected = true;
                 }
-                option.value = window.title;
-                option.textContent = window.title;
+                option.value = window;
+                option.textContent = window;
                 windowSelect.appendChild(option);
             });
 
             ipcRenderer.invoke('ocr.getActiveOCRConfigWindowName').then(windowName => {
-                if (windowName && !windows.some(window => window.title === windowName)) {
+                if (windowName && !windows.some(window === windowName)) {
                     const option = document.createElement('option');
                     option.value = windowName;
                     option.textContent = windowName;

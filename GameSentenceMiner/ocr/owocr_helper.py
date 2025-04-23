@@ -84,7 +84,8 @@ def get_ocr_config() -> OCRConfig:
     scene = util.sanitize_filename(obs.get_current_scene())
     config_path = ocr_config_dir / f"{scene}.json"
     if not config_path.exists():
-        raise Exception(f"No config file found at {config_path}.")
+        config_path.touch()
+        return
     try:
         with open(config_path, 'r', encoding="utf-8") as f:
             config_data = json.load(f)
@@ -107,20 +108,21 @@ def get_ocr_config() -> OCRConfig:
                         "coordinates": rect,
                         "is_excluded": False
                     })
-                for rect in config_data['excluded_rectangles']:
-                    new_rectangles.append({
-                        "monitor": {
-                            "left": default_monitor["left"],
-                            "top": default_monitor["top"],
-                            "width": default_monitor["width"],
-                            "height": default_monitor["height"],
-                            "index": 0  # Assuming single monitor for old config
-                        },
-                        "coordinates": rect,
-                        "is_excluded": True
-                    })
+                if 'excluded_rectangles' in config_data:
+                    for rect in config_data['excluded_rectangles']:
+                        new_rectangles.append({
+                            "monitor": {
+                                "left": default_monitor["left"],
+                                "top": default_monitor["top"],
+                                "width": default_monitor["width"],
+                                "height": default_monitor["height"],
+                                "index": 0  # Assuming single monitor for old config
+                            },
+                            "coordinates": rect,
+                            "is_excluded": True
+                        })
             new_config_data = {"scene": config_data.get("scene", scene), "window": config_data.get("window", None),
-                               "rectangles": new_rectangles}
+                               "rectangles": new_rectangles, "coordinate_system": "absolute"}
             with open(config_path, 'w', encoding="utf-8") as f:
                 json.dump(new_config_data, f, indent=4)
             return OCRConfig.from_dict(new_config_data)
@@ -231,32 +233,45 @@ def do_second_ocr(ocr1_text, rectangle_index, time, img):
 last_oneocr_results_to_check = {}  # Store last OCR result for each rectangle
 last_oneocr_times = {}    # Store last OCR time for each rectangle
 text_stable_start_times = {} # Store the start time when text becomes stable for each rectangle
+orig_text_results = {} # Store original text results for each rectangle
 TEXT_APPEARENCE_DELAY = get_ocr_scan_rate() * 1000 + 500  # Adjust as needed
 
-def text_callback(text, rectangle_index, time, img=None):
-    global twopassocr, ocr2, last_oneocr_results_to_check, last_oneocr_times, text_stable_start_times
+def text_callback(text, orig_text, rectangle_index, time, img=None):
+    global twopassocr, ocr2, last_oneocr_results_to_check, last_oneocr_times, text_stable_start_times, orig_text_results
+    orig_text_string = ''.join([item for item in orig_text if item is not None]) if orig_text else ""
 
     current_time = time if time else datetime.now()
 
     previous_text = last_oneocr_results_to_check.get(rectangle_index, "").strip()
+    previous_orig_text = orig_text_results.get(rectangle_index, "").strip()
+
+    # print(previous_orig_text)
+    # if orig_text:
+    #     print(orig_text_string)
 
     if not text:
         if previous_text:
             if rectangle_index in text_stable_start_times:
                 stable_time = text_stable_start_times[rectangle_index]
+                previous_result = last_ocr1_results[rectangle_index]
+                if previous_result and fuzz.ratio(previous_result, previous_text) >= 80:
+                    logger.info("Seems like the same text, not " + "doing second OCR" if twopassocr else "sending")
+                    del last_oneocr_results_to_check[rectangle_index]
+                    return
+                if previous_orig_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 80:
+                    logger.info("Seems like Text we already sent, not doing anything.")
+                    del last_oneocr_results_to_check[rectangle_index]
+                    return
+                orig_text_results[rectangle_index] = orig_text_string
                 if twopassocr:
                     do_second_ocr(previous_text, rectangle_index, time, img)
                 else:
-                    previous_result = last_ocr1_results[rectangle_index]
-                    if previous_result and fuzz.ratio(previous_result, previous_text) >= 80:
-                        logger.info("Seems like the same text, not sending")
-                        return
                     if get_config().advanced.ocr_sends_to_clipboard:
                         import pyperclip
                         pyperclip.copy(text)
                     websocket_server_thread.send_text(previous_text, stable_time)
                     img.save(os.path.join(get_app_directory(), "temp", "last_successful_ocr.png"))
-                    last_ocr1_results[rectangle_index] = previous_text
+                last_ocr1_results[rectangle_index] = previous_text
                 del text_stable_start_times[rectangle_index]
             del last_oneocr_results_to_check[rectangle_index]
             return
@@ -285,11 +300,13 @@ done = False
 
 def run_oneocr(ocr_config: OCRConfig, i, area=False):
     global done
-    rect_config = ocr_config.rectangles[i]
-    coords = rect_config.coordinates
-    monitor_config = rect_config.monitor
+    screen_area = None
+    if ocr_config.rectangles:
+        rect_config = ocr_config.rectangles[i]
+        coords = rect_config.coordinates
+        monitor_config = rect_config.monitor
+        screen_area = ",".join(str(c) for c in coords) if area else None
     exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, ocr_config.rectangles)))
-    screen_area = ",".join(str(c) for c in coords) if area else None
     run.run(read_from="screencapture", write_to="callback",
             screen_capture_area=screen_area,
             # screen_capture_monitor=monitor_config['index'],
@@ -326,9 +343,9 @@ if __name__ == "__main__":
     logger.info(f"Received arguments: ocr1={ocr1}, ocr2={ocr2}, twopassocr={twopassocr}")
     global ocr_config
     ocr_config: OCRConfig = get_ocr_config()
-
+    print(ocr_config)
     logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {len(ocr_config.rectangles)}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
-    if ocr_config and ocr_config.rectangles:
+    if ocr_config:
         rectangles = list(filter(lambda rect: not rect.is_excluded, ocr_config.rectangles))
         last_ocr1_results = [""] * len(rectangles) if rectangles else [""]
         last_ocr2_results = [""] * len(rectangles) if rectangles else [""]

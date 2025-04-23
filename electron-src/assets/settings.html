@@ -65,14 +65,11 @@
 <h1>Settings</h1>
 
 <div class="setting-group">
-  <label for="autoUpdateGSMApp">Auto Update GSM App:</label>
-  <input type="checkbox" id="autoUpdateGSMApp" class="setting-checkbox">
-</div>
+<label for="autoUpdateGSMApp">Auto Update GSM App:</label>
+<input type="checkbox" id="autoUpdateGSMApp" class="setting-checkbox">
 
-<div class="setting-group">
-  <label for="autoUpdateElectron">Auto Update Electron:</label>
-  <input type="checkbox" id="autoUpdateElectron" class="setting-checkbox">
-</div>
+<label for="autoUpdateElectron">Auto Update Electron:</label>
+<input type="checkbox" id="autoUpdateElectron" class="setting-checkbox">
 
 <!--<div class="setting-group">-->
 <!--  <label for="pythonPath">Python Path:</label>-->
@@ -86,9 +83,12 @@
 <!--  <button id="selectAgentScriptsPath" class="setting-button">Select Agent Scripts Path</button>-->
 <!--</div>-->
 
-<div class="setting-group">
-  <label for="startConsoleMinimized">Start Console Minimized:</label>
-  <input type="checkbox" id="startConsoleMinimized" class="setting-checkbox">
+<label for="startConsoleMinimized">Start Console Minimized:</label>
+<input type="checkbox" id="startConsoleMinimized" class="setting-checkbox">
+</div>
+<div>
+  <label for="customPythonPackage">Custom Python Package DO NOT CHANGE UNLESS YOU KNOW WHAT YOU ARE DOING:</label>
+    <input type="text" id="customPythonPackage" class="setting-input" placeholder="GameSentenceMiner">
 </div>
 <script>
   const { ipcRenderer } = require('electron');
@@ -99,6 +99,7 @@
   // const agentScriptsPathInput = document.getElementById('agentScriptsPath');
   // const selectAgentScriptsPathButton = document.getElementById('selectAgentScriptsPath');
   const startConsoleMinimizedCheckbox = document.getElementById('startConsoleMinimized');
+  const customPythonPackageInput = document.getElementById('customPythonPackage');
 
   async function loadSettings() {
     const settings = await ipcRenderer.invoke('settings.getSettings');
@@ -108,7 +109,20 @@
       // pythonPathInput.value = settings.pythonPath || '';
       // agentScriptsPathInput.value = settings.agentScriptsPath || '';
       startConsoleMinimizedCheckbox.checked = settings.startConsoleMinimized || false;
+        customPythonPackageInput.value = settings.customPythonPackage || 'GameSentenceMiner';
     }
+  }
+
+  async function saveSettings() {
+    const settings = {
+      autoUpdateGSMApp: autoUpdateGSMAppCheckbox.checked,
+      autoUpdateElectron: autoUpdateElectronCheckbox.checked,
+      // pythonPath: pythonPathInput.value,
+      // agentScriptsPath: agentScriptsPathInput.value,
+      startConsoleMinimized: startConsoleMinimizedCheckbox.checked,
+      customPythonPackage: customPythonPackageInput.value
+    };
+    await ipcRenderer.invoke('settings.saveSettings', settings);
   }
 
   autoUpdateGSMAppCheckbox.addEventListener('change', async () => {
@@ -117,6 +131,10 @@
 
   autoUpdateElectronCheckbox.addEventListener('change', async () => {
     await ipcRenderer.invoke('settings.setAutoUpdateElectron', autoUpdateElectronCheckbox.checked);
+  });
+
+  customPythonPackageInput.addEventListener('change', async () => {
+      await saveSettings();
   });
 
   // selectPythonPathButton.addEventListener('click', async () => {
