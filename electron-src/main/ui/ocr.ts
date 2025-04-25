@@ -26,7 +26,7 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.install-selected-dep', (_, dependency: string) => {
-        const command = `${getPythonPath()} -m pip install ${dependency} & exit`;
+        const command = `${getPythonPath()} -m ${dependency} & exit`;
         spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
         mainWindow?.webContents.send('terminal-output', `Installing ${dependency} dependencies in new terminal...`);
     });

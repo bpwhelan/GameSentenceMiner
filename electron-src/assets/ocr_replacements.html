@@ -50,10 +50,7 @@
 
     // Define the path to the JSON file
     // This assumes the JSON file is in the same directory as the HTML file
-    if (!fs.existsSync(path.dirname(DATA_FILE))) {
-        fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-    }
-    const DATA_FILE = path.join(process.env.APPDATA, 'GameSentenceMiner', 'ocr_replacements.json');
+    const DATA_FILE = path.join(process.env.APPDATA, 'GameSentenceMiner', 'config', 'ocr_replacements.json');
     let ocrData = {}; // In-memory storage for the data
 
     // Initial data to load if the file doesn't exist or is empty
