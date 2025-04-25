@@ -131,6 +131,7 @@
     let newCheckboxState = false;
     let hoveredCheckboxes = new Set();
     let checkboxes = []; // Will hold all checkbox elements
+    let checkboxes_being_updated = new Set();
 
     // Shift click selection variable
     let lastChecked = null;
@@ -152,8 +153,8 @@
                     addNewEvent(ev)
                 }
                 const checkbox = document.querySelector(`[data-event-id="${ev.id}"]`);
-                if (checkbox) {
-                    checkbox.checked = ev.checked; // Update the checkbox state
+                if (checkbox && !checkboxes_being_updated.has(ev.id)) {
+                    checkbox.checked = ev.checked;
                 }
             });
             checkboxes = Array.from(document.querySelectorAll('#session-events input[type="checkbox"]')); // Update checkboxes array after new events
@@ -215,11 +216,13 @@
 
     async function toggleCheckbox(id, checked) {
         try {
+            checkboxes_being_updated.add(id);
             const res = await fetch('/update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id, checked })
             });
+            checkboxes_being_updated.delete(id);
             if (!res.ok) {
                 throw new Error(`HTTP error! Status: ${res.status}`);
             }

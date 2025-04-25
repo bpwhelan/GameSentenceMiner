@@ -148,13 +148,8 @@ def update_event():
     event_id = data.get('id')
     checked = data.get('checked')
 
-    logger.info(event_id)
-    logger.info(checked)
-
     if event_id is None or checked is None:
         return jsonify({'error': 'Missing id or checked status'}), 400
-
-    logger.info(event_manager.get(event_id))
 
     event_manager.get(event_id).checked = checked
 
