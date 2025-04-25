@@ -255,12 +255,12 @@ os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
 
 import urllib.request
 
-if not os.path.exists(TEXT_REPLACEMENTS_FILE):
+if not os.path.exists(OCR_REPLACEMENTS_FILE):
     url = "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/refs/heads/main/electron-src/assets/ocr_replacements.json"
     try:
         with urllib.request.urlopen(url) as response:
             data = response.read().decode('utf-8')
-            with open(TEXT_REPLACEMENTS_FILE, 'w', encoding='utf-8') as f:
+            with open(OCR_REPLACEMENTS_FILE, 'w', encoding='utf-8') as f:
                 f.write(data)
     except Exception as e:
         logger.error(f"Failed to fetch JSON from {url}: {e}")
