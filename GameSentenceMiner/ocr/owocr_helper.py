@@ -314,7 +314,8 @@ def run_oneocr(ocr_config: OCRConfig, i, area=False):
             screen_capture_delay_secs=get_ocr_scan_rate(), engine=ocr1,
             text_callback=text_callback,
             screen_capture_exclusions=exclusions,
-            rectangle=i)
+            rectangle=i,
+            ignore_window_visible=not get_requires_open_window())
     done = True
 
 
