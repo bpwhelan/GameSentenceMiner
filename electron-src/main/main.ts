@@ -410,12 +410,9 @@ if (!app.requestSingleInstanceLock()) {
                         timeoutType: 'default',
                     });
 
-                    notification.on('click', () => {
+                    notification.on('click', async () => {
                         console.log("Notification Clicked, Updating GSM...");
-                        updateGSM(true).then(() => {
-                            if (!isQuitting) {
-                                quit();
-                            }
+                        await updateGSM(true).then(() => {
                         });
                     });
 
