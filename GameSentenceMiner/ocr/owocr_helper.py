@@ -1,9 +1,9 @@
 import asyncio
-import difflib
 import json
 import logging
 import os
 import queue
+import re
 import threading
 import time
 from datetime import datetime
@@ -14,17 +14,14 @@ from tkinter import messagebox
 import mss
 import websockets
 from rapidfuzz import fuzz
-from PIL import Image, ImageDraw
 
 from GameSentenceMiner import obs, util
-from GameSentenceMiner.configuration import get_config, get_app_directory
+from GameSentenceMiner.configuration import get_config, get_app_directory, get_temporary_directory
 from GameSentenceMiner.electron_config import get_ocr_scan_rate, get_requires_open_window
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, Rectangle
 from GameSentenceMiner.owocr.owocr import screen_coordinate_picker, run
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
-
-from dataclasses import dataclass
-from typing import List, Optional
+from GameSentenceMiner.util import do_text_replacements, OCR_REPLACEMENTS_FILE
 
 CONFIG_FILE = Path("ocr_config.json")
 DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHANGE THIS
@@ -80,6 +77,7 @@ def get_ocr_config() -> OCRConfig:
     """Loads and updates screen capture areas from the corresponding JSON file."""
     app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
     ocr_config_dir = app_dir / "ocr_config"
+    os.makedirs(ocr_config_dir, exist_ok=True)
     obs.connect_to_obs()
     scene = util.sanitize_filename(obs.get_current_scene())
     config_path = ocr_config_dir / f"{scene}.json"
@@ -217,63 +215,62 @@ def do_second_ocr(ocr1_text, rectangle_index, time, img):
         if fuzz.ratio(previous_ocr2_text, text) >= 80:
             logger.info("Seems like the same text from previous ocr2 result, not sending")
             return
-        img.save(os.path.join(get_app_directory(), "temp", "last_successful_ocr.png"))
+        img.save(os.path.join(get_temporary_directory(), "last_successful_ocr.png"))
         last_ocr2_results[rectangle_index] = text
-        if get_config().advanced.ocr_sends_to_clipboard:
-            import pyperclip
-            pyperclip.copy(text)
-        websocket_server_thread.send_text(text, time)
+        send_result(text, time)
     except json.JSONDecodeError:
         print("Invalid JSON received.")
     except Exception as e:
         logger.exception(e)
         print(f"Error processing message: {e}")
 
+def send_result(text, time):
+    if text:
+        text = do_text_replacements(text, OCR_REPLACEMENTS_FILE)
+        if get_config().advanced.ocr_sends_to_clipboard:
+            import pyperclip
+            pyperclip.copy(text)
+        websocket_server_thread.send_text(text, time)
+
 
 last_oneocr_results_to_check = {}  # Store last OCR result for each rectangle
 last_oneocr_times = {}    # Store last OCR time for each rectangle
 text_stable_start_times = {} # Store the start time when text becomes stable for each rectangle
+previous_imgs = {}
 orig_text_results = {} # Store original text results for each rectangle
 TEXT_APPEARENCE_DELAY = get_ocr_scan_rate() * 1000 + 500  # Adjust as needed
 
 def text_callback(text, orig_text, rectangle_index, time, img=None):
     global twopassocr, ocr2, last_oneocr_results_to_check, last_oneocr_times, text_stable_start_times, orig_text_results
     orig_text_string = ''.join([item for item in orig_text if item is not None]) if orig_text else ""
+    # logger.debug(orig_text_string)
 
     current_time = time if time else datetime.now()
 
-    previous_text = last_oneocr_results_to_check.get(rectangle_index, "").strip()
+    previous_text = last_oneocr_results_to_check.pop(rectangle_index, "").strip()
     previous_orig_text = orig_text_results.get(rectangle_index, "").strip()
 
     # print(previous_orig_text)
     # if orig_text:
     #     print(orig_text_string)
-
+    if not twopassocr:
+        img.save(os.path.join(get_temporary_directory(), "last_successful_ocr.png"))
+        send_result(text, time)
     if not text:
         if previous_text:
             if rectangle_index in text_stable_start_times:
-                stable_time = text_stable_start_times[rectangle_index]
+                stable_time = text_stable_start_times.pop(rectangle_index)
+                previous_img = previous_imgs.pop(rectangle_index)
                 previous_result = last_ocr1_results[rectangle_index]
                 if previous_result and fuzz.ratio(previous_result, previous_text) >= 80:
                     logger.info("Seems like the same text, not " + "doing second OCR" if twopassocr else "sending")
-                    del last_oneocr_results_to_check[rectangle_index]
                     return
                 if previous_orig_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 80:
                     logger.info("Seems like Text we already sent, not doing anything.")
-                    del last_oneocr_results_to_check[rectangle_index]
                     return
                 orig_text_results[rectangle_index] = orig_text_string
-                if twopassocr:
-                    do_second_ocr(previous_text, rectangle_index, time, img)
-                else:
-                    if get_config().advanced.ocr_sends_to_clipboard:
-                        import pyperclip
-                        pyperclip.copy(text)
-                    websocket_server_thread.send_text(previous_text, stable_time)
-                    img.save(os.path.join(get_app_directory(), "temp", "last_successful_ocr.png"))
+                do_second_ocr(previous_text, rectangle_index, stable_time, previous_img)
                 last_ocr1_results[rectangle_index] = previous_text
-                del text_stable_start_times[rectangle_index]
-            del last_oneocr_results_to_check[rectangle_index]
             return
         return
 
@@ -281,6 +278,7 @@ def text_callback(text, orig_text, rectangle_index, time, img=None):
         last_oneocr_results_to_check[rectangle_index] = text
         last_oneocr_times[rectangle_index] = current_time
         text_stable_start_times[rectangle_index] = current_time
+        previous_imgs[rectangle_index] = img
         return
 
     stable = text_stable_start_times.get(rectangle_index)
@@ -294,6 +292,7 @@ def text_callback(text, orig_text, rectangle_index, time, img=None):
     else:
         last_oneocr_results_to_check[rectangle_index] = text
         last_oneocr_times[rectangle_index] = current_time
+    previous_imgs[rectangle_index] = img
 
 done = False
 

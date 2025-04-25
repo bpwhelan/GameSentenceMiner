@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text Error Fixes (Electron)</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body> <div class="container">
+    <h1>Text Error Fixes</h1>
+
+    <div class="control"> <button id="add-new-btn" class="button-blue">Add New Entry</button> <div class="search-container"> <input type="text" id="search-input" placeholder="Search key or value..." class="inputField"> <button id="search-button" class="button-green">Search</button> </div>
+        <button id="go-back-btn" class="button-gray">Go Back</button>
+    </div>
+
+    <div id="data-table-container" class="table-container"> <table id="data-table" class="data-table"> <thead>
+    <tr>
+        <th>
+            Text To Replace (Key)
+        </th>
+        <th>
+            Replacement Text (Value)
+        </th>
+        <th>
+            Actions
+        </th>
+    </tr>
+    </thead>
+        <tbody id="data-table-body">
+        </tbody>
+    </table>
+        <p id="no-entries-message" class="no-entries-message hidden">No entries found.</p> </div>
+</div>
+
+<div id="entry-modal" class="modal"> <div class="modal-content"> <span class="close-button">&times;</span> <h2 id="modal-title">Add New Entry</h2> <form id="entry-form">
+    <p>"re:" at the beginning = regex pattern (ex. re:.{3,}) </p>
+    <div class="form-group"> <label for="key-input" class="form-label">Text To Replace (Key):</label> <input type="text" id="key-input" name="key" required class="form-input"> <input type="hidden" id="original-key-input">
+    </div>
+    <div class="form-group"> <label for="value-input" class="form-label">Replacement Text (Value):</label> <input type="text" id="value-input" name="value" class="form-input">
+    </div>
+    <div class="flex-end"> <button type="submit" class="button-blue">Save Entry</button> </div>
+</form>
+</div>
+</div>
+
+<script>
+
+    let textData = {};
+    let data = {};
+
+    async function loadData() {
+        try {
+            const response = await fetch('/load-data');
+            if (response.ok) {
+                data = await response.json();
+                textData = data.args?.replacements || {};
+            } else {
+                console.error('Failed to load data from server');
+            }
+        } catch (error) {
+            console.error('Error loading data:', error);
+        }
+        renderTable();
+    }
+
+    async function saveData() {
+        try {
+            console.log(data)
+            data.args.replacements = textData;
+            console.log(data)
+            const response = await fetch('/save-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            });
+            if (!response.ok) {
+                console.error('Failed to save data to server');
+            }
+        } catch (error) {
+            console.error('Error saving data:', error);
+        }
+    }
+
+    function renderTable(dataToRender = textData) {
+        const tableBody = document.getElementById('data-table-body');
+        let tableHtml = '';
+        const noEntriesMessage = document.getElementById('no-entries-message');
+        const dataTable = document.getElementById('data-table');
+        const keys = Object.keys(dataToRender);
+
+        if (keys.length === 0) {
+            noEntriesMessage.classList.remove('hidden');
+            dataTable.classList.add('hidden');
+        } else {
+            noEntriesMessage.classList.add('hidden');
+            dataTable.classList.remove('hidden');
+            keys.forEach(key => {
+                const value = dataToRender[key];
+                tableHtml += `
+                        <tr>
+                            <td>${escapeHTML(key)}</td> <td>${escapeHTML(value)}</td> <td>
+                                <button class="action-button edit-btn" data-key="${escapeHTML(key)}">Edit</button>
+                                <button class="action-button delete-button delete-btn" data-key="${escapeHTML(key)}">Delete</button>
+                            </td>
+                        </tr>
+                    `;
+            });
+            tableBody.innerHTML = tableHtml;
+            document.querySelectorAll('.edit-btn').forEach(button => {
+                button.addEventListener('click', handleEditClick);
+            });
+            document.querySelectorAll('.delete-btn').forEach(button => {
+                button.addEventListener('click', handleDeleteClick);
+            });
+        }
+    }
+
+    function escapeHTML(str) {
+        const div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+    }
+
+    const modal = document.getElementById('entry-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const entryForm = document.getElementById('entry-form');
+    const keyInput = document.getElementById('key-input');
+    const valueInput = document.getElementById('value-input');
+    const originalKeyInput = document.getElementById('original-key-input');
+    const closeButton = document.querySelector('.close-button');
+    const addNewBtn = document.getElementById('add-new-btn');
+
+    addNewBtn.addEventListener('click', () => {
+        modalTitle.textContent = 'Add New Entry';
+        keyInput.value = '';
+        valueInput.value = '';
+        originalKeyInput.value = '';
+        keyInput.disabled = false;
+        modal.style.display = 'flex';
+    });
+
+    function handleEditClick(event) {
+        const keyToEdit = event.target.dataset.key;
+        const valueToEdit = textData[keyToEdit];
+        modalTitle.textContent = 'Edit Entry';
+        keyInput.value = keyToEdit;
+        valueInput.value = valueToEdit;
+        originalKeyInput.value = keyToEdit;
+        modal.style.display = 'flex';
+    }
+
+    closeButton.addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+
+    window.addEventListener('mousedown', (event) => {
+        if (event.target === modal) {
+            modal.style.display = 'none';
+        }
+    });
+
+    entryForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const key = keyInput.value.trim();
+        const value = valueInput.value.trim() || "";
+        const originalKey = originalKeyInput.value;
+        let keyEdited = false;
+
+        if (!key) {
+            alert('Key cannot be empty.');
+            return;
+        }
+
+        if (originalKey && originalKey !== key) {
+            delete textData[originalKey];
+            keyEdited = true;
+        }
+
+        if (originalKey) {
+            textData = { ...textData, [key]: value };
+            if (keyEdited) {
+                // No need to re-add, it was just updated
+            }
+        } else {
+            if (textData.hasOwnProperty(key)) {
+                alert(`Key "${key}" already exists. Please use the Edit function to modify it.`);
+                return;
+            }
+            textData = { ...textData, [key]: value };
+        }
+
+        await saveData();
+        await loadData();
+        modal.style.display = 'none';
+    });
+
+    function handleDeleteClick(event) {
+        const keyToDelete = event.target.dataset.key;
+        if (confirm(`Are you sure you want to delete the entry with key "${keyToDelete}"?`)) {
+            if (textData.hasOwnProperty(keyToDelete)) {
+                delete textData[keyToDelete];
+                saveData();
+                renderTable();
+            }
+        }
+    }
+
+    const searchInput = document.getElementById('search-input');
+    const searchButton = document.getElementById('search-button');
+
+    function performSearch() {
+        const query = searchInput.value.toLowerCase();
+        const filteredData = {};
+        for (const key in textData) {
+            if (textData.hasOwnProperty(key)) {
+                const value = textData[key];
+                if (key.toLowerCase().includes(query) || value.toLowerCase().includes(query)) {
+                    filteredData[key] = value;
+                }
+            }
+        }
+        renderTable(filteredData);
+    }
+
+    searchButton.addEventListener('click', performSearch);
+    searchInput.addEventListener('input', performSearch);
+
+    const goBackBtn = document.getElementById('go-back-btn');
+    goBackBtn.addEventListener('click', () => {
+        window.history.back();
+    });
+
+    loadData();
+
+</script>
+</body>
+</html>

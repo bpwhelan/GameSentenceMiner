@@ -1,11 +1,9 @@
-import subprocess
 import tempfile
-import time
 
 from GameSentenceMiner import obs, util, configuration
 from GameSentenceMiner.configuration import *
+from GameSentenceMiner.text_log import initial_time
 from GameSentenceMiner.util import *
-from GameSentenceMiner.gametext import initial_time
 
 
 def get_ffmpeg_path():

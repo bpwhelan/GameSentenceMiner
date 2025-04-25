@@ -16,19 +16,20 @@
     <label for="dependency-select">
         Select Dependency:
         <select id="dependency-select">
-            <option value="owocr">OWOCR Dependencies</option>
-            <option value="owocr[lens]">Google Lens (Recommended)</option>
-            <option value="owocr[oneocr]">OneOCR (Recommended)</option>
-            <option value="owocr[faster-png]">Faster PNG (Recommended if w11)</option>
-            <option value="owocr[accurate-filtering]">Accurate Filtering (Not recommended)</option>
-            <option value="owocr[winrtocr]">WindowsOCR</option>
-            <option value="owocr[mangaocr]">MangaOCR</option>
-            <option value="owocr[easyocr]">EasyOCR</option>
-            <option value="owocr[rapidocr]">RapidOCR</option>
-            <option value="owocr[gvision]">Google Vision (apikey required)</option>
-            <option value="owocr[azure]">Azure (apikey required)</option>
-            <option value="owocr[ocrspace]">OCRSpace (apikey required)</option>
-            <option value="torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118">CUDA (idk if this does anything other than for easyocr)</option>
+            <option value="pip install owocr">OWOCR Dependencies</option>
+            <option value="pip install owocr[lens]">Google Lens (Recommended)</option>
+            <option value="pip install owocr[oneocr]">OneOCR (Recommended)</option>
+            <option value="GameSentenceMiner."
+            <option value="pip install owocr[faster-png]">Faster PNG (Recommended if w11)</option>
+            <option value="pip install owocr[accurate-filtering]">Accurate Filtering (Not recommended)</option>
+            <option value="pip install owocr[winrtocr]">WindowsOCR</option>
+            <option value="pip install owocr[mangaocr]">MangaOCR</option>
+            <option value="pip install owocr[easyocr]">EasyOCR</option>
+            <option value="pip install owocr[rapidocr]">RapidOCR</option>
+            <option value="pip install owocr[gvision]">Google Vision (apikey required)</option>
+            <option value="pip install owocr[azure]">Azure (apikey required)</option>
+            <option value="pip install owocr[ocrspace]">OCRSpace (apikey required)</option>
+            <option value="pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118">CUDA (idk if this does anything other than for easyocr)</option>
         </select>
     </label>
     <button id="install-selected-dep">Install Selected Dependency</button>
@@ -113,12 +114,26 @@
     </label>
 </div>
 <button id="start-ocr">Start OCR</button>
+<div>
+    <button id="open-ocr-page-btn">
+        Open OCR Error Fixes Page
+    </button>
+</div>
 <!--<button id="kill-ocr">Kill OCR</button>-->
 <!--<button id="restart-ocr">Restart OCR</button>-->
 
 <script>
     const {ipcRenderer} = require('electron');
     let ocr_settings = null;
+
+    const openOcrPageBtn = document.getElementById('open-ocr-page-btn');
+
+    openOcrPageBtn.addEventListener('click', () => {
+        // Navigate to the index.html page
+        // Assuming index.html is in the same directory
+        window.location.href = 'ocr_replacements.html';
+    });
+
     ipcRenderer.on('ocr-log-update', (event, data) => {
         ocr_term.write(data);
     });
@@ -224,7 +239,7 @@
             });
 
             ipcRenderer.invoke('ocr.getActiveOCRConfigWindowName').then(windowName => {
-                if (windowName && !windows.some(window === windowName)) {
+                if (windowName && !windows.some(window => window === windowName)) {
                     const option = document.createElement('option');
                     option.value = windowName;
                     option.textContent = windowName;

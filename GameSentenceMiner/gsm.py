@@ -10,7 +10,6 @@ from pystray import Icon, Menu, MenuItem
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-import time
 
 from GameSentenceMiner import anki
 from GameSentenceMiner import config_gui
@@ -27,10 +26,11 @@ from GameSentenceMiner.communication.websocket import connect_websocket, registe
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
 from GameSentenceMiner.ffmpeg import get_audio_and_trim, get_video_timings
-from GameSentenceMiner.gametext import get_text_event, get_mined_line, GameLine
 from GameSentenceMiner.obs import check_obs_folder_is_correct
+from GameSentenceMiner.text_log import GameLine, get_text_event, get_mined_line, get_all_lines
 from GameSentenceMiner.util import *
-from GameSentenceMiner.utility_gui import init_utility_window, get_utility_window
+from GameSentenceMiner.web import texthooking_page
+from GameSentenceMiner.web.texthooking_page import start_web_server
 
 if is_windows():
     import win32api
@@ -57,9 +57,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
     @staticmethod
     def convert_to_audio(video_path):
         try:
-            if get_utility_window().line_for_audio:
-                line: GameLine = get_utility_window().line_for_audio
-                get_utility_window().line_for_audio = None
+            if texthooking_page.event_manager.line_for_audio:
+                line: GameLine = texthooking_page.event_manager.line_for_audio
+                texthooking_page.event_manager.line_for_audio = None
                 if get_config().advanced.audio_player_path:
                     audio = VideoToAudioHandler.get_audio(line, line.next.time if line.next else None, video_path, temporary=True)
                     play_audio_in_external(audio)
@@ -67,9 +67,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 elif get_config().advanced.video_player_path:
                     play_video_in_external(line, video_path)
                 return
-            if get_utility_window().line_for_screenshot:
-                line: GameLine = get_utility_window().line_for_screenshot
-                get_utility_window().line_for_screenshot = None
+            if texthooking_page.event_manager.line_for_screenshot:
+                line: GameLine = texthooking_page.event_manager.line_for_screenshot
+                texthooking_page.event_manager.line_for_screenshot = None
                 screenshot = ffmpeg.get_screenshot_for_line(video_path, line)
                 os.startfile(screenshot)
                 os.remove(video_path)
@@ -109,18 +109,18 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     if mined_line.next:
                         line_cutoff = mined_line.next.time
 
-                if get_utility_window().lines_selected():
-                    lines = get_utility_window().get_selected_lines()
-                    start_line = lines[0]
-                    mined_line = get_mined_line(last_note, lines)
-                    line_cutoff = get_utility_window().get_next_line_timing()
+                selected_lines = []
+                if texthooking_page.are_lines_selected():
+                    selected_lines = texthooking_page.get_selected_lines()
+                    start_line = selected_lines[0]
+                    mined_line = get_mined_line(last_note, selected_lines)
+                    line_cutoff = selected_lines[-1].get_next_time()
 
                 if last_note:
                     logger.debug(last_note.to_json())
-                selected_lines = get_utility_window().get_selected_lines()
                 note = anki.get_initial_card_info(last_note, selected_lines)
                 tango = last_note.get_field(get_config().anki.word_field) if last_note else ''
-                get_utility_window().reset_checkboxes()
+                texthooking_page.reset_checked_lines()
 
                 if get_config().anki.sentence_audio_field and get_config().audio.enabled:
                     logger.debug("Attempting to get audio from video")
@@ -268,10 +268,10 @@ def register_hotkeys():
         keyboard.add_hotkey(get_config().hotkeys.reset_line, gametext.reset_line_hotkey_pressed)
     if get_config().hotkeys.take_screenshot:
         keyboard.add_hotkey(get_config().hotkeys.take_screenshot, get_screenshot)
-    if get_config().hotkeys.open_utility:
-        keyboard.add_hotkey(get_config().hotkeys.open_utility, open_multimine)
     if get_config().hotkeys.play_latest_audio:
         keyboard.add_hotkey(get_config().hotkeys.play_latest_audio, play_most_recent_audio)
+    if get_config().hotkeys.open_utility:
+        keyboard.add_hotkey(get_config().hotkeys.open_utility, texthooking_page.open_texthooker)
 
 
 def get_screenshot():
@@ -322,13 +322,10 @@ def open_settings():
     settings_window.show()
 
 
-def open_multimine():
-    obs.update_current_game()
-    get_utility_window().show()
-
 def play_most_recent_audio():
-    if get_config().advanced.audio_player_path or get_config().advanced.video_player_path and len(gametext.line_history.values) > 0:
-        get_utility_window().line_for_audio = gametext.line_history.values[-1]
+    if get_config().advanced.audio_player_path or get_config().advanced.video_player_path and len(
+            get_all_lines()) > 0:
+        texthooking_page.event_manager.line_for_audio = get_all_lines()[-1]
         obs.save_replay_buffer()
     else:
         logger.error("Feature Disabled. No audio or video player path set in config!")
@@ -366,6 +363,10 @@ def play_pause(icon, item):
     global obs_paused, menu
     obs.toggle_replay_buffer()
     update_icon()
+
+
+def open_multimine(icon, item):
+    texthooking_page.open_texthooker()
 
 
 def update_icon():
@@ -416,7 +417,7 @@ def run_tray():
 
     menu = Menu(
         MenuItem("Open Settings", open_settings),
-        MenuItem("Open Multi-Mine GUI", open_multimine),
+        MenuItem("Open Texthooker", texthooking_page.open_texthooker),
         MenuItem("Open Log", open_log),
         MenuItem("Toggle Replay Buffer", play_pause),
         MenuItem("Restart OBS", restart_obs),
@@ -554,6 +555,7 @@ def post_init():
                 whisper_helper.initialize_whisper_model()
             if get_config().vad.is_silero():
                 from GameSentenceMiner.vad import silero_trim
+        start_web_server()
 
     util.run_new_thread(do_post_init)
 
@@ -576,7 +578,6 @@ def main(reloading=False):
     logger.info("Script started.")
     root = ttk.Window(themename='darkly')
     settings_window = config_gui.ConfigApp(root)
-    init_utility_window(root)
     initialize(reloading)
     initialize_async()
     observer = Observer()
@@ -594,9 +595,7 @@ def main(reloading=False):
     try:
         # if get_config().general.open_config_on_startup:
         #     root.after(0, settings_window.show)
-        if get_config().general.open_multimine_on_startup:
-            root.after(0, get_utility_window().show)
-        root.after(0, post_init)
+        root.after(50, post_init)
         settings_window.add_save_hook(update_icon)
         settings_window.on_exit = exit_program
         root.mainloop()

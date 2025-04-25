@@ -23,6 +23,7 @@ import {openOBSWindow, registerOBSIPC} from "./ui/obs.js";
 import {registerSettingsIPC} from "./ui/settings.js";
 import {registerOCRUtilsIPC} from "./ui/ocr.js";
 import * as fs from "node:fs";
+import {startWebServer} from "./web/texthooker.js";
 
 export let mainWindow: BrowserWindow | null = null;
 let tray: Tray;
@@ -400,6 +401,9 @@ if (!app.requestSingleInstanceLock()) {
                         quit();
                     }
                 });
+                // startWebServer().then(() => {
+                //
+                // });
             });
 
             checkForUpdates().then(({ updateAvailable, latestVersion }) => {

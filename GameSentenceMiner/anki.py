@@ -7,16 +7,15 @@ import urllib.request
 from datetime import datetime, timedelta
 from requests import post
 
-from GameSentenceMiner import obs, util, notification, ffmpeg, gametext
+from GameSentenceMiner import obs, util, notification, ffmpeg
 from GameSentenceMiner.ai.gemini import translate_with_context
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
-from GameSentenceMiner.gametext import get_text_event, get_all_lines
 from GameSentenceMiner.model import AnkiCard
-from GameSentenceMiner.utility_gui import get_utility_window
+from GameSentenceMiner.text_log import get_all_lines, get_text_event, get_mined_line
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util import remove_html_and_cloze_tags, combine_dialogue
-
+from GameSentenceMiner.web import texthooking_page
 
 audio_in_anki = None
 screenshot_in_anki = None
@@ -171,7 +170,7 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines):
             last_note.get_field(get_config().anki.previous_sentence_field):
         logger.debug(
             f"Adding Previous Sentence: {get_config().anki.previous_sentence_field and game_line.prev.text and not last_note.get_field(get_config().anki.previous_sentence_field)}")
-        if selected_lines:
+        if selected_lines and selected_lines[0].prev:
             note['fields'][get_config().anki.previous_sentence_field] = selected_lines[0].prev.text
         else:
             note['fields'][get_config().anki.previous_sentence_field] = game_line.prev.text
@@ -277,10 +276,10 @@ def update_new_card():
     if get_config().obs.get_game_from_scene:
         obs.update_current_game()
     if use_prev_audio:
-        lines = get_utility_window().get_selected_lines()
+        lines = texthooking_page.get_selected_lines()
         with util.lock:
-            update_anki_card(last_card, note=get_initial_card_info(last_card, lines), game_line=gametext.get_mined_line(last_card, lines), reuse_audio=True)
-        get_utility_window().reset_checkboxes()
+            update_anki_card(last_card, note=get_initial_card_info(last_card, lines), game_line=get_mined_line(last_card, lines), reuse_audio=True)
+        texthooking_page.reset_checked_lines()
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         card_queue.append(last_card)

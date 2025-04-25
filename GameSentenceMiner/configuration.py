@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import shutil
+import socket
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from os.path import expanduser
@@ -36,16 +37,17 @@ DEFAULT_CONFIG = 'Default'
 
 current_game = ''
 
-
 @dataclass_json
 @dataclass
 class General:
     use_websocket: bool = True
     use_clipboard: bool = True
+    use_both_clipboard_and_websocket: bool = False
     websocket_uri: str = 'localhost:6677'
     open_config_on_startup: bool = False
     open_multimine_on_startup: bool = False
     texthook_replacement_regex: str = ""
+    texthooker_port: int = 55000
 
 
 @dataclass_json
@@ -344,11 +346,16 @@ class Config:
             self.sync_shared_field(config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(config.general, profile.general, "websocket_uri")
+            self.sync_shared_field(config.general, profile.general, "texthooker_port")
             self.sync_shared_field(config.audio, profile.audio, "external_tool")
             self.sync_shared_field(config.audio, profile.audio, "anki_media_collection")
             self.sync_shared_field(config, profile, "advanced")
             self.sync_shared_field(config, profile, "paths")
             self.sync_shared_field(config, profile, "obs")
+            self.sync_shared_field(config.ai, profile.ai, "anki_field")
+            self.sync_shared_field(config.ai, profile.ai, "provider")
+            self.sync_shared_field(config.ai, profile.ai, "api_key")
+
 
         return self
 

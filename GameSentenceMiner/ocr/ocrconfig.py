@@ -1,6 +1,5 @@
 import configparser
 import os
-import re
 
 class OCRConfig:
     def __init__(self, config_file=os.path.expanduser("~/.config/owocr_config.ini")):

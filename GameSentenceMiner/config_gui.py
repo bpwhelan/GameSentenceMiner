@@ -110,7 +110,8 @@ class ConfigApp:
                 websocket_uri=self.websocket_uri.get(),
                 open_config_on_startup=self.open_config_on_startup.get(),
                 open_multimine_on_startup=self.open_multimine_on_startup.get(),
-                texthook_replacement_regex=self.texthook_replacement_regex.get()
+                texthook_replacement_regex=self.texthook_replacement_regex.get(),
+                use_both_clipboard_and_websocket=self.use_both_clipboard_and_websocket.get()
             ),
             paths=Paths(
                 folder_to_watch=self.folder_to_watch.get(),
@@ -308,6 +309,13 @@ class ConfigApp:
         self.add_label_and_increment_row(general_frame, "Enable to allow GSM to see clipboard for text and line timing.",
                                          row=self.current_row, column=2)
 
+        ttk.Label(general_frame, text="Allow Both:").grid(row=self.current_row, column=0, sticky='W')
+        self.use_both_clipboard_and_websocket = tk.BooleanVar(value=self.settings.general.use_both_clipboard_and_websocket)
+        ttk.Checkbutton(general_frame, variable=self.use_both_clipboard_and_websocket).grid(row=self.current_row, column=1,
+                                                                                            sticky='W')
+        self.add_label_and_increment_row(general_frame, "Enable to allow GSM to accept both clipboard and websocket input at the same time.",
+                                            row=self.current_row, column=2)
+
         ttk.Label(general_frame, text="Websocket URI:").grid(row=self.current_row, column=0, sticky='W')
         self.websocket_uri = ttk.Entry(general_frame)
         self.websocket_uri.insert(0, self.settings.general.websocket_uri)
@@ -329,12 +337,20 @@ class ConfigApp:
         self.add_label_and_increment_row(general_frame, "Whether to open config when the script starts.",
                                          row=self.current_row, column=2)
 
-        ttk.Label(general_frame, text="Open Multimine on Startup:").grid(row=self.current_row, column=0, sticky='W')
+        ttk.Label(general_frame, text="Open GSM Texthooker on Startup:").grid(row=self.current_row, column=0, sticky='W')
         self.open_multimine_on_startup = tk.BooleanVar(value=self.settings.general.open_multimine_on_startup)
         ttk.Checkbutton(general_frame, variable=self.open_multimine_on_startup).grid(row=self.current_row, column=1,
                                                                                   sticky='W')
-        self.add_label_and_increment_row(general_frame, "Whether to open multimining window when the script starts.",
+        self.add_label_and_increment_row(general_frame, "Whether to open Texthooking page when the script starts.",
                                          row=self.current_row, column=2)
+
+        ttk.Label(general_frame, text="GSM Texthooker Port:").grid(row=self.current_row, column=0, sticky='W')
+        self.texthooker_port = ttk.Entry(general_frame)
+        self.texthooker_port.insert(0, str(self.settings.general.texthooker_port))
+        self.texthooker_port.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(general_frame, "Port for the Texthooker to run on. Only change if you know what you are doing", row=self.current_row,
+                                            column=2)
+
 
         ttk.Label(general_frame, text="Current Version:").grid(row=self.current_row, column=0, sticky='W')
         self.current_version = ttk.Label(general_frame, text=get_current_version())

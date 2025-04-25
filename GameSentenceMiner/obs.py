@@ -1,10 +1,7 @@
-import logging
 import os.path
 import subprocess
-import tempfile
 import time
 
-import psutil
 from obswebsocket import obsws, requests
 
 from GameSentenceMiner import util, configuration

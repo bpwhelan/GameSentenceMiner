@@ -1,10 +1,9 @@
-import importlib
+import json
 import os
 import random
 import re
 import string
 import subprocess
-import sys
 import threading
 import time
 from datetime import datetime
@@ -207,3 +206,53 @@ def import_vad_models():
     if get_config().vad.is_vosk():
         from GameSentenceMiner.vad import vosk_helper
     return silero_trim, whisper_helper, vosk_helper
+
+
+def isascii(s: str):
+    try:
+        return s.isascii()
+    except:
+        try:
+            s.encode("ascii")
+            return True
+        except:
+            return False
+
+def do_text_replacements(text, replacements_json):
+    if not text:
+        return text
+
+    replacements = {}
+    if os.path.exists(replacements_json):
+        with open(replacements_json, 'r', encoding='utf-8') as f:
+            replacements.update(json.load(f))
+
+    if replacements.get("enabled", False):
+        orig_text = text
+        filters = replacements.get("args", {}).get("replacements", {})
+        for fil, replacement in filters.items():
+            if not fil:
+                continue
+            if fil.startswith("re:"):
+                pattern = fil[3:]
+                try:
+                    text = re.sub(pattern, replacement, text)
+                except Exception:
+                    logger.error(f"Invalid regex pattern: {pattern}")
+                    continue
+            if isascii(fil):
+                text = re.sub(r"\b{}\b".format(re.escape(fil)), replacement, text)
+            else:
+                text = text.replace(fil, replacement)
+        if text != orig_text:
+            logger.info(f"Text replaced: '{orig_text}' -> '{text}' using replacements.")
+    return text
+
+
+TEXT_REPLACEMENTS_FILE = os.path.join(os.getenv('APPDATA'), 'GameSentenceMiner', 'config', 'text_replacements.json')
+OCR_REPLACEMENTS_FILE = os.path.join(os.getenv('APPDATA'), 'GameSentenceMiner', 'config', 'ocr_replacements.json')
+os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
+
+if not os.path.exists(TEXT_REPLACEMENTS_FILE):
+    #TODO : fetch raw json from github
+    pass

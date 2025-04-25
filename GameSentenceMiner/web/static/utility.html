@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>GSM TextHooker</title>
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <style>
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+        }
+
+        h2 {
+            color: #ffffff;
+            text-align: center;
+            font-weight: 300;
+            margin-bottom: 20px;
+        }
+
+        .textline {
+            margin: 15px 0;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .textline:last-child {
+            border-bottom: none;
+        }
+
+        .textline > p {
+            font-size: 24px;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .textline > em {
+            color: #aaa;
+            font-size: 0.9em;
+            margin-right: 10px;
+        }
+
+        .textline > button {
+            background-color: #1a73e8;
+            color: #ffffff;
+            border: none;
+            padding: 8px 15px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            border-radius: 5px;
+        }
+
+        .textline > button:hover {
+            background-color: #1669c1;
+            cursor: pointer;
+        }
+
+        .textline-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        @media (max-width: 600px) {
+            .textline {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .textline-buttons{
+                margin-top: 10px;
+            }
+            .textline > strong{
+                min-width: auto;
+            }
+        }
+
+        .initial-event {
+            margin: 15px 0;
+            padding: 15px;
+        }
+
+        hr.initial-events-separator {
+            border: 0;
+            border-top: 2px solid #aaa;
+            margin: 20px 0;
+        }
+
+        .multi-line-checkbox {
+            transform: scale(1.5);
+            margin-right: 10px;
+            background-color: #00FFFF !important; /* Cyan/Electric Blue */
+            border: 4px solid #00FFFF; /* Keep the border the same color */
+        }
+
+        .multi-line-checkbox:checked {
+            /* You'll likely need to target the checkmark specifically */
+            /* Example assuming it's a pseudo-element with a font-based check: */
+            /* &::before { */
+            /* color: #FFFF00; /* Bright Yellow */
+            /* } */
+            /* If it's a background image, you might need to adjust the background or use a filter. */
+        }
+
+    </style>
+</head>
+<body>
+<div id="initial-events">
+
+</div>
+<hr class="initial-events-separator" style="display: none;">
+<div id="session-events">
+
+</div>
+<div>
+    <button onclick="window.location.href='/textreplacements'" style="margin-top: 20px; background-color: #1a73e8; color: #ffffff; border: none; padding: 10px 20px; font-size: 16px; cursor: pointer; transition: background-color 0.3s; border-radius: 5px;">
+      Text Replacements
+    </button>
+</div>
+<script>
+    let displayedEventIds = new Set();
+    let isTabActive = true;
+    let isFetching = false; // Flag to track if a fetch is in progress
+    let intervalId = 0;
+    const fetchInterval = 100; // Define the interval as a constant
+
+    // Drag selection variables
+    let isDragging = false;
+    let dragStartCheckbox = null;
+    let newCheckboxState = false;
+    let hoveredCheckboxes = new Set();
+    let checkboxes = []; // Will hold all checkbox elements
+
+    // Shift click selection variable
+    let lastChecked = null;
+
+    async function fetchEvents() {
+        if (document.hidden || isFetching) {
+            return;
+        }
+        isFetching = true
+        try {
+            const res = await fetch('/data');
+            if (!res.ok) {
+                throw new Error(`HTTP error! Status: ${res.status}`);
+            }
+            const events = await res.json();
+
+            events.forEach(ev => {
+                if (!displayedEventIds.has(ev.id)) {
+                    addNewEvent(ev)
+                }
+                const checkbox = document.querySelector(`[data-event-id="${ev.id}"]`);
+                if (checkbox) {
+                    checkbox.checked = ev.checked; // Update the checkbox state
+                }
+            });
+            checkboxes = Array.from(document.querySelectorAll('#session-events input[type="checkbox"]')); // Update checkboxes array after new events
+        } catch (error) {
+            console.error("Error fetching events:", error);
+        } finally {
+            isFetching = false;
+        }
+    }
+
+    function addNewEvent(event) {
+        const container = document.getElementById('session-events');
+        const div = document.createElement('div');
+        div.className = 'textline';
+        div.innerHTML = `
+                            <input type="checkbox"
+                            class="multi-line-checkbox"
+                            id="multi-line-checkbox-${event.id}"
+                            ${event.checked ? 'checked' : ''}
+                            aria-label="Mark item"
+                            data-event-id="${event.id}"
+                            onchange="toggleCheckbox('${event.id}', this.checked)">
+                            <p>${event.text}</p>
+                            <em>${event.time.replace(" GMT", "")}</em>
+                            <div class="textline-buttons">
+                                <button onclick="buttonClick('${event.id}', 'Screenshot')">Screenshot</button>
+                                <button onclick="buttonClick('${event.id}', 'Audio')">Audio</button>
+                            </div>
+                        `;
+        container.appendChild(div);
+        displayedEventIds.add(event.id);
+        window.scrollTo({
+            top: document.documentElement.scrollHeight,
+            behavior: 'smooth'
+        });
+    }
+
+    function buttonClick(id, action) {
+        console.log(id);
+        const endpoint = action === 'Screenshot' ? '/get-screenshot' : '/play-audio';
+        fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log(`${action} action completed for event ID: ${id}`, data);
+            })
+            .catch(error => {
+                console.error(`Error performing ${action} action for event ID: ${id}`, error);
+            });
+    }
+
+    async function toggleCheckbox(id, checked) {
+        try {
+            const res = await fetch('/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, checked })
+            });
+            if (!res.ok) {
+                throw new Error(`HTTP error! Status: ${res.status}`);
+            }
+        } catch (error) {
+            console.error("Error updating checkbox:", error);
+        }
+    }
+
+    function handleMouseDown(e) {
+        if (e.target.type === 'checkbox') {
+            newCheckboxState = !e.target.checked;
+            isDragging = true;
+            dragStartCheckbox = e.target;
+            hoveredCheckboxes.add(e.target)
+        }
+    }
+
+    function handleMouseUp(e) {
+        if (e.target === dragStartCheckbox) {
+            isDragging = false;
+            dragStartCheckbox = null;
+            return;
+        }
+        if (isDragging) {
+            isDragging = false;
+
+            hoveredCheckboxes.forEach(checkbox => {
+                checkbox.checked = newCheckboxState; // Set all hovered checkboxes to the new state
+                const eventId = checkbox.dataset.eventId;
+                toggleCheckbox(eventId, newCheckboxState);
+            });
+            isDragging = false;
+            dragStartCheckbox = null;
+        }
+
+    }
+
+    function handleMouseOver(e) {
+        if (!isDragging || e.target.type !== 'checkbox' || e.target === dragStartCheckbox) {
+            return;
+        }
+        e.preventDefault(); // Prevent text selection during drag
+        if (dragStartCheckbox) {
+            hoveredCheckboxes.add(e.target);
+        }
+    }
+
+    function handleCheckboxClick(e) {
+        if (!e.shiftKey) {
+            lastChecked = e.target;
+            return;
+        }
+
+        if (!lastChecked) return;
+
+        let inBetween = false;
+        checkboxes.forEach(checkbox => {
+            if (checkbox === e.target || checkbox === lastChecked) {
+                inBetween = !inBetween;
+            }
+
+            if (inBetween) {
+                checkbox.checked = lastChecked.checked;
+                const eventId = checkbox.dataset.eventId;
+                toggleCheckbox(eventId, lastChecked.checked);
+            }
+        });
+
+        lastChecked = e.target;
+    }
+
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mouseover', handleMouseOver);
+    document.addEventListener('click', handleCheckboxClick);
+
+    console.log("Initial load, fetching events and starting interval...");
+    fetchEvents();
+    intervalId = setInterval(async () => {
+        if (isTabActive) {
+            await fetchEvents();
+        }
+    }, fetchInterval);
+
+    window.scrollTo({
+        top: document.documentElement.scrollHeight,
+        behavior: 'smooth'
+    });
+</script>
+</body>
+</html>

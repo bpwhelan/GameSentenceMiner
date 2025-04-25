@@ -7,7 +7,6 @@ import mss
 from PIL import Image, ImageTk, ImageDraw
 
 from GameSentenceMiner import obs  # Import your actual obs module
-from GameSentenceMiner.ocr.owocr_helper import get_ocr_config
 from GameSentenceMiner.util import sanitize_filename  # Import your actual util module
 
 try:
