@@ -210,6 +210,7 @@ class ConfigApp:
                 gemini_model=self.gemini_model.get(),
                 groq_model=self.groq_model.get(),
                 gemini_api_key=self.gemini_api_key.get(),
+                api_key=self.gemini_api_key.get(),
                 groq_api_key=self.groq_api_key.get(),
                 anki_field=self.ai_anki_field.get(),
                 use_canned_translation_prompt=self.use_canned_translation_prompt.get(),

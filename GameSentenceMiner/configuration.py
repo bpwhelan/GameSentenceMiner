@@ -198,7 +198,8 @@ class Ai:
     custom_prompt: str = ''
 
     def __post_init__(self):
-        self.gemini_api_key = self.api_key
+        if not self.gemini_api_key:
+            self.gemini_api_key = self.api_key
 
 
 @dataclass_json
