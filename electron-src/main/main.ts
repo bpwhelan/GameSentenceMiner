@@ -194,6 +194,7 @@ async function createWindow() {
             devTools: true,
             nodeIntegrationInSubFrames: true
         },
+        title: `${APP_NAME} v${app.getVersion()}`,
     });
 
     registerIPC();
@@ -352,45 +353,6 @@ if (!app.requestSingleInstanceLock()) {
     app.whenReady().then(async () => {
         if (!isDev && getAutoUpdateElectron()) {
             await autoUpdate()
-        }
-        if (getLaunchVNOnStart()) {
-            dialog.showMessageBox(mainWindow!, {
-                type: 'question',
-                buttons: ['Yes', 'No'],
-                defaultId: 0,
-                title: 'Launch Game',
-                message: 'Do you want to launch the pre-configured VN?',
-            }).then(async (response) => {
-                if (response.response === 0) {
-                    await launchVNWorkflow(getLaunchVNOnStart(), true);
-                }
-            });
-        }
-        if (getLaunchYuzuGameOnStart()) {
-            dialog.showMessageBox(mainWindow!, {
-                type: 'question',
-                buttons: ['Yes', 'No'],
-                defaultId: 0,
-                title: 'Launch Game',
-                message: 'Do you want to launch the pre-configured Yuzu Game?',
-            }).then(async (response) => {
-                if (response.response === 0) {
-                    await launchYuzuGameID(getLaunchYuzuGameOnStart(), true);
-                }
-            });
-        }
-        if (getLaunchSteamOnStart()) {
-            dialog.showMessageBox(mainWindow!, {
-                type: 'question',
-                buttons: ['Yes', 'No'],
-                defaultId: 0,
-                title: 'Launch Game',
-                message: 'Do you want to launch the pre-configured Steam Game?',
-            }).then(async (response) => {
-                if (response.response === 0) {
-                    await launchSteamGameID(getLaunchSteamOnStart(), true);
-                }
-            });
         }
         createWindow().then(async () => {
             createTray();
