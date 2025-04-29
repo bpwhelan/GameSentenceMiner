@@ -1,36 +1,45 @@
-import os.path
-import signal
-from subprocess import Popen
+import asyncio
 
-import keyboard
-import psutil
-import ttkbootstrap as ttk
-from PIL import Image, ImageDraw
-from pystray import Icon, Menu, MenuItem
-from watchdog.events import FileSystemEventHandler
-from watchdog.observers import Observer
+try:
+    import os.path
+    import signal
+    from subprocess import Popen
+
+    import keyboard
+    import psutil
+    import ttkbootstrap as ttk
+    from PIL import Image, ImageDraw
+    from pystray import Icon, Menu, MenuItem
+    from watchdog.events import FileSystemEventHandler
+    from watchdog.observers import Observer
 
 
-from GameSentenceMiner import anki
-from GameSentenceMiner import config_gui
-from GameSentenceMiner import configuration
-from GameSentenceMiner import ffmpeg
-from GameSentenceMiner import gametext
-from GameSentenceMiner import notification
-from GameSentenceMiner import obs
-from GameSentenceMiner import util
-from GameSentenceMiner.communication import Message
-from GameSentenceMiner.communication.send import send_restart_signal
-from GameSentenceMiner.communication.websocket import connect_websocket, register_websocket_message_handler, \
-    FunctionName
-from GameSentenceMiner.configuration import *
-from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
-from GameSentenceMiner.ffmpeg import get_audio_and_trim, get_video_timings
-from GameSentenceMiner.obs import check_obs_folder_is_correct
-from GameSentenceMiner.text_log import GameLine, get_text_event, get_mined_line, get_all_lines
-from GameSentenceMiner.util import *
-from GameSentenceMiner.web import texthooking_page
-from GameSentenceMiner.web.texthooking_page import start_web_server
+    from GameSentenceMiner import anki
+    from GameSentenceMiner import config_gui
+    from GameSentenceMiner import configuration
+    from GameSentenceMiner import ffmpeg
+    from GameSentenceMiner import gametext
+    from GameSentenceMiner import notification
+    from GameSentenceMiner import obs
+    from GameSentenceMiner import util
+    from GameSentenceMiner.communication import Message
+    from GameSentenceMiner.communication.send import send_restart_signal
+    from GameSentenceMiner.communication.websocket import connect_websocket, register_websocket_message_handler, \
+        FunctionName
+    from GameSentenceMiner.configuration import *
+    from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
+    from GameSentenceMiner.ffmpeg import get_audio_and_trim, get_video_timings
+    from GameSentenceMiner.obs import check_obs_folder_is_correct
+    from GameSentenceMiner.text_log import GameLine, get_text_event, get_mined_line, get_all_lines
+    from GameSentenceMiner.util import *
+    from GameSentenceMiner.web import texthooking_page
+    from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
+except Exception as e:
+    from GameSentenceMiner.configuration import logger
+    import time
+    logger.info("Something bad happened during import/initialization, closing in 5 seconds")
+    logger.exception(e)
+    time.sleep(5)
 
 if is_windows():
     import win32api
@@ -449,10 +458,12 @@ def run_tray():
 
 def close_obs():
     obs.disconnect_from_obs()
-    if obs.obs_process:
+    if obs.obs_process_pid:
         try:
-            subprocess.run(["taskkill", "/PID", str(obs.obs_process.pid), "/F"], check=True, capture_output=True, text=True)
-            print(f"OBS (PID {obs.obs_process.pid}) has been terminated.")
+            subprocess.run(["taskkill", "/PID", str(obs.obs_process_pid), "/F"], check=True, capture_output=True, text=True)
+            print(f"OBS (PID {obs.obs_process_pid}) has been terminated.")
+            if os.path.exists(obs.OBS_PID_FILE):
+                os.remove(obs.OBS_PID_FILE)
         except subprocess.CalledProcessError as e:
             print(f"Error terminating OBS: {e.stderr}")
     else:
@@ -460,9 +471,9 @@ def close_obs():
 
 
 def restart_obs():
-    if obs.obs_process:
+    if obs.obs_process_pid:
         close_obs()
-        time.sleep(2)
+        time.sleep(1)
         obs.start_obs()
         obs.connect_to_obs()
 
@@ -532,7 +543,7 @@ def initialize(reloading=False):
     #         whisper_helper.initialize_whisper_model()
 
 def initialize_async():
-    tasks = [gametext.start_text_monitor, connect_websocket, run_tray]
+    tasks = [connect_websocket, run_tray]
     threads = []
     tasks.append(anki.start_monitoring_anki)
     for task in tasks:
@@ -555,7 +566,6 @@ def post_init():
                 whisper_helper.initialize_whisper_model()
             if get_config().vad.is_silero():
                 from GameSentenceMiner.vad import silero_trim
-        start_web_server()
 
     util.run_new_thread(do_post_init)
 
@@ -572,8 +582,10 @@ def handle_websocket_message(message: Message):
         case _:
             logger.debug(f"unknown message from electron websocket: {message.to_json()}")
 
+def post_init2():
+    asyncio.run(gametext.start_text_monitor())
 
-def main(reloading=False):
+async def main(reloading=False):
     global root, settings_window
     logger.info("Script started.")
     root = ttk.Window(themename='darkly')
@@ -586,11 +598,15 @@ def main(reloading=False):
     if not is_linux():
         register_hotkeys()
 
+    util.run_new_thread(post_init2)
+    util.run_new_thread(run_text_hooker_page)
+
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
     signal.signal(signal.SIGINT, handle_exit())  # Handle Ctrl+C
     if is_windows():
         win32api.SetConsoleCtrlHandler(handle_exit())
+
 
     try:
         # if get_config().general.open_config_on_startup:
@@ -612,7 +628,7 @@ def main(reloading=False):
 if __name__ == "__main__":
     logger.info("Starting GSM")
     try:
-        main()
+        asyncio.run(main())
     except Exception as e:
         logger.exception(e)
         time.sleep(5)

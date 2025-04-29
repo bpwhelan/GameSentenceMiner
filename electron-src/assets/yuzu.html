@@ -7,7 +7,12 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Yuzu Game Launcher</h1>
+<h1>Yuzu Game Config/Launcher</h1>
+<div>
+    <label for="sceneSelect">Scenes:</label>
+    <select id="sceneSelect"></select>
+    <button id="refreshScenesBtn">&#x21bb;</button>
+</div>
 <div>
     <label>
         Game Select:
@@ -15,6 +20,7 @@
             <option value="" disabled selected>Select a game</option>
         </select>
     </label>
+    <button id="addToHomeBtn" disabled>Add Game to Launcher</button>
     <button id="launchBtn" class="pathBtn" disabled>Launch Game</button>
 </div>
 <div>
@@ -24,30 +30,23 @@
     <button id="setRomPathBtn" class="pathBtn">Set ROMS Path</button>
 </div>
 
-
-<div>
-    <label>
-        Launch on start:
-        <select id="launchOnStartSelect" class="gameSelect">
-            <option value="">Disabled</option>
-        </select>
-    </label>
-</div>
-
 <p id="status"></p>
 
 <script>
-    const {ipcRenderer} = require('electron');
+    const { ipcRenderer } = require('electron');
 
     const gameSelect = document.getElementById('gameSelect');
+    const sceneSelect = document.getElementById('sceneSelect');
     const setAgentBtn = document.getElementById('setAgentBtn');
     const setYuzuPathBtn = document.getElementById('setYuzuPathBtn');
     const setRomPathBtn = document.getElementById('setRomPathBtn');
     const setScriptsPathBtn = document.getElementById('setScriptsPathBtn');
+    const refreshScenesBtn = document.getElementById('refreshScenesBtn');
+    const addToHomeBtn = document.getElementById('addToHomeBtn');
+    let obsScenes = [];
 
     async function loadGames() {
         const games = await ipcRenderer.invoke("yuzu.getYuzuGames");
-        launchOnStartSelect.innerHTML = '<option value="">Disabled</option>';
 
         while (gameSelect.options.length > 1) {
             gameSelect.remove(1);
@@ -58,7 +57,6 @@
             option.value = game.id;
             option.textContent = game.name;
             gameSelect.appendChild(option);
-            launchOnStartSelect.appendChild(option.cloneNode(true));
         });
 
         gameSelect.addEventListener('change', () => {
@@ -67,18 +65,51 @@
         });
     }
 
+    function getScenes() {
+        document.getElementById('sceneSelect').innerHTML = '';
+        ipcRenderer.invoke('obs.getScenes').then(scenes => {
+            const sceneSelect = document.getElementById('sceneSelect');
+            obsScenes = scenes
+            scenes.forEach(scene => {
+                const option = document.createElement('option');
+                option.value = scene.id;
+                option.textContent = scene.name;
+                sceneSelect.appendChild(option);
+            });
+
+            ipcRenderer.invoke('obs.getActiveScene').then(scene => {
+                if (scene && !scenes.some(scene2 => scene2.id === scene.id)) {
+                    const option = document.createElement('option');
+                    option.value = scene.id;
+                    option.textContent = scene.name;
+                    sceneSelect.appendChild(option);
+                }
+                sceneSelect.value = scene.id; // Set the selected value
+            });
+        });
+    }
+
     async function init() {
         await loadGames();
-        const launchOnStart = await ipcRenderer.invoke('yuzu.getYuzuLaunchOnStart');
+        await getScenes();
+
         const lastGameLaunched = await ipcRenderer.invoke('yuzu.getLastYuzuGameLaunched');
-        if (launchOnStart) {
-            launchOnStartSelect.value = launchOnStart;
-        }
         if (lastGameLaunched) {
             gameSelect.value = lastGameLaunched;
             document.getElementById("launchBtn").disabled = false;
         }
     }
+
+    function validate() {
+        const selectedGameId = gameSelect.value;
+        const selectedSceneId = sceneSelect.value;
+
+        addToHomeBtn.disabled = !(selectedGameId && selectedSceneId);
+    }
+
+    addToHomeBtn.addEventListener('click', () => {
+       ipcRenderer.invoke('yuzu.addToHomeBtn', {name: gameSelect.selectedOptions[0].textContent, id: gameSelect.value, scene: obsScenes.find(scene2 => scene2.id === sceneSelect.value)});
+    });
 
     setAgentBtn.addEventListener('click', () => {
         ipcRenderer.invoke("yuzu.setAgentPath");
@@ -94,23 +125,34 @@
     });
 
     setScriptsPathBtn.addEventListener('click', async () => {
-      await ipcRenderer.invoke("yuzu.setAgentScriptsPath");
+        await ipcRenderer.invoke("yuzu.setAgentScriptsPath");
     });
 
-    launchOnStartSelect.addEventListener('change', () => {
-        ipcRenderer.invoke("yuzu.setYuzuLaunchOnStart", launchOnStartSelect.value);
+    refreshScenesBtn.addEventListener('click', async () => {
+        await getScenes();
     });
+
+
 
     document.getElementById("launchBtn").onclick = async () => {
-        const gameSelect = document.getElementById("gameSelect");
         const selectedGameId = gameSelect.value;
-        if (!selectedGameId) return;
+        const selectedSceneId = sceneSelect.value;
+
+        if (!selectedGameId || !selectedSceneId) return;
 
         document.getElementById("status").textContent = "Launching...";
-        const result = await ipcRenderer.invoke("yuzu.launchYuzuGame", selectedGameId);
+        const result = await ipcRenderer.invoke("yuzu.launchYuzuGame", { id: selectedGameId, shouldLaunchAgent: true });
         document.getElementById("status").textContent =
             result.status === "launched" ? "Game Launched!" : "Error!";
     };
+
+    sceneSelect.addEventListener('change', () => {
+       validate()
+    });
+
+    gameSelect.addEventListener('change', () => {
+        validate();
+    });
 
     document.addEventListener("DOMContentLoaded", init);
 </script>

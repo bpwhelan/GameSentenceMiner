@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GameSentenceMiner</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css">
     <style>
         body {
@@ -66,12 +65,13 @@
 <body>
     <div class="tab-bar">
         <button class="tab-button active" data-tab="console">Console</button>
+        <button class="tab-button" data-tab="launcher">Game Launcher</button>
         <button class="tab-button" data-tab="obs">OBS</button>
-        <button class="tab-button" data-tab="steam">Steam</button>
-        <button class="tab-button" data-tab="vn">VN</button>
-        <button class="tab-button" data-tab="yuzu">Yuzu</button>
+        <button class="tab-button" data-tab="ocr">OCR</button>
+<!--        <button class="tab-button" data-tab="steam">Steam</button>-->
+<!--        <button class="tab-button" data-tab="vn">VN</button>-->
+<!--        <button class="tab-button" data-tab="yuzu" id="yuzu-button" style="display: none;">Yuzu</button>-->
         <button class="tab-button" data-tab="settings">Settings</button>
-        <button class="tab-button" data-tab="ocr">OCR Utilities</button>
     </div>
 
     <div id="console" class="tab-content active">
@@ -122,6 +122,9 @@
             })
         </script>
     </div>
+    <div id="launcher" class="tab-content">
+        <iframe src="launcher.html"></iframe>
+    </div>
     <div id="obs" class="tab-content">
         <iframe src="obs.html"></iframe>
     </div>
@@ -141,6 +144,24 @@
         <iframe src="ocr.html"></iframe>
     </div>
     <script>
+
+        async function loadSettings() {
+            const settings = await ipcRenderer.invoke('settings.getSettings');
+            if (settings) {
+                // autoUpdateGSMAppCheckbox.checked = settings.autoUpdateGSMApp || false;
+                // autoUpdateElectronCheckbox.checked = settings.autoUpdateElectron || false;
+                // pythonPathInput.value = settings.pythonPath || '';
+                // agentScriptsPathInput.value = settings.agentScriptsPath || '';
+                // startConsoleMinimizedCheckbox.checked = settings.startConsoleMinimized || false;
+                // customPythonPackageInput.value = settings.customPythonPackage || 'GameSentenceMiner';
+                // let showYuzuTab = settings.showYuzuTab || false;
+                // if (showYuzuTab) {
+                //     document.getElementById('yuzu-button').style.display = 'inline-block';
+                // } else {
+                //     document.getElementById('yuzu-button').style.display = 'none';
+                // }
+            }
+        }
 
         // const { ipcRenderer } = require('electron');
 
@@ -167,20 +188,43 @@
         // });
         //
         // loadNewPage("console.html")
+        let fitInterval;
         document.querySelectorAll('.tab-button').forEach(button => {
             button.addEventListener('click', () => {
                 // Remove active class from all buttons and content
                 document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
                 document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                fitAddon.fit();
 
                 // Add active class to clicked button and corresponding content
                 const tabId = button.getAttribute('data-tab');
                 document.getElementById(tabId).classList.add('active');
 
+
+                if (tabId === 'console') {
+                    fitInterval = setInterval(async () => {
+                        fitAddon.fit();
+                    }, 1);
+
+                    setTimeout(() => {
+                        clearInterval(fitInterval);
+                    }, 100);
+                } else {
+                    clearInterval(fitInterval);
+                }
+
+                if (tabId === 'launcher') {
+                    const launcherIframe = document.querySelector('#launcher iframe');
+                    launcherIframe.src = launcherIframe.src; // Force reload
+                }
+
                 // Notify main process of tab change
                 ipcRenderer.send('tab-changed', tabId);
             });
         });
+
+        loadSettings();
+        setInterval(loadSettings, 500);
     </script>
 </body>
 </html>

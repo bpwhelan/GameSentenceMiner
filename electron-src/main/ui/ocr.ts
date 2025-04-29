@@ -1,5 +1,5 @@
 import {exec, spawn} from 'child_process';
-import {ipcMain} from 'electron';
+import {dialog, ipcMain} from 'electron';
 import {
     getAutoUpdateElectron,
     getAutoUpdateGSMApp,
@@ -10,7 +10,7 @@ import {
     setWindowName
 } from "../store.js";
 import {mainWindow} from "../main.js";
-import {getCurrentScene} from "./obs.js";
+import {getCurrentScene, ObsScene} from "./obs.js";
 import {BASE_DIR, getPlatform, sanitizeFilename} from "../util.js";
 import path, {resolve} from "path";
 import * as fs from "node:fs";
@@ -31,10 +31,22 @@ export function registerOCRUtilsIPC() {
         mainWindow?.webContents.send('terminal-output', `Installing ${dependency} dependencies in new terminal...`);
     });
 
-    ipcMain.on('ocr.uninstall-selected-dep', (_, dependency: string) => {
-        const command = `${getPythonPath()} -m pip uninstall -y ${dependency}`;
-        spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
-        mainWindow?.webContents.send('terminal-output', `Uninstalling ${dependency} dependencies in new terminal...`);
+    ipcMain.on('ocr.uninstall-selected-dep', async (_, dependency: string) => {
+        const response = await dialog.showMessageBox(mainWindow!, {
+            type: 'question',
+            buttons: ['Yes', 'No'],
+            defaultId: 1,
+            title: 'Confirm Uninstall',
+            message: `Are you sure you want to uninstall the dependency: ${dependency}?`
+        });
+
+        if (response.response === 0) { // 'Yes' button
+            const command = `${getPythonPath()} -m pip uninstall -y ${dependency}`;
+            spawn('cmd', ['/c', 'start', 'cmd', '/k', command], { detached: false }); // Open in new cmd window
+            mainWindow?.webContents.send('terminal-output', `Uninstalling ${dependency} dependencies in new terminal...`);
+        } else {
+            mainWindow?.webContents.send('terminal-output', `Uninstall canceled for ${dependency}.`);
+        }
     });
 
     ipcMain.on('ocr.run-screen-selector', (_, window_title: string) => {
@@ -202,6 +214,10 @@ function getWindowsListWithLibrary(): LibraryWindowInfo[] {
 
 export async function getActiveOCRCOnfig() {
     const sceneConfigPath = await getActiveOCRConfigPath();
+    if (!fs.existsSync(sceneConfigPath)) {
+        console.warn(`OCR config file does not exist at ${sceneConfigPath}`);
+        return null;
+    }
     try {
         const fileContent = await fs.promises.readFile(sceneConfigPath, 'utf-8');
         return JSON.parse(fileContent);
@@ -213,9 +229,9 @@ export async function getActiveOCRCOnfig() {
 
 export async function getActiveOCRConfigPath() {
     const currentScene = await getCurrentScene();
-    return getSceneOCRConfig(sanitizeFilename(currentScene));
+    return getSceneOCRConfig(currentScene);
 }
 
-function getSceneOCRConfig(sceneName: string) {
-    return path.join(BASE_DIR, 'ocr_config', `${sceneName}.json`);
+export function getSceneOCRConfig(scene: ObsScene) {
+    return path.join(BASE_DIR, 'ocr_config', `${sanitizeFilename(scene.name)}.json`);
 }

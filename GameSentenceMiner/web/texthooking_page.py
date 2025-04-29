@@ -1,19 +1,25 @@
+import asyncio
 import datetime
 import json
 import os
+import queue
+import sqlite3
+import threading
 from dataclasses import dataclass
 
 import flask
+import websockets
 
-from GameSentenceMiner.text_log import GameLine, get_line_by_id
+from GameSentenceMiner.text_log import GameLine, get_line_by_id, initial_time
 from flask import request, jsonify, send_from_directory
 import webbrowser
 from GameSentenceMiner import obs
-from GameSentenceMiner.configuration import logger, get_config
+from GameSentenceMiner.configuration import logger, get_config, DB_PATH
 from GameSentenceMiner.util import TEXT_REPLACEMENTS_FILE
 
 port = get_config().general.texthooker_port
 url = f"http://localhost:{port}"
+websocket_port = 55001
 
 
 @dataclass
@@ -22,16 +28,25 @@ class EventItem:
     id: str
     text: str
     time: datetime.datetime
-    timestamp: float
     checked: bool = False
+    history: bool = False
 
     def to_dict(self):
         return {
             'id': self.id,
             'text': self.text,
             'time': self.time,
-            'timestamp': self.timestamp,
-            'checked': self.checked
+            'checked': self.checked,
+            'history': self.history,
+        }
+
+    def to_serializable(self):
+        return {
+            'id': self.id,
+            'text': self.text,
+            'time': self.time.isoformat(),
+            'checked': self.checked,
+            'history': self.history,
         }
 
 class EventManager:
@@ -43,6 +58,36 @@ class EventManager:
     def __init__(self):
         self.events = []
         self.events_dict = {}
+        self._connect()
+        self._create_table()
+        self._load_events_from_db()
+        # self.close_connection()
+
+    def _connect(self):
+        self.conn = sqlite3.connect(DB_PATH)
+        self.cursor = self.conn.cursor()
+
+    def _create_table(self):
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+                event_id TEXT PRIMARY KEY,
+                line_id TEXT,
+                text TEXT,
+                time TEXT
+            )
+        """)
+        self.conn.commit()
+
+    def _load_events_from_db(self):
+        self.cursor.execute("SELECT * FROM events")
+        rows = self.cursor.fetchall()
+        for row in rows:
+            event_id, line_id, text, timestamp = row
+            timestamp = datetime.datetime.fromisoformat(timestamp)
+            line = GameLine(line_id, text, timestamp, None, None, 0)
+            event = EventItem(line, event_id, text, timestamp, False, timestamp < initial_time)
+            self.events.append(event)
+            self.events_dict[event_id] = event
 
     def __iter__(self):
         return iter(self.events)
@@ -51,20 +96,69 @@ class EventManager:
         self.events = new_events
 
     def add_gameline(self, line: GameLine):
-        new_event = EventItem(line, line.id, line.text, line.time, line.time.timestamp(), False)
+        new_event = EventItem(line, line.id, line.text, line.time, False, False)
         self.events_dict[line.id] = new_event
         self.events.append(new_event)
+        # self.store_to_db(new_event)
+        event_queue.put(new_event)
+        return new_event
 
     def get_events(self):
         return self.events
 
     def add_event(self, event):
         self.events.append(event)
+        event_queue.put(event)
 
     def get(self, event_id):
         return self.events_dict.get(event_id)
 
+    def close_connection(self):
+        if self.conn:
+            self.conn.close()
+
+class EventProcessor(threading.Thread):
+    def __init__(self, event_queue, db_path):
+        super().__init__()
+        self.event_queue = event_queue
+        self.db_path = db_path
+        self.conn = None
+        self.cursor = None
+        self.daemon = True
+
+    def _connect(self):
+        self.conn = sqlite3.connect(self.db_path)
+        self.cursor = self.conn.cursor()
+
+    def run(self):
+        self._connect()
+        while True:
+            try:
+                event = self.event_queue.get()
+                if event is None:  # Exit signal
+                    break
+                self._store_to_db(event)
+            except Exception as e:
+                logger.error(f"Error processing event: {e}")
+        self._close_connection()
+
+    def _store_to_db(self, event):
+        self.cursor.execute("""
+            INSERT INTO events (event_id, line_id, text, time)
+            VALUES (?, ?, ?, ?)
+        """, (event.id, event.line.id, event.text, event.time.isoformat()))
+        self.conn.commit()
+
+    def _close_connection(self):
+        if self.conn:
+            self.conn.close()
+
 event_manager = EventManager()
+event_queue = queue.Queue()
+
+# Initialize the EventProcessor with the queue and event manager
+event_processor = EventProcessor(event_queue, DB_PATH)
+event_processor.start()
 
 server_start_time = datetime.datetime.now().timestamp()
 
@@ -119,27 +213,28 @@ def serve_static(filename):
 
 @app.route('/')
 def index():
-    with open(os.path.join(app.root_path, 'static', 'utility.html'), encoding='utf-8') as file:
-        return file.read()
+    return flask.render_template('utility.html', websocket_port=websocket_port)
 
 @app.route('/texthooker')
 def texthooker():
-    with open(os.path.join(app.root_path, 'static', 'utility.html'), encoding='utf-8') as file:
-        return file.read()
+    return flask.render_template('utility.html', websocket_port=websocket_port)
 
 @app.route('/textreplacements')
 def textreplacements():
-    with open(os.path.join(app.root_path, 'static', 'text_replacements.html'), encoding='utf-8') as file:
-        return file.read()
+    return flask.render_template('text_replacements.html')
 
 @app.route('/data', methods=['GET'])
 def get_data():
     return jsonify([event.to_dict() for event in event_manager])
 
 
-def add_event_to_texthooker(line: GameLine):
+async def add_event_to_texthooker(line: GameLine):
     logger.info("Adding event to web server: %s", line.text)
-    event_manager.add_gameline(line)
+    new_event = event_manager.add_gameline(line)
+    await broadcast_message({
+        'event': 'text_received',
+        'data': new_event.to_serializable()
+    })
 
 
 @app.route('/update', methods=['POST'])
@@ -177,6 +272,42 @@ def play_audio():
     obs.save_replay_buffer()
     return jsonify({}), 200
 
+
+connected_clients = set()
+
+async def websocket_handler(websocket):
+    logger.debug(f"Client connected: {websocket.remote_address}")
+    connected_clients.add(websocket)
+    try:
+        async for message in websocket:
+            try:
+                data = json.loads(message)
+                if 'type' in data and data['type'] == 'get_events':
+                    initial_events = [{'id': 1, 'text': 'Initial event from WebSocket'}, {'id': 2, 'text': 'Another initial event'}]
+                    await websocket.send(json.dumps({'event': 'initial_events', 'payload': initial_events}))
+                elif 'update_checkbox' in data:
+                    print(f"Received checkbox update: {data}")
+                    # Handle checkbox update logic
+                    pass
+                await websocket.send(json.dumps({'response': f'Server received: {message}'}))
+            except json.JSONDecodeError:
+                await websocket.send(json.dumps({'error': 'Invalid JSON format'}))
+    except websockets.exceptions.ConnectionClosedError:
+        print(f"Client disconnected abruptly: {websocket.remote_address}")
+    except websockets.exceptions.ConnectionClosedOK:
+        print(f"Client disconnected gracefully: {websocket.remote_address}")
+    finally:
+        connected_clients.discard(websocket)
+
+async def broadcast_message(message):
+    if connected_clients:
+        tasks = [client.send(json.dumps(message)) for client in connected_clients]
+        await asyncio.gather(*tasks)
+
+# async def main():
+#     async with websockets.serve(websocket_handler, "localhost", 8765): # Choose a port for WebSocket
+#         print("WebSocket server started on ws://localhost:8765/ws (adjust as needed)")
+#         await asyncio.Future()  # Keep the server running
 
 # @app.route('/store-events', methods=['POST'])
 # def store_events():
@@ -225,5 +356,31 @@ def start_web_server():
 
     app.run(port=port, debug=False) # debug=True provides helpful error messages during development
 
+async def run_websocket_server(host="0.0.0.0", port=55001):
+    global websocket_port
+    while True:
+        websocket_port = port
+        try:
+            async with websockets.serve(websocket_handler, host, port):
+                logger.debug(f"WebSocket server started at ws://{host}:{port}/")
+                await asyncio.Future()  # Keep the WebSocket server running
+        except OSError as e:
+            logger.debug(f"Port {port} is in use. Trying the next port...")
+            port += 1
+
+
+
+async def texthooker_page_coro():
+    # Run the WebSocket server in the asyncio event loop
+    flask_thread = threading.Thread(target=start_web_server)
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    # Keep the main asyncio event loop running (for the WebSocket server)
+    await run_websocket_server()
+
+def run_text_hooker_page():
+    asyncio.run(texthooker_page_coro())
+
 if __name__ == '__main__':
-    start_web_server()
+    asyncio.run(run_text_hooker_page())

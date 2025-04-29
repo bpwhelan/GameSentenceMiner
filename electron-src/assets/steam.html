@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Steam Game Launcher</h1>
+<h1>Steam Game Config/Launcher</h1>
 <div>
     <label>
         Game Select:
@@ -23,14 +23,6 @@
     <button id="setAgentBtn" class="pathBtn">Set Agent Path</button>
     <button id="setSteamPathBtn" class="pathBtn">Set Steam Path</button>
 </div>
-<div>
-    <label>
-        Launch on start:
-        <select id="launchOnStartSelect" class="gameSelect">
-            <option value="">Disabled</option>
-        </select>
-    </label>
-</div>
 
 <p id="status"></p>
 
@@ -44,12 +36,10 @@
     const launchBtn = document.getElementById('launchBtn');
     const configGameBtn = document.getElementById('configGameBtn');
     const status = document.getElementById('status');
-    const launchOnStartSelect = document.getElementById('launchOnStartSelect');
 
     async function loadGames() {
         const games = await ipcRenderer.invoke('steam.getSteamGames');
         gameSelect.innerHTML = '<option value="">Select a game</option>';
-        launchOnStartSelect.innerHTML = '<option value="">Disabled</option>';
 
         while (gameSelect.options.length > 1) {
             gameSelect.remove(1);
@@ -60,7 +50,6 @@
             option.value = game.id;
             option.textContent = game.name;
             gameSelect.appendChild(option);
-            launchOnStartSelect.appendChild(option.cloneNode(true));
         });
 
         gameSelect.addEventListener('change', () => {
@@ -71,11 +60,7 @@
 
     async function init() {
         await loadGames();
-        const launchOnStart = await ipcRenderer.invoke('steam.getSteamLaunchOnStart');
         const lastGameLaunched = await ipcRenderer.invoke('steam.getLastSteamGameLaunched');
-        if (launchOnStart) {
-            launchOnStartSelect.value = launchOnStart;
-        }
         if (lastGameLaunched) {
             gameSelect.value = lastGameLaunched;
             launchBtn.disabled = false;
@@ -101,16 +86,12 @@
         if (!selectedGameId) return;
 
         status.textContent = 'Launching...';
-        const result = await ipcRenderer.invoke('steam.launchSteamGame', parseInt(selectedGameId));
+        const result = await ipcRenderer.invoke('steam.launchSteamGame', {id: parseInt(selectedGameId), shouldLaunchAgent: true});
         status.textContent = result.status === 'success' ? 'Game Launched!' : 'Error!';
     });
 
     configGameBtn.addEventListener('click', () => {
         ipcRenderer.invoke('steam.showGameConfigDialog');
-    });
-
-    launchOnStartSelect.addEventListener('change', () => {
-        ipcRenderer.invoke('steam.setSteamLaunchOnStart', launchOnStartSelect.value);
     });
 
     document.addEventListener('DOMContentLoaded', init);

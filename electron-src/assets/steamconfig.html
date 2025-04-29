@@ -28,8 +28,17 @@
     </label>
 </div>
 <div>
+    <label>
+        OBS Scene:
+        <select id="sceneSelect" class="gameSelect">
+            <option value="" disabled selected>Select an OBS Scene</option>
+        </select>
+    </label>
+</div>
+<div>
+    <label for="selectScriptBtn">Optional: </label>
     <button id="selectScriptBtn">Select Script</button>
-    <span id="scriptPathLabel"></span>
+    <span id="scriptPathLabel">Optional</span>
 </div>
 <br>
 <div>
@@ -47,9 +56,21 @@
     const selectScriptBtn = document.getElementById('selectScriptBtn');
     const status = document.getElementById('status');
     const scriptPathLabel = document.getElementById('scriptPathLabel');
+    const sceneSelect = document.getElementById('sceneSelect');
     const saveBtn = document.getElementById('saveBtn');
+    let obsScenes = []
 
     steamIdInput.addEventListener('input', () => {
+        const url = steamIdInput.value.trim();
+        const match = url.match(/store\.steampowered\.com\/app\/(\d+)\/([^/]+)/);
+        console.log(match)
+        if (match) {
+            const steamId = match[1];
+            const gameName = match[2].replace(/_/g, ' ');
+
+            steamIdInput.value = steamId;
+            gameNameInput.value = gameName;
+        }
         validate();
     });
 
@@ -66,19 +87,21 @@
         const steamId = steamIdInput.value?.trim();
         const gameName = gameNameInput.value?.trim();
         const executableName = executableNameInput.value?.trim();
+        const selectedOBSScene = sceneSelect.value;
+        // const scriptPath = scriptPathLabel.textContent.trim();
 
-        saveBtn.disabled = !(steamId && gameName && executableName);
+        saveBtn.disabled = !(steamId && gameName && executableName &&
+            selectedOBSScene);
     }
 
 
     selectScriptBtn.addEventListener('click', () => {
-        ipcRenderer.invoke('steam.getAgentScriptPath').then(result => {
+        ipcRenderer.invoke('steam.getAgentScriptPath', gameNameInput.value.trim()).then(result => {
             if (result.canceled) {
                 status.textContent = 'No script selected.';
                 saveBtn.disabled = true;
             } else {
                 scriptPathLabel.innerText = result.path;
-                status.textContent = `Selected script: ${result.filePaths[0]}`;
                 validate();
             }
         });
@@ -89,21 +112,49 @@
         const gameName = gameNameInput.value;
         const executablePath = executableNameInput.value;
         const scriptPath = scriptPathLabel.textContent;
+        const sceneName = sceneSelect.value;
+        const scene = obsScenes.find(s => s.id === sceneName);
 
-        const result = await ipcRenderer.invoke('steam.saveSteamGame', {steamId, gameName, executablePath, scriptPath});
+        console.log(sceneName);
+
+        const result = await ipcRenderer.invoke('steam.saveSteamGame', { steamId, gameName, executablePath, scriptPath, scene });
         if (result.status === 'success') {
             status.textContent = 'Configuration saved successfully!';
-
-            // Clear input fields for adding another game
             steamIdInput.value = '';
             gameNameInput.value = '';
             executableNameInput.value = '';
             scriptPathLabel.innerText = '';
+            sceneSelect.value = '';
             validate();
         } else {
             status.textContent = result.message;
         }
     });
+
+    function getScenes() {
+        sceneSelect.innerHTML = '';
+        ipcRenderer.invoke('obs.getScenes').then(scenes => {
+            obsScenes = scenes;
+            scenes.forEach(scene => {
+                const option = document.createElement('option');
+                option.value = scene.id;
+                option.textContent = scene.name;
+                sceneSelect.appendChild(option);
+            });
+
+            ipcRenderer.invoke('obs.getActiveScene').then(scene => {
+                if (scene && !scenes.some(scene2 => scene2.id === scene.id)) {
+                    const option = document.createElement('option');
+                    option.value = scene.id;
+                    option.textContent = scene.name;
+                    sceneSelect.appendChild(option);
+                }
+                sceneSelect.value = scene.id; // Set the selected value
+            });
+        });
+    }
+
+    getScenes();
 </script>
 </body>
 </html>

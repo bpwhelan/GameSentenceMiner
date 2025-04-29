@@ -88,7 +88,6 @@ class ScreenSelector:
         try:
             windows = gw.getWindowsWithTitle(self.window_name)
             if windows:
-                # TODO: Handle multiple matches if necessary (e.g., let user choose?)
                 if len(windows) > 1:
                     print(f"Warning: Multiple windows found with title '{self.window_name}'. Using the first one.")
                 return windows[0]
@@ -235,7 +234,7 @@ class ScreenSelector:
                 # --- End Conversion ---
 
                 # Validate size using the final absolute pixel coordinates
-                if abs_coords and abs_coords[2] >= MIN_RECT_WIDTH and abs_coords[3] >= MIN_RECT_HEIGHT:
+                if coordinate_system == COORD_SYSTEM_PERCENTAGE or (abs_coords and abs_coords[2] >= MIN_RECT_WIDTH and abs_coords[3] >= MIN_RECT_HEIGHT):
                     # Find the correct monitor dict from self.monitors based on index
                     monitor_index = monitor_data['index']
                     target_monitor = next((m for m in self.monitors if m['index'] == monitor_index), None)
@@ -862,6 +861,9 @@ if __name__ == "__main__":
 
     # if not target_window_title:
     #     target_window_title = get_ocr_config().window
+
+    if not target_window_title:
+        target_window_title = "Windowed Projector (Preview)"
 
     # Get the selection result
     selection_result = get_screen_selection(target_window_title)

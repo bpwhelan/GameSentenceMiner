@@ -254,8 +254,13 @@ def text_callback(text, orig_text, rectangle_index, time, img=None):
     # if orig_text:
     #     print(orig_text_string)
     if not twopassocr:
+        if previous_orig_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 80:
+            logger.info("Seems like Text we already sent, not doing anything.")
+            return
         img.save(os.path.join(get_temporary_directory(), "last_successful_ocr.png"))
         send_result(text, time)
+        orig_text_results[rectangle_index] = orig_text_string
+        last_ocr1_results[rectangle_index] = previous_text
     if not text:
         if previous_text:
             if rectangle_index in text_stable_start_times:
@@ -269,8 +274,8 @@ def text_callback(text, orig_text, rectangle_index, time, img=None):
                     logger.info("Seems like Text we already sent, not doing anything.")
                     return
                 orig_text_results[rectangle_index] = orig_text_string
-                do_second_ocr(previous_text, rectangle_index, stable_time, previous_img)
                 last_ocr1_results[rectangle_index] = previous_text
+                do_second_ocr(previous_text, rectangle_index, stable_time, previous_img)
             return
         return
 
@@ -315,9 +320,23 @@ def run_oneocr(ocr_config: OCRConfig, i, area=False):
             text_callback=text_callback,
             screen_capture_exclusions=exclusions,
             rectangle=i,
-            ignore_window_visible=not get_requires_open_window())
+            language="ja")
     done = True
 
+
+def get_window(window_name):
+    import pygetwindow as gw
+    try:
+        windows = gw.getWindowsWithTitle(window_name)
+        if windows:
+            if len(windows) > 1:
+                print(f"Warning: Multiple windows found with title '{window_name}'. Using the first one.")
+            return windows[0]
+        else:
+            return None
+    except Exception as e:
+        print(f"Error finding window '{self.window_name}': {e}")
+        return None
 
 if __name__ == "__main__":
     global ocr1, ocr2, twopassocr
@@ -343,7 +362,17 @@ if __name__ == "__main__":
     logger.info(f"Received arguments: ocr1={ocr1}, ocr2={ocr2}, twopassocr={twopassocr}")
     global ocr_config
     ocr_config: OCRConfig = get_ocr_config()
-    print(ocr_config)
+    if ocr_config:
+        if ocr_config.window:
+            start_time = time.time()
+            while time.time() - start_time < 30:
+                if get_window(ocr_config.window):
+                    break
+                logger.info(f"Window: {ocr_config.window} Could not be found, retrying in 1 second...")
+                time.sleep(1)
+            else:
+                logger.error(f"Window '{ocr_config.window}' not found within 30 seconds.")
+                sys.exit(1)
     logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {len(ocr_config.rectangles)}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
     if ocr_config:
         rectangles = list(filter(lambda rect: not rect.is_excluded, ocr_config.rectangles))

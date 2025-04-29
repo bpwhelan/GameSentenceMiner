@@ -206,9 +206,12 @@ class ConfigApp:
             ),
             ai=Ai(
                 enabled=self.ai_enabled.get(),
-                # provider=self.provider.get(),
+                provider=self.ai_provider.get(),
+                gemini_model=self.gemini_model.get(),
+                groq_model=self.groq_model.get(),
+                gemini_api_key=self.gemini_api_key.get(),
+                groq_api_key=self.groq_api_key.get(),
                 anki_field=self.ai_anki_field.get(),
-                api_key=self.ai_api_key.get(),
                 use_canned_translation_prompt=self.use_canned_translation_prompt.get(),
                 use_canned_context_prompt=self.use_canned_context_prompt.get(),
                 custom_prompt=self.custom_prompt.get("1.0", tk.END)
@@ -1004,12 +1007,18 @@ class ConfigApp:
         ttk.Checkbutton(ai_frame, variable=self.ai_enabled).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(ai_frame, "Enable or disable AI integration.", row=self.current_row, column=2)
 
-        ttk.Label(ai_frame, text="Anki Field:").grid(row=self.current_row, column=0, sticky='W')
-        self.ai_anki_field = ttk.Entry(ai_frame)
-        self.ai_anki_field.insert(0, self.settings.ai.anki_field)
-        self.ai_anki_field.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(ai_frame, "Field in Anki for AI-generated content.", row=self.current_row,
-                                         column=2)
+        ttk.Label(ai_frame, text="Provider:").grid(row=self.current_row, column=0, sticky='W')
+        self.ai_provider = ttk.Combobox(ai_frame, values=['Gemini', 'Groq'])
+        self.ai_provider.set(self.settings.ai.provider)
+        self.ai_provider.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(ai_frame, "Select the AI provider.", row=self.current_row, column=2)
+
+        ttk.Label(ai_frame, text="Gemini AI Model:").grid(row=self.current_row, column=0, sticky='W')
+        self.gemini_model = ttk.Combobox(ai_frame, values=['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-pro-preview-03-25', 'gemini-2.5-flash-preview-04-17'])
+        self.gemini_model.set(self.settings.ai.gemini_model)
+        self.gemini_model.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(ai_frame, "Select the AI model to use.", row=self.current_row, column=2)
+
 
         # ttk.Label(ai_frame, text="Provider:").grid(row=self.current_row, column=0, sticky='W')
         # self.provider = ttk.Combobox(ai_frame,
@@ -1018,11 +1027,32 @@ class ConfigApp:
         # self.provider.grid(row=self.current_row, column=1)
         # self.add_label_and_increment_row(ai_frame, "Select the AI provider. Currently only Gemini is supported.", row=self.current_row, column=2)
 
-        ttk.Label(ai_frame, text="API Key:").grid(row=self.current_row, column=0, sticky='W')
-        self.ai_api_key = ttk.Entry(ai_frame, show="*")  # Mask the API key for security
-        self.ai_api_key.insert(0, self.settings.ai.api_key)
-        self.ai_api_key.grid(row=self.current_row, column=1)
+        ttk.Label(ai_frame, text="Gemini API Key:").grid(row=self.current_row, column=0, sticky='W')
+        self.gemini_api_key = ttk.Entry(ai_frame, show="*")  # Mask the API key for security
+        self.gemini_api_key.insert(0, self.settings.ai.gemini_api_key)
+        self.gemini_api_key.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(ai_frame, "API key for the selected AI provider (Gemini only currently).", row=self.current_row,
+                                         column=2)
+
+        ttk.Label(ai_frame, text="Groq AI Model:").grid(row=self.current_row, column=0, sticky='W')
+        self.groq_model = ttk.Combobox(ai_frame, values=['meta-llama/llama-4-maverick-17b-128e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct', 'llama-3.1-8b-instant'])
+        self.groq_model.set(self.settings.ai.groq_model)
+        self.groq_model.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(ai_frame, "Select the Groq AI model to use.", row=self.current_row, column=2)
+
+
+        ttk.Label(ai_frame, text="Groq API Key:").grid(row=self.current_row, column=0, sticky='W')
+        self.groq_api_key = ttk.Entry(ai_frame, show="*")  # Mask the API key for security
+        self.groq_api_key.insert(0, self.settings.ai.groq_api_key)
+        self.groq_api_key.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(ai_frame, "API key for Groq AI provider.", row=self.current_row,
+                                            column=2)
+
+        ttk.Label(ai_frame, text="Anki Field:").grid(row=self.current_row, column=0, sticky='W')
+        self.ai_anki_field = ttk.Entry(ai_frame)
+        self.ai_anki_field.insert(0, self.settings.ai.anki_field)
+        self.ai_anki_field.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(ai_frame, "Field in Anki for AI-generated content.", row=self.current_row,
                                          column=2)
 
         ttk.Label(ai_frame, text="Use Canned Translation Prompt:").grid(row=self.current_row, column=0, sticky='W')

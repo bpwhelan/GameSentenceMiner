@@ -1,6 +1,7 @@
 import os.path
 import subprocess
 import time
+import psutil
 
 from obswebsocket import obsws, requests
 
@@ -9,8 +10,9 @@ from GameSentenceMiner.configuration import *
 from GameSentenceMiner.model import *
 
 client: obsws = None
-obs_process = None
+obs_process_pid = None
 logging.getLogger('obswebsocket').setLevel(logging.CRITICAL)
+OBS_PID_FILE = os.path.join(configuration.get_app_directory(), 'obs-studio', 'obs_pid.txt')
 
 # REFERENCE: https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md
 
@@ -18,20 +20,43 @@ logging.getLogger('obswebsocket').setLevel(logging.CRITICAL)
 def get_obs_path():
     return os.path.join(configuration.get_app_directory(), 'obs-studio/bin/64bit/obs64.exe')
 
+def is_process_running(pid):
+    try:
+        process = psutil.Process(pid)
+        return 'obs' in process.exe()
+    except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+        if os.path.exists(OBS_PID_FILE):
+            os.remove(OBS_PID_FILE)
+        return False
+
 def start_obs():
-    global obs_process
+    global obs_process_pid
+    if os.path.exists(OBS_PID_FILE):
+        with open(OBS_PID_FILE, "r") as f:
+            try:
+                obs_process_pid = int(f.read().strip())
+                if is_process_running(obs_process_pid):
+                    print(f"OBS is already running with PID: {obs_process_pid}")
+                    connect_to_obs()
+                    return obs_process_pid
+            except ValueError:
+                print("Invalid PID found in file. Launching new OBS instance.")
+            except OSError:
+                print("No process found with the stored PID. Launching new OBS instance.")
+
     obs_path = get_obs_path()
     if not os.path.exists(obs_path):
-        logger.error(f"OBS not found at {obs_path}. Please install OBS.")
+        print(f"OBS not found at {obs_path}. Please install OBS.")
         return None
-
     try:
-        obs_process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable', '--startreplaybuffer'], cwd=os.path.dirname(obs_path))
-
-        logger.info("OBS launched")
-        return obs_process.pid
+        obs_process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable', '--startreplaybuffer', ], cwd=os.path.dirname(obs_path))
+        obs_process_pid = obs_process.pid
+        with open(OBS_PID_FILE, "w") as f:
+            f.write(str(obs_process_pid))
+        print(f"OBS launched with PID: {obs_process_pid}")
+        return obs_process_pid
     except Exception as e:
-        logger.error(f"Error launching OBS: {e}")
+        print(f"Error launching OBS: {e}")
         return None
 
 def check_obs_folder_is_correct():
@@ -69,33 +94,32 @@ def get_obs_websocket_config_values():
 
     if get_config().obs.password == 'your_password':
         logger.info("OBS WebSocket password is not set. Setting it now...")
-        config = get_master_config()
-        config.get_config().port = server_port
-        config.get_config().password = server_password
-        with open(get_config_path(), 'w') as file:
-            json.dump(config.to_dict(), file, indent=4)
+        full_config = get_master_config()
+        full_config.get_config().obs.port = server_port
+        full_config.get_config().obs.password = server_password
+        full_config.sync_shared_fields()
+        full_config.save()
         reload_config()
 
 
-reconnecting = False
+connected = False
 
 def on_connect(obs):
-    global reconnecting
+    global connected
     logger.info("Reconnected to OBS WebSocket.")
-    if reconnecting:
-        start_replay_buffer()
-        reconnecting = False
+    start_replay_buffer()
+    connected = True
 
 
 def on_disconnect(obs):
-    global reconnecting
+    global connected
     logger.error("OBS Connection Lost!")
-    reconnecting = True
+    connected = False
 
 
 def connect_to_obs():
     global client
-    if get_config().obs.enabled:
+    if get_config().obs.enabled and not client:
         if util.is_windows():
             get_obs_websocket_config_values()
         client = obsws(host=get_config().obs.host, port=get_config().obs.port,
@@ -133,7 +157,6 @@ def do_obs_call(request, from_dict = None, retry=10):
                 time.sleep(1)
                 return do_obs_call(request, from_dict, retry - 1)
             else:
-                logger.error(f"Error doing obs call: {e}")
                 raise e
         return None
 
@@ -187,7 +210,7 @@ def get_current_scene():
     try:
         return do_obs_call(requests.GetCurrentProgramScene(), SceneInfo.from_dict, retry=0).sceneName
     except Exception as e:
-        logger.error(f"Couldn't get scene: {e}")
+        logger.debug(f"Couldn't get scene: {e}")
     return ''
 
 
