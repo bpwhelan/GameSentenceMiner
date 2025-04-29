@@ -24,7 +24,7 @@ websocket_connected = False
 
 async def monitor_clipboard():
     # Initial clipboard content
-    current_line = pyperclip.paste()
+    current_clipboard = pyperclip.paste()
 
     skip_next_clipboard = False
     while True:
@@ -112,11 +112,12 @@ def run_websocket_listener():
 
 async def start_text_monitor():
     if get_config().general.use_websocket:
-        await listen_websocket()
+        util.run_new_thread(run_websocket_listener)
     if get_config().general.use_clipboard:
         if get_config().general.use_websocket:
             if get_config().general.use_both_clipboard_and_websocket:
                 logger.info("Listening for Text on both WebSocket and Clipboard.")
             else:
                 logger.info("Both WebSocket and Clipboard monitoring are enabled. WebSocket will take precedence if connected.")
-        await start_text_monitor()
+        await monitor_clipboard()
+    await asyncio.sleep(1)
