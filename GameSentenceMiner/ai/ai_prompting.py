@@ -53,7 +53,6 @@ class GroqAiConfig(AIConfig):
 class AIManager(ABC):
     def __init__(self, ai_config: AIConfig, logger: Optional[logging.Logger] = None):
         self.ai_config = ai_config
-        print(ai_config)
         self.logger = logger
 
     @abstractmethod

@@ -1029,7 +1029,6 @@ class ConfigApp:
 
         ttk.Label(ai_frame, text="Gemini API Key:").grid(row=self.current_row, column=0, sticky='W')
         self.gemini_api_key = ttk.Entry(ai_frame, show="*")  # Mask the API key for security
-        print(self.settings.ai.gemini_api_key)
         self.gemini_api_key.insert(0, self.settings.ai.gemini_api_key)
         self.gemini_api_key.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(ai_frame, "API key for the selected AI provider (Gemini only currently).", row=self.current_row,
