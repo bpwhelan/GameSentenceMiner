@@ -7,11 +7,12 @@ import {
     getVNs, setLastVNLaunched,
     setLaunchVNOnStart,
     setTextractorPath,
-    setVNs
+    setVNs, VN
 } from "../store.js";
 import {BrowserWindow, dialog, ipcMain} from "electron";
 import {getAssetsDir} from "../util.js";
 import {isQuitting, mainWindow} from "../main.js";
+import {ObsScene} from "./obs.js";
 
 let VNWindow: BrowserWindow | null = null;
 
@@ -44,18 +45,19 @@ async function launchTextractor(): Promise<number> {
     });
 }
 
-export function addVNToStore(vnPath: string): void {
-    const vns: string[] = getVNs() || [];
-    vns.push(vnPath);
+export function addVNToStore(vnPath: string, selectedScene: ObsScene): void {
+    const vns: VN[] = getVNs() || [];
+    vns.push({path: vnPath, scene: selectedScene});
     setVNs(vns);
 }
 
-export async function launchVNWorkflow(vnPath: string) {
+export async function launchVNWorkflow(vnPath: string, shouldLaunchTextractor: boolean): Promise<void> {
     const currentPath = process.cwd();
     try {
         launchVN(vnPath);
         process.chdir(currentPath);
-        launchTextractor();
+        if (shouldLaunchTextractor)
+            launchTextractor();
     } catch (error) {
         console.error(error);
     }
@@ -95,10 +97,10 @@ export function openVNWindow() {
 }
 
 export function registerVNIPC() {
-    ipcMain.handle("vn.launchVN", async (_, vnPath: string) => {
+    ipcMain.handle("vn.launchVN", async (_, req: { path: string, shouldLaunchTextractor: boolean }) => {
         try {
-            await launchVNWorkflow(vnPath);
-            setLastVNLaunched(vnPath);
+            await launchVNWorkflow(req.path, req.shouldLaunchTextractor);
+            setLastVNLaunched(req.path);
             return {status: "success", message: "VN launched successfully"};
         } catch (error) {
             console.error("Error launching VN:", error);
@@ -107,7 +109,7 @@ export function registerVNIPC() {
     });
 
 
-    ipcMain.handle("vn.addVN", async () => {
+    ipcMain.handle("vn.addVN", async (_, selectedScene) => {
         console.log("Adding VN");
         if (mainWindow) {
             console.log("VNWindow is open");
@@ -125,7 +127,7 @@ export function registerVNIPC() {
                 }
 
                 const vnPath = filePaths[0];
-                addVNToStore(vnPath);
+                addVNToStore(vnPath, selectedScene);
                 return {status: "success", message: "VN added successfully", path: vnPath};
             } catch (error) {
                 console.error("Error adding VN:", error);
@@ -136,8 +138,8 @@ export function registerVNIPC() {
 
     ipcMain.handle("vn.removeVN", async (_, vnPath: string) => {
         try {
-            const vns: string[] = getVNs() || [];
-            const updatedVNs = vns.filter(vn => vn !== vnPath);
+            const vns: VN[] = getVNs() || [];
+            const updatedVNs = vns.filter(vn => vn.path !== vnPath);
             setVNs(updatedVNs);
             return {status: "success", message: "VN removed successfully"};
         } catch (error) {

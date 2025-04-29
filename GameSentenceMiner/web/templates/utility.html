@@ -59,6 +59,7 @@
         }
 
         .textline-buttons {
+            margin-left: auto; /* Align buttons to the right */
             display: flex;
             gap: 10px;
         }
@@ -109,7 +110,7 @@
 <div id="initial-events">
 
 </div>
-<hr class="initial-events-separator" style="display: none;">
+<hr class="initial-events-separator" id="initial-events-seperator" style="display: none;">
 <div id="session-events">
 
 </div>
@@ -119,11 +120,14 @@
     </button>
 </div>
 <script>
+    let mainStyle = document.querySelector('head style');
+    console.log(mainStyle);
     let displayedEventIds = new Set();
     let isTabActive = true;
     let isFetching = false; // Flag to track if a fetch is in progress
     let intervalId = 0;
-    const fetchInterval = 100; // Define the interval as a constant
+    const fetchInterval = 5000; // Define the interval as a constant
+    const websocketPort = {{ websocket_port }} || 55001;
 
     // Drag selection variables
     let isDragging = false;
@@ -150,7 +154,12 @@
 
             events.forEach(ev => {
                 if (!displayedEventIds.has(ev.id)) {
-                    addNewEvent(ev)
+                    if (ev.history) {
+                        addNewEventToHistory(ev)
+                        document.getElementById('initial-events-seperator').style.display = 'block';
+                    } else {
+                        addNewEvent(ev)
+                    }
                 }
                 const checkbox = document.querySelector(`[data-event-id="${ev.id}"]`);
                 if (checkbox && !checkboxes_being_updated.has(ev.id)) {
@@ -165,27 +174,68 @@
         }
     }
 
+    function addNewEventToHistory(event) {
+        displayedEventIds.add(event.id);
+        const container = document.getElementById('initial-events');
+        const div = document.createElement('div');
+        // div.className = 'textline';
+
+        const shadowRoot = div.attachShadow({ mode: 'open' });
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'textline';
+        wrapper.innerHTML = `<p>${event.text}</p>
+                             <em class="clock-icon">${event.time.replace(' GMT', '')}</em>
+                        `;
+
+        const style = document.createElement('style');
+        style.textContent = mainStyle.innerHTML;
+        shadowRoot.appendChild(style);
+        shadowRoot.appendChild(wrapper);
+
+        container.appendChild(div);
+        window.scrollTo({
+            top: document.documentElement.scrollHeight,
+            behavior: 'smooth'
+        });
+    }
+
     function addNewEvent(event) {
+        displayedEventIds.add(event.id);
         const container = document.getElementById('session-events');
         const div = document.createElement('div');
-        div.className = 'textline';
-        div.innerHTML = `
-                            <input type="checkbox"
-                            class="multi-line-checkbox"
-                            id="multi-line-checkbox-${event.id}"
-                            ${event.checked ? 'checked' : ''}
-                            aria-label="Mark item"
-                            data-event-id="${event.id}"
-                            onchange="toggleCheckbox('${event.id}', this.checked)">
-                            <p>${event.text}</p>
-                            <em>${event.time.replace(" GMT", "")}</em>
-                            <div class="textline-buttons">
-                                <button onclick="buttonClick('${event.id}', 'Screenshot')">Screenshot</button>
-                                <button onclick="buttonClick('${event.id}', 'Audio')">Audio</button>
-                            </div>
-                        `;
+        // div.className = 'textline';
+
+        const shadowRoot = div.attachShadow({ mode: 'open' }); // 'open' allows access from the main DOM
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'textline';
+        wrapper.innerHTML = `
+        <input type="checkbox"
+        class="multi-line-checkbox"
+        id="multi-line-checkbox-${event.id}"
+        ${event.checked ? 'checked' : ''}
+        aria-label="Mark item"
+        data-event-id="${event.id}"
+        onchange="toggleCheckbox('${event.id}', this.checked)">
+        <p>${event.text}</p>
+        <div class="textline-buttons">
+            <button onclick="buttonClick('${event.id}', 'Screenshot')" title="Screenshot" style="background-color: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; font-size: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s;">
+                &#x1F4F7;
+            </button>
+            <button onclick="buttonClick('${event.id}', 'Audio')" title="Audio" style="background-color: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; font-size: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s;">
+                &#x1F50A;
+            </button>
+        </div>
+    `;
+
+        // Apply your component's styles within the shadow DOM
+        const style = document.createElement('style');
+        style.textContent = mainStyle.innerHTML;
+        shadowRoot.appendChild(style);
+        shadowRoot.appendChild(wrapper);
+
         container.appendChild(div);
-        displayedEventIds.add(event.id);
         window.scrollTo({
             top: document.documentElement.scrollHeight,
             behavior: 'smooth'
@@ -298,6 +348,66 @@
     document.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('mouseover', handleMouseOver);
     document.addEventListener('click', handleCheckboxClick);
+
+    const websocketURL = 'ws://localhost:' + websocketPort;
+    let websocket = {};
+    let reconnectInterval = 1000; // Time in milliseconds to wait before attempting to reconnect
+
+    const connectWebSocket = () => {
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+            console.log('WebSocket already open, no need to reconnect.');
+            return;
+        }
+        if (websocket && websocket.readyState === WebSocket.CONNECTING) {
+            console.log('WebSocket is currently connecting, waiting...');
+            return;
+        }
+
+        websocket = new WebSocket(websocketURL);
+
+        websocket.onopen = (event) => {
+            console.log('WebSocket connection opened');
+            websocket.send(JSON.stringify({ type: 'initial_data_request' }));
+        };
+
+        websocket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            console.log('Received message:', data);
+            if (data.event === 'text_received') {
+                console.log("Adding new event:", data.data);
+                addNewEvent(data.data);
+            } else {
+                console.log('Other message:', data);
+            }
+        };
+
+        websocket.onclose = (event) => {
+            console.log(`WebSocket connection closed. Attempting to reconnect in ${reconnectInterval / 1000} seconds...`);
+            // Only attempt to reconnect if the current websocket object is the one that closed
+            if (websocket === event.target) {
+                // Clear the current websocket reference to allow for a new connection
+                websocket = null;
+                setTimeout(connectWebSocket, reconnectInterval);
+            }
+        };
+
+        websocket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            // Optionally attempt to reconnect on error as well, ensuring we don't have an active connection
+            if (websocket === error.target || websocket === null) {
+                console.log(`Attempting to reconnect in ${reconnectInterval / 1000} seconds...`);
+                // Clear the current websocket reference
+                websocket = null;
+                setTimeout(connectWebSocket, reconnectInterval);
+            }
+        };
+        return websocket;
+    };
+
+    connectWebSocket();
+
+
+    fetchEvents();
 
     console.log("Initial load, fetching events and starting interval...");
     fetchEvents();

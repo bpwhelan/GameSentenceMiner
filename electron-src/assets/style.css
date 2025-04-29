@@ -44,12 +44,12 @@ h1 {
 }
 
 
-.control {
-    margin-bottom: 24px; /* Adjusted margin to match previous layout */
-    display: flex;
-    flex-direction: column; /* Default to column for small screens */
-    gap: 16px; /* Space between items */
-}
+/*.control {*/
+/*    margin-bottom: 24px; !* Adjusted margin to match previous layout *!*/
+/*    display: flex;*/
+/*    flex-direction: column; !* Default to column for small screens *!*/
+/*    gap: 16px; !* Space between items *!*/
+/*}*/
 
 @media (min-width: 640px) { /* sm breakpoint equivalent */
     .control {
@@ -114,10 +114,9 @@ select {
     border-radius: 5px;
 }
 
-/* Removed generic div margin to avoid conflicts */
-/* div {
+div {
     margin-bottom: 15px;
-} */
+}
 
 /* Table Styles */
 .table-container {

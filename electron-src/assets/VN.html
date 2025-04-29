@@ -7,17 +7,21 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>VN Game Launcher</h1>
+<h1>VN/.exe Config/Launcher</h1>
+<div>
+    <label for="sceneSelect">Scenes:</label>
+    <select id="sceneSelect"></select>
+    <button id="refreshScenesBtn">&#x21bb;</button>
+</div>
 <div>
     <label>
         VNS:
         <select id="gameSelect" class="gameSelect">
-            <option value="">Select a Visual Novel</option>
+            <option value="">Select a Game</option>
         </select>
     </label>
-    <button id="addVNBtn">Add VN</button>
-    <button id="removeVNBtn">Remove VN</button>
-    <button id="launchBtn" disabled>Launch</button>
+    <button id="addVNBtn">Add Game</button>
+    <button id="removeVNBtn">Remove Game</button>
 </div>
 
 <div>
@@ -25,12 +29,7 @@
 </div>
 
 <div>
-    <label>
-        Launch on start:
-        <select id="launchOnStartSelect" class="gameSelect">
-            <option value="">Disabled</option>
-        </select>
-    </label>
+    <button id="launchBtn" disabled>Launch</button>
 </div>
 
 <p id="status"></p>
@@ -38,46 +37,45 @@
     const {ipcRenderer} = require('electron');
 
     const gameSelect = document.getElementById('gameSelect');
+    const sceeneSelect = document.getElementById('sceneSelect');
     const launchBtn = document.getElementById('launchBtn');
     const addVNBtn = document.getElementById('addVNBtn');
     const removeVNBtn = document.getElementById('removeVNBtn');
     const setTextractorPathBtn = document.getElementById('setTextractorPathBtn');
     const status = document.getElementById('status');
-    const launchOnStartSelect = document.getElementById('launchOnStartSelect');
+    let obsScenes = [];
 
     async function loadVNs() {
         const vns = await ipcRenderer.invoke('vn.getVNs') || []
-        gameSelect.innerHTML = '<option value="">Select a Visual Novel</option>';
-        launchOnStartSelect.innerHTML = '<option value="">Disabled</option>';
+        gameSelect.innerHTML = '<option value="">Select a Game</option>';
         vns.forEach(vn => {
             const option = document.createElement('option');
             option.value = vn;
             option.textContent = vn;
             gameSelect.appendChild(option);
-            launchOnStartSelect.appendChild(option.cloneNode(true));
         });
     }
 
     async function init() {
         await loadVNs();
-        const launchOnStart = await ipcRenderer.invoke('vn.getVNLaunchOnStart');
         const lastVNLaunched = await ipcRenderer.invoke('vn.getLastVNLaunched');
-        if (launchOnStart) {
-            launchOnStartSelect.value = launchOnStart;
-        }
         if (lastVNLaunched) {
-            gameSelect.value = lastVNLaunched;
+            gameSelect.value = lastVNLaunched.path;
             launchBtn.disabled = false;
         }
     }
 
-    gameSelect.addEventListener('change', () => {
-        launchBtn.disabled = !gameSelect.value;
-    });
+    function validate() {
+        const isGameSelected = gameSelect.value.trim() !== '';
+        const isSceneSelected = sceneSelect.value.trim() !== '';
+        launchBtn.disabled = !(isGameSelected);
+        addVNBtn.disabled = !(isGameSelected && isSceneSelected);
+    }
+
 
     launchBtn.addEventListener('click', async () => {
         const vnPath = gameSelect.value;
-        const result = await ipcRenderer.invoke('vn.launchVN', vnPath);
+        const result = await ipcRenderer.invoke('vn.launchVN', {path: vnPath, shouldLaunchTextractor: true});
         if (result.status === 'error') {
             status.textContent = result.message;
         } else {
@@ -86,7 +84,8 @@
     });
 
     addVNBtn.addEventListener('click', async () => {
-        const result = await ipcRenderer.invoke('vn.addVN');
+        selectedScene = obsScenes.find(v => v.id === sceneSelect.value)
+        const result = await ipcRenderer.invoke('vn.addVN', selectedScene);
         if (result.status === 'error' || result.status === 'cancelled') {
             status.textContent = result.message;
         } else {
@@ -115,10 +114,36 @@
         }
     });
 
-    launchOnStartSelect.addEventListener('change', () => {
-        ipcRenderer.invoke('vn.setVNLaunchOnStart');
+    function getScenes() {
+        document.getElementById('sceneSelect').innerHTML = '';
+        ipcRenderer.invoke('obs.getScenes').then(scenes => {
+            obsScenes = scenes;
+            const sceneSelect = document.getElementById('sceneSelect');
+            scenes.forEach(scene => {
+                const option = document.createElement('option');
+                option.value = scene.id;
+                option.textContent = scene.name;
+                sceneSelect.appendChild(option);
+            });
+
+            ipcRenderer.invoke('obs.getActiveScene').then(scene => {
+                if (scene && !scenes.some(scene2 => scene2.id === scene.id)) {
+                    const option = document.createElement('option');
+                    option.value = scene.id;
+                    option.textContent = scene.name;
+                    sceneSelect.appendChild(option);
+                }
+                sceneSelect.value = scene.id; // Set the selected value
+            });
+        });
+    }
+
+    document.getElementById('refreshScenesBtn').addEventListener('click', () => {
+        getScenes();
+        validate();
     });
 
+    getScenes();
     document.addEventListener("DOMContentLoaded", init);
 </script>
 </body>

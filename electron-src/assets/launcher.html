@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Launcher</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<h1>Game Launcher</h1>
+
+<div id="gamesSection">
+    <h2>Select a Game</h2>
+    <div>
+        <label for="hookableGamesDropdown">Select Game:</label>
+        <select id="hookableGamesDropdown">
+            <option value="">Select Game</option>
+        </select>
+
+        <button id="steamButton" onclick="location.href='steam.html'">Steam Config</button>
+        <button id="vnButton" onclick="location.href='vn.html'">VN/.exe Config</button>
+        <button id="yuzuButton" style="display: none;" onclick="location.href='yuzu.html'">Yuzu Config</button>
+        <button id="ocrButton" onclick="location.href='ocr.html'">OCR Config</button>
+    </div>
+</div>
+
+<div id="obsSection">
+    <label for="currentObsScene">Current Scene:</label>
+    <span id="currentObsScene">Not Selected</span>
+</div>
+
+<div id="ocrSection">
+    <!--    <h2>Selected OCR Config</h2>-->
+    <label for="currentOcrConfig">OCR Config:</label>
+    <span id="currentOcrConfig">Not Selected</span>
+    <!--    <button id="setupOcrButton">Setup OCR</button>-->
+</div>
+
+<div>
+    <label for="agentGamesCheckbox">
+        Run Agent/Textractor:
+        <input type="checkbox" id="agentGamesCheckbox">
+    </label>
+    <label for="ocrGamesCheckbox">
+        Run OCR:
+        <input type="checkbox" id="ocrGamesCheckbox">
+    </label>
+</div>
+
+<div id="startSection">
+    <button id="startButton">Start</button>
+</div>
+
+<p id="statusMessage"></p>
+
+<script>
+    const {ipcRenderer} = require('electron');
+
+    const currentObsScene = document.getElementById('currentObsScene');
+    const changeObsSceneBtn = document.getElementById('changeObsSceneBtn');
+    const refreshScenesBtn = document.getElementById('refreshScenesBtn');
+    // const goToObsTab = document.getElementById('goToObsTab');
+
+    const currentOcrConfig = document.getElementById('currentOcrConfig');
+    const changeOcrConfigBtn = document.getElementById('changeOcrConfigBtn');
+    // const setupOcrButton = document.getElementById('setupOcrButton');
+
+    const agentGamesCheckbox = document.getElementById('agentGamesCheckbox');
+    const ocrGamesCheckbox = document.getElementById('ocrGamesCheckbox');
+    const startButton = document.getElementById('startButton');
+    const statusMessage = document.getElementById('statusMessage');
+
+    const allGamesDropdown = document.getElementById('hookableGamesDropdown');
+
+    let scenes = [];
+    let launchableGames = [];
+    let ocrConfigs = [];
+    let selectedGameObject = '';
+    let selectedGame = '';
+    let selectedOCRConfig = '';
+    let currentObsSceneName = '';
+    let currentOBSSSceneObject = {
+        name: "",
+        id: "",
+    };
+
+    function saveState() {
+        const state = {
+            agentEnabled: agentGamesCheckbox.checked,
+            ocrEnabled: ocrGamesCheckbox.checked,
+            selectedGame: selectedGameObject,
+        };
+        console.log('state', state);
+        ipcRenderer.invoke('front.saveState', state);
+    }
+
+    async function loadState() {
+        const state = await ipcRenderer.invoke('front.getSavedState')
+
+        agentGamesCheckbox.checked = state.agentEnabled || false;
+        ocrGamesCheckbox.checked = state.ocrEnabled || false;
+        selectedGameObject = state.selectedGame || '';
+        selectedGame = selectedGameObject.id || '';
+        launchableGames = state.launchableGames || [];
+        updateAllGamesDropdown();
+
+        ocrConfigs = await ipcRenderer.invoke('front.getAllOCRConfigs');
+        updateCurrentOcrConfigDisplay();
+        updateScene();
+    }
+
+    async function populateObsScenes() {
+        scenes = await ipcRenderer.invoke('obs.getScenes');
+        console.log('Available OBS Scenes:', scenes);
+        // let currentScene = await ipcRenderer.invoke('obs.getActiveScene');
+        // currentObsScene.textContent = currentScene.name;
+    }
+
+    function updateAllGamesDropdown() {
+        allGamesDropdown.innerHTML = '<option value="">Select Game</option>';
+        launchableGames.forEach((game) => {
+            const option = document.createElement('option');
+            option.value = game.id;
+            option.textContent = game.name;
+
+            if (game.isHeader) {
+                option.style.fontWeight = 'bold';
+                option.style.color = '#FFD700';
+                option.style.backgroundColor = '#333333';
+                option.disabled = true;
+            }
+
+            allGamesDropdown.appendChild(option);
+            if (game.id === selectedGame) {
+                option.selected = true;
+                selectedGameObject = game;
+            }
+        });
+    }
+
+    function updateCurrentOcrConfigDisplay() {
+        const game = launchableGames.find(g => g.id === selectedGame);
+        if (game?.scene) {
+            const ocrConfig = ocrConfigs.find(config => config.scene.id === game.scene.id && config.configPath === selectedOCRConfig);
+            if (ocrConfig) {
+                currentOcrConfig.textContent = ocrConfig ? ocrConfig.scene.name : 'Not Selected';
+                ocrGamesCheckbox.checked = true
+            } else {
+                selectedOCRConfig = '';
+                currentOcrConfig.textContent = 'Not Selected';
+                ocrGamesCheckbox.checked = false;
+            }
+        } else {
+            currentOcrConfig.textContent = 'Not Selected';
+            selectedOCRConfig = '';
+        }
+    }
+
+    // goToObsTab.addEventListener('click', () => {
+    //     document.location.href = 'obs.html';
+    // });
+
+    startButton.addEventListener('click', () => {
+        if (selectedGameObject) {
+            if (selectedGameObject?.type === 'steam') {
+                ipcRenderer.invoke('steam.launchSteamGame', {
+                    id: selectedGameObject.id,
+                    shouldLaunchAgent: agentGamesCheckbox.checked
+                });
+                statusMessage.textContent = "Starting Steam game: " + selectedGameObject.name;
+            } else if (selectedGameObject?.type === 'yuzu') {
+                ipcRenderer.invoke('yuzu.launchYuzuGame', {
+                    id: selectedGameObject.id,
+                    shouldLaunchAgent: agentGamesCheckbox.checked
+                });
+                statusMessage.textContent = "Starting Yuzu game: " + selectedGameObject.name;
+            } else if (selectedGameObject?.type === 'vn') {
+                ipcRenderer.invoke('vn.launchVN', {
+                    path: selectedGameObject.id,
+                    shouldLaunchTextractor: agentGamesCheckbox.checked
+                });
+                statusMessage.textContent = "Starting EXE: " + selectedGameObject.name;
+            } else {
+                statusMessage.textContent = 'Unsupported game type for launching.';
+            }
+            if (ocrGamesCheckbox.checked && selectedOCRConfig) {
+                ipcRenderer.send('ocr.start-ocr', selectedOCRConfig);
+                statusMessage.textContent += " with OCR enabled.";
+            } else if (ocrGamesCheckbox.checked && !selectedOCRConfig) {
+                statusMessage.textContent += " but no OCR config selected.";
+            }
+        } else {
+            statusMessage.textContent = 'Please select a game to start.';
+        }
+    });
+
+    allGamesDropdown.addEventListener('change', () => {
+        selectedGameObject = launchableGames.find(g => g.id === allGamesDropdown.value);
+        selectedGame = selectedGameObject ? selectedGameObject.id : '';
+        if (selectedGameObject?.scene) {
+            const ocrConfig = ocrConfigs.find(config => config.scene.id === selectedGameObject?.scene.id);
+            if (ocrConfig) {
+                selectedOCRConfig = ocrConfig.configPath;
+                currentOcrConfig.textContent = ocrConfig.scene.name;
+            } else {
+                selectedOCRConfig = '';
+                currentOcrConfig.textContent = 'Not Selected';
+            }
+            updateScene()
+        } else {
+            currentObsSceneName = 'Not Selected';
+            currentOBSSSceneObject = {
+                name: "",
+                id: "",
+            };
+            currentObsScene.textContent = currentObsSceneName;
+            selectedOCRConfig = '';
+            currentOcrConfig.textContent = 'Not Selected';
+        }
+        updateCurrentOcrConfigDisplay();
+        saveState();
+    });
+
+    function updateScene() {
+        currentObsSceneName = selectedGameObject.scene.name;
+        currentOBSSSceneObject = selectedGameObject.scene;
+        currentObsScene.textContent = currentObsSceneName;
+        ipcRenderer.invoke("obs.switchScene.id", selectedGameObject.scene.id).then(() => {
+            console.log('Switched to OBS scene:', selectedGameObject.scene.name);
+        }).catch(err => {
+            console.error('Failed to switch OBS scene:', err);
+        });
+    }
+
+    agentGamesCheckbox.addEventListener('change', saveState);
+    ocrGamesCheckbox.addEventListener('change', saveState);
+
+    loadState();
+    populateObsScenes();
+    loadSettings();
+    setInterval(loadSettings, 500);
+    // ipcRenderer.invoke('obs.getActiveScene').then(scene => {
+    //     currentObsSceneName = scene.name || 'Not Selected';
+    //     currentObsScene.textContent = currentObsSceneName;
+    // });
+
+    async function loadSettings() {
+        const settings = await ipcRenderer.invoke('settings.getSettings');
+        if (settings) {
+            const showYuzuButton = settings.showYuzuTab || false;
+            document.getElementById('yuzuButton').style.display = showYuzuButton ? 'inline-block' : 'none';
+        }
+    }
+</script>
+</body>
+</html>

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from requests import post
 
 from GameSentenceMiner import obs, util, notification, ffmpeg
-from GameSentenceMiner.ai.gemini import translate_with_context
+from GameSentenceMiner.ai.ai_prompting import GeminiAI, get_ai_prompt_result
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
 from GameSentenceMiner.model import AnkiCard
@@ -67,8 +67,8 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         sentence_field = note['fields'].get(get_config().anki.sentence_field, {})
         sentence_to_translate = sentence_field if sentence_field else last_note.get_field(
             get_config().anki.sentence_field)
-        translation = translate_with_context(get_all_lines(), sentence_to_translate,
-                                                                   game_line.index, get_current_game())
+        translation = get_ai_prompt_result(get_all_lines(), sentence_to_translate,
+                                 game_line, get_current_game())
         logger.info(translation)
         note['fields'][get_config().ai.anki_field] = translation
 
@@ -286,6 +286,7 @@ def update_new_card():
         try:
             obs.save_replay_buffer()
         except Exception as e:
+            card_queue.pop(0)
             logger.error(f"Error saving replay buffer: {e}")
             return
 

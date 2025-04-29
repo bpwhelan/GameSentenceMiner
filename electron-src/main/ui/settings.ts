@@ -2,9 +2,9 @@
 import { ipcMain, dialog } from 'electron';
 import {
     getAutoUpdateElectron,
-    getAutoUpdateGSMApp, getCustomPythonPackage, getStartConsoleMinimized,
+    getAutoUpdateGSMApp, getCustomPythonPackage, getShowYuzuTab, getStartConsoleMinimized,
     setAutoUpdateElectron,
-    setAutoUpdateGSMApp, setCustomPythonPackage,
+    setAutoUpdateGSMApp, setCustomPythonPackage, setShowYuzuTab,
     setStartConsoleMinimized,
     store
 } from "../store.js";
@@ -18,7 +18,17 @@ export function registerSettingsIPC() {
             // agentScriptsPath: getAgentScriptsPath(),
             startConsoleMinimized: getStartConsoleMinimized(),
             customPythonPackage: getCustomPythonPackage(),
+            showYuzuTab: getShowYuzuTab()
         };
+    });
+
+    ipcMain.handle('settings.saveSettings', async (_, settings: any) => {
+        setAutoUpdateGSMApp(settings.autoUpdateGSMApp);
+        setAutoUpdateElectron(settings.autoUpdateElectron);
+        setStartConsoleMinimized(settings.startConsoleMinimized);
+        setCustomPythonPackage(settings.customPythonPackage);
+        setShowYuzuTab(settings.showYuzuTab);
+        return { success: true };
     });
 
     ipcMain.handle('settings.setAutoUpdateGSMApp', async (_, value: boolean) => {
@@ -27,15 +37,6 @@ export function registerSettingsIPC() {
 
     ipcMain.handle('settings.setAutoUpdateElectron', async (_, value: boolean) => {
         setAutoUpdateElectron(value);
-    });
-
-    ipcMain.handle('settings.saveSettings', async (_, settings: any) => {
-        setAutoUpdateGSMApp(settings.autoUpdateGSMApp);
-        setAutoUpdateElectron(settings.autoUpdateElectron);
-        setStartConsoleMinimized(settings.startConsoleMinimized);
-        setCustomPythonPackage(settings.customPythonPackage);
-
-        return { success: true };
     });
 
     // ipcMain.handle('settings.selectPythonPath', async () => {

@@ -9,7 +9,6 @@ import Store from "electron-store";
 import * as fs from "node:fs";
 import {webSocketManager} from "../communication/websocket.js";
 
-let store = new Store()
 
 interface ObsConfig {
     host: string;
@@ -17,7 +16,14 @@ interface ObsConfig {
     password: string;
 }
 
-const obsConfig: ObsConfig = store.get('configs.Default.obs') as ObsConfig || {
+export interface ObsScene {
+    name: string;
+    id: string;
+}
+
+const pythonConfig = new Store();
+
+let obsConfig: ObsConfig = pythonConfig.get('configs.Default.obs') as ObsConfig || {
     host: 'localhost',
     port: 7274,
     password: ''
@@ -27,27 +33,37 @@ const OBS_CONFIG_PATH = path.join(BASE_DIR, 'obs-studio');
 const SCENE_CONFIG_PATH = path.join(OBS_CONFIG_PATH, 'config', 'obs-studio', 'basic', 'scenes');
 let obs = new OBSWebSocket();
 let obsConnected = false;
-const obsPort = obsConfig.port;
-const obsPassword = obsConfig.password;
 const HELPER_SCENE = 'GSM Helper';
 const WINDOW_GETTER_INPUT = 'window_getter';
+const GAME_WINDOW_INPUT = 'game_window_getter';
 
 let connectionPromise: Promise<void> | null = null;
 
 async function connectOBSWebSocket(retries = 5, delay = 2000): Promise<void> {
-    await obs.connect(`ws://${obsConfig.host}:${obsPort}`, obsPassword);
+    await obs.connect(`ws://${obsConfig.host}:${obsConfig.port}`, obsConfig.password);
     obsConnected = true;
     console.log('Connected to OBS WebSocket');
     return;
 }
 
-async function getOBSConnection(): Promise<void> {
+
+export async function getOBSConnection(): Promise<void> {
     if (connectionPromise) {
         return connectionPromise;
     }
 
     // Create a new connection attempt
-    connectionPromise = new Promise((resolve, reject) => {
+    connectionPromise = new Promise(async (resolve, reject) => {
+        try {
+            // Try to connect immediately
+            await obs.call("GetVersion");
+            connectionPromise = null;
+            resolve();
+            return;
+        } catch (error) {
+            console.warn('Immediate connection attempt failed, starting retry interval...');
+        }
+
         const interval = setInterval(async () => {
             try {
                 await obs.call("GetVersion");
@@ -56,9 +72,13 @@ async function getOBSConnection(): Promise<void> {
                 resolve();
             } catch (error) {
                 try {
+                    obsConfig = pythonConfig.get('configs.Default.obs') as ObsConfig || {
+                        host: 'localhost',
+                        port: 7274,
+                        password: ''
+                    }
                     await connectOBSWebSocket();
                 } catch (connectError) {
-                    console.error('Failed to connect to OBS WebSocket:', connectError);
                 }
             }
         }, 1000);
@@ -139,6 +159,15 @@ export async function registerOBSIPC() {
         }
     });
 
+    ipcMain.handle('obs.switchScene.id', async (_, sceneUuid) => {
+        try {
+            await getOBSConnection();
+            await obs.call('SetCurrentProgramScene', {sceneUuid});
+        } catch (error) {
+            console.error('Error switching scene:', error);
+        }
+    });
+
     ipcMain.handle('obs.startRecording', async (_, windowName) => {
         try {
             await getOBSConnection();
@@ -151,8 +180,7 @@ export async function registerOBSIPC() {
     ipcMain.handle('obs.getScenes', async () => {
         try {
             await getOBSConnection();
-            const {scenes} = await obs.call('GetSceneList');
-            return scenes.map((scene: any) => scene.sceneName);
+            return await getOBSScenes();
         } catch (error) {
             console.error('Error getting scenes:', error);
             return [];
@@ -235,11 +263,11 @@ export async function registerOBSIPC() {
     });
 
 
-    async function getWindowList(): Promise<any[]> {
+    async function getWndowsFromSource(sourceName: string, capture_mode: string): Promise<any[]> {
         try {
             await getOBSConnection();
             const response = await obs.call('GetInputPropertiesListPropertyItems', {
-                inputName: WINDOW_GETTER_INPUT,
+                inputName: sourceName,
                 propertyName: 'window',
             });
             return response.propertyItems;
@@ -256,20 +284,38 @@ export async function registerOBSIPC() {
                 // Create the 'window_getter' input
                 await obs.call('CreateInput', {
                     sceneName: HELPER_SCENE,
-                    inputName: WINDOW_GETTER_INPUT,
-                    inputKind: 'window_capture',
+                    inputName: sourceName,
+                    inputKind: capture_mode,
                     inputSettings: {},
                 });
 
                 // Retry getting the window list
                 const retryResponse = await obs.call('GetInputPropertiesListPropertyItems', {
-                    inputName: WINDOW_GETTER_INPUT,
+                    inputName: sourceName,
                     propertyName: 'window',
                 });
                 return retryResponse.propertyItems;
             } else {
                 throw error;
             }
+        }
+    }
+
+    async function getWindowList(): Promise<any[]> {
+        try {
+            const windowCaptureWindows = await getWndowsFromSource(WINDOW_GETTER_INPUT, "window_capture");
+            const gameCaptureWindows = await getWndowsFromSource(GAME_WINDOW_INPUT, "game_capture");
+            return [
+                ...windowCaptureWindows,
+                ...gameCaptureWindows.filter(
+                    (gameWindow) => !windowCaptureWindows.some(
+                        (windowCapture) => windowCapture.value === gameWindow.value
+                    )
+                ),
+            ];
+        } catch (error) {
+            console.error('Error getting window list:', error);
+            return []; // Return an empty array in case of an error
         }
     }
 
@@ -367,13 +413,13 @@ export async function registerOBSIPC() {
     await getOBSConnection();
 }
 
-export async function getCurrentScene(): Promise<string> {
-    try {
-        await getOBSConnection();
-        const response = await obs.call('GetCurrentProgramScene');
-        return response.sceneName;
-    } catch (error) {
-        console.error('Error getting current scene:', error);
-        return '';
-    }
+export async function getOBSScenes(): Promise<ObsScene[]> {
+    const {scenes} = await obs.call('GetSceneList');
+    return scenes.map((scene: any) => ({ name: scene.sceneName, id: scene.sceneUuid } as ObsScene));
+}
+
+export async function getCurrentScene(): Promise<ObsScene> {
+    await getOBSConnection();
+    const response = await obs.call('GetCurrentProgramScene');
+    return {name: response.sceneName, id: response.sceneUuid};
 }

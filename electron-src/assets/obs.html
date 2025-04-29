@@ -16,7 +16,7 @@
 <div class="control">
     <label for="sceneSelect">Scenes:</label>
     <select id="sceneSelect"></select>
-    <button id="refreshScenesBtn">Refresh Scenes</button>
+    <button id="refreshScenesBtn">&#x21bb;</button>
     <button id="removeSceneBtn">Remove Scene</button>
 </div>
 <div class="control">
@@ -34,6 +34,7 @@
 </div>
 <script>
     const {ipcRenderer} = require('electron');
+    const removeSceneBtn = document.getElementById('removeSceneBtn')
 
     // document.getElementById('launchObsBtn').addEventListener('click', () => {
     //     ipcRenderer.invoke('obs.launch');
@@ -45,6 +46,11 @@
 
     document.getElementById('sceneSelect').addEventListener('change', (event) => {
         ipcRenderer.invoke('obs.switchScene', event.target.value);
+        if (event.target.value === "GSM HELPER") {
+            removeSceneBtn.disabled = true;
+        } else {
+            removeSceneBtn.disabled = false;
+        }
     });
 
     function getScenes() {
@@ -53,19 +59,19 @@
             const sceneSelect = document.getElementById('sceneSelect');
             scenes.forEach(scene => {
                 const option = document.createElement('option');
-                option.value = scene;
-                option.textContent = scene;
+                option.value = scene.id;
+                option.textContent = scene.name;
                 sceneSelect.appendChild(option);
             });
 
-            ipcRenderer.invoke('obs.getActiveScene').then(sceneName => {
-                if (sceneName && !scenes.some(scene => scene === sceneName)) {
+            ipcRenderer.invoke('obs.getActiveScene').then(scene => {
+                if (scene && !scenes.some(scene2 => scene2.id === scene.id)) {
                     const option = document.createElement('option');
-                    option.value = sceneName;
-                    option.textContent = sceneName;
+                    option.value = scene.id;
+                    option.textContent = scene.name;
                     sceneSelect.appendChild(option);
                 }
-                sceneSelect.value = sceneName; // Set the selected value
+                sceneSelect.value = scene.id; // Set the selected value
             });
         });
     }
@@ -88,7 +94,7 @@
         getScenes();
     });
 
-    document.getElementById('removeSceneBtn').addEventListener('click', () => {
+    removeSceneBtn.addEventListener('click', () => {
         ipcRenderer.invoke('obs.removeScene', document.getElementById('sceneSelect').value);
         getScenes();
     });

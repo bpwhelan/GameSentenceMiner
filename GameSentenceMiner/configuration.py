@@ -28,7 +28,8 @@ WHISPER_SMALL = 'small'
 WHISPER_MEDIUM = 'medium'
 WHSIPER_LARGE = 'large'
 
-AI_GEMINI = 'gemini'
+AI_GEMINI = 'Gemini'
+AI_GROQ = 'Groq'
 
 INFO = 'INFO'
 DEBUG = 'DEBUG'
@@ -134,7 +135,7 @@ class OBS:
     open_obs: bool = True
     close_obs: bool = True
     host: str = "127.0.0.1"
-    port: int = 4455
+    port: int = 7274
     password: str = "your_password"
     get_game_from_scene: bool = True
     minimum_replay_size: int = 0
@@ -187,10 +188,17 @@ class Ai:
     enabled: bool = False
     anki_field: str = ''
     provider: str = AI_GEMINI
-    api_key: str = ''
+    gemini_model: str = 'gemini-2.0-flash'
+    groq_model: str = 'meta-llama/llama-4-scout-17b-16e-instruct'
+    api_key: str = '' # Deprecated
+    gemini_api_key: str = ''
+    groq_api_key: str = ''
     use_canned_translation_prompt: bool = True
     use_canned_context_prompt: bool = False
     custom_prompt: str = ''
+
+    def __post_init__(self):
+        self.gemini_api_key = self.api_key
 
 
 @dataclass_json
@@ -306,6 +314,21 @@ class Config:
         instance = cls(configs={DEFAULT_CONFIG: ProfileConfig()}, current_profile=DEFAULT_CONFIG)
         return instance
 
+    @classmethod
+    def load(cls):
+        config_path = get_config_path()
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as file:
+                data = json.load(file)
+                return cls.from_dict(data)
+        else:
+            return cls.new()
+
+    def save(self):
+        with open(get_config_path(), 'w') as file:
+            json.dump(self.to_dict(), file, indent=4)
+        return self
+
     def get_config(self) -> ProfileConfig:
         return self.configs[self.current_profile]
 
@@ -355,7 +378,8 @@ class Config:
             self.sync_shared_field(config.ai, profile.ai, "anki_field")
             self.sync_shared_field(config.ai, profile.ai, "provider")
             self.sync_shared_field(config.ai, profile.ai, "api_key")
-
+            self.sync_shared_field(config.ai, profile.ai, "gemini_api_key")
+            self.sync_shared_field(config.ai, profile.ai, "groq_api_key")
 
         return self
 
@@ -513,22 +537,22 @@ sys.stderr.reconfigure(encoding='utf-8')
 
 logger = logging.getLogger("GameSentenceMiner")
 logger.setLevel(logging.DEBUG)  # Set the base level to DEBUG so that all messages are captured
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Create console handler with level INFO
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
 
-# Create rotating file handler with level DEBUG
-file_handler = RotatingFileHandler(get_log_path(), maxBytes=1024 * 1024, backupCount=5, encoding='utf-8')
-file_handler.setLevel(logging.DEBUG)
-
-# Create a formatter
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-# Add formatter to handlers
 console_handler.setFormatter(formatter)
-file_handler.setFormatter(formatter)
 
-# Add handlers to the logger
 logger.addHandler(console_handler)
-logger.addHandler(file_handler)
+
+# Create rotating file handler with level DEBUG
+if 'gsm' in sys.argv[0]:
+    file_handler = RotatingFileHandler(get_log_path(), maxBytes=1024 * 1024, backupCount=5, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
+

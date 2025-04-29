@@ -9,24 +9,25 @@ import {
     getLastYuzuGameLaunched,
     getLaunchVNOnStart,
     getLaunchYuzuGameOnStart,
-    getYuzuEmuPath,
+    getYuzuEmuPath, getYuzuGamesConfig,
     getYuzuRomsPath,
     setAgentPath,
     setAgentScriptsPath,
     setLastYuzuGameLaunched,
     setLaunchVNOnStart,
     setLaunchYuzuGameOnStart,
-    setYuzuEmuPath,
-    setYuzuRomsPath
+    setYuzuEmuPath, setYuzuGamesConfig,
+    setYuzuRomsPath, YuzuGame
 } from "../store.js";
 import {BrowserWindow, ipcMain, dialog} from "electron";
 import path from "path";
 import {getAssetsDir} from "../util.js";
 import {isQuitting, mainWindow} from "../main.js";
+import {ObsScene} from "./obs.js";
 
 export let yuzuWindow: BrowserWindow | null = null;
 
-interface YuzuGame {
+interface nsGame {
     id: string;
     name: string;
     path: string;
@@ -35,8 +36,8 @@ interface YuzuGame {
 /**
  * Get a list of games from the ROMS directory.
  */
-function getYuzuGames(directory: string): YuzuGame[] {
-    const games: YuzuGame[] = [];
+export function getYuzuGames(directory: string): nsGame[] {
+    const games: nsGame[] = [];
     const pattern = /(.+?)\s*[\[\(](\w+)[\]\)]/; // Extract name and ID
 
     for (const filename of readdirSync(directory)) {
@@ -50,6 +51,10 @@ function getYuzuGames(directory: string): YuzuGame[] {
     }
 
     return games;
+}
+
+export function getConfiguredYuzuGames(): YuzuGame[] {
+    return getYuzuGamesConfig();
 }
 
 /**
@@ -128,7 +133,7 @@ function monitorProcessAndFlag(yuzuPid: number) {
 /**
  * Main function to handle actions.
  */
-export async function launchYuzuGameID(gameId: string) {
+export async function launchYuzuGameID(gameId: string, shouldLaunchAgent: boolean) {
     const games = getYuzuGames(getYuzuRomsPath());
     const selectedGame = games.find((g) => g.id === gameId);
 
@@ -136,7 +141,7 @@ export async function launchYuzuGameID(gameId: string) {
 
     if (selectedGame) {
         const yuzuPid = launchYuzu(selectedGame.path);
-        if (yuzuPid) {
+        if (yuzuPid && shouldLaunchAgent) {
             runAgentScript(gameId, yuzuPid);
         }
     } else {
@@ -175,13 +180,19 @@ export function openYuzuWindow() {
 }
 
 export function registerYuzuIPC() {
-    ipcMain.handle("yuzu.getYuzuGames", async (): Promise<YuzuGame[]> => {
+    ipcMain.handle("yuzu.getYuzuGames", async (): Promise<nsGame[]> => {
         try {
             return getYuzuGames(getYuzuRomsPath()) // Convert JSON string to array of YuzuGame
         } catch (error) {
             console.error("Error fetching games:", error);
             return [];
         }
+    });
+
+    ipcMain.handle("yuzu.addToHomeBtn", async (_, req: YuzuGame) => {
+        let games = getYuzuGamesConfig()
+        games.push(req)
+        setYuzuGamesConfig(games);
     });
 
     ipcMain.handle("yuzu.setAgentScriptsPath", async () => {
@@ -210,11 +221,11 @@ export function registerYuzuIPC() {
     /**
      * Launch a selected game by its ID.
      */
-    ipcMain.handle("yuzu.launchYuzuGame", async (_, gameId: string) => {
+    ipcMain.handle("yuzu.launchYuzuGame", async (_, req: {id: string, shouldLaunchAgent: boolean}) => {
         try {
-            console.log(`Launching game with ID: ${gameId}`);
-            await launchYuzuGameID(gameId);
-            setLastYuzuGameLaunched(gameId);
+            console.log(`Launching game with ID: ${req.id}`);
+            await launchYuzuGameID(req.id, req.shouldLaunchAgent);
+            setLastYuzuGameLaunched(req.id);
             return {status: "success", message: "Game launched successfully"};
         } catch (error) {
             console.error("Error launching game:", error);

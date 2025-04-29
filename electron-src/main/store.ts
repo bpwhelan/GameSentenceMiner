@@ -1,5 +1,6 @@
 import Store from "electron-store";
 import { SteamGame } from "./ui/steam.js";
+import {ObsScene} from "./ui/obs.js";
 
 
 interface YuzuConfig {
@@ -7,10 +8,23 @@ interface YuzuConfig {
     romsPath: string;
     launchGameOnStart: string;
     lastGameLaunched: string;
+    games: YuzuGame[];
 }
 
+export interface YuzuGame {
+    name: string;
+    id: string;
+    scene: ObsScene;
+}
+
+export interface VN {
+    path: string;
+    scene: ObsScene;
+}
+
+
 interface VNConfig {
-    vns: string[];
+    vns: VN[];
     textractorPath: string;
     launchVNOnStart: string;
     lastVNLaunched: string;
@@ -32,7 +46,36 @@ interface OCRConfig {
     scanRate?: number;
 }
 
+export enum HookableGameType {
+    Steam = "steam",
+    VN = "vn",
+    Yuzu = "yuzu",
+    None = "none"
+}
+
+export interface LaunchableGame {
+    name: string;
+    id: string;
+    type: HookableGameType;
+    isHeader?: boolean; // Used to indicate if this is a header for grouping games
+    scene?: ObsScene; // OBS scene name for the game
+}
+
+export interface OCRGame {
+    scene: ObsScene;
+    configPath: string;
+}
+
+interface FrontPageState {
+    agentEnabled: boolean;
+    ocrEnabled: boolean;
+    selectedGame?: LaunchableGame;
+    launchableGames?: LaunchableGame[];
+    ocrConfigs?: OCRGame[];
+}
+
 interface StoreConfig {
+    frontPageState: FrontPageState;
     yuzu: YuzuConfig;
     agentScriptsPath: string;
     textractorPath: string;
@@ -49,11 +92,16 @@ interface StoreConfig {
 
 export const store = new Store<StoreConfig>({
     defaults: {
+        frontPageState: {
+            agentEnabled: false,
+            ocrEnabled: false,
+        },
         yuzu: {
             emuPath: "C:\\Emulation\\Emulators\\yuzu-windows-msvc\\yuzu.exe",
             romsPath: `C:\\Emulation\\Yuzu\\Games`,
             launchGameOnStart: "",
-            lastGameLaunched: ""
+            lastGameLaunched: "",
+            games: []
         },
         agentScriptsPath: `E:\\Japanese Stuff\\agent-v0.1.4-win32-x64\\data\\scripts`,
         textractorPath: `E:\\Japanese Stuff\\Textractor\\Textractor.exe`,
@@ -84,6 +132,14 @@ export const store = new Store<StoreConfig>({
     },
     cwd: "electron"
 });
+
+export function getFrontPageState(): FrontPageState {
+    return store.get('frontPageState');
+}
+
+export function setFrontPageState(state: FrontPageState): void {
+    store.set('frontPageState', state);
+}
 
 export function getAutoUpdateGSMApp(): boolean {
     return store.get("autoUpdateGSMApp");
@@ -219,6 +275,14 @@ export function setLastYuzuGameLaunched(path: string): void {
     store.set("yuzu.lastGameLaunched", path);
 }
 
+export function getYuzuGamesConfig(): YuzuGame[] {
+    return store.get('yuzu.games') || [];
+}
+
+export function setYuzuGamesConfig(games: YuzuGame[]): void {
+    store.set('yuzu.games', games);
+}
+
 // Agent scripts path getters and setters
 export function getAgentScriptsPath(): string {
     return store.get('agentScriptsPath');
@@ -244,11 +308,19 @@ export function setStartConsoleMinimized(shouldMinimize: boolean): void {
     store.set("startConsoleMinimized", shouldMinimize);
 }
 
-export function getVNs(): string[] {
+export function setShowYuzuTab(shouldShow: boolean): void {
+    store.set("showYuzuTab", shouldShow);
+}
+
+export function getShowYuzuTab(): boolean {
+    return store.get("showYuzuTab");
+}
+
+export function getVNs(): VN[] {
     return store.get('VN.vns');
 }
 
-export function setVNs(vns: string[]): void {
+export function setVNs(vns: VN[]): void {
     store.set('VN.vns', vns);
 }
 

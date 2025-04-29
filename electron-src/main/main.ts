@@ -23,6 +23,7 @@ import {openOBSWindow, registerOBSIPC} from "./ui/obs.js";
 import {registerSettingsIPC} from "./ui/settings.js";
 import {registerOCRUtilsIPC} from "./ui/ocr.js";
 import * as fs from "node:fs";
+import {registerFrontPageIPC} from "./ui/front.js";
 
 export let mainWindow: BrowserWindow | null = null;
 let tray: Tray;
@@ -48,6 +49,7 @@ function registerIPC() {
     registerSteamIPC();
     registerSettingsIPC();
     registerOCRUtilsIPC();
+    registerFrontPageIPC();
 }
 
 async function autoUpdate() {
@@ -102,7 +104,7 @@ function getIconPath(size: number = 0): string {
  * @param stdout
  * @param stderr
  */
-function runCommand(command: string, args: string[], stdout: boolean, stderr: boolean): Promise<void> {
+async function runCommand(command: string, args: string[], stdout: boolean, stderr: boolean): Promise<void> {
     return new Promise((resolve, reject) => {
         const proc = spawn(command, args);
 
@@ -303,7 +305,7 @@ async function isPackageInstalled(pythonPath: string, packageName: string): Prom
 /**
  * Ensures GameSentenceMiner is installed before running it.
  */
-async function ensureAndRunGSM(pythonPath: string): Promise<void> {
+async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
     const isInstalled = await isPackageInstalled(pythonPath, PACKAGE_NAME);
 
     if (!isInstalled) {
@@ -322,6 +324,12 @@ async function ensureAndRunGSM(pythonPath: string): Promise<void> {
         return await runGSM(pythonPath, ["-m", getGSMModulePath()]);
     } catch (err) {
         console.error("Failed to start GameSentenceMiner:", err);
+        if (isDev && retry > 0) {
+            console.log("Retrying installation of GameSentenceMiner...");
+            await runCommand(pythonPath, ["-m", "pip", "install", "--no-warn-script-location", '.'], true, true);
+            console.log("after run command")
+            await ensureAndRunGSM(pythonPath, retry - 1);
+        }
         await new Promise(resolve => setTimeout(resolve, 2000));
     }
     restartingGSM = false;
@@ -354,7 +362,7 @@ if (!app.requestSingleInstanceLock()) {
                 message: 'Do you want to launch the pre-configured VN?',
             }).then(async (response) => {
                 if (response.response === 0) {
-                    await launchVNWorkflow(getLaunchVNOnStart());
+                    await launchVNWorkflow(getLaunchVNOnStart(), true);
                 }
             });
         }
@@ -367,7 +375,7 @@ if (!app.requestSingleInstanceLock()) {
                 message: 'Do you want to launch the pre-configured Yuzu Game?',
             }).then(async (response) => {
                 if (response.response === 0) {
-                    await launchYuzuGameID(getLaunchYuzuGameOnStart());
+                    await launchYuzuGameID(getLaunchYuzuGameOnStart(), true);
                 }
             });
         }
@@ -380,7 +388,7 @@ if (!app.requestSingleInstanceLock()) {
                 message: 'Do you want to launch the pre-configured Steam Game?',
             }).then(async (response) => {
                 if (response.response === 0) {
-                    await launchSteamGameID(getLaunchSteamOnStart());
+                    await launchSteamGameID(getLaunchSteamOnStart(), true);
                 }
             });
         }
