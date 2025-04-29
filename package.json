@@ -75,7 +75,6 @@
     "electron-log": "^5.3.2",
     "electron-store": "^10.0.1",
     "electron-updater": "^6.3.9",
-    "fuse": "^0.12.1",
     "fuse.js": "^7.1.0",
     "node-window-manager": "^2.2.4",
     "nodejs-file-downloader": "^4.13.0",
