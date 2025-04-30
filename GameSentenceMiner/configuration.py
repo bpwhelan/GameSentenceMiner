@@ -200,7 +200,10 @@ class Ai:
     def __post_init__(self):
         if not self.gemini_api_key:
             self.gemini_api_key = self.api_key
-
+            if self.provider == 'gemini':
+                self.provider = AI_GEMINI
+            if self.provider == 'groq':
+                self.provider = AI_GROQ
 
 @dataclass_json
 @dataclass

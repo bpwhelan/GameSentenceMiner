@@ -175,13 +175,21 @@ current_ai_config: Ai | None = None
 
 def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = ""):
     global ai_manager, current_ai_config
-    if not ai_manager or get_config().ai != current_ai_config:
-        if get_config().ai.provider == AIType.GEMINI.value:
-            ai_manager = GeminiAI(model=get_config().ai.gemini_model, api_key=get_config().ai.gemini_api_key, logger=logger)
-        elif get_config().ai.provider == AIType.GROQ.value:
-            ai_manager = GroqAI(model=get_config().ai.groq_model, api_key=get_config().ai.groq_api_key, logger=logger)
-        current_ai_config = get_config().ai
-    return ai_manager.process(lines, sentence, current_line, game_title)
+    try:
+        if not ai_manager or get_config().ai != current_ai_config:
+            if get_config().ai.provider == AIType.GEMINI.value:
+                ai_manager = GeminiAI(model=get_config().ai.gemini_model, api_key=get_config().ai.gemini_api_key, logger=logger)
+            elif get_config().ai.provider == AIType.GROQ.value:
+                ai_manager = GroqAI(model=get_config().ai.groq_model, api_key=get_config().ai.groq_api_key, logger=logger)
+            current_ai_config = get_config().ai
+        if not ai_manager:
+            logger.error("AI is enabled but the AI Manager did not initialize. Check your AI Config IN GSM.")
+            return ""
+        return ai_manager.process(lines, sentence, current_line, game_title)
+    except Exception as e:
+        logger.info("Error caught while trying to get AI prompt result. Check logs for more details.")
+        logger.debug(e)
+        return ""
 
 if __name__ == '__main__':
     lines = [

@@ -233,6 +233,7 @@ async def add_event_to_texthooker(line: GameLine):
     new_event = event_manager.add_gameline(line)
     await broadcast_message({
         'event': 'text_received',
+        'sentence': line.text,
         'data': new_event.to_serializable()
     })
 
