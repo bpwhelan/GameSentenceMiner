@@ -43,6 +43,7 @@ class OCRConfig:
     coordinate_system: str = None
     window_geometry: Optional[WindowGeometry] = None
     window: Optional[str] = None
+    language: str = "ja"
 
     def __post_init__(self):
         if self.coordinate_system and self.coordinate_system == "percentage" and self.window:

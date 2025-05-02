@@ -48,10 +48,11 @@
     async function loadVNs() {
         const vns = await ipcRenderer.invoke('vn.getVNs') || []
         gameSelect.innerHTML = '<option value="">Select a Game</option>';
+        console.log(vns);
         vns.forEach(vn => {
             const option = document.createElement('option');
-            option.value = vn;
-            option.textContent = vn;
+            option.value = vn.path;
+            option.textContent = vn.path;
             gameSelect.appendChild(option);
         });
     }

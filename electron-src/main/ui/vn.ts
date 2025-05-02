@@ -1,4 +1,4 @@
-import {execFile} from 'child_process';
+import {execFile, spawn} from 'child_process';
 import * as path from 'path';
 import {
     getLastSteamGameLaunched, getLastVNLaunched,
@@ -16,34 +16,102 @@ import {ObsScene} from "./obs.js";
 
 let VNWindow: BrowserWindow | null = null;
 
-// Function to launch VN
-async function launchVN(vnPath: string): Promise<number> {
-    const vnDir = path.dirname(vnPath);
-    process.chdir(vnDir);
-    return new Promise((resolve, reject) => {
-        console.log("Launching VN:", vnPath);
-        let proc = execFile(vnPath, {windowsHide: false}, (error) => {
-            if (error) {
-                console.error(`Error launching VN: ${error.message}`);
-                reject(0);
-            } else {
-                resolve(proc.pid ? proc.pid : 0);
+export async function launchVNWorkflow(vnPath: string, shouldLaunchTextractor: boolean): Promise<void> {
+    const currentPath = process.cwd();
+    try {
+        const vnDir = path.dirname(vnPath);
+        process.chdir(vnDir);
+
+        const vnProc = spawn(vnPath, [], {
+            windowsHide: false,
+            detached: true,
+            stdio: 'ignore',
+        });
+
+        vnProc.unref();
+
+        if (!vnProc.pid) {
+            throw new Error("Failed to launch VN");
+        }
+
+        console.log(`VN launched with PID: ${vnProc.pid}`);
+        process.chdir(currentPath);
+
+        let textractorProc: ReturnType<typeof spawn> | null = null;
+
+        if (shouldLaunchTextractor) {
+            textractorProc = spawn(getTextractorPath(), [], {
+                windowsHide: false,
+                detached: true,
+                stdio: 'ignore',
+                cwd: path.dirname(getTextractorPath()),
+            });
+
+            textractorProc.unref();
+
+            if (!textractorProc.pid) {
+                throw new Error("Failed to launch Textractor");
+            }
+
+            console.log(`Textractor launched with PID: ${textractorProc.pid}`);
+        }
+
+        // Close Textractor when VN exits
+        vnProc.on('exit', () => {
+            console.log("VN process exited");
+            if (textractorProc) {
+                try {
+                    process.kill(textractorProc.pid!);
+                    console.log("Textractor process terminated");
+                } catch (error) {
+                    console.error("Failed to terminate Textractor process:", error);
+                }
             }
         });
-    });
+    } catch (error) {
+        console.error("Error in VN workflow:", error);
+    }
 }
 
-async function launchTextractor(): Promise<number> {
-    return new Promise((resolve, reject) => {
-        const textractor_proc = execFile(getTextractorPath(), {windowsHide: false}, (error) => {
-            if (error) {
-                reject(`Error launching Textractor: ${error.message}`);
-            } else {
-                resolve(textractor_proc.pid ? textractor_proc.pid : 0);
-            }
-        });
-    });
-}
+// Function to launch VN
+// async function launchVN(vnPath: string): Promise<number> {
+//     const vnDir = path.dirname(vnPath);
+//     process.chdir(vnDir);
+//     return new Promise((resolve, reject) => {
+//         console.log("Launching VN:", vnPath);
+//         const proc = spawn(vnPath, [], {
+//             windowsHide: false,
+//             detached: true,
+//             stdio: 'ignore', // Ensure the child process runs independently
+//         });
+//
+//         proc.unref(); // Detach the child process from the parent
+//
+//         if (proc.pid) {
+//             resolve(proc.pid);
+//         } else {
+//             reject(new Error("Failed to launch VN"));
+//         }
+//     });
+// }
+//
+// async function launchTextractor(): Promise<number> {
+//     return new Promise((resolve, reject) => {
+//         const textractor_proc = spawn(getTextractorPath(), [], {
+//             windowsHide: false,
+//             detached: true,
+//             stdio: 'ignore', // Ensure the process runs independently
+//         });
+//
+//         textractor_proc.unref(); // Detach the process from the parent
+//
+//         if (textractor_proc.pid) {
+//             resolve(textractor_proc.pid);
+//         } else {
+//             reject(new Error("Failed to launch Textractor"));
+//         }
+//     });
+// }
 
 export function addVNToStore(vnPath: string, selectedScene: ObsScene): void {
     const vns: VN[] = getVNs() || [];
@@ -51,17 +119,17 @@ export function addVNToStore(vnPath: string, selectedScene: ObsScene): void {
     setVNs(vns);
 }
 
-export async function launchVNWorkflow(vnPath: string, shouldLaunchTextractor: boolean): Promise<void> {
-    const currentPath = process.cwd();
-    try {
-        launchVN(vnPath);
-        process.chdir(currentPath);
-        if (shouldLaunchTextractor)
-            launchTextractor();
-    } catch (error) {
-        console.error(error);
-    }
-}
+// export async function launchVNWorkflow(vnPath: string, shouldLaunchTextractor: boolean): Promise<void> {
+//     const currentPath = process.cwd();
+//     try {
+//         launchVN(vnPath);
+//         process.chdir(currentPath);
+//         if (shouldLaunchTextractor)
+//             launchTextractor();
+//     } catch (error) {
+//         console.error(error);
+//     }
+// }
 
 export function openVNWindow() {
     if (VNWindow) {

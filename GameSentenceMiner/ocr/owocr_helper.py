@@ -320,7 +320,7 @@ def run_oneocr(ocr_config: OCRConfig, i, area=False):
             text_callback=text_callback,
             screen_capture_exclusions=exclusions,
             rectangle=i,
-            language="ja")
+            language=language)
     done = True
 
 
@@ -339,23 +339,27 @@ def get_window(window_name):
         return None
 
 if __name__ == "__main__":
-    global ocr1, ocr2, twopassocr
+    global ocr1, ocr2, twopassocr, language
     import sys
 
     args = sys.argv[1:]
-    if len(args) == 3:
-        ocr1 = args[0]
-        ocr2 = args[1]
-        twopassocr = bool(int(args[2]))
-    elif len(args) == 2:
-        ocr1 = args[0]
-        ocr2 = args[1]
+    if len(args) == 4:
+        language = args[0]
+        ocr1 = args[1]
+        ocr2 = args[2]
+        twopassocr = bool(int(args[3]))
+    elif len(args) == 3:
+        language = args[0]
+        ocr1 = args[1]
+        ocr2 = args[2]
         twopassocr = True
-    elif len(args) == 1:
-        ocr1 = args[0]
+    elif len(args) == 2:
+        language = args[0]
+        ocr1 = args[1]
         ocr2 = None
         twopassocr = False
     else:
+        language = "ja"
         ocr1 = "oneocr"
         ocr2 = "glens"
         twopassocr = True

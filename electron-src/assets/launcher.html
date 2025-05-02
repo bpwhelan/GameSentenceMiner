@@ -120,15 +120,22 @@
         allGamesDropdown.innerHTML = '<option value="">Select Game</option>';
         launchableGames.forEach((game) => {
             const option = document.createElement('option');
-            option.value = game.id;
-            option.textContent = game.name;
 
+
+            if (game.type === 'vn') {
+                option.value = game.id;
+                option.textContent = game?.name.split('\\').pop().split('/').pop();
+            } else {
+                option.value = game.id;
+                option.textContent = game.name;
+            }
             if (game.isHeader) {
                 option.style.fontWeight = 'bold';
                 option.style.color = '#FFD700';
                 option.style.backgroundColor = '#333333';
                 option.disabled = true;
             }
+
 
             allGamesDropdown.appendChild(option);
             if (game.id === selectedGame) {

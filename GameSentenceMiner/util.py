@@ -58,7 +58,7 @@ def timedelta_to_ffmpeg_friendly_format(td_obj):
 
 
 def get_file_modification_time(file_path):
-    mod_time_epoch = os.path.getctime(file_path)
+    mod_time_epoch = os.path.getmtime(file_path)
     mod_time = datetime.fromtimestamp(mod_time_epoch)
     return mod_time
 
@@ -255,12 +255,12 @@ os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
 
 import urllib.request
 
-if not os.path.exists(OCR_REPLACEMENTS_FILE):
-    url = "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/refs/heads/main/electron-src/assets/ocr_replacements.json"
-    try:
-        with urllib.request.urlopen(url) as response:
-            data = response.read().decode('utf-8')
-            with open(OCR_REPLACEMENTS_FILE, 'w', encoding='utf-8') as f:
-                f.write(data)
-    except Exception as e:
-        logger.error(f"Failed to fetch JSON from {url}: {e}")
+# if not os.path.exists(OCR_REPLACEMENTS_FILE):
+#     url = "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/refs/heads/main/electron-src/assets/ocr_replacements.json"
+#     try:
+#         with urllib.request.urlopen(url) as response:
+#             data = response.read().decode('utf-8')
+#             with open(OCR_REPLACEMENTS_FILE, 'w', encoding='utf-8') as f:
+#                 f.write(data)
+#     except Exception as e:
+#         logger.error(f"Failed to fetch JSON from {url}: {e}")

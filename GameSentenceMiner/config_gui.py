@@ -203,6 +203,7 @@ class ConfigApp:
                 multi_line_line_break=self.multi_line_line_break.get(),
                 multi_line_sentence_storage_field=self.multi_line_sentence_storage_field.get(),
                 ocr_sends_to_clipboard=self.ocr_sends_to_clipboard.get(),
+                use_anki_note_creation_time=self.use_anki_note_creation_time.get(),
             ),
             ai=Ai(
                 enabled=self.ai_enabled.get(),
@@ -995,6 +996,12 @@ class ConfigApp:
         self.ocr_sends_to_clipboard = tk.BooleanVar(value=self.settings.advanced.ocr_sends_to_clipboard)
         ttk.Checkbutton(advanced_frame, variable=self.ocr_sends_to_clipboard).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(advanced_frame, "Enable to send OCR results to clipboard.", row=self.current_row, column=2)
+
+
+        ttk.Label(advanced_frame, text="Use Anki Creation Date for Audio Timing:").grid(row=self.current_row, column=0, sticky='W')
+        self.use_anki_note_creation_time = tk.BooleanVar(value=self.settings.advanced.use_anki_note_creation_time)
+        ttk.Checkbutton(advanced_frame, variable=self.use_anki_note_creation_time).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(advanced_frame, "Use the Anki note creation date for audio timing instead of the OBS replay time.", row=self.current_row, column=2)
 
 
 

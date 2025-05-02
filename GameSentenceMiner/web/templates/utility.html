@@ -107,6 +107,14 @@
     </style>
 </head>
 <body>
+<div style="position: fixed; top: 20px; right: 20px; display: flex; gap: 10px;">
+    <button onclick="window.location.href='/textreplacements'" style="background-color: #1a73e8; color: #ffffff; border: none; padding: 10px 20px; font-size: 12px; cursor: pointer; transition: background-color 0.3s; border-radius: 5px;">
+        Text Replacements
+    </button>
+    <button id="delete-history" style="background-color: #1a73e8; color: #ffffff; border: none; padding: 10px 20px; font-size: 12px; cursor: pointer; transition: background-color 0.3s; border-radius: 5px;">
+        Clear History
+    </button>
+</div>
 <div id="initial-events">
 
 </div>
@@ -114,19 +122,15 @@
 <div id="session-events">
 
 </div>
-<div>
-    <button onclick="window.location.href='/textreplacements'" style="margin-top: 20px; background-color: #1a73e8; color: #ffffff; border: none; padding: 10px 20px; font-size: 16px; cursor: pointer; transition: background-color 0.3s; border-radius: 5px;">
-      Text Replacements
-    </button>
-</div>
 <script>
     let mainStyle = document.querySelector('head style');
+    let deleteHistoryButton = document.getElementById('delete-history');
     console.log(mainStyle);
     let displayedEventIds = new Set();
     let isTabActive = true;
     let isFetching = false; // Flag to track if a fetch is in progress
     let intervalId = 0;
-    const fetchInterval = 5000; // Define the interval as a constant
+    const fetchInterval = 100; // Define the interval as a constant
     const websocketPort = {{ websocket_port }} || 55001;
 
     // Drag selection variables
@@ -135,10 +139,12 @@
     let newCheckboxState = false;
     let hoveredCheckboxes = new Set();
     let checkboxes = []; // Will hold all checkbox elements
+    let checkboxMap = {};
     let checkboxes_being_updated = new Set();
 
     // Shift click selection variable
     let lastChecked = null;
+
 
     async function fetchEvents() {
         if (document.hidden || isFetching) {
@@ -161,12 +167,17 @@
                         addNewEvent(ev)
                     }
                 }
-                const checkbox = document.querySelector(`[data-event-id="${ev.id}"]`);
-                if (checkbox && !checkboxes_being_updated.has(ev.id)) {
-                    checkbox.checked = ev.checked;
+                if (!ev.history) {
+                    console.log(checkboxMap[ev.id])
+                    if (!checkboxes_being_updated.has(ev.id)) {
+                        const checkbox = checkboxMap[ev.id];
+                        if (checkbox) {
+                            checkbox.checked = ev.checked;
+                        }
+                    }
                 }
             });
-            checkboxes = Array.from(document.querySelectorAll('#session-events input[type="checkbox"]')); // Update checkboxes array after new events
+            // checkboxes = Array.from(document.querySelectorAll('#session-events input[type="checkbox"]')); // Update checkboxes array after new events
         } catch (error) {
             console.error("Error fetching events:", error);
         } finally {
@@ -196,7 +207,6 @@
         container.appendChild(div);
         window.scrollTo({
             top: document.documentElement.scrollHeight,
-            behavior: 'smooth'
         });
     }
 
@@ -235,10 +245,13 @@
         shadowRoot.appendChild(style);
         shadowRoot.appendChild(wrapper);
 
+        let checkbox = shadowRoot.querySelector('.multi-line-checkbox')
+        checkboxes.push(checkbox);
+        checkboxMap[event.id] = checkbox; // Store the checkbox in the map for easy access
+
         container.appendChild(div);
         window.scrollTo({
             top: document.documentElement.scrollHeight,
-            behavior: 'smooth'
         });
     }
 
@@ -344,10 +357,34 @@
         lastChecked = e.target;
     }
 
+    function deleteHistory(e) {
+        e.preventDefault();
+        if (confirm("Are you sure you want to delete the history? This action cannot be undone.")) {
+            fetch('/clear_history', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                // Clear the displayed events
+                displayedEventIds.clear();
+                document.getElementById('initial-events').innerHTML = '';
+                document.getElementById('session-events').innerHTML = '';
+                document.getElementById('initial-events-separator').style.display = 'none';
+            })
+            .catch(error => {
+                console.error("Error deleting history:", error);
+            });
+        }
+    }
+
     document.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('mouseover', handleMouseOver);
     document.addEventListener('click', handleCheckboxClick);
+    deleteHistoryButton.addEventListener('click', deleteHistory);
 
     const websocketURL = 'ws://localhost:' + websocketPort;
     let websocket = {};
@@ -404,7 +441,7 @@
         return websocket;
     };
 
-    connectWebSocket();
+    // connectWebSocket();
 
 
     fetchEvents();
@@ -419,7 +456,6 @@
 
     window.scrollTo({
         top: document.documentElement.scrollHeight,
-        behavior: 'smooth'
     });
 </script>
 </body>

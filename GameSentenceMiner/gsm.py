@@ -90,8 +90,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
             return
         try:
             last_note = None
+            anki_card_creation_time = None
             if anki.card_queue and len(anki.card_queue) > 0:
-                last_note = anki.card_queue.pop(0)
+                last_note, anki_card_creation_time = anki.card_queue.pop(0)
             with util.lock:
                 util.set_last_mined_line(anki.get_sentence(last_note))
                 if os.path.exists(video_path) and os.access(video_path, os.R_OK):
@@ -136,7 +137,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     final_audio_output, should_update_audio, vad_trimmed_audio, vad_beginning, vad_end = VideoToAudioHandler.get_audio(
                         start_line,
                         line_cutoff,
-                        video_path)
+                        video_path,
+                        anki_card_creation_time)
                 else:
                     final_audio_output = ""
                     should_update_audio = False
@@ -148,7 +150,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     elif not get_config().anki.sentence_audio_field:
                         logger.info("No SentenceAudio Field in config, skipping audio processing!")
 
-                ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_beginning, vad_end, bool(selected_lines))
+                ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_beginning=vad_beginning, vad_end=vad_end, doing_multi_line=bool(selected_lines))
 
                 if get_config().anki.update_anki and last_note:
                     anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
@@ -171,8 +173,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 
     @staticmethod
-    def get_audio(game_line, next_line_time, video_path, temporary=False):
-        trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time)
+    def get_audio(game_line, next_line_time, video_path, anki_card_creation_time,temporary=False):
+        trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time)
         if temporary:
             return trimmed_audio
         vad_trimmed_audio = make_unique_file_name(

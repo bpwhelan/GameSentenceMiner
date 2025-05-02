@@ -165,7 +165,7 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.handle('ocr.getActiveOCRConfigWindowName', async () => {
         const ocrConfig = await getActiveOCRCOnfig();
-        return ocrConfig ? ocrConfig.window : null;
+        return ocrConfig ? ocrConfig.window : "";
     });
 
     ipcMain.handle("ocr.get-ocr-config", () => {

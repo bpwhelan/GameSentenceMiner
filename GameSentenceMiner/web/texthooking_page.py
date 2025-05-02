@@ -103,6 +103,10 @@ class EventManager:
         event_queue.put(new_event)
         return new_event
 
+    def reset_checked_lines(self):
+        for event in self.events:
+            event.checked = False
+
     def get_events(self):
         return self.events
 
@@ -116,6 +120,14 @@ class EventManager:
     def close_connection(self):
         if self.conn:
             self.conn.close()
+
+    def clear_history(self):
+        self.cursor.execute("DELETE FROM events WHERE time < ?", (initial_time.isoformat(),))
+        logger.info(f"Cleared history before {initial_time.isoformat()}")
+        self.conn.commit()
+        # Clear the in-memory events as well
+        event_manager.events = [event for event in event_manager if not event.history]
+        event_manager.events_dict = {event.id: event for event in event_manager.events}
 
 class EventProcessor(threading.Thread):
     def __init__(self, event_queue, db_path):
@@ -227,6 +239,13 @@ def textreplacements():
 def get_data():
     return jsonify([event.to_dict() for event in event_manager])
 
+@app.route('/clear_history', methods=['POST'])
+def clear_history():
+    temp_em = EventManager()
+    temp_em.clear_history()
+    temp_em.close_connection()
+    return jsonify({'message': 'History cleared successfully'}), 200
+
 
 async def add_event_to_texthooker(line: GameLine):
     logger.info("Adding event to web server: %s", line.text)
@@ -248,8 +267,7 @@ def update_event():
         return jsonify({'error': 'Missing id or checked status'}), 400
 
     event_manager.get(event_id).checked = checked
-
-    return jsonify({'error': 'Event not found'}), 404
+    return jsonify({'message': 'Event updated successfully'}), 200
 
 @app.route('/get-screenshot', methods=['Post'])
 def get_screenshot():
@@ -339,8 +357,7 @@ def are_lines_selected():
     return any(item.checked for item in event_manager)
 
 def reset_checked_lines():
-    for item in event_manager:
-        item.checked = False
+    event_manager.reset_checked_lines()
 
 def open_texthooker():
     webbrowser.open(url + '/texthooker')

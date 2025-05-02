@@ -7,8 +7,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>OWOCR Helper</h1>
-
+<h2>Setup</h2>
 <div>
     <button id="install-owocr-deps">Install OWOCR</button>
 </div>
@@ -56,51 +55,70 @@
     <div id="uninstall-status"></div>
 </div>
 <div>
-    <label for="windowSelect">Windows:</label>
-    <select id="windowSelect"></select>
-    <button id="refreshWindowsBtn">&#x21bb;</button>
-    <button id="run-screen-selector">Run Screen Area Selector</button>
-    <button id="open-config-json">Open Config File</button>
-    <button id="open-config-folder">Open OCR Config Folder</button>
+    <h2>Config/Run</h2>
+    <div>
+        <label for="sceneSelect">Scene:</label>
+        <select id="sceneSelect"></select>
+        <button id="refreshScenesBtn">&#x21bb;</button>
+        <label for="windowSelect">Window:</label>
+        <select id="windowSelect"></select>
+        <button id="refreshWindowsBtn">&#x21bb;</button>
+        <button id="run-screen-selector">Run Screen Area Selector</button>
+    </div>
+    <div>
+        <label for="ocr1-input">
+            OCR Option 1:
+            <select id="ocr1-input" class="inputField">
+                <option value="" disabled selected>Select OCR Option 1</option>
+                <option value="glens">Google Lens</option>
+                <option value="bing">Bing</option>
+                <option value="oneocr">OneOCR (Recommended)</option>
+                <option value="easyocr">EasyOCR</option>
+                <option value="rapidocr">RapidOCR</option>
+                <option value="mangaocr">MangaOCR</option>
+                <option value="winrtocr">WindowsOCR</option>
+                <option value="gvision">Google Vision</option>
+                <option value="azure">Azure Image Analysis</option>
+                <option value="ocrspace">OCRSpace</option>
+            </select>
+        </label>
+        <label for="ocr2-input">
+            OCR Option 2:
+            <select id="ocr2-input" class="inputField">
+                <option value="" disabled selected>Select OCR Option 2</option>
+                <option value="glens">Google Lens (Recommended)</option>
+                <option value="bing">Bing</option>
+                <option value="oneocr">OneOCR</option>
+                <option value="gemini">Gemini</option>
+                <option value="easyocr">EasyOCR</option>
+                <option value="rapidocr">RapidOCR</option>
+                <option value="mangaocr">MangaOCR</option>
+                <option value="winrtocr">WindowsOCR</option>
+                <option value="gvision">Google Vision</option>
+                <option value="azure">Azure Image Analysis</option>
+                <option value="ocrspace">OCRSpace</option>
+            </select>
+        </label>
+        <label for="two-pass-ocr">
+            Enable Two Pass OCR:
+            <input type="checkbox" id="two-pass-ocr">
+        </label>
+    </div>
 </div>
 <div>
-    <label for="ocr1-input">
-        OCR Option 1:
-        <select id="ocr1-input" class="inputField">
-            <option value="" disabled selected>Select OCR Option 1</option>
-            <option value="glens">Google Lens</option>
-            <option value="bing">Bing</option>
-            <option value="oneocr">OneOCR (Recommended)</option>
-            <option value="easyocr">EasyOCR</option>
-            <option value="rapidocr">RapidOCR</option>
-            <option value="mangaocr">MangaOCR</option>
-            <option value="winrtocr">WindowsOCR</option>
-            <option value="gvision">Google Vision</option>
-            <option value="azure">Azure Image Analysis</option>
-            <option value="ocrspace">OCRSpace</option>
-        </select>
-    </label>
-    <label for="ocr2-input">
-        OCR Option 2:
-        <select id="ocr2-input" class="inputField">
-            <option value="" disabled selected>Select OCR Option 2</option>
-            <option value="glens">Google Lens (Recommended)</option>
-            <option value="bing">Bing</option>
-            <option value="oneocr">OneOCR</option>
-            <option value="gemini">Gemini</option>
-            <option value="easyocr">EasyOCR</option>
-            <option value="rapidocr">RapidOCR</option>
-            <option value="mangaocr">MangaOCR</option>
-            <option value="winrtocr">WindowsOCR</option>
-            <option value="gvision">Google Vision</option>
-            <option value="azure">Azure Image Analysis</option>
-            <option value="ocrspace">OCRSpace</option>
-        </select>
-    </label>
-    <label for="two-pass-ocr">
-        Enable Two Pass OCR:
-        <input type="checkbox" id="two-pass-ocr">
-    </label>
+    <label for="languageSelect">Language:</label>
+    <select id="languageSelect">
+        <option value="ja">Japanese</option>
+        <option value="zh">Chinese</option>
+        <option value="ko">Korean</option>
+        <option value="en">English</option>
+        <option value="es">Spanish</option>
+        <option value="fr">French</option>
+        <option value="de">German</option>
+        <option value="ru">Russian</option>
+        <option value="ar">Arabic</option>
+        <option value="hi">Hindi</option>
+    </select>
 </div>
 
 <div>
@@ -115,9 +133,15 @@
 </div>
 <button id="start-ocr">Start OCR</button>
 <div>
+    <h2>Extra/Debug</h2>
     <button id="open-ocr-page-btn" style="margin-top: 10px;">
         Open OCR Error Fixes Page
     </button>
+<!--    <button id="debug-toggle">Debug</button>-->
+<!--    <div id="debug-options" style="display: none;">-->
+    <button id="open-config-json">Open Config File</button>
+    <button id="open-config-folder">Open OCR Config Folder</button>
+<!--    </div>-->
 </div>
 <!--<button id="kill-ocr">Kill OCR</button>-->
 <!--<button id="restart-ocr">Restart OCR</button>-->
@@ -125,8 +149,11 @@
 <script>
     const {ipcRenderer} = require('electron');
     let ocr_settings = null;
+    let windows = [];
+    let scenes = [];
 
     const openOcrPageBtn = document.getElementById('open-ocr-page-btn');
+    const windowSelect = document.getElementById("windowSelect");
 
     openOcrPageBtn.addEventListener('click', () => {
         // Navigate to the index.html page
@@ -205,6 +232,11 @@
         saveOCRConfig();
     });
 
+    document.getElementById('languageSelect').addEventListener('change', () => {
+        saveOCRConfig();
+    });
+
+
     // document.getElementById('window-name-input').addEventListener('input', () => {
     //     const windowName = document.getElementById('window-name-input').value.trim();
     //     const runScreenSelectorBtn = document.getElementById('run-screen-selector');
@@ -223,10 +255,35 @@
     //     ipcRenderer.send('ocr.restart-ocr');
     // });
 
+    document.getElementById('sceneSelect').addEventListener('change', (event) => {
+        ipcRenderer.invoke('obs.switchScene.id', event.target.value);
+        setTimeout(() => refreshActiveOCRWindow(), 500);
+    });
+
+    document.getElementById('refreshScenesBtn').addEventListener('click', () => {
+        getScenes();
+    });
+
+    function refreshActiveOCRWindow() {
+        ipcRenderer.invoke('ocr.getActiveOCRConfigWindowName').then(windowName => {
+            console.log(windowName);
+            if (windowName && !windows.some(window => window === windowName)) {
+                const option = document.createElement('option');
+                option.value = windowName;
+                option.textContent = windowName;
+                windowSelect.appendChild(option);
+            }
+            if (windowName) {
+                windowSelect.value = windowName; // Set the selected value
+            }
+        });
+    }
+
     function getWindows() {
         const windowSelect = document.getElementById('windowSelect');
         windowSelect.innerHTML = '<option>Loading...</option>'; // Set "Loading..." message
-        ipcRenderer.invoke('ocr.getWindows').then(windows => {
+        ipcRenderer.invoke('ocr.getWindows').then(windowsRes => {
+            windows = windowsRes
             windowSelect.innerHTML = '';
             windows.forEach(window => {
                 const option = document.createElement('option');
@@ -237,15 +294,29 @@
                 option.textContent = window;
                 windowSelect.appendChild(option);
             });
+            refreshActiveOCRWindow();
+        });
+    }
 
-            ipcRenderer.invoke('ocr.getActiveOCRConfigWindowName').then(windowName => {
-                if (windowName && !windows.some(window => window === windowName)) {
+    function getScenes() {
+        sceneSelect.innerHTML = '';
+        ipcRenderer.invoke('obs.getScenes').then(scenes => {
+            obsScenes = scenes;
+            scenes.forEach(scene => {
+                const option = document.createElement('option');
+                option.value = scene.id;
+                option.textContent = scene.name;
+                sceneSelect.appendChild(option);
+            });
+
+            ipcRenderer.invoke('obs.getActiveScene').then(scene => {
+                if (scene && !scenes.some(scene2 => scene2.id === scene.id)) {
                     const option = document.createElement('option');
-                    option.value = windowName;
-                    option.textContent = windowName;
-                    windowSelect.appendChild(option);
+                    option.value = scene.id;
+                    option.textContent = scene.name;
+                    sceneSelect.appendChild(option);
                 }
-                windowSelect.value = windowName; // Set the selected value
+                sceneSelect.value = scene.id; // Set the selected value
             });
         });
     }
@@ -258,6 +329,7 @@
             twoPassOCR: document.getElementById('two-pass-ocr').checked,
             requiresOpenWindow: document.getElementById('require-open-window').checked,
             scanRate: document.getElementById('ocr-scan-rate').value,
+            language: document.getElementById('languageSelect').value,
         };
         await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
     }
@@ -273,8 +345,10 @@
             document.getElementById('two-pass-ocr').checked = ocr_settings.twoPassOCR || false;
             document.getElementById('require-open-window').checked = ocr_settings.requiresOpenWindow || false;
             document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
+            document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
         }
-        getWindows()
+        getWindows();
+        getScenes();
     }
     document.addEventListener('DOMContentLoaded', initialize);
 

@@ -181,6 +181,7 @@ class Advanced:
     multi_line_line_break: str = '<br>'
     multi_line_sentence_storage_field: str = ''
     ocr_sends_to_clipboard: bool = True
+    use_anki_note_creation_time: bool = False
 
 @dataclass_json
 @dataclass

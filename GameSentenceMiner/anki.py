@@ -282,7 +282,7 @@ def update_new_card():
         texthooking_page.reset_checked_lines()
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
-        card_queue.append(last_card)
+        card_queue.append((last_card, datetime.now()))
         try:
             obs.save_replay_buffer()
         except Exception as e:

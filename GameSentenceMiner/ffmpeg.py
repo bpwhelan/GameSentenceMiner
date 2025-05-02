@@ -57,6 +57,8 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_begi
         # Assuming initial_time is defined elsewhere if game_line is None
         line_time = initial_time
 
+    logger.info("Calculating screenshot time for line: " + str(game_line.text))
+
     file_length = get_video_duration(video_path)
     file_mod_time = get_file_modification_time(video_path)
 
@@ -150,7 +152,7 @@ def get_audio_codec(video_path):
         return None
 
 
-def get_audio_and_trim(video_path, game_line, next_line_time):
+def get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time):
     supported_formats = {
         'opus': 'libopus',
         'mp3': 'libmp3lame',
@@ -184,7 +186,7 @@ def get_audio_and_trim(video_path, game_line, next_line_time):
 
     subprocess.run(command)
 
-    return trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line_time)
+    return trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line_time, anki_card_creation_time)
 
 
 def get_video_duration(file_path):
@@ -202,10 +204,10 @@ def get_video_duration(file_path):
     return float(duration_info["format"]["duration"])  # Return the duration in seconds
 
 
-def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line):
+def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line, anki_card_creation_time):
     trimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(),
                                                 suffix=f".{get_config().audio.extension}").name
-    start_trim_time, total_seconds, total_seconds_after_offset = get_video_timings(video_path, game_line)
+    start_trim_time, total_seconds, total_seconds_after_offset = get_video_timings(video_path, game_line, anki_card_creation_time)
 
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
@@ -232,8 +234,11 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     logger.info(f"Audio trimmed and saved to {trimmed_audio}")
     return trimmed_audio
 
-def get_video_timings(video_path, game_line):
-    file_mod_time = get_file_modification_time(video_path)
+def get_video_timings(video_path, game_line, anki_card_creation_time):
+    if anki_card_creation_time and get_config().advanced.use_anki_note_creation_time:
+        file_mod_time = anki_card_creation_time
+    else:
+        file_mod_time = get_file_modification_time(video_path)
     file_length = get_video_duration(video_path)
     time_delta = file_mod_time - game_line.time
     # Convert time_delta to FFmpeg-friendly format (HH:MM:SS.milliseconds)

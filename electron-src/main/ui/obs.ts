@@ -415,7 +415,9 @@ export async function registerOBSIPC() {
 
 export async function getOBSScenes(): Promise<ObsScene[]> {
     const {scenes} = await obs.call('GetSceneList');
-    return scenes.map((scene: any) => ({ name: scene.sceneName, id: scene.sceneUuid } as ObsScene));
+    return scenes
+        .filter((scene: any) => scene.sceneName.toLowerCase() !== "gsm helper")
+        .map((scene: any) => ({ name: scene.sceneName, id: scene.sceneUuid } as ObsScene));
 }
 
 export async function getCurrentScene(): Promise<ObsScene> {
