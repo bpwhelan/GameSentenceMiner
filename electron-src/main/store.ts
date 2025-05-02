@@ -44,6 +44,7 @@ interface OCRConfig {
     window_name: string;
     requiresOpenWindow?: boolean;
     scanRate?: number;
+    language: string;
 }
 
 export enum HookableGameType {
@@ -126,7 +127,8 @@ export const store = new Store<StoreConfig>({
             twoPassOCR: false,
             ocr1: "oneOCR",
             ocr2: "glens",
-            window_name: ""
+            window_name: "",
+            language: "ja"
         },
         customPythonPackage: "GameSentenceMiner"
     },
@@ -229,6 +231,14 @@ export function getOCRScanRate(): number {
 
 export function setOCRScanRate(scanRate: number): void {
     store.set("OCR.scanRate", scanRate);
+}
+
+export function setOCRLanguage(language: string): void {
+    store.set("OCR.language", language);
+}
+
+export function getOCRLanguage(): string {
+    return store.get("OCR.language");
 }
 
 // Yuzu config getters and setters

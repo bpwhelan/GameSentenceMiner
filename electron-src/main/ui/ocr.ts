@@ -6,7 +6,7 @@ import {
     getOCRConfig,
     getPythonPath, getStartConsoleMinimized,
     setOCR1,
-    setOCR2, setOCRConfig, setOCRScanRate, setRequiresOpenWindow, setTwoPassOCR,
+    setOCR2, setOCRConfig, setOCRLanguage, setOCRScanRate, setRequiresOpenWindow, setTwoPassOCR,
     setWindowName
 } from "../store.js";
 import {mainWindow} from "../main.js";
@@ -85,7 +85,7 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.start-ocr', () => {
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
-            const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"}`;
+            const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.language} ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"}`;
             ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
 
             console.log(`Starting OCR process with command: ${command}`);
@@ -156,6 +156,7 @@ export function registerOCRUtilsIPC() {
         setWindowName(config.window_name);
         setRequiresOpenWindow(config.requiresOpenWindow);
         setOCRScanRate(config.scanRate);
+        setOCRLanguage(config.language);
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     })
 

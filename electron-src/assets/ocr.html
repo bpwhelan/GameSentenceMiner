@@ -244,6 +244,7 @@
     // });
 
     document.getElementById('start-ocr').addEventListener('click', () => {
+        saveOCRConfig();
         ipcRenderer.send('ocr.start-ocr');
     });
 
