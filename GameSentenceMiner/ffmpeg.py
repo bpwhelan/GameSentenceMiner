@@ -247,7 +247,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     logger.info(f"Audio trimmed and saved to {trimmed_audio}")
     return trimmed_audio
 
-def get_video_timings(video_path, game_line, anki_card_creation_time):
+def get_video_timings(video_path, game_line, anki_card_creation_time=None):
     if anki_card_creation_time and get_config().advanced.use_anki_note_creation_time:
         file_mod_time = anki_card_creation_time
     else:
