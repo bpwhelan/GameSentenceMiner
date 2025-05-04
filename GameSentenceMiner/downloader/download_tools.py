@@ -151,7 +151,7 @@ def download_ffmpeg_if_needed():
     logger.info(f"FFmpeg extracted to {ffmpeg_dir}.")
 
 def download_ocenaudio_if_needed():
-    ocenaudio_dir = os.path.join(get_app_directory(), 'ocenaudio', 'ocenaudio')
+    ocenaudio_dir = os.path.join(get_app_directory(), 'ocenaudio')
     ocenaudio_exe_path = os.path.join(ocenaudio_dir, 'ocenaudio.exe')
     if os.path.exists(ocenaudio_dir) and os.path.exists(ocenaudio_exe_path):
         logger.info(f"Ocenaudio already installed at {ocenaudio_dir}.")
@@ -173,7 +173,7 @@ def download_ocenaudio_if_needed():
 
     os.makedirs(ocenaudio_dir, exist_ok=True)
     with zipfile.ZipFile(ocenaudio_archive, 'r') as zip_ref:
-        zip_ref.extractall(ocenaudio_dir)
+        zip_ref.extractall(get_app_directory())
 
     logger.info(f"Ocenaudio extracted to {ocenaudio_dir}.")
     return ocenaudio_exe_path

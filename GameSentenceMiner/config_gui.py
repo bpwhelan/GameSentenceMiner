@@ -1171,6 +1171,8 @@ class ConfigApp:
     def download_and_install_ocen(self):
         confirm = messagebox.askyesno("Download OcenAudio?", "Would you like to download and install OcenAudio? It is a free audio editing software that works extremely well with GSM.")
         if confirm:
+            self.external_tool.delete(0, tk.END)
+            self.external_tool.insert(0, "Downloading OcenAudio...")
             exe_path = download_ocenaudio_if_needed()
             messagebox.showinfo("OcenAudio Downloaded", f"OcenAudio has been downloaded and installed. You can find it at {exe_path}.")
             self.external_tool.delete(0, tk.END)
