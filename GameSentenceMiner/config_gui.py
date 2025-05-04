@@ -166,7 +166,7 @@ class ConfigApp:
                 extension=self.audio_extension.get(),
                 beginning_offset=float(self.beginning_offset.get()),
                 end_offset=float(self.end_offset.get()),
-                ffmpeg_reencode_options=self.ffmpeg_reencode_options.get(),
+                ffmpeg_reencode_options=self.audio_ffmpeg_reencode_options.get(),
                 external_tool = self.external_tool.get(),
                 anki_media_collection=self.anki_media_collection.get(),
                 external_tool_enabled=self.external_tool_enabled.get(),
@@ -220,6 +220,9 @@ class ConfigApp:
                 custom_prompt=self.custom_prompt.get("1.0", tk.END)
             )
         )
+
+        if self.ffmpeg_audio_preset_options.get() == "Custom":
+            config.audio.custom_encode_settings = self.audio_ffmpeg_reencode_options.get()
 
         if config.features.backfill_audio and config.features.full_auto:
             messagebox.showerror("Configuration Error", "Cannot have Full Auto and Backfill mode on at the same time! Note: Backfill is a very niche workflow.")
@@ -789,13 +792,13 @@ class ConfigApp:
         #
 
     def update_audio_ffmpeg_settings(self, event):
-        selected_option = self.ffmpeg_preset_options.get()
-        if selected_option in self.ffmpeg_preset_options_map:
-            self.ffmpeg_reencode_options.delete(0, tk.END)
-            self.ffmpeg_reencode_options.insert(0, self.ffmpeg_preset_options_map[selected_option])
+        selected_option = self.ffmpeg_audio_preset_options.get()
+        if selected_option in self.ffmpeg_audio_preset_options_map:
+            self.audio_ffmpeg_reencode_options.delete(0, tk.END)
+            self.audio_ffmpeg_reencode_options.insert(0, self.ffmpeg_audio_preset_options_map[selected_option])
         else:
-            self.ffmpeg_reencode_options.delete(0, tk.END)
-            self.ffmpeg_reencode_options.insert(0, "")
+            self.audio_ffmpeg_reencode_options.delete(0, tk.END)
+            self.audio_ffmpeg_reencode_options.insert(0, "")
 
     @new_tab
     def create_audio_tab(self):
@@ -830,29 +833,29 @@ class ConfigApp:
         ttk.Label(audio_frame, text="FFmpeg Preset Options:").grid(row=self.current_row, column=0, sticky='W')
 
         # Define display names and their corresponding values
-        self.ffmpeg_preset_options_map = {
+        self.ffmpeg_audio_preset_options_map = {
             "No Re-encode" : "",
             "Simple loudness normalization (Simplest, Start Here)": "-c:a libopus -f opus -af \"loudnorm=I=-23:LRA=7:TP=-2\"",
             "Downmix to mono with normalization (Recommended(?))": "-c:a libopus -ac 1 -f opus -application voip -apply_phase_inv 0 -af \"loudnorm=I=-23:dual_mono=true\"",
             "Downmix to mono, 30kbps, normalized (Optimal(?))": "-c:a libopus -b:a 30k -ac 1 -f opus -application voip -apply_phase_inv 0 -af \"loudnorm=I=-23:dual_mono=true\"",
-
+            "Custom": get_config().audio.custom_encode_settings,
         }
 
         # Create a Combobox with display names
-        self.ffmpeg_preset_options = ttk.Combobox(audio_frame, values=list(self.ffmpeg_preset_options_map.keys()), width=50)
+        self.ffmpeg_audio_preset_options = ttk.Combobox(audio_frame, values=list(self.ffmpeg_audio_preset_options_map.keys()), width=50)
         # self.ffmpeg_preset_options.set("Downmix to mono with normalization")  # Set default display name
-        self.ffmpeg_preset_options.grid(row=self.current_row, column=1)
+        self.ffmpeg_audio_preset_options.grid(row=self.current_row, column=1)
 
         # Bind selection to update settings
-        self.ffmpeg_preset_options.bind("<<ComboboxSelected>>", self.update_audio_ffmpeg_settings)
+        self.ffmpeg_audio_preset_options.bind("<<ComboboxSelected>>", self.update_audio_ffmpeg_settings)
 
         self.add_label_and_increment_row(audio_frame, "Select a preset FFmpeg option for re-encoding screenshots.",
                                          row=self.current_row, column=2)
 
         ttk.Label(audio_frame, text="FFmpeg Reencode Options:").grid(row=self.current_row, column=0, sticky='W')
-        self.ffmpeg_reencode_options = ttk.Entry(audio_frame, width=50)
-        self.ffmpeg_reencode_options.insert(0, self.settings.audio.ffmpeg_reencode_options)
-        self.ffmpeg_reencode_options.grid(row=self.current_row, column=1)
+        self.audio_ffmpeg_reencode_options = ttk.Entry(audio_frame, width=50)
+        self.audio_ffmpeg_reencode_options.insert(0, self.settings.audio.ffmpeg_reencode_options)
+        self.audio_ffmpeg_reencode_options.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(audio_frame, "Custom FFmpeg options for re-encoding audio files.",
                                          row=self.current_row, column=2)
 

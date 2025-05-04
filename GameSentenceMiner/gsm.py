@@ -192,9 +192,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 logger.info("No voice activity detected, using full audio.")
                 vad_trimmed_audio = trimmed_audio
                 should_update_audio = True
-        if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
+        if get_config().audio.audio_ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
-                                                  get_config().audio.ffmpeg_reencode_options)
+                                                  get_config().audio.audio_ffmpeg_reencode_options)
         elif os.path.exists(vad_trimmed_audio):
             shutil.move(vad_trimmed_audio, final_audio_output)
         return final_audio_output, should_update_audio, vad_trimmed_audio, vad_beginning, vad_end

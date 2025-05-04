@@ -137,6 +137,7 @@ class Audio:
     external_tool: str = ""
     anki_media_collection: str = ""
     external_tool_enabled: bool = True
+    custom_encode_settings: str = ''
 
 
 @dataclass_json
