@@ -173,7 +173,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 
     @staticmethod
-    def get_audio(game_line, next_line_time, video_path, anki_card_creation_time,temporary=False):
+    def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False):
         trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time)
         if temporary:
             return trimmed_audio
