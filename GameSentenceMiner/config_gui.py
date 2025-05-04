@@ -318,7 +318,7 @@ class ConfigApp:
         self.add_label_and_increment_row(general_frame, "Enable to allow GSM to see clipboard for text and line timing.",
                                          row=self.current_row, column=2)
 
-        ttk.Label(general_frame, text="Allow Both:").grid(row=self.current_row, column=0, sticky='W')
+        ttk.Label(general_frame, text="Allow Both Simultaneously:").grid(row=self.current_row, column=0, sticky='W')
         self.use_both_clipboard_and_websocket = tk.BooleanVar(value=self.settings.general.use_both_clipboard_and_websocket)
         ttk.Checkbutton(general_frame, variable=self.use_both_clipboard_and_websocket).grid(row=self.current_row, column=1,
                                                                                             sticky='W')
