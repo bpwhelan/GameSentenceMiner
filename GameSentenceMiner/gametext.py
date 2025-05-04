@@ -78,13 +78,15 @@ async def listen_websocket():
                 if e.response.status_code == 404:
                     logger.info("Texthooker WebSocket connection failed. Attempting some fixes...")
                     try_other = True
-            if not (isinstance(e, ConnectionResetError) or isinstance(e, ConnectionError) or isinstance(e, InvalidStatus) or isinstance(e, websockets.ConnectionClosed)):
-                logger.error(f"Unexpected error in Texthooker WebSocket connection: {e}")
-            websocket_connected = False
-            if not reconnecting:
-                logger.warning(f"Texthooker WebSocket connection lost, Defaulting to clipboard if enabled. Attempting to Reconnect...")
-            reconnecting = True
-            await asyncio.sleep(5)
+                    await asyncio.sleep(0.1)
+            else:
+                if not (isinstance(e, ConnectionResetError) or isinstance(e, ConnectionError) or isinstance(e, InvalidStatus) or isinstance(e, websockets.ConnectionClosed)):
+                    logger.error(f"Unexpected error in Texthooker WebSocket connection: {e}")
+                websocket_connected = False
+                if not reconnecting:
+                    logger.warning(f"Texthooker WebSocket connection lost, Defaulting to clipboard if enabled. Attempting to Reconnect...")
+                reconnecting = True
+                await asyncio.sleep(5)
 
 async def handle_new_text_event(current_clipboard, line_time=None):
     global current_line, current_line_time, current_line_after_regex

@@ -131,6 +131,22 @@
         }
     });
 
+
+    sceneSelect.addEventListener('change', async () => {
+        getExeFromScene();
+    })
+
+    function getExeFromScene() {
+        ipcRenderer.invoke('obs.getExecutableNameFromSource', sceneSelect.value).then(executableName => {
+            if (executableName) {
+                executableNameInput.value = executableName;
+            } else {
+                executableNameInput.value = '';
+            }
+            validate();
+        });
+    }
+
     function getScenes() {
         sceneSelect.innerHTML = '';
         ipcRenderer.invoke('obs.getScenes').then(scenes => {
@@ -155,6 +171,7 @@
     }
 
     getScenes();
+    getExeFromScene();
 </script>
 </body>
 </html>

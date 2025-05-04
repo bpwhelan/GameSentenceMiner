@@ -157,8 +157,9 @@ class ConfigApp:
                 custom_ffmpeg_settings=self.screenshot_custom_ffmpeg_settings.get(),
                 screenshot_hotkey_updates_anki=self.screenshot_hotkey_update_anki.get(),
                 seconds_after_line = self.seconds_after_line.get(),
-                use_beginning_of_line_as_screenshot=self.use_beginning_of_line_as_screenshot.get(),
-                use_new_screenshot_logic=self.use_new_screenshot_logic.get()
+                # use_beginning_of_line_as_screenshot=self.use_beginning_of_line_as_screenshot.get(),
+                # use_new_screenshot_logic=self.use_new_screenshot_logic.get(),
+                screenshot_timing_setting=self.screenshot_timing.get()
             ),
             audio=Audio(
                 enabled=self.audio_enabled.get(),
@@ -199,7 +200,7 @@ class ConfigApp:
             advanced=Advanced(
                 audio_player_path=self.audio_player_path.get(),
                 video_player_path=self.video_player_path.get(),
-                show_screenshot_buttons=self.show_screenshot_button.get(),
+                # show_screenshot_buttons=self.show_screenshot_button.get(),
                 multi_line_line_break=self.multi_line_line_break.get(),
                 multi_line_sentence_storage_field=self.multi_line_sentence_storage_field.get(),
                 ocr_sends_to_clipboard=self.ocr_sends_to_clipboard.get(),
@@ -755,28 +756,46 @@ class ConfigApp:
         self.add_label_and_increment_row(screenshot_frame, "Custom FFmpeg options for re-encoding screenshots.",
                                          row=self.current_row, column=2)
 
+
         ttk.Label(screenshot_frame, text="Screenshot Hotkey Updates Anki:").grid(row=self.current_row, column=0, sticky='W')
         self.screenshot_hotkey_update_anki = tk.BooleanVar(value=self.settings.screenshot.screenshot_hotkey_updates_anki)
         ttk.Checkbutton(screenshot_frame, variable=self.screenshot_hotkey_update_anki).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(screenshot_frame, "Enable to allow Screenshot hotkey/button to update the latest anki card.", row=self.current_row,
                                          column=2)
 
-        ttk.Label(screenshot_frame, text="Seconds After Line to SS:").grid(row=self.current_row, column=0, sticky='W')
+        ttk.Label(screenshot_frame, text="Screenshot Timing:").grid(row=self.current_row, column=0, sticky='W')
+        self.screenshot_timing = ttk.Combobox(screenshot_frame, values=['beginning', 'middle', 'end'])
+        self.screenshot_timing.insert(0, self.settings.screenshot.screenshot_timing_setting)
+        self.screenshot_timing.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(screenshot_frame, "Select when to take the screenshot relative to the line: beginning, middle, or end.", row=self.current_row,
+                                            column=2)
+
+        ttk.Label(screenshot_frame, text="Screenshot Offset:").grid(row=self.current_row, column=0, sticky='W')
         self.seconds_after_line = ttk.Entry(screenshot_frame)
         self.seconds_after_line.insert(0, str(self.settings.screenshot.seconds_after_line))
         self.seconds_after_line.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(screenshot_frame, "This is only used for mining from lines from history (not current line)", row=self.current_row,
+        self.add_label_and_increment_row(screenshot_frame, "Time in seconds to offset the screenshot based on the Timing setting above (should almost always be positive)", row=self.current_row,
                                          column=2)
 
-        ttk.Label(screenshot_frame, text="Use Beginning of Line as Screenshot:").grid(row=self.current_row, column=0, sticky='W')
-        self.use_beginning_of_line_as_screenshot = tk.BooleanVar(value=self.settings.screenshot.use_beginning_of_line_as_screenshot)
-        ttk.Checkbutton(screenshot_frame, variable=self.use_beginning_of_line_as_screenshot).grid(row=self.current_row, column=1, sticky='W')
-        self.add_label_and_increment_row(screenshot_frame, "Enable to use the beginning of the line as the screenshot point. Adjust the above setting to fine-tine timing.", row=self.current_row, column=2)
+        # ttk.Label(screenshot_frame, text="Use Beginning of Line as Screenshot:").grid(row=self.current_row, column=0, sticky='W')
+        # self.use_beginning_of_line_as_screenshot = tk.BooleanVar(value=self.settings.screenshot.use_beginning_of_line_as_screenshot)
+        # ttk.Checkbutton(screenshot_frame, variable=self.use_beginning_of_line_as_screenshot).grid(row=self.current_row, column=1, sticky='W')
+        # self.add_label_and_increment_row(screenshot_frame, "Enable to use the beginning of the line as the screenshot point. Adjust the above setting to fine-tine timing.", row=self.current_row, column=2)
+        #
+        # ttk.Label(screenshot_frame, text="Use alternative screenshot logic:").grid(row=self.current_row, column=0, sticky='W')
+        # self.use_new_screenshot_logic = tk.BooleanVar(value=self.settings.screenshot.use_new_screenshot_logic)
+        # ttk.Checkbutton(screenshot_frame, variable=self.use_new_screenshot_logic).grid(row=self.current_row, column=1, sticky='W')
+        # self.add_label_and_increment_row(screenshot_frame, "Enable to use the new screenshot logic. This will try to take the screenshot in the middle of the voiceline, or middle of the line if no audio/vad.", row=self.current_row, column=2)
+        #
 
-        ttk.Label(screenshot_frame, text="Use alternative screenshot logic:").grid(row=self.current_row, column=0, sticky='W')
-        self.use_new_screenshot_logic = tk.BooleanVar(value=self.settings.screenshot.use_new_screenshot_logic)
-        ttk.Checkbutton(screenshot_frame, variable=self.use_new_screenshot_logic).grid(row=self.current_row, column=1, sticky='W')
-        self.add_label_and_increment_row(screenshot_frame, "Enable to use the new screenshot logic. This will try to take the screenshot in the middle of the voiceline, or middle of the line if no audio/vad.", row=self.current_row, column=2)
+    def update_audio_ffmpeg_settings(self, event):
+        selected_option = self.ffmpeg_preset_options.get()
+        if selected_option in self.ffmpeg_preset_options_map:
+            self.ffmpeg_reencode_options.delete(0, tk.END)
+            self.ffmpeg_reencode_options.insert(0, self.ffmpeg_preset_options_map[selected_option])
+        else:
+            self.ffmpeg_reencode_options.delete(0, tk.END)
+            self.ffmpeg_reencode_options.insert(0, "")
 
     @new_tab
     def create_audio_tab(self):
@@ -808,12 +827,35 @@ class ConfigApp:
         self.add_label_and_increment_row(audio_frame, "Offset in seconds to end audio processing.",
                                          row=self.current_row, column=2)
 
+        ttk.Label(audio_frame, text="FFmpeg Preset Options:").grid(row=self.current_row, column=0, sticky='W')
+
+        # Define display names and their corresponding values
+        self.ffmpeg_preset_options_map = {
+            "No Re-encode" : "",
+            "Simple loudness normalization (Simplest, Start Here)": "-c:a libopus -f opus -af \"loudnorm=I=-23:LRA=7:TP=-2\"",
+            "Downmix to mono with normalization (Recommended(?))": "-c:a libopus -ac 1 -f opus -application voip -apply_phase_inv 0 -af \"loudnorm=I=-23:dual_mono=true\"",
+            "Downmix to mono, 30kbps, normalized (Optimal(?))": "-c:a libopus -b:a 30k -ac 1 -f opus -application voip -apply_phase_inv 0 -af \"loudnorm=I=-23:dual_mono=true\"",
+
+        }
+
+        # Create a Combobox with display names
+        self.ffmpeg_preset_options = ttk.Combobox(audio_frame, values=list(self.ffmpeg_preset_options_map.keys()), width=50)
+        # self.ffmpeg_preset_options.set("Downmix to mono with normalization")  # Set default display name
+        self.ffmpeg_preset_options.grid(row=self.current_row, column=1)
+
+        # Bind selection to update settings
+        self.ffmpeg_preset_options.bind("<<ComboboxSelected>>", self.update_audio_ffmpeg_settings)
+
+        self.add_label_and_increment_row(audio_frame, "Select a preset FFmpeg option for re-encoding screenshots.",
+                                         row=self.current_row, column=2)
+
         ttk.Label(audio_frame, text="FFmpeg Reencode Options:").grid(row=self.current_row, column=0, sticky='W')
         self.ffmpeg_reencode_options = ttk.Entry(audio_frame, width=50)
         self.ffmpeg_reencode_options.insert(0, self.settings.audio.ffmpeg_reencode_options)
         self.ffmpeg_reencode_options.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(audio_frame, "Custom FFmpeg options for re-encoding audio files.",
                                          row=self.current_row, column=2)
+
 
         ttk.Label(audio_frame, text="Anki Media Collection:").grid(row=self.current_row, column=0, sticky='W')
         self.anki_media_collection = ttk.Entry(audio_frame)
@@ -974,11 +1016,6 @@ class ConfigApp:
         self.play_latest_audio_hotkey.insert(0, self.settings.hotkeys.play_latest_audio)
         self.play_latest_audio_hotkey.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(advanced_frame, "Hotkey to trim and play the latest audio.", row=self.current_row, column=2)
-
-        ttk.Label(advanced_frame, text="Show Screenshot Button:").grid(row=self.current_row, column=0, sticky='W')
-        self.show_screenshot_button = tk.BooleanVar(value=self.settings.advanced.show_screenshot_buttons)
-        ttk.Checkbutton(advanced_frame, variable=self.show_screenshot_button).grid(row=self.current_row, column=1, sticky='W')
-        self.add_label_and_increment_row(advanced_frame, "Show the screenshot button in the utility gui.", row=self.current_row, column=2)
 
         ttk.Label(advanced_frame, text="Multi-line Line-Break:").grid(row=self.current_row, column=0, sticky='W')
         self.multi_line_line_break = ttk.Entry(advanced_frame)

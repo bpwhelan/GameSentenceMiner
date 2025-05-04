@@ -294,8 +294,6 @@ def get_screenshot():
         encoded_image = ffmpeg.process_image(image)
         if get_config().anki.update_anki and get_config().screenshot.screenshot_hotkey_updates_anki:
             last_note = anki.get_last_anki_card()
-            if last_note:
-                logger.debug(json.dumps(last_note))
             if get_config().features.backfill_audio:
                 last_note = anki.get_cards_by_sentence(gametext.current_line)
             if last_note:
@@ -308,7 +306,7 @@ def get_screenshot():
         else:
             notification.send_screenshot_saved(encoded_image)
     except Exception as e:
-        logger.error(f"Failed to get Screenshot {e}")
+        logger.error(f"Failed to get Screenshot: {e}")
 
 
 def create_image():

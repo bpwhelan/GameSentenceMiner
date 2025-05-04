@@ -335,7 +335,7 @@ def get_window(window_name):
         else:
             return None
     except Exception as e:
-        print(f"Error finding window '{self.window_name}': {e}")
+        print(f"Error finding window '{window_name}': {e}")
         return None
 
 if __name__ == "__main__":

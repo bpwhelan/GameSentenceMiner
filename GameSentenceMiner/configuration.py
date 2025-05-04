@@ -109,10 +109,21 @@ class Screenshot:
     quality: str = 85
     extension: str = "webp"
     custom_ffmpeg_settings: str = ''
+    custom_ffmpeg_option_selected: str = ''
     screenshot_hotkey_updates_anki: bool = False
     seconds_after_line: float = 1.0
     use_beginning_of_line_as_screenshot: bool = True
     use_new_screenshot_logic: bool = False
+    screenshot_timing_setting: str = ''  # 'middle', 'end'
+
+    def __post_init__(self):
+        if not self.screenshot_timing_setting and self.use_beginning_of_line_as_screenshot:
+            self.screenshot_timing_setting = 'beginning'
+        if not self.screenshot_timing_setting and self.use_new_screenshot_logic:
+            self.screenshot_timing_setting = 'middle'
+        if not self.screenshot_timing_setting and not self.use_beginning_of_line_as_screenshot and not self.use_new_screenshot_logic:
+            self.screenshot_timing_setting = 'end'
+
 
 
 @dataclass_json
