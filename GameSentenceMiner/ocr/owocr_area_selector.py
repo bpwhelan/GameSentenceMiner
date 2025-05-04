@@ -713,6 +713,10 @@ class ScreenSelector:
         canvas.bind('<B1-Motion>', on_drag)  # Left drag
         canvas.bind('<ButtonRelease-1>', on_release)  # Left click release
         canvas.bind('<Button-3>', on_right_click)  # Right click delete
+        canvas.bind('<Control-s>', self.save_rects)  # Save
+        canvas.bind('<Control-z>', self.undo_last_rect)  # Undo
+        canvas.bind('<Control-y>', self.redo_last_rect)  # Redo
+
 
         # --- Bind Global Actions to the window (apply to all windows) ---
         # Use lambdas to ensure the correct toggle function is called if needed,

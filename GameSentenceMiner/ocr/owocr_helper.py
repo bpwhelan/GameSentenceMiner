@@ -209,7 +209,7 @@ def do_second_ocr(ocr1_text, rectangle_index, time, img):
     global twopassocr, ocr2, last_ocr1_results, last_ocr2_results
     last_result = ([], -1)
     try:
-        orig_text, text = run.process_and_write_results(img, None, None, last_result, TextFiltering(),
+        orig_text, text = run.process_and_write_results(img, None, None, None, None,
                                                         engine=ocr2)
         previous_ocr2_text = last_ocr2_results[rectangle_index]
         if fuzz.ratio(previous_ocr2_text, text) >= 80:
