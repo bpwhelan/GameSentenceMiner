@@ -1,91 +1,102 @@
-# Game Sentence Miner
+# GameSentenceMiner (GSM)
 
-This project automates the recording of game sentence audio to help with Anki Card Creation.
-
-This allows us to create cards from texthooker/yomitan, and automatically get screenshot and sentence audio from the
-game we are playing.
+An application designed to assist with language learning through games. Aiming to be the "asbplayer" for games.
 
 Short Demo (Watch this first): https://www.youtube.com/watch?v=FeFBL7py6HY
 
 Installation: https://youtu.be/h5ksXallc-o
 
-## How Does it Work?
+## Features
 
-This is the #1 question I get, and knowing this helps clear up a lot of misunderstanding on issues you may encounter while using GSM.
+### Anki Card Enhancement
 
-1. The beginning of the voiceline is marked by a text event. Usually this comes in the form of an event from textractor/agent, or any other texthooking engine. GSM handles both listening for clipboard copy, as well as on a websocket server (configurable in GSM).
-2. The end of the voiceline is found using a Voice Activation Detection (VAD) library running on your local machine. ([Example](https://github.com/snakers4/silero-vad))
+GSM can significantly enhances your Anki cards with rich contextual information:
 
-That's it. 
+* **Automated Audio Capture**: Automatically records the voice line associated with the text.
 
-There are settings in GSM that may help accomodate for a poor hook, but if you encounter wild inconsistencies in your audio, it's likely due to a poorly timed hook, very loud BGM, or some other external factor, not GSM. I have not touched the audio trimming logic for months and it's been excellent for many many people across many games.
+* **Screenshot Integration**: Captures a screenshot of the game at the moment the voice line is spoken.
 
-## Features:
+* **Contextual Awareness**: Preserves the surrounding game context to provide valuable learning cues. 
 
-- **OBS Replay Buffer**: Constantly records the last X seconds of gameplay.
-- **Voice Activity Detection**: Automatically cuts the end of the clip to the exact moment the voice ended.
-- **Clipboard Interaction**: Automatically monitors the clipboard for dialogue events.
-- **Websocket Listening**: Listens to a websocket uri for text-events from stuff like Agent/Textractor.
-- **Hotkey Automation**: Single hotkey to trigger video recording, screenshot, and transcription.
-- **1-Click Card Creation**: Monitors anki for new cards from Yomitan, and automatically gets audio from games.
+* **AI Translation**: Integrates AI translation to provide quick translations of the captured sentence. (Optional, Bring your own Key)
+
+
+#### Game Example
+![anki_RozcrisS8B](https://github.com/user-attachments/assets/b1f08150-6b46-4d7d-ad90-e6c468076b05)
+
+![Audio](https://github.com/user-attachments/assets/94360986-8dbf-42c9-b3c3-d054893eac3d)
 
 ---
+
+#### VN Example
+![anki_Lk3Ds2T1Bz](https://github.com/user-attachments/assets/e8ae4d66-f138-4ae1-9df7-46e16249be41)
+
+![Audio](https://github.com/user-attachments/assets/2d7b3967-cd5c-4132-b489-75058ea20921)
+
+
+### OCR
+
+GSM integrates with [OwOCR](https://github.com/AuroraWright/owocr/) to provide accurate text capture from games that do not have a hook. Here are some improvements GSM makes on stock OwOCR.
+
+* **Easier Setup**: With GSM's managed python install, set up is only a matter of clicking a few buttons in GSM
+
+* **Exclusion Zones**: Intead of chosing an area to OCR, you can also choose an area to exclude from OCR. Useful for if you have a static interface in your game and text appears randomly throughout.
+
+* **Two-Pass OCR**: To cut down on API Calls, and keep output clean, GSM features a "Two-pass" OCR System. A Local OCR will be constantly running, and when the text on screen stabilizes, it will run a second, more accurate scan that gets sent to clipboard/websocket.
+
+* **Consistent Audio Timing**: With the two-pass system, we can still get accurate audio recorded and into anki without the use of crazy offsets or hacks.
+
+* **More Language Support**: Stock OwOCR is hard-coded to japanese, in GSM you can use a variety of langauges.
+
+
+![GameSentenceMiner_efBTEpbZ2A](https://github.com/user-attachments/assets/4b873f9e-c049-428c-9bfd-20907e095054)
+![anki_f3PdqYLN2n](https://github.com/user-attachments/assets/a901221c-6f7c-471b-a1f3-f29e8ced102c)
+
+![Audio](https://github.com/user-attachments/assets/8c44780a-9b74-41af-bf16-28a742f4de12)
+
+
+### Game Launcher Capabilities (WIP)
+
+This is probably the feature I care least about, but if you are lazy like me, you may find this helpful.
+
+* **Launch**:  GSM can launch your games directly, simplifying the setup process.
+
+* **Hook**:  Streamlines the process of hooking your games (Agent).
+
+This feature simplifies the process of launching games and hooking them with translation agents, making the entire workflow more efficient.
+
+![image](https://github.com/user-attachments/assets/eb630535-d291-4386-a5af-9f54b718896a)
 
 ## Documentation
 
-Help with Installation, Setup, and other information can be found in the project's [Wiki](https://github.com/bpwhelan/GameSentenceMiner/wiki).
+For help with installation, setup, and other information, please visit the project's [Wiki](https://github.com/bpwhelan/GameSentenceMiner/wiki).
 
-## Example Process
+## FAQ
 
-1. Start script: `gamesentenceminer`
-2. Start game
-3. Hook Game with Agent (or textractor) with clipboard enabled
-4. Create Anki Card with target word (through a texthooker page/Yomitan)
-5. When finished gaming, End script (not required)
+### How Does It Work?
 
-Once the Anki card is created:
+This is a common question, and understanding this process will help clarify any issues you might encounter while using GSM.
 
-1. **OBS** will save the last X seconds of gameplay.
-2. The Python script will trim the audio based on last clipboard event, and the end of voice line detected in VAD if
-   enabled.
-3. Will attempt to update the LAST anki card created.
+1.  The beginning of the voice line is marked by a text event. This usually comes from a textractor/agent event or another text-hooking engine. GSM can listen for clipboard copy and on a websocket server (configurable in GSM).
 
----
+2.  The end of the voice line is detected using a Voice Activity Detection (VAD) library running locally. ([Example](https://github.com/snakers4/silero-vad))
 
-## Disclaimer/Troubleshooting
+In essence, GSM relies on accurately timed text events to capture the corresponding audio.
 
-Every game/hook is different, so it's really impossible that any script can get it perfect every time. Also OBS is
-sometimes a bit finicky if running for too long. If the audio timing is off, please first try some troubleshooting
-steps before making an issue:
-
-- Try Restarting OBS
-- Make sure your hook is the best you can find. (Preferably it gives you the text RIGHT when the voice line starts)
-- Try Adjusting Offset Configuration in the config to better match your situation. (i.e. if the hook is late, add a
-  negative beginning offset)
-- Try using "Trim beginning" in `VAD` settings.
-
-### Setup Troubleshooting
-
-Just going to continuously update this with issues that I have helped users with. Look here first if you have issues
-setting it up.
-
-- Make sure folder_to_watch is the same as your recordings path in OBS. It defaults to ~/Videos, but I recommend setting
-  it to ~/Videos/GSM.
-- If using clipboard, make sure Agent/Textractor sending to clipboard is enabled.
-- If using websocket, make sure the websocket server is running and the uri is correct in both GSM AND agent/textractor. Textractor uses a default of 6677, and I would recommend changing Agent to use 6677 as well.
-
+GSM provides settings to accommodate less-than-ideal hooks. However, if you experience significant audio inconsistencies, the problem likely stems from a poorly timed hook, loud background music, or other external factors, rather than GSM itself. The core audio trimming logic has been stable and effective for many users across various games.
 
 ## Contact
 
-If you run into issues ask in my [Discord](https://discord.gg/yP8Qse6bb8), or make an issue here.
+If you encounter issues, please ask for help in my [Discord](https://discord.gg/yP8Qse6bb8) or create an issue here.
 
 ## Acknowledgements
 
-- [OwOCR](https://github.com/AuroraWright/owocr) for their amazing implementation of OCR that I was able to integrate into GSM.
-- [chaiNNer](https://github.com/chaiNNer-org/chaiNNer) for the idea of installing python in an electron app.
-- [OBS](https://obsproject.com/) and [FFMPEG](https://ffmpeg.org/), without these two, GSM would not be a thing.
+* [OwOCR](https://github.com/AuroraWright/owocr) for their outstanding OCR implementation, which I've integrated into GSM.
+
+* [chaiNNer](https://github.com/chaiNNer-org/chaiNNer) for the idea of installing Python within an Electron app.
+
+* [OBS](https://obsproject.com/) and [FFMPEG](https://ffmpeg.org/), without which GSM would not be possible.
 
 ## Donations
 
-If you've benefited from this or any of my other projects, please consider supporting my work
-via [Github Sponsors](https://github.com/sponsors/bpwhelan) or [Ko-fi.](https://ko-fi.com/beangate)
+If you've found this or any of my other projects helpful, please consider supporting my work through [GitHub Sponsors](https://github.com/sponsors/bpwhelan) or [Ko-fi](https://ko-fi.com/beangate).
