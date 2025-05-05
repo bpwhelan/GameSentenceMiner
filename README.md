@@ -87,7 +87,7 @@ For help with installation, setup, and other information, please visit the proje
 
 This is a common question, and understanding this process will help clarify any issues you might encounter while using GSM.
 
-1.  The beginning of the voice line is marked by a text event. This usually comes from Textractor, Agent, or another texthooker. GSM can listen for a clipboard copy and a WebSocket server (configurable in GSM).
+1.  The beginning of the voice line is marked by a text event. This usually comes from Textractor, Agent, or another texthooker. GSM can listen for a clipboard copy and/or a WebSocket server (configurable in GSM).
 
 2.  The end of the voice line is detected using a Voice Activity Detection (VAD) library running locally. ([Example](https://github.com/snakers4/silero-vad))
 
