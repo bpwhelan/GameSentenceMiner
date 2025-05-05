@@ -99,7 +99,8 @@ async def handle_new_text_event(current_clipboard, line_time=None):
     logger.info(f"Line Received: {current_line_after_regex}")
     current_line_time = line_time if line_time else datetime.now()
     add_line(current_line_after_regex, line_time)
-    await add_event_to_texthooker(get_text_log()[-1])
+    if len(get_text_log().values) > 0:
+        await add_event_to_texthooker(get_text_log()[-1])
 
 def reset_line_hotkey_pressed():
     global current_line_time

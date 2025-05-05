@@ -44,8 +44,8 @@ class GameText:
         self.values = []
         self.values_dict = {}
 
-    def __getitem__(self, key):
-        return self.values[key]
+    def __getitem__(self, index):
+        return self.values[index]
 
     def get_by_id(self, line_id: str) -> Optional[GameLine]:
         if not self.values_dict:
