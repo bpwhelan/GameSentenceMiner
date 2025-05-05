@@ -42,7 +42,7 @@ GSM integrates with [OwOCR](https://github.com/AuroraWright/owocr/) to provide a
 
 * **Easier Setup**: With GSM's managed Python install, setup is only a matter of clicking a few buttons.
 
-* **Exclusion Zones**: Intsead of choosing an area to OCR, you can choose an area to exclude from OCR. Useful if you have a static interface in your game and text appears randomly throughout.
+* **Exclusion Zones**: Instead of choosing an area to OCR, you can choose an area to exclude from OCR. Useful if you have a static interface in your game and text appears randomly throughout.
 
 * **Two-Pass OCR**: To cut down on API calls and keep output clean, GSM features a "Two-Pass" OCR System. A Local OCR will be constantly running, and when the text on screen stabilizes, it will run a second, more accurate scan that gets sent to clipboard/WebSocket.
 
