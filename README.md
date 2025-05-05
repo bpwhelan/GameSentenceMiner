@@ -12,15 +12,18 @@ Discord: https://discord.gg/yP8Qse6bb8
 
 ### Anki Card Enhancement
 
-GSM significantly enhances your Anki cards with rich contextual information:
+GSM can significantly enhances your Anki cards with rich contextual information:
 
 * **Automated Audio Capture**: Automatically records the voice line associated with the text.
 
-* **Screenshot Integration**: Captures a screenshot of the game at the moment the voice line is spoken.
+  * **Automatic Trim**: Some simple math around the time that the text event came in, in combination with a "Voice Activation Detection" (VAD) library gives us neatly cut audio.
+  * **Manual Trim**: If Automatic voiceline trim is not perfect, it's possible to [open the audio in an external program](https://youtu.be/LKFQFy2Qm64) for trimming.
 
-* **Contextual Awareness**: Preserves the surrounding game context to provide valuable learning cues. 
+* **Screenshot**: Captures a screenshot of the game at the moment the voice line is spoken.
 
-* **AI Translation**: Integrates AI to provide quick translations of the captured sentence. (Optional, Bring your own Key)
+* **Multi-Line**: It's possible to capture multiple lines at once with sentence audio with GSM's very own Texthooker.
+
+* **AI Translation**: Integrates AI to provide quick translations of the captured sentence. Custom Prompts also supported. (Optional, Bring your own Key)
 
 
 #### Game Example
