@@ -6,6 +6,8 @@ Short Demo (Watch this first): https://www.youtube.com/watch?v=FeFBL7py6HY
 
 Installation: https://youtu.be/h5ksXallc-o
 
+Discord: https://discord.gg/yP8Qse6bb8
+
 ## Features
 
 ### Anki Card Enhancement
@@ -24,14 +26,14 @@ GSM can significantly enhances your Anki cards with rich contextual information:
 #### Game Example
 ![anki_RozcrisS8B](https://github.com/user-attachments/assets/b1f08150-6b46-4d7d-ad90-e6c468076b05)
 
-![Audio](https://github.com/user-attachments/assets/94360986-8dbf-42c9-b3c3-d054893eac3d)
+Audio: https://github.com/user-attachments/assets/94360986-8dbf-42c9-b3c3-d054893eac3d
 
 ---
 
 #### VN Example
 ![anki_Lk3Ds2T1Bz](https://github.com/user-attachments/assets/e8ae4d66-f138-4ae1-9df7-46e16249be41)
 
-![Audio](https://github.com/user-attachments/assets/2d7b3967-cd5c-4132-b489-75058ea20921)
+Audio: https://github.com/user-attachments/assets/2d7b3967-cd5c-4132-b489-75058ea20921
 
 
 ### OCR
@@ -52,7 +54,7 @@ GSM integrates with [OwOCR](https://github.com/AuroraWright/owocr/) to provide a
 ![GameSentenceMiner_efBTEpbZ2A](https://github.com/user-attachments/assets/4b873f9e-c049-428c-9bfd-20907e095054)
 ![anki_f3PdqYLN2n](https://github.com/user-attachments/assets/a901221c-6f7c-471b-a1f3-f29e8ced102c)
 
-![Audio](https://github.com/user-attachments/assets/8c44780a-9b74-41af-bf16-28a742f4de12)
+Audio: https://github.com/user-attachments/assets/8c44780a-9b74-41af-bf16-28a742f4de12
 
 
 ### Game Launcher Capabilities (WIP)
