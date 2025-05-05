@@ -716,6 +716,7 @@ class ScreenSelector:
         canvas.bind('<Control-s>', self.save_rects)  # Save
         canvas.bind('<Control-z>', self.undo_last_rect)  # Undo
         canvas.bind('<Control-y>', self.redo_last_rect)  # Redo
+        canvas.bind("<m>", toggle_image_mode)  # Toggle image mode (alpha)
 
 
         # --- Bind Global Actions to the window (apply to all windows) ---
@@ -724,11 +725,12 @@ class ScreenSelector:
         window.bind('<Control-s>', self.save_rects)  # Save
         window.bind('<Control-z>', self.undo_last_rect)  # Undo
         window.bind('<Control-y>', self.redo_last_rect)  # Redo
-        # Optional: Add non-Ctrl versions if desired
+        # # Optional: Add non-Ctrl versions if desired
         window.bind('<s>', self.save_rects)
         window.bind('<z>', self.undo_last_rect)
         window.bind('<y>', self.redo_last_rect)
         window.bind("<Escape>", self.quit_app)  # Quit
+        window.bind('<Button-3>', on_right_click)  # Right click delete
         window.bind("<m>", toggle_image_mode)  # Toggle image mode (alpha)
 
     def start(self):

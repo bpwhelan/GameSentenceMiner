@@ -117,16 +117,30 @@ def on_disconnect(obs):
     connected = False
 
 
-def connect_to_obs():
+def connect_to_obs(retry_count=0):
     global client
-    if get_config().obs.enabled and not client:
-        if util.is_windows():
-            get_obs_websocket_config_values()
-        client = obsws(host=get_config().obs.host, port=get_config().obs.port,
-                       password=get_config().obs.password, authreconnect=1, on_connect=on_connect,
-                       on_disconnect=on_disconnect)
+    if not get_config().obs.enabled or client:
+        return
+
+    if util.is_windows():
+        get_obs_websocket_config_values()
+
+    try:
+        client = obsws(
+            host=get_config().obs.host,
+            port=get_config().obs.port,
+            password=get_config().obs.password,
+            authreconnect=1,
+            on_connect=on_connect,
+            on_disconnect=on_disconnect
+        )
         client.connect()
         update_current_game()
+    except Exception as e:
+        if retry_count % 5 == 0:
+            logger.error(f"Failed to connect to OBS WebSocket: {e}. Retrying...")
+        time.sleep(1)
+        connect_to_obs(retry_count=retry_count + 1)
 
 
 # Disconnect from OBS WebSocket
