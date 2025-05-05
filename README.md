@@ -67,6 +67,14 @@ This feature simplifies the process of launching games and hooking them with tra
 
 ![image](https://github.com/user-attachments/assets/eb630535-d291-4386-a5af-9f54b718896a)
 
+## Basic Requirements
+
+* **Anki Card Creation Tool** - Such as [Yomitan](https://github.com/yomidevs/yomitan), [JL](https://github.com/rampaa/JL), etc.
+
+* **A method of getting text from the game**: [Agent](https://github.com/0xDC00/agent), [Textractor](https://github.com/Artikash/Textractor), [LunaTranslator](https://github.com/HIllya51/LunaTranslator), GSM's OCR, etc.
+
+* **A game :)**
+
 ## Documentation
 
 For help with installation, setup, and other information, please visit the project's [Wiki](https://github.com/bpwhelan/GameSentenceMiner/wiki).
