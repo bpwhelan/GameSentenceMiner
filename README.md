@@ -68,7 +68,7 @@ This is probably the feature I care least about, but if you are lazy like me, yo
 
 * **Hook**:  Streamlines the process of hooking your games (Agent).
 
-This feature simplifies the process of launching games and hooking them with translation agents, making the entire workflow more efficient.
+This feature simplifies the process of launching games and (potentially) hooking them, making the entire workflow more efficient.
 
 ![image](https://github.com/user-attachments/assets/eb630535-d291-4386-a5af-9f54b718896a)
 
