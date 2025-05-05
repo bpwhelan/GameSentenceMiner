@@ -12,7 +12,7 @@ Discord: https://discord.gg/yP8Qse6bb8
 
 ### Anki Card Enhancement
 
-GSM can significantly enhances your Anki cards with rich contextual information:
+GSM significantly enhances your Anki cards with rich contextual information:
 
 * **Automated Audio Capture**: Automatically records the voice line associated with the text.
 
