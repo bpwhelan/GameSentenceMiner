@@ -1,6 +1,6 @@
 # GameSentenceMiner (GSM)
 
-An application designed to assist with language learning through games. Aiming to be the "asbplayer" for games.
+An application designed to assist with language learning through games. Aiming to be the "[asbplayer](https://github.com/killergerbah/asbplayer)" for games.
 
 Short Demo (Watch this first): https://www.youtube.com/watch?v=FeFBL7py6HY
 
