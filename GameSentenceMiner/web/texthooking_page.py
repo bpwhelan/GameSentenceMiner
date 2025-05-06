@@ -248,7 +248,6 @@ def clear_history():
 
 
 async def add_event_to_texthooker(line: GameLine):
-    logger.info("Adding event to web server: %s", line.text)
     new_event = event_manager.add_gameline(line)
     await broadcast_message({
         'event': 'text_received',
