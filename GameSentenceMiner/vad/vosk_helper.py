@@ -135,14 +135,13 @@ def process_audio_with_vosk(input_audio, output_audio):
     end_time = voice_activity[-1]['end'] if voice_activity else total_duration
 
     if get_config().vad.trim_beginning:
-        logger.info(f"Trimmed Beginning of Audio to {start_time}")
+        logger.info(f"VAD Trimmed Beginning of Audio to {start_time}")
 
     # Print detected speech details with timestamps
-    logger.info(f"Trimmed End of Audio to {end_time} seconds:")
+    logger.info(f"VAD Trimmed End of Audio to {end_time} seconds:")
 
     # Trim the audio using FFmpeg
     ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio)
-    logger.info(f"Trimmed audio saved to: {output_audio}")
     return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset)
 
 

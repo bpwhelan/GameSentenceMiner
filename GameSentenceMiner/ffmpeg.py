@@ -42,7 +42,7 @@ def get_screenshot(video_file, screenshot_timing):
     # Run the command
     subprocess.run(ffmpeg_command)
 
-    logger.info(f"Screenshot saved to: {output_image}")
+    logger.debug(f"Screenshot saved to: {output_image}")
 
     return output_image
 
@@ -50,14 +50,16 @@ def get_screenshot_for_line(video_file, game_line):
     return get_screenshot(video_file, get_screenshot_time(video_file, game_line))
 
 
-def get_screenshot_time(video_path, game_line, default_beginning=False, vad_result=None, doing_multi_line=False):
+def get_screenshot_time(video_path, game_line, default_beginning=False, vad_result=None, doing_multi_line=False, previous_line=False):
     if game_line:
         line_time = game_line.time
     else:
         # Assuming initial_time is defined elsewhere if game_line is None
         line_time = initial_time
-
-    logger.info("Calculating screenshot time for line: " + str(game_line.text))
+    if previous_line:
+        logger.debug(f"Calculating screenshot time for previous line: {str(game_line.text)}")
+    else:
+        logger.debug("Calculating screenshot time for line: " + str(game_line.text))
 
     file_length = get_video_duration(video_path)
     file_mod_time = get_file_modification_time(video_path)
@@ -69,27 +71,23 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_resu
 
     # Calculate screenshot time from the beginning by adding the offset
     if vad_result and vad_result.success and not doing_multi_line:
-        logger.debug("Using VAD to determine screenshot time")
-        screenshot_time_from_beginning = line_timestamp_in_video + vad_result.end - 0.1
+        screenshot_time_from_beginning = line_timestamp_in_video + vad_result.end - 1
+        logger.info(f"Using VAD result {vad_result} for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "beginning":
-        logger.debug("Using beginning of line for screenshot")
         screenshot_time_from_beginning = line_timestamp_in_video + screenshot_offset
+        logger.info(f"Using 'beginning' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "middle":
         if game_line.next:
-            logger.debug("Finding time between lines for screenshot")
             screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next.time - game_line.time).total_seconds() / 2) + screenshot_offset
         else:
-            logger.debug("Using end of line for screenshot")
             screenshot_time_from_beginning = file_length - abs(screenshot_offset)
+        logger.info(f"Using 'middle' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "end":
-        logger.debug("Using end of line for screenshot")
         if game_line.next:
-            logger.debug("Finding time between lines for screenshot")
             screenshot_time_from_beginning = line_timestamp_in_video + (game_line.next.time - game_line.time).total_seconds() - screenshot_offset
         else:
-            logger.debug("Using end of video for screenshot")
-            # If no next line, use the end of the video
             screenshot_time_from_beginning = file_length - screenshot_offset
+        logger.info(f"Using 'end' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     else:
         logger.error(f"Invalid screenshot timing setting: {get_config().screenshot.screenshot_timing_setting}")
         screenshot_time_from_beginning = line_timestamp_in_video + screenshot_offset
@@ -100,13 +98,8 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_resu
              f"Calculated screenshot time ({screenshot_time_from_beginning:.2f}s) is out of bounds for video (length {file_length:.2f}s)."
         )
         if default_beginning:
-            logger.info("Defaulting to using the beginning of the video (1.0s)")
-            # Return time for the start of the video
             return 1.0
-        logger.info(f"Defaulting to using the end of the video ({file_length:.2f}s)")
         return file_length - screenshot_offset
-
-    logger.info("Screenshot time from beginning: " + str(screenshot_time_from_beginning))
 
     # Return the calculated time from the beginning
     return screenshot_time_from_beginning
@@ -178,10 +171,10 @@ def get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation
 
     if codec == get_config().audio.extension:
         codec_command = ['-c:a', 'copy']
-        logger.info(f"Extracting {get_config().audio.extension} from video")
+        logger.debug(f"Extracting {get_config().audio.extension} from video")
     else:
         codec_command = ["-c:a", f"{supported_formats[get_config().audio.extension]}"]
-        logger.info(f"Re-encoding {codec} to {get_config().audio.extension}")
+        logger.debug(f"Re-encoding {codec} to {get_config().audio.extension}")
 
     untrimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(),
                                                   suffix=f"_untrimmed.{get_config().audio.extension}").name
@@ -231,7 +224,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
         minutes, seconds = divmod(remainder, 60)
         end_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
         ffmpeg_command.extend(['-to', end_trim_time])
-        logger.info(
+        logger.debug(
             f"Looks Like this is mining from History, or Multiple Lines were selected Trimming end of audio to {end_trim_time}")
 
     ffmpeg_command.extend([
@@ -244,7 +237,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
 
     logger.info(f"{total_seconds_after_offset} trimmed off of beginning")
 
-    logger.info(f"Audio trimmed and saved to {trimmed_audio}")
+    logger.debug(f"Audio trimmed and saved to {trimmed_audio}")
     return trimmed_audio
 
 def get_video_timings(video_path, game_line, anki_card_creation_time=None):
@@ -269,7 +262,7 @@ def get_video_timings(video_path, game_line, anki_card_creation_time=None):
 
 
 def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_options):
-    logger.info(f"Re-encode running with settings:  {user_ffmpeg_options}")
+    logger.debug(f"Re-encode running with settings:  {user_ffmpeg_options}")
     temp_file = create_temp_file_with_same_name(input_file)
     command = ffmpeg_base_command_list + [
         "-i", input_file,
@@ -297,7 +290,6 @@ def replace_file_with_retry(temp_file, input_file, retries=5, delay=1):
     for attempt in range(retries):
         try:
             shutil.move(temp_file, input_file)
-            logger.info(f'Re-encode Finished!')
             return
         except OSError as e:
             if attempt < retries - 1:

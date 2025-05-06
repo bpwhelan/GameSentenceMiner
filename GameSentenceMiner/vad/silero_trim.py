@@ -31,7 +31,6 @@ def process_audio_with_silero(input_audio, output_audio):
     voice_activity = detect_voice_with_silero(input_audio)
 
     if not voice_activity:
-        logger.info("No voice activity detected in the audio.")
         return VADResult(False, 0, 0)
 
     # Trim based on the first and last speech detected
@@ -40,5 +39,4 @@ def process_audio_with_silero(input_audio, output_audio):
 
     # Trim the audio using FFmpeg
     ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio)
-    logger.info(f"Trimmed audio saved to: {output_audio}")
     return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset)

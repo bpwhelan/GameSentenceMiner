@@ -99,7 +99,7 @@ class GeminiAI(AIManager):
             genai.configure(api_key=self.ai_config.api_key)
             model_name = self.ai_config.model
             self.model = genai.GenerativeModel(model_name)
-            self.logger.info(f"GeminiAIManager initialized with model: {model_name}")
+            self.logger.debug(f"GeminiAIManager initialized with model: {model_name}")
         except Exception as e:
             self.logger.error(f"Failed to initialize Gemini API: {e}")
             self.model = None
@@ -134,7 +134,7 @@ class GroqAI(AIManager):
         self.model_name = self.ai_config.model
         try:
             self.client = Groq(api_key=self.api_key)
-            self.logger.info(f"GroqAIManager initialized with model: {self.model_name}")
+            self.logger.debug(f"GroqAIManager initialized with model: {self.model_name}")
         except Exception as e:
             self.logger.error(f"Failed to initialize Groq client: {e}")
             self.client = None
@@ -187,7 +187,7 @@ def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: Gam
             return ""
         return ai_manager.process(lines, sentence, current_line, game_title)
     except Exception as e:
-        logger.info("Error caught while trying to get AI prompt result. Check logs for more details.")
+        logger.error("Error caught while trying to get AI prompt result. Check logs for more details.")
         logger.debug(e)
         return ""
 

@@ -45,10 +45,13 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
         if get_config().anki.previous_image_field:
-            try:
-                prev_screenshot = ffmpeg.get_screenshot(video_path, prev_ss_timing)
-            except Exception as e:
-                logger.error(f"Error getting previous screenshot based on VAD, Falling back to previous logic: {e}")
+            if prev_ss_timing != 0:
+                try:
+                    prev_screenshot = ffmpeg.get_screenshot(video_path, prev_ss_timing)
+                except Exception as e:
+                    logger.error(f"Error getting previous screenshot based on VAD, Falling back to previous logic: {e}")
+                    prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, selected_lines[0].prev if selected_lines else game_line.prev))
+            else:
                 prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, selected_lines[0].prev if selected_lines else game_line.prev))
             prev_screenshot_in_anki = store_media_file(prev_screenshot)
             if get_config().paths.remove_screenshot:
@@ -73,7 +76,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
             get_config().anki.sentence_field)
         translation = get_ai_prompt_result(get_all_lines(), sentence_to_translate,
                                  game_line, get_current_game())
-        logger.info(translation)
+        logger.info(f"AI prompt Result: {translation}")
         note['fields'][get_config().ai.anki_field] = translation
 
     if prev_screenshot_in_anki:
@@ -103,7 +106,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
 
 
 def open_audio_in_external(fileabspath, shell=False):
-    logger.info(f"Opening audio: {fileabspath} in external Program: {get_config().audio.external_tool}")
+    logger.info(f"Opening audio in external program...")
     if shell:
         subprocess.Popen(f' "{get_config().audio.external_tool}" "{fileabspath}" ', shell=True)
     else:
@@ -275,8 +278,8 @@ def update_new_card():
     if not last_card or not check_tags_for_should_update(last_card):
         return
     use_prev_audio = sentence_is_same_as_previous(last_card)
-    logger.info(f"last mined line: {util.get_last_mined_line()}, current sentence: {get_sentence(last_card)}")
-    logger.info(f"use previous audio: {use_prev_audio}")
+    logger.debug(f"last mined line: {util.get_last_mined_line()}, current sentence: {get_sentence(last_card)}")
+    logger.info(f"New card using previous audio: {use_prev_audio}")
     if get_config().obs.get_game_from_scene:
         obs.update_current_game()
     if use_prev_audio:
