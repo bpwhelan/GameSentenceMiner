@@ -30,7 +30,7 @@ interface Message {
 
 class WebSocketManager {
     private wss: WebSocketServer | null = null;
-    private ws: WebSocket | null = null;
+    ws: WebSocket | null = null;
 
     async startServer() {
         const port = await detectPort(store.get("port"));
@@ -65,7 +65,8 @@ class WebSocketManager {
         return port;
     }
 
-    sendMessage(message: Message): void {
+    async sendMessage(message: Message): Promise<void> {
+        await this.waitForWebSocketConnection()
         if (this.ws) {
             const jsonString = JSON.stringify(message);
             this.ws.send(jsonString);
@@ -74,16 +75,27 @@ class WebSocketManager {
         }
     }
 
-    sendQuitMessage(): void {
-        this.sendMessage({ function: FunctionName.Quit });
+    async sendQuitMessage(): Promise<void> {
+        await this.sendMessage({ function: FunctionName.Quit });
     }
 
-    sendQuitOBS(): void {
-        this.sendMessage({ function: FunctionName.QuitOBS });
+    async sendQuitOBS(): Promise<void> {
+        await this.sendMessage({ function: FunctionName.QuitOBS });
     }
 
-    sendStartOBS(): void {
-        this.sendMessage({ function: FunctionName.StartOBS });
+    async sendStartOBS(): Promise<void> {
+        await this.sendMessage({ function: FunctionName.StartOBS });
+    }
+
+    async waitForWebSocketConnection(): Promise<void> {
+        return new Promise((resolve) => {
+            const interval = setInterval(() => {
+                if (webSocketManager.ws) {
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 100);
+        });
     }
 
     private receiveMessage(message: Message) {
@@ -107,4 +119,6 @@ class WebSocketManager {
 
 export const webSocketManager = new WebSocketManager();
 
-webSocketManager.startServer()
+webSocketManager.startServer().then((port) => {
+    console.log(`WebSocket server started on port ${port}`);
+});

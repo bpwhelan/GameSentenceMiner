@@ -186,7 +186,7 @@ async function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 720,
-        icon: getIconPath(64),
+        icon: getIconPath(32),
         show: !getStartConsoleMinimized(),
         webPreferences: {
             nodeIntegration: true,
@@ -277,7 +277,7 @@ async function updateGSM(shouldRestart: boolean = false): Promise<void> {
 }
 
 function createTray() {
-    tray = new Tray(getIconPath(16)); // Replace with a valid icon path
+    tray = new Tray(getIconPath(32)); // Replace with a valid icon path
     const contextMenu = Menu.buildFromTemplate([
         {label: 'Show Console', click: () => mainWindow?.show()},
         {label: 'Update GSM', click: () => updateGSM(true)},

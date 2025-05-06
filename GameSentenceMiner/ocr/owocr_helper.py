@@ -207,7 +207,6 @@ rectangles = None
 
 def do_second_ocr(ocr1_text, rectangle_index, time, img):
     global twopassocr, ocr2, last_ocr1_results, last_ocr2_results
-    last_result = ([], -1)
     try:
         orig_text, text = run.process_and_write_results(img, None, None, None, None,
                                                         engine=ocr2)
@@ -218,6 +217,7 @@ def do_second_ocr(ocr1_text, rectangle_index, time, img):
         img.save(os.path.join(get_temporary_directory(), "last_successful_ocr.png"))
         last_ocr2_results[rectangle_index] = text
         send_result(text, time)
+        img.close()
     except json.JSONDecodeError:
         print("Invalid JSON received.")
     except Exception as e:

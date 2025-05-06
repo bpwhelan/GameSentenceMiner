@@ -1,5 +1,7 @@
 import asyncio
 
+from GameSentenceMiner.vad.result import VADResult
+
 try:
     import os.path
     import signal
@@ -134,32 +136,33 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
                 if get_config().anki.sentence_audio_field and get_config().audio.enabled:
                     logger.debug("Attempting to get audio from video")
-                    final_audio_output, should_update_audio, vad_trimmed_audio, vad_beginning, vad_end = VideoToAudioHandler.get_audio(
+                    final_audio_output, vad_result, vad_trimmed_audio = VideoToAudioHandler.get_audio(
                         start_line,
                         line_cutoff,
                         video_path,
                         anki_card_creation_time)
                 else:
                     final_audio_output = ""
-                    should_update_audio = False
+                    vad_result = VADResult(False, 0, 0)
                     vad_trimmed_audio = ""
-                    vad_beginning = 0
-                    vad_end = 0
                     if not get_config().audio.enabled:
                         logger.info("Audio is disabled in config, skipping audio processing!")
                     elif not get_config().anki.sentence_audio_field:
                         logger.info("No SentenceAudio Field in config, skipping audio processing!")
 
-                ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_beginning=vad_beginning, vad_end=vad_end, doing_multi_line=bool(selected_lines))
+                ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_result=vad_result, doing_multi_line=bool(selected_lines))
+                if get_config().anki.previous_image_field:
+                    prev_ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line.prev, vad_result=VideoToAudioHandler.get_audio(mined_line.prev, mined_line.time, video_path, anki_card_creation_time=anki_card_creation_time, timing_only=True) ,doing_multi_line=bool(selected_lines))
 
                 if get_config().anki.update_anki and last_note:
                     anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
                                           tango=tango,
-                                          should_update_audio=should_update_audio,
+                                          should_update_audio=vad_result.success,
                                           ss_time=ss_timing,
                                           game_line=start_line,
-                                          selected_lines=selected_lines)
-                elif get_config().features.notify_on_update and should_update_audio:
+                                          selected_lines=selected_lines,
+                                          prev_ss_timing=prev_ss_timing)
+                elif get_config().features.notify_on_update and vad_result.success:
                     notification.send_audio_generated_notification(vad_trimmed_audio)
         except Exception as e:
             logger.error(f"Failed Processing and/or adding to Anki: Reason {e}")
@@ -173,7 +176,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 
     @staticmethod
-    def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False):
+    def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False):
         trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time)
         if temporary:
             return trimmed_audio
@@ -181,23 +184,23 @@ class VideoToAudioHandler(FileSystemEventHandler):
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination,
                                                                 f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
-        should_update_audio = True
-        vad_beginning, vad_end = 0, 0
+        result = VADResult(False, 0, 0)
         if get_config().vad.do_vad_postprocessing:
-            should_update_audio, vad_beginning, vad_end = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio, vad_trimmed_audio)
-            if not should_update_audio:
-                should_update_audio, vad_beginning, vad_end = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio,
+            result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio, vad_trimmed_audio)
+            if not result.success:
+                result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio,
                                                         vad_trimmed_audio)
-            if not should_update_audio and get_config().vad.add_audio_on_no_results:
+            if not result.success and get_config().vad.add_audio_on_no_results:
                 logger.info("No voice activity detected, using full audio.")
                 vad_trimmed_audio = trimmed_audio
-                should_update_audio = True
+        if timing_only:
+            return result
         if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
                                                   get_config().audio.ffmpeg_reencode_options)
         elif os.path.exists(vad_trimmed_audio):
             shutil.move(vad_trimmed_audio, final_audio_output)
-        return final_audio_output, should_update_audio, vad_trimmed_audio, vad_beginning, vad_end
+        return final_audio_output, result, vad_trimmed_audio
 
 
 def do_vad_processing(model, trimmed_audio, vad_trimmed_audio, second_pass=False):

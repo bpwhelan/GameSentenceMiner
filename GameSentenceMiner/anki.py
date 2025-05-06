@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from requests import post
 
 from GameSentenceMiner import obs, util, notification, ffmpeg
-from GameSentenceMiner.ai.ai_prompting import GeminiAI, get_ai_prompt_result
+from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.configuration import get_config
 from GameSentenceMiner.model import AnkiCard
@@ -28,7 +28,7 @@ card_queue = []
 
 
 def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
-                     should_update_audio=True, ss_time=0, game_line=None, selected_lines=None):
+                     should_update_audio=True, ss_time=0, game_line=None, selected_lines=None, prev_ss_timing=0):
     global audio_in_anki, screenshot_in_anki, prev_screenshot_in_anki
     update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not
     last_note.get_field(get_config().anki.sentence_audio_field) or get_config().anki.overwrite_audio)
@@ -45,7 +45,11 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
         if get_config().anki.previous_image_field:
-            prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, selected_lines[0].prev if selected_lines else game_line.prev))
+            try:
+                prev_screenshot = ffmpeg.get_screenshot(video_path, prev_ss_timing)
+            except Exception as e:
+                logger.error(f"Error getting previous screenshot based on VAD, Falling back to previous logic: {e}")
+                prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, selected_lines[0].prev if selected_lines else game_line.prev))
             prev_screenshot_in_anki = store_media_file(prev_screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(prev_screenshot)
