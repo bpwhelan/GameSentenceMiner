@@ -151,6 +151,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                         logger.info("No SentenceAudio Field in config, skipping audio processing!")
 
                 ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_result=vad_result, doing_multi_line=bool(selected_lines))
+                prev_ss_timing = 0
                 if get_config().anki.previous_image_field and get_config().vad.do_vad_postprocessing:
                     prev_ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line.prev,
                                                                 vad_result=VideoToAudioHandler.get_audio(game_line=mined_line.prev,
