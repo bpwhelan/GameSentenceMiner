@@ -70,17 +70,17 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_begi
     # Calculate screenshot time from the beginning by adding the offset
     if vad_beginning and vad_end and not doing_multi_line:
         logger.debug("Using VAD to determine screenshot time")
-        screenshot_time_from_beginning = line_timestamp_in_video + vad_end - screenshot_offset
+        screenshot_time_from_beginning = line_timestamp_in_video + vad_end - 0.1
     elif get_config().screenshot.screenshot_timing_setting == "beginning":
         logger.debug("Using beginning of line for screenshot")
         screenshot_time_from_beginning = line_timestamp_in_video + screenshot_offset
     elif get_config().screenshot.screenshot_timing_setting == "middle":
         if game_line.next:
             logger.debug("Finding time between lines for screenshot")
-            screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next.time - game_line.time).total_seconds() / 2)
+            screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next.time - game_line.time).total_seconds() / 2) + screenshot_offset
         else:
             logger.debug("Using end of line for screenshot")
-            screenshot_time_from_beginning = file_length - screenshot_offset
+            screenshot_time_from_beginning = file_length - abs(screenshot_offset)
     elif get_config().screenshot.screenshot_timing_setting == "end":
         logger.debug("Using end of line for screenshot")
         if game_line.next:
