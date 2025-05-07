@@ -1,4 +1,5 @@
 import asyncio
+import ctypes
 import json
 import logging
 import os
@@ -366,6 +367,7 @@ if __name__ == "__main__":
     logger.info(f"Received arguments: ocr1={ocr1}, ocr2={ocr2}, twopassocr={twopassocr}")
     global ocr_config
     ocr_config: OCRConfig = get_ocr_config()
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
     if ocr_config:
         if ocr_config.window:
             start_time = time.time()
@@ -377,7 +379,7 @@ if __name__ == "__main__":
             else:
                 logger.error(f"Window '{ocr_config.window}' not found within 30 seconds.")
                 sys.exit(1)
-    logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {len(ocr_config.rectangles)}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
+    logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
     if ocr_config:
         rectangles = list(filter(lambda rect: not rect.is_excluded, ocr_config.rectangles))
         last_ocr1_results = [""] * len(rectangles) if rectangles else [""]

@@ -1,3 +1,4 @@
+import ctypes
 import json
 import sys
 from multiprocessing import Process, Manager
@@ -856,6 +857,7 @@ def get_screen_selection(window_name):
 if __name__ == "__main__":
     target_window_title = None  # Default to absolute coordinates
     # Check for command line arguments to specify window title
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
     if len(sys.argv) > 1:
         target_window_title = sys.argv[1]
         print(f"Attempting to target window title from args: '{target_window_title}'")

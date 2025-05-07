@@ -1,3 +1,4 @@
+import ctypes
 from dataclasses import dataclass
 from math import floor, ceil
 
@@ -49,6 +50,7 @@ class OCRConfig:
         if self.coordinate_system and self.coordinate_system == "percentage" and self.window:
             import pygetwindow as gw
             try:
+                ctypes.windll.shcore.SetProcessDpiAwareness(2)
                 window = gw.getWindowsWithTitle(self.window)[0]
                 self.window_geometry = WindowGeometry(
                     left=window.left,
@@ -56,6 +58,7 @@ class OCRConfig:
                     width=window.width,
                     height=window.height,
                 )
+                print(f"Window '{self.window}' found with geometry: {self.window_geometry}")
             except IndexError:
                 raise ValueError(f"Window with title '{self.window}' not found.")
             for rectangle in self.rectangles:
