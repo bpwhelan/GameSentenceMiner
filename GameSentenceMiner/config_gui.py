@@ -777,7 +777,7 @@ class ConfigApp:
         self.seconds_after_line = ttk.Entry(screenshot_frame)
         self.seconds_after_line.insert(0, str(self.settings.screenshot.seconds_after_line))
         self.seconds_after_line.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(screenshot_frame, "Time in seconds to offset the screenshot based on the Timing setting above (should almost always be positive)", row=self.current_row,
+        self.add_label_and_increment_row(screenshot_frame, "Time in seconds to offset the screenshot based on the Timing setting above (should almost always be positive, can be negative if you use \"middle\")", row=self.current_row,
                                          column=2)
 
         # ttk.Label(screenshot_frame, text="Use Beginning of Line as Screenshot:").grid(row=self.current_row, column=0, sticky='W')

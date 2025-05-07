@@ -45,14 +45,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
         if get_config().anki.previous_image_field:
-            if prev_ss_timing != 0:
-                try:
-                    prev_screenshot = ffmpeg.get_screenshot(video_path, prev_ss_timing)
-                except Exception as e:
-                    logger.error(f"Error getting previous screenshot based on VAD, Falling back to previous logic: {e}")
-                    prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, selected_lines[0].prev if selected_lines else game_line.prev))
-            else:
-                prev_screenshot = ffmpeg.get_screenshot(video_path, ffmpeg.get_screenshot_time(video_path, selected_lines[0].prev if selected_lines else game_line.prev))
+            prev_screenshot = ffmpeg.get_screenshot_for_line(video_path, selected_lines[0].prev if selected_lines else game_line.prev)
             prev_screenshot_in_anki = store_media_file(prev_screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(prev_screenshot)

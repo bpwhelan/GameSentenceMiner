@@ -68,6 +68,7 @@ class WebSocketManager {
     async sendMessage(message: Message): Promise<void> {
         await this.waitForWebSocketConnection()
         if (this.ws) {
+            console.info("Sending to Python:", message);
             const jsonString = JSON.stringify(message);
             this.ws.send(jsonString);
         } else {
@@ -75,15 +76,15 @@ class WebSocketManager {
         }
     }
 
-    async sendQuitMessage(): Promise<void> {
+    async sendQuitMessage() {
         await this.sendMessage({ function: FunctionName.Quit });
     }
 
-    async sendQuitOBS(): Promise<void> {
+    async sendQuitOBS() {
         await this.sendMessage({ function: FunctionName.QuitOBS });
     }
 
-    async sendStartOBS(): Promise<void> {
+    async sendStartOBS() {
         await this.sendMessage({ function: FunctionName.StartOBS });
     }
 

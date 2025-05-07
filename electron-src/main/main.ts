@@ -258,7 +258,7 @@ async function updateGSM(shouldRestart: boolean = false): Promise<void> {
     const {updateAvailable, latestVersion} = await checkForUpdates();
     if (updateAvailable) {
         console.log("Update available. Closing GSM...");
-        closeGSM();
+        await closeGSM();
         console.log(`Updating GSM Python Application to ${latestVersion}...`)
         try {
             await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", getCustomPythonPackage()], true, true);
@@ -404,25 +404,29 @@ if (!app.requestSingleInstanceLock()) {
     });
 }
 
-function closeGSM(): void {
-    webSocketManager.sendQuitMessage();
+async function closeGSM(): Promise<void> {
+    restartingGSM = true;
+    await webSocketManager.sendQuitMessage();
 }
 
-function restartGSM(): void {
+async function restartGSM(): Promise<void> {
     restartingGSM = true;
-    webSocketManager.sendQuitMessage();
-    ensureAndRunGSM(pythonPath).then(() => {
-        console.log('GSM Successfully Restarted!')
+    webSocketManager.sendQuitMessage().then(() => {
+        ensureAndRunGSM(pythonPath).then(() => {
+            console.log('GSM Successfully Restarted!')
+        });
     });
 }
 
-function quit(): void {
-    webSocketManager.sendQuitMessage();
-    app.quit();
+async function quit(): Promise<void> {
+    webSocketManager.sendQuitMessage().then(() => {
+        console.log('GSM Successfully Quit!')
+        app.quit();
+    });
 }
 
-function restart(): void {
-    closeGSM();
+async function restart(): Promise<void> {
+    await closeGSM();
     app.relaunch();
     app.quit();
 }

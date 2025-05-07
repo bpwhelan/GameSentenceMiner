@@ -151,14 +151,14 @@ class VideoToAudioHandler(FileSystemEventHandler):
                         logger.info("No SentenceAudio Field in config, skipping audio processing!")
 
                 ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_result=vad_result, doing_multi_line=bool(selected_lines))
-                prev_ss_timing = 0
-                if get_config().anki.previous_image_field and get_config().vad.do_vad_postprocessing:
-                    prev_ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line.prev,
-                                                                vad_result=VideoToAudioHandler.get_audio(game_line=mined_line.prev,
-                                                                 next_line_time=mined_line.time,
-                                                                 video_path=video_path,
-                                                                 anki_card_creation_time=anki_card_creation_time,
-                                                                 timing_only=True) ,doing_multi_line=bool(selected_lines), previous_line=True)
+                # prev_ss_timing = 0
+                # if get_config().anki.previous_image_field and get_config().vad.do_vad_postprocessing:
+                #     prev_ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line.prev,
+                #                                                 vad_result=VideoToAudioHandler.get_audio(game_line=mined_line.prev,
+                #                                                  next_line_time=mined_line.time,
+                #                                                  video_path=video_path,
+                #                                                  anki_card_creation_time=anki_card_creation_time,
+                #                                                  timing_only=True) ,doing_multi_line=bool(selected_lines), previous_line=True)
 
                 if get_config().anki.update_anki and last_note:
                     anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
@@ -166,8 +166,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                                           should_update_audio=vad_result.success,
                                           ss_time=ss_timing,
                                           game_line=start_line,
-                                          selected_lines=selected_lines,
-                                          prev_ss_timing=prev_ss_timing)
+                                          selected_lines=selected_lines)
                 elif get_config().features.notify_on_update and vad_result.success:
                     notification.send_audio_generated_notification(vad_trimmed_audio)
         except Exception as e:

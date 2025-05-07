@@ -358,7 +358,7 @@ export async function registerOBSIPC() {
     async function modifyAutoSceneSwitcherInJSON(sceneName: string, windowTitle: string): Promise<void> {
         try {
             await getOBSConnection();
-            webSocketManager.sendQuitOBS();
+            await webSocketManager.sendQuitOBS();
             const currentSceneCollection = await obs.call('GetSceneCollectionList');
             const sceneCollectionName = currentSceneCollection.currentSceneCollectionName;
 
