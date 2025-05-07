@@ -80,7 +80,7 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_resu
         if game_line.next:
             screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next.time - game_line.time).total_seconds() / 2) + screenshot_offset
         else:
-            screenshot_time_from_beginning = file_length - abs(screenshot_offset)
+            screenshot_time_from_beginning = ((file_length - line_timestamp_in_video) / 2) + screenshot_offset
         logger.info(f"Using 'middle' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "end":
         if game_line.next:

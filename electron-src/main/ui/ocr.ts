@@ -57,7 +57,7 @@ export function registerOCRUtilsIPC() {
                 stdio: 'ignore'
             });
             mainWindow?.webContents.send('terminal-output', `Running screen area selector in background...`);
-        }, 3000);
+        }, 1000);
     });
 
     ipcMain.handle('ocr.open-config-json', async () => {

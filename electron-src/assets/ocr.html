@@ -32,6 +32,12 @@
         </select>
     </label>
     <button id="install-selected-dep">Install Selected Dependency</button>
+    <span class="tooltip">❓
+        <span class="tooltiptext">
+            Installs the selected dependency. If you want to use OneOCR, you need to install the OneOCR files as well.
+            If you are not sure what to install, just install the recommended.
+        </span>
+    </span>
 </div>
 <div>
     <label for="dependency-select-removal">
@@ -63,7 +69,24 @@
         <label for="windowSelect">Window:</label>
         <select id="windowSelect"></select>
         <button id="refreshWindowsBtn">&#x21bb;</button>
-        <button id="run-screen-selector">Run Screen Area Selector</button>
+        <button id="run-screen-selector">Run Area Selector (Required)</button>
+        <span class="tooltip">❓
+            <span class="tooltiptext">
+                Select the Scene and Window you want to OCR, and then select the area you want to OCR.
+                <br>
+                The area selector will open after 1 second.
+                <br>
+                Keys:
+                <ul>
+                    <li>Left Click: Select the area</li>
+                    <li>Shift Left Click: Select Exclusion Zone</li>
+                    <li>Ctrl+S: Save</li>
+                    <li>Ctrl+Z: Undo Rectangle</li>
+                    <li>Ctrl+Y: Re-Apply Rectangle</li>
+                    <li>Esc: Quit Without Saving</li>
+                </ul>
+            </span>
+        </span>
     </div>
     <div>
         <label for="ocr1-input">
@@ -103,6 +126,11 @@
             Enable Two Pass OCR:
             <input type="checkbox" id="two-pass-ocr">
         </label>
+        <span class="tooltip">❓
+            <span class="tooltiptext">
+                OCR Option 1 runs at the set scan rate. If two pass is enabled, and the text does not change by the next scan, it will then do the second scan.
+            </span>
+        </span>
     </div>
 </div>
 <div>
@@ -123,13 +151,28 @@
 
 <div>
     <label for="require-open-window">
-        Require Open Window:
+        Require Active Window:
         <input type="checkbox" id="require-open-window">
     </label>
+    <span class="tooltip">❓
+        <span class="tooltiptext">
+            Enabling this option requires the selected window to be active for OCR to work, if the window is inactive, OCR will be paused.
+        </span>
+    </span>
     <label for="ocr-scan-rate">
         OCR Scan Rate (s):
         <input type="number" id="ocr-scan-rate" value=".5" min=".0" step=".1">
     </label>
+    <span class="tooltip">❓
+        <span class="tooltiptext">
+            <ul>
+                <li>The OCR scan rate determines how frequently the OCR process scans the screen.</li>
+                <li>Lower values increase responsiveness but may consume more resources.</li>
+                <li>Higher values reduce resource usage but may delay updates.</li>
+                <li>If your text doesn't appear instantly, lower values may result in partial text results.</li>
+            </ul>
+        </span>
+    </span>
 </div>
 <button id="start-ocr">Start OCR</button>
 <div>
