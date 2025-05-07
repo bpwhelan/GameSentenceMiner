@@ -70,7 +70,7 @@ async function autoUpdate() {
             .showMessageBox({
                 type: "info",
                 title: "Update Ready",
-                message: "A new version has been downloaded. Restart now to install, This will also attempt to update the python app?",
+                message: "A new version has been downloaded. Restart now to install. This will also attempt to update the Python app.",
                 buttons: ["Restart", "Later"],
             })
             .then((result) => {
