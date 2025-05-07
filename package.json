@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.5.6",
+  "version": "1.5.7",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -38,7 +38,8 @@
       "target": "nsis",
       "icon": "icon.ico",
       "sign": false,
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "mac": {
       "target": "dmg"
