@@ -129,7 +129,7 @@ class ConfigApp:
                 use_clipboard=self.clipboard_enabled.get(),
                 websocket_uri=self.websocket_uri.get(),
                 open_config_on_startup=self.open_config_on_startup.get(),
-                open_multimine_on_startup=self.open_multimine_on_startup.get(),
+
                 texthook_replacement_regex=self.texthook_replacement_regex.get(),
                 use_both_clipboard_and_websocket=self.use_both_clipboard_and_websocket.get()
             ),
