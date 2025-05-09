@@ -65,19 +65,24 @@ class WebSocketManager {
         return port;
     }
 
-    async sendMessage(message: Message): Promise<void> {
-        await this.waitForWebSocketConnection()
-        if (this.ws) {
-            console.info("Sending to Python:", message);
-            const jsonString = JSON.stringify(message);
-            this.ws.send(jsonString);
-        } else {
-            console.error("WebSocket is not connected.");
-        }
+    async sendMessage(message: Message): Promise<boolean> {
+        return new Promise(async (resolve, reject) => {
+            this.waitForWebSocketConnection().then(() => {
+                if (this.ws) {
+                    console.info("Sending to Python:", message);
+                    const jsonString = JSON.stringify(message);
+                    this.ws.send(jsonString);
+                    resolve(true);
+                } else {
+                    console.error("WebSocket is not connected.");
+                    resolve(false);
+                }
+            });
+        })
     }
 
-    async sendQuitMessage() {
-        await this.sendMessage({ function: FunctionName.Quit });
+    async sendQuitMessage(): Promise<boolean> {
+        return await this.sendMessage({ function: FunctionName.Quit });
     }
 
     async sendQuitOBS() {
@@ -89,11 +94,16 @@ class WebSocketManager {
     }
 
     async waitForWebSocketConnection(): Promise<void> {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
+            let attempts = 0;
+            const maxAttempts = 5;
             const interval = setInterval(() => {
                 if (webSocketManager.ws) {
                     clearInterval(interval);
                     resolve();
+                } else if (++attempts >= maxAttempts) {
+                    clearInterval(interval);
+                    reject(new Error("WebSocket connection failed after 5 attempts."));
                 }
             }, 100);
         });
@@ -101,6 +111,7 @@ class WebSocketManager {
 
     private receiveMessage(message: Message) {
         try {
+            console.log("Received message from python:", message);
             switch (message.function) {
                 case FunctionName.Start:
                     console.log("Start received");

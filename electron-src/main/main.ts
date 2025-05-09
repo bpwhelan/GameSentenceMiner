@@ -253,10 +253,10 @@ async function createWindow() {
 }
 
 
-async function updateGSM(shouldRestart: boolean = false): Promise<void> {
+async function updateGSM(shouldRestart: boolean = false, force = false): Promise<void> {
     isUpdating = true;
     const {updateAvailable, latestVersion} = await checkForUpdates();
-    if (updateAvailable) {
+    if (updateAvailable || force) {
         console.log("Update available. Closing GSM...");
         await closeGSM();
         console.log(`Updating GSM Python Application to ${latestVersion}...`)
@@ -280,7 +280,7 @@ function createTray() {
     tray = new Tray(getIconPath(32)); // Replace with a valid icon path
     const contextMenu = Menu.buildFromTemplate([
         {label: 'Show Console', click: () => mainWindow?.show()},
-        {label: 'Update GSM', click: () => updateGSM(true)},
+        {label: 'Update GSM', click: () => updateGSM(true, true)},
         {label: 'Restart GSM', click: () => restartGSM()},
         {label: "Open GSM Folder", click: () => shell.openPath(BASE_DIR)},
         {label: 'Quit', click: () => quit()},
@@ -406,7 +406,13 @@ if (!app.requestSingleInstanceLock()) {
 
 async function closeGSM(): Promise<void> {
     restartingGSM = true;
-    await webSocketManager.sendQuitMessage();
+    webSocketManager.sendQuitMessage().then((messageSent: boolean) => {
+        if (messageSent) {
+            console.log("Quit message sent to GSM.");
+        } else {
+            pyProc?.kill();
+        }
+    });
 }
 
 async function restartGSM(): Promise<void> {
