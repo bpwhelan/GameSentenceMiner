@@ -204,7 +204,7 @@ class ConfigApp:
             hotkeys=Hotkeys(
                 reset_line=self.reset_line_hotkey.get(),
                 take_screenshot=self.take_screenshot_hotkey.get(),
-                open_utility=self.open_utility_hotkey.get(),
+                #open_utility=self.open_utility_hotkey.get(),
                 play_latest_audio=self.play_latest_audio_hotkey.get()
             ),
             vad=VAD(
