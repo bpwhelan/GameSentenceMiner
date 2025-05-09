@@ -67,6 +67,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     @staticmethod
     def convert_to_audio(video_path):
+        vad_trimmed_audio = ''
         try:
             if texthooking_page.event_manager.line_for_audio:
                 line: GameLine = texthooking_page.event_manager.line_for_audio
@@ -174,9 +175,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
             logger.debug(f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
             notification.send_error_no_anki_update()
         finally:
-            if get_config().paths.remove_video and os.path.exists(video_path):
+            if video_path and get_config().paths.remove_video and os.path.exists(video_path):
                 os.remove(video_path)  # Optionally remove the video after conversion
-            if get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
+            if vad_trimmed_audio and get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
                 os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
 
 
@@ -289,8 +290,6 @@ def register_hotkeys():
         keyboard.add_hotkey(get_config().hotkeys.take_screenshot, get_screenshot)
     if get_config().hotkeys.play_latest_audio:
         keyboard.add_hotkey(get_config().hotkeys.play_latest_audio, play_most_recent_audio)
-    if get_config().hotkeys.open_utility:
-        keyboard.add_hotkey(get_config().hotkeys.open_utility, texthooking_page.open_texthooker)
 
 
 def get_screenshot():
@@ -386,7 +385,7 @@ def open_multimine(icon, item):
     texthooking_page.open_texthooker()
 
 
-def update_icon():
+def update_icon(profile=None):
     global menu, icon
     # Recreate the menu with the updated button text
     profile_menu = Menu(
@@ -483,7 +482,6 @@ def restart_obs():
         close_obs()
         time.sleep(1)
         obs.start_obs()
-        obs.connect_to_obs()
 
 
 def cleanup():
@@ -558,25 +556,6 @@ def initialize_async():
         threads.append(util.run_new_thread(task))
     return threads
 
-
-def post_init():
-    def do_post_init():
-        global silero_trim, whisper_helper, vosk_helper
-        logger.info("Post-Initialization started.")
-        if get_config().obs.enabled:
-            obs.connect_to_obs()
-            check_obs_folder_is_correct()
-            from GameSentenceMiner.vad import vosk_helper
-            from GameSentenceMiner.vad import whisper_helper
-            if get_config().vad.is_vosk():
-                vosk_helper.get_vosk_model()
-            if get_config().vad.is_whisper():
-                whisper_helper.initialize_whisper_model()
-            if get_config().vad.is_silero():
-                from GameSentenceMiner.vad import silero_trim
-
-    util.run_new_thread(do_post_init)
-
 def handle_websocket_message(message: Message):
     match FunctionName(message.function):
         case FunctionName.QUIT:
@@ -586,19 +565,67 @@ def handle_websocket_message(message: Message):
             close_obs()
         case FunctionName.START_OBS:
             obs.start_obs()
-            obs.connect_to_obs()
         case _:
             logger.debug(f"unknown message from electron websocket: {message.to_json()}")
 
 def post_init2():
     asyncio.run(gametext.start_text_monitor())
 
+
+def async_loop():
+    async def loop():
+        await obs.connect_to_obs()
+        if get_config().obs.enabled:
+            await register_scene_switcher_callback()
+            await check_obs_folder_is_correct()
+        logger.info("Post-Initialization started.")
+        if get_config().vad.is_vosk():
+            from GameSentenceMiner.vad import vosk_helper
+            vosk_helper.get_vosk_model()
+        if get_config().vad.is_whisper():
+            from GameSentenceMiner.vad import whisper_helper
+            whisper_helper.initialize_whisper_model()
+        if get_config().vad.is_silero():
+            from GameSentenceMiner.vad import silero_trim
+
+    asyncio.run(loop())
+
+
+async def register_scene_switcher_callback():
+    def scene_switcher_callback(scene):
+        logger.info(f"Scene changed to: {scene}")
+        all_configured_scenes = [config.scenes for config in get_master_config().configs.values()]
+        print(all_configured_scenes)
+        matching_configs = [name.strip() for name, config in config_instance.configs.items() if scene.strip() in config.scenes]
+        switch_to = None
+
+        if len(matching_configs) > 1:
+            selected_scene = settings_window.show_scene_selection(matched_configs=matching_configs)
+            if selected_scene:
+                switch_to = selected_scene
+            else:
+                return
+        elif matching_configs:
+            switch_to = matching_configs[0]
+        elif get_master_config().switch_to_default_if_not_found:
+            switch_to = configuration.DEFAULT_CONFIG
+
+        if switch_to and switch_to != get_master_config().current_profile:
+            logger.info(f"Switching to profile: {switch_to}")
+            get_master_config().current_profile = switch_to
+            switch_profile_and_save(switch_to)
+            settings_window.reload_settings()
+            update_icon()
+
+    logger.info("Registering scene switcher callback")
+    await obs.register_scene_change_callback(scene_switcher_callback)
+
 async def main(reloading=False):
     global root, settings_window
+    initialize(reloading)
     logger.info("Script started.")
     root = ttk.Window(themename='darkly')
     settings_window = config_gui.ConfigApp(root)
-    initialize(reloading)
     initialize_async()
     observer = Observer()
     observer.schedule(VideoToAudioHandler(), get_config().paths.folder_to_watch, recursive=False)
@@ -608,6 +635,7 @@ async def main(reloading=False):
 
     util.run_new_thread(post_init2)
     util.run_new_thread(run_text_hooker_page)
+    util.run_new_thread(async_loop)
 
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
@@ -619,7 +647,6 @@ async def main(reloading=False):
     try:
         # if get_config().general.open_config_on_startup:
         #     root.after(0, settings_window.show)
-        root.after(50, post_init)
         settings_window.add_save_hook(update_icon)
         settings_window.on_exit = exit_program
         root.mainloop()

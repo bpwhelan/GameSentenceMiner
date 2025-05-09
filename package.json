@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.5.9",
+  "version": "1.5.10",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -69,9 +69,7 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
-    "@xterm/xterm": "^5.5.0",
     "axios": "^1.8.1",
-    "decompress": "^4.2.1",
     "detect-port": "^2.1.0",
     "electron-log": "^5.3.2",
     "electron-store": "^10.0.1",
@@ -80,10 +78,7 @@
     "node-window-manager": "^2.2.4",
     "nodejs-file-downloader": "^4.13.0",
     "obs-websocket-js": "^5.0.6",
-    "python-shell": "^5.0.0",
     "tar": "^7.4.3",
-    "ws": "^8.18.1",
-    "xterm": "^5.3.0",
-    "xterm-addon-fit": "^0.8.0"
+    "ws": "^8.18.1"
   }
 }

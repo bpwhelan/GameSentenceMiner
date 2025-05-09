@@ -83,6 +83,24 @@ class SceneItemsResponse:
 class RecordDirectory:
     recordDirectory: str
 
+
+@dataclass_json
+@dataclass
+class SceneItemInfo:
+    sceneIndex: int
+    sceneName: str
+    sceneUuid: str
+
+
+@dataclass_json
+@dataclass
+class SceneListResponse:
+    scenes: List[SceneItemInfo]
+    currentProgramSceneName: Optional[str] = None
+    currentProgramSceneUuid: Optional[str] = None
+    currentPreviewSceneName: Optional[str] = None
+    currentPreviewSceneUuid: Optional[str] = None
+
 #
 # @dataclass_json
 # @dataclass

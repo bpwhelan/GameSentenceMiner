@@ -50,7 +50,7 @@ class OCRConfig:
         if self.coordinate_system and self.coordinate_system == "percentage" and self.window:
             import pygetwindow as gw
             try:
-                ctypes.windll.shcore.SetProcessDpiAwareness(2)
+                set_dpi_awareness()
                 window = gw.getWindowsWithTitle(self.window)[0]
                 self.window_geometry = WindowGeometry(
                     left=window.left,
@@ -69,3 +69,11 @@ class OCRConfig:
                     ceil(rectangle.coordinates[3] * self.window_geometry.height),
                 ]
 
+# try w10+, fall back to w8.1+
+def set_dpi_awareness():
+    try:
+        awareness_context = -4
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(awareness_context)
+    except AttributeError:
+        per_monitor_awareness = 2
+        ctypes.windll.shcore.SetProcessDpiAwareness(per_monitor_awareness)

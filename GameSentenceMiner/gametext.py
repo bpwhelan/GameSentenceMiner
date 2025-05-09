@@ -28,6 +28,9 @@ async def monitor_clipboard():
 
     skip_next_clipboard = False
     while True:
+        if not get_config().general.use_clipboard:
+            await asyncio.sleep(1)
+            continue
         if not get_config().general.use_both_clipboard_and_websocket and websocket_connected:
             await asyncio.sleep(1)
             skip_next_clipboard = True
@@ -44,8 +47,11 @@ async def monitor_clipboard():
 async def listen_websocket():
     global current_line, current_line_time, reconnecting, websocket_connected
     try_other = False
-    websocket_url = f'ws://{get_config().general.websocket_uri}/gsm'
     while True:
+        if not get_config().general.use_websocket:
+            await asyncio.sleep(1)
+            continue
+        websocket_url = f'ws://{get_config().general.websocket_uri}/gsm'
         if try_other:
             websocket_url = f'ws://{get_config().general.websocket_uri}/api/ws/text/origin'
         try:
@@ -114,13 +120,11 @@ def run_websocket_listener():
 
 
 async def start_text_monitor():
+    util.run_new_thread(run_websocket_listener)
     if get_config().general.use_websocket:
-        util.run_new_thread(run_websocket_listener)
-    if get_config().general.use_clipboard:
-        if get_config().general.use_websocket:
-            if get_config().general.use_both_clipboard_and_websocket:
-                logger.info("Listening for Text on both WebSocket and Clipboard.")
-            else:
-                logger.info("Both WebSocket and Clipboard monitoring are enabled. WebSocket will take precedence if connected.")
-        await monitor_clipboard()
+        if get_config().general.use_both_clipboard_and_websocket:
+            logger.info("Listening for Text on both WebSocket and Clipboard.")
+        else:
+            logger.info("Both WebSocket and Clipboard monitoring are enabled. WebSocket will take precedence if connected.")
+    await monitor_clipboard()
     await asyncio.sleep(1)

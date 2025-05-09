@@ -54,37 +54,47 @@ function registerIPC() {
 
 async function autoUpdate() {
     const autoUpdater = getAutoUpdater();
-    // Event listeners for autoUpdater
-    autoUpdater.on("update-available", () => {
-        log.info("Update available.");
-        dialog.showMessageBox({
-            type: "info",
-            title: "Update Available",
-            message: "A new version is available. Downloading now...",
-        });
-    });
+    // autoUpdater.on("update-available", () => {
+    //     log.info("Update available.");
+    //     dialog.showMessageBox({
+    //         type: "info",
+    //         title: "Update Available",
+    //         message: "A new version is available. Downloading now...",
+    //     });
+    // });
 
     autoUpdater.on("update-downloaded", () => {
         log.info("Update downloaded.");
-        dialog
-            .showMessageBox({
-                type: "info",
-                title: "Update Ready",
-                message: "A new version has been downloaded. Restart now to install, This will also attempt to update the python app?",
-                buttons: ["Restart", "Later"],
-            })
-            .then((result) => {
-                const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
-                fs.writeFileSync(updateFilePath, '');
-                autoUpdater.quitAndInstall();
-            });
+        const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
+        fs.writeFileSync(updateFilePath, '');
+        autoUpdater.quitAndInstall();
     });
 
     autoUpdater.on("error", (err: any) => {
         log.error("Update error: " + err.message);
     });
 
-    await autoUpdater.checkForUpdatesAndNotify();
+    // await autoUpdater.checkForUpdatesAndNotify();
+    await autoUpdater.checkForUpdates().then((result) => {
+        if (result?.updateInfo.version !== app.getVersion()) {
+            log.info("Update available.");
+            dialog.showMessageBox({
+                type: "question",
+                title: "Update Available",
+                message: "A new version of the GSM Application is available. Would you like to download and install it now?",
+                buttons: ["Yes", "No"],
+            }).then(async (result) => {
+                if (result.response === 0) { // "Yes" button
+                    await updateGSM(true, false)
+                    await autoUpdater.downloadUpdate();
+                } else {
+                    log.info("User chose not to download the update.");
+                }
+            });
+        } else {
+            log.info("No update available.");
+        }
+    });
 }
 
 
@@ -252,6 +262,10 @@ async function createWindow() {
     })
 }
 
+async function update(shouldRestart: boolean = false, force = false): Promise<void> {
+    await updateGSM(shouldRestart, force)
+    await autoUpdate()
+}
 
 async function updateGSM(shouldRestart: boolean = false, force = false): Promise<void> {
     isUpdating = true;
@@ -280,7 +294,7 @@ function createTray() {
     tray = new Tray(getIconPath(32)); // Replace with a valid icon path
     const contextMenu = Menu.buildFromTemplate([
         {label: 'Show Console', click: () => mainWindow?.show()},
-        {label: 'Update GSM', click: () => updateGSM(true, true)},
+        {label: 'Update GSM', click: () => update(true, true)},
         {label: 'Restart GSM', click: () => restartGSM()},
         {label: "Open GSM Folder", click: () => shell.openPath(BASE_DIR)},
         {label: 'Quit', click: () => quit()},
@@ -360,7 +374,7 @@ if (!app.requestSingleInstanceLock()) {
                 pythonPath = pyPath;
                 setPythonPath(pythonPath);
                 if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
-                    await updateGSM(false);
+                    await updateGSM(false, true);
                     if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
                         fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
                     }
@@ -376,7 +390,7 @@ if (!app.requestSingleInstanceLock()) {
                 if (updateAvailable) {
                     const notification = new Notification({
                         title: 'Update Available',
-                        body: `A new version of ${APP_NAME} is available: ${latestVersion}. Click here to update.`,
+                        body: `A new version of ${APP_NAME} python package is available: ${latestVersion}. Click here to update.`,
                         timeoutType: 'default',
                     });
 

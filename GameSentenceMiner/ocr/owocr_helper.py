@@ -19,7 +19,7 @@ from rapidfuzz import fuzz
 from GameSentenceMiner import obs, util
 from GameSentenceMiner.configuration import get_config, get_app_directory, get_temporary_directory
 from GameSentenceMiner.electron_config import get_ocr_scan_rate, get_requires_open_window
-from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, Rectangle
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, Rectangle, set_dpi_awareness
 from GameSentenceMiner.owocr.owocr import screen_coordinate_picker, run
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util import do_text_replacements, OCR_REPLACEMENTS_FILE
@@ -65,7 +65,7 @@ def get_new_game_cords():
     app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
     ocr_config_dir = app_dir / "ocr_config"
     ocr_config_dir.mkdir(parents=True, exist_ok=True)
-    obs.connect_to_obs()
+    obs.connect_to_obs_sync()
     scene = util.sanitize_filename(obs.get_current_scene())
     config_path = ocr_config_dir / f"{scene}.json"
     with open(config_path, 'w') as f:
@@ -79,7 +79,7 @@ def get_ocr_config() -> OCRConfig:
     app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
     ocr_config_dir = app_dir / "ocr_config"
     os.makedirs(ocr_config_dir, exist_ok=True)
-    obs.connect_to_obs()
+    obs.connect_to_obs_sync()
     scene = util.sanitize_filename(obs.get_current_scene())
     config_path = ocr_config_dir / f"{scene}.json"
     if not config_path.exists():
@@ -215,15 +215,24 @@ def do_second_ocr(ocr1_text, rectangle_index, time, img):
         if fuzz.ratio(previous_ocr2_text, text) >= 80:
             logger.info("Seems like the same text from previous ocr2 result, not sending")
             return
-        img.save(os.path.join(get_temporary_directory(), "last_successful_ocr.png"))
+        save_result_image(img)
         last_ocr2_results[rectangle_index] = text
         send_result(text, time)
-        img.close()
     except json.JSONDecodeError:
         print("Invalid JSON received.")
     except Exception as e:
         logger.exception(e)
         print(f"Error processing message: {e}")
+
+
+def save_result_image(img):
+    if isinstance(img, bytes):
+        with open(os.path.join(get_temporary_directory(), "last_successful_ocr.png"), "wb") as f:
+            f.write(img)
+    else:
+        img.save(os.path.join(get_temporary_directory(), "last_successful_ocr.png"))
+        img.close()
+
 
 def send_result(text, time):
     if text:
@@ -241,10 +250,14 @@ previous_imgs = {}
 orig_text_results = {} # Store original text results for each rectangle
 TEXT_APPEARENCE_DELAY = get_ocr_scan_rate() * 1000 + 500  # Adjust as needed
 
-def text_callback(text, orig_text, rectangle_index, time, img=None):
+def text_callback(text, orig_text, rectangle_index, time, img=None, came_from_ss=False):
     global twopassocr, ocr2, last_oneocr_results_to_check, last_oneocr_times, text_stable_start_times, orig_text_results
     orig_text_string = ''.join([item for item in orig_text if item is not None]) if orig_text else ""
     # logger.debug(orig_text_string)
+    if came_from_ss:
+        save_result_image(img)
+        send_result(text, time)
+        return
 
     current_time = time if time else datetime.now()
 
@@ -258,10 +271,11 @@ def text_callback(text, orig_text, rectangle_index, time, img=None):
         if previous_orig_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 80:
             logger.info("Seems like Text we already sent, not doing anything.")
             return
-        img.save(os.path.join(get_temporary_directory(), "last_successful_ocr.png"))
+        save_result_image(img)
         send_result(text, time)
         orig_text_results[rectangle_index] = orig_text_string
         last_ocr1_results[rectangle_index] = previous_text
+        return
     if not text:
         if previous_text:
             if rectangle_index in text_stable_start_times:
@@ -312,7 +326,9 @@ def run_oneocr(ocr_config: OCRConfig, i, area=False):
         monitor_config = rect_config.monitor
         screen_area = ",".join(str(c) for c in coords) if area else None
     exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, ocr_config.rectangles)))
-    run.run(read_from="screencapture", write_to="callback",
+    run.run(read_from="screencapture",
+            read_from_secondary="clipboard" if i == 0 else None,
+            write_to="callback",
             screen_capture_area=screen_area,
             # screen_capture_monitor=monitor_config['index'],
             screen_capture_window=ocr_config.window,
@@ -321,7 +337,9 @@ def run_oneocr(ocr_config: OCRConfig, i, area=False):
             text_callback=text_callback,
             screen_capture_exclusions=exclusions,
             rectangle=i,
-            language=language)
+            language=language,
+            monitor_index=ocr_config.window,
+            ocr2=ocr2)
     done = True
 
 
@@ -367,7 +385,7 @@ if __name__ == "__main__":
     logger.info(f"Received arguments: ocr1={ocr1}, ocr2={ocr2}, twopassocr={twopassocr}")
     global ocr_config
     ocr_config: OCRConfig = get_ocr_config()
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    set_dpi_awareness()
     if ocr_config:
         if ocr_config.window:
             start_time = time.time()

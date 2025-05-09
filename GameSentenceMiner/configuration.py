@@ -222,6 +222,7 @@ class Ai:
 @dataclass
 class ProfileConfig:
     name: str = 'Default'
+    scenes: List[str] = field(default_factory=list)
     general: General = field(default_factory=General)
     paths: Paths = field(default_factory=Paths)
     anki: Anki = field(default_factory=Anki)
@@ -304,10 +305,7 @@ class ProfileConfig:
 
     def restart_required(self, previous):
         previous: ProfileConfig
-        if any([previous.general.use_websocket != self.general.use_websocket,
-                previous.general.use_clipboard != self.general.use_clipboard,
-                previous.general.websocket_uri != self.general.websocket_uri,
-                previous.paths.folder_to_watch != self.paths.folder_to_watch,
+        if any([previous.paths.folder_to_watch != self.paths.folder_to_watch,
                 previous.obs.open_obs != self.obs.open_obs,
                 previous.obs.host != self.obs.host,
                 previous.obs.port != self.obs.port
@@ -325,6 +323,7 @@ class ProfileConfig:
 class Config:
     configs: Dict[str, ProfileConfig] = field(default_factory=dict)
     current_profile: str = DEFAULT_CONFIG
+    switch_to_default_if_not_found: bool = True
 
     @classmethod
     def new(cls):

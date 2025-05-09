@@ -1,3 +1,4 @@
+import asyncio
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, scrolledtext
 
@@ -7,6 +8,7 @@ from GameSentenceMiner import obs, configuration
 from GameSentenceMiner.communication.send import send_restart_signal
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.downloader.download_tools import download_ocenaudio_if_needed
+from GameSentenceMiner.model import SceneItem, SceneInfo
 from GameSentenceMiner.package import get_current_version, get_latest_version
 
 settings_saved = False
@@ -79,9 +81,26 @@ class ConfigApp:
         self.create_advanced_tab()
         self.create_ai_tab()
 
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_profiles_tab_selected)
+
         ttk.Button(self.window, text="Save Settings", command=self.save_settings).pack(pady=20)
 
         self.window.withdraw()
+
+    def show_scene_selection(self, matched_configs):
+        selected_scene = None
+        if matched_configs:
+            selection_window = tk.Toplevel(self.window)
+            selection_window.title("Select Profile")
+            ttk.Label(selection_window, text="Multiple profiles match the current scene. Please select the profile:").pack(pady=10)
+            profile_var = tk.StringVar(value=matched_configs[0])
+            profile_dropdown = ttk.Combobox(selection_window, textvariable=profile_var, values=matched_configs, state="readonly")
+            profile_dropdown.pack(pady=5)
+            ttk.Button(selection_window, text="OK", command=lambda: [selection_window.destroy(), setattr(self, 'selected_scene', profile_var.get())]).pack(pady=10)
+            self.window.wait_window(selection_window)
+            selected_scene = self.selected_scene
+        return selected_scene
+
 
     def add_save_hook(self, func):
         on_save.append(func)
@@ -104,6 +123,7 @@ class ConfigApp:
 
         # Create a new Config instance
         config = ProfileConfig(
+            scenes=[self.obs_scene_listbox.get(i) for i in self.obs_scene_listbox.curselection()],
             general=General(
                 use_websocket=self.websocket_enabled.get(),
                 use_clipboard=self.clipboard_enabled.get(),
@@ -234,11 +254,14 @@ class ConfigApp:
 
         current_profile = self.profile_combobox.get()
         prev_config = self.master_config.get_config()
+        self.master_config.switch_to_default_if_not_found=self.switch_to_default_if_not_found.get()
         if profile_change:
             self.master_config.current_profile = current_profile
         else:
             self.master_config.current_profile = current_profile
             self.master_config.set_config_for_profile(current_profile, config)
+
+
 
         self.master_config = self.master_config.sync_shared_fields()
 
@@ -250,7 +273,7 @@ class ConfigApp:
 
         if self.master_config.get_config().restart_required(prev_config):
             logger.info("Restart Required for some settings to take affect!")
-            send_restart_signal()
+            asyncio.run(send_restart_signal())
 
         settings_saved = True
         configuration.reload_config()
@@ -684,6 +707,13 @@ class ConfigApp:
         #         ve.grid_configure(row=ve.grid_info()['row'] - 1)
         #         db.grid_configure(row=db.grid_info()['row'] - 1)
 
+    def on_profiles_tab_selected(self, event):
+        try:
+            if self.window.state() != "withdrawn" and self.notebook.tab(self.notebook.select(), "text") == "Profiles":
+                self.refresh_obs_scenes()
+        except Exception as e:
+            logger.debug(e)
+
     @new_tab
     def create_features_tab(self):
         features_frame = ttk.Frame(self.notebook)
@@ -967,16 +997,11 @@ class ConfigApp:
         self.take_screenshot_hotkey.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(hotkeys_frame, "Hotkey to take a screenshot.", row=self.current_row, column=2)
 
-        ttk.Label(hotkeys_frame, text="Open Utility Hotkey:").grid(row=self.current_row, column=0, sticky='W')
-        self.open_utility_hotkey = ttk.Entry(hotkeys_frame)
-        self.open_utility_hotkey.insert(0, self.settings.hotkeys.open_utility)
-        self.open_utility_hotkey.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(hotkeys_frame, "Hotkey to open the text utility.", row=self.current_row, column=2)
-
 
     @new_tab
     def create_profiles_tab(self):
         profiles_frame = ttk.Frame(self.notebook)
+
         self.notebook.add(profiles_frame, text='Profiles')
 
         ttk.Label(profiles_frame, text="Select Profile:").grid(row=self.current_row, column=0, sticky='W')
@@ -990,6 +1015,32 @@ class ConfigApp:
         ttk.Button(profiles_frame, text="Copy Profile", command=self.copy_profile).grid(row=self.current_row, column=1, pady=5)
         if self.master_config.current_profile != DEFAULT_CONFIG:
             ttk.Button(profiles_frame, text="Delete Config", command=self.delete_profile).grid(row=self.current_row, column=2, pady=5)
+        self.current_row += 1
+
+        ttk.Label(profiles_frame, text="OBS Scene:").grid(row=self.current_row, column=0, sticky='W')
+        self.obs_scene_var = tk.StringVar(value="")
+        self.obs_scene_listbox = tk.Listbox(profiles_frame, listvariable=self.obs_scene_var, selectmode=tk.MULTIPLE, height=10)
+        self.obs_scene_listbox.grid(row=self.current_row, column=1)
+        ttk.Button(profiles_frame, text="Refresh Scenes", command=self.refresh_obs_scenes).grid(row=self.current_row, column=2, pady=5)
+        self.add_label_and_increment_row(profiles_frame, "Select an OBS scene to associate with this profile. (Optional)", row=self.current_row, column=3)
+
+        ttk.Label(profiles_frame, text="Switch To Default If Not Found:").grid(row=self.current_row, column=0, sticky='W')
+        self.switch_to_default_if_not_found = tk.BooleanVar(value=self.master_config.switch_to_default_if_not_found)
+        ttk.Checkbutton(profiles_frame, variable=self.switch_to_default_if_not_found).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(profiles_frame, "Enable to switch to the default profile if the selected OBS scene is not found.", row=self.current_row, column=2)
+
+
+    def refresh_obs_scenes(self):
+        scenes = obs.get_obs_scenes()
+        obs_scene_names = [scene['sceneName'] for scene in scenes]
+        self.obs_scene_listbox.delete(0, tk.END)  # Clear existing items
+        for scene_name in obs_scene_names:
+            self.obs_scene_listbox.insert(tk.END, scene_name)  # Add each scene to the Listbox
+        for i, scene in enumerate(eval(self.obs_scene_var.get())):  # Parse the string as a tuple
+            if scene.strip() in self.settings.scenes:  # Use strip() to remove extra spaces
+                self.obs_scene_listbox.select_set(i)  # Select the item in the Listbox
+                self.obs_scene_listbox.activate(i)
+                self.obs_scene_listbox.update_idletasks()  # Ensure the GUI reflects the changes
 
     @new_tab
     def create_advanced_tab(self):
@@ -1012,7 +1063,6 @@ class ConfigApp:
         self.video_player_path.grid(row=self.current_row, column=1)
         ttk.Button(advanced_frame, text="Browse", command=lambda: self.browse_file(self.video_player_path)).grid(row=self.current_row, column=2)
         self.add_label_and_increment_row(advanced_frame, "Path to the video player executable. Will seek to the location of the line in the replay", row=self.current_row, column=3)
-
 
         ttk.Label(advanced_frame, text="Play Latest Video/Audio Hotkey:").grid(row=self.current_row, column=0, sticky='W')
         self.play_latest_audio_hotkey = ttk.Entry(advanced_frame)
@@ -1132,6 +1182,7 @@ class ConfigApp:
         print("profile Changed!")
         self.save_settings(profile_change=True)
         self.reload_settings()
+        self.refresh_obs_scenes()
 
     def add_profile(self):
         new_profile_name = simpledialog.askstring("Input", "Enter new profile name:")

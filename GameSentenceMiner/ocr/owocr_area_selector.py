@@ -8,6 +8,7 @@ import mss
 from PIL import Image, ImageTk, ImageDraw
 
 from GameSentenceMiner import obs  # Import your actual obs module
+from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
 from GameSentenceMiner.util import sanitize_filename  # Import your actual util module
 
 try:
@@ -42,7 +43,7 @@ class ScreenSelector:
         if not gw:
             raise ImportError("pygetwindow is required but not installed.")
 
-        obs.connect_to_obs()  # Connect to OBS (using mock or real)
+        obs.connect_to_obs_sync()  # Connect to OBS (using mock or real)
         self.window_name = window_name
         print(f"Target window name: {window_name or 'None (Absolute Mode)'}")
         self.sct = mss.mss()
@@ -857,7 +858,7 @@ def get_screen_selection(window_name):
 if __name__ == "__main__":
     target_window_title = None  # Default to absolute coordinates
     # Check for command line arguments to specify window title
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    set_dpi_awareness()
     if len(sys.argv) > 1:
         target_window_title = sys.argv[1]
         print(f"Attempting to target window title from args: '{target_window_title}'")

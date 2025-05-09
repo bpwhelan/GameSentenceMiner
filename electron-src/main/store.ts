@@ -107,7 +107,7 @@ export const store = new Store<StoreConfig>({
         agentScriptsPath: `E:\\Japanese Stuff\\agent-v0.1.4-win32-x64\\data\\scripts`,
         textractorPath: `E:\\Japanese Stuff\\Textractor\\Textractor.exe`,
         startConsoleMinimized: false,
-        autoUpdateElectron: true,
+        autoUpdateElectron: false,
         autoUpdateGSMApp: false,
         VN: {
             vns: [],
