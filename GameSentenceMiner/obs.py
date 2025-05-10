@@ -255,7 +255,7 @@ def save_replay_buffer():
         if response and response.ok:
             logger.info("Replay buffer saved. If your log stops here, make sure your obs output path matches \"Path To Watch\" in GSM settings.")
     else:
-        logger.warning("Replay Buffer is not active, could not save Replay Buffer!")
+        raise Exception("Replay Buffer is not active, could not save Replay Buffer!")
 
 def get_current_scene():
     try:
