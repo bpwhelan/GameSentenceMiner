@@ -186,7 +186,12 @@ def wait_for_stable_file(file_path, timeout=10, check_interval=0.1):
         try:
             current_size = os.path.getsize(file_path)
             if current_size == last_size:
-                return True
+                try:
+                    with open(file_path, 'rb') as f:
+                        return True
+                except Exception as e:
+                    time.sleep(check_interval)
+                    elapsed_time += check_interval
             last_size = current_size
             time.sleep(check_interval)
             elapsed_time += check_interval

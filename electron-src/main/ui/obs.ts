@@ -299,7 +299,7 @@ export async function registerOBSIPC() {
     }
 
 
-    async function getWndowsFromSource(sourceName: string, capture_mode: string): Promise<any[]> {
+    async function getWindowsFromSource(sourceName: string, capture_mode: string): Promise<any[]> {
         try {
             await getOBSConnection();
             const response = await obs.call('GetInputPropertiesListPropertyItems', {
@@ -339,16 +339,16 @@ export async function registerOBSIPC() {
 
     async function getWindowList(): Promise<any[]> {
         try {
-            const windowCaptureWindows = await getWndowsFromSource(WINDOW_GETTER_INPUT, "window_capture");
-            const gameCaptureWindows = await getWndowsFromSource(GAME_WINDOW_INPUT, "game_capture");
+            const windowCaptureWindows = await getWindowsFromSource(WINDOW_GETTER_INPUT, "window_capture");
+            const gameCaptureWindows = await getWindowsFromSource(GAME_WINDOW_INPUT, "game_capture");
             return [
-                ...windowCaptureWindows,
-                ...gameCaptureWindows.filter(
-                    (gameWindow) => !windowCaptureWindows.some(
-                        (windowCapture) => windowCapture.value === gameWindow.value
+                ...windowCaptureWindows.filter(
+                    (windowCapture) => !gameCaptureWindows.some(
+                        (gameWindow) => gameWindow.value === windowCapture.value
                     )
                 ),
-            ];
+                ...gameCaptureWindows,
+                ].sort((a, b) => a.itemName.localeCompare(b.itemName));
         } catch (error) {
             console.error('Error getting window list:', error);
             return []; // Return an empty array in case of an error

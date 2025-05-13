@@ -14,7 +14,7 @@ from GameSentenceMiner.configuration import get_config
 from GameSentenceMiner.model import AnkiCard
 from GameSentenceMiner.text_log import get_all_lines, get_text_event, get_mined_line
 from GameSentenceMiner.obs import get_current_game
-from GameSentenceMiner.util import remove_html_and_cloze_tags, combine_dialogue
+from GameSentenceMiner.util import remove_html_and_cloze_tags, combine_dialogue, wait_for_stable_file
 from GameSentenceMiner.web import texthooking_page
 
 audio_in_anki = None
@@ -41,11 +41,13 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
             audio_in_anki = store_media_file(audio_path)
         if update_picture:
             screenshot = ffmpeg.get_screenshot(video_path, ss_time)
+            wait_for_stable_file(screenshot)
             screenshot_in_anki = store_media_file(screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
         if get_config().anki.previous_image_field:
             prev_screenshot = ffmpeg.get_screenshot_for_line(video_path, selected_lines[0].prev if selected_lines else game_line.prev)
+            wait_for_stable_file(prev_screenshot)
             prev_screenshot_in_anki = store_media_file(prev_screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(prev_screenshot)
@@ -178,7 +180,11 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines):
 
 
 def store_media_file(path):
-    return invoke('storeMediaFile', filename=path, data=convert_to_base64(path))
+    try:
+        return invoke('storeMediaFile', filename=path, data=convert_to_base64(path))
+    except Exception as e:
+        logger.error(f"Error storing media file, check anki card for blank media fields: {e}")
+        return "None"
 
 
 def convert_to_base64(file_path):

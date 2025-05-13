@@ -1,3 +1,4 @@
+import shutil
 import tempfile
 
 from GameSentenceMiner import obs, util, configuration
@@ -15,13 +16,65 @@ def get_ffprobe_path():
 ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
 
 
-def get_screenshot(video_file, screenshot_timing):
+def call_frame_extractor(video_path, timestamp):
+    """
+    Calls the video frame extractor script and captures the output.
+
+    Args:
+        video_path (str): Path to the video file.
+        timestamp (str): Timestamp string (HH:MM:SS).
+
+    Returns:
+        str: The path of the selected image, or None on error.
+    """
+    try:
+        # Get the directory of the current script
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Construct the path to the frame extractor script
+        script_path = os.path.join(current_dir, "ss_selector.py")  # Replace with the actual script name if different
+
+        logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.ss_selector", video_path, str(timestamp)]))
+
+        # Run the script using subprocess.run()
+        result = subprocess.run(
+            [sys.executable, "-m", "GameSentenceMiner.ss_selector", video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting],  # Use sys.executable
+            capture_output=True,
+            text=True,  # Get output as text
+            check=False  # Raise an exception for non-zero exit codes
+        )
+        if result.returncode != 0:
+            logger.error(f"Script failed with return code: {result.returncode}")
+            return None
+        logger.info(result)
+        # Print the standard output
+        logger.info(f"Frame extractor script output: {result.stdout.strip()}")
+        return result.stdout.strip() # Return the output
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error calling script: {e}")
+        logger.error(f"Script output (stderr): {e.stderr.strip()}")
+        return None
+    except FileNotFoundError:
+        logger.error(f"Error: Script not found at {script_path}.  Make sure the script name is correct.")
+        return None
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return None
+
+def get_screenshot(video_file, screenshot_timing, try_selector=False):
     screenshot_timing = screenshot_timing if screenshot_timing else 1
+    if try_selector:
+        filepath = call_frame_extractor(video_path=video_file, timestamp=screenshot_timing)
+        output = process_image(filepath)
+        if output:
+            return output
+        else:
+            logger.error("Frame extractor script failed to run or returned no output, defaulting")
     output_image = make_unique_file_name(os.path.join(
         get_config().paths.screenshot_destination, f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
     # FFmpeg command to extract the last frame of the video
     ffmpeg_command = ffmpeg_base_command_list + [
-        "-ss", f"{screenshot_timing}",  # Seek to 1 second after the beginning
+        "-ss", f"{screenshot_timing}",
         "-i", f"{video_file}",
         "-vframes", "1"  # Extract only one frame
     ]
@@ -39,15 +92,33 @@ def get_screenshot(video_file, screenshot_timing):
 
     logger.debug(f"FFMPEG SS Command: {ffmpeg_command}")
 
-    # Run the command
-    subprocess.run(ffmpeg_command)
+    try:
+        for i in range(3):
+            logger.debug(" ".join(ffmpeg_command))
+            result = subprocess.run(ffmpeg_command)
+            if result.returncode != 0 and i < 2:
+                raise RuntimeError(f"FFmpeg command failed with return code {result.returncode}")
+            else:
+                break
+    except Exception as e:
+        logger.error(f"Error running FFmpeg command: {e}. Defaulting to standard PNG.")
+        output_image = make_unique_file_name(os.path.join(
+            get_config().paths.screenshot_destination,
+            f"{obs.get_current_game(sanitize=True)}.png"))
+        ffmpeg_command = ffmpeg_base_command_list + [
+            "-ss", f"{screenshot_timing}",  # Default to 1 second
+            "-i", video_file,
+            "-vframes", "1",
+            output_image
+        ]
+        subprocess.run(ffmpeg_command)
 
     logger.debug(f"Screenshot saved to: {output_image}")
 
     return output_image
 
-def get_screenshot_for_line(video_file, game_line):
-    return get_screenshot(video_file, get_screenshot_time(video_file, game_line))
+def get_screenshot_for_line(video_file, game_line, try_selector=False):
+    return get_screenshot(video_file, get_screenshot_time(video_file, game_line), try_selector)
 
 
 def get_screenshot_time(video_path, game_line, default_beginning=False, vad_result=None, doing_multi_line=False, previous_line=False):
@@ -127,7 +198,18 @@ def process_image(image_file):
     logger.debug(ffmpeg_command)
     logger.debug(" ".join(ffmpeg_command))
     # Run the command
-    subprocess.run(ffmpeg_command)
+    try:
+        for i in range(3):
+            logger.debug(" ".join(ffmpeg_command))
+            result = subprocess.run(ffmpeg_command)
+            if result.returncode != 0 and i < 2:
+                raise RuntimeError(f"FFmpeg command failed with return code {result.returncode}")
+            else:
+                break
+    except Exception as e:
+        logger.error(f"Error re-encoding screenshot: {e}. Defaulting to standard PNG.")
+        output_image = make_unique_file_name(os.path.join(get_config().paths.screenshot_destination, f"{obs.get_current_game(sanitize=True)}.png"))
+        shutil.move(image_file, output_image)
 
     logger.info(f"Processed image saved to: {output_image}")
 

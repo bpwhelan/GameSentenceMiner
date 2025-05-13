@@ -82,7 +82,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if texthooking_page.event_manager.line_for_screenshot:
                 line: GameLine = texthooking_page.event_manager.line_for_screenshot
                 texthooking_page.event_manager.line_for_screenshot = None
-                screenshot = ffmpeg.get_screenshot_for_line(video_path, line)
+                screenshot = ffmpeg.get_screenshot_for_line(video_path, line, True)
                 os.startfile(screenshot)
                 os.remove(video_path)
                 return
@@ -92,10 +92,11 @@ class VideoToAudioHandler(FileSystemEventHandler):
             os.remove(video_path)
             return
         try:
-            last_note = None
-            anki_card_creation_time = None
             if anki.card_queue and len(anki.card_queue) > 0:
                 last_note, anki_card_creation_time = anki.card_queue.pop(0)
+            else:
+                logger.info("Replay buffer initiated externally. Skipping processing.")
+                return
             with util.lock:
                 util.set_last_mined_line(anki.get_sentence(last_note))
                 if os.path.exists(video_path) and os.access(video_path, os.R_OK):

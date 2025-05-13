@@ -205,18 +205,18 @@ class WebsocketServerThread(threading.Thread):
 
 all_cords = None
 rectangles = None
+last_ocr2_result = ""
 
-def do_second_ocr(ocr1_text, rectangle_index, time, img):
-    global twopassocr, ocr2, last_ocr1_results, last_ocr2_results
+def do_second_ocr(ocr1_text, time, img, filtering):
+    global twopassocr, ocr2, last_ocr2_result
     try:
         orig_text, text = run.process_and_write_results(img, None, None, None, None,
                                                         engine=ocr2)
-        previous_ocr2_text = last_ocr2_results[rectangle_index]
-        if fuzz.ratio(previous_ocr2_text, text) >= 80:
+        if fuzz.ratio(last_ocr2_result, text) >= 80:
             logger.info("Seems like the same text from previous ocr2 result, not sending")
             return
         save_result_image(img)
-        last_ocr2_results[rectangle_index] = text
+        last_ocr2_result = text
         send_result(text, time)
     except json.JSONDecodeError:
         print("Invalid JSON received.")
@@ -243,91 +243,74 @@ def send_result(text, time):
         websocket_server_thread.send_text(text, time)
 
 
-last_oneocr_results_to_check = {}  # Store last OCR result for each rectangle
-last_oneocr_times = {}    # Store last OCR time for each rectangle
-text_stable_start_times = {} # Store the start time when text becomes stable for each rectangle
-previous_imgs = {}
-orig_text_results = {} # Store original text results for each rectangle
+previous_text = ""  # Store last OCR result
+last_oneocr_time = None  # Store last OCR time
+text_stable_start_time = None  # Store the start time when text becomes stable
+previous_img = None
+orig_text_result = ""  # Store original text result
 TEXT_APPEARENCE_DELAY = get_ocr_scan_rate() * 1000 + 500  # Adjust as needed
 
-def text_callback(text, orig_text, rectangle_index, time, img=None, came_from_ss=False):
-    global twopassocr, ocr2, last_oneocr_results_to_check, last_oneocr_times, text_stable_start_times, orig_text_results
+def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None):
+    global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, orig_text_result, previous_img
     orig_text_string = ''.join([item for item in orig_text if item is not None]) if orig_text else ""
-    # logger.debug(orig_text_string)
     if came_from_ss:
         save_result_image(img)
         send_result(text, time)
         return
 
-    current_time = time if time else datetime.now()
+    line_start_time = time if time else datetime.now()
 
-    previous_text = last_oneocr_results_to_check.pop(rectangle_index, "").strip()
-    previous_orig_text = orig_text_results.get(rectangle_index, "").strip()
-
-    # print(previous_orig_text)
-    # if orig_text:
-    #     print(orig_text_string)
     if not twopassocr:
-        if previous_orig_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 80:
+        if previous_text and fuzz.ratio(orig_text_string, previous_text) >= 80:
             logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img)
         send_result(text, time)
-        orig_text_results[rectangle_index] = orig_text_string
-        last_ocr1_results[rectangle_index] = previous_text
+        orig_text_result = orig_text_string
+        previous_text = previous_text
+        previous_img = None
+        text_stable_start_time = None
+        last_oneocr_time = None
         return
     if not text:
         if previous_text:
-            if rectangle_index in text_stable_start_times:
-                stable_time = text_stable_start_times.pop(rectangle_index)
-                previous_img = previous_imgs.pop(rectangle_index)
-                previous_result = last_ocr1_results[rectangle_index]
-                if previous_result and fuzz.ratio(previous_result, previous_text) >= 80:
-                    logger.info("Seems like the same text, not " + "doing second OCR" if twopassocr else "sending")
-                    return
-                if previous_orig_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 80:
+            if text_stable_start_time:
+                stable_time = text_stable_start_time
+                previous_img_local = previous_img
+                if fuzz.ratio(orig_text_string, previous_text) >= 80:
                     logger.info("Seems like Text we already sent, not doing anything.")
                     return
-                orig_text_results[rectangle_index] = orig_text_string
-                last_ocr1_results[rectangle_index] = previous_text
-                do_second_ocr(previous_text, rectangle_index, stable_time, previous_img)
+                orig_text_result = orig_text_string
+                previous_text = previous_text
+                do_second_ocr(previous_text, stable_time, previous_img_local, filtering)
+                previous_img = None
+                text_stable_start_time = None
+                last_oneocr_time = None
             return
         return
-
-    if rectangle_index not in last_oneocr_results_to_check:
-        last_oneocr_results_to_check[rectangle_index] = text
-        last_oneocr_times[rectangle_index] = current_time
-        text_stable_start_times[rectangle_index] = current_time
-        previous_imgs[rectangle_index] = img
-        return
-
-    stable = text_stable_start_times.get(rectangle_index)
-
-    if stable:
-        time_since_stable_ms = int((current_time - stable).total_seconds() * 1000)
-
-        if time_since_stable_ms >= TEXT_APPEARENCE_DELAY:
-            last_oneocr_results_to_check[rectangle_index] = text
-            last_oneocr_times[rectangle_index] = current_time
-    else:
-        last_oneocr_results_to_check[rectangle_index] = text
-        last_oneocr_times[rectangle_index] = current_time
-    previous_imgs[rectangle_index] = img
+    if not text_stable_start_time:
+        text_stable_start_time = line_start_time
+    previous_text = orig_text
+    last_oneocr_time = line_start_time
+    previous_img = img
 
 done = False
 
 
-def run_oneocr(ocr_config: OCRConfig, i, area=False):
+def run_oneocr(ocr_config: OCRConfig, area=False):
     global done
+    print("Running OneOCR")
     screen_area = None
-    if ocr_config.rectangles:
-        rect_config = ocr_config.rectangles[i]
+    screen_areas = []
+    for rect_config in ocr_config.rectangles:
         coords = rect_config.coordinates
         monitor_config = rect_config.monitor
         screen_area = ",".join(str(c) for c in coords) if area else None
+        if screen_area:
+            screen_areas.append(screen_area)
     exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, ocr_config.rectangles)))
     run.run(read_from="screencapture",
-            read_from_secondary="clipboard" if i == 0 else None,
+            read_from_secondary="clipboard",
             write_to="callback",
             screen_capture_area=screen_area,
             # screen_capture_monitor=monitor_config['index'],
@@ -336,10 +319,11 @@ def run_oneocr(ocr_config: OCRConfig, i, area=False):
             screen_capture_delay_secs=get_ocr_scan_rate(), engine=ocr1,
             text_callback=text_callback,
             screen_capture_exclusions=exclusions,
-            rectangle=i,
             language=language,
             monitor_index=ocr_config.window,
-            ocr2=ocr2)
+            ocr2=ocr2,
+            gsm_ocr_config=ocr_config,
+            screen_capture_areas=screen_areas)
     done = True
 
 
@@ -400,17 +384,14 @@ if __name__ == "__main__":
     logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
     if ocr_config:
         rectangles = list(filter(lambda rect: not rect.is_excluded, ocr_config.rectangles))
-        last_ocr1_results = [""] * len(rectangles) if rectangles else [""]
-        last_ocr2_results = [""] * len(rectangles) if rectangles else [""]
         oneocr_threads = []
         run.init_config(False)
         if rectangles:
-            for i, rectangle in enumerate(rectangles):
-                thread = threading.Thread(target=run_oneocr, args=(ocr_config, i,True, ), daemon=True)
-                oneocr_threads.append(thread)
-                thread.start()
+            thread = threading.Thread(target=run_oneocr, args=(ocr_config,True, ), daemon=True)
+            oneocr_threads.append(thread)
+            thread.start()
         else:
-            single_ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config, 0,False, ), daemon=True)
+            single_ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config,False, ), daemon=True)
             oneocr_threads.append(single_ocr_thread)
             single_ocr_thread.start()
         websocket_server_thread = WebsocketServerThread(read=True)
