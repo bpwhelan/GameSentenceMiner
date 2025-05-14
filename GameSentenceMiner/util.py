@@ -11,7 +11,7 @@ from sys import platform
 
 from rapidfuzz import process
 
-from GameSentenceMiner.configuration import logger, get_config
+from GameSentenceMiner.configuration import logger, get_config, get_app_directory
 
 SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
 
@@ -254,8 +254,8 @@ def do_text_replacements(text, replacements_json):
     return text
 
 
-TEXT_REPLACEMENTS_FILE = os.path.join(os.getenv('APPDATA'), 'GameSentenceMiner', 'config', 'text_replacements.json')
-OCR_REPLACEMENTS_FILE = os.path.join(os.getenv('APPDATA'), 'GameSentenceMiner', 'config', 'ocr_replacements.json')
+TEXT_REPLACEMENTS_FILE = os.path.join(get_app_directory(), 'config', 'text_replacements.json')
+OCR_REPLACEMENTS_FILE = os.path.join(get_app_directory(), 'config', 'ocr_replacements.json')
 os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
 
 import urllib.request

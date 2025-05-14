@@ -1,4 +1,5 @@
 import asyncio
+import sys
 
 from GameSentenceMiner.vad.result import VADResult
 
@@ -42,6 +43,7 @@ except Exception as e:
     logger.info("Something bad happened during import/initialization, closing in 5 seconds")
     logger.exception(e)
     time.sleep(5)
+    sys.exit(1)
 
 if is_windows():
     import win32api
