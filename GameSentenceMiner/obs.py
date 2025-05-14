@@ -27,8 +27,8 @@ class OBSConnectionManager(threading.Thread):
 
     def run(self):
         while self.running:
-            time.sleep(5)
-            if not client.get_version():
+            time.sleep(1)
+            if not client or not client.get_version():
                 logger.info("OBS WebSocket not connected. Attempting to reconnect...")
                 connect_to_obs()
 
