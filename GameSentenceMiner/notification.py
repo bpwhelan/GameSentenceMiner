@@ -10,21 +10,19 @@ if is_windows():
 
 from GameSentenceMiner.configuration import logger
 
-class MyToastNotifier(ToastNotifier):
-    def __init__(self):
-        super().__init__()
+if is_windows():
+    class MyToastNotifier(ToastNotifier):
+        def __init__(self):
+            super().__init__()
 
-    def on_destroy(self, hwnd, msg, wparam, lparam):
-        super().on_destroy(hwnd, msg, wparam, lparam)
-        return 0
+        def on_destroy(self, hwnd, msg, wparam, lparam):
+            super().on_destroy(hwnd, msg, wparam, lparam)
+            return 0
 
-system = platform.system()
-if system == "Windows":
+if is_windows():
     notifier = MyToastNotifier()
 else:
     notifier = notification
-
-windows = system == "Windows"
 
 
 def open_anki_card(note_id):
@@ -51,7 +49,7 @@ def open_anki_card(note_id):
 
 
 def send_notification(title, message, timeout):
-    if windows:
+    if is_windows():
         notifier.show_toast(title, message, duration=timeout, threaded=True)
     else:
         notification.notify(
