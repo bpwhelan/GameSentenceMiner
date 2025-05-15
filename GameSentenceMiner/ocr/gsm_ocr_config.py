@@ -71,9 +71,5 @@ class OCRConfig:
 
 # try w10+, fall back to w8.1+
 def set_dpi_awareness():
-    try:
-        awareness_context = -4
-        ctypes.windll.user32.SetProcessDpiAwarenessContext(awareness_context)
-    except AttributeError:
-        per_monitor_awareness = 2
-        ctypes.windll.shcore.SetProcessDpiAwareness(per_monitor_awareness)
+    per_monitor_awareness = 2
+    ctypes.windll.shcore.SetProcessDpiAwareness(per_monitor_awareness)
