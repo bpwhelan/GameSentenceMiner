@@ -119,10 +119,7 @@ class GeminiAI(AIManager):
         try:
             prompt = self._build_prompt(lines, sentence, current_line, game_title)
             self.logger.debug(f"Generated prompt:\n{prompt}")
-            response = self.model.generate_content(
-                prompt,
-                temperature=0.5,
-            )
+            response = self.model.generate_content(prompt)
             result = response.text.strip()
             self.logger.debug(f"Received response:\n{result}")
             return result
