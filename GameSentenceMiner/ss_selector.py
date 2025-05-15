@@ -91,7 +91,7 @@ def display_images(image_paths, golden_frame):
     return selected_path.get()
 
 def run_extraction_and_display(video_path, timestamp_str, mode):
-    temp_dir = os.path.join(get_temporary_directory(), "screenshot_frames", sanitize_filename(os.path.splitext(os.path.basename(video_path))[0]))
+    temp_dir = os.path.join(get_temporary_directory(False), "screenshot_frames", sanitize_filename(os.path.splitext(os.path.basename(video_path))[0]))
     os.makedirs(temp_dir, exist_ok=True)
     image_paths, golden_frame = extract_frames(video_path, timestamp_str, temp_dir, mode)
     if image_paths:

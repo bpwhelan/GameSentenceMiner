@@ -446,20 +446,21 @@ def get_log_path():
 
 temp_directory = ''
 
-def get_temporary_directory():
+def get_temporary_directory(delete=True):
     global temp_directory
     if not temp_directory:
         temp_directory = os.path.join(get_app_directory(), 'temp')
         os.makedirs(temp_directory, exist_ok=True)
-        for filename in os.listdir(temp_directory):
-            file_path = os.path.join(temp_directory, filename)
-            try:
-                if os.path.isfile(file_path) or os.path.islink(file_path):
-                    os.unlink(file_path)
-                elif os.path.isdir(file_path):
-                    shutil.rmtree(file_path)
-            except Exception as e:
-                logger.error(f"Failed to delete {file_path}. Reason: {e}")
+        if delete:
+            for filename in os.listdir(temp_directory):
+                file_path = os.path.join(temp_directory, filename)
+                try:
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.unlink(file_path)
+                    elif os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+                except Exception as e:
+                    logger.error(f"Failed to delete {file_path}. Reason: {e}")
     return temp_directory
 
 def get_config_path():
