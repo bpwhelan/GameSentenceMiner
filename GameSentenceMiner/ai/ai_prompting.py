@@ -6,6 +6,7 @@ from enum import Enum
 from typing import List, Any, Optional
 
 import google.generativeai as genai
+from google.generativeai import GenerationConfig
 from groq import Groq
 
 from GameSentenceMiner.configuration import get_config, Ai, logger
@@ -98,7 +99,14 @@ class GeminiAI(AIManager):
         try:
             genai.configure(api_key=self.ai_config.api_key)
             model_name = self.ai_config.model
-            self.model = genai.GenerativeModel(model_name)
+            self.model = genai.GenerativeModel(model_name,
+                                               generation_config=GenerationConfig(
+                                                   temperature=0.5,
+                                                   max_output_tokens=1024,
+                                                   top_p=1,
+                                                   stop_sequences=None,
+                                               )
+                                               )
             self.logger.debug(f"GeminiAIManager initialized with model: {model_name}")
         except Exception as e:
             self.logger.error(f"Failed to initialize Gemini API: {e}")

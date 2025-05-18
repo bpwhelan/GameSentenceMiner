@@ -18,6 +18,7 @@ obs_process_pid = None
 OBS_PID_FILE = os.path.join(configuration.get_app_directory(), 'obs-studio', 'obs_pid.txt')
 obs_connection_manager = None
 logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
+connecting = False
 
 class OBSConnectionManager(threading.Thread):
     def __init__(self):
@@ -29,9 +30,9 @@ class OBSConnectionManager(threading.Thread):
         while self.running:
             time.sleep(1)
             try:
-                if not client or not client.get_version():
+                if not client or not client.get_version() and not connecting:
                     logger.info("OBS WebSocket not connected. Attempting to reconnect...")
-                    connect_to_obs()
+                    asyncio.run(connect_to_obs())
             except Exception as e:
                 logger.debug(f"Error checking OBS connection: {e}")
 
@@ -135,14 +136,15 @@ def get_obs_websocket_config_values():
         reload_config()
 
 async def connect_to_obs(retry_count=0):
-    global client, obs_connection_manager, event_client
-    if not get_config().obs.enabled or client:
+    global client, obs_connection_manager, event_client, connecting
+    if not get_config().obs.enabled:
         return
 
     if util.is_windows():
         get_obs_websocket_config_values()
 
     while True:
+        connecting = True
         try:
             client = obs.ReqClient(
                 host=get_config().obs.host,
@@ -156,6 +158,7 @@ async def connect_to_obs(retry_count=0):
                 password=get_config().obs.password,
                 timeout=1,
             )
+            logger.info("Connected to OBS WebSocket.")
             if not obs_connection_manager:
                 obs_connection_manager = OBSConnectionManager()
                 obs_connection_manager.start()
@@ -164,6 +167,7 @@ async def connect_to_obs(retry_count=0):
         except Exception as e:
             await asyncio.sleep(1)
             retry_count += 1
+    connecting = False
 
 def connect_to_obs_sync(retry_count=0):
     global client, obs_connection_manager, event_client

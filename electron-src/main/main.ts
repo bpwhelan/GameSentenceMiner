@@ -439,10 +439,12 @@ async function restartGSM(): Promise<void> {
 }
 
 async function quit(): Promise<void> {
-    webSocketManager.sendQuitMessage().then(() => {
-        console.log('GSM Successfully Quit!')
+    if (pyProc) {
+        await closeGSM();
         app.quit();
-    });
+    } else {
+        app.quit();
+    }
 }
 
 async function restart(): Promise<void> {
