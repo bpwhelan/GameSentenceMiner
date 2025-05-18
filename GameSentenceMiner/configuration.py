@@ -46,7 +46,7 @@ class General:
     use_both_clipboard_and_websocket: bool = False
     websocket_uri: str = 'localhost:6677'
     open_config_on_startup: bool = False
-    open_multimine_on_startup: bool = False
+    open_multimine_on_startup: bool = True
     texthook_replacement_regex: str = ""
     texthooker_port: int = 55000
 
