@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import flask
 import websockets
 
-from GameSentenceMiner.text_log import GameLine, get_line_by_id, initial_time
+from GameSentenceMiner.text_log import GameLine, get_line_by_id, initial_time, get_all_lines
 from flask import request, jsonify, send_from_directory
 import webbrowser
 from GameSentenceMiner import obs
@@ -225,11 +225,11 @@ def serve_static(filename):
 
 @app.route('/')
 def index():
-    return flask.render_template('utility.html', websocket_port=websocket_port)
+    return flask.render_template('utility.html' if get_config().general.use_old_texthooker else 'index.html', websocket_port=websocket_port)
 
 @app.route('/texthooker')
 def texthooker():
-    return flask.render_template('utility.html', websocket_port=websocket_port)
+    return flask.render_template('utility.html' if get_config().general.use_old_texthooker else 'index.html', websocket_port=websocket_port)
 
 @app.route('/textreplacements')
 def textreplacements():
@@ -256,26 +256,28 @@ async def add_event_to_texthooker(line: GameLine):
     })
 
 
-@app.route('/update', methods=['POST'])
+@app.route('/update_checkbox', methods=['POST'])
 def update_event():
     data = request.get_json()
     event_id = data.get('id')
-    checked = data.get('checked')
 
-    if event_id is None or checked is None:
-        return jsonify({'error': 'Missing id or checked status'}), 400
-
-    event_manager.get(event_id).checked = checked
+    if event_id is None:
+        return jsonify({'error': 'Missing id'}), 400
+    event = event_manager.get(event_id)
+    event_manager.get(event_id).checked = not event.checked
     return jsonify({'message': 'Event updated successfully'}), 200
 
 @app.route('/get-screenshot', methods=['Post'])
 def get_screenshot():
     """Endpoint to get a screenshot of the current game screen."""
     data = request.get_json()
+    print(data)
     event_id = data.get('id')
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
     event_manager.line_for_screenshot = get_line_by_id(event_id)
+    print(get_all_lines())
+    print(event_manager.line_for_screenshot)
     obs.save_replay_buffer()
     return jsonify({}), 200
 
@@ -356,7 +358,12 @@ def are_lines_selected():
     return any(item.checked for item in event_manager)
 
 def reset_checked_lines():
+    async def send_reset_message():
+        await broadcast_message({
+            'event': 'reset_checkboxes',
+        })
     event_manager.reset_checked_lines()
+    asyncio.run(send_reset_message())
 
 def open_texthooker():
     webbrowser.open(url + '/texthooker')

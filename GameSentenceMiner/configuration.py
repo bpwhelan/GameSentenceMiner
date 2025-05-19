@@ -49,6 +49,7 @@ class General:
     open_multimine_on_startup: bool = True
     texthook_replacement_regex: str = ""
     texthooker_port: int = 55000
+    use_old_texthooker: bool = False
 
 
 @dataclass_json
@@ -386,6 +387,7 @@ class Config:
             self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(config.general, profile.general, "websocket_uri")
             self.sync_shared_field(config.general, profile.general, "texthooker_port")
+            self.sync_shared_field(config.general, profile.general, "use_old_texthooker")
             self.sync_shared_field(config.audio, profile.audio, "external_tool")
             self.sync_shared_field(config.audio, profile.audio, "anki_media_collection")
             self.sync_shared_field(config, profile, "advanced")

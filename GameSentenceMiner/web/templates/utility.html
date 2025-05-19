@@ -301,10 +301,10 @@
     async function toggleCheckbox(id, checked) {
         try {
             checkboxes_being_updated.add(id);
-            const res = await fetch('/update', {
+            const res = await fetch('/update_checkbox', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id, checked })
+                body: JSON.stringify({ id })
             });
             checkboxes_being_updated.delete(id);
             if (!res.ok) {

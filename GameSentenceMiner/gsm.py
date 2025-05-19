@@ -144,7 +144,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                         start_line,
                         line_cutoff,
                         video_path,
-                        anki_card_creation_time)
+                        anki_card_creation_time,
+                        mined_line=mined_line)
                 else:
                     final_audio_output = ""
                     vad_result = VADResult(False, 0, 0)
@@ -185,7 +186,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 
     @staticmethod
-    def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False):
+    def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None):
         logger.info("Getting audio from video...")
         trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time)
         if temporary:
@@ -197,10 +198,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
         result = VADResult(False, 0, 0)
         if get_config().vad.do_vad_postprocessing:
             logger.info("Trimming audio with Voice Detection...")
-            result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio, vad_trimmed_audio, game_line=game_line)
+            result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio, vad_trimmed_audio, game_line=mined_line)
             if not result.success:
                 result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio,
-                                                        vad_trimmed_audio, game_line=game_line)
+                                                        vad_trimmed_audio, game_line=mined_line)
             if not result.success:
                 if get_config().vad.add_audio_on_no_results:
                     logger.info("No voice activity detected, using full audio.")

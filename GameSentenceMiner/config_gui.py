@@ -131,7 +131,8 @@ class ConfigApp:
                 open_config_on_startup=self.open_config_on_startup.get(),
                 open_multimine_on_startup=self.open_multimine_on_startup.get(),
                 texthook_replacement_regex=self.texthook_replacement_regex.get(),
-                use_both_clipboard_and_websocket=self.use_both_clipboard_and_websocket.get()
+                use_both_clipboard_and_websocket=self.use_both_clipboard_and_websocket.get(),
+                use_old_texthooker=self.use_old_texthooker.get()
             ),
             paths=Paths(
                 folder_to_watch=self.folder_to_watch.get(),
@@ -381,6 +382,13 @@ class ConfigApp:
         self.texthooker_port.insert(0, str(self.settings.general.texthooker_port))
         self.texthooker_port.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(general_frame, "Port for the Texthooker to run on. Only change if you know what you are doing", row=self.current_row,
+                                            column=2)
+
+        ttk.Label(general_frame, text="Use Old Texthooker").grid(row=self.current_row, column=0, sticky='W')
+        self.use_old_texthooker = tk.BooleanVar(value=self.settings.general.use_old_texthooker)
+        ttk.Checkbutton(general_frame, variable=self.use_old_texthooker).grid(row=self.current_row, column=1,
+                                                                                sticky='W')
+        self.add_label_and_increment_row(general_frame, "Use the old Texthooker page, this option will be removed at a later date.", row=self.current_row,
                                             column=2)
 
 
