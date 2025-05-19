@@ -320,12 +320,14 @@ def run_oneocr(ocr_config: OCRConfig, area=False):
     screen_areas = []
     if not ssonly:
         for rect_config in ocr_config.rectangles:
-            coords = rect_config.coordinates
-            monitor_config = rect_config.monitor
-            screen_area = ",".join(str(c) for c in coords) if area else None
-            if screen_area:
-                screen_areas.append(screen_area)
+            if not rect_config.is_excluded:
+                coords = rect_config.coordinates
+                monitor_config = rect_config.monitor
+                screen_area = ",".join(str(c) for c in coords) if area else None
+                if screen_area:
+                    screen_areas.append(screen_area)
     exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, ocr_config.rectangles)))
+
     run.init_config(False)
     run.run(read_from="screencapture" if not ssonly else "clipboard",
             read_from_secondary="clipboard" if not ssonly else None,
