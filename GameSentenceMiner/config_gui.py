@@ -865,9 +865,10 @@ class ConfigApp:
         # Define display names and their corresponding values
         self.ffmpeg_audio_preset_options_map = {
             "No Re-encode" : "",
-            "Simple loudness normalization (Simplest, Start Here)": "-c:a libopus -f opus -af \"loudnorm=I=-23:LRA=7:TP=-2\"",
-            "Downmix to mono with normalization (Recommended(?))": "-c:a libopus -ac 1 -f opus -application voip -apply_phase_inv 0 -af \"loudnorm=I=-23:dual_mono=true\"",
-            "Downmix to mono, 30kbps, normalized (Optimal(?))": "-c:a libopus -b:a 30k -ac 1 -f opus -application voip -apply_phase_inv 0 -af \"loudnorm=I=-23:dual_mono=true\"",
+            "Simple Fade-in, Avoids Audio Clipping (Default)": "-c:a libopus -f opus -af \"afade=t=in:d=0.10\"",
+            "Simple loudness normalization (Simplest, Start Here)": "-c:a libopus -f opus -af \"loudnorm=I=-23:TP=-2,afade=t=in:d=0.10\"",
+            "Downmix to mono with normalization (Recommended(?))": "-c:a libopus -ac 1 -f opus -af \"loudnorm=I=-23:TP=-2:dual_mono=true,afade=t=in:d=0.10\"",
+            "Downmix to mono, 30kbps, normalized (Optimal(?))": "-c:a libopus -b:a 30k -ac 1 -f opus -af \"loudnorm=I=-23:TP=-2:dual_mono=true,afade=t=in:d=0.10\"",
             "Custom": get_config().audio.custom_encode_settings,
         }
 
