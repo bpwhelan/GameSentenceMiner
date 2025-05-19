@@ -102,6 +102,26 @@ export function registerOCRUtilsIPC() {
         }
     });
 
+    ipcMain.on('ocr.start-ocr-ss-only', () => {
+        if (!ocrProcess) {
+            const ocr_config = getOCRConfig();
+            const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.language} ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"} --ssonly`;
+            ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
+
+            console.log(`Starting OCR process with command: ${command}`);
+
+            ocrProcess.on('exit', (code: any, signal: any) => {
+                ocrProcess = null;
+                console.log(`OCR process exited with code: ${code}, signal: ${signal}`);
+            });
+
+            ocrProcess.on('error', (err: any) => {
+                console.log(`OCR process error: ${err}`);
+                ocrProcess = null;
+            });
+        }
+    });
+
     ipcMain.on('ocr.kill-ocr', () => {
         if (ocrProcess) {
             exec(`taskkill /F /PID ${ocrProcess.pid}`, (error, stdout, stderr) => {

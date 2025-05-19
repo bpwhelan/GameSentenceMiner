@@ -176,7 +176,8 @@
         </span>
     </span>
 </div>
-<button id="start-ocr">Start OCR</button>
+<button id="start-ocr">Start OCR (Auto OCR)</button>
+<button id="start-ocr-ss-only">Start OCR (Screenshot Only)</button>
 <div>
     <h2>Extra/Debug</h2>
     <button id="open-ocr-page-btn" style="margin-top: 10px;">
@@ -291,6 +292,11 @@
     document.getElementById('start-ocr').addEventListener('click', () => {
         saveOCRConfig();
         ipcRenderer.send('ocr.start-ocr');
+    });
+
+    document.getElementById('start-ocr-ss-only').addEventListener('click', () => {
+        saveOCRConfig();
+        ipcRenderer.send('ocr.start-ocr-ss-only');
     });
 
     // document.getElementById('kill-ocr').addEventListener('click', () => {

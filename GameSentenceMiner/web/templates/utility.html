@@ -126,7 +126,6 @@
 <script>
     let mainStyle = document.querySelector('head style');
     let deleteHistoryButton = document.getElementById('delete-history');
-    console.log(mainStyle);
     let displayedEventIds = new Set();
     let isTabActive = true;
     let isFetching = false; // Flag to track if a fetch is in progress
@@ -141,6 +140,8 @@
     let hoveredCheckboxes = new Set();
     let checkboxes = []; // Will hold all checkbox elements
     let checkboxMap = {};
+    let textLines = []; // Will hold all textline elements
+    let textLineMap = {};
     let checkboxes_being_updated = new Set();
 
     // Shift click selection variable
@@ -170,7 +171,6 @@
                     }
                 }
                 if (!ev.history) {
-                    console.log(checkboxMap[ev.id])
                     if (!checkboxes_being_updated.has(ev.id)) {
                         const checkbox = checkboxMap[ev.id];
                         if (checkbox) {
@@ -219,6 +219,7 @@
         });
     }
 
+
     function addNewEvent(event) {
         displayedEventIds.add(event.id);
         const container = document.getElementById('session-events');
@@ -237,7 +238,7 @@
         aria-label="Mark item"
         data-event-id="${event.id}"
         onchange="toggleCheckbox('${event.id}', this.checked)">
-        <p>${event.text}</p>
+        <p id="textline-${event.id}" contenteditable="false" ondblclick="this.contentEditable = this.contentEditable === 'true' ? 'false' : 'true'; if (this.contentEditable === 'true') this.focus();">${event.text}</p>
         <div class="textline-buttons">
             <button onclick="buttonClick('${event.id}', 'Screenshot')" title="Screenshot" style="background-color: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; font-size: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s;">
                 &#x1F4F7;
@@ -257,6 +258,11 @@
         let checkbox = shadowRoot.querySelector('.multi-line-checkbox')
         checkboxes.push(checkbox);
         checkboxMap[event.id] = checkbox; // Store the checkbox in the map for easy access
+
+        let textline = shadowRoot.querySelector('#textline-' + event.id);
+        textLines.push(textline);
+        textLineMap[event.id] = textline; // Store the textline in the map for easy access
+
 
         container.appendChild(div);
         window.scrollTo({
@@ -284,6 +290,12 @@
             .catch(error => {
                 console.error(`Error performing ${action} action for event ID: ${id}`, error);
             });
+    }
+
+    function textDoubleClicked(id) {
+        const textElement = textLineMap[id];
+        console.log(textElement);
+        textElement.contenteditable = textElement.contenteditable === "true" ? "false" : "true";
     }
 
     async function toggleCheckbox(id, checked) {

@@ -180,7 +180,7 @@ class WebsocketServerThread(threading.Thread):
         finally:
             self.clients.remove(websocket)
 
-    def send_text(self, text, line_time: datetime):
+    async def send_text(self, text, line_time: datetime):
         if text:
             return asyncio.run_coroutine_threadsafe(
                 self.send_text_coroutine(json.dumps({"sentence": text, "time": line_time.isoformat()})), self.loop)
@@ -212,8 +212,6 @@ def do_second_ocr(ocr1_text, time, img, filtering, scrolling=False):
     try:
         orig_text, text = run.process_and_write_results(img, None, last_ocr2_result, filtering, None,
                                                         engine=ocr2)
-        print(filtering)
-        print(last_ocr2_result)
         if scrolling:
             return text
         if fuzz.ratio(last_ocr2_result, orig_text) >= 80:
@@ -221,7 +219,7 @@ def do_second_ocr(ocr1_text, time, img, filtering, scrolling=False):
             return
         save_result_image(img)
         last_ocr2_result = orig_text
-        send_result(text, time)
+        asyncio.run(send_result(text, time))
     except json.JSONDecodeError:
         print("Invalid JSON received.")
     except Exception as e:
@@ -238,13 +236,17 @@ def save_result_image(img):
         img.close()
 
 
-def send_result(text, time):
+async def send_result(text, time):
     if text:
         text = do_text_replacements(text, OCR_REPLACEMENTS_FILE)
-        if get_config().advanced.ocr_sends_to_clipboard:
+        if get_config().advanced.ocr_sends_to_clipboard or ssonly:
             import pyperclip
             pyperclip.copy(text)
-        websocket_server_thread.send_text(text, time)
+        if not ssonly:
+            try:
+                await websocket_server_thread.send_text(text, time)
+            except Exception as e:
+                logger.debug(f"Error sending text to websocket: {e}")
 
 
 previous_text_list = []
@@ -253,74 +255,57 @@ previous_ocr1_result = ""  # Store last OCR1 result
 last_oneocr_time = None  # Store last OCR time
 text_stable_start_time = None  # Store the start time when text becomes stable
 previous_img = None
-orig_text_result = ""  # Store original text result
+previous_orig_text = ""  # Store original text result
 TEXT_APPEARENCE_DELAY = get_ocr_scan_rate() * 1000 + 500  # Adjust as needed
 force_stable = False
 scrolling_text_images = []
 
-def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None):
-    global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, orig_text_result, previous_img, force_stable, previous_ocr1_result, scrolling_text_images, previous_text_list
+def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None):
+    global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, scrolling_text_images, previous_text_list
     orig_text_string = ''.join([item for item in orig_text if item is not None]) if orig_text else ""
     if came_from_ss:
         save_result_image(img)
-        send_result(text, time)
+        asyncio.run(send_result(text, time))
         return
 
     line_start_time = time if time else datetime.now()
 
     if not twopassocr:
-        if previous_text and fuzz.ratio(orig_text_string, previous_text) >= 80:
+        if previous_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 90:
             logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img)
-        send_result(text, time)
-        orig_text_result = orig_text_string
-        previous_text = previous_text
+        asyncio.run(send_result(text, time))
+        previous_orig_text = orig_text_string
+        previous_text = None
         previous_img = None
         text_stable_start_time = None
         last_oneocr_time = None
         return
     if not text or force_stable:
-        # if scrolling_text_images:
-        #     stable_time = text_stable_start_time
-        #     full_text = "".join([do_second_ocr(orig_text_string, line_start_time, img, filtering, True) for img in scrolling_text_images])
-        #     scrolling_text_images = []
-        #     send_result(full_text, stable_time)
-        #     orig_text_result = orig_text_string
-        #     previous_text = previous_text
-        #     previous_img = None
-        #     text_stable_start_time = None
-        #     last_oneocr_time = None
         force_stable = False
-        if previous_text:
-            if text_stable_start_time:
-                stable_time = text_stable_start_time
-                previous_img_local = previous_img
-                if fuzz.ratio(orig_text_string, previous_ocr1_result) >= 90:
-                    logger.info("Seems like Text we already sent, not doing anything.")
-                    return
-                orig_text_result = orig_text_string
-                previous_ocr1_result = previous_text
-                do_second_ocr(previous_text, stable_time, previous_img_local, filtering)
-                previous_img = None
-                text_stable_start_time = None
-                last_oneocr_time = None
-            return
+        if previous_text and text_stable_start_time:
+            stable_time = text_stable_start_time
+            previous_img_local = previous_img
+            if previous_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 90:
+                logger.info("Seems like Text we already sent, not doing anything.")
+                return
+            previous_orig_text = orig_text_string
+            previous_ocr1_result = previous_text
+            if crop_coords:
+                previous_img_local.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
+                previous_img_local = previous_img_local.crop(crop_coords)
+            do_second_ocr(previous_text, stable_time, previous_img_local, filtering)
+            previous_img = None
+            previous_text = None
+            text_stable_start_time = None
+            last_oneocr_time = None
+        previous_text = None
         return
-    # elif previous_text_list and all(
-    #     fuzz.partial_ratio(token, prev_token) >= 95 for token in orig_text for prev_token in
-    #     previous_text_list[1:]):
-    #     logger.info(f"Previous text: {previous_text_list}. Current text: {orig_text}.")
-    #     logger.info("Seems like Scrolling text potentially...")
-    #     previous_img_local = previous_img
-    #     scrolling_text_images.append(previous_img_local)
-    #     previous_text_list = orig_text
-    #     previous_text = orig_text_string
-    #     return
 
     if not text_stable_start_time:
         text_stable_start_time = line_start_time
-    previous_text = orig_text_string
+    previous_text = text
     previous_text_list = orig_text
     last_oneocr_time = line_start_time
     previous_img = img
@@ -333,15 +318,17 @@ def run_oneocr(ocr_config: OCRConfig, area=False):
     print("Running OneOCR")
     screen_area = None
     screen_areas = []
-    for rect_config in ocr_config.rectangles:
-        coords = rect_config.coordinates
-        monitor_config = rect_config.monitor
-        screen_area = ",".join(str(c) for c in coords) if area else None
-        if screen_area:
-            screen_areas.append(screen_area)
+    if not ssonly:
+        for rect_config in ocr_config.rectangles:
+            coords = rect_config.coordinates
+            monitor_config = rect_config.monitor
+            screen_area = ",".join(str(c) for c in coords) if area else None
+            if screen_area:
+                screen_areas.append(screen_area)
     exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, ocr_config.rectangles)))
-    run.run(read_from="screencapture",
-            read_from_secondary="clipboard",
+    run.init_config(False)
+    run.run(read_from="screencapture" if not ssonly else "clipboard",
+            read_from_secondary="clipboard" if not ssonly else None,
             write_to="callback",
             screen_capture_area=screen_area,
             # screen_capture_monitor=monitor_config['index'],
@@ -387,7 +374,7 @@ def set_force_stable_hotkey():
     print("Press Ctrl+Shift+F to toggle force stable mode.")
 
 if __name__ == "__main__":
-    global ocr1, ocr2, twopassocr, language
+    global ocr1, ocr2, twopassocr, language, ssonly
     import sys
 
     args = sys.argv[1:]
@@ -411,6 +398,8 @@ if __name__ == "__main__":
         ocr1 = "oneocr"
         ocr2 = "glens"
         twopassocr = True
+
+    ssonly = "--ssonly" in args
     logger.info(f"Received arguments: ocr1={ocr1}, ocr2={ocr2}, twopassocr={twopassocr}")
     # set_force_stable_hotkey()
     global ocr_config
@@ -431,15 +420,9 @@ if __name__ == "__main__":
     if ocr_config:
         rectangles = list(filter(lambda rect: not rect.is_excluded, ocr_config.rectangles))
         oneocr_threads = []
-        run.init_config(False)
-        if rectangles:
-            thread = threading.Thread(target=run_oneocr, args=(ocr_config,True, ), daemon=True)
-            oneocr_threads.append(thread)
-            thread.start()
-        else:
-            single_ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config,False, ), daemon=True)
-            oneocr_threads.append(single_ocr_thread)
-            single_ocr_thread.start()
+        single_ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config,ocr_config.rectangles ), daemon=True)
+        oneocr_threads.append(single_ocr_thread)
+        single_ocr_thread.start()
         websocket_server_thread = WebsocketServerThread(read=True)
         websocket_server_thread.start()
         try:

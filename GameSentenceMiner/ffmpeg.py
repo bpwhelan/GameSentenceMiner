@@ -146,19 +146,19 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_resu
     #     logger.info(f"Using VAD result {vad_result} for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     if get_config().screenshot.screenshot_timing_setting == "beginning":
         screenshot_time_from_beginning = line_timestamp_in_video + screenshot_offset
-        logger.info(f"Using 'beginning' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
+        logger.debug(f"Using 'beginning' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "middle":
         if game_line.next:
             screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next.time - game_line.time).total_seconds() / 2) + screenshot_offset
         else:
             screenshot_time_from_beginning = (file_length - ((file_length - line_timestamp_in_video) / 2)) + screenshot_offset
-        logger.info(f"Using 'middle' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
+        logger.debug(f"Using 'middle' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "end":
         if game_line.next:
             screenshot_time_from_beginning = line_timestamp_in_video + (game_line.next.time - game_line.time).total_seconds() - screenshot_offset
         else:
             screenshot_time_from_beginning = file_length - screenshot_offset
-        logger.info(f"Using 'end' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
+        logger.debug(f"Using 'end' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     else:
         logger.error(f"Invalid screenshot timing setting: {get_config().screenshot.screenshot_timing_setting}")
         screenshot_time_from_beginning = line_timestamp_in_video + screenshot_offset
@@ -317,7 +317,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     logger.debug(" ".join(ffmpeg_command))
     subprocess.run(ffmpeg_command)
 
-    logger.info(f"{total_seconds_after_offset} trimmed off of beginning")
+    logger.debug(f"{total_seconds_after_offset} trimmed off of beginning")
 
     logger.debug(f"Audio trimmed and saved to {trimmed_audio}")
     return trimmed_audio
@@ -412,7 +412,7 @@ def trim_audio(input_audio, start_time, end_time, output_audio):
     command.extend(['-i', input_audio])
 
     if get_config().vad.trim_beginning and start_time > 0:
-        logger.info(f"trimming beginning to {start_time}")
+        logger.debug(f"trimming beginning to {start_time}")
         command.extend(['-ss', f"{start_time:.2f}"])
 
     command.extend([

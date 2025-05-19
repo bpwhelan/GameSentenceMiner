@@ -70,7 +70,7 @@ def detect_voice_with_whisper(input_audio):
 
 
 # Example usage of Whisper with trimming
-def process_audio_with_whisper(input_audio, output_audio):
+def process_audio_with_whisper(input_audio, output_audio, game_line):
     voice_activity = detect_voice_with_whisper(input_audio)
 
     if not voice_activity:
@@ -78,8 +78,14 @@ def process_audio_with_whisper(input_audio, output_audio):
         return VADResult(False, 0, 0)
 
     # Trim based on the first and last speech detected
-    start_time = voice_activity[0]['start']
-    end_time = voice_activity[-1]['end']
+    start_time = voice_activity[0]['start'] if voice_activity else 0
+    if (game_line.next and len(voice_activity) > 1
+        and voice_activity[-1]['end'] - get_config().audio.beginning_offset > len(input_audio) / 16000
+            and (voice_activity[-1]['start'] - voice_activity[-2]['end']) > 3.0):
+                end_time = voice_activity[-2]['end']
+                logger.info("Using the second last timestamp for trimming")
+    else:
+        end_time = voice_activity[-1]['end'] if voice_activity else 0
 
     if get_config().vad.trim_beginning:
         logger.info(f"VAD Trimmed Beginning of Audio to {start_time}")

@@ -27,7 +27,7 @@ def detect_voice_with_silero(input_audio):
 
 
 # Example usage of Silero with trimming
-def process_audio_with_silero(input_audio, output_audio):
+def process_audio_with_silero(input_audio, output_audio, game_line):
     voice_activity = detect_voice_with_silero(input_audio)
 
     if not voice_activity:
@@ -35,7 +35,13 @@ def process_audio_with_silero(input_audio, output_audio):
 
     # Trim based on the first and last speech detected
     start_time = voice_activity[0]['start'] if voice_activity else 0
-    end_time = voice_activity[-1]['end'] if voice_activity else 0
+    if (game_line.next and len(voice_activity) > 1
+        and voice_activity[-1]['end'] - get_config().audio.beginning_offset > len(input_audio) / 16000
+            and (voice_activity[-1]['start'] - voice_activity[-2]['end']) > 3.0):
+                end_time = voice_activity[-2]['end']
+                logger.info("Using the second last timestamp for trimming")
+    else:
+        end_time = voice_activity[-1]['end'] if voice_activity else 0
 
     # Trim the audio using FFmpeg
     ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio)

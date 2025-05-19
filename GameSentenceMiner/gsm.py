@@ -186,6 +186,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     @staticmethod
     def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False):
+        logger.info("Getting audio from video...")
         trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time)
         if temporary:
             return trimmed_audio
@@ -195,13 +196,18 @@ class VideoToAudioHandler(FileSystemEventHandler):
                                                                 f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
         result = VADResult(False, 0, 0)
         if get_config().vad.do_vad_postprocessing:
-            result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio, vad_trimmed_audio)
+            logger.info("Trimming audio with Voice Detection...")
+            result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio, vad_trimmed_audio, game_line=game_line)
             if not result.success:
                 result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio,
-                                                        vad_trimmed_audio)
-            if not result.success and get_config().vad.add_audio_on_no_results:
-                logger.info("No voice activity detected, using full audio.")
-                vad_trimmed_audio = trimmed_audio
+                                                        vad_trimmed_audio, game_line=game_line)
+            if not result.success:
+                if get_config().vad.add_audio_on_no_results:
+                    logger.info("No voice activity detected, using full audio.")
+                    vad_trimmed_audio = trimmed_audio
+                else:
+                    logger.info("No voice activity detected.")
+                    return None, result, None
         if timing_only:
             return result
         if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
@@ -212,19 +218,19 @@ class VideoToAudioHandler(FileSystemEventHandler):
         return final_audio_output, result, vad_trimmed_audio
 
 
-def do_vad_processing(model, trimmed_audio, vad_trimmed_audio, second_pass=False):
+def do_vad_processing(model, trimmed_audio, vad_trimmed_audio, game_line=None, second_pass=False):
     match model:
         case configuration.OFF:
             pass
         case configuration.SILERO:
             from GameSentenceMiner.vad import silero_trim
-            return silero_trim.process_audio_with_silero(trimmed_audio, vad_trimmed_audio)
+            return silero_trim.process_audio_with_silero(trimmed_audio, vad_trimmed_audio, game_line)
         case configuration.VOSK:
             from GameSentenceMiner.vad import vosk_helper
-            return vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio)
+            return vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio, game_line)
         case configuration.WHISPER:
             from GameSentenceMiner.vad import whisper_helper
-            return whisper_helper.process_audio_with_whisper(trimmed_audio, vad_trimmed_audio)
+            return whisper_helper.process_audio_with_whisper(trimmed_audio, vad_trimmed_audio, game_line)
 
 
 def play_audio_in_external(filepath):

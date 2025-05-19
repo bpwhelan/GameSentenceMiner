@@ -40,12 +40,13 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         if update_audio:
             audio_in_anki = store_media_file(audio_path)
         if update_picture:
+            logger.info("Getting Screenshot...")
             screenshot = ffmpeg.get_screenshot(video_path, ss_time)
             wait_for_stable_file(screenshot)
             screenshot_in_anki = store_media_file(screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
-        if get_config().anki.previous_image_field:
+        if get_config().anki.previous_image_field and game_line.prev:
             prev_screenshot = ffmpeg.get_screenshot_for_line(video_path, selected_lines[0].prev if selected_lines else game_line.prev)
             wait_for_stable_file(prev_screenshot)
             prev_screenshot_in_anki = store_media_file(prev_screenshot)
@@ -184,7 +185,7 @@ def store_media_file(path):
         return invoke('storeMediaFile', filename=path, data=convert_to_base64(path))
     except Exception as e:
         logger.error(f"Error storing media file, check anki card for blank media fields: {e}")
-        return "None"
+        return None
 
 
 def convert_to_base64(file_path):
