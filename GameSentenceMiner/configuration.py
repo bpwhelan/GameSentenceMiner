@@ -9,6 +9,7 @@ from os.path import expanduser
 from sys import platform
 from typing import List, Dict
 import sys
+from enum import Enum
 
 import toml
 from dataclasses_json import dataclass_json
@@ -38,13 +39,31 @@ DEFAULT_CONFIG = 'Default'
 
 current_game = ''
 
+
+class Language(Enum):
+    ENGLISH = "en"
+    JAPANESE = "ja"
+    SPANISH = "es"
+    FRENCH = "fr"
+    GERMAN = "de"
+    CHINESE = "zh"
+    KOREAN = "ko"
+    ITALIAN = "it"
+    RUSSIAN = "ru"
+    PORTUGUESE = "pt"
+    HINDI = "hi"
+    ARABIC = "ar"
+
+AVAILABLE_LANGUAGES = [lang.value for lang in Language]
+AVAILABLE_LANGUAGES_DICT = {lang.value: lang for lang in Language}
+
 @dataclass_json
 @dataclass
 class General:
     use_websocket: bool = True
     use_clipboard: bool = True
     use_both_clipboard_and_websocket: bool = False
-    websocket_uri: str = 'localhost:6677'
+    websocket_uri: str = 'localhost:6677,localhost:9001,localhost:2333'
     open_config_on_startup: bool = False
     open_multimine_on_startup: bool = True
     texthook_replacement_regex: str = ""
@@ -168,6 +187,7 @@ class Hotkeys:
 class VAD:
     whisper_model: str = WHISPER_BASE
     do_vad_postprocessing: bool = True
+    language: str = 'ja'
     vosk_url: str = VOSK_BASE
     selected_vad_model: str = SILERO
     backup_vad_model: str = OFF
@@ -194,6 +214,8 @@ class Advanced:
     multi_line_line_break: str = '<br>'
     multi_line_sentence_storage_field: str = ''
     ocr_sends_to_clipboard: bool = True
+    ocr_websocket_port: int = 9002
+    texthooker_communication_websocket_port: int = 55001
     use_anki_note_creation_time: bool = False
 
 @dataclass_json
@@ -390,6 +412,9 @@ class Config:
             self.sync_shared_field(config.general, profile.general, "use_old_texthooker")
             self.sync_shared_field(config.audio, profile.audio, "external_tool")
             self.sync_shared_field(config.audio, profile.audio, "anki_media_collection")
+            self.sync_shared_field(config.audio, profile.audio, "external_tool_enabled")
+            self.sync_shared_field(config.audio, profile.audio, "custom_encode_settings")
+            self.sync_shared_field(config.screenshot, profile.screenshot, "custom_ffmpeg_settings")
             self.sync_shared_field(config, profile, "advanced")
             self.sync_shared_field(config, profile, "paths")
             self.sync_shared_field(config, profile, "obs")

@@ -396,8 +396,8 @@ def trim_audio_by_end_time(input_audio, end_time, output_audio):
 def convert_audio_to_wav(input_audio, output_wav):
     command = ffmpeg_base_command_list + [
         "-i", input_audio,
-        "-ar", "16000",
-        "-ac", "1",
+        "-ar", "16000",  # Resample to 16kHz
+        "-ac", "1",      # Convert to mono
         "-af", "afftdn,dialoguenhance" if not util.is_linux() else "afftdn",
         output_wav
     ]

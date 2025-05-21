@@ -125,7 +125,7 @@ def get_text_event(last_note) -> GameLine:
         if lines_match(line.text, remove_html_and_cloze_tags(sentence)):
             return line
 
-    logger.debug("Couldn't find a match in history, using last event")
+    logger.info("Could not find matching sentence from GSM's history. Using the latest line.")
     return lines[-1]
 
 

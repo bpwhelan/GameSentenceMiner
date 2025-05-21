@@ -46,6 +46,12 @@ export function getAssetsDir(): string {
         : path.join(process.resourcesPath, "assets"); // Production (ASAR-safe)
 }
 
+export function getGSMBaseDir(): string {
+    return isDev
+        ? "./" // Development path
+        : process.resourcesPath
+}
+
 export function sanitizeFilename(filename: string): string {
     return filename.replace(/[ <>:"/\\|?*\x00-\x1F]/g, '');
 }

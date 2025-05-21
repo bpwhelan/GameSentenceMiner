@@ -20,13 +20,13 @@ let ocrProcess: any = null;
 
 export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.install-owocr-deps', () => {
-        const command = `${getPythonPath()} -m pip install owocr & exit`;
+        const command = `${getPythonPath()} -m pip install --upgrade owocr & exit`;
         spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
         mainWindow?.webContents.send('terminal-output', `Installing OWOCR dependencies in new terminal...`);
     });
 
     ipcMain.on('ocr.install-selected-dep', (_, dependency: string) => {
-        const command = `${getPythonPath()} -m ${dependency} & exit`;
+        const command = `${getPythonPath()} -m  ${dependency} --upgrade & exit`;
         spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
         mainWindow?.webContents.send('terminal-output', `Installing ${dependency} dependencies in new terminal...`);
     });

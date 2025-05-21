@@ -20,6 +20,7 @@ enum FunctionName {
     Restart = "restart",
     QuitOBS = "quit_obs",
     StartOBS = "start_obs",
+    OpenSettings = "open_settings",
 }
 
 interface Message {
@@ -91,6 +92,10 @@ class WebSocketManager {
 
     async sendStartOBS() {
         await this.sendMessage({ function: FunctionName.StartOBS });
+    }
+
+    async sendOpenSettings() {
+        await this.sendMessage({ function: FunctionName.OpenSettings });
     }
 
     async waitForWebSocketConnection(): Promise<void> {

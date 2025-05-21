@@ -94,7 +94,15 @@
             window.addEventListener('resize', () => fitAddon.fit());
 
             ipcRenderer.on('terminal-output', (event, data) => {
-                term.write(data);
+                // if (data.includes("GameSentenceMiner - "))
+                //     data = data.split("GameSentenceMiner - ")[1];
+                if (data.includes("- ERROR -")) {
+                    term.write(`\x1b[31m${data}\x1b[0m`); // Red text for errors
+                } else if (data.includes("- WARNING -")) {
+                    term.write(`\x1b[33mWARNING: ${data}\x1b[0m`); // Yellow text for errors
+                } else {
+                    term.write(data);
+                }
             });
 
             ipcRenderer.on('terminal-error', (event, data) => {

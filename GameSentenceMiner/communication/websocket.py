@@ -21,6 +21,13 @@ class FunctionName(Enum):
     STOP = "stop"
     QUIT_OBS = "quit_obs"
     START_OBS = "start_obs"
+    OPEN_SETTINGS = "open_settings"
+    OPEN_TEXTHOOKER = "open_texthooker"
+    OPEN_LOG = "open_log"
+    TOGGLE_REPLAY_BUFFER = "toggle_replay_buffer"
+    RESTART_OBS = "restart_obs"
+    EXIT = "exit"
+
 
 async def do_websocket_connection(port):
     """

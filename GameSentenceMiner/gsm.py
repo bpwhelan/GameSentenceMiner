@@ -326,21 +326,25 @@ def get_screenshot():
         logger.error(f"Failed to get Screenshot: {e}")
 
 
+# def create_image():
+#     """Create a simple pickaxe icon."""
+#     width, height = 64, 64
+#     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))  # Transparent background
+#     draw = ImageDraw.Draw(image)
+#
+#     # Handle (rectangle)
+#     handle_color = (139, 69, 19)  # Brown color
+#     draw.rectangle([(30, 15), (34, 50)], fill=handle_color)
+#
+#     # Blade (triangle-like shape)
+#     blade_color = (192, 192, 192)  # Silver color
+#     draw.polygon([(15, 15), (49, 15), (32, 5)], fill=blade_color)
+#
+#     return image
+
 def create_image():
-    """Create a simple pickaxe icon."""
-    width, height = 64, 64
-    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))  # Transparent background
-    draw = ImageDraw.Draw(image)
-
-    # Handle (rectangle)
-    handle_color = (139, 69, 19)  # Brown color
-    draw.rectangle([(30, 15), (34, 50)], fill=handle_color)
-
-    # Blade (triangle-like shape)
-    blade_color = (192, 192, 192)  # Silver color
-    draw.polygon([(15, 15), (49, 15), (32, 5)], fill=blade_color)
-
-    return image
+    image_path = os.path.join(os.path.dirname(__file__), "assets", "pickaxe.png")
+    return Image.open(image_path)
 
 
 def open_settings():
@@ -575,6 +579,18 @@ def handle_websocket_message(message: Message):
             close_obs()
         case FunctionName.START_OBS:
             obs.start_obs()
+        case FunctionName.OPEN_SETTINGS:
+            open_settings()
+        case FunctionName.OPEN_TEXTHOOKER:
+            texthooking_page.open_texthooker()
+        case FunctionName.OPEN_LOG:
+            open_log()
+        case FunctionName.TOGGLE_REPLAY_BUFFER:
+            play_pause(None, None)
+        case FunctionName.RESTART_OBS:
+            restart_obs()
+        case FunctionName.EXIT:
+            exit_program(None, None)
         case _:
             logger.debug(f"unknown message from electron websocket: {message.to_json()}")
 
@@ -627,7 +643,6 @@ async def register_scene_switcher_callback():
             settings_window.reload_settings()
             update_icon()
 
-    logger.info("Registering scene switcher callback")
     await obs.register_scene_change_callback(scene_switcher_callback)
 
 async def main(reloading=False):

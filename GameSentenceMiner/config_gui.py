@@ -41,7 +41,7 @@ class HoverInfoWidget:
         self.tooltip.wm_overrideredirect(True)
         self.tooltip.wm_geometry(f"+{x}+{y}")
         label = tk.Label(self.tooltip, text=text, background="yellow", relief="solid", borderwidth=1,
-                         font=("tahoma", "8", "normal"))
+                         font=("tahoma", "12", "normal"))
         label.pack(ipadx=1)
 
     def hide_info_box(self):
@@ -221,11 +221,12 @@ class ConfigApp:
             advanced=Advanced(
                 audio_player_path=self.audio_player_path.get(),
                 video_player_path=self.video_player_path.get(),
-                # show_screenshot_buttons=self.show_screenshot_button.get(),
                 multi_line_line_break=self.multi_line_line_break.get(),
                 multi_line_sentence_storage_field=self.multi_line_sentence_storage_field.get(),
                 ocr_sends_to_clipboard=self.ocr_sends_to_clipboard.get(),
                 use_anki_note_creation_time=self.use_anki_note_creation_time.get(),
+                ocr_websocket_port=int(self.ocr_websocket_port.get()),
+                texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port.get()),
             ),
             ai=Ai(
                 enabled=self.ai_enabled.get(),
@@ -349,11 +350,11 @@ class ConfigApp:
         self.add_label_and_increment_row(general_frame, "Enable to allow GSM to accept both clipboard and websocket input at the same time.",
                                             row=self.current_row, column=2)
 
-        ttk.Label(general_frame, text="Websocket URI:").grid(row=self.current_row, column=0, sticky='W')
-        self.websocket_uri = ttk.Entry(general_frame)
+        ttk.Label(general_frame, text="Websocket URI(s):").grid(row=self.current_row, column=0, sticky='W')
+        self.websocket_uri = ttk.Entry(general_frame, width=50)
         self.websocket_uri.insert(0, self.settings.general.websocket_uri)
         self.websocket_uri.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(general_frame, "WebSocket URI for connecting.", row=self.current_row,
+        self.add_label_and_increment_row(general_frame, "WebSocket URI for connecting. Allows Comma Seperated Values for Connecting Multiple.", row=self.current_row,
                                          column=2)
 
         ttk.Label(general_frame, text="TextHook Replacement Regex:").grid(row=self.current_row, column=0, sticky='W')
@@ -424,6 +425,13 @@ class ConfigApp:
         ttk.Checkbutton(vad_frame, variable=self.do_vad_postprocessing).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(vad_frame, "Enable post-processing of audio to trim just the voiceline.",
                                          row=self.current_row, column=2)
+
+        ttk.Label(vad_frame, text="Language:").grid(row=self.current_row, column=0, sticky='W')
+        self.language = ttk.Combobox(vad_frame, values=AVAILABLE_LANGUAGES)
+        self.language.set(self.settings.vad.language)
+        self.language.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(vad_frame, "Select the language for VAD. This is used for Whisper and Groq (if i implemented it)", row=self.current_row,
+                                            column=2)
 
         ttk.Label(vad_frame, text="Whisper Model:").grid(row=self.current_row, column=0, sticky='W')
         self.whisper_model = ttk.Combobox(vad_frame, values=[WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM,
@@ -603,14 +611,14 @@ class ConfigApp:
                                          column=2)
 
         ttk.Label(anki_frame, text="Custom Tags:").grid(row=self.current_row, column=0, sticky='W')
-        self.custom_tags = ttk.Entry(anki_frame)
+        self.custom_tags = ttk.Entry(anki_frame, width=50)
         self.custom_tags.insert(0, ', '.join(self.settings.anki.custom_tags))
         self.custom_tags.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame, "Comma-separated custom tags for the Anki cards.",
                                          row=self.current_row, column=2)
 
         ttk.Label(anki_frame, text="Tags to work on:").grid(row=self.current_row, column=0, sticky='W')
-        self.tags_to_check = ttk.Entry(anki_frame)
+        self.tags_to_check = ttk.Entry(anki_frame, width=50)
         self.tags_to_check.insert(0, ', '.join(self.settings.anki.tags_to_check))
         self.tags_to_check.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(anki_frame,
@@ -1028,7 +1036,7 @@ class ConfigApp:
 
         ttk.Label(profiles_frame, text="OBS Scene:").grid(row=self.current_row, column=0, sticky='W')
         self.obs_scene_var = tk.StringVar(value="")
-        self.obs_scene_listbox = tk.Listbox(profiles_frame, listvariable=self.obs_scene_var, selectmode=tk.MULTIPLE, height=10)
+        self.obs_scene_listbox = tk.Listbox(profiles_frame, listvariable=self.obs_scene_var, selectmode=tk.MULTIPLE, height=10, width=50)
         self.obs_scene_listbox.grid(row=self.current_row, column=1)
         ttk.Button(profiles_frame, text="Refresh Scenes", command=self.refresh_obs_scenes).grid(row=self.current_row, column=2, pady=5)
         self.add_label_and_increment_row(profiles_frame, "Select an OBS scene to associate with this profile. (Optional)", row=self.current_row, column=3)
@@ -1095,6 +1103,17 @@ class ConfigApp:
         self.ocr_sends_to_clipboard = tk.BooleanVar(value=self.settings.advanced.ocr_sends_to_clipboard)
         ttk.Checkbutton(advanced_frame, variable=self.ocr_sends_to_clipboard).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(advanced_frame, "Enable to send OCR results to clipboard.", row=self.current_row, column=2)
+
+        self.ocr_websocket_port = ttk.Entry(advanced_frame)
+        self.ocr_websocket_port.insert(0, str(self.settings.advanced.ocr_websocket_port))
+        self.ocr_websocket_port.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(advanced_frame, "Port for OCR WebSocket communication. GSM will also listen on this port", row=self.current_row, column=2)
+
+        ttk.Label(advanced_frame, text="Texthooker Communication WebSocket Port:").grid(row=self.current_row, column=0, sticky='W')
+        self.texthooker_communication_websocket_port = ttk.Entry(advanced_frame)
+        self.texthooker_communication_websocket_port.insert(0, str(self.settings.advanced.texthooker_communication_websocket_port))
+        self.texthooker_communication_websocket_port.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(advanced_frame, "Port for GSM Texthooker WebSocket communication. Does nothing right now, hardcoded to 55001", row=self.current_row, column=2)
 
 
         ttk.Label(advanced_frame, text="Use Anki Creation Date for Audio Timing:").grid(row=self.current_row, column=0, sticky='W')

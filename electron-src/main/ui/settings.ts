@@ -8,6 +8,7 @@ import {
     setStartConsoleMinimized,
     store
 } from "../store.js";
+import {webSocketManager} from "../communication/websocket.js";
 
 export function registerSettingsIPC() {
     ipcMain.handle('settings.getSettings', async () => {
@@ -37,6 +38,11 @@ export function registerSettingsIPC() {
 
     ipcMain.handle('settings.setAutoUpdateElectron', async (_, value: boolean) => {
         setAutoUpdateElectron(value);
+    });
+
+    ipcMain.handle('settings.openGSMSettings', async () => {
+        console.error("Opening GSM settings");
+        await webSocketManager.sendOpenSettings();
     });
 
     // ipcMain.handle('settings.selectPythonPath', async () => {

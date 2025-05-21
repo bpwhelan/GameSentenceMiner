@@ -55,6 +55,10 @@
     <label for="customPythonPackage">Custom Python Package DO NOT CHANGE UNLESS YOU KNOW WHAT YOU ARE DOING:</label>
     <input type="text" id="customPythonPackage" class="setting-input" placeholder="GameSentenceMiner">
 </div>
+
+<div>
+    <button id="openGSMSettingsBtn" class="button-blue">Open GSM Settings</button>
+</div>
 <script>
     const {ipcRenderer} = require('electron');
     const autoUpdateGSMAppCheckbox = document.getElementById('autoUpdateGSMApp');
@@ -66,6 +70,7 @@
     const startConsoleMinimizedCheckbox = document.getElementById('startConsoleMinimized');
     const customPythonPackageInput = document.getElementById('customPythonPackage');
     const showYuzuTab = document.getElementById('showYuzuTab');
+    const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
 
     async function loadSettings() {
         const settings = await ipcRenderer.invoke('settings.getSettings');
@@ -107,6 +112,11 @@
 
     showYuzuTab.addEventListener('change', async () => {
         await saveSettings();
+    });
+
+    openGSMSettingsBtn.addEventListener('click', async () => {
+        console.log("Opening GSM Settings");
+        await ipcRenderer.invoke('settings.openGSMSettings');
     });
 
     // selectPythonPathButton.addEventListener('click', async () => {

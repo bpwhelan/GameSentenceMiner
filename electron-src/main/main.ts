@@ -2,7 +2,7 @@ import {app, BrowserWindow, dialog, ipcMain, Menu, shell, Tray, Notification} fr
 import * as path from 'path';
 import {ChildProcessWithoutNullStreams, spawn} from 'child_process';
 import {getOrInstallPython} from "./python/python_downloader.js";
-import {APP_NAME, BASE_DIR, getAssetsDir, isDev, PACKAGE_NAME} from "./util.js";
+import {APP_NAME, BASE_DIR, getAssetsDir, getGSMBaseDir, isDev, PACKAGE_NAME} from "./util.js";
 import electronUpdater, {type AppUpdater} from 'electron-updater';
 import {fileURLToPath} from "node:url";
 
@@ -76,7 +76,7 @@ async function autoUpdate() {
 
     // await autoUpdater.checkForUpdatesAndNotify();
     await autoUpdater.checkForUpdates().then((result) => {
-        if (result?.updateInfo.version !== app.getVersion()) {
+        if (result !== null && result.updateInfo.version !== app.getVersion()) {
             log.info("Update available.");
             dialog.showMessageBox({
                 type: "question",
@@ -92,7 +92,7 @@ async function autoUpdate() {
                 }
             });
         } else {
-            log.info("No update available.");
+            console.log("No update available. Current version: " + app.getVersion());
         }
     });
 }
@@ -152,7 +152,7 @@ async function runCommand(command: string, args: string[], stdout: boolean, stde
  */
 function runGSM(command: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
-        const proc = spawn(command, args);
+        const proc = spawn(command, args, {cwd : getGSMBaseDir() });
 
         pyProc = proc;
 
@@ -215,8 +215,11 @@ async function createWindow() {
         {
             label: "File",
             submenu: [
+                {label: 'Update GSM', click: () => update(true, false)},
+                {label: 'Restart GSM', click: () => restartGSM()},
+                {label: "Open GSM Folder", click: () => shell.openPath(BASE_DIR)},
                 {type: "separator"},
-                {label: "Exit", click: () => { quit(); }},
+                {label: 'Quit', click: () => quit()},
             ],
         },
         {
@@ -256,6 +259,7 @@ async function createWindow() {
         if (!isQuitting) {
             event.preventDefault();
             mainWindow?.hide();
+            createTray();
             return;
         }
         mainWindow = null;
@@ -273,11 +277,11 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
     if (updateAvailable || force) {
         console.log("Update available. Closing GSM...");
         await closeGSM();
-        console.log(`Updating GSM Python Application to ${latestVersion}...`)
+        console.log(`Updating GSM Python Application to ${latestVersion}... This is just for dependencies`)
         try {
-            await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", getCustomPythonPackage()], true, true);
+            await runCommand(pythonPath, ["-m", "pip", "install", "--no-warn-script-location", getCustomPythonPackage()], true, true);
         } catch (err) {
-            console.error("Failed to install custom Python package. Falling back to default package: GameSentenceMiner.", err);
+            console.error("Failed to install custom Python package. Falling back to default package: GameSentenceMiner, forcing upgrade.", err);
             await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "GameSentenceMiner"], true, true);
         }
         if (shouldRestart) {
@@ -293,8 +297,7 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
 function createTray() {
     tray = new Tray(getIconPath(32)); // Replace with a valid icon path
     const contextMenu = Menu.buildFromTemplate([
-        {label: 'Show Console', click: () => mainWindow?.show()},
-        {label: 'Update GSM', click: () => update(true, true)},
+        {label: 'Update GSM', click: () => update(true, false)},
         {label: 'Restart GSM', click: () => restartGSM()},
         {label: "Open GSM Folder", click: () => shell.openPath(BASE_DIR)},
         {label: 'Quit', click: () => quit()},
@@ -304,8 +307,13 @@ function createTray() {
     tray.setContextMenu(contextMenu);
 
     tray.on('click', () => {
-        mainWindow?.show();
+        showWindow()
     });
+}
+
+function showWindow() {
+    mainWindow?.show();
+    tray.destroy();
 }
 
 async function isPackageInstalled(pythonPath: string, packageName: string): Promise<boolean> {
@@ -369,7 +377,9 @@ if (!app.requestSingleInstanceLock()) {
             await autoUpdate()
         }
         createWindow().then(async () => {
-            createTray();
+            if (getStartConsoleMinimized()) {
+                createTray();
+            }
             getOrInstallPython().then(async (pyPath: string) => {
                 pythonPath = pyPath;
                 setPythonPath(pythonPath);

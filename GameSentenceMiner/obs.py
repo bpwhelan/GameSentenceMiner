@@ -99,12 +99,12 @@ async def check_obs_folder_is_correct():
         obs_record_directory = get_record_directory()
         if obs_record_directory and os.path.normpath(obs_record_directory) != os.path.normpath(
                 get_config().paths.folder_to_watch):
-            logger.info("OBS Path Setting wrong, OBS Recording folder in GSM Config")
+            logger.info("OBS Path wrong, Setting OBS Recording folder in GSM Config...")
             get_config().paths.folder_to_watch = os.path.normpath(obs_record_directory)
             get_master_config().sync_shared_fields()
             save_full_config(get_master_config())
         else:
-            logger.info("OBS Recording path looks correct")
+            logger.debug("OBS Recording path looks correct")
 
 
 def get_obs_websocket_config_values():

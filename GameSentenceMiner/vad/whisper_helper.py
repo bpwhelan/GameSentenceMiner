@@ -2,6 +2,7 @@ import tempfile
 import warnings
 
 import stable_whisper as whisper
+import torch
 from stable_whisper import WhisperResult
 
 from GameSentenceMiner  import configuration, ffmpeg
@@ -16,10 +17,9 @@ whisper_model = None
 def load_whisper_model():
     global whisper_model
     if whisper_model is None:
-        logger.info(f"Loading Whisper model '{get_config().vad.whisper_model}'... This may take a while.")
         with warnings.catch_warnings(action="ignore"):
             whisper_model = whisper.load_model(get_config().vad.whisper_model)
-        logger.info("Whisper model loaded.")
+        logger.info(f"Whisper model '{get_config().vad.whisper_model}' loaded.")
 
 
 # Use Whisper to detect voice activity with timestamps in the audio
@@ -35,7 +35,7 @@ def detect_voice_with_whisper(input_audio):
 
     # Transcribe the audio using Whisper
     with warnings.catch_warnings(action="ignore"):
-        result: WhisperResult = whisper_model.transcribe(temp_wav, vad=True, language='ja')
+        result: WhisperResult = whisper_model.transcribe(temp_wav, vad=True, language='ja', temperature=0.0)
 
     voice_activity = []
 
@@ -101,4 +101,6 @@ def process_audio_with_whisper(input_audio, output_audio, game_line):
 # Load Whisper model initially
 def initialize_whisper_model():
     load_whisper_model()
-    logger.info(f"Using Whisper model '{get_config().vad.whisper_model}' for Japanese voice detection")
+
+# initialize_whisper_model()
+# process_audio_with_whisper("tmp6x81cy27.opus", "tmp6x81cy27_trimmed.opus", None)

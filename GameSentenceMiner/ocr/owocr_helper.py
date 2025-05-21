@@ -194,8 +194,8 @@ class WebsocketServerThread(threading.Thread):
             self._stop_event = stop_event = asyncio.Event()
             self._event.set()
             self.server = start_server = websockets.serve(self.server_handler,
-                                                          get_config().general.websocket_uri.split(":")[0],
-                                                          get_config().general.websocket_uri.split(":")[1],
+                                                          "0.0.0.0",
+                                                          get_config().advanced.ocr_websocket_port,
                                                           max_size=1000000000)
             async with start_server:
                 await stop_event.wait()
@@ -313,20 +313,15 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
 done = False
 
 
-def run_oneocr(ocr_config: OCRConfig, area=False):
+def run_oneocr(ocr_config: OCRConfig, rectangles):
     global done
     print("Running OneOCR")
     screen_area = None
     screen_areas = []
+    exclusions = []
     if not ssonly:
-        for rect_config in ocr_config.rectangles:
-            if not rect_config.is_excluded:
-                coords = rect_config.coordinates
-                monitor_config = rect_config.monitor
-                screen_area = ",".join(str(c) for c in coords) if area else None
-                if screen_area:
-                    screen_areas.append(screen_area)
-    exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, ocr_config.rectangles)))
+        screen_areas = [",".join(str(c) for c in rect_config.coordinates) for rect_config in rectangles if not rect_config.is_excluded]
+        exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, rectangles)))
 
     run.init_config(False)
     run.run(read_from="screencapture" if not ssonly else "clipboard",
@@ -334,13 +329,13 @@ def run_oneocr(ocr_config: OCRConfig, area=False):
             write_to="callback",
             screen_capture_area=screen_area,
             # screen_capture_monitor=monitor_config['index'],
-            screen_capture_window=ocr_config.window,
+            screen_capture_window=ocr_config.window if ocr_config and ocr_config.window else None,
             screen_capture_only_active_windows=get_requires_open_window(),
             screen_capture_delay_secs=get_ocr_scan_rate(), engine=ocr1,
             text_callback=text_callback,
             screen_capture_exclusions=exclusions,
             language=language,
-            monitor_index=ocr_config.window,
+            monitor_index=None,
             ocr1=ocr1,
             ocr2=ocr2,
             gsm_ocr_config=ocr_config,
@@ -380,7 +375,7 @@ if __name__ == "__main__":
     import sys
 
     args = sys.argv[1:]
-    if len(args) == 4:
+    if len(args) >= 4:
         language = args[0]
         ocr1 = args[1]
         ocr2 = args[2]
@@ -418,11 +413,11 @@ if __name__ == "__main__":
             else:
                 logger.error(f"Window '{ocr_config.window}' not found within 30 seconds.")
                 sys.exit(1)
-    logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
-    if ocr_config:
-        rectangles = list(filter(lambda rect: not rect.is_excluded, ocr_config.rectangles))
+        logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
+    if ocr_config or ssonly:
+        rectangles = ocr_config.rectangles if ocr_config and ocr_config.rectangles else []
         oneocr_threads = []
-        single_ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config,ocr_config.rectangles ), daemon=True)
+        single_ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config,rectangles ), daemon=True)
         oneocr_threads.append(single_ocr_thread)
         single_ocr_thread.start()
         websocket_server_thread = WebsocketServerThread(read=True)

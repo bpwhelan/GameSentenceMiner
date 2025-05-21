@@ -380,17 +380,17 @@ def start_web_server():
 
     app.run(port=port, debug=False) # debug=True provides helpful error messages during development
 
-async def run_websocket_server(host="0.0.0.0", port=55001):
+async def run_websocket_server(host="0.0.0.0"):
     global websocket_port
     while True:
-        websocket_port = port
+        websocket_port = get_config().advanced.texthooker_communication_websocket_port
         try:
-            async with websockets.serve(websocket_handler, host, port):
-                logger.debug(f"WebSocket server started at ws://{host}:{port}/")
-                await asyncio.Future()  # Keep the WebSocket server running
+            async with websockets.serve(websocket_handler, host, websocket_port):
+                logger.debug(f"WebSocket server started at ws://{host}:{websocket_port}/")
+                await asyncio.Future()
         except OSError as e:
-            logger.debug(f"Port {port} is in use. Trying the next port...")
-            port += 1
+            logger.error(f"TextHooker WebSocket server failed to start on port {websocket_port}: {e}")
+            logger.info("You may need to try a different port in GSM's advanced config, and then update that in the Texthooker's settings.")
 
 
 
