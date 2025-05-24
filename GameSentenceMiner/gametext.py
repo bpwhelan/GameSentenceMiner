@@ -84,10 +84,10 @@ async def listen_websockets():
                     if e.response.status_code == 404:
                         logger.info(f"Texthooker WebSocket: {uri} connection failed. Attempting some fixes...")
                         try_other = True
-                else:
+                elif websocket_connected[uri]:
                     if not (isinstance(e, ConnectionResetError) or isinstance(e, ConnectionError) or isinstance(e, InvalidStatus) or isinstance(e, websockets.ConnectionClosed)):
-                        logger.error(f"Unexpected error in Texthooker WebSocket {uri} connection: {e}")
-                    if websocket_connected[uri]:
+                        logger.debug(f"Unexpected error in Texthooker WebSocket {uri} connection: {e}, Can be ignored")
+                    else:
                         logger.warning(f"Texthooker WebSocket {uri} disconnected. Attempting to reconnect...")
                     websocket_connected[uri] = False
                     await asyncio.sleep(1)

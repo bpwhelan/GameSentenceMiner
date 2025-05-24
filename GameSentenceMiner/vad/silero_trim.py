@@ -36,7 +36,7 @@ def process_audio_with_silero(input_audio, output_audio, game_line):
 
     # Trim based on the first and last speech detected
     start_time = voice_activity[0]['start'] if voice_activity else 0
-    if game_line and game_line.next and len(voice_activity) > 1 and 0 > get_config().audio.beginning_offset > audio_length - voice_activity[-1]['start']:
+    if game_line and game_line.next and len(voice_activity) > 1 and 0 > audio_length - voice_activity[-1]['start'] + get_config().audio.beginning_offset:
     #         and (voice_activity[-1]['start'] - voice_activity[-2]['end']) > 3.0):
             end_time = voice_activity[-2]['end']
             logger.info("Using the second last timestamp for trimming")
