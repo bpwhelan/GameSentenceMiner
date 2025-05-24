@@ -275,8 +275,9 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
     isUpdating = true;
     const {updateAvailable, latestVersion} = await checkForUpdates();
     if (updateAvailable || force) {
-        console.log("Update available. Closing GSM...");
-        await closeGSM();
+        if (pyProc) {
+            await closeGSM();
+        }
         console.log(`Updating GSM Python Application to ${latestVersion}... This is just for dependencies`)
         try {
             await runCommand(pythonPath, ["-m", "pip", "install", "--no-warn-script-location", getCustomPythonPackage()], true, true);
