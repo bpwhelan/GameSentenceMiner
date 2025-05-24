@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.9.2"
+version = "2.9.3"
 description = "A tool for mining sentences from games."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -62,3 +62,4 @@ packages = ["GameSentenceMiner", "GameSentenceMiner.vad", 'GameSentenceMiner.dow
 
 [tool.setuptools.package-data]
 "GameSentenceMiner.web" = ["static/*", "templates/*"]
+"GameSentenceMiner.assets" = ["*"]

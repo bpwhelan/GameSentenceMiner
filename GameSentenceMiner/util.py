@@ -7,7 +7,6 @@ import subprocess
 import threading
 import time
 from datetime import datetime
-from sys import platform
 
 from rapidfuzz import process
 
@@ -131,12 +130,6 @@ def run_agent_and_hook(pname, agent_script):
     keep_running = False
 
 
-def is_linux():
-    return platform == 'linux'
-
-def is_windows():
-    return platform == 'win32'
-
 # def run_command(command, shell=False, input=None, capture_output=False, timeout=None, check=False, **kwargs):
 #     # Use shell=True if the OS is Linux, otherwise shell=False
 #     if is_linux():
@@ -257,8 +250,6 @@ def do_text_replacements(text, replacements_json):
 TEXT_REPLACEMENTS_FILE = os.path.join(get_app_directory(), 'config', 'text_replacements.json')
 OCR_REPLACEMENTS_FILE = os.path.join(get_app_directory(), 'config', 'ocr_replacements.json')
 os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
-
-import urllib.request
 
 # if not os.path.exists(OCR_REPLACEMENTS_FILE):
 #     url = "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/refs/heads/main/electron-src/assets/ocr_replacements.json"

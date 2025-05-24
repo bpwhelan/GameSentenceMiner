@@ -1,6 +1,7 @@
 import shutil
 import tempfile
 
+import GameSentenceMiner.configuration
 from GameSentenceMiner import obs, util, configuration
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.text_log import initial_time
@@ -8,10 +9,10 @@ from GameSentenceMiner.util import *
 
 
 def get_ffmpeg_path():
-    return os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if util.is_windows() else "ffmpeg"
+    return os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if is_windows() else "ffmpeg"
 
 def get_ffprobe_path():
-    return os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if util.is_windows() else "ffprobe"
+    return os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if is_windows() else "ffprobe"
 
 ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
 
@@ -398,7 +399,7 @@ def convert_audio_to_wav(input_audio, output_wav):
         "-i", input_audio,
         "-ar", "16000",  # Resample to 16kHz
         "-ac", "1",      # Convert to mono
-        "-af", "afftdn,dialoguenhance" if not util.is_linux() else "afftdn",
+        "-af", "afftdn,dialoguenhance" if not is_linux() else "afftdn",
         output_wav
     ]
     logger.debug(" ".join(command))

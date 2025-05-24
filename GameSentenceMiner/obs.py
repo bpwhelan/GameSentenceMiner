@@ -8,6 +8,7 @@ import psutil
 
 import obsws_python as obs
 
+import GameSentenceMiner.configuration
 from GameSentenceMiner import util, configuration
 from GameSentenceMiner.configuration import *
 from GameSentenceMiner.model import *
@@ -140,7 +141,7 @@ async def connect_to_obs(retry_count=0):
     if not get_config().obs.enabled:
         return
 
-    if util.is_windows():
+    if GameSentenceMiner.configuration.is_windows():
         get_obs_websocket_config_values()
 
     while True:
@@ -174,7 +175,7 @@ def connect_to_obs_sync(retry_count=0):
     if not get_config().obs.enabled or client:
         return
 
-    if util.is_windows():
+    if GameSentenceMiner.configuration.is_windows():
         get_obs_websocket_config_values()
 
     while True:

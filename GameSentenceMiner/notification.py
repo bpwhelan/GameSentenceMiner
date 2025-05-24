@@ -2,13 +2,10 @@ import platform
 
 import requests
 from plyer import notification
-
-from GameSentenceMiner.util import is_windows
+from GameSentenceMiner.configuration import logger, is_windows
 
 if is_windows():
     from win10toast import ToastNotifier
-
-from GameSentenceMiner.configuration import logger
 
 if is_windows():
     class MyToastNotifier(ToastNotifier):

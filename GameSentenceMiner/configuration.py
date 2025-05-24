@@ -39,6 +39,13 @@ DEFAULT_CONFIG = 'Default'
 
 current_game = ''
 
+def is_linux():
+    return platform == 'linux'
+
+
+def is_windows():
+    return platform == 'win32'
+
 
 class Language(Enum):
     JAPANESE = "ja"
@@ -153,7 +160,7 @@ class Audio:
     extension: str = 'opus'
     beginning_offset: float = 0.0
     end_offset: float = 0.5
-    ffmpeg_reencode_options: str = '-c:a libopus -f opus -af \"afade=t=in:d=0.10\"'
+    ffmpeg_reencode_options: str = '-c:a libopus -f opus -af \"afade=t=in:d=0.10\"' if is_windows() else ''
     external_tool: str = ""
     anki_media_collection: str = ""
     external_tool_enabled: bool = True
@@ -619,7 +626,7 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 # Create rotating file handler with level DEBUG
-if 'gsm' in sys.argv[0]:
+if 'gsm' in sys.argv[0].lower() or 'gamesentenceminer' in sys.argv[0].lower():
     file_handler = RotatingFileHandler(get_log_path(), maxBytes=1024 * 1024, backupCount=5, encoding='utf-8')
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
@@ -638,4 +645,3 @@ class GsmAppState:
         self.previous_replay = None
 
 gsm_state = GsmAppState()
-

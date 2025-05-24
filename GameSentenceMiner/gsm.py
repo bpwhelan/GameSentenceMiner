@@ -1,5 +1,4 @@
 import asyncio
-import shutil
 import sys
 
 from GameSentenceMiner.vad.result import VADResult
@@ -39,7 +38,7 @@ try:
     from GameSentenceMiner.web import texthooking_page
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
 except Exception as e:
-    from GameSentenceMiner.configuration import logger
+    from GameSentenceMiner.configuration import logger, is_linux, is_windows
     import time
     logger.info("Something bad happened during import/initialization, closing in 5 seconds")
     logger.exception(e)
@@ -74,7 +73,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     def process_replay(self, video_path):
         vad_trimmed_audio = ''
-        print(video_path)
         if "previous.mkv" in video_path:
             os.remove(video_path)
             video_path = gsm_state.previous_replay
@@ -682,7 +680,7 @@ async def register_scene_switcher_callback():
 
     await obs.register_scene_change_callback(scene_switcher_callback)
 
-async def main(reloading=False):
+async def async_main(reloading=False):
     global root, settings_window
     initialize(reloading)
     logger.info("Script started.")
@@ -721,11 +719,14 @@ async def main(reloading=False):
     except Exception as e:
         logger.error(f"Error stopping observer: {e}")
 
+def main():
+    asyncio.run(async_main())
+
 
 if __name__ == "__main__":
     logger.info("Starting GSM")
     try:
-        asyncio.run(main())
+        asyncio.run(async_main())
     except Exception as e:
         logger.exception(e)
         time.sleep(5)
