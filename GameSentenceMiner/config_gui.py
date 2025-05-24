@@ -58,6 +58,7 @@ class ConfigApp:
         # self.window = ttk.Window(themename='darkly')
         self.window.title('GameSentenceMiner Configuration')
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
+        self.obs_scene_listbox_changed = False
 
         self.current_row = 0
 
@@ -83,7 +84,11 @@ class ConfigApp:
 
         self.notebook.bind("<<NotebookTabChanged>>", self.on_profiles_tab_selected)
 
-        ttk.Button(self.window, text="Save Settings", command=self.save_settings).pack(pady=20)
+        button_frame = ttk.Frame(self.window)
+        button_frame.pack(side="top", pady=20, anchor="center")
+
+        ttk.Button(button_frame, text="Save Settings", command=self.save_settings).grid(row=0, column=0, padx=10)
+        ttk.Button(button_frame, text="Save and Sync Changes", command=lambda: self.save_settings(profile_change=False, sync_changes=True)).grid(row=0, column=1, padx=10)
 
         self.window.withdraw()
 
@@ -118,12 +123,12 @@ class ConfigApp:
         if self.window is not None:
             self.window.withdraw()
 
-    def save_settings(self, profile_change=False):
+    def save_settings(self, profile_change=False, sync_changes=False):
         global settings_saved
 
         # Create a new Config instance
         config = ProfileConfig(
-            scenes=[self.obs_scene_listbox.get(i) for i in self.obs_scene_listbox.curselection()],
+            scenes=[self.obs_scene_listbox.get(i) for i in self.obs_scene_listbox.curselection()] if self.obs_scene_listbox_changed else self.settings.scenes,
             general=General(
                 use_websocket=self.websocket_enabled.get(),
                 use_clipboard=self.clipboard_enabled.get(),
@@ -263,9 +268,10 @@ class ConfigApp:
             self.master_config.current_profile = current_profile
             self.master_config.set_config_for_profile(current_profile, config)
 
-
-
         self.master_config = self.master_config.sync_shared_fields()
+
+        if sync_changes:
+            self.master_config.sync_changed_fields(prev_config)
 
         # Serialize the config instance to JSON
         with open(get_config_path(), 'w') as file:
@@ -450,13 +456,13 @@ class ConfigApp:
                                          column=2)
 
         ttk.Label(vad_frame, text="Select VAD Model:").grid(row=self.current_row, column=0, sticky='W')
-        self.selected_vad_model = ttk.Combobox(vad_frame, values=[VOSK, SILERO, WHISPER])
+        self.selected_vad_model = ttk.Combobox(vad_frame, values=[VOSK, SILERO, WHISPER, GROQ])
         self.selected_vad_model.set(self.settings.vad.selected_vad_model)
         self.selected_vad_model.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(vad_frame, "Select which VAD model to use.", row=self.current_row, column=2)
 
         ttk.Label(vad_frame, text="Backup VAD Model:").grid(row=self.current_row, column=0, sticky='W')
-        self.backup_vad_model = ttk.Combobox(vad_frame, values=[OFF, VOSK, SILERO, WHISPER])
+        self.backup_vad_model = ttk.Combobox(vad_frame, values=[OFF, VOSK, SILERO, WHISPER, GROQ])
         self.backup_vad_model.set(self.settings.vad.backup_vad_model)
         self.backup_vad_model.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(vad_frame, "Select which model to use as a backup if no audio is found.",
@@ -1030,14 +1036,18 @@ class ConfigApp:
 
         ttk.Button(profiles_frame, text="Add Profile", command=self.add_profile).grid(row=self.current_row, column=0, pady=5)
         ttk.Button(profiles_frame, text="Copy Profile", command=self.copy_profile).grid(row=self.current_row, column=1, pady=5)
+        self.delete_profile_button = ttk.Button(profiles_frame, text="Delete Config", command=self.delete_profile)
         if self.master_config.current_profile != DEFAULT_CONFIG:
-            ttk.Button(profiles_frame, text="Delete Config", command=self.delete_profile).grid(row=self.current_row, column=2, pady=5)
+            self.delete_profile_button.grid(row=1, column=2, pady=5)
+        else:
+            self.delete_profile_button.grid_remove()
         self.current_row += 1
 
         ttk.Label(profiles_frame, text="OBS Scene:").grid(row=self.current_row, column=0, sticky='W')
         self.obs_scene_var = tk.StringVar(value="")
         self.obs_scene_listbox = tk.Listbox(profiles_frame, listvariable=self.obs_scene_var, selectmode=tk.MULTIPLE, height=10, width=50)
         self.obs_scene_listbox.grid(row=self.current_row, column=1)
+        self.obs_scene_listbox.bind("<<ListboxSelect>>", self.on_obs_scene_select)
         ttk.Button(profiles_frame, text="Refresh Scenes", command=self.refresh_obs_scenes).grid(row=self.current_row, column=2, pady=5)
         self.add_label_and_increment_row(profiles_frame, "Select an OBS scene to associate with this profile. (Optional)", row=self.current_row, column=3)
 
@@ -1046,6 +1056,8 @@ class ConfigApp:
         ttk.Checkbutton(profiles_frame, variable=self.switch_to_default_if_not_found).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(profiles_frame, "Enable to switch to the default profile if the selected OBS scene is not found.", row=self.current_row, column=2)
 
+    def on_obs_scene_select(self, event):
+        self.obs_scene_listbox_changed = True
 
     def refresh_obs_scenes(self):
         scenes = obs.get_obs_scenes()
@@ -1140,7 +1152,7 @@ class ConfigApp:
         self.add_label_and_increment_row(ai_frame, "Select the AI provider.", row=self.current_row, column=2)
 
         ttk.Label(ai_frame, text="Gemini AI Model:").grid(row=self.current_row, column=0, sticky='W')
-        self.gemini_model = ttk.Combobox(ai_frame, values=['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-pro-preview-03-25', 'gemini-2.5-flash-preview-04-17'])
+        self.gemini_model = ttk.Combobox(ai_frame, values=['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-pro-preview-05-06', 'gemini-2.5-flash-preview-05-20'])
         self.gemini_model.set(self.settings.ai.gemini_model)
         self.gemini_model.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(ai_frame, "Select the AI model to use.", row=self.current_row, column=2)
@@ -1207,10 +1219,13 @@ class ConfigApp:
 
 
     def on_profile_change(self, event):
-        print("profile Changed!")
         self.save_settings(profile_change=True)
         self.reload_settings()
         self.refresh_obs_scenes()
+        if self.master_config.current_profile != DEFAULT_CONFIG:
+            self.delete_profile_button.grid(row=1, column=2, pady=5)
+        else:
+            self.delete_profile_button.grid_remove()
 
     def add_profile(self):
         new_profile_name = simpledialog.askstring("Input", "Enter new profile name:")
@@ -1243,7 +1258,8 @@ class ConfigApp:
                 del self.master_config.configs[profile_to_delete]
                 self.profile_combobox['values'] = list(self.master_config.configs.keys())
                 self.profile_combobox.set("Default")
-                self.save_settings()
+                self.master_config.current_profile = "Default"
+                save_full_config(self.master_config)
                 self.reload_settings()
 
 

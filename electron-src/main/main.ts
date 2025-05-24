@@ -152,7 +152,7 @@ async function runCommand(command: string, args: string[], stdout: boolean, stde
  */
 function runGSM(command: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
-        const proc = spawn(command, args, {cwd : getGSMBaseDir() });
+        const proc = spawn(command, args, {cwd: getGSMBaseDir()});
 
         pyProc = proc;
 
@@ -219,7 +219,7 @@ async function createWindow() {
                 {label: 'Restart GSM', click: () => restartGSM()},
                 {label: "Open GSM Folder", click: () => shell.openPath(BASE_DIR)},
                 {type: "separator"},
-                {label: 'Quit', click: () => quit()},
+                {label: 'Quit', click: async () => await quit()},
             ],
         },
         {
@@ -259,7 +259,7 @@ async function createWindow() {
         if (!isQuitting) {
             event.preventDefault();
             mainWindow?.hide();
-            createTray();
+//             createTray();
             return;
         }
         mainWindow = null;
@@ -313,7 +313,7 @@ function createTray() {
 
 function showWindow() {
     mainWindow?.show();
-    tray.destroy();
+//     tray.destroy();
 }
 
 async function isPackageInstalled(pythonPath: string, packageName: string): Promise<boolean> {
@@ -377,9 +377,7 @@ if (!app.requestSingleInstanceLock()) {
             await autoUpdate()
         }
         createWindow().then(async () => {
-            if (getStartConsoleMinimized()) {
-                createTray();
-            }
+            createTray();
             getOrInstallPython().then(async (pyPath: string) => {
                 pythonPath = pyPath;
                 setPythonPath(pythonPath);
@@ -396,7 +394,7 @@ if (!app.requestSingleInstanceLock()) {
                 });
             });
 
-            checkForUpdates().then(({ updateAvailable, latestVersion }) => {
+            checkForUpdates().then(({updateAvailable, latestVersion}) => {
                 if (updateAvailable) {
                     const notification = new Notification({
                         title: 'Update Available',
@@ -430,13 +428,13 @@ if (!app.requestSingleInstanceLock()) {
 
 async function closeGSM(): Promise<void> {
     restartingGSM = true;
-    webSocketManager.sendQuitMessage().then((messageSent: boolean) => {
-        if (messageSent) {
-            console.log("Quit message sent to GSM.");
-        } else {
-            pyProc?.kill();
-        }
-    });
+    const messageSent = await webSocketManager.sendQuitMessage();
+    if (messageSent) {
+        console.log("Quit message sent to GSM.");
+    } else {
+        console.log("Killing");
+        pyProc?.kill();
+    }
 }
 
 async function restartGSM(): Promise<void> {
@@ -449,7 +447,7 @@ async function restartGSM(): Promise<void> {
 }
 
 async function quit(): Promise<void> {
-    if (pyProc) {
+    if (pyProc != null) {
         await closeGSM();
         app.quit();
     } else {

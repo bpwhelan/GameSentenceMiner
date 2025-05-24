@@ -234,9 +234,9 @@ export function registerYuzuIPC() {
     });
 
     ipcMain.handle("yuzu.setAgentPath", async () => {
-        if (yuzuWindow) {
+        if (mainWindow) {
             try {
-                const {canceled, filePaths} = await dialog.showOpenDialog(yuzuWindow, {
+                const {canceled, filePaths} = await dialog.showOpenDialog(mainWindow, {
                     properties: ['openFile'],
                     filters: [
                         {name: 'Executables', extensions: ['exe']}, // Adjust filters as needed
@@ -258,9 +258,9 @@ export function registerYuzuIPC() {
     });
 
     ipcMain.handle("yuzu.setYuzuPath", async () => {
-        if (yuzuWindow) {
+        if (mainWindow) {
             try {
-                const {canceled, filePaths} = await dialog.showOpenDialog(yuzuWindow, {
+                const {canceled, filePaths} = await dialog.showOpenDialog(mainWindow, {
                     properties: ['openFile'],
                     filters: [
                         {name: 'Executables', extensions: ['exe']}, // Adjust filters as needed
@@ -282,9 +282,9 @@ export function registerYuzuIPC() {
     });
 
     ipcMain.handle("yuzu.setRomsPath", async () => {
-        if (yuzuWindow) {
+        if (mainWindow) {
             try {
-                const {canceled, filePaths} = await dialog.showOpenDialog(yuzuWindow, {
+                const {canceled, filePaths} = await dialog.showOpenDialog(mainWindow, {
                     properties: ['openDirectory'],
                     filters: [
                         {name: 'All Files', extensions: ['*']}

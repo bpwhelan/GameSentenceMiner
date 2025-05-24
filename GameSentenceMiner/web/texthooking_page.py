@@ -14,7 +14,7 @@ from GameSentenceMiner.text_log import GameLine, get_line_by_id, initial_time, g
 from flask import request, jsonify, send_from_directory
 import webbrowser
 from GameSentenceMiner import obs
-from GameSentenceMiner.configuration import logger, get_config, DB_PATH
+from GameSentenceMiner.configuration import logger, get_config, DB_PATH, gsm_state
 from GameSentenceMiner.util import TEXT_REPLACEMENTS_FILE
 
 port = get_config().general.texthooker_port
@@ -52,8 +52,6 @@ class EventItem:
 class EventManager:
     events: list[EventItem]
     events_dict: dict[str, EventItem] = {}
-    line_for_audio: GameLine = None
-    line_for_screenshot: GameLine = None
 
     def __init__(self):
         self.events = []
@@ -100,7 +98,7 @@ class EventManager:
         self.events_dict[line.id] = new_event
         self.events.append(new_event)
         # self.store_to_db(new_event)
-        event_queue.put(new_event)
+        # event_queue.put(new_event)
         return new_event
 
     def reset_checked_lines(self):
@@ -271,14 +269,14 @@ def update_event():
 def get_screenshot():
     """Endpoint to get a screenshot of the current game screen."""
     data = request.get_json()
-    print(data)
     event_id = data.get('id')
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
-    event_manager.line_for_screenshot = get_line_by_id(event_id)
-    print(get_all_lines())
-    print(event_manager.line_for_screenshot)
-    obs.save_replay_buffer()
+    gsm_state.line_for_screenshot = get_line_by_id(event_id)
+    if gsm_state.previous_line_for_screenshot and gsm_state.line_for_screenshot.id == gsm_state.previous_line_for_screenshot.id:
+        open(os.path.join(get_config().paths.folder_to_watch, "previous.mkv"), 'a').close()
+    else:
+        obs.save_replay_buffer()
     return jsonify({}), 200
 
 @app.route('/play-audio', methods=['POST'])
@@ -288,8 +286,11 @@ def play_audio():
     event_id = data.get('id')
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
-    event_manager.line_for_audio = get_line_by_id(event_id)
-    obs.save_replay_buffer()
+    gsm_state.line_for_audio = get_line_by_id(event_id)
+    if gsm_state.previous_line_for_audio and gsm_state.line_for_audio == gsm_state.previous_line_for_audio:
+        open(os.path.join(get_config().paths.folder_to_watch, "previous.mkv"), 'a').close()
+    else:
+        obs.save_replay_buffer()
     return jsonify({}), 200
 
 
@@ -321,8 +322,8 @@ async def websocket_handler(websocket):
 
 async def broadcast_message(message):
     if connected_clients:
-        tasks = [client.send(json.dumps(message)) for client in connected_clients]
-        await asyncio.gather(*tasks)
+        for client in connected_clients:
+            await client.send(json.dumps(message))
 
 # async def main():
 #     async with websockets.serve(websocket_handler, "localhost", 8765): # Choose a port for WebSocket
@@ -380,19 +381,30 @@ def start_web_server():
 
     app.run(port=port, debug=False) # debug=True provides helpful error messages during development
 
+import signal
+
 async def run_websocket_server(host="0.0.0.0"):
     global websocket_port
-    while True:
+    websocket = None
+    try:
         websocket_port = get_config().advanced.texthooker_communication_websocket_port
-        try:
-            async with websockets.serve(websocket_handler, host, websocket_port):
-                logger.debug(f"WebSocket server started at ws://{host}:{websocket_port}/")
-                await asyncio.Future()
-        except OSError as e:
-            logger.error(f"TextHooker WebSocket server failed to start on port {websocket_port}: {e}")
-            logger.info("You may need to try a different port in GSM's advanced config, and then update that in the Texthooker's settings.")
+        websocket = await websockets.serve(websocket_handler, host, websocket_port)
+        logger.debug(f"WebSocket server started at ws://{host}:{websocket_port}/")
+        await asyncio.Future()  # Keep the server running
+    except asyncio.CancelledError:
+        logger.info("WebSocket server shutting down...")
+    except OSError as e:
+        logger.error(f"TextHooker WebSocket server failed to start on port {websocket_port}: {e}")
+        logger.info("You may need to try a different port in GSM's advanced config, and then update that in the Texthooker's settings.")
+    finally:
+        if websocket:
+            websocket.close()
+        await asyncio.sleep(1)  # Wait before retrying
 
-
+def handle_exit_signal(loop):
+    logger.info("Received exit signal. Shutting down...")
+    for task in asyncio.all_tasks(loop):
+        task.cancel()
 
 async def texthooker_page_coro():
     # Run the WebSocket server in the asyncio event loop
@@ -404,7 +416,10 @@ async def texthooker_page_coro():
     await run_websocket_server()
 
 def run_text_hooker_page():
-    asyncio.run(texthooker_page_coro())
+    try:
+        asyncio.run(texthooker_page_coro())
+    except KeyboardInterrupt:
+        logger.info("Shutting down due to KeyboardInterrupt.")
 
 if __name__ == '__main__':
-    asyncio.run(run_text_hooker_page())
+    asyncio.run(texthooker_page_coro())

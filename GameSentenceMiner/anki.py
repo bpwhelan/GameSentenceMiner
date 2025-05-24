@@ -75,7 +75,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         logger.info(f"AI prompt Result: {translation}")
         note['fields'][get_config().ai.anki_field] = translation
 
-    if prev_screenshot_in_anki:
+    if prev_screenshot_in_anki and get_config().anki.previous_image_field != get_config().anki.picture_field:
         note['fields'][get_config().anki.previous_image_field] = prev_screenshot_html
 
     if get_config().anki.anki_custom_fields:

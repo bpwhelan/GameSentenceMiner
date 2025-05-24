@@ -128,7 +128,7 @@ def process_audio_with_vosk(input_audio, output_audio, game_line):
 
     if not voice_activity:
         logger.info("No voice activity detected in the audio.")
-        return VADResult(False, 0, 0)
+        return VADResult(False, 0, 0, VOSK)
 
     # Trim based on the first and last speech detected
     start_time = voice_activity[0]['start'] if voice_activity else 0
@@ -148,7 +148,7 @@ def process_audio_with_vosk(input_audio, output_audio, game_line):
 
     # Trim the audio using FFmpeg
     ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio)
-    return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset)
+    return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, VOSK)
 
 
 def get_vosk_model():

@@ -42,7 +42,6 @@ let connectionPromise: Promise<void> | null = null;
 async function connectOBSWebSocket(retries = 5, delay = 2000): Promise<void> {
     await obs.connect(`ws://${obsConfig.host}:${obsConfig.port}`, obsConfig.password);
     obsConnected = true;
-    console.log('Connected to OBS WebSocket');
     return;
 }
 

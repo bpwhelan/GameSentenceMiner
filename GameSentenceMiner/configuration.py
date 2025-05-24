@@ -1,8 +1,8 @@
+import dataclasses
 import json
 import logging
 import os
 import shutil
-import socket
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from os.path import expanduser
@@ -14,11 +14,11 @@ from enum import Enum
 import toml
 from dataclasses_json import dataclass_json
 
-
 OFF = 'OFF'
 VOSK = 'VOSK'
 SILERO = 'SILERO'
 WHISPER = 'WHISPER'
+GROQ = 'GROQ'
 
 VOSK_BASE = 'BASE'
 VOSK_SMALL = 'SMALL'
@@ -41,13 +41,13 @@ current_game = ''
 
 
 class Language(Enum):
-    ENGLISH = "en"
     JAPANESE = "ja"
+    ENGLISH = "en"
+    KOREAN = "ko"
+    CHINESE = "zh"
     SPANISH = "es"
     FRENCH = "fr"
     GERMAN = "de"
-    CHINESE = "zh"
-    KOREAN = "ko"
     ITALIAN = "it"
     RUSSIAN = "ru"
     PORTUGUESE = "pt"
@@ -203,6 +203,9 @@ class VAD:
 
     def is_vosk(self):
         return self.selected_vad_model == VOSK or self.backup_vad_model == VOSK
+
+    def is_groq(self):
+        return self.selected_vad_model == GROQ or self.backup_vad_model == GROQ
 
 
 @dataclass_json
@@ -369,6 +372,9 @@ class Config:
         return self
 
     def get_config(self) -> ProfileConfig:
+        if self.current_profile not in self.configs:
+            logger.warning(f"Profile '{self.current_profile}' not found. Switching to default profile.")
+            self.current_profile = DEFAULT_CONFIG
         return self.configs[self.current_profile]
 
     def set_config_for_profile(self, profile: str, config: ProfileConfig):
@@ -383,6 +389,27 @@ class Config:
 
     def get_default_config(self):
         return self.configs[DEFAULT_CONFIG]
+
+    def sync_changed_fields(self, previous_config: ProfileConfig):
+        current_config = self.get_config()
+
+        for section in current_config.to_dict():
+            if dataclasses.is_dataclass(getattr(current_config, section, None)):
+                for field_name in getattr(current_config, section, None).to_dict():
+                    config_section = getattr(current_config, section, None)
+                    previous_config_section = getattr(previous_config, section, None)
+                    current_value = getattr(config_section, field_name, None)
+                    previous_value = getattr(previous_config_section, field_name, None)
+                    if str(current_value).strip() != str(previous_value).strip():
+                        logger.info(f"Syncing changed field '{field_name}' from '{previous_value}' to '{current_value}'")
+                        for profile in self.configs.values():
+                            if profile != current_config:
+                                profile_section = getattr(profile, section, None)
+                                if profile_section:
+                                    setattr(profile_section, field_name, current_value)
+                                    logger.info(f"Updated '{field_name}' in profile '{profile.name}'")
+
+        return self
 
     def sync_shared_fields(self):
         config = self.get_config()
@@ -599,4 +626,16 @@ if 'gsm' in sys.argv[0]:
     logger.addHandler(file_handler)
 
 DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
+
+class GsmAppState:
+    def __init__(self):
+        self.line_for_audio = None
+        self.line_for_screenshot = None
+        self.previous_line_for_audio = None
+        self.previous_line_for_screenshot = None
+        self.previous_audio = None
+        self.previous_screenshot = None
+        self.previous_replay = None
+
+gsm_state = GsmAppState()
 

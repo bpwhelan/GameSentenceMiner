@@ -8,7 +8,13 @@ import {
     setSteamPath,
     setLaunchSteamOnStart,
     getLaunchSteamOnStart,
-    setAgentPath, setSteamGames, getAgentPath, getAgentScriptsPath, getLastSteamGameLaunched, setLastSteamGameLaunched,
+    setAgentPath,
+    setSteamGames,
+    getAgentPath,
+    getAgentScriptsPath,
+    getLastSteamGameLaunched,
+    setLastSteamGameLaunched,
+    getTextractorPath,
 } from '../store.js';
 import path from "path";
 import {getCurrentScene, ObsScene} from "./obs.js";
@@ -25,17 +31,26 @@ export interface SteamGame {
     processName: string;
     script: string;
     scene: ObsScene;
+    executablePath: string;
+    runAgent: boolean;
+    runTextractor: boolean;
 }
 
-function launchSteamGame(gameId: number): number | null {
+function launchSteamGame(gameIdOrExecutable: number | string): number | null {
     try {
-        let process = execFile(getSteamPath(), ['-applaunch', gameId.toString()]);
-        return process.pid ?? null;
+        if (typeof gameIdOrExecutable === 'number') {
+            let process = execFile(getSteamPath(), ['-applaunch', gameIdOrExecutable.toString()]);
+            return process.pid ?? null;
+        } else {
+            let process = exec(gameIdOrExecutable.toString());
+            return process.pid ?? null;
+        }
     } catch (error) {
         console.error(`Error launching Steam game:`, error);
         return null;
     }
 }
+
 
 function runAgentScript(gameId: number, steamPid: number, gameScript: string) {
     if (!gameScript) {
@@ -113,17 +128,28 @@ export async function launchSteamGameID(gameId: number, shouldLaunchAgent: boole
     console.log(selectedGame);
 
     if (selectedGame) {
-        const steamPid = launchSteamGame(selectedGame.id);
-        setTimeout(() => {
-            if (shouldLaunchAgent) {
-                getPidByProcessName(selectedGame.processName).then((gamePid) => {
-                    if (gamePid === -1) {
-                        console.warn(`Game process not found for Process Name: ${selectedGame.processName}, need to manually connect!`);
-                    }
-                    runAgentScript(gameId, gamePid, selectedGame.script);
-                });
-            }
-        }, 3000);
+        if (selectedGame.executablePath) {
+            const steamPid = launchSteamGame(selectedGame.executablePath);
+        } else {
+            const steamPid = launchSteamGame(selectedGame.id);
+        }
+        if (selectedGame.runAgent) {
+            setTimeout(() => {
+                if (shouldLaunchAgent) {
+                    getPidByProcessName(selectedGame.processName).then((gamePid) => {
+                        if (gamePid === -1) {
+                            console.warn(`Game process not found for Process Name: ${selectedGame.processName}, need to manually connect!`);
+                        }
+                        runAgentScript(gameId, gamePid, selectedGame.script);
+                    });
+                }
+            }, 3000);
+        }
+        if (selectedGame.runTextractor) {
+            const textractorPath = getTextractorPath();
+            const textractorProcess = execFile(textractorPath, {windowsHide: false});
+            console.log(`Textractor launched with PID: ${textractorProcess.pid}`);
+        }
     } else {
         console.log(JSON.stringify({status: 'error', message: 'Game not found'}));
     }
@@ -194,9 +220,9 @@ export function registerSteamIPC() {
     });
 
     ipcMain.handle('steam.setSteamPath', async () => {
-        if (steamWindow) {
+        if (mainWindow) {
             try {
-                const {canceled, filePaths} = await dialog.showOpenDialog(steamWindow, {
+                const {canceled, filePaths} = await dialog.showOpenDialog(mainWindow, {
                     properties: ['openFile'],
                     filters: [
                         {name: 'Executables', extensions: ['exe']},
@@ -218,9 +244,9 @@ export function registerSteamIPC() {
     });
 
     ipcMain.handle('steam.setAgentPath', async () => {
-        if (steamWindow) {
+        if (mainWindow) {
             try {
-                const {canceled, filePaths} = await dialog.showOpenDialog(steamWindow, {
+                const {canceled, filePaths} = await dialog.showOpenDialog(mainWindow, {
                     properties: ['openFile'],
                     filters: [
                         {name: 'Executables', extensions: ['exe']},
@@ -241,11 +267,34 @@ export function registerSteamIPC() {
         }
     });
 
-    ipcMain.handle('steam.removeSteamGame', async (_, gameId: number) => {
+    ipcMain.handle('steam.getExecutablePath', async () => {
+        if (mainWindow) {
+            try {
+                const {canceled, filePaths} = await dialog.showOpenDialog(mainWindow, {
+                    properties: ['openFile'],
+                    filters: [
+                        {name: 'Executables', extensions: ['exe']},
+                        {name: 'All Files', extensions: ['*']}
+                    ]
+                });
+
+                if (canceled || !filePaths.length) {
+                    return {status: 'canceled', message: 'No file selected'};
+                }
+
+                return {status: 'success', message: 'Agent path set successfully', path: filePaths[0]};
+            } catch (error) {
+                console.error('Error setting Agent path:', error);
+                return {status: 'error', message: 'Failed to set Agent path'};
+            }
+        }
+    });
+
+    ipcMain.handle('steam.removeSteamGame', async (_, gameName: string) => {
         try {
-            console.log('Removing game with ID:', gameId);
+            console.log('Removing game with Name:', gameName);
             const games: SteamGame[] = getSteamGames() || [];
-            const updatedGames = games.filter(game => Number(game.id) !== Number(gameId));
+            const updatedGames = games.filter(game => String(game.name) !== String(gameName));
             setSteamGames(updatedGames);
             return {status: 'success', message: 'Game removed successfully'};
         } catch (error) {
@@ -285,14 +334,26 @@ export function registerSteamIPC() {
                 ipcMain.handle("steam.saveSteamGame", async (_, config) => {
                     console.log(config)
                     try {
-                        const {steamId, gameName, executablePath, scriptPath, scene} = config;
+                        const {
+                            steamId,
+                            gameName,
+                            executableName,
+                            scriptPath,
+                            scene,
+                            executablePath,
+                            runAgent,
+                            runTextractor
+                        } = config;
                         const games = getSteamGames() || [];
                         const newGame = {
                             id: parseInt(steamId, 10),
                             name: gameName,
-                            processName: executablePath,
+                            processName: executableName,
                             script: scriptPath,
-                            scene: scene
+                            scene: scene,
+                            executablePath: executablePath,
+                            runAgent: runAgent,
+                            runTextractor: runTextractor
                         };
                         games.push(newGame);
                         setSteamGames(games);
@@ -324,43 +385,51 @@ export function registerSteamIPC() {
                                 // return { status: "success", message: "Likely match found", path: bestMatch };
 
                                 // Option 2: Set defaultPath to guide the user
-                                const { canceled, filePaths } = await dialog.showOpenDialog(gameConfigWindow, {
+                                const {canceled, filePaths} = await dialog.showOpenDialog(gameConfigWindow, {
                                     properties: ['openFile'],
                                     filters: [
-                                        { name: 'Executables', extensions: ['js'] },
-                                        { name: 'All Files', extensions: ['*'] }
+                                        {name: 'Executables', extensions: ['js']},
+                                        {name: 'All Files', extensions: ['*']}
                                     ],
                                     defaultPath: bestMatch
                                 });
 
                                 if (canceled || !filePaths.length) {
-                                    return { status: "canceled", message: "No file selected" };
+                                    return {status: "canceled", message: "No file selected"};
                                 }
 
-                                return { status: "success", message: "Agent Script path set successfully", path: filePaths[0] };
+                                return {
+                                    status: "success",
+                                    message: "Agent Script path set successfully",
+                                    path: filePaths[0]
+                                };
                             } else {
                                 // No good match found, show the dialog as before
-                                const { canceled, filePaths } = await dialog.showOpenDialog(gameConfigWindow, {
+                                const {canceled, filePaths} = await dialog.showOpenDialog(gameConfigWindow, {
                                     properties: ['openFile'],
                                     filters: [
-                                        { name: 'Executables', extensions: ['js'] },
-                                        { name: 'All Files', extensions: ['*'] }
+                                        {name: 'Executables', extensions: ['js']},
+                                        {name: 'All Files', extensions: ['*']}
                                     ],
                                     defaultPath: agentScriptsPath
                                 });
 
                                 if (canceled || !filePaths.length) {
-                                    return { status: "canceled", message: "No file selected" };
+                                    return {status: "canceled", message: "No file selected"};
                                 }
 
-                                return { status: "success", message: "Agent Script path set successfully", path: filePaths[0] };
+                                return {
+                                    status: "success",
+                                    message: "Agent Script path set successfully",
+                                    path: filePaths[0]
+                                };
                             }
                         } catch (error: any) {
                             console.error("Error setting Agent Script path:", error);
-                            return { status: "error", message: "Failed to set Agent Script path" };
+                            return {status: "error", message: "Failed to set Agent Script path"};
                         }
                     }
-                    return { status: "error", message: "gameConfigWindow is not defined" };
+                    return {status: "error", message: "gameConfigWindow is not defined"};
                 });
             }
         }

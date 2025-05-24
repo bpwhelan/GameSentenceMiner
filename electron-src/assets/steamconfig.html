@@ -10,10 +10,33 @@
 <h1>Game Configuration</h1>
 <div>
     <label>
-        Steam ID:
+        Steam ID (Place Steam URL here):
         <input type="text" id="steamIdInput" class="inputField" placeholder="Enter Steam ID">
     </label>
 </div>
+<div>
+    <p>OR</p>
+</div>
+<div>
+    <label for="selectExecutableBtn">Executable: </label>
+    <button id="selectExecutableBtn">Select Executable Path</button>
+    <span id="selectExcutableLabel"></span>
+    <span class="tooltip">❓
+        <span class="tooltiptext">
+            This is the path to the executable that will be used to launch the game. It should be the full path to the executable file, not just the name of the file. If you own the game on steam, it's preferred to keep this empty.
+        </span>
+    </span>
+</div>
+<div>
+    <p>OR</p>
+</div>
+<div>
+    <label>
+        Custom Command:
+        <input type="text" id="customCommandInput" class="inputField" placeholder="Enter Custom Command">
+    </label>
+</div>
+<hr>
 <div>
     <label>
         Game Name:
@@ -36,9 +59,19 @@
     </label>
 </div>
 <div>
-    <label for="selectScriptBtn">Optional: </label>
+    <label for="selectScriptBtn">Script:</label>
     <button id="selectScriptBtn">Select Script</button>
-    <span id="scriptPathLabel">Optional</span>
+    <span id="scriptPathLabel"></span>
+</div>
+<div>
+    <label for="agentCheckbox">
+        <input type="checkbox" id="agentCheckbox">
+        Run Agent
+    </label>
+    <label for="textractorCheckbox">
+        <input type="checkbox" id="textractorCheckbox">
+        Run Textractor
+    </label>
 </div>
 <br>
 <div>
@@ -56,8 +89,14 @@
     const selectScriptBtn = document.getElementById('selectScriptBtn');
     const status = document.getElementById('status');
     const scriptPathLabel = document.getElementById('scriptPathLabel');
+    const selectExecutableBtn = document.getElementById('selectExecutableBtn');
+    const selectExcutableLabel = document.getElementById('selectExcutableLabel');
     const sceneSelect = document.getElementById('sceneSelect');
     const saveBtn = document.getElementById('saveBtn');
+    const agentCheckbox = document.getElementById('agentCheckbox');
+    const textractorCheckbox = document.getElementById('textractorCheckbox');
+    const customCommandInput = document.getElementById('customCommandInput');
+
     let obsScenes = []
 
     steamIdInput.addEventListener('input', () => {
@@ -88,10 +127,12 @@
         const gameName = gameNameInput.value?.trim();
         const executableName = executableNameInput.value?.trim();
         const selectedOBSScene = sceneSelect.value;
+        const selectedExecutable = selectExcutableLabel.innerText.trim();
+        const customCommand = customCommandInput.value?.trim();
         // const scriptPath = scriptPathLabel.textContent.trim();
 
-        saveBtn.disabled = !(steamId && gameName && executableName &&
-            selectedOBSScene);
+        saveBtn.disabled = !(gameName && executableName &&
+            selectedOBSScene && (steamId || selectedExecutable || customCommand));
     }
 
 
@@ -107,24 +148,49 @@
         });
     })
 
+    selectExecutableBtn.addEventListener('click', () => {
+        ipcRenderer.invoke('steam.getExecutablePath', gameNameInput.value.trim()).then(result => {
+            if (result.canceled) {
+                status.textContent = 'No executable selected.';
+                saveBtn.disabled = true;
+            } else {
+                selectExcutableLabel.innerText = result.path;
+                executableNameInput.value = result.path.split('\\').pop().split('/').pop();
+                validate();
+            }
+        });
+    })
+
+
+
     saveBtn.addEventListener('click', async () => {
         const steamId = steamIdInput.value;
         const gameName = gameNameInput.value;
-        const executablePath = executableNameInput.value;
+        const executableName = executableNameInput.value;
         const scriptPath = scriptPathLabel.textContent;
         const sceneName = sceneSelect.value;
         const scene = obsScenes.find(s => s.id === sceneName);
+        let executablePath = selectExcutableLabel.textContent;
+        const customCommand = customCommandInput.value?.trim();
+        if (!executablePath && customCommand) {
+            executablePath = customCommand.trim();
+        }
+        const runAgent = agentCheckbox.checked;
+        const runTextractor = textractorCheckbox.checked;
 
         console.log(sceneName);
 
-        const result = await ipcRenderer.invoke('steam.saveSteamGame', { steamId, gameName, executablePath, scriptPath, scene });
+        const result = await ipcRenderer.invoke('steam.saveSteamGame', { steamId, gameName, executableName, scriptPath, scene, executablePath, runAgent, runTextractor });
         if (result.status === 'success') {
             status.textContent = 'Configuration saved successfully!';
             steamIdInput.value = '';
             gameNameInput.value = '';
             executableNameInput.value = '';
             scriptPathLabel.innerText = '';
+            selectExcutableLabel.innerText = '';
             sceneSelect.value = '';
+            agentCheckbox.checked = false;
+            textractorCheckbox.checked = false;
             validate();
         } else {
             status.textContent = result.message;

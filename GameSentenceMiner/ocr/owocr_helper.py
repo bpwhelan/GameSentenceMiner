@@ -417,18 +417,15 @@ if __name__ == "__main__":
     if ocr_config or ssonly:
         rectangles = ocr_config.rectangles if ocr_config and ocr_config.rectangles else []
         oneocr_threads = []
-        single_ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config,rectangles ), daemon=True)
-        oneocr_threads.append(single_ocr_thread)
-        single_ocr_thread.start()
-        websocket_server_thread = WebsocketServerThread(read=True)
-        websocket_server_thread.start()
+        ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config,rectangles ), daemon=True)
+        ocr_thread.start()
+        if not ssonly:
+            websocket_server_thread = WebsocketServerThread(read=True)
+            websocket_server_thread.start()
         try:
             while not done:
                 time.sleep(1)
         except KeyboardInterrupt as e:
             pass
-        for thread in oneocr_threads:
-            thread.join()
-        # asyncio.run(websocket_client())
     else:
         print("Failed to load OCR configuration. Please check the logs.")

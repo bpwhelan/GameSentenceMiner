@@ -49,9 +49,6 @@ class WebSocketManager {
                     const data: Message = JSON.parse(message.toString());
                     console.debug("Received from Python:", data);
                     this.receiveMessage(data);
-
-                    // Send a JSON response
-                    ws.send(JSON.stringify({ function: FunctionName.Start }));
                 } catch (error) {
                     console.error("Invalid JSON received:", message.toString());
                 }

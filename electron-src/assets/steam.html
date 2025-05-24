@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steam Launcher</title>
+    <title>Game Launcher</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Steam Game Config/Launcher</h1>
+<h1>Game Launcher Config</h1>
 <div>
     <label>
         Game Select:
@@ -17,11 +17,16 @@
     </label>
     <button id="configGameBtn" class="pathBtn">Add Game</button>
     <button id="removeGameBtn">Remove Game</button>
-    <button id="launchBtn" class="pathBtn" disabled>Launch Game</button>
 </div>
 <div>
     <button id="setAgentBtn" class="pathBtn">Set Agent Path</button>
-    <button id="setSteamPathBtn" class="pathBtn">Set Steam Path</button>
+    <button id="setTextractorPathBtn">Set Textractor Path</button>
+    <button id="setSteamPathBtn" class="pathBtn">Set Steam.exe Path</button>
+</div>
+<div>
+    <div>
+        <button id="goBackBtn" onclick="location.href='launcher.html'">Go Back</button>
+    </div>
 </div>
 
 <p id="status"></p>
@@ -33,9 +38,9 @@
     const removeGameBtn = document.getElementById('removeGameBtn');
     const setAgentBtn = document.getElementById('setAgentBtn');
     const setSteamPathBtn = document.getElementById('setSteamPathBtn');
-    const launchBtn = document.getElementById('launchBtn');
     const configGameBtn = document.getElementById('configGameBtn');
     const status = document.getElementById('status');
+    const setTextractorPathBtn = document.getElementById('setTextractorPathBtn');
 
     async function loadGames() {
         const games = await ipcRenderer.invoke('steam.getSteamGames');
@@ -54,7 +59,6 @@
 
         gameSelect.addEventListener('change', () => {
             const selectedId = gameSelect.value;
-            launchBtn.disabled = !selectedId;
         });
     }
 
@@ -63,13 +67,12 @@
         const lastGameLaunched = await ipcRenderer.invoke('steam.getLastSteamGameLaunched');
         if (lastGameLaunched) {
             gameSelect.value = lastGameLaunched;
-            launchBtn.disabled = false;
         }
     }
     ipcRenderer.on('steamGamesUpdated', loadGames);
 
     removeGameBtn.addEventListener('click', () => {
-       ipcRenderer.invoke('steam.removeSteamGame', gameSelect.value);
+       ipcRenderer.invoke('steam.removeSteamGame', gameSelect.options[gameSelect.selectedIndex].innerText);
        loadGames()
     });
 
@@ -81,18 +84,19 @@
         ipcRenderer.invoke('steam.setSteamPath');
     });
 
-    launchBtn.addEventListener('click', async () => {
-        const selectedGameId = gameSelect.value;
-        if (!selectedGameId) return;
-
-        status.textContent = 'Launching...';
-        const result = await ipcRenderer.invoke('steam.launchSteamGame', {id: parseInt(selectedGameId), shouldLaunchAgent: true});
-        status.textContent = result.status === 'success' ? 'Game Launched!' : 'Error!';
-    });
-
     configGameBtn.addEventListener('click', () => {
         ipcRenderer.invoke('steam.showGameConfigDialog');
     });
+
+    setTextractorPathBtn.addEventListener('click', async () => {
+        const result = await ipcRenderer.invoke('vn.setTextractorPath');
+        if (result.status === 'success') {
+            status.textContent = 'Textractor path set successfully!';
+        } else {
+            status.textContent = result.message;
+        }
+    });
+
 
     document.addEventListener('DOMContentLoaded', init);
 </script>

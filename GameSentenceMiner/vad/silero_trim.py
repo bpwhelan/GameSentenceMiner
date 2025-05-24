@@ -21,8 +21,6 @@ def detect_voice_with_silero(input_audio):
     wav = read_audio(temp_wav)
     speech_timestamps = get_speech_timestamps(wav, vad_model, return_seconds=True)
 
-    print(speech_timestamps)
-
     logger.debug(speech_timestamps)
 
     # Return the speech timestamps (start and end in seconds)
@@ -34,7 +32,7 @@ def process_audio_with_silero(input_audio, output_audio, game_line):
     voice_activity, audio_length = detect_voice_with_silero(input_audio)
 
     if not voice_activity:
-        return VADResult(False, 0, 0)
+        return VADResult(False, 0, 0, SILERO)
 
     # Trim based on the first and last speech detected
     start_time = voice_activity[0]['start'] if voice_activity else 0
@@ -47,7 +45,7 @@ def process_audio_with_silero(input_audio, output_audio, game_line):
 
     # Trim the audio using FFmpeg
     ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio)
-    return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset)
+    return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, SILERO)
 
 
 # process_audio_with_silero("tmp6x81cy27.opus", "tmp6x81cy27_trimmed.opus", None)

@@ -35,8 +35,7 @@ def detect_voice_with_whisper(input_audio):
 
     # Transcribe the audio using Whisper
     with warnings.catch_warnings(action="ignore"):
-        result: WhisperResult = whisper_model.transcribe(temp_wav, vad=True, language='ja', temperature=0.0)
-
+        result: WhisperResult = whisper_model.transcribe(temp_wav, vad=True, language=get_config().vad.language, temperature=0.0)
     voice_activity = []
 
     logger.debug(result.to_dict())
@@ -75,7 +74,7 @@ def process_audio_with_whisper(input_audio, output_audio, game_line):
 
     if not voice_activity:
         logger.info("No voice activity detected in the audio.")
-        return VADResult(False, 0, 0)
+        return VADResult(False, 0, 0, WHISPER)
 
     # Trim based on the first and last speech detected
     start_time = voice_activity[0]['start'] if voice_activity else 0
@@ -95,7 +94,7 @@ def process_audio_with_whisper(input_audio, output_audio, game_line):
 
     # Trim the audio using FFmpeg
     ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio)
-    return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset)
+    return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, WHISPER)
 
 
 # Load Whisper model initially

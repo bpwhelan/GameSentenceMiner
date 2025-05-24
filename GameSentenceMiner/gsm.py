@@ -1,4 +1,5 @@
 import asyncio
+import shutil
 import sys
 
 from GameSentenceMiner.vad.result import VADResult
@@ -59,39 +60,28 @@ root = None
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
+    def __init__(self):
+        super().__init__()
+
+
     def on_created(self, event):
         if event.is_directory or ("Replay" not in event.src_path and "GSM" not in event.src_path):
             return
         if event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):  # Adjust based on your OBS output format
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
             wait_for_stable_file(event.src_path)
-            self.convert_to_audio(event.src_path)
+            self.process_replay(event.src_path)
 
-    @staticmethod
-    def convert_to_audio(video_path):
+    def process_replay(self, video_path):
         vad_trimmed_audio = ''
-        try:
-            if texthooking_page.event_manager.line_for_audio:
-                line: GameLine = texthooking_page.event_manager.line_for_audio
-                texthooking_page.event_manager.line_for_audio = None
-                if get_config().advanced.audio_player_path:
-                    audio = VideoToAudioHandler.get_audio(line, line.next.time if line.next else None, video_path, temporary=True)
-                    play_audio_in_external(audio)
-                    os.remove(video_path)
-                elif get_config().advanced.video_player_path:
-                    play_video_in_external(line, video_path)
-                return
-            if texthooking_page.event_manager.line_for_screenshot:
-                line: GameLine = texthooking_page.event_manager.line_for_screenshot
-                texthooking_page.event_manager.line_for_screenshot = None
-                screenshot = ffmpeg.get_screenshot_for_line(video_path, line, True)
-                os.startfile(screenshot)
-                os.remove(video_path)
-                return
-        except Exception as e:
-            logger.error(f"Error Playing Audio/Video: {e}")
-            logger.debug(f"Error Playing Audio/Video: {e}", exc_info=True)
+        print(video_path)
+        if "previous.mkv" in video_path:
             os.remove(video_path)
+            video_path = gsm_state.previous_replay
+        else:
+            gsm_state.previous_replay = video_path
+        if gsm_state.line_for_audio or gsm_state.line_for_screenshot:
+            self.handle_texthooker_button(video_path)
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:
@@ -148,7 +138,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                         mined_line=mined_line)
                 else:
                     final_audio_output = ""
-                    vad_result = VADResult(False, 0, 0)
+                    vad_result = VADResult(False, 0, 0, '')
                     vad_trimmed_audio = ""
                     if not get_config().audio.enabled:
                         logger.info("Audio is disabled in config, skipping audio processing!")
@@ -184,6 +174,43 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if vad_trimmed_audio and get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
                 os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
 
+    def handle_texthooker_button(self, video_path):
+        try:
+            if gsm_state.line_for_audio:
+                line: GameLine = gsm_state.line_for_audio
+                gsm_state.line_for_audio = None
+                if line == gsm_state.previous_line_for_audio:
+                    logger.info("Line is the same as the last one, skipping processing.")
+                    if get_config().advanced.audio_player_path:
+                        play_audio_in_external(gsm_state.previous_audio)
+                    elif get_config().advanced.video_player_path:
+                        play_video_in_external(line, gsm_state.previous_audio)
+                    return
+                gsm_state.previous_line_for_audio = line
+                if get_config().advanced.audio_player_path:
+                    audio = VideoToAudioHandler.get_audio(line, line.next.time if line.next else None, video_path,
+                                                          temporary=True)
+                    play_audio_in_external(audio)
+                    gsm_state.previous_audio = audio
+                elif get_config().advanced.video_player_path:
+                    new_video_path = play_video_in_external(line, video_path)
+                    gsm_state.previous_audio = new_video_path
+                    gsm_state.previous_replay = new_video_path
+                return
+            if gsm_state.line_for_screenshot:
+                line: GameLine = gsm_state.line_for_screenshot
+                gsm_state.line_for_screenshot = None
+                gsm_state.previous_line_for_screenshot = line
+                screenshot = ffmpeg.get_screenshot_for_line(video_path, line, True)
+                os.startfile(screenshot)
+                return
+        except Exception as e:
+            logger.error(f"Error Playing Audio/Video: {e}")
+            logger.debug(f"Error Playing Audio/Video: {e}", exc_info=True)
+            return
+        finally:
+            if video_path and get_config().paths.remove_video and os.path.exists(video_path):
+                os.remove(video_path)
 
     @staticmethod
     def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None):
@@ -195,9 +222,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination,
                                                                 f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
-        result = VADResult(False, 0, 0)
+        result = VADResult(False, 0, 0, "")
         if get_config().vad.do_vad_postprocessing:
-            logger.info("Trimming audio with Voice Detection...")
             result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio, vad_trimmed_audio, game_line=mined_line)
             if not result.success:
                 result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio,
@@ -209,6 +235,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 else:
                     logger.info("No voice activity detected.")
                     return None, result, None
+            else:
+                logger.info(result.trim_successful_string())
         if timing_only:
             return result
         if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
@@ -223,6 +251,9 @@ def do_vad_processing(model, trimmed_audio, vad_trimmed_audio, game_line=None, s
     match model:
         case configuration.OFF:
             pass
+        case configuration.GROQ:
+            from GameSentenceMiner.vad import groq_trim
+            return groq_trim.process_audio_with_groq(trimmed_audio, vad_trimmed_audio, game_line)
         case configuration.SILERO:
             from GameSentenceMiner.vad import silero_trim
             return silero_trim.process_audio_with_silero(trimmed_audio, vad_trimmed_audio, game_line)
@@ -239,7 +270,7 @@ def play_audio_in_external(filepath):
 
     filepath = os.path.normpath(filepath)
 
-    command = [exe, filepath]
+    command = [exe, "--no-video", filepath]
 
     try:
         subprocess.Popen(command)
@@ -248,9 +279,12 @@ def play_audio_in_external(filepath):
         print(f"An error occurred: {e}")
 
 def play_video_in_external(line, filepath):
-    def remove_video_when_closed(p, fp):
+    def move_video_when_closed(p, fp):
         p.wait()
         os.remove(fp)
+
+    shutil.move(filepath, get_temporary_directory())
+    new_filepath = os.path.join(get_temporary_directory(), os.path.basename(filepath))
 
     command = [get_config().advanced.video_player_path]
 
@@ -265,14 +299,17 @@ def play_video_in_external(line, filepath):
 
     logger.info(" ".join(command))
 
+
+
     try:
         proc = subprocess.Popen(command)
         print(f"Opened {filepath} in {get_config().advanced.video_player_path}.")
-        threading.Thread(target=remove_video_when_closed, args=(proc, filepath)).start()
+        threading.Thread(target=move_video_when_closed, args=(proc, filepath)).start()
     except FileNotFoundError:
         print("VLC not found. Make sure it's installed and in your PATH.")
     except Exception as e:
         print(f"An error occurred: {e}")
+    return new_filepath
 
 def convert_to_vlc_seconds(time_str):
     """Converts HH:MM:SS.milliseconds to VLC-compatible seconds."""
@@ -355,7 +392,7 @@ def open_settings():
 def play_most_recent_audio():
     if get_config().advanced.audio_player_path or get_config().advanced.video_player_path and len(
             get_all_lines()) > 0:
-        texthooking_page.event_manager.line_for_audio = get_all_lines()[-1]
+        gsm_state.line_for_audio = get_all_lines()[-1]
         obs.save_replay_buffer()
     else:
         logger.error("Feature Disabled. No audio or video player path set in config!")
@@ -409,7 +446,7 @@ def update_icon(profile=None):
     )
 
     menu = Menu(
-        MenuItem("Open Settings", open_settings),
+        MenuItem("Open Settings", open_settings, default=True),
         MenuItem("Open Multi-Mine GUI", open_multimine),
         MenuItem("Open Log", open_log),
         MenuItem("Toggle Replay Buffer", play_pause),
@@ -446,7 +483,7 @@ def run_tray():
     )
 
     menu = Menu(
-        MenuItem("Open Settings", open_settings),
+        MenuItem("Open Settings", open_settings, default=True),
         MenuItem("Open Texthooker", texthooking_page.open_texthooker),
         MenuItem("Open Log", open_log),
         MenuItem("Toggle Replay Buffer", play_pause),
@@ -455,7 +492,7 @@ def run_tray():
         MenuItem("Exit", exit_program)
     )
 
-    icon = Icon("TrayApp", create_image(), "Game Sentence Miner", menu)
+    icon = Icon("TrayApp", create_image(), "GameSentenceMiner", menu)
     icon.run()
 
 
@@ -670,8 +707,8 @@ async def main(reloading=False):
 
 
     try:
-        # if get_config().general.open_config_on_startup:
-        #     root.after(0, settings_window.show)
+        if get_config().general.open_config_on_startup:
+            root.after(50, settings_window.show)
         settings_window.add_save_hook(update_icon)
         settings_window.on_exit = exit_program
         root.mainloop()

@@ -41,10 +41,10 @@ export function registerFrontPageIPC() {
             // Combine the games into a single array for hookable games
 
             state.launchableGames = [
-                {name: "Steam", id: "0", type: HookableGameType.None, isHeader: true, scene: undefined},
+                {name: "Game", id: "0", type: HookableGameType.None, isHeader: true, scene: undefined},
                 ...steamGames.map(game => ({name: game.name, id: String(game.id), type: HookableGameType.Steam, scene: game.scene})),
-                {name: "Misc/VN", id: "0", type: HookableGameType.None, isHeader: true, scene: undefined},
-                ...vns.map(vn => ({name: vn.path, id: vn.path, type: HookableGameType.VN, scene: vn.scene})),
+                // {name: "Misc/VN", id: "0", type: HookableGameType.None, isHeader: true, scene: undefined},
+                // ...vns.map(vn => ({name: vn.path, id: vn.path, type: HookableGameType.VN, scene: vn.scene})),
                 {name: "Yuzu", id: "0", type: HookableGameType.None, isHeader: true, scene: undefined},
                 ...yuzuGames.map(game => ({name: game.name, id: game.id, type: HookableGameType.Yuzu, scene: game.scene}))
             ];
