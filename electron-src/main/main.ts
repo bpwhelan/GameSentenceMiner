@@ -280,7 +280,7 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
         }
         console.log(`Updating GSM Python Application to ${latestVersion}...`)
         try {
-            await runCommand(pythonPath, ["-m", "pip", "install", "--no-warn-script-location", getCustomPythonPackage()], true, true);
+            await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", getCustomPythonPackage()], true, true);
         } catch (err) {
             console.error("Failed to install custom Python package. Falling back to default package: GameSentenceMiner, forcing upgrade.", err);
             await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "GameSentenceMiner"], true, true);
