@@ -152,7 +152,7 @@ async function runCommand(command: string, args: string[], stdout: boolean, stde
  */
 function runGSM(command: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
-        const proc = spawn(command, args, {cwd: getGSMBaseDir()});
+        const proc = spawn(command, args);
 
         pyProc = proc;
 
@@ -278,7 +278,7 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
         if (pyProc) {
             await closeGSM();
         }
-        console.log(`Updating GSM Python Application to ${latestVersion}... This is just for dependencies`)
+        console.log(`Updating GSM Python Application to ${latestVersion}...`)
         try {
             await runCommand(pythonPath, ["-m", "pip", "install", "--no-warn-script-location", getCustomPythonPackage()], true, true);
         } catch (err) {

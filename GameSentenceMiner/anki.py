@@ -82,6 +82,8 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         for key, value in get_config().anki.anki_custom_fields.items():
             note['fields'][key] = str(value)
 
+
+    notification.open_browser_window(1)
     invoke("updateNoteFields", note=note)
     tags = []
     if get_config().anki.custom_tags:
@@ -94,8 +96,10 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
     logger.info(f"UPDATED ANKI CARD FOR {last_note.noteId}")
     if get_config().features.notify_on_update:
         notification.send_note_updated(tango)
+    notification.open_browser_window(last_note.noteId)
     if get_config().features.open_anki_edit:
         notification.open_anki_card(last_note.noteId)
+
 
     if get_config().audio.external_tool and get_config().audio.external_tool_enabled and update_audio:
         open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")

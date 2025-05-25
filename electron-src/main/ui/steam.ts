@@ -123,10 +123,6 @@ export async function launchSteamGameID(gameId: number, shouldLaunchAgent: boole
     const games = getSteamGames();
     const selectedGame = games.find((g: SteamGame) => String(g.id) === String(gameId));
 
-    console.log(games);
-    console.log(gameId);
-    console.log(selectedGame);
-
     if (selectedGame) {
         if (selectedGame.executablePath) {
             const steamPid = launchSteamGame(selectedGame.executablePath);
@@ -163,8 +159,8 @@ export function openSteamWindow() {
     }
 
     steamWindow = new BrowserWindow({
-        width: 800,
-        height: 600,
+        width: 1000,
+        height: 800,
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,

@@ -62,4 +62,4 @@ packages = ["GameSentenceMiner", "GameSentenceMiner.vad", 'GameSentenceMiner.dow
 
 [tool.setuptools.package-data]
 "GameSentenceMiner.web" = ["static/*", "templates/*"]
-"GameSentenceMiner.assets" = ["*"]
+"GameSentenceMiner" = ["assets/*"]

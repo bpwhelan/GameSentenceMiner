@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import os.path
 import subprocess
 import threading

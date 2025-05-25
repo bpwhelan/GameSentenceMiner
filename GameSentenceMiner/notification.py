@@ -21,6 +21,27 @@ if is_windows():
 else:
     notifier = notification
 
+def open_browser_window(note_id):
+    url = "http://localhost:8765"
+    headers = {'Content-Type': 'application/json'}
+
+    data = {
+        "action": "guiBrowse",
+        "version": 6,
+        "params": {
+            "query": f"nid:{note_id}"
+        }
+    }
+
+    try:
+        response = requests.post(url, json=data, headers=headers)
+        if response.status_code == 200:
+            logger.info(f"Opened Anki note with ID {note_id}")
+        else:
+            logger.error(f"Failed to open Anki note with ID {note_id}")
+    except Exception as e:
+        logger.info(f"Error connecting to AnkiConnect: {e}")
+
 
 def open_anki_card(note_id):
     url = "http://localhost:8765"

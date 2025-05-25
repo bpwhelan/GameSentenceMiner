@@ -247,7 +247,7 @@ def clear_history():
 
 async def add_event_to_texthooker(line: GameLine):
     new_event = event_manager.add_gameline(line)
-    await broadcast_message({
+    await websocket_server_thread.send_text({
         'event': 'text_received',
         'sentence': line.text,
         'data': new_event.to_serializable()
@@ -294,37 +294,6 @@ def play_audio():
     return jsonify({}), 200
 
 
-connected_clients = set()
-
-async def websocket_handler(websocket):
-    logger.debug(f"Client connected: {websocket.remote_address}")
-    connected_clients.add(websocket)
-    try:
-        async for message in websocket:
-            try:
-                data = json.loads(message)
-                if 'type' in data and data['type'] == 'get_events':
-                    initial_events = [{'id': 1, 'text': 'Initial event from WebSocket'}, {'id': 2, 'text': 'Another initial event'}]
-                    await websocket.send(json.dumps({'event': 'initial_events', 'payload': initial_events}))
-                elif 'update_checkbox' in data:
-                    print(f"Received checkbox update: {data}")
-                    # Handle checkbox update logic
-                    pass
-                await websocket.send(json.dumps({'response': f'Server received: {message}'}))
-            except json.JSONDecodeError:
-                await websocket.send(json.dumps({'error': 'Invalid JSON format'}))
-    except websockets.exceptions.ConnectionClosedError:
-        print(f"Client disconnected abruptly: {websocket.remote_address}")
-    except websockets.exceptions.ConnectionClosedOK:
-        print(f"Client disconnected gracefully: {websocket.remote_address}")
-    finally:
-        connected_clients.discard(websocket)
-
-async def broadcast_message(message):
-    if connected_clients:
-        for client in connected_clients:
-            await client.send(json.dumps(message))
-
 # async def main():
 #     async with websockets.serve(websocket_handler, "localhost", 8765): # Choose a port for WebSocket
 #         print("WebSocket server started on ws://localhost:8765/ws (adjust as needed)")
@@ -360,7 +329,7 @@ def are_lines_selected():
 
 def reset_checked_lines():
     async def send_reset_message():
-        await broadcast_message({
+        await websocket_server_thread.send_text({
             'event': 'reset_checkboxes',
         })
     event_manager.reset_checked_lines()
@@ -383,23 +352,69 @@ def start_web_server():
 
 import signal
 
-async def run_websocket_server(host="0.0.0.0"):
-    global websocket_port
-    websocket = None
-    try:
-        websocket_port = get_config().advanced.texthooker_communication_websocket_port
-        websocket = await websockets.serve(websocket_handler, host, websocket_port)
-        logger.debug(f"WebSocket server started at ws://{host}:{websocket_port}/")
-        await asyncio.Future()  # Keep the server running
-    except asyncio.CancelledError:
-        logger.info("WebSocket server shutting down...")
-    except OSError as e:
-        logger.error(f"TextHooker WebSocket server failed to start on port {websocket_port}: {e}")
-        logger.info("You may need to try a different port in GSM's advanced config, and then update that in the Texthooker's settings.")
-    finally:
-        if websocket:
-            websocket.close()
-        await asyncio.sleep(1)  # Wait before retrying
+websocket_server_thread = None
+websocket_queue = queue.Queue()
+paused = False
+
+
+class WebsocketServerThread(threading.Thread):
+    def __init__(self, read):
+        super().__init__(daemon=True)
+        self._loop = None
+        self.read = read
+        self.clients = set()
+        self._event = threading.Event()
+
+    @property
+    def loop(self):
+        self._event.wait()
+        return self._loop
+
+    async def send_text_coroutine(self, message):
+        for client in self.clients:
+            await client.send(message)
+
+    async def server_handler(self, websocket):
+        self.clients.add(websocket)
+        try:
+            async for message in websocket:
+                if self.read and not paused:
+                    websocket_queue.put(message)
+                    try:
+                        await websocket.send('True')
+                    except websockets.exceptions.ConnectionClosedOK:
+                        pass
+                else:
+                    try:
+                        await websocket.send('False')
+                    except websockets.exceptions.ConnectionClosedOK:
+                        pass
+        except websockets.exceptions.ConnectionClosedError:
+            pass
+        finally:
+            self.clients.remove(websocket)
+
+    async def send_text(self, text):
+        if text:
+            return asyncio.run_coroutine_threadsafe(
+                self.send_text_coroutine(json.dumps(text)), self.loop)
+
+    def stop_server(self):
+        self.loop.call_soon_threadsafe(self._stop_event.set)
+
+    def run(self):
+        async def main():
+            self._loop = asyncio.get_running_loop()
+            self._stop_event = stop_event = asyncio.Event()
+            self._event.set()
+            self.server = start_server = websockets.serve(self.server_handler,
+                                                          "0.0.0.0",
+                                                          get_config().advanced.texthooker_communication_websocket_port,
+                                                          max_size=1000000000)
+            async with start_server:
+                await stop_event.wait()
+
+        asyncio.run(main())
 
 def handle_exit_signal(loop):
     logger.info("Received exit signal. Shutting down...")
@@ -407,13 +422,16 @@ def handle_exit_signal(loop):
         task.cancel()
 
 async def texthooker_page_coro():
+    global websocket_server_thread
     # Run the WebSocket server in the asyncio event loop
     flask_thread = threading.Thread(target=start_web_server)
     flask_thread.daemon = True
     flask_thread.start()
 
+    websocket_server_thread = WebsocketServerThread(read=True)
+    websocket_server_thread.start()
+
     # Keep the main asyncio event loop running (for the WebSocket server)
-    await run_websocket_server()
 
 def run_text_hooker_page():
     try:
