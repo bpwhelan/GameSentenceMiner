@@ -1,7 +1,6 @@
 import asyncio
 import subprocess
 import sys
-import threading
 
 from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
 from GameSentenceMiner.util.communication.send import send_restart_signal
