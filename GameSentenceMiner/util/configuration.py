@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from os.path import expanduser
@@ -124,6 +125,8 @@ class Features:
     full_auto: bool = True
     notify_on_update: bool = True
     open_anki_edit: bool = False
+    open_anki_in_browser: bool = True
+    browser_query: str = ''
     backfill_audio: bool = False
 
 
@@ -643,5 +646,8 @@ class GsmAppState:
         self.previous_audio = None
         self.previous_screenshot = None
         self.previous_replay = None
+        self.lock = threading.Lock()
+        self.last_mined_line = None
+        self.keep_running = True
 
 gsm_state = GsmAppState()

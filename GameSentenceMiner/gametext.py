@@ -6,9 +6,9 @@ import websockets
 from websockets import InvalidStatus
 
 from GameSentenceMiner import util
-from GameSentenceMiner.configuration import *
-from GameSentenceMiner.text_log import *
-from GameSentenceMiner.util import do_text_replacements, TEXT_REPLACEMENTS_FILE
+from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
+from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.text_log import *
 
 from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker
 
@@ -121,7 +121,7 @@ def reset_line_hotkey_pressed():
     global current_line_time
     logger.info("LINE RESET HOTKEY PRESSED")
     current_line_time = datetime.now()
-    util.set_last_mined_line("")
+    gsm_state.last_mined_line = ""
 
 
 def run_websocket_listener():
@@ -129,7 +129,7 @@ def run_websocket_listener():
 
 
 async def start_text_monitor():
-    util.run_new_thread(run_websocket_listener)
+    run_new_thread(run_websocket_listener)
     if get_config().general.use_websocket:
         if get_config().general.use_both_clipboard_and_websocket:
             logger.info("Listening for Text on both WebSocket and Clipboard.")

@@ -2,19 +2,19 @@ import time
 
 import base64
 import subprocess
-import threading
 import urllib.request
 from datetime import datetime, timedelta
 from requests import post
 
-from GameSentenceMiner import obs, util, notification, ffmpeg
+from GameSentenceMiner import obs
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
-from GameSentenceMiner.configuration import *
-from GameSentenceMiner.configuration import get_config
-from GameSentenceMiner.model import AnkiCard
-from GameSentenceMiner.text_log import get_all_lines, get_text_event, get_mined_line
+from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, remove_html_and_cloze_tags, combine_dialogue
+from GameSentenceMiner.util import ffmpeg, notification
+from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.configuration import get_config
+from GameSentenceMiner.util.model import AnkiCard
+from GameSentenceMiner.util.text_log import get_all_lines, get_text_event, get_mined_line
 from GameSentenceMiner.obs import get_current_game
-from GameSentenceMiner.util import remove_html_and_cloze_tags, combine_dialogue, wait_for_stable_file
 from GameSentenceMiner.web import texthooking_page
 
 audio_in_anki = None
@@ -82,8 +82,9 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         for key, value in get_config().anki.anki_custom_fields.items():
             note['fields'][key] = str(value)
 
-
-    notification.open_browser_window(1)
+    selected_notes = invoke("guiSelectedNotes")
+    if last_note.noteId in selected_notes:
+        notification.open_browser_window(1)
     invoke("updateNoteFields", note=note)
     tags = []
     if get_config().anki.custom_tags:
@@ -96,7 +97,8 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
     logger.info(f"UPDATED ANKI CARD FOR {last_note.noteId}")
     if get_config().features.notify_on_update:
         notification.send_note_updated(tango)
-    notification.open_browser_window(last_note.noteId)
+    if last_note.noteId in selected_notes or get_config().features.open_anki_in_browser:
+        notification.open_browser_window(last_note.noteId, get_config().features.browser_query)
     if get_config().features.open_anki_edit:
         notification.open_anki_card(last_note.noteId)
 
@@ -282,13 +284,13 @@ def update_new_card():
     if not last_card or not check_tags_for_should_update(last_card):
         return
     use_prev_audio = sentence_is_same_as_previous(last_card)
-    logger.debug(f"last mined line: {util.get_last_mined_line()}, current sentence: {get_sentence(last_card)}")
+    logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(last_card)}")
     logger.info(f"New card using previous audio: {use_prev_audio}")
     if get_config().obs.get_game_from_scene:
         obs.update_current_game()
     if use_prev_audio:
         lines = texthooking_page.get_selected_lines()
-        with util.lock:
+        with gsm_state.lock:
             update_anki_card(last_card, note=get_initial_card_info(last_card, lines), game_line=get_mined_line(last_card, lines), reuse_audio=True)
         texthooking_page.reset_checked_lines()
     else:
@@ -303,9 +305,9 @@ def update_new_card():
 
 
 def sentence_is_same_as_previous(last_card):
-    if not util.get_last_mined_line():
+    if not gsm_state.last_mined_line:
         return False
-    return remove_html_and_cloze_tags(get_sentence(last_card)) == remove_html_and_cloze_tags(util.get_last_mined_line())
+    return remove_html_and_cloze_tags(get_sentence(last_card)) == remove_html_and_cloze_tags(gsm_state.last_mined_line)
 
 def get_sentence(card):
     return card.get_field(get_config().anki.sentence_field)

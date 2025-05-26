@@ -6,9 +6,9 @@ import urllib.request
 import platform
 import zipfile
 
-from GameSentenceMiner.downloader.Untitled_json import scenes
-from GameSentenceMiner.configuration import get_app_directory, logger
-from GameSentenceMiner.ffmpeg import get_ffmpeg_path, get_ffprobe_path
+from GameSentenceMiner.util.downloader.Untitled_json import scenes
+from GameSentenceMiner.util.configuration import get_app_directory, logger
+from GameSentenceMiner.util.ffmpeg import get_ffmpeg_path, get_ffprobe_path
 from GameSentenceMiner.obs import get_obs_path
 
 script_dir = os.path.dirname(os.path.abspath(__file__))

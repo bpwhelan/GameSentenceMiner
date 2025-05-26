@@ -4,12 +4,12 @@ from tkinter import filedialog, messagebox, simpledialog, scrolledtext
 
 import ttkbootstrap as ttk
 
-from GameSentenceMiner import obs, configuration
-from GameSentenceMiner.communication.send import send_restart_signal
-from GameSentenceMiner.configuration import *
-from GameSentenceMiner.downloader.download_tools import download_ocenaudio_if_needed
-from GameSentenceMiner.model import SceneItem, SceneInfo
-from GameSentenceMiner.package import get_current_version, get_latest_version
+from GameSentenceMiner import obs
+from GameSentenceMiner.util import configuration
+from GameSentenceMiner.util.communication.send import send_restart_signal
+from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.downloader.download_tools import download_ocenaudio_if_needed
+from GameSentenceMiner.util.package import get_current_version, get_latest_version
 
 settings_saved = False
 on_save = []
@@ -172,7 +172,9 @@ class ConfigApp:
                 full_auto=self.full_auto.get(),
                 notify_on_update=self.notify_on_update.get(),
                 open_anki_edit=self.open_anki_edit.get(),
-                backfill_audio=self.backfill_audio.get()
+                open_anki_in_browser=self.open_anki_browser.get(),
+                backfill_audio=self.backfill_audio.get(),
+                browser_query=self.browser_query.get(),
             ),
             screenshot=Screenshot(
                 enabled=self.screenshot_enabled.get(),
@@ -752,6 +754,19 @@ class ConfigApp:
         ttk.Checkbutton(features_frame, variable=self.open_anki_edit).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(features_frame, "Automatically open Anki for editing after updating.",
                                          row=self.current_row, column=2)
+
+        ttk.Label(features_frame, text="Open Anki Note in Browser:").grid(row=self.current_row, column=0, sticky='W')
+        self.open_anki_browser = tk.BooleanVar(value=self.settings.features.open_anki_in_browser)
+        ttk.Checkbutton(features_frame, variable=self.open_anki_browser).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(features_frame, "Open Anki note in browser after updating.", row=self.current_row,
+                                            column=2)
+
+        ttk.Label(features_frame, text="Browser Query:").grid(row=self.current_row, column=0, sticky='W')
+        self.browser_query = ttk.Entry(features_frame, width=50)
+        self.browser_query.insert(0, self.settings.features.browser_query)
+        self.browser_query.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(features_frame, "Query to use when opening Anki notes in the browser. Ex: 'Added:1'", row=self.current_row,
+                                            column=2)
 
         ttk.Label(features_frame, text="Backfill Audio:").grid(row=self.current_row, column=0, sticky='W')
         self.backfill_audio = tk.BooleanVar(value=self.settings.features.backfill_audio)

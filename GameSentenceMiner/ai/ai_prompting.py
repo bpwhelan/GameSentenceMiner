@@ -3,14 +3,14 @@ import textwrap
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Any, Optional
+from typing import List, Optional
 
 import google.generativeai as genai
 from google.generativeai import GenerationConfig
 from groq import Groq
 
-from GameSentenceMiner.configuration import get_config, Ai, logger
-from GameSentenceMiner.text_log import GameLine
+from GameSentenceMiner.util.configuration import get_config, Ai, logger
+from GameSentenceMiner.util.text_log import GameLine
 
 # Suppress debug logs from httpcore
 logging.getLogger("httpcore").setLevel(logging.WARNING)

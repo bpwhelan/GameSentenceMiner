@@ -7,8 +7,8 @@ from enum import Enum
 
 from websocket import WebSocket
 
-from GameSentenceMiner.communication import Message
-from GameSentenceMiner.configuration import get_app_directory, logger
+from GameSentenceMiner.util.communication import Message
+from GameSentenceMiner.util.configuration import get_app_directory, logger
 
 CONFIG_FILE = os.path.join(get_app_directory(), "shared_config.json")
 websocket: WebSocket = None

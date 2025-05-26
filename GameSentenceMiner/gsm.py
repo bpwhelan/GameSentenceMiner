@@ -1,7 +1,12 @@
 import asyncio
+import subprocess
 import sys
+import threading
 
-from GameSentenceMiner.vad.result import VADResult
+from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
+from GameSentenceMiner.util.communication.send import send_restart_signal
+from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
+from GameSentenceMiner.vad import vad_processor, VADResult
 
 try:
     import os.path
@@ -19,26 +24,21 @@ try:
 
     from GameSentenceMiner import anki
     from GameSentenceMiner import config_gui
-    from GameSentenceMiner import configuration
-    from GameSentenceMiner import ffmpeg
+    from GameSentenceMiner.util import configuration, notification, ffmpeg
     from GameSentenceMiner import gametext
-    from GameSentenceMiner import notification
     from GameSentenceMiner import obs
-    from GameSentenceMiner import util
-    from GameSentenceMiner.communication import Message
-    from GameSentenceMiner.communication.send import send_restart_signal
-    from GameSentenceMiner.communication.websocket import connect_websocket, register_websocket_message_handler, \
+    from GameSentenceMiner.util.communication import Message
+    from GameSentenceMiner.util.communication.websocket import connect_websocket, register_websocket_message_handler, \
         FunctionName
-    from GameSentenceMiner.configuration import *
-    from GameSentenceMiner.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
-    from GameSentenceMiner.ffmpeg import get_audio_and_trim, get_video_timings
+    from GameSentenceMiner.util.configuration import *
+    from GameSentenceMiner.util.ffmpeg import get_audio_and_trim, get_video_timings
     from GameSentenceMiner.obs import check_obs_folder_is_correct
-    from GameSentenceMiner.text_log import GameLine, get_text_event, get_mined_line, get_all_lines
+    from GameSentenceMiner.util.text_log import GameLine, get_text_event, get_mined_line, get_all_lines
     from GameSentenceMiner.util import *
     from GameSentenceMiner.web import texthooking_page
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
 except Exception as e:
-    from GameSentenceMiner.configuration import logger, is_linux, is_windows
+    from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
     import time
     logger.info("Something bad happened during import/initialization, closing in 5 seconds")
     logger.exception(e)
@@ -48,7 +48,6 @@ except Exception as e:
 if is_windows():
     import win32api
 
-silero_trim, whisper_helper, vosk_helper = None, None, None
 procs_to_close = []
 settings_window: config_gui.ConfigApp = None
 obs_paused = False
@@ -87,11 +86,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
             else:
                 logger.info("Replay buffer initiated externally. Skipping processing.")
                 return
-            with util.lock:
-                util.set_last_mined_line(anki.get_sentence(last_note))
+            with gsm_state.lock:
+                gsm_state.last_mined_line = anki.get_sentence(last_note)
                 if os.path.exists(video_path) and os.access(video_path, os.R_OK):
                     logger.debug(f"Video found and is readable: {video_path}")
-
                 if get_config().obs.minimum_replay_size and not ffmpeg.is_video_big_enough(video_path,
                                                                                            get_config().obs.minimum_replay_size):
                     logger.debug("Checking if video is big enough")
@@ -212,7 +210,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     @staticmethod
     def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None):
-        logger.info("Getting audio from video...")
         trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time)
         if temporary:
             return trimmed_audio
@@ -220,47 +217,16 @@ class VideoToAudioHandler(FileSystemEventHandler):
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination,
                                                                 f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
-        result = VADResult(False, 0, 0, "")
-        if get_config().vad.do_vad_postprocessing:
-            result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio, vad_trimmed_audio, game_line=mined_line)
-            if not result.success:
-                result = do_vad_processing(get_config().vad.selected_vad_model, trimmed_audio,
-                                                        vad_trimmed_audio, game_line=mined_line)
-            if not result.success:
-                if get_config().vad.add_audio_on_no_results:
-                    logger.info("No voice activity detected, using full audio.")
-                    vad_trimmed_audio = trimmed_audio
-                else:
-                    logger.info("No voice activity detected.")
-                    return None, result, None
-            else:
-                logger.info(result.trim_successful_string())
+
+        vad_result = vad_processor.trim_audio_with_vad(trimmed_audio, vad_trimmed_audio, game_line)
         if timing_only:
-            return result
+            return vad_result
         if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
                                                   get_config().audio.ffmpeg_reencode_options)
         elif os.path.exists(vad_trimmed_audio):
             shutil.move(vad_trimmed_audio, final_audio_output)
-        return final_audio_output, result, vad_trimmed_audio
-
-
-def do_vad_processing(model, trimmed_audio, vad_trimmed_audio, game_line=None, second_pass=False):
-    match model:
-        case configuration.OFF:
-            pass
-        case configuration.GROQ:
-            from GameSentenceMiner.vad import groq_trim
-            return groq_trim.process_audio_with_groq(trimmed_audio, vad_trimmed_audio, game_line)
-        case configuration.SILERO:
-            from GameSentenceMiner.vad import silero_trim
-            return silero_trim.process_audio_with_silero(trimmed_audio, vad_trimmed_audio, game_line)
-        case configuration.VOSK:
-            from GameSentenceMiner.vad import vosk_helper
-            return vosk_helper.process_audio_with_vosk(trimmed_audio, vad_trimmed_audio, game_line)
-        case configuration.WHISPER:
-            from GameSentenceMiner.vad import whisper_helper
-            return whisper_helper.process_audio_with_whisper(trimmed_audio, vad_trimmed_audio, game_line)
+        return final_audio_output, vad_result, vad_trimmed_audio
 
 
 def play_audio_in_external(filepath):
@@ -535,7 +501,7 @@ def restart_obs():
 
 def cleanup():
     logger.info("Performing cleanup...")
-    util.keep_running = False
+    gsm_state.keep_running = False
 
     if get_config().obs.enabled:
         obs.stop_replay_buffer()
@@ -567,7 +533,7 @@ def cleanup():
 def handle_exit():
     """Signal handler for graceful termination."""
 
-    def _handle_exit(signum):
+    def _handle_exit(signum, *args):
         logger.info(f"Received signal {signum}. Exiting gracefully...")
         cleanup()
         sys.exit(0)
@@ -602,7 +568,7 @@ def initialize_async():
     threads = []
     tasks.append(anki.start_monitoring_anki)
     for task in tasks:
-        threads.append(util.run_new_thread(task))
+        threads.append(run_new_thread(task))
     return threads
 
 def handle_websocket_message(message: Message):
@@ -640,14 +606,7 @@ def async_loop():
             await register_scene_switcher_callback()
             await check_obs_folder_is_correct()
         logger.info("Post-Initialization started.")
-        if get_config().vad.is_vosk():
-            from GameSentenceMiner.vad import vosk_helper
-            vosk_helper.get_vosk_model()
-        if get_config().vad.is_whisper():
-            from GameSentenceMiner.vad import whisper_helper
-            whisper_helper.initialize_whisper_model()
-        if get_config().vad.is_silero():
-            from GameSentenceMiner.vad import silero_trim
+        vad_processor.init()
 
     asyncio.run(loop())
 
@@ -693,9 +652,9 @@ async def async_main(reloading=False):
     if not is_linux():
         register_hotkeys()
 
-    util.run_new_thread(post_init2)
-    util.run_new_thread(run_text_hooker_page)
-    util.run_new_thread(async_loop)
+    run_new_thread(post_init2)
+    run_new_thread(run_text_hooker_page)
+    run_new_thread(async_loop)
 
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands

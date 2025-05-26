@@ -10,12 +10,12 @@ from dataclasses import dataclass
 import flask
 import websockets
 
-from GameSentenceMiner.text_log import GameLine, get_line_by_id, initial_time, get_all_lines
+from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
+from GameSentenceMiner.util.text_log import GameLine, get_line_by_id, initial_time
 from flask import request, jsonify, send_from_directory
 import webbrowser
 from GameSentenceMiner import obs
-from GameSentenceMiner.configuration import logger, get_config, DB_PATH, gsm_state
-from GameSentenceMiner.util import TEXT_REPLACEMENTS_FILE
+from GameSentenceMiner.util.configuration import logger, get_config, DB_PATH, gsm_state
 
 port = get_config().general.texthooker_port
 url = f"http://localhost:{port}"
@@ -350,7 +350,6 @@ def start_web_server():
 
     app.run(port=port, debug=False) # debug=True provides helpful error messages during development
 
-import signal
 
 websocket_server_thread = None
 websocket_queue = queue.Queue()
@@ -407,12 +406,18 @@ class WebsocketServerThread(threading.Thread):
             self._loop = asyncio.get_running_loop()
             self._stop_event = stop_event = asyncio.Event()
             self._event.set()
-            self.server = start_server = websockets.serve(self.server_handler,
-                                                          "0.0.0.0",
-                                                          get_config().advanced.texthooker_communication_websocket_port,
-                                                          max_size=1000000000)
-            async with start_server:
-                await stop_event.wait()
+            while True:
+                try:
+                    self.server = start_server = websockets.serve(self.server_handler,
+                                                                  "0.0.0.0",
+                                                                  get_config().advanced.texthooker_communication_websocket_port,
+                                                                  max_size=1000000000)
+                    async with start_server:
+                        await stop_event.wait()
+                    return
+                except Exception as e:
+                    logger.warning(f"WebSocket server encountered an error: {e}. Retrying...")
+                    await asyncio.sleep(1)
 
         asyncio.run(main())
 

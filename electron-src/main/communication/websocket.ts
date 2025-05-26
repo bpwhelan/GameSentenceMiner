@@ -42,7 +42,7 @@ class WebSocketManager {
 
         this.wss.on("connection", (ws) => {
             console.debug("Python connected");
-            this.ws = ws;
+            this.ws = ws; // Set the instance's ws property when a connection is established
 
             ws.on("message", (message) => {
                 try {
@@ -58,25 +58,37 @@ class WebSocketManager {
                 console.log("Python disconnected");
                 this.ws = null;
             });
+
+            ws.on("error", (error) => {
+                console.error("WebSocket error:", error);
+            });
+        });
+
+        this.wss.on("error", (error) => {
+            console.error("WebSocket server error:", error);
         });
 
         return port;
     }
 
     async sendMessage(message: Message): Promise<boolean> {
-        return new Promise(async (resolve, reject) => {
-            this.waitForWebSocketConnection().then(() => {
-                if (this.ws) {
+        return new Promise(async (resolve) => {
+            try {
+                await this.waitForWebSocketConnection();
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                     console.info("Sending to Python:", message);
                     const jsonString = JSON.stringify(message);
                     this.ws.send(jsonString);
                     resolve(true);
                 } else {
-                    console.error("WebSocket is not connected.");
+                    console.error("WebSocket is not connected or not open.");
                     resolve(false);
                 }
-            });
-        })
+            } catch (error) {
+                console.error("Failed to send message:", error);
+                resolve(false);
+            }
+        });
     }
 
     async sendQuitMessage(): Promise<boolean> {
@@ -98,16 +110,22 @@ class WebSocketManager {
     async waitForWebSocketConnection(): Promise<void> {
         return new Promise((resolve, reject) => {
             let attempts = 0;
-            const maxAttempts = 5;
-            const interval = setInterval(() => {
-                if (webSocketManager.ws) {
+            const maxAttempts = 10;
+            const initialDelay = 50;
+            const intervalTime = 200;
+
+            const checkConnection = () => {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                     clearInterval(interval);
                     resolve();
                 } else if (++attempts >= maxAttempts) {
                     clearInterval(interval);
-                    reject(new Error("WebSocket connection failed after 5 attempts."));
+                    reject(new Error(`WebSocket connection failed after ${maxAttempts} attempts.`));
                 }
-            }, 100);
+            };
+
+            const interval = setInterval(checkConnection, intervalTime);
+            setTimeout(checkConnection, initialDelay);
         });
     }
 
@@ -135,4 +153,6 @@ export const webSocketManager = new WebSocketManager();
 
 webSocketManager.startServer().then((port) => {
     console.log(`WebSocket server started on port ${port}`);
+}).catch(error => {
+    console.error("Failed to start WebSocket server:", error);
 });

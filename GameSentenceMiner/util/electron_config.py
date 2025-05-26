@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 from dataclasses_json import dataclass_json
 
-from GameSentenceMiner.configuration import get_app_directory
+from GameSentenceMiner.util.configuration import get_app_directory
 
 
 @dataclass_json

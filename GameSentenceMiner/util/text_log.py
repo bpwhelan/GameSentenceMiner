@@ -4,9 +4,9 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from typing import Optional
 
-from GameSentenceMiner.configuration import logger, get_config
-from GameSentenceMiner.model import AnkiCard
-from GameSentenceMiner.util import remove_html_and_cloze_tags
+from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
+from GameSentenceMiner.util.configuration import logger, get_config
+from GameSentenceMiner.util.model import AnkiCard
 
 initial_time = datetime.now()
 

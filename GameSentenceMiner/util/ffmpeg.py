@@ -1,11 +1,13 @@
-import shutil
+import subprocess
 import tempfile
+import time
+from pathlib import Path
 
-import GameSentenceMiner.configuration
-from GameSentenceMiner import obs, util, configuration
-from GameSentenceMiner.configuration import *
-from GameSentenceMiner.text_log import initial_time
-from GameSentenceMiner.util import *
+from GameSentenceMiner import obs
+from GameSentenceMiner.util.gsm_utils import make_unique_file_name, get_file_modification_time
+from GameSentenceMiner.util import configuration
+from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.text_log import initial_time
 
 
 def get_ffmpeg_path():
@@ -34,11 +36,11 @@ def call_frame_extractor(video_path, timestamp):
         # Construct the path to the frame extractor script
         script_path = os.path.join(current_dir, "ss_selector.py")  # Replace with the actual script name if different
 
-        logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.ss_selector", video_path, str(timestamp)]))
+        logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.util.ss_selector", video_path, str(timestamp)]))
 
         # Run the script using subprocess.run()
         result = subprocess.run(
-            [sys.executable, "-m", "GameSentenceMiner.ss_selector", video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting],  # Use sys.executable
+            [sys.executable, "-m", "GameSentenceMiner.util.ss_selector", video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting],  # Use sys.executable
             capture_output=True,
             text=True,  # Get output as text
             check=False  # Raise an exception for non-zero exit codes
@@ -297,6 +299,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     trimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(),
                                                 suffix=f".{get_config().audio.extension}").name
     start_trim_time, total_seconds, total_seconds_after_offset = get_video_timings(video_path, game_line, anki_card_creation_time)
+    end_trim_time = ""
 
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
@@ -319,6 +322,11 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     subprocess.run(ffmpeg_command)
 
     logger.debug(f"{total_seconds_after_offset} trimmed off of beginning")
+
+    if end_trim_time:
+        logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds with end time {end_trim_time}")
+    else:
+        logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds")
 
     logger.debug(f"Audio trimmed and saved to {trimmed_audio}")
     return trimmed_audio
@@ -365,8 +373,8 @@ def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_o
 
 
 def create_temp_file_with_same_name(input_file: str):
-    split = input_file.split(".")
-    return f"{split[0]}_temp.{split[1]}"
+    path = Path(input_file)
+    return str(path.with_name(f"{path.stem}_temp{path.suffix}"))
 
 
 def replace_file_with_retry(temp_file, input_file, retries=5, delay=1):

@@ -9,7 +9,7 @@ from PIL import Image, ImageTk, ImageDraw
 
 from GameSentenceMiner import obs  # Import your actual obs module
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
-from GameSentenceMiner.util import sanitize_filename  # Import your actual util module
+from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 try:
     import pygetwindow as gw

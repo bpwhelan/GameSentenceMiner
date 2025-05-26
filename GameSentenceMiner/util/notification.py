@@ -1,8 +1,6 @@
-import platform
-
 import requests
 from plyer import notification
-from GameSentenceMiner.configuration import logger, is_windows
+from GameSentenceMiner.util.configuration import logger, is_windows
 
 if is_windows():
     from win10toast import ToastNotifier
@@ -21,7 +19,7 @@ if is_windows():
 else:
     notifier = notification
 
-def open_browser_window(note_id):
+def open_browser_window(note_id, query=None):
     url = "http://localhost:8765"
     headers = {'Content-Type': 'application/json'}
 
@@ -29,7 +27,7 @@ def open_browser_window(note_id):
         "action": "guiBrowse",
         "version": 6,
         "params": {
-            "query": f"nid:{note_id}"
+            "query": f"nid:{note_id}" if not query else query,
         }
     }
 

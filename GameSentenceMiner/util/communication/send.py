@@ -1,6 +1,6 @@
 import json
 
-from GameSentenceMiner.communication.websocket import websocket, Message
+from GameSentenceMiner.util.communication.websocket import websocket, Message
 
 async def send_restart_signal():
     if websocket:

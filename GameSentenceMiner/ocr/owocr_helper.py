@@ -1,10 +1,8 @@
 import asyncio
-import ctypes
 import json
 import logging
 import os
 import queue
-import re
 import threading
 import time
 from datetime import datetime
@@ -16,13 +14,12 @@ import mss
 import websockets
 from rapidfuzz import fuzz
 
-from GameSentenceMiner import obs, util
-from GameSentenceMiner.configuration import get_config, get_app_directory, get_temporary_directory
-from GameSentenceMiner.electron_config import get_ocr_scan_rate, get_requires_open_window
-from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, Rectangle, set_dpi_awareness
+from GameSentenceMiner import obs
+from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory
+from GameSentenceMiner.util.electron_config import get_ocr_scan_rate, get_requires_open_window
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness
 from GameSentenceMiner.owocr.owocr import screen_coordinate_picker, run
-from GameSentenceMiner.owocr.owocr.run import TextFiltering
-from GameSentenceMiner.util import do_text_replacements, OCR_REPLACEMENTS_FILE
+from GameSentenceMiner.util.gsm_utils import sanitize_filename, do_text_replacements, OCR_REPLACEMENTS_FILE
 
 CONFIG_FILE = Path("ocr_config.json")
 DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHANGE THIS
@@ -66,7 +63,7 @@ def get_new_game_cords():
     ocr_config_dir = app_dir / "ocr_config"
     ocr_config_dir.mkdir(parents=True, exist_ok=True)
     obs.connect_to_obs_sync()
-    scene = util.sanitize_filename(obs.get_current_scene())
+    scene = sanitize_filename(obs.get_current_scene())
     config_path = ocr_config_dir / f"{scene}.json"
     with open(config_path, 'w') as f:
         json.dump({"scene": scene, "window": None, "rectangles": coords_list}, f, indent=4)
@@ -80,7 +77,7 @@ def get_ocr_config() -> OCRConfig:
     ocr_config_dir = app_dir / "ocr_config"
     os.makedirs(ocr_config_dir, exist_ok=True)
     obs.connect_to_obs_sync()
-    scene = util.sanitize_filename(obs.get_current_scene())
+    scene = sanitize_filename(obs.get_current_scene())
     config_path = ocr_config_dir / f"{scene}.json"
     if not config_path.exists():
         config_path.touch()
@@ -214,11 +211,11 @@ def do_second_ocr(ocr1_text, time, img, filtering, scrolling=False):
                                                         engine=ocr2)
         if scrolling:
             return text
-        if fuzz.ratio(last_ocr2_result, orig_text) >= 80:
+        if fuzz.ratio(last_ocr2_result, text) >= 80:
             logger.info("Seems like the same text from previous ocr2 result, not sending")
             return
         save_result_image(img)
-        last_ocr2_result = orig_text
+        last_ocr2_result = text
         asyncio.run(send_result(text, time))
     except json.JSONDecodeError:
         print("Invalid JSON received.")
@@ -289,13 +286,15 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
             previous_img_local = previous_img
             if previous_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 90:
                 logger.info("Seems like Text we already sent, not doing anything.")
+                previous_text = None
                 return
             previous_orig_text = orig_text_string
             previous_ocr1_result = previous_text
             if crop_coords:
                 previous_img_local.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
                 previous_img_local = previous_img_local.crop(crop_coords)
-            do_second_ocr(previous_text, stable_time, previous_img_local, filtering)
+            second_ocr_queue.put((previous_text, stable_time, previous_img_local, filtering))
+            # threading.Thread(target=do_second_ocr, args=(previous_text, stable_time, previous_img_local, filtering), daemon=True).start()
             previous_img = None
             previous_text = None
             text_stable_start_time = None
@@ -311,6 +310,22 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
     previous_img = img
 
 done = False
+
+# Create a queue for tasks
+second_ocr_queue = queue.Queue()
+
+def process_task_queue():
+    while True:
+        try:
+            task = second_ocr_queue.get()
+            if task is None:  # Exit signal
+                break
+            ocr1_text, stable_time, previous_img_local, filtering = task
+            do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering)
+        except Exception as e:
+            logger.exception(f"Error processing task: {e}")
+        finally:
+            second_ocr_queue.task_done()
 
 
 def run_oneocr(ocr_config: OCRConfig, rectangles):
@@ -420,6 +435,8 @@ if __name__ == "__main__":
         ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config,rectangles ), daemon=True)
         ocr_thread.start()
         if not ssonly:
+            worker_thread = threading.Thread(target=process_task_queue, daemon=True)
+            worker_thread.start()
             websocket_server_thread = WebsocketServerThread(read=True)
             websocket_server_thread.start()
         try:

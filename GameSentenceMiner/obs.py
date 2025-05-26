@@ -7,10 +7,9 @@ import psutil
 
 import obsws_python as obs
 
-import GameSentenceMiner.configuration
-from GameSentenceMiner import util, configuration
-from GameSentenceMiner.configuration import *
-from GameSentenceMiner.model import *
+from GameSentenceMiner.util import configuration
+from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.gsm_utils import sanitize_filename, make_unique_file_name
 
 client: obs.ReqClient = None
 event_client: obs.EventClient = None
@@ -140,7 +139,7 @@ async def connect_to_obs(retry_count=0):
     if not get_config().obs.enabled:
         return
 
-    if GameSentenceMiner.configuration.is_windows():
+    if is_windows():
         get_obs_websocket_config_values()
 
     while True:
@@ -174,7 +173,7 @@ def connect_to_obs_sync(retry_count=0):
     if not get_config().obs.enabled or client:
         return
 
-    if GameSentenceMiner.configuration.is_windows():
+    if is_windows():
         get_obs_websocket_config_values()
 
     while True:
@@ -314,7 +313,7 @@ async def register_scene_change_callback(callback):
 
 def get_screenshot(compression=-1):
     try:
-        screenshot = util.make_unique_file_name(os.path.abspath(
+        screenshot = make_unique_file_name(os.path.abspath(
             configuration.get_temporary_directory()) + '/screenshot.png')
         update_current_game()
         if not configuration.current_game:
@@ -367,7 +366,7 @@ def get_current_game(sanitize=False):
         update_current_game()
 
     if sanitize:
-        return util.sanitize_filename(configuration.current_game)
+        return sanitize_filename(configuration.current_game)
     return configuration.current_game
 
 

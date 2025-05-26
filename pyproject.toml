@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.9.4"
+version = "2.9.5"
 description = "A tool for mining sentences from games."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,7 +31,6 @@ dependencies = [
   "toml~=0.10.2",
   "psutil~=6.0.0",
   "rapidfuzz~=3.9.7",
-  "obs-websocket-py~=1.0",
   "plyer~=2.1.0",
   "keyboard~=0.13.5",
   "websockets~=15.0.1",
@@ -47,7 +46,7 @@ dependencies = [
   "pygetwindow; sys_platform == 'win32'",
   "flask",
   "groq",
-  "obsws-python",
+  "obsws-python~=1.7.2",
   "Flask-SocketIO"
 ]
 

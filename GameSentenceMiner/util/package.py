@@ -1,9 +1,8 @@
-import os
 from importlib import metadata
 
 import requests
 
-from GameSentenceMiner.configuration import logger, get_app_directory
+from GameSentenceMiner.util.configuration import logger
 
 PACKAGE_NAME = "GameSentenceMiner"
 

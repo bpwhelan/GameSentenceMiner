@@ -3,7 +3,7 @@ from typing import Optional, List
 
 from dataclasses_json import dataclass_json
 
-from GameSentenceMiner.configuration import get_config, logger, save_current_config
+from GameSentenceMiner.util.configuration import get_config, logger, save_current_config
 
 
 # OBS

@@ -7,24 +7,13 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 from rapidfuzz import process
 
-from GameSentenceMiner.configuration import logger, get_config, get_app_directory
+from GameSentenceMiner.util.configuration import logger, get_config, get_app_directory
 
 SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
-
-# Global variables to control script execution
-keep_running = True
-lock = threading.Lock()
-last_mined_line = None
-
-def get_last_mined_line():
-    return last_mined_line
-
-def set_last_mined_line(line):
-    global last_mined_line
-    last_mined_line = line
 
 def run_new_thread(func):
     thread = threading.Thread(target=func, daemon=True)
@@ -33,13 +22,9 @@ def run_new_thread(func):
 
 
 def make_unique_file_name(path):
-    split = path.rsplit('.', 1)
-    filename = split[0]
-    extension = split[1]
-
+    path = Path(path)
     current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
-
-    return f"{filename}_{current_time}.{extension}"
+    return f"{path.stem}_{current_time}{path.suffix}"
 
 def sanitize_filename(filename):
         return re.sub(r'[ <>:"/\\|?*\x00-\x1F]', '', filename)
@@ -193,18 +178,6 @@ def wait_for_stable_file(file_path, timeout=10, check_interval=0.1):
             return False
     logger.warning("File size did not stabilize within the timeout period. Continuing...")
     return False
-
-
-def import_vad_models():
-    silero_trim, whisper_helper, vosk_helper = None, None, None
-    if get_config().vad.is_silero():
-        from GameSentenceMiner.vad import silero_trim
-    if get_config().vad.is_whisper():
-        from GameSentenceMiner.vad import whisper_helper
-    if get_config().vad.is_vosk():
-        from GameSentenceMiner.vad import vosk_helper
-    return silero_trim, whisper_helper, vosk_helper
-
 
 def isascii(s: str):
     try:
