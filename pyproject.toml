@@ -57,7 +57,7 @@ dependencies = [
 gamesentenceminer = "GameSentenceMiner.gsm:main"
 
 [tool.setuptools]
-packages = ["GameSentenceMiner", "GameSentenceMiner.vad", 'GameSentenceMiner.downloader', "GameSentenceMiner.communication", "GameSentenceMiner.ai", "GameSentenceMiner.ocr", "GameSentenceMiner.owocr.owocr", "GameSentenceMiner.web",  "GameSentenceMiner.web.static", "GameSentenceMiner.web.templates"]
+packages = ["GameSentenceMiner", 'GameSentenceMiner.util.downloader', "GameSentenceMiner.util.communication", "GameSentenceMiner.ai", "GameSentenceMiner.ocr", "GameSentenceMiner.owocr.owocr", "GameSentenceMiner.web",  "GameSentenceMiner.web.static", "GameSentenceMiner.web.templates"]
 
 [tool.setuptools.package-data]
 "GameSentenceMiner.web" = ["static/*", "templates/*"]
