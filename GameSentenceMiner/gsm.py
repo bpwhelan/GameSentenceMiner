@@ -321,8 +321,9 @@ def register_hotkeys():
 
 def get_screenshot():
     # try:
-    gsm_state.line_for_screenshot = game_log.get_last_line()
-    gsm_state.anki_note_for_screenshot = anki.get_last_anki_card()
+    last_note = anki.get_last_anki_card()
+    gsm_state.anki_note_for_screenshot = last_note
+    gsm_state.line_for_screenshot = get_mined_line(last_note, get_all_lines())
     obs.save_replay_buffer()
     #     image = obs.get_screenshot()
     #     wait_for_stable_file(image, timeout=3)
