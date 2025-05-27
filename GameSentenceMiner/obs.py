@@ -313,8 +313,7 @@ async def register_scene_change_callback(callback):
 
 def get_screenshot(compression=-1):
     try:
-        screenshot = make_unique_file_name(os.path.abspath(
-            configuration.get_temporary_directory()) + '/screenshot.png')
+        screenshot = os.path.join(configuration.get_temporary_directory(), make_unique_file_name('screenshot.png'))
         update_current_game()
         if not configuration.current_game:
             logger.error("No active game scene found.")
@@ -326,8 +325,7 @@ def get_screenshot(compression=-1):
             return None
         start = time.time()
         logger.debug(f"Current source name: {current_source_name}")
-        response = client.save_source_screenshot(name=current_source_name, img_format='png', width=None, height=None, file_path=screenshot, quality=compression)
-        logger.debug(f"Screenshot response: {response}")
+        client.save_source_screenshot(name=current_source_name, img_format='png', width=None, height=None, file_path=screenshot, quality=compression)
         logger.debug(f"Screenshot took {time.time() - start:.3f} seconds to save")
         return screenshot
     except Exception as e:
