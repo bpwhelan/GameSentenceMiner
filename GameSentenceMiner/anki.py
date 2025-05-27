@@ -41,13 +41,13 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
             audio_in_anki = store_media_file(audio_path)
         if update_picture:
             logger.info("Getting Screenshot...")
-            screenshot = ffmpeg.get_screenshot(video_path, ss_time)
+            screenshot = ffmpeg.get_screenshot(video_path, ss_time, try_selector=get_config().screenshot.use_screenshot_selector)
             wait_for_stable_file(screenshot)
             screenshot_in_anki = store_media_file(screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(screenshot)
         if get_config().anki.previous_image_field and game_line.prev:
-            prev_screenshot = ffmpeg.get_screenshot_for_line(video_path, selected_lines[0].prev if selected_lines else game_line.prev)
+            prev_screenshot = ffmpeg.get_screenshot_for_line(video_path, selected_lines[0].prev if selected_lines else game_line.prev, try_selector=get_config().screenshot.use_screenshot_selector)
             wait_for_stable_file(prev_screenshot)
             prev_screenshot_in_anki = store_media_file(prev_screenshot)
             if get_config().paths.remove_screenshot:

@@ -34,7 +34,10 @@ def open_browser_window(note_id, query=None):
     try:
         response = requests.post(url, json=data, headers=headers)
         if response.status_code == 200:
-            logger.info(f"Opened Anki note with ID {note_id}")
+            if query:
+                logger.info(f"Opened Anki browser with query: {query}")
+            else:
+                logger.info(f"Opened Anki note in browser with ID {note_id}")
         else:
             logger.error(f"Failed to open Anki note with ID {note_id}")
     except Exception as e:

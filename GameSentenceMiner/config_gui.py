@@ -184,10 +184,11 @@ class ConfigApp:
                 extension=self.screenshot_extension.get(),
                 custom_ffmpeg_settings=self.screenshot_custom_ffmpeg_settings.get(),
                 screenshot_hotkey_updates_anki=self.screenshot_hotkey_update_anki.get(),
-                seconds_after_line = self.seconds_after_line.get(),
+                seconds_after_line = float(self.seconds_after_line.get()) if self.seconds_after_line.get() else 0.0,
                 # use_beginning_of_line_as_screenshot=self.use_beginning_of_line_as_screenshot.get(),
                 # use_new_screenshot_logic=self.use_new_screenshot_logic.get(),
-                screenshot_timing_setting=self.screenshot_timing.get()
+                screenshot_timing_setting=self.screenshot_timing.get(),
+                use_screenshot_selector=self.use_screenshot_selector.get(),
             ),
             audio=Audio(
                 enabled=self.audio_enabled.get(),
@@ -846,6 +847,12 @@ class ConfigApp:
         self.seconds_after_line.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(screenshot_frame, "Time in seconds to offset the screenshot based on the Timing setting above (should almost always be positive, can be negative if you use \"middle\")", row=self.current_row,
                                          column=2)
+
+        ttk.Label(screenshot_frame, text="Use Screenshot Selector for every card:").grid(row=self.current_row, column=0, sticky='W')
+        self.use_screenshot_selector = tk.BooleanVar(value=self.settings.screenshot.use_screenshot_selector)
+        ttk.Checkbutton(screenshot_frame, variable=self.use_screenshot_selector).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(screenshot_frame, "Enable to use the screenshot selector to choose the screenshot point on every card.", row=self.current_row,
+                                            column=2)
 
         # ttk.Label(screenshot_frame, text="Use Beginning of Line as Screenshot:").grid(row=self.current_row, column=0, sticky='W')
         # self.use_beginning_of_line_as_screenshot = tk.BooleanVar(value=self.settings.screenshot.use_beginning_of_line_as_screenshot)

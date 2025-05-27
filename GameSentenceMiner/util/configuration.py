@@ -145,6 +145,7 @@ class Screenshot:
     use_beginning_of_line_as_screenshot: bool = True
     use_new_screenshot_logic: bool = False
     screenshot_timing_setting: str = ''  # 'middle', 'end'
+    use_screenshot_selector: bool = False
 
     def __post_init__(self):
         if not self.screenshot_timing_setting and self.use_beginning_of_line_as_screenshot:
