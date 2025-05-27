@@ -75,7 +75,7 @@ def display_images(image_paths, golden_frame):
 
     for i, path in enumerate(image_paths):
         img = Image.open(path)
-        img.thumbnail((450, 450))
+        img.thumbnail((img.width / 8, img.height / 8))
         img_tk = ImageTk.PhotoImage(img)
         if golden_frame and path == golden_frame:
             label = tk.Label(window, image=img_tk, borderwidth=5, relief="solid")

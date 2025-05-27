@@ -90,8 +90,13 @@ class GameText:
                 return True
         return False
 
+    def get_last_line(self):
+        if self.values:
+            return self.values[-1]
+        return None
 
-text_log = GameText()
+
+game_log = GameText()
 
 
 def similar(a, b):
@@ -109,7 +114,7 @@ def lines_match(a, b):
 
 
 def get_text_event(last_note) -> GameLine:
-    lines = text_log.values
+    lines = game_log.values
 
     if not lines:
         raise Exception("No lines in history. Text is required from either clipboard or websocket for GSM to work. Please check your setup/config.")
@@ -137,7 +142,7 @@ def get_line_and_future_lines(last_note):
     found_lines = []
     if sentence:
         found = False
-        for line in text_log.values:
+        for line in game_log.values:
             if found:
                 found_lines.append(line.text)
             if lines_match(line.text, remove_html_and_cloze_tags(sentence)):  # 80% similarity threshold
@@ -160,18 +165,18 @@ def get_mined_line(last_note: AnkiCard, lines):
 
 
 def get_time_of_line(line):
-    return text_log.get_time(line)
+    return game_log.get_time(line)
 
 
 def get_all_lines():
-    return text_log.values
+    return game_log.values
 
 
 def get_text_log() -> GameText:
-    return text_log
+    return game_log
 
 def add_line(current_line_after_regex, line_time):
-    text_log.add_line(current_line_after_regex, line_time)
+    game_log.add_line(current_line_after_regex, line_time)
 
 def get_line_by_id(line_id: str) -> Optional[GameLine]:
     """
@@ -183,4 +188,4 @@ def get_line_by_id(line_id: str) -> Optional[GameLine]:
     Returns:
         Optional[GameLine]: The GameLine object if found, otherwise None.
     """
-    return text_log.get_by_id(line_id)
+    return game_log.get_by_id(line_id)

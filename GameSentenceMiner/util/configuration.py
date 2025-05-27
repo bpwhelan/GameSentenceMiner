@@ -641,6 +641,7 @@ class GsmAppState:
     def __init__(self):
         self.line_for_audio = None
         self.line_for_screenshot = None
+        self.anki_note_for_screenshot = None
         self.previous_line_for_audio = None
         self.previous_line_for_screenshot = None
         self.previous_audio = None

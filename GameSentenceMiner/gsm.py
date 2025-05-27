@@ -32,7 +32,7 @@ try:
     from GameSentenceMiner.util.configuration import *
     from GameSentenceMiner.util.ffmpeg import get_audio_and_trim, get_video_timings
     from GameSentenceMiner.obs import check_obs_folder_is_correct
-    from GameSentenceMiner.util.text_log import GameLine, get_text_event, get_mined_line, get_all_lines
+    from GameSentenceMiner.util.text_log import GameLine, get_text_event, get_mined_line, get_all_lines, game_log
     from GameSentenceMiner.util import *
     from GameSentenceMiner.web import texthooking_page
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
@@ -197,7 +197,24 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 gsm_state.line_for_screenshot = None
                 gsm_state.previous_line_for_screenshot = line
                 screenshot = ffmpeg.get_screenshot_for_line(video_path, line, True)
-                os.startfile(screenshot)
+                if gsm_state.anki_note_for_screenshot:
+                    gsm_state.anki_note_for_screenshot = None
+                    encoded_image = ffmpeg.process_image(screenshot)
+                    if get_config().anki.update_anki and get_config().screenshot.screenshot_hotkey_updates_anki:
+                        last_note = anki.get_last_anki_card()
+                        if get_config().features.backfill_audio:
+                            last_note = anki.get_cards_by_sentence(gametext.current_line)
+                        if last_note:
+                            anki.add_image_to_card(last_note, encoded_image)
+                            notification.send_screenshot_updated(last_note.get_field(get_config().anki.word_field))
+                            if get_config().features.open_anki_edit:
+                                notification.open_anki_card(last_note.noteId)
+                        else:
+                            notification.send_screenshot_saved(encoded_image)
+                    else:
+                        notification.send_screenshot_saved(encoded_image)
+                else:
+                    os.startfile(screenshot)
                 return
         except Exception as e:
             logger.error(f"Error Playing Audio/Video: {e}")
@@ -303,27 +320,30 @@ def register_hotkeys():
 
 
 def get_screenshot():
-    try:
-        image = obs.get_screenshot()
-        wait_for_stable_file(image, timeout=3)
-        if not image:
-            raise Exception("Failed to get Screenshot from OBS")
-        encoded_image = ffmpeg.process_image(image)
-        if get_config().anki.update_anki and get_config().screenshot.screenshot_hotkey_updates_anki:
-            last_note = anki.get_last_anki_card()
-            if get_config().features.backfill_audio:
-                last_note = anki.get_cards_by_sentence(gametext.current_line)
-            if last_note:
-                anki.add_image_to_card(last_note, encoded_image)
-                notification.send_screenshot_updated(last_note.get_field(get_config().anki.word_field))
-                if get_config().features.open_anki_edit:
-                    notification.open_anki_card(last_note.noteId)
-            else:
-                notification.send_screenshot_saved(encoded_image)
-        else:
-            notification.send_screenshot_saved(encoded_image)
-    except Exception as e:
-        logger.error(f"Failed to get Screenshot: {e}")
+    # try:
+    gsm_state.line_for_screenshot = game_log.get_last_line()
+    gsm_state.anki_note_for_screenshot = anki.get_last_anki_card()
+    obs.save_replay_buffer()
+    #     image = obs.get_screenshot()
+    #     wait_for_stable_file(image, timeout=3)
+    #     if not image:
+    #         raise Exception("Failed to get Screenshot from OBS")
+    #     encoded_image = ffmpeg.process_image(image)
+    #     if get_config().anki.update_anki and get_config().screenshot.screenshot_hotkey_updates_anki:
+    #         last_note = anki.get_last_anki_card()
+    #         if get_config().features.backfill_audio:
+    #             last_note = anki.get_cards_by_sentence(gametext.current_line)
+    #         if last_note:
+    #             anki.add_image_to_card(last_note, encoded_image)
+    #             notification.send_screenshot_updated(last_note.get_field(get_config().anki.word_field))
+    #             if get_config().features.open_anki_edit:
+    #                 notification.open_anki_card(last_note.noteId)
+    #         else:
+    #             notification.send_screenshot_saved(encoded_image)
+    #     else:
+    #         notification.send_screenshot_saved(encoded_image)
+    # except Exception as e:
+    #     logger.error(f"Failed to get Screenshot: {e}")
 
 
 # def create_image():

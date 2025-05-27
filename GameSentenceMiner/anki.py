@@ -82,10 +82,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         for key, value in get_config().anki.anki_custom_fields.items():
             note['fields'][key] = str(value)
 
-    selected_notes = invoke("guiSelectedNotes")
-    if last_note.noteId in selected_notes:
-        notification.open_browser_window(1)
-    invoke("updateNoteFields", note=note)
+
     tags = []
     if get_config().anki.custom_tags:
         tags.extend(get_config().anki.custom_tags)
@@ -94,18 +91,25 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
     if tags:
         tag_string = " ".join(tags)
         invoke("addTags", tags=tag_string, notes=[last_note.noteId])
-    logger.info(f"UPDATED ANKI CARD FOR {last_note.noteId}")
+
+    check_and_update_note(last_note, note, tags)
+
     if get_config().features.notify_on_update:
         notification.send_note_updated(tango)
+    if get_config().audio.external_tool and get_config().audio.external_tool_enabled and update_audio:
+        open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
+
+def check_and_update_note(last_note, note, tags=[]):
+    selected_notes = invoke("guiSelectedNotes")
+    if last_note.noteId in selected_notes:
+        notification.open_browser_window(1)
+    invoke("updateNoteFields", note=note)
+
+    logger.info(f"UPDATED ANKI CARD FOR {last_note.noteId}")
     if last_note.noteId in selected_notes or get_config().features.open_anki_in_browser:
         notification.open_browser_window(last_note.noteId, get_config().features.browser_query)
     if get_config().features.open_anki_edit:
         notification.open_anki_card(last_note.noteId)
-
-
-    if get_config().audio.external_tool and get_config().audio.external_tool_enabled and update_audio:
-        open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
-
 
 def open_audio_in_external(fileabspath, shell=False):
     logger.info(f"Opening audio in external program...")
@@ -131,7 +135,7 @@ def add_image_to_card(last_note: AnkiCard, image_path):
     if update_picture:
         note['fields'][get_config().anki.picture_field] = image_html
 
-    invoke("updateNoteFields", note=note)
+    check_and_update_note(last_note, note)
 
     logger.info(f"UPDATED IMAGE FOR ANKI CARD {last_note.noteId}")
 
