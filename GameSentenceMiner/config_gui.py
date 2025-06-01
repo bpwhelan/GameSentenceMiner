@@ -445,7 +445,7 @@ class ConfigApp:
 
         ttk.Label(vad_frame, text="Whisper Model:").grid(row=self.current_row, column=0, sticky='W')
         self.whisper_model = ttk.Combobox(vad_frame, values=[WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM,
-                                                             WHSIPER_LARGE])
+                                                             WHSIPER_LARGE, WHISPER_TURBO])
         self.whisper_model.set(self.settings.vad.whisper_model)
         self.whisper_model.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(vad_frame, "Select the Whisper model size for VAD.", row=self.current_row,

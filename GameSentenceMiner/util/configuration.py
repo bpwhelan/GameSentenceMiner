@@ -29,6 +29,7 @@ WHISPER_BASE = 'base'
 WHISPER_SMALL = 'small'
 WHISPER_MEDIUM = 'medium'
 WHSIPER_LARGE = 'large'
+WHISPER_TURBO = 'turbo'
 
 AI_GEMINI = 'Gemini'
 AI_GROQ = 'Groq'
@@ -201,7 +202,7 @@ class VAD:
     do_vad_postprocessing: bool = True
     language: str = 'ja'
     vosk_url: str = VOSK_BASE
-    selected_vad_model: str = SILERO
+    selected_vad_model: str = WHISPER
     backup_vad_model: str = OFF
     trim_beginning: bool = False
     beginning_offset: float = -0.25
