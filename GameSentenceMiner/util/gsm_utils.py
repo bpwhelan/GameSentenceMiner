@@ -21,11 +21,10 @@ def run_new_thread(func):
     thread.start()
     return thread
 
-
 def make_unique_file_name(path):
     path = Path(path)
     current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
-    return f"{path.stem}_{current_time}{path.suffix}"
+    return str(path.parent / f"{path.stem}_{current_time}{path.suffix}")
 
 def sanitize_filename(filename):
         return re.sub(r'[ <>:"/\\|?*\x00-\x1F]', '', filename)
