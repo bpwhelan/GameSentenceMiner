@@ -2,7 +2,7 @@ import {app, BrowserWindow, dialog, ipcMain, Menu, shell, Tray, Notification} fr
 import * as path from 'path';
 import {ChildProcessWithoutNullStreams, spawn} from 'child_process';
 import {getOrInstallPython} from "./python/python_downloader.js";
-import {APP_NAME, BASE_DIR, getAssetsDir, getGSMBaseDir, isDev, PACKAGE_NAME} from "./util.js";
+import {APP_NAME, BASE_DIR, getAssetsDir, getGSMBaseDir, isConnected, isDev, PACKAGE_NAME} from "./util.js";
 import electronUpdater, {type AppUpdater} from 'electron-updater';
 import {fileURLToPath} from "node:url";
 
@@ -375,7 +375,10 @@ if (!app.requestSingleInstanceLock()) {
 
     app.whenReady().then(async () => {
         if (!isDev && getAutoUpdateElectron()) {
-            await autoUpdate()
+            if (await isConnected()) {
+                console.log("Checking for updates...");
+                await autoUpdate();
+            }
         }
         createWindow().then(async () => {
             createTray();

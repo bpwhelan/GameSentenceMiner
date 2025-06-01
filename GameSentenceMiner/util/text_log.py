@@ -151,7 +151,9 @@ def get_line_and_future_lines(last_note):
     return found_lines
 
 
-def get_mined_line(last_note: AnkiCard, lines):
+def get_mined_line(last_note: AnkiCard, lines=None):
+    if lines is None:
+        lines = []
     if not last_note:
         return lines[-1]
     if not lines:

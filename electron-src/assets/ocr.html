@@ -15,7 +15,6 @@
     <label for="dependency-select">
         Select Dependency:
         <select id="dependency-select">
-            <option value="pip install owocr">OWOCR Dependencies</option>
             <option value="pip install owocr[lens]">Google Lens (Recommended)</option>
             <option value="pip install owocr[oneocr]">OneOCR (Recommended)</option>
             <option value="GameSentenceMiner.downloader.oneocr_dl">OneOCR Files (Required for OneOCR)</option>
@@ -38,27 +37,6 @@
             If you are not sure what to install, just install the recommended.
         </span>
     </span>
-</div>
-<div>
-    <label for="dependency-select-removal">
-        Select Dependency to Uninstall:
-        <select id="dependency-select-removal">
-            <option value="owocr">OWOCR Base</option>
-            <option value="betterproto">Google Lens</option>
-            <option value="oneocr">OneOCR</option>
-            <option value="fpng-py">Faster PNG</option>
-            <option value="transformers sentencepiece">Accurate Filtering</option>
-            <option value="winocr">WindowsOCR</option>
-            <option value="manga-ocr">MangaOCR</option>
-            <option value="easyocr">EasyOCR</option>
-            <option value="rapidocr onnxruntime rapidocr_onnxruntime">RapidOCR</option>
-            <option value="google-cloud-vision">Google Vision</option>
-            <option value="azure-ai-vision-imageanalysis">Azure</option>
-            <option value="ocrspace">OCRSpace</option>
-        </select>
-    </label>
-    <button id="uninstall-selected-dep">Uninstall Selected Dependency</button>
-    <div id="uninstall-status"></div>
 </div>
 <div>
     <h2>Config/Run</h2>
@@ -180,6 +158,7 @@
 <button id="start-ocr-ss-only">Start OCR (Screenshot Only)</button>
 <div>
     <h2>Extra/Debug</h2>
+    <div>
     <button id="open-ocr-page-btn" style="margin-top: 10px;">
         Open OCR Error Fixes Page
     </button>
@@ -188,6 +167,28 @@
     <button id="open-config-json">Open Config File</button>
     <button id="open-config-folder">Open OCR Config Folder</button>
 <!--    </div>-->
+    </div>
+    <div>
+        <label for="dependency-select-removal">
+            Select Dependency to Uninstall:
+            <select id="dependency-select-removal">
+                <option value="owocr">OWOCR Base</option>
+                <option value="betterproto">Google Lens</option>
+                <option value="oneocr">OneOCR</option>
+                <option value="fpng-py">Faster PNG</option>
+                <option value="transformers sentencepiece">Accurate Filtering</option>
+                <option value="winocr">WindowsOCR</option>
+                <option value="manga-ocr">MangaOCR</option>
+                <option value="easyocr">EasyOCR</option>
+                <option value="rapidocr onnxruntime rapidocr_onnxruntime">RapidOCR</option>
+                <option value="google-cloud-vision">Google Vision</option>
+                <option value="azure-ai-vision-imageanalysis">Azure</option>
+                <option value="ocrspace">OCRSpace</option>
+            </select>
+        </label>
+        <button id="uninstall-selected-dep">Uninstall Selected Dependency</button>
+        <div id="uninstall-status"></div>
+    </div>
 </div>
 <!--<button id="kill-ocr">Kill OCR</button>-->
 <!--<button id="restart-ocr">Restart OCR</button>-->

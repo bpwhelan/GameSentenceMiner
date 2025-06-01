@@ -8,7 +8,8 @@ from requests import post
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
-from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, remove_html_and_cloze_tags, combine_dialogue
+from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, remove_html_and_cloze_tags, combine_dialogue, \
+    run_new_thread, open_audio_in_external
 from GameSentenceMiner.util import ffmpeg, notification
 from GameSentenceMiner.util.configuration import *
 from GameSentenceMiner.util.configuration import get_config
@@ -39,6 +40,8 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
     if not reuse_audio:
         if update_audio:
             audio_in_anki = store_media_file(audio_path)
+            if get_config().audio.external_tool and get_config().audio.external_tool_enabled:
+                open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
         if update_picture:
             logger.info("Getting Screenshot...")
             screenshot = ffmpeg.get_screenshot(video_path, ss_time, try_selector=get_config().screenshot.use_screenshot_selector)
@@ -92,12 +95,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         tag_string = " ".join(tags)
         invoke("addTags", tags=tag_string, notes=[last_note.noteId])
 
-    check_and_update_note(last_note, note, tags)
-
-    if get_config().features.notify_on_update:
-        notification.send_note_updated(tango)
-    if get_config().audio.external_tool and get_config().audio.external_tool_enabled and update_audio:
-        open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
+    run_new_thread(lambda: check_and_update_note(last_note, note, tags))
 
 def check_and_update_note(last_note, note, tags=[]):
     selected_notes = invoke("guiSelectedNotes")
@@ -110,13 +108,8 @@ def check_and_update_note(last_note, note, tags=[]):
         notification.open_browser_window(last_note.noteId, get_config().features.browser_query)
     if get_config().features.open_anki_edit:
         notification.open_anki_card(last_note.noteId)
-
-def open_audio_in_external(fileabspath, shell=False):
-    logger.info(f"Opening audio in external program...")
-    if shell:
-        subprocess.Popen(f' "{get_config().audio.external_tool}" "{fileabspath}" ', shell=True)
-    else:
-        subprocess.Popen([get_config().audio.external_tool, fileabspath])
+    if get_config().features.notify_on_update:
+        notification.send_note_updated(last_note.noteId)
 
 
 def add_image_to_card(last_note: AnkiCard, image_path):
@@ -135,7 +128,7 @@ def add_image_to_card(last_note: AnkiCard, image_path):
     if update_picture:
         note['fields'][get_config().anki.picture_field] = image_html
 
-    check_and_update_note(last_note, note)
+    run_new_thread(lambda: check_and_update_note(last_note, note))
 
     logger.info(f"UPDATED IMAGE FOR ANKI CARD {last_note.noteId}")
 
@@ -311,7 +304,7 @@ def update_new_card():
 def sentence_is_same_as_previous(last_card):
     if not gsm_state.last_mined_line:
         return False
-    return remove_html_and_cloze_tags(get_sentence(last_card)) == remove_html_and_cloze_tags(gsm_state.last_mined_line)
+    return gsm_state.last_mined_line.id == get_mined_line(last_card).id
 
 def get_sentence(card):
     return card.get_field(get_config().anki.sentence_field)

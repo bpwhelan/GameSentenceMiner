@@ -2,7 +2,12 @@ import asyncio
 import subprocess
 import sys
 
-from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
+import os
+
+os.environ.pop('TCL_LIBRARY', None)
+
+from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread, \
+    open_audio_in_external
 from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
 from GameSentenceMiner.vad import vad_processor, VADResult
@@ -13,12 +18,12 @@ try:
     from subprocess import Popen
 
     import keyboard
-    import psutil
     import ttkbootstrap as ttk
     from PIL import Image, ImageDraw
     from pystray import Icon, Menu, MenuItem
     from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
+    import psutil
 
 
     from GameSentenceMiner import anki
@@ -86,7 +91,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 logger.info("Replay buffer initiated externally. Skipping processing.")
                 return
             with gsm_state.lock:
-                gsm_state.last_mined_line = anki.get_sentence(last_note)
+                mined_line = get_text_event(last_note)
+                gsm_state.last_mined_line = mined_line
                 if os.path.exists(video_path) and os.access(video_path, os.R_OK):
                     logger.debug(f"Video found and is readable: {video_path}")
                 if get_config().obs.minimum_replay_size and not ffmpeg.is_video_big_enough(video_path,
@@ -104,7 +110,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
                         last_note = anki.get_cards_by_sentence(gametext.current_line_after_regex)
                 line_cutoff = None
                 start_line = None
-                mined_line = get_text_event(last_note)
                 if mined_line:
                     start_line = mined_line
                     if mined_line.next:
@@ -151,12 +156,14 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 #                                                  timing_only=True) ,doing_multi_line=bool(selected_lines), previous_line=True)
 
                 if get_config().anki.update_anki and last_note:
-                    anki.update_anki_card(last_note, note, audio_path=final_audio_output, video_path=video_path,
+                    anki.update_anki_card(
+                        last_note, note, audio_path=final_audio_output, video_path=video_path,
                                           tango=tango,
                                           should_update_audio=vad_result.success,
                                           ss_time=ss_timing,
                                           game_line=start_line,
-                                          selected_lines=selected_lines)
+                        selected_lines=selected_lines
+                    )
                 elif get_config().features.notify_on_update and vad_result.success:
                     notification.send_audio_generated_notification(vad_trimmed_audio)
         except Exception as e:
@@ -268,7 +275,7 @@ def play_video_in_external(line, filepath):
 
     command = [get_config().advanced.video_player_path]
 
-    start, _, _ = get_video_timings(filepath, line)
+    start, _, _, _ = get_video_timings(filepath, line)
 
     if start:
         if "vlc" in get_config().advanced.video_player_path:
@@ -708,4 +715,3 @@ if __name__ == "__main__":
         asyncio.run(async_main())
     except Exception as e:
         logger.exception(e)
-        time.sleep(5)

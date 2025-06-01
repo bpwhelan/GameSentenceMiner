@@ -370,16 +370,16 @@ export function getLaunchSteamOnStart(): number {
     return store.get('steam.launchSteamOnStart');
 }
 
-export function setLaunchSteamOnStart(gameId: number): void {
-    store.set('steam.launchSteamOnStart', Number(gameId));
+export function setLaunchSteamOnStart(name: number): void {
+    store.set('steam.launchSteamOnStart', String(name));
 }
 
 export function getLastSteamGameLaunched(): number {
     return store.get('steam.lastGameLaunched');
 }
 
-export function setLastSteamGameLaunched(gameId: number): void {
-    store.set('steam.lastGameLaunched', Number(gameId));
+export function setLastSteamGameLaunched(name: string): void {
+    store.set('steam.lastGameLaunched', String(name));
 }
 
 export function getSteamGames(): SteamGame[] {

@@ -10,6 +10,7 @@ from google.generativeai import GenerationConfig
 from groq import Groq
 
 from GameSentenceMiner.util.configuration import get_config, Ai, logger
+from GameSentenceMiner.util.gsm_utils import is_connected
 from GameSentenceMiner.util.text_log import GameLine
 
 # Suppress debug logs from httpcore
@@ -184,6 +185,9 @@ current_ai_config: Ai | None = None
 def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = ""):
     global ai_manager, current_ai_config
     try:
+        if not is_connected():
+            logger.error("No internet connection. Unable to proceed with AI prompt.")
+            return ""
         if not ai_manager or get_config().ai != current_ai_config:
             if get_config().ai.provider == AIType.GEMINI.value:
                 ai_manager = GeminiAI(model=get_config().ai.gemini_model, api_key=get_config().ai.gemini_api_key, logger=logger)

@@ -298,20 +298,27 @@ def get_video_duration(file_path):
 def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line, anki_card_creation_time):
     trimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(),
                                                 suffix=f".{get_config().audio.extension}").name
-    start_trim_time, total_seconds, total_seconds_after_offset = get_video_timings(video_path, game_line, anki_card_creation_time)
+    start_trim_time, total_seconds, total_seconds_after_offset, file_length = get_video_timings(video_path, game_line, anki_card_creation_time)
     end_trim_time = ""
 
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
         "-ss", str(start_trim_time)]
     if next_line and next_line > game_line.time:
-        end_total_seconds = total_seconds + (next_line - game_line.time).total_seconds() + 1
+        end_total_seconds = total_seconds + (next_line - game_line.time).total_seconds() + get_config().audio.pre_vad_end_offset
         hours, remainder = divmod(end_total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         end_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
         ffmpeg_command.extend(['-to', end_trim_time])
         logger.debug(
             f"Looks Like this is mining from History, or Multiple Lines were selected Trimming end of audio to {end_trim_time}")
+    elif get_config().audio.pre_vad_end_offset and get_config().audio.pre_vad_end_offset < 0:
+        end_total_seconds = file_length + get_config().audio.pre_vad_end_offset
+        hours, remainder = divmod(end_total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        end_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
+        ffmpeg_command.extend(['-to', end_trim_time])
+        logger.debug(f"Trimming end of audio to {end_trim_time} due to pre-vad end offset")
 
     ffmpeg_command.extend([
         "-c", "copy",  # Using copy to avoid re-encoding, adjust if needed
@@ -349,7 +356,7 @@ def get_video_timings(video_path, game_line, anki_card_creation_time=None):
     hours, remainder = divmod(total_seconds_after_offset, 3600)
     minutes, seconds = divmod(remainder, 60)
     start_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
-    return start_trim_time, total_seconds, total_seconds_after_offset
+    return start_trim_time, total_seconds, total_seconds_after_offset, file_length
 
 
 def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_options):

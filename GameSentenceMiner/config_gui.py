@@ -199,6 +199,7 @@ class ConfigApp:
                 external_tool = self.external_tool.get(),
                 anki_media_collection=self.anki_media_collection.get(),
                 external_tool_enabled=self.external_tool_enabled.get(),
+                pre_vad_end_offset=float(self.pre_vad_audio_offset.get()),
             ),
             obs=OBS(
                 enabled=self.obs_enabled.get(),
@@ -483,6 +484,13 @@ class ConfigApp:
         self.vad_beginning_offset.insert(0, str(self.settings.vad.beginning_offset))
         self.vad_beginning_offset.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(vad_frame, 'Beginning offset after VAD Trim, Only active if "Trim Beginning" is ON. Negative values = more time at the beginning', row=self.current_row, column=2)
+
+        ttk.Label(vad_frame, text="Audio End Offset:").grid(row=self.current_row, column=0, sticky='W')
+        self.end_offset = ttk.Entry(vad_frame)
+        self.end_offset.insert(0, str(self.settings.audio.end_offset))
+        self.end_offset.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(vad_frame, "Offset in seconds from end of the video to extract.",
+                                         row=self.current_row, column=2)
 
         ttk.Label(vad_frame, text="Add Audio on No Results:").grid(row=self.current_row, column=0, sticky='W')
         self.add_audio_on_no_results = tk.BooleanVar(value=self.settings.vad.add_audio_on_no_results)
@@ -890,19 +898,21 @@ class ConfigApp:
         self.audio_extension.grid(row=self.current_row, column=1)
         self.add_label_and_increment_row(audio_frame, "File extension for audio files.", row=self.current_row, column=2)
 
-        ttk.Label(audio_frame, text="Beginning Offset:").grid(row=self.current_row, column=0, sticky='W')
+
+        ttk.Label(audio_frame, text="Audio Extraction Beginning Offset:").grid(row=self.current_row, column=0, sticky='W')
         self.beginning_offset = ttk.Entry(audio_frame)
         self.beginning_offset.insert(0, str(self.settings.audio.beginning_offset))
         self.beginning_offset.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(audio_frame, "Offset in seconds to start audio processing.",
+        self.add_label_and_increment_row(audio_frame, "Offset in seconds from beginning of the video to extract",
                                          row=self.current_row, column=2)
 
-        ttk.Label(audio_frame, text="End Offset:").grid(row=self.current_row, column=0, sticky='W')
-        self.end_offset = ttk.Entry(audio_frame)
-        self.end_offset.insert(0, str(self.settings.audio.end_offset))
-        self.end_offset.grid(row=self.current_row, column=1)
-        self.add_label_and_increment_row(audio_frame, "Offset in seconds to end audio processing.",
-                                         row=self.current_row, column=2)
+        ttk.Label(audio_frame, text="Audio Extraction End Offset:").grid(row=self.current_row, column=0, sticky='W')
+        self.pre_vad_audio_offset = ttk.Entry(audio_frame)
+        self.pre_vad_audio_offset.insert(0, str(self.settings.audio.pre_vad_end_offset))
+        self.pre_vad_audio_offset.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(audio_frame, "Offset in seconds to trim from the end before VAD processing starts. Negative = Less time on the end of the pre-vad trimmed audio (should usually be negative)",
+                                            row=self.current_row, column=2)
+
 
         ttk.Label(audio_frame, text="FFmpeg Preset Options:").grid(row=self.current_row, column=0, sticky='W')
 

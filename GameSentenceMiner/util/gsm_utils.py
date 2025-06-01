@@ -2,6 +2,7 @@ import json
 import os
 import random
 import re
+import socket
 import string
 import subprocess
 import threading
@@ -218,6 +219,22 @@ def do_text_replacements(text, replacements_json):
         if text != orig_text:
             logger.info(f"Text replaced: '{orig_text}' -> '{text}' using replacements.")
     return text
+
+
+def open_audio_in_external(fileabspath, shell=False):
+    logger.info(f"Opening audio in external program...")
+    if shell:
+        subprocess.Popen(f' "{get_config().audio.external_tool}" "{fileabspath}" ', shell=True)
+    else:
+        subprocess.Popen([get_config().audio.external_tool, fileabspath])
+
+def is_connected():
+    try:
+        # Attempt to connect to a well-known host
+        socket.create_connection(("www.google.com", 80), timeout=2)
+        return True
+    except OSError:
+        return False
 
 
 TEXT_REPLACEMENTS_FILE = os.path.join(get_app_directory(), 'config', 'text_replacements.json')

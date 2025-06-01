@@ -123,10 +123,10 @@
 
 
             if (game.type === 'vn') {
-                option.value = game.id;
+                option.value = game.name;
                 option.textContent = game?.name.split('\\').pop().split('/').pop();
             } else {
-                option.value = game.id;
+                option.value = game.name;
                 option.textContent = game.name;
             }
             if (game.isHeader) {
@@ -138,7 +138,7 @@
 
 
             allGamesDropdown.appendChild(option);
-            if (game.id === selectedGame) {
+            if (game.name === selectedGame) {
                 option.selected = true;
                 selectedGameObject = game;
             }
@@ -146,7 +146,7 @@
     }
 
     function updateCurrentOcrConfigDisplay() {
-        const game = launchableGames.find(g => g.id === selectedGame);
+        const game = launchableGames.find(g => g.name === selectedGame);
         if (game?.scene) {
             const ocrConfig = ocrConfigs.find(config => config.scene.id === game.scene.id && config.configPath === selectedOCRConfig);
             if (ocrConfig) {
@@ -171,7 +171,7 @@
         if (selectedGameObject) {
             if (selectedGameObject?.type === 'steam') {
                 ipcRenderer.invoke('steam.launchSteamGame', {
-                    id: selectedGameObject.id,
+                    name: selectedGameObject.name,
                     shouldLaunchAgent: agentGamesCheckbox.checked
                 });
                 statusMessage.textContent = "Starting Steam game: " + selectedGameObject.name;
@@ -191,7 +191,9 @@
                 statusMessage.textContent = 'Unsupported game type for launching.';
             }
             if (ocrGamesCheckbox.checked && selectedOCRConfig) {
+                setTimeout(() => {
                 ipcRenderer.send('ocr.start-ocr', selectedOCRConfig);
+                }, 3000);
                 statusMessage.textContent += " with OCR enabled.";
             } else if (ocrGamesCheckbox.checked && !selectedOCRConfig) {
                 statusMessage.textContent += " but no OCR config selected.";
@@ -202,8 +204,8 @@
     });
 
     allGamesDropdown.addEventListener('change', () => {
-        selectedGameObject = launchableGames.find(g => g.id === allGamesDropdown.value);
-        selectedGame = selectedGameObject ? selectedGameObject.id : '';
+        selectedGameObject = launchableGames.find(g => g.name === allGamesDropdown.value);
+        selectedGame = selectedGameObject ? selectedGameObject.name : '';
         if (selectedGameObject?.scene) {
             const ocrConfig = ocrConfigs.find(config => config.scene.id === selectedGameObject?.scene.id);
             if (ocrConfig) {

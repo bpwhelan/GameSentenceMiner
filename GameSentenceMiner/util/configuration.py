@@ -164,6 +164,7 @@ class Audio:
     extension: str = 'opus'
     beginning_offset: float = 0.0
     end_offset: float = 0.5
+    pre_vad_end_offset: float = 0.0
     ffmpeg_reencode_options: str = '-c:a libopus -f opus -af \"afade=t=in:d=0.10\"' if is_windows() else ''
     external_tool: str = ""
     anki_media_collection: str = ""
@@ -630,11 +631,14 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 # Create rotating file handler with level DEBUG
-if 'gsm' in sys.argv[0].lower() or 'gamesentenceminer' in sys.argv[0].lower():
-    file_handler = RotatingFileHandler(get_log_path(), maxBytes=1024 * 1024, backupCount=5, encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+file_path = get_log_path()
+if os.path.exists(file_path) and os.path.getsize(file_path) > 10 * 1024 * 1024:
+    shutil.move(os.path.join(file_path, "gamesentenceminer.log"), os.path.join(file_path, "gamesentenceminer_old.log"))
+
+file_handler = logging.FileHandler(file_path, encoding='utf-8')
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
 

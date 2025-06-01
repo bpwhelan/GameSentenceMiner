@@ -55,3 +55,12 @@ export function getGSMBaseDir(): string {
 export function sanitizeFilename(filename: string): string {
     return filename.replace(/[ <>:"/\\|?*\x00-\x1F]/g, '');
 }
+
+export async function isConnected() {
+    try {
+        const isConnected = await fetch("https://www.google.com", { method: "HEAD" });
+        return isConnected.ok;
+    } catch (err) {
+        return true;
+    }
+}

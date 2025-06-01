@@ -42,7 +42,10 @@ function launchSteamGame(gameIdOrExecutable: number | string): number | null {
             let process = execFile(getSteamPath(), ['-applaunch', gameIdOrExecutable.toString()]);
             return process.pid ?? null;
         } else {
-            let process = exec(gameIdOrExecutable.toString());
+            let process = execFile(gameIdOrExecutable.toString());
+            if (!process.pid) {
+                process = exec(gameIdOrExecutable.toString());
+            }
             return process.pid ?? null;
         }
     } catch (error) {
@@ -52,9 +55,9 @@ function launchSteamGame(gameIdOrExecutable: number | string): number | null {
 }
 
 
-function runAgentScript(gameId: number, steamPid: number, gameScript: string) {
+function runAgentScript(name: string, steamPid: number, gameScript: string) {
     if (!gameScript) {
-        console.warn(`No agent script found for game ID: ${gameId}`);
+        console.warn(`No agent script found for game: ${name}`);
         return;
     }
 
@@ -119,9 +122,9 @@ async function getPidByProcessName(processName: string): Promise<number> {
     });
 }
 
-export async function launchSteamGameID(gameId: number, shouldLaunchAgent: boolean = true): Promise<void> {
+export async function launchSteamGameID(name: string, shouldLaunchAgent: boolean = true): Promise<void> {
     const games = getSteamGames();
-    const selectedGame = games.find((g: SteamGame) => String(g.id) === String(gameId));
+    const selectedGame = games.find((g: SteamGame) => String(g.name) === String(name));
 
     if (selectedGame) {
         if (selectedGame.executablePath) {
@@ -136,7 +139,7 @@ export async function launchSteamGameID(gameId: number, shouldLaunchAgent: boole
                         if (gamePid === -1) {
                             console.warn(`Game process not found for Process Name: ${selectedGame.processName}, need to manually connect!`);
                         }
-                        runAgentScript(gameId, gamePid, selectedGame.script);
+                        runAgentScript(name, gamePid, selectedGame.script);
                     });
                 }
             }, 3000);
@@ -204,10 +207,10 @@ export function registerSteamIPC() {
         return getLastSteamGameLaunched();
     });
 
-    ipcMain.handle('steam.launchSteamGame', async (_, req: { id: number, shouldLaunchAgent: boolean }) => {
+    ipcMain.handle('steam.launchSteamGame', async (_, req: { name: string, shouldLaunchAgent: boolean }) => {
         try {
-            await launchSteamGameID(req.id, req.shouldLaunchAgent);
-            setLastSteamGameLaunched(req.id);
+            await launchSteamGameID(req.name, req.shouldLaunchAgent);
+            setLastSteamGameLaunched(req.name);
             return {status: 'success', message: 'Game launched successfully'};
         } catch (error) {
             console.error('Error launching game:', error);

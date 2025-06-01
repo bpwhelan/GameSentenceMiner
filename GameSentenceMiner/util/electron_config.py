@@ -7,13 +7,13 @@ from dataclasses_json import dataclass_json
 from GameSentenceMiner.util.configuration import get_app_directory
 
 
-@dataclass_json
-@dataclass
-class SteamGame:
-    id: int
-    name: str
-    processName: str
-    script: str
+# @dataclass_json
+# @dataclass
+# class SteamGame:
+#     id: str = ''
+#     name: str = ''
+#     processName: str = ''
+#     script: str = ''
 
 @dataclass_json
 @dataclass
@@ -31,13 +31,13 @@ class VNConfig:
     launchVNOnStart: str = ""
     lastVNLaunched: str = ""
 
-@dataclass_json
-@dataclass
-class SteamConfig:
-    steamPath: str = ""
-    steamGames: List[SteamGame] = field(default_factory=list)
-    launchSteamOnStart: int = 0
-    lastGameLaunched: int = 0
+# @dataclass_json
+# @dataclass
+# class SteamConfig:
+#     steamPath: str = ""
+#     steamGames: List[SteamGame] = field(default_factory=list)
+#     launchSteamOnStart: int = 0
+#     lastGameLaunched: int = 0
 
 @dataclass_json
 @dataclass
@@ -60,7 +60,7 @@ class StoreConfig:
     autoUpdateGSMApp: bool = False
     pythonPath: str = ""
     VN: VNConfig = field(default_factory=VNConfig)
-    steam: SteamConfig = field(default_factory=SteamConfig)
+    # steam: SteamConfig = field(default_factory=SteamConfig)
     agentPath: str = ""
     OCR: OCRConfig = field(default_factory=OCRConfig)
 
@@ -290,12 +290,12 @@ def get_last_steam_game_launched() -> int:
 def set_last_steam_game_launched(game_id: int):
     store.set('steam.lastGameLaunched', game_id)
 
-def get_steam_games() -> List[SteamGame]:
-    steam_games_data = store.get('steam.steamGames')
-    return [SteamGame.from_dict(game_data) for game_data in steam_games_data] if isinstance(steam_games_data, list) else []
+# def get_steam_games() -> List[SteamGame]:
+#     steam_games_data = store.get('steam.steamGames')
+#     return [SteamGame.from_dict(game_data) for game_data in steam_games_data] if isinstance(steam_games_data, list) else []
 
-def set_steam_games(games: List[SteamGame]):
-    store.set('steam.steamGames', [game.to_dict() for game in games])
+# def set_steam_games(games: List[SteamGame]):
+#     store.set('steam.steamGames', [game.to_dict() for game in games])
 
 # if __name__ == "__main__":
 #     # Example usage:

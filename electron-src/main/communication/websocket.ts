@@ -29,6 +29,8 @@ interface Message {
     id?: string | null;
 }
 
+let connected = false;
+
 class WebSocketManager {
     private wss: WebSocketServer | null = null;
     ws: WebSocket | null = null;
@@ -41,6 +43,7 @@ class WebSocketManager {
         console.log(`WebSocket server running on ws://localhost:${port}`);
 
         this.wss.on("connection", (ws) => {
+            connected = true;
             console.debug("Python connected");
             this.ws = ws; // Set the instance's ws property when a connection is established
 
@@ -55,7 +58,10 @@ class WebSocketManager {
             });
 
             ws.on("close", () => {
-                console.log("Python disconnected");
+                if (connected) {
+                    console.info("Python disconnected");
+                    connected = false;
+                }
                 this.ws = null;
             });
 

@@ -32,6 +32,15 @@ def open_browser_window(note_id, query=None):
     }
 
     try:
+        if query:
+            blank_req_data = {
+                "action": "guiBrowse",
+                "version": 6,
+                "params": {
+                    "query": "refreshing...",
+                }
+            }
+            requests.post(url, json=blank_req_data, headers=headers)
         response = requests.post(url, json=data, headers=headers)
         if response.status_code == 200:
             if query:

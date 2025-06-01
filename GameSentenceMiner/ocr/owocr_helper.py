@@ -211,7 +211,7 @@ def do_second_ocr(ocr1_text, time, img, filtering, scrolling=False):
                                                         engine=ocr2)
         if scrolling:
             return text
-        if fuzz.ratio(last_ocr2_result, text) >= 80:
+        if fuzz.ratio(last_ocr2_result, text) >= 90:
             logger.info("Seems like the same text from previous ocr2 result, not sending")
             return
         save_result_image(img)
@@ -280,6 +280,8 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
         last_oneocr_time = None
         return
     if not text or force_stable:
+            # or FUTURE ATTEMPT, I THINK THIS IS CLOSE?
+            # (orig_text and previous_text and len(orig_text) == len(previous_text_list) and len(orig_text[0] < len(previous_text_list)))):
         force_stable = False
         if previous_text and text_stable_start_time:
             stable_time = text_stable_start_time
