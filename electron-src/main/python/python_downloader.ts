@@ -78,14 +78,7 @@ async function extractPython(archivePath: string, extractPath: string): Promise<
     fs.mkdirSync(extractPath, { recursive: true });
 
     try {
-        if (process.platform === "win32") {
-            // Use tar.exe on Windows
-            await execFileAsync("tar", ["-xzf", archivePath, "-C", extractPath]);
-        } else {
-            // Use the `tar` package on Unix-like systems
-            await tar.x({ file: archivePath, cwd: extractPath });
-        }
-
+        await tar.x({ file: archivePath, cwd: extractPath });
         console.log("Extraction complete.");
     } catch (error) {
         console.error("Extraction failed:", error);
