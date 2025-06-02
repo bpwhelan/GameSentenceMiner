@@ -1,3 +1,4 @@
+import queue
 import time
 
 import base64
@@ -269,12 +270,14 @@ def check_for_new_cards():
     new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
         try:
-            update_new_card()
+            if gsm_state.lock.locked():
+                run_new_thread(update_new_card)
+            else:
+                update_new_card()
         except Exception as e:
             logger.error("Error updating new card, Reason:", e)
     first_run = False
     previous_note_ids.update(new_card_ids)  # Update the list of known notes
-
 
 def update_new_card():
     last_card = get_last_anki_card()
@@ -299,6 +302,9 @@ def update_new_card():
             card_queue.pop(0)
             logger.error(f"Error saving replay buffer: {e}")
             return
+
+
+
 
 
 def sentence_is_same_as_previous(last_card):

@@ -35,7 +35,7 @@ try:
     from GameSentenceMiner.util.communication.websocket import connect_websocket, register_websocket_message_handler, \
         FunctionName
     from GameSentenceMiner.util.configuration import *
-    from GameSentenceMiner.util.ffmpeg import get_audio_and_trim, get_video_timings
+    from GameSentenceMiner.util.ffmpeg import get_audio_and_trim, get_video_timings, get_ffmpeg_path
     from GameSentenceMiner.obs import check_obs_folder_is_correct
     from GameSentenceMiner.util.text_log import GameLine, get_text_event, get_mined_line, get_all_lines, game_log
     from GameSentenceMiner.util import *
@@ -573,6 +573,8 @@ def initialize(reloading=False):
         if is_windows():
             download_obs_if_needed()
             download_ffmpeg_if_needed()
+            if shutil.which("ffmpeg") is None:
+                os.environ["PATH"] += os.pathsep + get_ffmpeg_path()
         if get_config().obs.enabled:
             if get_config().obs.open_obs:
                 obs_process = obs.start_obs()

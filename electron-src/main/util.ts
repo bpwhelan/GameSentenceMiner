@@ -16,7 +16,6 @@ export const execFileAsync = promisify(execFile);
 
 export const isDev = !app.isPackaged;
 
-
 export const BASE_DIR = process.env.APPDATA
     ? path.join(process.env.APPDATA, APP_NAME) // Windows
     : path.join(os.homedir(), '.config', APP_NAME); // macOS/Linux
@@ -61,6 +60,6 @@ export async function isConnected() {
         const isConnected = await fetch("https://www.google.com", { method: "HEAD" });
         return isConnected.ok;
     } catch (err) {
-        return true;
+        return false;
     }
 }
