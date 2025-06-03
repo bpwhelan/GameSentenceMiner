@@ -232,7 +232,7 @@ class Advanced:
     ocr_sends_to_clipboard: bool = True
     ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 55001
-    use_anki_note_creation_time: bool = False
+    use_anki_note_creation_time: bool = True
 
 @dataclass_json
 @dataclass
@@ -634,7 +634,7 @@ logger.addHandler(console_handler)
 # Create rotating file handler with level DEBUG
 file_path = get_log_path()
 if os.path.exists(file_path) and os.path.getsize(file_path) > 10 * 1024 * 1024:
-    shutil.move(os.path.join(file_path, "gamesentenceminer.log"), os.path.join(file_path, "gamesentenceminer_old.log"))
+    shutil.move(file_path, os.path.join(os.path.dirname(file_path), "gamesentenceminer_old.log"))
 
 file_handler = logging.FileHandler(file_path, encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)
@@ -656,5 +656,6 @@ class GsmAppState:
         self.lock = threading.Lock()
         self.last_mined_line = None
         self.keep_running = True
+        self.current_game = ''
 
 gsm_state = GsmAppState()
