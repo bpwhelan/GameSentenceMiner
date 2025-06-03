@@ -37,7 +37,7 @@ def open_browser_window(note_id, query=None):
                 "action": "guiBrowse",
                 "version": 6,
                 "params": {
-                    "query": "refreshing...",
+                    "query": "nid:1",
                 }
             }
             requests.post(url, json=blank_req_data, headers=headers)

@@ -15,7 +15,7 @@ from GameSentenceMiner.util.text_log import GameLine, get_line_by_id, initial_ti
 from flask import request, jsonify, send_from_directory
 import webbrowser
 from GameSentenceMiner import obs
-from GameSentenceMiner.util.configuration import logger, get_config, DB_PATH, gsm_state
+from GameSentenceMiner.util.configuration import logger, get_config, DB_PATH, gsm_state, gsm_status
 
 port = get_config().general.texthooker_port
 url = f"http://localhost:{port}"
@@ -292,6 +292,12 @@ def play_audio():
     else:
         obs.save_replay_buffer()
     return jsonify({}), 200
+
+
+@app.route('/get_status', methods=['GET'])
+def get_status():
+    gsm_status.clipboard_enabled
+    return jsonify(gsm_status.to_dict()), 200
 
 
 # async def main():

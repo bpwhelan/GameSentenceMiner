@@ -4,8 +4,9 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from typing import Optional
 
+from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
-from GameSentenceMiner.util.configuration import logger, get_config
+from GameSentenceMiner.util.configuration import logger, get_config, gsm_state
 from GameSentenceMiner.util.model import AnkiCard
 
 initial_time = datetime.now()
@@ -19,6 +20,7 @@ class GameLine:
     prev: 'GameLine | None'
     next: 'GameLine | None'
     index: int = 0
+    scene: str = ""
 
     def get_previous_time(self):
         if self.prev:
@@ -71,10 +73,11 @@ class GameText:
         new_line = GameLine(
             id=line_id,  # Time-based UUID as an integer
             text=line_text,
-            time=line_time if line_time else datetime.now(),
+            time=line_time or datetime.now(),
             prev=self.values[-1] if self.values else None,
             next=None,
-            index=self.game_line_index
+            index=self.game_line_index,
+            scene=gsm_state.current_game or ""
         )
         self.values_dict[line_id] = new_line
         logger.debug(f"Adding line: {new_line}")

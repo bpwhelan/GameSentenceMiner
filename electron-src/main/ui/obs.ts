@@ -8,6 +8,7 @@ import OBSWebSocket from 'obs-websocket-js';
 import Store from "electron-store";
 import * as fs from "node:fs";
 import {webSocketManager} from "../communication/websocket.js";
+import axios from 'axios';
 
 
 interface ObsConfig {
@@ -248,10 +249,20 @@ export async function registerOBSIPC() {
         }
     });
 
-    ipcMain.handle('obs.removeScene', async (_, sceneName) => {
+    ipcMain.handle('obs.removeScene', async (_, sceneUuid) => {
         try {
-            await getOBSConnection();
-            await obs.call('RemoveScene', {sceneName});
+            const response = await dialog.showMessageBox(obsWindow!, {
+                type: 'question',
+                buttons: ['Yes', 'No'],
+                defaultId: 1,
+                title: 'Confirm Scene Removal',
+                message: 'Are you sure you want to remove this scene?',
+            });
+
+            if (response.response === 0) { // User clicked 'Yes'
+                await getOBSConnection();
+                await obs.call('RemoveScene', {sceneUuid});
+            }
         } catch (error) {
             console.error('Error removing scene:', error);
         }
@@ -270,16 +281,26 @@ export async function registerOBSIPC() {
         }
     });
 
+    ipcMain.handle('get_gsm_status', async () => {
+        try {
+            const response = await axios.get('http://localhost:55000/get_status');
+            return response.data;
+        } catch (error) {
+            // console.error('Error fetching GSM status:', error);
+            return null;
+        }
+    });
+
     async function getExecutableNameFromSource(obsSceneID: string): Promise<string | undefined | null> {
         try {
             await getOBSConnection();
 
             // Get the list of scene items for the given scene
-            const sceneItems = await obs.call('GetSceneItemList', { sceneUuid: obsSceneID });
+            const sceneItems = await obs.call('GetSceneItemList', {sceneUuid: obsSceneID});
 
             // Find the first input source with a window property
             for (const item of sceneItems.sceneItems) {
-                const inputProperties = await obs.call('GetInputSettings', { inputUuid: item.sourceUuid as string });
+                const inputProperties = await obs.call('GetInputSettings', {inputUuid: item.sourceUuid as string});
                 if (inputProperties.inputSettings?.window) {
                     const windowValue = inputProperties.inputSettings.window as string;
 
@@ -347,7 +368,7 @@ export async function registerOBSIPC() {
                     )
                 ),
                 ...gameCaptureWindows,
-                ].sort((a, b) => a.itemName.localeCompare(b.itemName));
+            ].sort((a, b) => a.itemName.localeCompare(b.itemName));
         } catch (error) {
             console.error('Error getting window list:', error);
             return []; // Return an empty array in case of an error
@@ -452,7 +473,7 @@ export async function getOBSScenes(): Promise<ObsScene[]> {
     const {scenes} = await obs.call('GetSceneList');
     return scenes
         .filter((scene: any) => scene.sceneName.toLowerCase() !== "gsm helper")
-        .map((scene: any) => ({ name: scene.sceneName, id: scene.sceneUuid } as ObsScene));
+        .map((scene: any) => ({name: scene.sceneName, id: scene.sceneUuid} as ObsScene));
 }
 
 export async function getCurrentScene(): Promise<ObsScene> {

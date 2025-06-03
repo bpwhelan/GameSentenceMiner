@@ -9,6 +9,7 @@ import {
     store
 } from "../store.js";
 import {webSocketManager} from "../communication/websocket.js";
+import {reinstallPython} from "../python/python_downloader.js";
 
 export function registerSettingsIPC() {
     ipcMain.handle('settings.getSettings', async () => {
@@ -43,6 +44,25 @@ export function registerSettingsIPC() {
     ipcMain.handle('settings.openGSMSettings', async () => {
         console.error("Opening GSM settings");
         await webSocketManager.sendOpenSettings();
+    });
+
+    ipcMain.handle('settings.reinstallPython', async () => {
+        // Pop box saying are you sure you want to, and then reinstall Python
+        const response = await dialog.showMessageBox({
+            type: 'warning',
+            buttons: ['Yes', 'No'],
+            title: 'Reinstall Python',
+            message: 'Are you sure you want to reinstall Python? This will remove the current installation and install a fresh copy.',
+        });
+        if (response.response === 0) { // Yes
+            try {
+                await reinstallPython();
+                return { success: true, message: 'Python reinstalled successfully.' };
+            } catch (error) {
+                console.error('Failed to reinstall Python:', error);
+                return { success: false, message: 'Failed to reinstall Python.' };
+            }
+        }
     });
 
     // ipcMain.handle('settings.selectPythonPath', async () => {

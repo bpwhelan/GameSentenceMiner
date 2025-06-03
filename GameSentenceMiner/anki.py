@@ -1,3 +1,4 @@
+import copy
 import queue
 import time
 
@@ -19,10 +20,6 @@ from GameSentenceMiner.util.text_log import get_all_lines, get_text_event, get_m
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.web import texthooking_page
 
-audio_in_anki = None
-screenshot_in_anki = None
-prev_screenshot_in_anki = None
-
 # Global variables to track state
 previous_note_ids = set()
 first_run = True
@@ -31,14 +28,21 @@ card_queue = []
 
 def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
                      should_update_audio=True, ss_time=0, game_line=None, selected_lines=None, prev_ss_timing=0):
-    global audio_in_anki, screenshot_in_anki, prev_screenshot_in_anki
     update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not
     last_note.get_field(get_config().anki.sentence_audio_field) or get_config().anki.overwrite_audio)
     update_picture = (get_config().anki.picture_field and get_config().screenshot.enabled
                       and (get_config().anki.overwrite_picture or not last_note.get_field(get_config().anki.picture_field)))
 
-
-    if not reuse_audio:
+    audio_in_anki = ''
+    screenshot_in_anki = ''
+    prev_screenshot_in_anki = ''
+    if reuse_audio:
+        logger.info("Reusing Audio from last note")
+        anki_result = anki_results[game_line.id]
+        audio_in_anki = anki_result.audio_in_anki
+        screenshot_in_anki = anki_result.screenshot_in_anki
+        prev_screenshot_in_anki = anki_result.prev_screenshot_in_anki
+    else:
         if update_audio:
             audio_in_anki = store_media_file(audio_path)
             if get_config().audio.external_tool and get_config().audio.external_tool_enabled:
@@ -96,6 +100,16 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         tag_string = " ".join(tags)
         invoke("addTags", tags=tag_string, notes=[last_note.noteId])
 
+    if not reuse_audio:
+        anki_results[game_line.id] = AnkiUpdateResult(
+            success=True,
+            audio_in_anki=audio_in_anki,
+            screenshot_in_anki=screenshot_in_anki,
+            prev_screenshot_in_anki=prev_screenshot_in_anki,
+            sentence_in_anki=game_line.text if game_line else '',
+            multi_line=bool(selected_lines and len(selected_lines) > 1)
+        )
+
     run_new_thread(lambda: check_and_update_note(last_note, note, tags))
 
 def check_and_update_note(last_note, note, tags=[]):
@@ -111,6 +125,7 @@ def check_and_update_note(last_note, note, tags=[]):
         notification.open_anki_card(last_note.noteId)
     if get_config().features.notify_on_update:
         notification.send_note_updated(last_note.noteId)
+    gsm_status.remove_word_being_processed(last_note.get_field(get_config().anki.word_field))
 
 
 def add_image_to_card(last_note: AnkiCard, image_path):
@@ -262,7 +277,9 @@ def check_for_new_cards():
     current_note_ids = set()
     try:
         current_note_ids = get_note_ids()
+        gsm_status.anki_connected = True
     except Exception as e:
+        gsm_status.anki_connected = False
         if datetime.now() - last_connection_error > timedelta(seconds=10):
             logger.error(f"Error fetching Anki notes, Make sure Anki is running, ankiconnect add-on is installed, and url/port is configured correctly in GSM Settings")
             last_connection_error = datetime.now()
@@ -270,10 +287,7 @@ def check_for_new_cards():
     new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
         try:
-            if gsm_state.lock.locked():
-                run_new_thread(update_new_card)
-            else:
-                update_new_card()
+            update_new_card()
         except Exception as e:
             logger.error("Error updating new card, Reason:", e)
     first_run = False
@@ -283,6 +297,7 @@ def update_new_card():
     last_card = get_last_anki_card()
     if not last_card or not check_tags_for_should_update(last_card):
         return
+    gsm_status.add_word_being_processed(last_card.get_field(get_config().anki.word_field))
     use_prev_audio = sentence_is_same_as_previous(last_card)
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(last_card)}")
     logger.info(f"New card using previous audio: {use_prev_audio}")
@@ -290,8 +305,7 @@ def update_new_card():
         obs.update_current_game()
     if use_prev_audio:
         lines = texthooking_page.get_selected_lines()
-        with gsm_state.lock:
-            update_anki_card(last_card, note=get_initial_card_info(last_card, lines), game_line=get_mined_line(last_card, lines), reuse_audio=True)
+        run_new_thread(lambda: update_card_from_same_sentence(last_card, lines=lines, game_line=get_mined_line(last_card, lines)))
         texthooking_page.reset_checked_lines()
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
@@ -303,8 +317,16 @@ def update_new_card():
             logger.error(f"Error saving replay buffer: {e}")
             return
 
-
-
+def update_card_from_same_sentence(last_card, lines, game_line):
+    while game_line.id not in anki_results:
+        time.sleep(0.5)
+    anki_result = anki_results[game_line.id]
+    if anki_result.success:
+        update_anki_card(last_card, note=get_initial_card_info(last_card, lines),
+                         game_line=get_mined_line(last_card, lines), reuse_audio=True)
+    else:
+        logger.error(f"Anki update failed for card {last_card.noteId}")
+        notification.send_error_no_anki_update()
 
 
 def sentence_is_same_as_previous(last_card):

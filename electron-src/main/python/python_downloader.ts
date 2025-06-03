@@ -3,6 +3,7 @@ import * as fs from "fs";
 import {Downloader} from "nodejs-file-downloader";
 import * as tar from "tar";
 import {BASE_DIR, execFileAsync, getPlatform, isArmMac, SupportedPlatform} from "../util.js";
+import {mainWindow} from "../main.js";
 
 interface PythonDownload {
     url: string;
@@ -122,6 +123,10 @@ export async function getOrInstallPython(): Promise<string> {
     const pythonPath = path.join(BASE_DIR, downloads[getPlatform()].path);
 
     if (!isPythonInstalled()) {
+        mainWindow?.webContents.send('notification', {
+            title: 'Install',
+            message: 'Finishing Install. Might take a while... Please check the Console tab for more details.',
+        });
         console.log('Python not found. Installing...');
         await installPython();
     }

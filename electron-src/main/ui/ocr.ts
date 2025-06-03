@@ -18,6 +18,45 @@ import { windowManager, Window } from 'node-window-manager'; // Import the libra
 
 let ocrProcess: any = null;
 
+async function runScreenSelector(windowTitle: string) {
+    const ocr_config = getOCRConfig();
+    await new Promise((resolve, reject) => {
+        const process = spawn(getPythonPath(), ['-m', 'GameSentenceMiner.ocr.owocr_area_selector', windowTitle], {
+            detached: false,
+            stdio: 'ignore'
+        });
+
+        process.on('close', (code) => {
+            if (code === 0) {
+                resolve(null);
+            } else {
+                reject(new Error(`Screen selector process exited with code ${code}`));
+            }
+        });
+
+        process.on('error', (err) => {
+            reject(err);
+        });
+    });
+    mainWindow?.webContents.send('terminal-output', `Running screen area selector in background...`);
+}
+
+function runOCR(command: string) {
+    ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
+
+    console.log(`Starting OCR process with command: ${command}`);
+
+    ocrProcess.on('exit', (code: any, signal: any) => {
+        ocrProcess = null;
+        console.log(`OCR process exited with code: ${code}, signal: ${signal}`);
+    });
+
+    ocrProcess.on('error', (err: any) => {
+        console.log(`OCR process error: ${err}`);
+        ocrProcess = null;
+    });
+}
+
 export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.install-owocr-deps', () => {
         const command = `${getPythonPath()} -m pip install --upgrade owocr & exit`;
@@ -49,15 +88,8 @@ export function registerOCRUtilsIPC() {
         }
     });
 
-    ipcMain.on('ocr.run-screen-selector', (_, window_title: string) => {
-        setTimeout(() => {
-            const ocr_config = getOCRConfig();
-            spawn(getPythonPath(), ['-m', 'GameSentenceMiner.ocr.owocr_area_selector', window_title], {
-                detached: false,
-                stdio: 'ignore'
-            });
-            mainWindow?.webContents.send('terminal-output', `Running screen area selector in background...`);
-        }, 1000);
+    ipcMain.on('ocr.run-screen-selector', async (_, window_title: string) => {
+        await runScreenSelector(window_title);
     });
 
     ipcMain.handle('ocr.open-config-json', async () => {
@@ -82,23 +114,27 @@ export function registerOCRUtilsIPC() {
         }
     });
 
-    ipcMain.on('ocr.start-ocr', () => {
+    ipcMain.on('ocr.start-ocr', async () => {
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
+            const config =  await getActiveOCRCOnfig()
+            if (!config) {
+                const response = await dialog.showMessageBox(mainWindow!, {
+                    type: 'question',
+                    buttons: ['Yes', 'No'],
+                    defaultId: 1,
+                    title: 'No OCR Found',
+                    message: 'No OCR found for scene, run area selector on currently selected window? (Do Ctrl+S if you dont want to ocr the entire window)'
+                });
+
+                if (response.response === 0) { // 'Yes' button
+                    await runScreenSelector(ocr_config.window_name)
+                } else {
+                    return;
+                }
+            }
             const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.language} ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"}`;
-            ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
-
-            console.log(`Starting OCR process with command: ${command}`);
-
-            ocrProcess.on('exit', (code: any, signal: any) => {
-                ocrProcess = null;
-                console.log(`OCR process exited with code: ${code}, signal: ${signal}`);
-            });
-
-            ocrProcess.on('error', (err: any) => {
-                console.log(`OCR process error: ${err}`);
-                ocrProcess = null;
-            });
+            runOCR(command);
         }
     });
 
@@ -106,19 +142,7 @@ export function registerOCRUtilsIPC() {
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
             const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.language} ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"} --ssonly`;
-            ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
-
-            console.log(`Starting OCR process with command: ${command}`);
-
-            ocrProcess.on('exit', (code: any, signal: any) => {
-                ocrProcess = null;
-                console.log(`OCR process exited with code: ${code}, signal: ${signal}`);
-            });
-
-            ocrProcess.on('error', (err: any) => {
-                console.log(`OCR process error: ${err}`);
-                ocrProcess = null;
-            });
+            runOCR(command);
         }
     });
 
@@ -244,7 +268,7 @@ export async function getActiveOCRCOnfig() {
         return JSON.parse(fileContent);
     } catch (error: any) {
         console.error(`Error reading or parsing OCR config file at ${sceneConfigPath}:`, error.message);
-        throw error;
+        return null;
     }
 }
 

@@ -25,15 +25,18 @@ async def monitor_clipboard():
     send_message_on_resume = False
     while True:
         if not get_config().general.use_clipboard:
+            gsm_status.clipboard_enabled = False
             await asyncio.sleep(5)
             continue
         if not get_config().general.use_both_clipboard_and_websocket and any(websocket_connected.values()):
+            gsm_status.clipboard_enabled = False
             await asyncio.sleep(1)
             send_message_on_resume = True
             continue
         elif send_message_on_resume:
             logger.info("No Websocket Connections, resuming Clipboard Monitoring.")
             send_message_on_resume = False
+        gsm_status.clipboard_enabled = True
         current_clipboard = pyperclip.paste()
 
         if current_clipboard and current_clipboard != current_line:
@@ -57,6 +60,7 @@ async def listen_websockets():
             try:
                 async with websockets.connect(websocket_url, ping_interval=None) as websocket:
                     logger.info(f"TextHooker Websocket {uri} Connected!")
+                    gsm_status.websockets_connected.append(websocket_url)
                     if reconnecting:
                         logger.info(f"Texthooker WebSocket {uri} connected Successfully!" + " Disabling Clipboard Monitor." if (get_config().general.use_clipboard and not get_config().general.use_both_clipboard_and_websocket) else "")
                         reconnecting = False
@@ -79,6 +83,8 @@ async def listen_websockets():
                         if current_clipboard != current_line:
                             await handle_new_text_event(current_clipboard, line_time if line_time else None)
             except (websockets.ConnectionClosed, ConnectionError, InvalidStatus, ConnectionResetError, Exception) as e:
+                if websocket_url in gsm_status.websockets_connected:
+                    gsm_status.websockets_connected.remove(websocket_url)
                 if isinstance(e, InvalidStatus):
                     e: InvalidStatus
                     if e.response.status_code == 404:
@@ -113,6 +119,7 @@ async def handle_new_text_event(current_clipboard, line_time=None):
     current_line_after_regex = do_text_replacements(current_line, TEXT_REPLACEMENTS_FILE)
     logger.info(f"Line Received: {current_line_after_regex}")
     current_line_time = line_time if line_time else datetime.now()
+    gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")
     add_line(current_line_after_regex, line_time)
     if len(get_text_log().values) > 0:
         await add_event_to_texthooker(get_text_log()[-1])
@@ -121,7 +128,7 @@ def reset_line_hotkey_pressed():
     global current_line_time
     logger.info("LINE RESET HOTKEY PRESSED")
     current_line_time = datetime.now()
-    gsm_state.last_mined_line = ""
+    gsm_state.last_mined_line = None
 
 
 def run_websocket_listener():

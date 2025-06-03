@@ -633,8 +633,11 @@ logger.addHandler(console_handler)
 
 # Create rotating file handler with level DEBUG
 file_path = get_log_path()
-if os.path.exists(file_path) and os.path.getsize(file_path) > 10 * 1024 * 1024:
-    shutil.move(file_path, os.path.join(os.path.dirname(file_path), "gamesentenceminer_old.log"))
+try:
+    if os.path.exists(file_path) and os.path.getsize(file_path) > 10 * 1024 * 1024 and os.access(file_path, os.W_OK):
+        shutil.move(file_path, os.path.join(os.path.dirname(file_path), "gamesentenceminer_old.log"))
+except Exception as e:
+    logger.debug("Error rotating log, probably because the file is being written to by another process.")
 
 file_handler = logging.FileHandler(file_path, encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)
@@ -658,4 +661,43 @@ class GsmAppState:
         self.keep_running = True
         self.current_game = ''
 
+@dataclass_json
+@dataclass
+class AnkiUpdateResult:
+    success: bool = False
+    audio_in_anki: str = ''
+    screenshot_in_anki: str = ''
+    prev_screenshot_in_anki: str = ''
+    sentence_in_anki: str = ''
+    multi_line: bool = False
+
+    @staticmethod
+    def failure():
+        return AnkiUpdateResult(success=False, audio_in_anki='', screenshot_in_anki='', prev_screenshot_in_anki='', sentence_in_anki='', multi_line=False)
+
+
+@dataclass_json
+@dataclass
+class GsmStatus:
+    ready: bool = False
+    status: bool = "Initializing"
+    cards_created: int = 0
+    websockets_connected: List[str] = field(default_factory=list)
+    obs_connected: bool = False
+    anki_connected: bool = False
+    last_line_received: str = None
+    words_being_processed: List[str] = field(default_factory=list)
+    clipboard_enabled: bool = True
+
+    def add_word_being_processed(self, word: str):
+        if word not in self.words_being_processed:
+            self.words_being_processed.append(word)
+
+    def remove_word_being_processed(self, word: str):
+        if word in self.words_being_processed:
+            self.words_being_processed.remove(word)
+
+
+gsm_status = GsmStatus()
+anki_results = {}
 gsm_state = GsmAppState()

@@ -5,41 +5,131 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OBS Controller</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* Styles for the status buttons */
+        .status-button {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.75rem; /* Rounded corners */
+            font-weight: 600;
+            color: #ffffff; /* White text */
+            /*transition: background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out;*/
+            border: none; /* Remove default button border */
+            cursor: default; /* Indicate it's not clickable for now */
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); /* Soft shadow */
+            margin-bottom: 0.75rem; /* Space between buttons */
+            width: fit-content; /* Adjust width to content */
+        }
+
+        .status-button .icon {
+            font-size: 1.5rem; /* Larger emoji icon */
+            margin-right: 0.75rem;
+        }
+
+        .status-button span {
+            font-size: 1.1rem;
+        }
+
+        .status-button.green {
+            background-color: #22c55e; /* Tailwind green-500 */
+        }
+
+        .status-button.red {
+            background-color: #ef4444; /* Tailwind red-500 */
+        }
+
+        .status-button.neutral {
+            background-color: #3b82f6; /* Tailwind blue-500 */
+        }
+
+        .status-button:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+
+    </style>
 </head>
-<body>
+<body class="antialiased">
 <!--<div class="control">-->
 <!--    <button id="launchObsBtn">Launch OBS</button>-->
 <!--</div>-->
 <!--<div class="control">-->
 <!--    <button id="saveReplayBtn">Save Replay Buffer</button>-->
 <!--</div>-->
+<h2>Game Capture (Required)</h2>
 <div class="control">
-    <label for="sceneSelect">Scenes:</label>
-    <select id="sceneSelect"></select>
-    <button id="refreshScenesBtn">&#x21bb;</button>
-    <button id="removeSceneBtn">Remove Scene</button>
+    <label for="sceneSelect">Game:</label>
+    <select id="sceneSelect" class="p-2 border border-gray-300 rounded-md"></select>
+    <button id="refreshScenesBtn" class="p-2 bg-blue-500 text-white rounded-md">&#x21bb;</button>
+    <button id="removeSceneBtn" class="p-2 bg-red-500 text-white rounded-md">Remove Game</button>
 </div>
 <div class="control">
-    <div style="display: flex; align-items: center;">
-        <label for="windowSelect">Windows:</label>
-        <select id="windowSelect"></select>
-        <button id="refreshWindowsBtn">&#x21bb;</button>
-    </div>
-    <div>
-        <label for="sceneNameInput">Override Scene Name:</label>
-        <input type="text" id="sceneNameInput" class="inputField"  placeholder="Enter a name for the new scene">
-        <button id="createNewSceneBtn">Create New Scene (Window Capture)</button>
-        <button id="createNewSceneGameBtn">Create New Scene (Game Capture)</button>
-        <span class="tooltip">❓
+    <label for="windowSelect">Setup New Game:</label>
+    <select id="windowSelect" class="p-2 border border-gray-300 rounded-md"></select>
+    <button id="refreshWindowsBtn" class="p-2 bg-blue-500 text-white rounded-md">&#x21bb;</button>
+    <!--        <label for="sceneNameInput">Override Scene Name:</label>-->
+    <!--        <input type="text" id="sceneNameInput" class="inputField"  placeholder="Enter a name for the new scene">-->
+    <button id="createNewSceneBtn" class="p-2 bg-green-500 text-white rounded-md">Create New Scene (Window Capture)</button>
+    <button id="createNewSceneGameBtn" class="p-2 bg-green-500 text-white rounded-md">Create New Scene (Game Capture)</button>
+    <span class="tooltip">❓
         <span class="tooltiptext">
             Window Capture works for most applications, but Game Capture is recommended for fullscreen games.
         </span>
     </span>
-    </div>
 </div>
+<div>
+    <!--    <button id="reinstallPythonBtn" class="button-blue">Reinstall Python/Python Package</button>-->
+    <button id="openGSMSettingsBtn" class="button-blue">Open GSM Settings</button>
+</div>
+<div>
+    <h2>Status:</h2>
+    <button class="status-button" id="gsm-status" title="GSM Status: Indicates whether the GSM Python app is running.">
+        <span class="icon">⛏</span> GSM <span></span>
+    </button>
+    <button class="status-button" id="clipboard-status" title="Clipboard Status: Indicates whether the clipboard is being monitored.">
+        <span class="icon">📋</span> Clipboard <span></span>
+    </button>
+    <span id="websocket_container">
+
+    </span>
+<!--    <button class="status-button" id="websocket-status">-->
+<!--        <span class="icon">🔗</span> Text Source: <span></span>-->
+<!--    </button>-->
+    <button class="status-button" id="obs-status" title="OBS Status: Indicates whether OBS is running.">
+        <span class="icon">📹</span> OBS <span></span>
+    </button>
+    <button class="status-button" id="anki-status" title="Anki Status: Indicates whether Anki is connected.">
+        <span class="icon">📘</span> Anki <span></span>
+    </button>
+</div>
+<!--<div class="control">-->
+<!--    <h2>Status:</h2>-->
+<!--</div>-->
 <script>
     const {ipcRenderer} = require('electron');
-    const removeSceneBtn = document.getElementById('removeSceneBtn')
+    const removeSceneBtn = document.getElementById('removeSceneBtn');
+    const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
+
+    // Get status button elements
+
+    // Removed the ipcRenderer.on listeners as status will be updated via get_gsm_status polling
+    // document.addEventListener('DOMContentLoaded', () => {
+    //     ipcRenderer.on('websocket-status-update', (event, isConnected) => {
+    //         websocketStatus.classList.toggle('green', isConnected);
+    //         websocketStatus.classList.toggle('red', !isConnected);
+    //         websocketStatus.querySelector('span').textContent = isConnected ? 'Connected' : 'Disconnected';
+    //         websocketStatus.setAttribute('data-tooltip', isConnected ? 'WebSocket is connected.' : 'WebSocket is disconnected.');
+    //     });
+    //
+    //     ipcRenderer.on('obs-status-update', (event, isStarted) => {
+    //         obsStatus.classList.toggle('green', isStarted);
+    //         obsStatus.classList.toggle('red', !isStarted);
+    //         obsStatus.querySelector('span').textContent = isStarted ? 'Started' : 'Stopped';
+    //         obsStatus.setAttribute('data-tooltip', isStarted ? 'OBS is running.' : 'OBS is stopped.');
+    //     });
+    // });
+
 
     // document.getElementById('launchObsBtn').addEventListener('click', () => {
     //     ipcRenderer.invoke('obs.launch');
@@ -50,12 +140,17 @@
     // });
 
     document.getElementById('sceneSelect').addEventListener('change', (event) => {
-        ipcRenderer.invoke('obs.switchScene', event.target.value);
+        ipcRenderer.invoke('obs.switchScene.id', event.target.value);
         if (event.target.value === "GSM HELPER") {
             removeSceneBtn.disabled = true;
         } else {
             removeSceneBtn.disabled = false;
         }
+    });
+
+    openGSMSettingsBtn.addEventListener('click', async () => {
+        console.log("Opening GSM Settings");
+        await ipcRenderer.invoke('settings.openGSMSettings');
     });
 
     function getScenes() {
@@ -124,9 +219,9 @@
             value: selectedWindow.value,
             sceneName: selectedWindow.textContent,
         };
-        if (document.getElementById('sceneNameInput').value) {
-            windowData.sceneName = document.getElementById('sceneNameInput').value.trim();
-        }
+        // if (document.getElementById('sceneNameInput').value) {
+        //     windowData.sceneName = document.getElementById('sceneNameInput').value.trim();
+        // }
         console.log(windowData)
         ipcRenderer.invoke('obs.createScene', windowData);
     })
@@ -139,13 +234,106 @@
             value: selectedWindow.value,
             sceneName: selectedWindow.textContent,
         };
-        if (document.getElementById('sceneNameInput').value) {
-            windowData.sceneName = document.getElementById('sceneNameInput').value.trim();
-        }
+        // if (document.getElementById('sceneNameInput').value) {
+        //     windowData.sceneName = document.getElementById('sceneNameInput').value.trim();
+        // }
         console.log(windowData)
         ipcRenderer.invoke('obs.createScene.Game', windowData);
     })
 
+    const gsmStatusButton = document.getElementById('gsm-status');
+    const websocketStatus = document.getElementById('websocket_container');
+    const obsStatus = document.getElementById('obs-status');
+    const ankiStatus = document.getElementById('anki-status');
+    const clipboardStatus = document.getElementById('clipboard-status');
+
+    setInterval(() => {
+        ipcRenderer.invoke('get_gsm_status').then(gsmStatus => {
+            if (gsmStatus === null) {
+                gsmStatusButton.classList.toggle('red', true);
+                gsmStatusButton.querySelector('span:last-child').textContent = ": not yet started";
+                return;
+            }
+            console.log(gsmStatus)
+            const ready = gsmStatus.ready; // This variable is not used in this snippet, but kept for context.
+            const status = gsmStatus.status; // This variable is not used in this snippet, but kept for context.
+            const websockets_connected = gsmStatus.websockets_connected;
+            const websockets_connected_bool = gsmStatus.websockets_connected.length > 0; // Check if any websockets are connected
+            const obs_connected = gsmStatus.obs_connected;
+            const anki_connected = gsmStatus.anki_connected;
+            const last_line_received = gsmStatus.last_line_received; // This variable is not used in this snippet, but kept for context.
+            const words_being_processed = gsmStatus.words_being_processed; // This variable is not used in this snippet, but kept for context.
+            const clipboard_enabled = gsmStatus.clipboard_enabled; // This variable is not used in this snippet, but kept for context.
+
+            // Update GSM status
+            gsmStatusButton.classList.toggle('green', ready);
+            gsmStatusButton.classList.toggle('red', !ready);
+            gsmStatusButton.querySelector('span:last-child').textContent = ready ? `: ${status}` : ': GSM is not running';
+            if (words_being_processed.length > 0) {
+                gsmStatusButton.querySelector('span:last-child').textContent = `: Processing: ${words_being_processed}`;
+            }
+            const timeDifference = Math.floor((Date.now() - new Date(last_line_received).getTime()) / 1000); // Difference in seconds
+            let relativeTime = '';
+            if (!last_line_received) {
+                relativeTime = 'Not received yet';
+            } else if (isNaN(timeDifference)) {
+                relativeTime = 'Not received yet';
+            } else if (timeDifference < 60) {
+                relativeTime = `${timeDifference} seconds ago`;
+            } else if (timeDifference < 3600) {
+                relativeTime = `${Math.floor(timeDifference / 60)} minutes ago`;
+            } else if (timeDifference < 86400) {
+                relativeTime = `${Math.floor(timeDifference / 3600)} hours ago`;
+            } else {
+                relativeTime = `${Math.floor(timeDifference / 86400)} days ago`;
+            }
+
+            gsmStatusButton.setAttribute('title', ready ? `Status: ${status}\nWebSockets: ${websockets_connected}\nOBS: ${obs_connected ? 'Started' : 'Stopped'}\nAnki: ${anki_connected ? 'Connected' : 'Disconnected'}\nLast Line Received: ${relativeTime}` : 'GSM is stopped.');
+
+            clipboardStatus.classList.toggle('green', gsmStatus.clipboard_enabled);
+            clipboardStatus.classList.toggle('red', !gsmStatus.clipboard_enabled);
+            clipboardStatus.classList.toggle('neutral', !gsmStatus.clipboard_enabled && websockets_connected_bool);
+            clipboardStatus.querySelector('span:last-child').textContent = gsmStatus.clipboard_enabled ? ': Enabled' : ': Disabled';
+            clipboardStatus.setAttribute('title', gsmStatus.clipboard_enabled ? 'Clipboard monitoring is enabled.' : 'Clipboard monitoring is disabled.');
+
+
+            // Update WebSocket status
+            if (websockets_connected_bool) {
+                websocketStatus.innerHTML = ''; // Clear previous content
+                websockets_connected.forEach(ws => {
+                    const wsButton = document.createElement('button');
+                    wsButton.className = 'status-button';
+                    wsButton.classList.add(websockets_connected_bool ? 'green' : 'red');
+                    wsButton.innerHTML = `<span class="icon">📋</span> ${ws} <span></span>`;
+                    // wsButton.querySelector('span:last-child').textContent = websockets_connected_bool ? ': Connected' : ': Disconnected';
+                    wsButton.setAttribute('title', websockets_connected_bool ? `${ws} is connected.` : `${ws} is disconnected.`);
+                    websocketStatus.appendChild(wsButton);
+                });
+            } else {
+            }
+            // Update WebSocket status
+            // websocketStatus.classList.toggle('green', websockets_connected_bool);
+            // websocketStatus.classList.toggle('red', !websockets_connected_bool);
+            // websocketStatus.querySelector('span:last-child').textContent = websockets_connected_bool ? `${websockets_connected.join(', ')}` : ' Disconnected';
+            // websocketStatus.setAttribute('title', websockets_connected_bool ? `${websockets_connected.join(', ')}` : 'WebSocket is disconnected.');
+
+            // Update OBS status
+            obsStatus.classList.toggle('green', obs_connected);
+            obsStatus.classList.toggle('red', !obs_connected);
+            // obsStatus.querySelector('span:last-child').textContent = obs_connected ? 'Started' : 'Stopped';
+
+            // Update Anki status
+            ankiStatus.classList.toggle('green', anki_connected);
+            ankiStatus.classList.toggle('red', !anki_connected);
+            // ankiStatus.querySelector('span:last-child').textContent = anki_connected ? 'Connected' : 'Stopped';
+
+            console.log('GSM Status:', gsmStatus);
+        }).catch(error => {
+            console.error('Error fetching GSM status:', error);
+        });
+    }, 200);
+
+    // Initial calls to populate scenes and windows
     getWindows();
     getScenes();
 </script>

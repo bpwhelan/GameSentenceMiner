@@ -76,6 +76,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     def process_replay(self, video_path):
         vad_trimmed_audio = ''
+        skip_delete = False
         if "previous.mkv" in video_path:
             os.remove(video_path)
             video_path = gsm_state.previous_replay
@@ -89,92 +90,95 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 last_note, anki_card_creation_time = anki.card_queue.pop(0)
             else:
                 logger.info("Replay buffer initiated externally. Skipping processing.")
+                skip_delete = True
                 return
-            with gsm_state.lock:
-                mined_line = get_text_event(last_note)
-                gsm_state.last_mined_line = mined_line
-                if os.path.exists(video_path) and os.access(video_path, os.R_OK):
-                    logger.debug(f"Video found and is readable: {video_path}")
-                if get_config().obs.minimum_replay_size and not ffmpeg.is_video_big_enough(video_path,
-                                                                                           get_config().obs.minimum_replay_size):
-                    logger.debug("Checking if video is big enough")
-                    notification.send_check_obs_notification(reason="Video may be empty, check scene in OBS.")
-                    logger.error(
-                        f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
-                    return
-                if not last_note:
-                    logger.debug("Attempting to get last anki card")
-                    if get_config().anki.update_anki:
-                        last_note = anki.get_last_anki_card()
-                    if get_config().features.backfill_audio:
-                        last_note = anki.get_cards_by_sentence(gametext.current_line_after_regex)
-                line_cutoff = None
-                start_line = None
-                if mined_line:
-                    start_line = mined_line
-                    if mined_line.next:
-                        line_cutoff = mined_line.next.time
 
-                selected_lines = []
-                if texthooking_page.are_lines_selected():
-                    selected_lines = texthooking_page.get_selected_lines()
-                    start_line = selected_lines[0]
-                    mined_line = get_mined_line(last_note, selected_lines)
-                    line_cutoff = selected_lines[-1].get_next_time()
+            mined_line = get_text_event(last_note)
+            gsm_state.last_mined_line = mined_line
+            if os.path.exists(video_path) and os.access(video_path, os.R_OK):
+                logger.debug(f"Video found and is readable: {video_path}")
+            if get_config().obs.minimum_replay_size and not ffmpeg.is_video_big_enough(video_path,
+                                                                                       get_config().obs.minimum_replay_size):
+                logger.debug("Checking if video is big enough")
+                notification.send_check_obs_notification(reason="Video may be empty, check scene in OBS.")
+                logger.error(
+                    f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
+                return
+            if not last_note:
+                logger.debug("Attempting to get last anki card")
+                if get_config().anki.update_anki:
+                    last_note = anki.get_last_anki_card()
+                if get_config().features.backfill_audio:
+                    last_note = anki.get_cards_by_sentence(gametext.current_line_after_regex)
+            line_cutoff = None
+            start_line = None
+            if mined_line:
+                start_line = mined_line
+                if mined_line.next:
+                    line_cutoff = mined_line.next.time
 
-                if last_note:
-                    logger.debug(last_note.to_json())
-                note = anki.get_initial_card_info(last_note, selected_lines)
-                tango = last_note.get_field(get_config().anki.word_field) if last_note else ''
-                texthooking_page.reset_checked_lines()
+            selected_lines = []
+            if texthooking_page.are_lines_selected():
+                selected_lines = texthooking_page.get_selected_lines()
+                start_line = selected_lines[0]
+                mined_line = get_mined_line(last_note, selected_lines)
+                line_cutoff = selected_lines[-1].get_next_time()
 
-                if get_config().anki.sentence_audio_field and get_config().audio.enabled:
-                    logger.debug("Attempting to get audio from video")
-                    final_audio_output, vad_result, vad_trimmed_audio = VideoToAudioHandler.get_audio(
-                        start_line,
-                        line_cutoff,
-                        video_path,
-                        anki_card_creation_time,
-                        mined_line=mined_line)
-                else:
-                    final_audio_output = ""
-                    vad_result = VADResult(False, 0, 0, '')
-                    vad_trimmed_audio = ""
-                    if not get_config().audio.enabled:
-                        logger.info("Audio is disabled in config, skipping audio processing!")
-                    elif not get_config().anki.sentence_audio_field:
-                        logger.info("No SentenceAudio Field in config, skipping audio processing!")
+            if last_note:
+                logger.debug(last_note.to_json())
+            note = anki.get_initial_card_info(last_note, selected_lines)
+            tango = last_note.get_field(get_config().anki.word_field) if last_note else ''
+            texthooking_page.reset_checked_lines()
 
-                ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_result=vad_result, doing_multi_line=bool(selected_lines))
-                # prev_ss_timing = 0
-                # if get_config().anki.previous_image_field and get_config().vad.do_vad_postprocessing:
-                #     prev_ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line.prev,
-                #                                                 vad_result=VideoToAudioHandler.get_audio(game_line=mined_line.prev,
-                #                                                  next_line_time=mined_line.time,
-                #                                                  video_path=video_path,
-                #                                                  anki_card_creation_time=anki_card_creation_time,
-                #                                                  timing_only=True) ,doing_multi_line=bool(selected_lines), previous_line=True)
+            if get_config().anki.sentence_audio_field and get_config().audio.enabled:
+                logger.debug("Attempting to get audio from video")
+                final_audio_output, vad_result, vad_trimmed_audio = VideoToAudioHandler.get_audio(
+                    start_line,
+                    line_cutoff,
+                    video_path,
+                    anki_card_creation_time,
+                    mined_line=mined_line)
+            else:
+                final_audio_output = ""
+                vad_result = VADResult(False, 0, 0, '')
+                vad_trimmed_audio = ""
+                if not get_config().audio.enabled:
+                    logger.info("Audio is disabled in config, skipping audio processing!")
+                elif not get_config().anki.sentence_audio_field:
+                    logger.info("No SentenceAudio Field in config, skipping audio processing!")
 
-                if get_config().anki.update_anki and last_note:
-                    anki.update_anki_card(
-                        last_note, note, audio_path=final_audio_output, video_path=video_path,
-                                          tango=tango,
-                                          should_update_audio=vad_result.success,
-                                          ss_time=ss_timing,
-                                          game_line=start_line,
-                        selected_lines=selected_lines
-                    )
-                elif get_config().features.notify_on_update and vad_result.success:
-                    notification.send_audio_generated_notification(vad_trimmed_audio)
+            ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_result=vad_result, doing_multi_line=bool(selected_lines), anki_card_creation_time=anki_card_creation_time)
+            # prev_ss_timing = 0
+            # if get_config().anki.previous_image_field and get_config().vad.do_vad_postprocessing:
+            #     prev_ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line.prev,
+            #                                                 vad_result=VideoToAudioHandler.get_audio(game_line=mined_line.prev,
+            #                                                  next_line_time=mined_line.time,
+            #                                                  video_path=video_path,
+            #                                                  anki_card_creation_time=anki_card_creation_time,
+            #                                                  timing_only=True) ,doing_multi_line=bool(selected_lines), previous_line=True)
+
+            if get_config().anki.update_anki and last_note:
+                anki.update_anki_card(
+                    last_note, note, audio_path=final_audio_output, video_path=video_path,
+                                      tango=tango,
+                                      should_update_audio=vad_result.success,
+                                      ss_time=ss_timing,
+                                      game_line=start_line,
+                    selected_lines=selected_lines
+                )
+            elif get_config().features.notify_on_update and vad_result.success:
+                notification.send_audio_generated_notification(vad_trimmed_audio)
         except Exception as e:
+            anki_results[mined_line.id] = AnkiUpdateResult.failure()
             logger.error(f"Failed Processing and/or adding to Anki: Reason {e}")
             logger.debug(f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
             notification.send_error_no_anki_update()
         finally:
-            if video_path and get_config().paths.remove_video and os.path.exists(video_path):
-                os.remove(video_path)  # Optionally remove the video after conversion
-            if vad_trimmed_audio and get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
-                os.remove(vad_trimmed_audio)  # Optionally remove the screenshot after conversion
+            if not skip_delete:
+                if video_path and get_config().paths.remove_video and os.path.exists(video_path):
+                    os.remove(video_path)
+                if vad_trimmed_audio and get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
+                    os.remove(vad_trimmed_audio)
 
     def handle_texthooker_button(self, video_path):
         try:
@@ -643,6 +647,7 @@ def async_loop():
 async def register_scene_switcher_callback():
     def scene_switcher_callback(scene):
         logger.info(f"Scene changed to: {scene}")
+        gsm_state.current_game = obs.get_current_game(sanitize=True)
         all_configured_scenes = [config.scenes for config in get_master_config().configs.values()]
         print(all_configured_scenes)
         matching_configs = [name.strip() for name, config in config_instance.configs.items() if scene.strip() in config.scenes]
@@ -691,7 +696,8 @@ async def async_main(reloading=False):
     if is_windows():
         win32api.SetConsoleCtrlHandler(handle_exit())
 
-
+    gsm_status.ready = True
+    gsm_status.status = "Ready"
     try:
         if get_config().general.open_config_on_startup:
             root.after(50, settings_window.show)

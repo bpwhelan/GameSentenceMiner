@@ -64,17 +64,37 @@
 </head>
 <body>
     <div class="tab-bar">
-        <button class="tab-button active" data-tab="console">Console</button>
-        <button class="tab-button" data-tab="launcher">Game Launcher</button>
-        <button class="tab-button" data-tab="obs">OBS</button>
+        <button class="tab-button active" data-tab="obs">Home</button>
         <button class="tab-button" data-tab="ocr">OCR</button>
+        <button class="tab-button" data-tab="launcher">Game Launcher</button>
 <!--        <button class="tab-button" data-tab="steam">Steam</button>-->
 <!--        <button class="tab-button" data-tab="vn">VN</button>-->
 <!--        <button class="tab-button" data-tab="yuzu" id="yuzu-button" style="display: none;">Yuzu</button>-->
         <button class="tab-button" data-tab="settings">Settings</button>
+        <button class="tab-button" data-tab="console">Console</button>
     </div>
-
-    <div id="console" class="tab-content active">
+    <div id="launcher" class="tab-content">
+        <iframe src="launcher.html"></iframe>
+    </div>
+    <div id="obs" class="tab-content active">
+        <iframe src="obs.html"></iframe>
+    </div>
+    <div id="steam" class="tab-content">
+        <iframe src="steam.html"></iframe>
+    </div>
+    <div id="vn" class="tab-content">
+        <iframe src="VN.html"></iframe>
+    </div>
+    <div id="yuzu" class="tab-content">
+        <iframe src="yuzu.html"></iframe>
+    </div>
+    <div id="settings" class="tab-content">
+        <iframe src="settings.html"></iframe>
+    </div>
+    <div id="ocr" class="tab-content">
+        <iframe src="ocr.html"></iframe>
+    </div>
+    <div id="console" class="tab-content">
         <div id="terminal"></div>
         <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
@@ -129,27 +149,6 @@
                 }
             })
         </script>
-    </div>
-    <div id="launcher" class="tab-content">
-        <iframe src="launcher.html"></iframe>
-    </div>
-    <div id="obs" class="tab-content">
-        <iframe src="obs.html"></iframe>
-    </div>
-    <div id="steam" class="tab-content">
-        <iframe src="steam.html"></iframe>
-    </div>
-    <div id="vn" class="tab-content">
-        <iframe src="VN.html"></iframe>
-    </div>
-    <div id="yuzu" class="tab-content">
-        <iframe src="yuzu.html"></iframe>
-    </div>
-    <div id="settings" class="tab-content">
-        <iframe src="settings.html"></iframe>
-    </div>
-    <div id="ocr" class="tab-content">
-        <iframe src="ocr.html"></iframe>
     </div>
     <script>
 

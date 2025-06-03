@@ -153,6 +153,36 @@ class WebSocketManager {
             console.error("Error parsing message:", error);
         }
     }
+
+    async stopServer(): Promise<void> {
+        if (this.wss) {
+            console.log("Shutting down WebSocket server...");
+
+            // Close all active WebSocket connections
+            this.wss.clients.forEach((client) => {
+                client.close();
+            });
+
+            // Close the WebSocket server
+            await new Promise<void>((resolve, reject) => {
+                this.wss?.close((error) => {
+                    if (error) {
+                        console.error("Error while shutting down WebSocket server:", error);
+                        reject(error);
+                    } else {
+                        console.log("WebSocket server successfully shut down.");
+                        resolve();
+                    }
+                });
+            });
+
+            this.wss = null;
+            connected = false;
+            this.ws = null;
+        } else {
+            console.warn("WebSocket server is not running.");
+        }
+    }
 }
 
 export const webSocketManager = new WebSocketManager();

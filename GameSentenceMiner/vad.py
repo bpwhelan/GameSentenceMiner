@@ -7,16 +7,6 @@ from GameSentenceMiner.util import configuration, ffmpeg
 from GameSentenceMiner.util.configuration import *
 from GameSentenceMiner.util.ffmpeg import get_ffprobe_path
 
-
-def get_audio_length(path):
-    result = subprocess.run(
-        [get_ffprobe_path(), "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-    return float(result.stdout.strip())
-
 class VADResult:
     def __init__(self, success: bool, start: float, end: float, model: str, output_audio: str = None):
         self.success = success
@@ -107,6 +97,17 @@ class VADProcessor(ABC):
     def _detect_voice_activity(self, input_audio):
         pass
 
+    @staticmethod
+    def get_audio_length(path):
+        result = subprocess.run(
+            [get_ffprobe_path(), "-v", "error", "-show_entries", "format=duration", "-of",
+             "default=noprint_wrappers=1:nokey=1", path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        return float(result.stdout.strip())
+
     def process_audio(self, input_audio, output_audio, game_line):
         voice_activity = self._detect_voice_activity(input_audio)
 
@@ -119,7 +120,7 @@ class VADProcessor(ABC):
 
         # Attempt to fix the end time if the last segment is too short
         if game_line and game_line.next and len(voice_activity) > 1:
-            audio_length = get_audio_length(input_audio)
+            audio_length = self.get_audio_length(input_audio)
             if 0 > audio_length - voice_activity[-1]['start'] + get_config().audio.beginning_offset:
                 end_time = voice_activity[-2]['end']
 

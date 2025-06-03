@@ -27,6 +27,7 @@ class FunctionName(Enum):
     TOGGLE_REPLAY_BUFFER = "toggle_replay_buffer"
     RESTART_OBS = "restart_obs"
     EXIT = "exit"
+    GET_STATUS = "get_status"
 
 
 async def do_websocket_connection(port):

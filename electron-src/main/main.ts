@@ -285,6 +285,12 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
             console.error("Failed to install custom Python package. Falling back to default package: GameSentenceMiner, forcing upgrade.", err);
             await runCommand(pythonPath, ["-m", "pip", "install", "--upgrade", "--no-warn-script-location", "GameSentenceMiner"], true, true);
         }
+        console.log("Update completed successfully.");
+        new Notification({
+            title: "Update Successful",
+            body: `${APP_NAME} has been updated successfully.`,
+            timeoutType: "default",
+        }).show();
         if (shouldRestart) {
             ensureAndRunGSM(pythonPath).then(r => {
                 console.log('GSM Successfully Restarted!')
@@ -453,8 +459,10 @@ async function restartGSM(): Promise<void> {
 async function quit(): Promise<void> {
     if (pyProc != null) {
         await closeGSM();
+        await webSocketManager.stopServer();
         app.quit();
     } else {
+        await webSocketManager.stopServer();
         app.quit();
     }
 }

@@ -68,6 +68,8 @@ button {
     cursor: pointer;
     transition: background-color 0.3s;
     border-radius: 5px;
+    line-height: 1; /* Ensures consistent text height */
+    vertical-align: middle; /* Aligns content vertically */
 }
 
 button:disabled {

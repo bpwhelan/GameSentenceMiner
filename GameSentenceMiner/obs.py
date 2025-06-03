@@ -31,6 +31,7 @@ class OBSConnectionManager(threading.Thread):
             try:
                 if not client or not client.get_version() and not connecting:
                     logger.info("OBS WebSocket not connected. Attempting to reconnect...")
+                    gsm_status.obs_connected = False
                     asyncio.run(connect_to_obs())
             except Exception as e:
                 logger.debug(f"Error checking OBS connection: {e}")
@@ -157,6 +158,7 @@ async def connect_to_obs(retry_count=0):
                 password=get_config().obs.password,
                 timeout=1,
             )
+            gsm_status.obs_connected = True
             logger.info("Connected to OBS WebSocket.")
             if not obs_connection_manager:
                 obs_connection_manager = OBSConnectionManager()
@@ -357,15 +359,15 @@ def get_screenshot_base64():
         return None
 
 def update_current_game():
-    configuration.current_game = get_current_scene()
+    gsm_state.current_game = get_current_scene()
 
 def get_current_game(sanitize=False):
-    if not configuration.current_game:
+    if not gsm_state.current_game:
         update_current_game()
 
     if sanitize:
-        return sanitize_filename(configuration.current_game)
-    return configuration.current_game
+        return sanitize_filename(gsm_state.current_game)
+    return gsm_state.current_game
 
 
 def main():
