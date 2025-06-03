@@ -124,7 +124,7 @@ def get_screenshot_for_line(video_file, game_line, try_selector=False):
     return get_screenshot(video_file, get_screenshot_time(video_file, game_line), try_selector)
 
 
-def get_screenshot_time(video_path, game_line, default_beginning=False, vad_result=None, doing_multi_line=False, previous_line=False):
+def get_screenshot_time(video_path, game_line, default_beginning=False, vad_result=None, doing_multi_line=False, previous_line=False, anki_card_creation_time=0):
     if game_line:
         line_time = game_line.time
     else:
@@ -136,7 +136,10 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_resu
         logger.debug("Calculating screenshot time for line: " + str(game_line.text))
 
     file_length = get_video_duration(video_path)
-    file_mod_time = get_file_modification_time(video_path)
+    if anki_card_creation_time:
+        file_mod_time = anki_card_creation_time
+    else:
+        file_mod_time = get_file_modification_time(video_path)
 
     # Calculate when the line occurred within the video file (seconds from start)
     time_delta = file_mod_time - line_time
@@ -279,6 +282,83 @@ def get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation
 
     return trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line_time, anki_card_creation_time)
 
+def get_audio_and_trim_combined(video_path, game_line, next_line_time, anki_card_creation_time):
+    supported_formats = {
+        'opus': 'libopus',
+        'mp3': 'libmp3lame',
+        'ogg': 'libvorbis',
+        'aac': 'aac',
+        'm4a': 'aac',
+    }
+
+    codec = get_audio_codec(video_path)
+    output_extension = get_config().audio.extension
+    output_audio_path = tempfile.NamedTemporaryFile(
+        dir=configuration.get_temporary_directory(),
+        suffix=f".{output_extension}",
+        delete=False
+    ).name
+
+    if codec == output_extension:
+        codec_command = ['-c:a', 'copy']
+        logger.debug(f"Extracting {output_extension} from video (copying)")
+    else:
+        codec_command = ["-c:a", f"{supported_formats[output_extension]}"]
+        logger.debug(f"Re-encoding {codec} to {output_extension}")
+
+    start_trim_time, start_time_float, total_seconds_after_offset, file_length = get_video_timings(video_path, game_line, anki_card_creation_time)
+
+    ffmpeg_command = ffmpeg_base_command_list + [
+        "-ss", str(start_trim_time),
+        "-i", video_path,
+        "-map", "0:a"
+    ]
+
+    end_trim_time_str = ""
+
+    if next_line_time and next_line_time > game_line.time:
+        end_total_seconds = next_line_time + get_config().audio.pre_vad_end_offset
+        hours, remainder = divmod(end_total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        end_trim_time_str = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
+        ffmpeg_command.extend(['-to', end_trim_time_str])
+        logger.debug(
+            f"Trimming end of audio to {end_trim_time_str} based on next line time.")
+    elif get_config().audio.pre_vad_end_offset is not None and get_config().audio.pre_vad_end_offset < 0:
+        end_total_seconds = file_length + get_config().audio.pre_vad_end_offset
+        end_total_seconds = max(end_total_seconds, start_time_float)
+
+        hours, remainder = divmod(end_total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        end_trim_time_str = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
+        ffmpeg_command.extend(['-to', end_trim_time_str])
+        logger.debug(f"Trimming end of audio to {end_trim_time_str} due to negative pre-vad end offset.")
+
+    ffmpeg_command.extend(codec_command)
+    ffmpeg_command.append(output_audio_path)
+
+    logger.debug("Executing combined audio extraction and trimming command")
+    logger.debug(" ".join(ffmpeg_command))
+
+    try:
+        subprocess.run(ffmpeg_command, check=True)
+        logger.debug(f"{total_seconds_after_offset} trimmed off of beginning")
+
+        if end_trim_time_str:
+            logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds with end time {end_trim_time_str}")
+        else:
+            logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds (to end of file)")
+
+        logger.debug(f"Audio trimmed and saved to {output_audio_path}")
+        return output_audio_path
+    except subprocess.CalledProcessError as e:
+        logger.error(f"FFmpeg command failed: {e}")
+        logger.error(f"Command: {' '.join(ffmpeg_command)}")
+        raise
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        raise
+
 
 def get_video_duration(file_path):
     ffprobe_command = [
@@ -339,7 +419,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     return trimmed_audio
 
 def get_video_timings(video_path, game_line, anki_card_creation_time=None):
-    if anki_card_creation_time and get_config().advanced.use_anki_note_creation_time:
+    if anki_card_creation_time:
         file_mod_time = anki_card_creation_time
     else:
         file_mod_time = get_file_modification_time(video_path)
