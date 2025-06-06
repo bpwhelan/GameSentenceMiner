@@ -85,7 +85,6 @@ async function autoUpdate() {
                 buttons: ["Yes", "No"],
             }).then(async (result) => {
                 if (result.response === 0) { // "Yes" button
-                    await updateGSM(true, false)
                     await autoUpdater.downloadUpdate();
                 } else {
                     log.info("User chose not to download the update.");

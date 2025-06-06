@@ -296,7 +296,6 @@ def play_audio():
 
 @app.route('/get_status', methods=['GET'])
 def get_status():
-    gsm_status.clipboard_enabled
     return jsonify(gsm_status.to_dict()), 200
 
 

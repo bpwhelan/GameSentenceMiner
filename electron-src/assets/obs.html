@@ -32,15 +32,15 @@
         }
 
         .status-button.green {
-            background-color: #22c55e; /* Tailwind green-500 */
+            background-color: #0f8a3a;
         }
 
         .status-button.red {
-            background-color: #ef4444; /* Tailwind red-500 */
+            background-color: #ef4444;
         }
 
         .status-button.neutral {
-            background-color: #3b82f6; /* Tailwind blue-500 */
+            background-color: #2563eb;
         }
 
         .status-button:hover .tooltiptext {
@@ -70,8 +70,10 @@
     <button id="refreshWindowsBtn" class="p-2 bg-blue-500 text-white rounded-md">&#x21bb;</button>
     <!--        <label for="sceneNameInput">Override Scene Name:</label>-->
     <!--        <input type="text" id="sceneNameInput" class="inputField"  placeholder="Enter a name for the new scene">-->
-    <button id="createNewSceneBtn" class="p-2 bg-green-500 text-white rounded-md">Create New Scene (Window Capture)</button>
-    <button id="createNewSceneGameBtn" class="p-2 bg-green-500 text-white rounded-md">Create New Scene (Game Capture)</button>
+    <button id="createNewSceneBtn" class="p-2 bg-green-500 text-white rounded-md">Create New Scene (Window Capture)
+    </button>
+    <button id="createNewSceneGameBtn" class="p-2 bg-green-500 text-white rounded-md">Create New Scene (Game Capture)
+    </button>
     <span class="tooltip">❓
         <span class="tooltiptext">
             Window Capture works for most applications, but Game Capture is recommended for fullscreen games.
@@ -87,15 +89,16 @@
     <button class="status-button" id="gsm-status" title="GSM Status: Indicates whether the GSM Python app is running.">
         <span class="icon">⛏</span> GSM <span></span>
     </button>
-    <button class="status-button" id="clipboard-status" title="Clipboard Status: Indicates whether the clipboard is being monitored.">
+    <button class="status-button" id="clipboard-status"
+            title="Clipboard Status: Indicates whether the clipboard is being monitored.">
         <span class="icon">📋</span> Clipboard <span></span>
     </button>
     <span id="websocket_container">
 
     </span>
-<!--    <button class="status-button" id="websocket-status">-->
-<!--        <span class="icon">🔗</span> Text Source: <span></span>-->
-<!--    </button>-->
+    <!--    <button class="status-button" id="websocket-status">-->
+    <!--        <span class="icon">🔗</span> Text Source: <span></span>-->
+    <!--    </button>-->
     <button class="status-button" id="obs-status" title="OBS Status: Indicates whether OBS is running.">
         <span class="icon">📹</span> OBS <span></span>
     </button>
@@ -246,12 +249,14 @@
     const obsStatus = document.getElementById('obs-status');
     const ankiStatus = document.getElementById('anki-status');
     const clipboardStatus = document.getElementById('clipboard-status');
+    let ws_showing = {};
+
 
     setInterval(() => {
         ipcRenderer.invoke('get_gsm_status').then(gsmStatus => {
             if (gsmStatus === null) {
                 gsmStatusButton.classList.toggle('red', true);
-                gsmStatusButton.querySelector('span:last-child').textContent = ": not yet started";
+                gsmStatusButton.querySelector('span:last-child').textContent = ": Initializing";
                 return;
             }
             console.log(gsmStatus)
@@ -296,21 +301,26 @@
             clipboardStatus.querySelector('span:last-child').textContent = gsmStatus.clipboard_enabled ? ': Enabled' : ': Disabled';
             clipboardStatus.setAttribute('title', gsmStatus.clipboard_enabled ? 'Clipboard monitoring is enabled.' : 'Clipboard monitoring is disabled.');
 
-
             // Update WebSocket status
-            if (websockets_connected_bool) {
-                websocketStatus.innerHTML = ''; // Clear previous content
-                websockets_connected.forEach(ws => {
+            websockets_connected.forEach(ws => {
+                if (!ws_showing[ws]) {
                     const wsButton = document.createElement('button');
                     wsButton.className = 'status-button';
                     wsButton.classList.add(websockets_connected_bool ? 'green' : 'red');
                     wsButton.innerHTML = `<span class="icon">📋</span> ${ws} <span></span>`;
-                    // wsButton.querySelector('span:last-child').textContent = websockets_connected_bool ? ': Connected' : ': Disconnected';
                     wsButton.setAttribute('title', websockets_connected_bool ? `${ws} is connected.` : `${ws} is disconnected.`);
                     websocketStatus.appendChild(wsButton);
-                });
-            } else {
-            }
+                    ws_showing[ws] = wsButton;
+                }
+            });
+
+            // Remove buttons for disconnected WebSockets
+            Object.keys(ws_showing).forEach(ws => {
+                if (!websockets_connected.includes(ws)) {
+                    websocketStatus.removeChild(ws_showing[ws]);
+                    delete ws_showing[ws];
+                }
+            });
             // Update WebSocket status
             // websocketStatus.classList.toggle('green', websockets_connected_bool);
             // websocketStatus.classList.toggle('red', !websockets_connected_bool);
@@ -328,6 +338,7 @@
             // ankiStatus.querySelector('span:last-child').textContent = anki_connected ? 'Connected' : 'Stopped';
 
             console.log('GSM Status:', gsmStatus);
+            last_websockets = websockets_connected
         }).catch(error => {
             console.error('Error fetching GSM status:', error);
         });

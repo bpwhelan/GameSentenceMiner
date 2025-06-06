@@ -29,12 +29,12 @@ class OBSConnectionManager(threading.Thread):
         while self.running:
             time.sleep(1)
             try:
-                if not client or not client.get_version() and not connecting:
-                    logger.info("OBS WebSocket not connected. Attempting to reconnect...")
-                    gsm_status.obs_connected = False
-                    asyncio.run(connect_to_obs())
+                if not connecting:
+                    client.get_version()
             except Exception as e:
-                logger.debug(f"Error checking OBS connection: {e}")
+                logger.info(f"OBS WebSocket not connected. Attempting to reconnect... {e}")
+                gsm_status.obs_connected = False
+                asyncio.run(connect_to_obs())
 
     def stop(self):
         self.running = False

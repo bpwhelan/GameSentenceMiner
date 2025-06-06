@@ -279,14 +279,14 @@ def play_video_in_external(line, filepath):
 
     command = [get_config().advanced.video_player_path]
 
-    start, _, _, _ = get_video_timings(filepath, line)
+    start, _, _, _ = get_video_timings(new_filepath, line)
 
     if start:
         if "vlc" in get_config().advanced.video_player_path:
             command.extend(["--start-time", convert_to_vlc_seconds(start), '--one-instance'])
         else:
             command.extend(["--start", convert_to_vlc_seconds(start)])
-    command.append(os.path.normpath(filepath))
+    command.append(os.path.normpath(new_filepath))
 
     logger.info(" ".join(command))
 

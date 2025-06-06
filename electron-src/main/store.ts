@@ -124,7 +124,7 @@ export const store = new Store<StoreConfig>({
         },
         agentPath: "",
         OCR: {
-            twoPassOCR: false,
+            twoPassOCR: true,
             ocr1: "oneOCR",
             ocr2: "glens",
             window_name: "",
