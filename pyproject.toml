@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.9.19"
+version = "2.9.20"
 description = "A tool for mining sentences from games."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -46,7 +46,8 @@ dependencies = [
   "pygetwindow; sys_platform == 'win32'",
   "flask",
   "groq",
-  "obsws-python~=1.7.2"
+  "obsws-python~=1.7.2",
+  "simpleaudio"
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
