@@ -4,10 +4,10 @@ import sys
 
 import os
 
+
 os.environ.pop('TCL_LIBRARY', None)
 
-from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread, \
-    open_audio_in_external
+from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
 from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
 from GameSentenceMiner.vad import vad_processor, VADResult
@@ -40,6 +40,7 @@ try:
     from GameSentenceMiner.util.text_log import GameLine, get_text_event, get_mined_line, get_all_lines, game_log
     from GameSentenceMiner.util import *
     from GameSentenceMiner.web import texthooking_page
+    from GameSentenceMiner.web.service import handle_texthooker_button
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
@@ -77,13 +78,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def process_replay(self, video_path):
         vad_trimmed_audio = ''
         skip_delete = False
-        if "previous.mkv" in video_path:
-            os.remove(video_path)
-            video_path = gsm_state.previous_replay
-        else:
-            gsm_state.previous_replay = video_path
+        gsm_state.previous_replay = video_path
         if gsm_state.line_for_audio or gsm_state.line_for_screenshot:
-            self.handle_texthooker_button(video_path)
+            handle_texthooker_button(video_path, get_audio_from_video=VideoToAudioHandler.get_audio)
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:
@@ -180,66 +177,11 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 if vad_trimmed_audio and get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
                     os.remove(vad_trimmed_audio)
 
-    def handle_texthooker_button(self, video_path):
-        try:
-            if gsm_state.line_for_audio:
-                line: GameLine = gsm_state.line_for_audio
-                gsm_state.line_for_audio = None
-                if line == gsm_state.previous_line_for_audio:
-                    logger.info("Line is the same as the last one, skipping processing.")
-                    if get_config().advanced.audio_player_path:
-                        play_audio_in_external(gsm_state.previous_audio)
-                    elif get_config().advanced.video_player_path:
-                        play_video_in_external(line, gsm_state.previous_audio)
-                    return
-                gsm_state.previous_line_for_audio = line
-                if get_config().advanced.audio_player_path:
-                    audio = VideoToAudioHandler.get_audio(line, line.next.time if line.next else None, video_path,
-                                                          temporary=True)
-                    play_audio_in_external(audio)
-                    gsm_state.previous_audio = audio
-                elif get_config().advanced.video_player_path:
-                    new_video_path = play_video_in_external(line, video_path)
-                    gsm_state.previous_audio = new_video_path
-                    gsm_state.previous_replay = new_video_path
-                return
-            if gsm_state.line_for_screenshot:
-                line: GameLine = gsm_state.line_for_screenshot
-                gsm_state.line_for_screenshot = None
-                gsm_state.previous_line_for_screenshot = line
-                screenshot = ffmpeg.get_screenshot_for_line(video_path, line, True)
-                if gsm_state.anki_note_for_screenshot:
-                    gsm_state.anki_note_for_screenshot = None
-                    encoded_image = ffmpeg.process_image(screenshot)
-                    if get_config().anki.update_anki and get_config().screenshot.screenshot_hotkey_updates_anki:
-                        last_note = anki.get_last_anki_card()
-                        if get_config().features.backfill_audio:
-                            last_note = anki.get_cards_by_sentence(gametext.current_line)
-                        if last_note:
-                            anki.add_image_to_card(last_note, encoded_image)
-                            notification.send_screenshot_updated(last_note.get_field(get_config().anki.word_field))
-                            if get_config().features.open_anki_edit:
-                                notification.open_anki_card(last_note.noteId)
-                        else:
-                            notification.send_screenshot_saved(encoded_image)
-                    else:
-                        notification.send_screenshot_saved(encoded_image)
-                else:
-                    os.startfile(screenshot)
-                return
-        except Exception as e:
-            logger.error(f"Error Playing Audio/Video: {e}")
-            logger.debug(f"Error Playing Audio/Video: {e}", exc_info=True)
-            return
-        finally:
-            if video_path and get_config().paths.remove_video and os.path.exists(video_path):
-                os.remove(video_path)
-
     @staticmethod
     def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None):
         trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time)
         if temporary:
-            return trimmed_audio
+            return ffmpeg.convert_audio_to_wav_lossless(trimmed_audio)
         vad_trimmed_audio = make_unique_file_name(
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination,
@@ -255,62 +197,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
             shutil.move(vad_trimmed_audio, final_audio_output)
         return final_audio_output, vad_result, vad_trimmed_audio
 
-
-def play_audio_in_external(filepath):
-    exe = get_config().advanced.audio_player_path
-
-    filepath = os.path.normpath(filepath)
-
-    command = [exe, "--no-video", filepath]
-
-    try:
-        subprocess.Popen(command)
-        print(f"Opened {filepath} in {exe}.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-def play_video_in_external(line, filepath):
-    def move_video_when_closed(p, fp):
-        p.wait()
-        os.remove(fp)
-
-    shutil.move(filepath, get_temporary_directory())
-    new_filepath = os.path.join(get_temporary_directory(), os.path.basename(filepath))
-
-    command = [get_config().advanced.video_player_path]
-
-    start, _, _, _ = get_video_timings(new_filepath, line)
-
-    if start:
-        if "vlc" in get_config().advanced.video_player_path:
-            command.extend(["--start-time", convert_to_vlc_seconds(start), '--one-instance'])
-        else:
-            command.extend(["--start", convert_to_vlc_seconds(start)])
-    command.append(os.path.normpath(new_filepath))
-
-    logger.info(" ".join(command))
-
-
-
-    try:
-        proc = subprocess.Popen(command)
-        print(f"Opened {filepath} in {get_config().advanced.video_player_path}.")
-        threading.Thread(target=move_video_when_closed, args=(proc, filepath)).start()
-    except FileNotFoundError:
-        print("VLC not found. Make sure it's installed and in your PATH.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-    return new_filepath
-
-def convert_to_vlc_seconds(time_str):
-    """Converts HH:MM:SS.milliseconds to VLC-compatible seconds."""
-    try:
-        hours, minutes, seconds_ms = time_str.split(":")
-        seconds, milliseconds = seconds_ms.split(".")
-        total_seconds = (int(hours) * 3600) + (int(minutes) * 60) + int(seconds) + (int(milliseconds) / 1000.0)
-        return str(total_seconds)
-    except ValueError:
-        return "Invalid time format"
 
 def initial_checks():
     try:

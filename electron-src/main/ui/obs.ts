@@ -272,6 +272,16 @@ export async function registerOBSIPC() {
         return await getCurrentScene();
     });
 
+    ipcMain.handle('obs.getSceneActiveWindow', async () => {
+        const currentScene = await getCurrentScene();
+        try {
+            return await getWindowTitleFromSource(currentScene.id);
+        } catch (error) {
+            console.error('Error getting active window from current scene:', error);
+            return null;
+        }
+    })
+
     ipcMain.handle('obs.getExecutableNameFromSource', async (_, obsSceneID: string) => {
         try {
             return await getExecutableNameFromSource(obsSceneID);
@@ -307,6 +317,33 @@ export async function registerOBSIPC() {
                     console.log(windowValue);
 
                     return windowValue.split(':').at(-1)?.trim();
+                }
+            }
+
+            console.warn(`No window input found in scene: ${obsSceneID}`);
+            return null;
+        } catch (error: any) {
+            console.error(`Error getting executable name from source in scene "${obsSceneID}":`, error.message);
+            throw error;
+        }
+    }
+
+    async function getWindowTitleFromSource(obsSceneID: string): Promise<string | undefined | null> {
+        try {
+            await getOBSConnection();
+
+            // Get the list of scene items for the given scene
+            const sceneItems = await obs.call('GetSceneItemList', {sceneUuid: obsSceneID});
+
+            // Find the first input source with a window property
+            for (const item of sceneItems.sceneItems) {
+                const inputProperties = await obs.call('GetInputSettings', {inputUuid: item.sourceUuid as string});
+                if (inputProperties.inputSettings?.window) {
+                    const windowValue = inputProperties.inputSettings.window as string;
+
+                    console.log(windowValue);
+
+                    return windowValue.split(':').at(0)?.trim();
                 }
             }
 

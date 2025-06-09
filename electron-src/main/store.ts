@@ -45,6 +45,7 @@ interface OCRConfig {
     requiresOpenWindow?: boolean;
     scanRate?: number;
     language: string;
+    ocr_screenshots: boolean;
 }
 
 export enum HookableGameType {
@@ -128,7 +129,8 @@ export const store = new Store<StoreConfig>({
             ocr1: "oneOCR",
             ocr2: "glens",
             window_name: "",
-            language: "ja"
+            language: "ja",
+            ocr_screenshots: false,
         },
         customPythonPackage: "GameSentenceMiner"
     },
@@ -235,6 +237,14 @@ export function setOCRScanRate(scanRate: number): void {
 
 export function setOCRLanguage(language: string): void {
     store.set("OCR.language", language);
+}
+
+export function setShouldOCRScreenshots(shouldOCR: boolean): void {
+    store.set("OCR.ocr_screenshots", shouldOCR);
+}
+
+export function getShouldOCRScreenshots(): boolean {
+    return store.get("OCR.ocr_screenshots");
 }
 
 export function getOCRLanguage(): string {

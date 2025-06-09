@@ -76,7 +76,9 @@
     </button>
     <span class="tooltip">❓
         <span class="tooltiptext">
-            Window Capture works for most applications, but Game Capture is recommended for fullscreen games.
+            Window Capture works for most applications
+            <br>
+            Game Capture is recommended for fullscreen games.
         </span>
     </span>
 </div>
@@ -259,7 +261,6 @@
                 gsmStatusButton.querySelector('span:last-child').textContent = ": Initializing";
                 return;
             }
-            console.log(gsmStatus)
             const ready = gsmStatus.ready; // This variable is not used in this snippet, but kept for context.
             const status = gsmStatus.status; // This variable is not used in this snippet, but kept for context.
             const websockets_connected = gsmStatus.websockets_connected;
@@ -337,7 +338,6 @@
             ankiStatus.classList.toggle('red', !anki_connected);
             // ankiStatus.querySelector('span:last-child').textContent = anki_connected ? 'Connected' : 'Stopped';
 
-            console.log('GSM Status:', gsmStatus);
             last_websockets = websockets_connected
         }).catch(error => {
             console.error('Error fetching GSM status:', error);

@@ -5,11 +5,9 @@ import pyperclip
 import websockets
 from websockets import InvalidStatus
 
-from GameSentenceMiner import util
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
 from GameSentenceMiner.util.configuration import *
 from GameSentenceMiner.util.text_log import *
-
 from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker
 
 current_line = ''
@@ -65,7 +63,6 @@ async def listen_websockets():
                         logger.info(f"Texthooker WebSocket {uri} connected Successfully!" + " Disabling Clipboard Monitor." if (get_config().general.use_clipboard and not get_config().general.use_both_clipboard_and_websocket) else "")
                         reconnecting = False
                     websocket_connected[uri] = True
-                    try_other = True
                     line_time = None
                     while True:
                         message = await websocket.recv()

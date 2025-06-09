@@ -4,9 +4,16 @@ import {
     getAutoUpdateElectron,
     getAutoUpdateGSMApp,
     getOCRConfig,
-    getPythonPath, getStartConsoleMinimized,
+    getPythonPath,
+    getStartConsoleMinimized,
     setOCR1,
-    setOCR2, setOCRConfig, setOCRLanguage, setOCRScanRate, setRequiresOpenWindow, setTwoPassOCR,
+    setOCR2,
+    setOCRConfig,
+    setOCRLanguage,
+    setOCRScanRate,
+    setRequiresOpenWindow,
+    setShouldOCRScreenshots,
+    setTwoPassOCR,
     setWindowName
 } from "../store.js";
 import {mainWindow} from "../main.js";
@@ -14,7 +21,7 @@ import {getCurrentScene, ObsScene} from "./obs.js";
 import {BASE_DIR, getPlatform, sanitizeFilename} from "../util.js";
 import path, {resolve} from "path";
 import * as fs from "node:fs";
-import { windowManager, Window } from 'node-window-manager'; // Import the library
+import {windowManager, Window} from 'node-window-manager'; // Import the library
 
 let ocrProcess: any = null;
 
@@ -41,20 +48,20 @@ async function runScreenSelector(windowTitle: string) {
     mainWindow?.webContents.send('terminal-output', `Running screen area selector in background...`);
 }
 
-function runOCR(command: string) {
-    ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
-
-    console.log(`Starting OCR process with command: ${command}`);
+function runOCR(command: string[]) {
+    ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', ...command], {detached: false}); // Open in new cmd window
 
     ocrProcess.on('exit', (code: any, signal: any) => {
         ocrProcess = null;
-        console.log(`OCR process exited with code: ${code}, signal: ${signal}`);
+        // console.log(`OCR process exited with code: ${code}, signal: ${signal}`);
     });
 
     ocrProcess.on('error', (err: any) => {
-        console.log(`OCR process error: ${err}`);
+        // console.log(`OCR process error: ${err}`);
         ocrProcess = null;
     });
+
+    console.log(`Starting OCR process with command: ${command.join(' ')}`);
 }
 
 export function registerOCRUtilsIPC() {
@@ -81,7 +88,7 @@ export function registerOCRUtilsIPC() {
 
         if (response.response === 0) { // 'Yes' button
             const command = `${getPythonPath()} -m pip uninstall -y ${dependency}`;
-            spawn('cmd', ['/c', 'start', 'cmd', '/k', command], { detached: false }); // Open in new cmd window
+            spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
             mainWindow?.webContents.send('terminal-output', `Uninstalling ${dependency} dependencies in new terminal...`);
         } else {
             mainWindow?.webContents.send('terminal-output', `Uninstall canceled for ${dependency}.`);
@@ -89,6 +96,16 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.run-screen-selector', async (_, window_title: string) => {
+        if (window_title === "") {
+            const response = await dialog.showMessageBox(mainWindow!, {
+                type: 'warning',
+                buttons: ['OK'],
+                defaultId: 0,
+                title: 'No Window Selected',
+                message: 'Please select a window to run the area selector on.'
+            });
+            return;
+        }
         await runScreenSelector(window_title);
     });
 
@@ -117,23 +134,33 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.start-ocr', async () => {
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
-            const config =  await getActiveOCRCOnfig()
+            const config = await getActiveOCRCOnfig()
             if (!config) {
                 const response = await dialog.showMessageBox(mainWindow!, {
                     type: 'question',
                     buttons: ['Yes', 'No'],
                     defaultId: 1,
                     title: 'No OCR Found',
-                    message: 'No OCR found for scene, run area selector on currently selected window? (Do Ctrl+S if you dont want to ocr the entire window)'
+                    message: `No OCR found for scene, run area selector on currently selected window: ${ocr_config.window_name}? ("No" will ocr the entire window)`
                 });
 
                 if (response.response === 0) { // 'Yes' button
                     await runScreenSelector(ocr_config.window_name)
                 } else {
-                    return;
+                    // Do nothing, just run OCR on the entire window
                 }
             }
-            const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.language} ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"}`;
+            const command = [
+                `${getPythonPath()}`, `-m`, `GameSentenceMiner.ocr.owocr_helper`,
+                `--language`, `${ocr_config.language}`,
+                `--ocr1`, `${ocr_config.ocr1}`,
+                `--ocr2`, `${ocr_config.ocr2}`,
+                `--twopassocr`, `${ocr_config.twoPassOCR ? 1 : 0}`,
+            ];
+
+            if (ocr_config.ocr_screenshots) command.push("--clipboard");
+            if (ocr_config.window_name) command.push("--window", `${ocr_config.window_name}`);
+
             runOCR(command);
         }
     });
@@ -141,7 +168,14 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.start-ocr-ss-only', () => {
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
-            const command = `${getPythonPath()} -m GameSentenceMiner.ocr.owocr_helper ${ocr_config.language} ${ocr_config.ocr1} ${ocr_config.ocr2} ${ocr_config.twoPassOCR ? "1" : "0"} --ssonly`;
+            const command = [
+                `${getPythonPath()}`, `-m`, `GameSentenceMiner.ocr.owocr_helper`,
+                `--language`, `${ocr_config.language}`,
+                `--ocr1`, `${ocr_config.ocr1}`,
+                `--ocr2`, `${ocr_config.ocr2}`,
+                `--ssonly`
+            ];
+            if (ocr_config.ocr_screenshots) command.push("--clipboard");
             runOCR(command);
         }
     });
@@ -201,6 +235,7 @@ export function registerOCRUtilsIPC() {
         setRequiresOpenWindow(config.requiresOpenWindow);
         setOCRScanRate(config.scanRate);
         setOCRLanguage(config.language);
+        setShouldOCRScreenshots(config.ocr_screenshots)
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     })
 

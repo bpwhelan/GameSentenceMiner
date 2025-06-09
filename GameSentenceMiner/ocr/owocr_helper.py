@@ -15,6 +15,8 @@ import websockets
 from rapidfuzz import fuzz
 
 from GameSentenceMiner import obs
+from GameSentenceMiner.ocr.ss_picker import ScreenCropper
+from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory
 from GameSentenceMiner.util.electron_config import get_ocr_scan_rate, get_requires_open_window
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness
@@ -71,7 +73,7 @@ def get_new_game_cords():
     return coords_list
 
 
-def get_ocr_config() -> OCRConfig:
+def get_ocr_config(window=None) -> OCRConfig:
     """Loads and updates screen capture areas from the corresponding JSON file."""
     app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
     ocr_config_dir = app_dir / "ocr_config"
@@ -80,8 +82,10 @@ def get_ocr_config() -> OCRConfig:
     scene = sanitize_filename(obs.get_current_scene())
     config_path = ocr_config_dir / f"{scene}.json"
     if not config_path.exists():
-        config_path.touch()
-        return
+        ocr_config = OCRConfig(scene=scene, window=window, rectangles=[], coordinate_system="")
+        with open(config_path, 'w', encoding="utf-8") as f:
+            json.dump(ocr_config.to_dict(), f, indent=4)
+        return ocr_config
     try:
         with open(config_path, 'r', encoding="utf-8") as f:
             config_data = json.load(f)
@@ -204,13 +208,11 @@ all_cords = None
 rectangles = None
 last_ocr2_result = ""
 
-def do_second_ocr(ocr1_text, time, img, filtering, scrolling=False):
+def do_second_ocr(ocr1_text, time, img, filtering):
     global twopassocr, ocr2, last_ocr2_result
     try:
         orig_text, text = run.process_and_write_results(img, None, last_ocr2_result, filtering, None,
                                                         engine=ocr2)
-        if scrolling:
-            return text
         if fuzz.ratio(last_ocr2_result, text) >= 90:
             logger.info("Seems like the same text from previous ocr2 result, not sending")
             return
@@ -239,11 +241,10 @@ async def send_result(text, time):
         if get_config().advanced.ocr_sends_to_clipboard or ssonly:
             import pyperclip
             pyperclip.copy(text)
-        if not ssonly:
-            try:
-                await websocket_server_thread.send_text(text, time)
-            except Exception as e:
-                logger.debug(f"Error sending text to websocket: {e}")
+        try:
+            await websocket_server_thread.send_text(text, time)
+        except Exception as e:
+            logger.debug(f"Error sending text to websocket: {e}")
 
 
 previous_text_list = []
@@ -255,10 +256,9 @@ previous_img = None
 previous_orig_text = ""  # Store original text result
 TEXT_APPEARENCE_DELAY = get_ocr_scan_rate() * 1000 + 500  # Adjust as needed
 force_stable = False
-scrolling_text_images = []
 
 def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None):
-    global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, scrolling_text_images, previous_text_list
+    global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, previous_text_list
     orig_text_string = ''.join([item for item in orig_text if item is not None]) if orig_text else ""
     if came_from_ss:
         save_result_image(img)
@@ -341,8 +341,8 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
         exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, rectangles)))
 
     run.init_config(False)
-    run.run(read_from="screencapture" if not ssonly else "clipboard",
-            read_from_secondary="clipboard" if not ssonly else None,
+    run.run(read_from="screencapture" if not ssonly else "clipboard" if ss_clipboard else "",
+            read_from_secondary="clipboard" if ss_clipboard and not ssonly else None,
             write_to="callback",
             screen_capture_area=screen_area,
             # screen_capture_monitor=monitor_config['index'],
@@ -358,6 +358,20 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
             gsm_ocr_config=ocr_config,
             screen_capture_areas=screen_areas)
     done = True
+
+
+
+def add_ss_hotkey():
+    import keyboard
+    cropper = ScreenCropper()
+    filtering = TextFiltering()
+    def capture():
+        print("Taking screenshot...")
+        img = cropper.run()
+        do_second_ocr("", datetime.now(), img, filtering)
+
+    keyboard.add_hotkey('ctrl+shift+g', capture)
+    print("Press Ctrl+Shift+G to take a screenshot.")
 
 
 def get_window(window_name):
@@ -388,50 +402,48 @@ def set_force_stable_hotkey():
     print("Press Ctrl+Shift+F to toggle force stable mode.")
 
 if __name__ == "__main__":
-    global ocr1, ocr2, twopassocr, language, ssonly
+    global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config
     import sys
 
-    args = sys.argv[1:]
-    if len(args) >= 4:
-        language = args[0]
-        ocr1 = args[1]
-        ocr2 = args[2]
-        twopassocr = bool(int(args[3]))
-    elif len(args) == 3:
-        language = args[0]
-        ocr1 = args[1]
-        ocr2 = args[2]
-        twopassocr = True
-    elif len(args) == 2:
-        language = args[0]
-        ocr1 = args[1]
-        ocr2 = None
-        twopassocr = False
-    else:
-        language = "ja"
-        ocr1 = "oneocr"
-        ocr2 = "glens"
-        twopassocr = True
+    import argparse
 
-    ssonly = "--ssonly" in args
+    parser = argparse.ArgumentParser(description="OCR Configuration")
+    parser.add_argument("--language", type=str, default="ja", help="Language for OCR (default: ja)")
+    parser.add_argument("--ocr1", type=str, default="oneocr", help="Primary OCR engine (default: oneocr)")
+    parser.add_argument("--ocr2", type=str, default="glens", help="Secondary OCR engine (default: glens)")
+    parser.add_argument("--twopassocr", type=int, choices=[0, 1], default=1, help="Enable two-pass OCR (default: 1)")
+    parser.add_argument("--ssonly", action="store_true", help="Use screenshot-only mode")
+    parser.add_argument("--clipboard", action="store_true", help="Use clipboard for input")
+    parser.add_argument("--window", type=str, help="Specify the window name for OCR")
+
+    args = parser.parse_args()
+
+    language = args.language
+    ocr1 = args.ocr1
+    ocr2 = args.ocr2 if args.ocr2 else None
+    twopassocr = bool(args.twopassocr)
+    ssonly = args.ssonly
+    ss_clipboard = args.clipboard
+    window_name = args.window
     logger.info(f"Received arguments: ocr1={ocr1}, ocr2={ocr2}, twopassocr={twopassocr}")
     # set_force_stable_hotkey()
-    global ocr_config
-    ocr_config: OCRConfig = get_ocr_config()
     set_dpi_awareness()
-    if ocr_config:
-        if ocr_config.window:
-            start_time = time.time()
-            while time.time() - start_time < 30:
-                if get_window(ocr_config.window):
-                    break
-                logger.info(f"Window: {ocr_config.window} Could not be found, retrying in 1 second...")
-                time.sleep(1)
-            else:
-                logger.error(f"Window '{ocr_config.window}' not found within 30 seconds.")
-                sys.exit(1)
-        logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
-    if ocr_config or ssonly:
+    ocr_config = None
+    if not ssonly:
+        ocr_config: OCRConfig = get_ocr_config(window=window_name)
+        if ocr_config:
+            if ocr_config.window:
+                start_time = time.time()
+                while time.time() - start_time < 30:
+                    if get_window(ocr_config.window):
+                        break
+                    logger.info(f"Window: {ocr_config.window} Could not be found, retrying in 1 second...")
+                    time.sleep(1)
+                else:
+                    logger.error(f"Window '{ocr_config.window}' not found within 30 seconds.")
+                    sys.exit(1)
+            logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
+    if ssonly or ocr_config:
         rectangles = ocr_config.rectangles if ocr_config and ocr_config.rectangles else []
         oneocr_threads = []
         ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config,rectangles ), daemon=True)
@@ -439,8 +451,9 @@ if __name__ == "__main__":
         if not ssonly:
             worker_thread = threading.Thread(target=process_task_queue, daemon=True)
             worker_thread.start()
-            websocket_server_thread = WebsocketServerThread(read=True)
-            websocket_server_thread.start()
+        websocket_server_thread = WebsocketServerThread(read=True)
+        websocket_server_thread.start()
+        add_ss_hotkey()
         try:
             while not done:
                 time.sleep(1)

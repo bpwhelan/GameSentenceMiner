@@ -500,6 +500,32 @@ def convert_audio_to_wav(input_audio, output_wav):
     logger.debug(" ".join(command))
     subprocess.run(command)
 
+def convert_audio_to_wav_lossless(input_audio):
+    output_wav = make_unique_file_name(
+        os.path.join(configuration.get_temporary_directory(), "output.wav")
+    )
+    command = ffmpeg_base_command_list + [
+        "-i", input_audio,
+        output_wav
+    ]
+    logger.debug(" ".join(command))
+    subprocess.run(command)
+    return output_wav
+
+def convert_audio_to_mp3(input_audio):
+    output_mp3 = make_unique_file_name(
+        os.path.join(configuration.get_temporary_directory(), "output.mp3")
+    )
+    command = ffmpeg_base_command_list + [
+        "-i", input_audio,
+        "-codec:a", "libmp3lame",
+        "-qscale:a", "2",  # Quality scale for MP3
+        output_mp3
+    ]
+    logger.debug(" ".join(command))
+    subprocess.run(command)
+    return output_mp3
+
 
 # Trim the audio using FFmpeg based on detected speech timestamps
 def trim_audio(input_audio, start_time, end_time, output_audio):

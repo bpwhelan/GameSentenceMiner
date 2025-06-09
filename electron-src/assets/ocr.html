@@ -49,16 +49,12 @@
         <label for="windowSelect">Window:</label>
         <select id="windowSelect"></select>
         <button id="refreshWindowsBtn">&#x21bb;</button>
-        <button id="run-screen-selector">Run Area Selector (Required)</button>
+        <button id="run-screen-selector">Run Area Selector (Recommended)</button>
         <span class="tooltip">❓
             <span class="tooltiptext">
-                Select the Scene and Window you want to OCR, and then select the area you want to OCR.
+                Select the area you want to OCR from the Selected Window. No Areas = Entire Window.
                 <br>
-                If you don't want an area, you still need to open it and save.
-                <br>
-                The area selector will open after 1 second.
-                <br>
-                Keys:
+                Hotkeys:
                 <ul>
                     <li>Left Click: Select the area</li>
                     <li>Shift Left Click: Select Exclusion Zone</li>
@@ -156,8 +152,28 @@
         </span>
     </span>
 </div>
-<button id="start-ocr">Start OCR (Auto OCR)</button>
-<button id="start-ocr-ss-only">Start OCR (Screenshot Only)</button>
+<div>
+    <label for="manual-ocr-hotkey">
+        Manual OCR Hotkey:
+        <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G" disabled>
+    </label>
+    <span class="tooltip">❓
+        <span class="tooltiptext">
+            This hotkey is currently set to Ctrl+Shift+G and will be changeable in the future.
+        </span>
+    </span>
+    <label for="ocr-screenshots">
+        OCR Clipboard Screenshots:
+        <input type="checkbox" id="ocr-screenshots">
+        <span class="tooltip">❓
+            <span class="tooltiptext">
+                If enabled, GSM will take images copied to clipboard (i.e. sharex) and run OCR on them and return to clipboard.
+            </span>
+        </span>
+    </label>
+</div>
+<button id="start-ocr">Start Auto OCR</button>
+<button id="start-ocr-ss-only">Start Manual OCR</button>
 <div>
     <h2 style="cursor: pointer;" id="toggle-extra-debug">
         Extra/Debug <span id="arrow-icon">▼</span>
@@ -201,6 +217,7 @@
 
 <script>
     const {ipcRenderer} = require('electron');
+    let current_scene_config = null;
     let ocr_settings = null;
     let windows = [];
     let scenes = [];
@@ -297,6 +314,10 @@
         saveOCRConfig();
     });
 
+    document.getElementById('ocr-screenshots').addEventListener('change', (event) => {
+        saveOCRConfig();
+    })
+
 
     // document.getElementById('window-name-input').addEventListener('input', () => {
     //     const windowName = document.getElementById('window-name-input').value.trim();
@@ -328,7 +349,7 @@
     });
 
     document.getElementById('refreshScenesBtn').addEventListener('click', () => {
-        getScenes();
+        refreshScenesAndWindows();
     });
 
     function refreshActiveOCRWindow() {
@@ -352,23 +373,35 @@
         ipcRenderer.invoke('ocr.getWindows').then(windowsRes => {
             windows = windowsRes
             windowSelect.innerHTML = '';
+            let found = false;
             windows.forEach(window => {
                 const option = document.createElement('option');
-                if (window === ocr_settings?.window_name) {
-                    option.selected = true;
-                }
                 option.value = window;
                 option.textContent = window;
                 windowSelect.appendChild(option);
             });
+            getOBSWindows();
             refreshActiveOCRWindow();
         });
     }
 
-    function getScenes() {
+    function getOBSWindows() {
+        const windowSelect = document.getElementById('windowSelect');
+        ipcRenderer.invoke('obs.getSceneActiveWindow').then(activeWindow => {
+            console.log('Active OBS Window:', activeWindow);
+            const matchingWindow = windows.find(window => window === activeWindow);
+            if (matchingWindow) {
+                windowSelect.value = matchingWindow;
+            }
+        });
+    }
+
+    function refreshScenesAndWindows() {
         sceneSelect.innerHTML = '';
         ipcRenderer.invoke('obs.getScenes').then(scenes => {
             obsScenes = scenes;
+
+            console.log(obsScenes);
             scenes.forEach(scene => {
                 const option = document.createElement('option');
                 option.value = scene.id;
@@ -385,8 +418,19 @@
                 }
                 sceneSelect.value = scene.id; // Set the selected value
             });
+            getWindows();
         });
     }
+
+    // function getCurrentSceneConfig() {
+    //     ipcRenderer.invoke('ocr.getCurrentSceneConfig').then(config => {
+    //         current_scene_config = config;
+    //         if (current_scene_config) {
+    //             document.getElementById('sceneSelect').value = current_scene_config.id;
+    //             document.getElementById('windowSelect').value = current_scene_config.window_name || '';
+    //         }
+    //     });
+    // }
 
     async function saveOCRConfig() {
         ocr_settings = {
@@ -397,6 +441,7 @@
             requiresOpenWindow: document.getElementById('require-open-window').checked,
             scanRate: document.getElementById('ocr-scan-rate').value,
             language: document.getElementById('languageSelect').value,
+            ocr_screenshots: document.getElementById('ocr-screenshots').checked
         };
         await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
     }
@@ -412,9 +457,10 @@
             document.getElementById('require-open-window').checked = ocr_settings.requiresOpenWindow || false;
             document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
             document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
+            document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots || false;
         }
-        getWindows();
-        getScenes();
+        refreshScenesAndWindows();
+        // getCurrentSceneConfig();
     }
 
     document.addEventListener('DOMContentLoaded', initialize);

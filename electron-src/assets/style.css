@@ -300,10 +300,12 @@ div {
 
 .tooltiptext {
     visibility: hidden;
-    width: 500px;
+    min-width: 300px;
+    max-width: 500px;
     background-color: #555;
     color: #fff;
     text-align: left;
+    font-size: 14px;
     border-radius: 5px;
     padding: 5px;
     position: absolute;

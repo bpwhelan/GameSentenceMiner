@@ -16,6 +16,7 @@ from flask import request, jsonify, send_from_directory
 import webbrowser
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.configuration import logger, get_config, DB_PATH, gsm_state, gsm_status
+from GameSentenceMiner.web.service import handle_texthooker_button
 
 port = get_config().general.texthooker_port
 url = f"http://localhost:{port}"
@@ -252,6 +253,7 @@ async def add_event_to_texthooker(line: GameLine):
         'sentence': line.text,
         'data': new_event.to_serializable()
     })
+    await plaintext_websocket_server_thread.send_text(line.text)
 
 
 @app.route('/update_checkbox', methods=['POST'])
@@ -274,7 +276,7 @@ def get_screenshot():
         return jsonify({'error': 'Missing id'}), 400
     gsm_state.line_for_screenshot = get_line_by_id(event_id)
     if gsm_state.previous_line_for_screenshot and gsm_state.line_for_screenshot.id == gsm_state.previous_line_for_screenshot.id:
-        open(os.path.join(get_config().paths.folder_to_watch, "previous.mkv"), 'a').close()
+        handle_texthooker_button()
     else:
         obs.save_replay_buffer()
     return jsonify({}), 200
@@ -288,7 +290,7 @@ def play_audio():
         return jsonify({'error': 'Missing id'}), 400
     gsm_state.line_for_audio = get_line_by_id(event_id)
     if gsm_state.previous_line_for_audio and gsm_state.line_for_audio == gsm_state.previous_line_for_audio:
-        open(os.path.join(get_config().paths.folder_to_watch, "previous.mkv"), 'a').close()
+        handle_texthooker_button()
     else:
         obs.save_replay_buffer()
     return jsonify({}), 200
@@ -362,12 +364,13 @@ paused = False
 
 
 class WebsocketServerThread(threading.Thread):
-    def __init__(self, read):
+    def __init__(self, read, ws_port):
         super().__init__(daemon=True)
         self._loop = None
         self.read = read
         self.clients = set()
         self._event = threading.Event()
+        self.ws_port = ws_port
 
     @property
     def loop(self):
@@ -400,8 +403,10 @@ class WebsocketServerThread(threading.Thread):
 
     async def send_text(self, text):
         if text:
+            if isinstance(text, dict):
+                text = json.dumps(text)
             return asyncio.run_coroutine_threadsafe(
-                self.send_text_coroutine(json.dumps(text)), self.loop)
+                self.send_text_coroutine(text), self.loop)
 
     def stop_server(self):
         self.loop.call_soon_threadsafe(self._stop_event.set)
@@ -415,7 +420,7 @@ class WebsocketServerThread(threading.Thread):
                 try:
                     self.server = start_server = websockets.serve(self.server_handler,
                                                                   "0.0.0.0",
-                                                                  get_config().advanced.texthooker_communication_websocket_port,
+                                                                  self.ws_port,
                                                                   max_size=1000000000)
                     async with start_server:
                         await stop_event.wait()
@@ -432,14 +437,17 @@ def handle_exit_signal(loop):
         task.cancel()
 
 async def texthooker_page_coro():
-    global websocket_server_thread
+    global websocket_server_thread, plaintext_websocket_server_thread
     # Run the WebSocket server in the asyncio event loop
     flask_thread = threading.Thread(target=start_web_server)
     flask_thread.daemon = True
     flask_thread.start()
 
-    websocket_server_thread = WebsocketServerThread(read=True)
+    websocket_server_thread = WebsocketServerThread(read=True, ws_port=get_config().advanced.texthooker_communication_websocket_port)
     websocket_server_thread.start()
+
+    plaintext_websocket_server_thread = WebsocketServerThread(read=False, ws_port=get_config().advanced.texthooker_communication_websocket_port + 1)
+    plaintext_websocket_server_thread.start()
 
     # Keep the main asyncio event loop running (for the WebSocket server)
 
