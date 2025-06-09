@@ -3,7 +3,6 @@ import shutil
 import subprocess
 import threading
 
-import simpleaudio as sa
 
 from GameSentenceMiner import anki
 from GameSentenceMiner.util import ffmpeg, notification
@@ -38,6 +37,7 @@ def handle_texthooker_button(video_path='', get_audio_from_video=None):
                 gsm_state.previous_audio = new_video_path
                 gsm_state.previous_replay = new_video_path
             else:
+                import simpleaudio as sa
                 audio = get_audio_from_video(line, line.next.time if line.next else None, video_path,
                                              temporary=True)
                 wave_obj = sa.WaveObject.from_wave_file(audio)
