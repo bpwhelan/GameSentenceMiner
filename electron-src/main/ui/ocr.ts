@@ -5,7 +5,7 @@ import {
     getAutoUpdateGSMApp,
     getOCRConfig,
     getPythonPath,
-    getStartConsoleMinimized,
+    getStartConsoleMinimized, setFuriganaFilterSensitivity, setManualOcrHotkey,
     setOCR1,
     setOCR2,
     setOCRConfig,
@@ -160,6 +160,8 @@ export function registerOCRUtilsIPC() {
 
             if (ocr_config.ocr_screenshots) command.push("--clipboard");
             if (ocr_config.window_name) command.push("--window", `${ocr_config.window_name}`);
+            if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
+            if (ocr_config.manualOcrHotkey) command.push("--manual_ocr_hotkey", `${ocr_config.manualOcrHotkey}`);
 
             runOCR(command);
         }
@@ -176,6 +178,8 @@ export function registerOCRUtilsIPC() {
                 `--ssonly`
             ];
             if (ocr_config.ocr_screenshots) command.push("--clipboard");
+            if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
+            if (ocr_config.manualOcrHotkey) command.push("--manual_ocr_hotkey", `${ocr_config.manualOcrHotkey}`);
             runOCR(command);
         }
     });
@@ -235,7 +239,9 @@ export function registerOCRUtilsIPC() {
         setRequiresOpenWindow(config.requiresOpenWindow);
         setOCRScanRate(config.scanRate);
         setOCRLanguage(config.language);
-        setShouldOCRScreenshots(config.ocr_screenshots)
+        setShouldOCRScreenshots(config.ocr_screenshots);
+        setFuriganaFilterSensitivity(config.furigana_filter_sensitivity);
+        setManualOcrHotkey(config.manualOcrHotkey);
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     })
 

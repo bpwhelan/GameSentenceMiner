@@ -7,6 +7,7 @@ from GameSentenceMiner import obs
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name, get_file_modification_time
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.model import VADResult
 from GameSentenceMiner.util.text_log import initial_time
 
 
@@ -18,6 +19,13 @@ def get_ffprobe_path():
 
 ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
 
+supported_formats = {
+    'opus': 'libopus',
+    'mp3': 'libmp3lame',
+    'ogg': 'libvorbis',
+    'aac': 'aac',
+    'm4a': 'aac',
+}
 
 def call_frame_extractor(video_path, timestamp):
     """
@@ -247,14 +255,6 @@ def get_audio_codec(video_path):
 
 
 def get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time):
-    supported_formats = {
-        'opus': 'libopus',
-        'mp3': 'libmp3lame',
-        'ogg': 'libvorbis',
-        'aac': 'aac',
-        'm4a': 'aac',
-    }
-
     codec = get_audio_codec(video_path)
 
     if codec == get_config().audio.extension:
@@ -528,22 +528,58 @@ def convert_audio_to_mp3(input_audio):
 
 
 # Trim the audio using FFmpeg based on detected speech timestamps
-def trim_audio(input_audio, start_time, end_time, output_audio):
+def trim_audio(input_audio, start_time, end_time, output_audio, trim_beginning=False, fade_in_duration=0.05,
+               fade_out_duration=0.05):
     command = ffmpeg_base_command_list.copy()
 
     command.extend(['-i', input_audio])
 
-    if get_config().vad.trim_beginning and start_time > 0:
+    if trim_beginning and start_time > 0:
         logger.debug(f"trimming beginning to {start_time}")
         command.extend(['-ss', f"{start_time:.2f}"])
 
+    fade_filter = []
+    if fade_in_duration > 0:
+        fade_filter.append(f'afade=t=in:d={fade_in_duration}')
+    if fade_out_duration > 0:
+        fade_filter.append(f'afade=t=out:st={end_time - fade_out_duration:.2f}:d={fade_out_duration}')
+    #     fade_filter.append(f'afade=t=out:d={fade_out_duration}')
+
     command.extend([
         '-to', f"{end_time:.2f}",
-        '-c', 'copy',
-        output_audio
     ])
 
+    if fade_filter:
+        command.extend(['-af', f'afade=t=in:d={fade_in_duration},afade=t=out:st={end_time - fade_out_duration:.2f}:d={fade_out_duration}'])
+        command.extend(['-c:a', supported_formats[get_config().audio.extension]])
+    else:
+        command.extend(['-c', 'copy'])
+
+    command.append(output_audio)
+
     logger.debug(" ".join(command))
+
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"FFmpeg command failed with error: {e}")
+        logger.error(f"Command: {' '.join(command)}")
+    except FileNotFoundError:
+        logger.error("FFmpeg not found. Please ensure FFmpeg is installed and in your PATH.")
+
+
+def combine_audio_files(audio_files, output_file):
+    if not audio_files:
+        logger.error("No audio files provided for combination.")
+        return
+
+    command = ffmpeg_base_command_list + [
+        "-i", "concat:" + "|".join(audio_files),
+        "-c", "copy",
+        output_file
+    ]
+
+    logger.debug("Combining audio files with command: " + " ".join(command))
 
     subprocess.run(command)
 

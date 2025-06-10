@@ -46,6 +46,8 @@ interface OCRConfig {
     scanRate?: number;
     language: string;
     ocr_screenshots: boolean;
+    furigana_filter_sensitivity: number;
+    manualOcrHotkey: string;
 }
 
 export enum HookableGameType {
@@ -131,6 +133,8 @@ export const store = new Store<StoreConfig>({
             window_name: "",
             language: "ja",
             ocr_screenshots: false,
+            furigana_filter_sensitivity: 0,
+            manualOcrHotkey: "Ctrl+Shift+G",
         },
         customPythonPackage: "GameSentenceMiner"
     },
@@ -249,6 +253,22 @@ export function getShouldOCRScreenshots(): boolean {
 
 export function getOCRLanguage(): string {
     return store.get("OCR.language");
+}
+
+export function getFuriganaFilterSensitivity(): number {
+    return store.get("OCR.furigana_filter_sensitivity");
+}
+
+export function setFuriganaFilterSensitivity(size: number): void {
+    store.set("OCR.furigana_filter_sensitivity", size);
+}
+
+export function getManualOcrHotkey(): string {
+    return store.get("OCR.manualOcrHotkey");
+}
+
+export function setManualOcrHotkey(hotkey: string): void {
+    store.set("OCR.manualOcrHotkey", hotkey);
 }
 
 // Yuzu config getters and setters

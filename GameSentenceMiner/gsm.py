@@ -10,7 +10,8 @@ os.environ.pop('TCL_LIBRARY', None)
 from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
 from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
-from GameSentenceMiner.vad import vad_processor, VADResult
+from GameSentenceMiner.vad import vad_processor
+from GameSentenceMiner.util.model import VADResult
 
 try:
     import os.path

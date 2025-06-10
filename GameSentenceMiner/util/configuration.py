@@ -207,6 +207,8 @@ class VAD:
     trim_beginning: bool = False
     beginning_offset: float = -0.25
     add_audio_on_no_results: bool = False
+    cut_and_splice_segments: bool = False
+    splice_padding: float = 0.1
 
     def is_silero(self):
         return self.selected_vad_model == SILERO or self.backup_vad_model == SILERO

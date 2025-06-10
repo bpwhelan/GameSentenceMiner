@@ -155,11 +155,11 @@
 <div>
     <label for="manual-ocr-hotkey">
         Manual OCR Hotkey:
-        <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G" disabled>
+        <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G">
     </label>
     <span class="tooltip">❓
         <span class="tooltiptext">
-            This hotkey is currently set to Ctrl+Shift+G and will be changeable in the future.
+            Hotkey to trigger manual OCR. Press the desired key combination while this field is focused.
         </span>
     </span>
     <label for="ocr-screenshots">
@@ -171,6 +171,36 @@
             </span>
         </span>
     </label>
+</div>
+<div>
+    <div>
+        <label for="furigana-filter-sensitivity">
+            Furigana Filter Sensitivity (VERY WIP):
+            <input type="range" id="furigana-filter-sensitivity" min="0" max="100" value="0" step="1">
+            <span id="furigana-filter-sensitivity-value">0</span>
+            <span class="tooltip">
+                ❓
+                <span class="tooltiptext">
+                    This is a WIP feature that will filter out furigana from the text. The higher the value, the more sensitive it is to furigana or any smaller text. (0 = DISABLED)
+                    <br>
+                    <strong>Note:</strong> This feature is not fully implemented yet and may not work as expected.
+                </span>
+            </span>
+        </label>
+         <span id="dynamic-size-display">龍</span>
+    </div>
+    <script>
+        const furiganaFilterSlider = document.getElementById('furigana-filter-sensitivity');
+        const furiganaFilterValue = document.getElementById('furigana-filter-sensitivity-value');
+        const dynamicSizeDisplay = document.getElementById('dynamic-size-display');
+
+        furiganaFilterSlider.addEventListener('input', () => {
+            const sensitivity = furiganaFilterSlider.value;
+            furiganaFilterValue.textContent = sensitivity;
+            dynamicSizeDisplay.style.fontSize = sensitivity + 'px';
+            saveOCRConfig();
+        });
+    </script>
 </div>
 <button id="start-ocr">Start Auto OCR</button>
 <button id="start-ocr-ss-only">Start Manual OCR</button>
@@ -224,6 +254,20 @@
 
     const openOcrPageBtn = document.getElementById('open-ocr-page-btn');
     const windowSelect = document.getElementById("windowSelect");
+
+    const manualOcrHotkeyInput = document.getElementById('manual-ocr-hotkey');
+
+    manualOcrHotkeyInput.addEventListener('keydown', (event) => {
+        event.preventDefault(); // Prevent default input behavior
+        const keys = [];
+        if (event.ctrlKey) keys.push('Ctrl');
+        if (event.shiftKey) keys.push('Shift');
+        if (event.altKey) keys.push('Alt');
+        if (event.key && !['Control', 'Shift', 'Alt'].includes(event.key)) keys.push(event.key);
+
+        manualOcrHotkeyInput.value = keys.join('+');
+        saveOCRConfig();
+    });
 
     document.getElementById('toggle-extra-debug').addEventListener('click', () => {
         const content = document.getElementById('extra-debug-content');
@@ -316,6 +360,10 @@
 
     document.getElementById('ocr-screenshots').addEventListener('change', (event) => {
         saveOCRConfig();
+    })
+
+    manualOcrHotkeyInput.addEventListener('input', () => {
+        console.log('Manual OCR Hotkey Changed:', manualOcrHotkeyInput.value);
     })
 
 
@@ -441,7 +489,9 @@
             requiresOpenWindow: document.getElementById('require-open-window').checked,
             scanRate: document.getElementById('ocr-scan-rate').value,
             language: document.getElementById('languageSelect').value,
-            ocr_screenshots: document.getElementById('ocr-screenshots').checked
+            ocr_screenshots: document.getElementById('ocr-screenshots').checked,
+            furigana_filter_sensitivity: document.getElementById('furigana-filter-sensitivity').value,
+            manualOcrHotkey: manualOcrHotkeyInput.value
         };
         await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
     }
@@ -458,6 +508,10 @@
             document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
             document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
             document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots || false;
+            document.getElementById('furigana-filter-sensitivity').value = ocr_settings.furigana_filter_sensitivity || '';
+            document.getElementById('furigana-filter-sensitivity-value').textContent = ocr_settings.furigana_filter_sensitivity || '0';
+            document.getElementById('dynamic-size-display').style.fontSize = (ocr_settings.furigana_filter_sensitivity || 0) + 'px';
+            manualOcrHotkeyInput.value = ocr_settings.manualOcrHotkey || 'Ctrl+Shift+G';
         }
         refreshScenesAndWindows();
         // getCurrentSceneConfig();

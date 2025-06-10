@@ -226,6 +226,9 @@ class ConfigApp:
                 trim_beginning=self.vad_trim_beginning.get(),
                 beginning_offset=float(self.vad_beginning_offset.get()),
                 add_audio_on_no_results=self.add_audio_on_no_results.get(),
+                language=self.language.get(),
+                cut_and_splice_segments=self.cut_and_splice_segments.get(),
+                splice_padding=float(self.splice_padding.get()) if self.splice_padding.get() else 0.0,
             ),
             advanced=Advanced(
                 audio_player_path=self.audio_player_path.get(),
@@ -496,6 +499,18 @@ class ConfigApp:
         self.add_audio_on_no_results = tk.BooleanVar(value=self.settings.vad.add_audio_on_no_results)
         ttk.Checkbutton(vad_frame, variable=self.add_audio_on_no_results).grid(row=self.current_row, column=1, sticky='W')
         self.add_label_and_increment_row(vad_frame, "Add audio even if no results are found by VAD.", row=self.current_row, column=2)
+
+        ttk.Label(vad_frame, text="Cut and Splice Segments:").grid(row=self.current_row, column=0, sticky='W')
+        self.cut_and_splice_segments = tk.BooleanVar(value=self.settings.vad.cut_and_splice_segments)
+        ttk.Checkbutton(vad_frame, variable=self.cut_and_splice_segments).grid(row=self.current_row, column=1, sticky='W')
+        self.add_label_and_increment_row(vad_frame, "Enable to cut and splice audio segments together based on VAD results.", row=self.current_row, column=2)
+
+        ttk.Label(vad_frame, text="Splice Padding (seconds):").grid(row=self.current_row, column=0, sticky='W')
+        self.splice_padding = ttk.Entry(vad_frame)
+        self.splice_padding.insert(0, str(self.settings.vad.splice_padding))
+        self.splice_padding.grid(row=self.current_row, column=1)
+        self.add_label_and_increment_row(vad_frame, "Padding in seconds added to spliced audio segments. WARNING: This may result in duplicated voicelines if too high!", row=self.current_row, column=2)
+
 
 
     @new_tab

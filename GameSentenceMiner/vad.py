@@ -1,31 +1,15 @@
 import subprocess
 import tempfile
+import time
 import warnings
 from abc import abstractmethod, ABC
 
 from GameSentenceMiner.util import configuration, ffmpeg
 from GameSentenceMiner.util.configuration import *
 from GameSentenceMiner.util.ffmpeg import get_ffprobe_path
+from GameSentenceMiner.util.gsm_utils import make_unique_file_name, run_new_thread
+from GameSentenceMiner.util.model import VADResult
 
-class VADResult:
-    def __init__(self, success: bool, start: float, end: float, model: str, output_audio: str = None):
-        self.success = success
-        self.start = start
-        self.end = end
-        self.model = model
-        self.output_audio = None
-
-    def __repr__(self):
-        return f"VADResult(success={self.success}, start={self.start}, end={self.end}, model={self.model}, output_audio={self.output_audio})"
-
-    def trim_successful_string(self):
-        if self.success:
-            if get_config().vad.trim_beginning:
-                return f"Trimmed audio from {self.start:.2f} to {self.end:.2f} seconds using {self.model}."
-            else:
-                return f"Trimmed end of audio to {self.end:.2f} seconds using {self.model}."
-        else:
-            return f"Failed to trim audio using {self.model}."
 
 class VADSystem:
     def __init__(self):
@@ -108,6 +92,29 @@ class VADProcessor(ABC):
         )
         return float(result.stdout.strip())
 
+    @staticmethod
+    def extract_audio_and_combine_segments(input_audio, segments, output_audio, padding=0.2):
+        files = []
+        ffmpeg_threads = []
+        logger.info(f"Extracting {len(segments)} segments from {input_audio} with padding {padding} seconds.")
+        for segment in segments:
+            logger.info(segment)
+            temp_file = make_unique_file_name(os.path.join(get_temporary_directory(), "segment." + get_config().audio.extension))
+            files.append(temp_file)
+            ffmpeg_threads.append(run_new_thread(lambda: ffmpeg.trim_audio(input_audio, segment['start'] - padding, segment['end'] + padding, temp_file, trim_beginning=True)))
+            time.sleep(0.1)  # Small delay to ensure unique file names
+
+        for thread in ffmpeg_threads:
+            thread.join()
+
+        if len(files) > 1:
+            ffmpeg.combine_audio_files(files, output_audio)
+            # for file in files:
+            #     os.remove(file)
+        else:
+            shutil.move(files[0], output_audio)
+
+
     def process_audio(self, input_audio, output_audio, game_line):
         voice_activity = self._detect_voice_activity(input_audio)
 
@@ -124,8 +131,11 @@ class VADProcessor(ABC):
             if 0 > audio_length - voice_activity[-1]['start'] + get_config().audio.beginning_offset:
                 end_time = voice_activity[-2]['end']
 
-        ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio)
-        return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, self.vad_system_name, output_audio)
+        if get_config().vad.cut_and_splice_segments:
+            self.extract_audio_and_combine_segments(input_audio, voice_activity, output_audio, padding=get_config().vad.splice_padding)
+        else:
+            ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio, trim_beginning=get_config().vad.trim_beginning, fade_in_duration=0, fade_out_duration=0)
+        return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, self.vad_system_name, voice_activity, output_audio)
 
 class SileroVADProcessor(VADProcessor):
     def __init__(self):
@@ -176,17 +186,23 @@ class WhisperVADProcessor(VADProcessor):
         # Process the segments to extract tokens, timestamps, and confidence
         for segment in result.segments:
             logger.debug(segment.to_dict())
-            for word in segment.words:
-                logger.debug(word.to_dict())
-                confidence = word.probability
-                if confidence > .1:
-                    logger.debug(word)
-                    voice_activity.append({
-                        'text': word.word,
-                        'start': word.start,
-                        'end': word.end,
-                        'confidence': word.probability
-                    })
+            voice_activity.append({
+                'text': segment.text,
+                'start': segment.start,
+                'end': segment.end,
+                'confidence': segment.avg_logprob
+            })
+            # for word in segment.words:
+            #     logger.debug(word.to_dict())
+            #     confidence = word.probability
+            #     if confidence > .1:
+            #         logger.debug(word)
+            #         voice_activity.append({
+            #             'text': word.word,
+            #             'start': word.start,
+            #             'end': word.end,
+            #             'confidence': word.probability
+            #         })
 
         # Analyze the detected words to decide whether to use the audio
         should_use = False
@@ -343,3 +359,9 @@ class GroqVADProcessor(VADProcessor):
             return [], 0.0
 
 vad_processor = VADSystem()
+
+# test_vad = SileroVADProcessor()
+#
+# if os.path.exists(r"C:\Users\Beangate\GSM\Electron App\test\after_splice.opus"):
+#     os.remove(r"C:\Users\Beangate\GSM\Electron App\test\after_splice.opus")
+# test_vad.process_audio(r"C:\Users\Beangate\GSM\Electron App\test\before_splice.opus", r"C:\Users\Beangate\GSM\Electron App\test\after_splice.opus", None)

@@ -101,3 +101,5 @@ package-lock.json
 *.py~
 *.ts~
 test.py
+*.opus
+.vscode/settings.json

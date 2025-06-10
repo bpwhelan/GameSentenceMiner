@@ -334,6 +334,8 @@ class ScreenSelector:
                 serializable_rects.append(rect_data)
 
             # Prepare final data structure for JSON
+            if len(rectangles) == 0:
+                save_coord_system = COORD_SYSTEM_PERCENTAGE
             save_data = {
                 "scene": obs.get_current_scene() or "default_scene",
                 "window": self.window_name,  # Store targeted window name
