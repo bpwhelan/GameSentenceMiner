@@ -269,7 +269,7 @@ class ScreenSelector:
         """Saves rectangles to the config file, using percentages if window is targeted."""
         # Use the window geometry found during __init__ for consistency during save
         window_geom_to_save = self.target_window_geometry
-        save_coord_system = COORD_SYSTEM_ABSOLUTE  # Default if no window
+        save_coord_system = COORD_SYSTEM_PERCENTAGE  # Default if no window
 
         config_path = self.get_scene_ocr_config()
         print(f"Saving rectangles to: {config_path}")
@@ -334,7 +334,7 @@ class ScreenSelector:
                 serializable_rects.append(rect_data)
 
             # Prepare final data structure for JSON
-            if len(rectangles) == 0:
+            if not self.rectangles or len(self.rectangles) == 0:
                 save_coord_system = COORD_SYSTEM_PERCENTAGE
             save_data = {
                 "scene": obs.get_current_scene() or "default_scene",
