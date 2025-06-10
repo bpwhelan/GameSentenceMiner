@@ -4,14 +4,6 @@ from PIL import Image, ImageTk
 import mss
 import mss.tools
 import io
-import sys
-import ctypes
-
-if sys.platform == "win32":
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
-    except AttributeError:
-        ctypes.windll.user32.SetProcessDPIAware()
 
 class ScreenCropper:
     def __init__(self):
