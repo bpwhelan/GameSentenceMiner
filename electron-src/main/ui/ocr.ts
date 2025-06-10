@@ -161,7 +161,7 @@ export function registerOCRUtilsIPC() {
             if (ocr_config.ocr_screenshots) command.push("--clipboard");
             if (ocr_config.window_name) command.push("--window", `${ocr_config.window_name}`);
             if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
-            if (ocr_config.manualOcrHotkey) command.push("--manual_ocr_hotkey", `${ocr_config.manualOcrHotkey}`);
+            if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
 
             runOCR(command);
         }
@@ -173,12 +173,14 @@ export function registerOCRUtilsIPC() {
             const command = [
                 `${getPythonPath()}`, `-m`, `GameSentenceMiner.ocr.owocr_helper`,
                 `--language`, `${ocr_config.language}`,
-                `--ocr1`, `${ocr_config.ocr1}`,
+                `--ocr1`, `${ocr_config.ocr2}`,
                 `--ocr2`, `${ocr_config.ocr2}`,
-                `--ssonly`
+                `--window`, `${ocr_config.window_name}`,
+                `--manual`
             ];
             if (ocr_config.ocr_screenshots) command.push("--clipboard");
             if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
+            if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
             if (ocr_config.manualOcrHotkey) command.push("--manual_ocr_hotkey", `${ocr_config.manualOcrHotkey}`);
             runOCR(command);
         }

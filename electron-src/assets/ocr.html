@@ -153,24 +153,33 @@
     </span>
 </div>
 <div>
+    <label for="area-select-ocr-hotkey">
+        Area Select OCR Hotkey:
+        <input type="text" id="area-select-ocr-hotkey" value="Ctrl+Shift+O">
+    </label>
+    <span class="tooltip">❓
+        <span class="tooltiptext">
+            Hotkey to run an area selector for OCR. This will allow you to select an area on the screen to OCR once (Useful for Menus, etc.).
+        </span>
+    </span>
     <label for="manual-ocr-hotkey">
         Manual OCR Hotkey:
         <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G">
     </label>
     <span class="tooltip">❓
         <span class="tooltiptext">
-            Hotkey to trigger manual OCR. Press the desired key combination while this field is focused.
+            Hotkey to manually OCR the selected area. This will run the OCR on the selected area and return the result. <strong>Note:</strong> This uses the OCR Option 2, and is only used for "Manual OCR".
         </span>
     </span>
     <label for="ocr-screenshots">
         OCR Clipboard Screenshots:
         <input type="checkbox" id="ocr-screenshots">
-        <span class="tooltip">❓
-            <span class="tooltiptext">
-                If enabled, GSM will take images copied to clipboard (i.e. sharex) and run OCR on them and return to clipboard.
-            </span>
-        </span>
     </label>
+    <span class="tooltip">❓
+        <span class="tooltiptext">
+            If enabled, GSM will take images copied to clipboard (i.e. sharex) and run OCR on them and return to clipboard. <strong>Note:</strong> This may be removed in the future.
+        </span>
+    </span>
 </div>
 <div>
     <div>
@@ -187,7 +196,7 @@
                 </span>
             </span>
         </label>
-         <span id="dynamic-size-display">龍</span>
+        <span id="dynamic-size-display">龍</span>
     </div>
     <script>
         const furiganaFilterSlider = document.getElementById('furigana-filter-sensitivity');
@@ -266,6 +275,19 @@
         if (event.key && !['Control', 'Shift', 'Alt'].includes(event.key)) keys.push(event.key);
 
         manualOcrHotkeyInput.value = keys.join('+');
+        saveOCRConfig();
+    });
+
+    const areaSelectOCRHotkeyInput = document.getElementById('area-select-ocr-hotkey');
+    areaSelectOCRHotkeyInput.addEventListener('keydown', (event) => {
+        event.preventDefault(); // Prevent default input behavior
+        const keys = [];
+        if (event.ctrlKey) keys.push('Ctrl');
+        if (event.shiftKey) keys.push('Shift');
+        if (event.altKey) keys.push('Alt');
+        if (event.key && !['Control', 'Shift', 'Alt'].includes(event.key)) keys.push(event.key);
+
+        areaSelectOCRHotkeyInput.value = keys.join('+');
         saveOCRConfig();
     });
 
@@ -491,7 +513,8 @@
             language: document.getElementById('languageSelect').value,
             ocr_screenshots: document.getElementById('ocr-screenshots').checked,
             furigana_filter_sensitivity: document.getElementById('furigana-filter-sensitivity').value,
-            manualOcrHotkey: manualOcrHotkeyInput.value
+            manualOcrHotkey: manualOcrHotkeyInput.value,
+            areaSelectOcrHotkey: areaSelectOCRHotkeyInput.value,
         };
         await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
     }
@@ -508,10 +531,11 @@
             document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
             document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
             document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots || false;
-            document.getElementById('furigana-filter-sensitivity').value = ocr_settings.furigana_filter_sensitivity || '';
+            document.getElementById('furigana-filter-sensitivity').value = ocr_settings.furigana_filter_sensitivity || 0;
             document.getElementById('furigana-filter-sensitivity-value').textContent = ocr_settings.furigana_filter_sensitivity || '0';
             document.getElementById('dynamic-size-display').style.fontSize = (ocr_settings.furigana_filter_sensitivity || 0) + 'px';
             manualOcrHotkeyInput.value = ocr_settings.manualOcrHotkey || 'Ctrl+Shift+G';
+            areaSelectOCRHotkeyInput.value = ocr_settings.areaSelectOcrHotkey || 'Ctrl+Shift+O';
         }
         refreshScenesAndWindows();
         // getCurrentSceneConfig();

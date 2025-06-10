@@ -8,7 +8,7 @@ import mss
 from PIL import Image, ImageTk, ImageDraw
 
 from GameSentenceMiner import obs  # Import your actual obs module
-from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
+from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 try:
@@ -88,13 +88,7 @@ class ScreenSelector:
         if not self.window_name:
             return None
         try:
-            windows = gw.getWindowsWithTitle(self.window_name)
-            if windows:
-                if len(windows) > 1:
-                    print(f"Warning: Multiple windows found with title '{self.window_name}'. Using the first one.")
-                return windows[0]
-            else:
-                return None
+            return get_window(self.window_name)
         except Exception as e:
             print(f"Error finding window '{self.window_name}': {e}")
             return None

@@ -48,6 +48,7 @@ interface OCRConfig {
     ocr_screenshots: boolean;
     furigana_filter_sensitivity: number;
     manualOcrHotkey: string;
+    areaSelectOcrHotkey: string;
 }
 
 export enum HookableGameType {
@@ -134,7 +135,8 @@ export const store = new Store<StoreConfig>({
             language: "ja",
             ocr_screenshots: false,
             furigana_filter_sensitivity: 0,
-            manualOcrHotkey: "Ctrl+Shift+G",
+            manualOcrHotkey: "Ctrl+Shift+O",
+            areaSelectOcrHotkey: "Ctrl+Shift+G",
         },
         customPythonPackage: "GameSentenceMiner"
     },

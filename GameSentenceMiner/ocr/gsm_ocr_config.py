@@ -5,6 +5,8 @@ from math import floor, ceil
 from dataclasses_json import dataclass_json
 from typing import List, Optional, Union
 
+from GameSentenceMiner.util.configuration import logger
+
 
 @dataclass_json
 @dataclass
@@ -51,14 +53,14 @@ class OCRConfig:
             import pygetwindow as gw
             try:
                 set_dpi_awareness()
-                window = gw.getWindowsWithTitle(self.window)[0]
+                window = get_window(self.window)
                 self.window_geometry = WindowGeometry(
                     left=window.left,
                     top=window.top,
                     width=window.width,
                     height=window.height,
                 )
-                print(f"Window '{self.window}' found with geometry: {self.window_geometry}")
+                logger.info(f"Window '{self.window}' found with geometry: {self.window_geometry}")
             except IndexError:
                 raise ValueError(f"Window with title '{self.window}' not found.")
             for rectangle in self.rectangles:
@@ -68,6 +70,27 @@ class OCRConfig:
                     ceil(rectangle.coordinates[2] * self.window_geometry.width),
                     ceil(rectangle.coordinates[3] * self.window_geometry.height),
                 ]
+
+def get_window(title):
+    import pygetwindow as gw
+    windows = gw.getWindowsWithTitle(title)
+    if not windows:
+        raise ValueError(f"No windows found with title '{title}'.")
+    ret = None
+    if windows:
+        for window in windows:
+            if "cmd.exe" in window.title.lower():
+                logger.info(f"Skipping cmd.exe window with title: {window.title}")
+                continue
+            if len(windows) > 1:
+                logger.info(
+                    f"Warning: More than 1 window with title, Window Title: {window.title}, Geometry: {window.left}, {window.top}, {window.width}, {window.height}")
+            if window.title == title:
+                if window.isMinimized or not window.visible:
+                    logger.info(f"Warning: Window '{title}' is minimized. Attempting to restore it.")
+                    window.restore()
+                return window
+    return ret
 
 # try w10+, fall back to w8.1+
 def set_dpi_awareness():

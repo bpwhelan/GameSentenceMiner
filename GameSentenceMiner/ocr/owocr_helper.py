@@ -19,7 +19,7 @@ from GameSentenceMiner.ocr.ss_picker import ScreenCropper
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory
 from GameSentenceMiner.util.electron_config import get_ocr_scan_rate, get_requires_open_window
-from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness, get_window
 from GameSentenceMiner.owocr.owocr import screen_coordinate_picker, run
 from GameSentenceMiner.util.gsm_utils import sanitize_filename, do_text_replacements, OCR_REPLACEMENTS_FILE
 
@@ -238,7 +238,7 @@ def save_result_image(img):
 async def send_result(text, time):
     if text:
         text = do_text_replacements(text, OCR_REPLACEMENTS_FILE)
-        if get_config().advanced.ocr_sends_to_clipboard or ssonly:
+        if get_config().advanced.ocr_sends_to_clipboard or manual:
             import pyperclip
             pyperclip.copy(text)
         try:
@@ -334,16 +334,13 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
     global done
     print("Running OneOCR")
     screen_area = None
-    screen_areas = []
-    exclusions = []
-    if not ssonly:
-        screen_areas = [",".join(str(c) for c in rect_config.coordinates) for rect_config in rectangles if not rect_config.is_excluded]
-        exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, rectangles)))
+    screen_areas = [",".join(str(c) for c in rect_config.coordinates) for rect_config in rectangles if not rect_config.is_excluded]
+    exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, rectangles)))
 
     run.init_config(False)
     try:
-        run.run(read_from="screencapture" if not ssonly else "clipboard" if ss_clipboard else "",
-                read_from_secondary="clipboard" if ss_clipboard and not ssonly else None,
+        run.run(read_from="screencapture",
+                read_from_secondary="clipboard" if ss_clipboard else None,
                 write_to="callback",
                 screen_capture_area=screen_area,
                 # screen_capture_monitor=monitor_config['index'],
@@ -358,7 +355,8 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
                 ocr2=ocr2,
                 gsm_ocr_config=ocr_config,
                 screen_capture_areas=screen_areas,
-                furigana_filter_sensitivity=furigana_filter_sensitivity)
+                furigana_filter_sensitivity=furigana_filter_sensitivity,
+                screen_capture_combo=manual_ocr_hotkey if manual_ocr_hotkey and manual else None)
     except Exception as e:
         logger.exception(f"Error running OneOCR: {e}")
     done = True
@@ -368,13 +366,12 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
 def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
     import keyboard
     cropper = ScreenCropper()
-    filtering = TextFiltering()
+    filtering = TextFiltering(lang=language)
     def capture():
         print("Taking screenshot...")
         img = cropper.run()
         do_second_ocr("", datetime.now(), img, filtering)
     try:
-        raise Exception("Forcing keyboard hotkey setup, this is a test.")
         keyboard.add_hotkey(ss_hotkey, capture)
         print(f"Press {ss_hotkey} to take a screenshot.")
     except Exception as e:
@@ -391,21 +388,6 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
         except Exception as e:
             logger.error(f"Error setting up screenshot hotkey with pynput, Screenshot Hotkey Will not work: {e}")
 
-
-def get_window(window_name):
-    import pygetwindow as gw
-    try:
-        windows = gw.getWindowsWithTitle(window_name)
-        if windows:
-            if len(windows) > 1:
-                print(f"Warning: Multiple windows found with title '{window_name}'. Using the first one.")
-            return windows[0]
-        else:
-            return None
-    except Exception as e:
-        print(f"Error finding window '{window_name}': {e}")
-        return None
-
 def set_force_stable_hotkey():
     import keyboard
     global force_stable
@@ -420,7 +402,7 @@ def set_force_stable_hotkey():
     print("Press Ctrl+Shift+F to toggle force stable mode.")
 
 if __name__ == "__main__":
-    global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity
+    global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey
     import sys
 
     import argparse
@@ -430,11 +412,12 @@ if __name__ == "__main__":
     parser.add_argument("--ocr1", type=str, default="oneocr", help="Primary OCR engine (default: oneocr)")
     parser.add_argument("--ocr2", type=str, default="glens", help="Secondary OCR engine (default: glens)")
     parser.add_argument("--twopassocr", type=int, choices=[0, 1], default=1, help="Enable two-pass OCR (default: 1)")
-    parser.add_argument("--ssonly", action="store_true", help="Use screenshot-only mode")
+    parser.add_argument("--manual", action="store_true", help="Use screenshot-only mode")
     parser.add_argument("--clipboard", action="store_true", help="Use clipboard for input")
     parser.add_argument("--window", type=str, help="Specify the window name for OCR")
     parser.add_argument("--furigana_filter_sensitivity", type=float, default=0, help="Furigana Filter Sensitivity for OCR (default: 0)")
-    parser.add_argument("--manual_ocr_hotkey", type=str, default="ctrl+shift+g", help="Hotkey for manual OCR (default: ctrl+shift+g)")
+    parser.add_argument("--manual_ocr_hotkey", type=str, default=None, help="Hotkey for manual OCR (default: None)")
+    parser.add_argument("--area_select_ocr_hotkey", type=str, default="ctrl+shift+o", help="Hotkey for area selection OCR (default: ctrl+shift+o)")
 
     args = parser.parse_args()
 
@@ -442,36 +425,35 @@ if __name__ == "__main__":
     ocr1 = args.ocr1
     ocr2 = args.ocr2 if args.ocr2 else None
     twopassocr = bool(args.twopassocr)
-    ssonly = args.ssonly
+    manual = args.manual
     ss_clipboard = args.clipboard
     window_name = args.window
     furigana_filter_sensitivity = args.furigana_filter_sensitivity
-    ss_hotkey = args.manual_ocr_hotkey.lower()
+    ss_hotkey = args.area_select_ocr_hotkey.lower()
+    manual_ocr_hotkey = args.manual_ocr_hotkey.lower().replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>") if args.manual_ocr_hotkey else None
 
     logger.info(f"Received arguments: {vars(args)}")
     # set_force_stable_hotkey()
-    ocr_config = None
-    if not ssonly:
-        ocr_config: OCRConfig = get_ocr_config(window=window_name)
-        if ocr_config:
-            if ocr_config.window:
-                start_time = time.time()
-                while time.time() - start_time < 30:
-                    if get_window(ocr_config.window):
-                        break
-                    logger.info(f"Window: {ocr_config.window} Could not be found, retrying in 1 second...")
-                    time.sleep(1)
-                else:
-                    logger.error(f"Window '{ocr_config.window}' not found within 30 seconds.")
-                    sys.exit(1)
-            logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
+    ocr_config: OCRConfig = get_ocr_config(window=window_name)
+    if ocr_config:
+        if ocr_config.window:
+            start_time = time.time()
+            while time.time() - start_time < 30:
+                if get_window(ocr_config.window):
+                    break
+                logger.info(f"Window: {ocr_config.window} Could not be found, retrying in 1 second...")
+                time.sleep(1)
+            else:
+                logger.error(f"Window '{ocr_config.window}' not found within 30 seconds.")
+                sys.exit(1)
+        logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
     set_dpi_awareness()
-    if ssonly or ocr_config:
+    if manual or ocr_config:
         rectangles = ocr_config.rectangles if ocr_config and ocr_config.rectangles else []
         oneocr_threads = []
         ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config,rectangles ), daemon=True)
         ocr_thread.start()
-        if not ssonly:
+        if not manual:
             worker_thread = threading.Thread(target=process_task_queue, daemon=True)
             worker_thread.start()
         websocket_server_thread = WebsocketServerThread(read=True)
