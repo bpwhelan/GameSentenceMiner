@@ -7,78 +7,75 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Game Configuration</h1>
-<div>
-    <label>
-        Steam ID (Place Steam URL here):
-        <input type="text" id="steamIdInput" class="inputField" placeholder="Enter Steam ID">
-    </label>
-</div>
-<div>
-    <p>OR</p>
-</div>
-<div>
-    <label for="selectExecutableBtn">Executable: </label>
-    <button id="selectExecutableBtn">Select Executable Path</button>
-    <span id="selectExcutableLabel"></span>
-    <span class="tooltip">❓
-        <span class="tooltiptext">
-            This is the path to the executable that will be used to launch the game. It should be the full path to the executable file, not just the name of the file. If you own the game on steam, it's preferred to keep this empty.
-        </span>
-    </span>
-</div>
-<div>
-    <p>OR</p>
-</div>
-<div>
-    <label>
-        Custom Command:
-        <input type="text" id="customCommandInput" class="inputField" placeholder="Enter Custom Command">
-    </label>
-</div>
-<hr>
-<div>
-    <label>
-        Game Name:
-        <input type="text" id="gameNameInput" class="inputField" placeholder="Enter Game Name">
-    </label>
-</div>
-<div>
-    <label>
-        Executable Name:
-        <input type="text" id="executableNameInput" class="inputField"
-               placeholder="Enter Executable Name (not Path, i.e. Yakuza0.exe)">
-    </label>
-</div>
-<div>
-    <label>
-        OBS Scene:
-        <select id="sceneSelect" class="gameSelect">
-            <option value="" disabled selected>Select an OBS Scene</option>
-        </select>
-    </label>
-</div>
-<div>
-    <label for="selectScriptBtn">Script:</label>
-    <button id="selectScriptBtn">Select Script</button>
-    <span id="scriptPathLabel"></span>
-</div>
-<div>
-    <label for="agentCheckbox">
-        <input type="checkbox" id="agentCheckbox">
-        Run Agent
-    </label>
-    <label for="textractorCheckbox">
-        <input type="checkbox" id="textractorCheckbox">
-        Run Textractor
-    </label>
-</div>
-<br>
-<div>
-    <button id="saveBtn" disabled>Save</button>
+<div class="card">
+    <h1>Game Configuration</h1>
+
+    <div class="form-group">
+        <div class="input-group">
+            <label>Steam ID (Place Steam URL here):</label>
+            <input type="text" id="steamIdInput" placeholder="Enter Steam ID">
+        </div>
+        <p>OR</p>
+        <div class="input-group">
+            <label for="selectExecutableBtn">Executable: </label>
+            <button id="selectExecutableBtn">Select Executable Path</button>
+            <span id="selectExcutableLabel"></span>
+            <span class="tooltip">?
+                <span class="tooltiptext">
+                    This is the path to the executable that will be used to launch the game. It should be the full path to the executable file, not just the name of the file. If you own the game on steam, it's preferred to keep this empty.
+                </span>
+            </span>
+        </div>
+        <p>OR</p>
+        <div class="input-group">
+            <label>Custom Command:</label>
+            <input type="text" id="customCommandInput" placeholder="Enter Custom Command">
+        </div>
+    </div>
 </div>
 
-<p id="status"></p>
+<div class="card">
+    <h2>Game Details</h2>
+    <div class="form-group">
+        <div class="input-group">
+            <label>Game Name:</label>
+            <input type="text" id="gameNameInput" placeholder="Enter Game Name">
+        </div>
+        <div class="input-group">
+            <label>Executable Name:</label>
+            <input type="text" id="executableNameInput"
+                   placeholder="Enter Executable Name (not Path, i.e. Yakuza0.exe)">
+        </div>
+        <div class="input-group">
+            <label>OBS Scene:</label>
+            <select id="sceneSelect">
+                <option value="" disabled selected>Select an OBS Scene</option>
+            </select>
+        </div>
+        <div class="input-group">
+            <label for="selectScriptBtn">Script:</label>
+            <button id="selectScriptBtn">Select Script</button>
+            <span id="scriptPathLabel"></span>
+        </div>
+        <div class="input-group">
+            <label for="agentCheckbox">
+                <input type="checkbox" id="agentCheckbox">
+                Run Agent
+            </label>
+            <label for="textractorCheckbox">
+                <input type="checkbox" id="textractorCheckbox">
+                Run Textractor
+            </label>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="form-group">
+        <button id="saveBtn" disabled>Save</button>
+        <p id="status"></p>
+    </div>
+</div>
 
 <script>
     const {ipcRenderer} = require('electron');

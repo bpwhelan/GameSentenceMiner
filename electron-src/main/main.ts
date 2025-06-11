@@ -194,7 +194,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
 async function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280,
-        height: 720,
+        height: 1080,
         icon: getIconPath(32),
         show: !getStartConsoleMinimized(),
         webPreferences: {
@@ -244,6 +244,14 @@ async function createWindow() {
                 }
             ],
         },
+        {
+            label: "Refresh",
+            click: () => {
+                if (mainWindow) {
+                    mainWindow.reload();
+                }
+            }
+        }
     ]);
 
     mainWindow.setMenu(menu);

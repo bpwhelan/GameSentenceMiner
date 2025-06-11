@@ -9,45 +9,48 @@
 <body>
 <h1>Game Launcher</h1>
 
-<div id="gamesSection">
+<div id="gamesSection" class="card">
     <h2>Select a Game</h2>
-    <div>
-        <label for="hookableGamesDropdown">Select Game:</label>
-        <select id="hookableGamesDropdown">
-            <option value="">Select Game</option>
-        </select>
-
-        <button id="steamButton" onclick="location.href='steam.html'">Game Config</button>
-<!--        <button id="vnButton" onclick="location.href='vn.html'">VN/.exe Config</button>-->
-        <button id="yuzuButton" style="display: none;" onclick="location.href='yuzu.html'">Yuzu Config</button>
-        <button id="ocrButton" onclick="location.href='ocr.html'">OCR Config</button>
+    <div class="form-group">
+        <div class="input-group">
+            <label for="hookableGamesDropdown">Select Game:</label>
+            <select id="hookableGamesDropdown">
+                <option value="">Select Game</option>
+            </select>
+        </div>
+        <div class="input-group">
+            <button id="steamButton" onclick="location.href='steam.html'">Game Config</button>
+            <button id="yuzuButton" style="display: none;" onclick="location.href='yuzu.html'">Yuzu Config</button>
+            <button id="ocrButton" onclick="location.href='ocr.html'">OCR Config</button>
+        </div>
     </div>
 </div>
 
-<div id="obsSection">
-    <label for="currentObsScene">Current Scene:</label>
-    <span id="currentObsScene">Not Selected</span>
+<div id="obsSection" class="card">
+    <h2>Config</h2>
+    <div class="input-group">
+        <label for="currentObsScene">Current Scene:</label>
+        <span id="currentObsScene">Not Selected</span>
+    </div>
+    <div class="input-group">
+        <label for="currentOcrConfig">OCR Config:</label>
+        <span id="currentOcrConfig">Not Selected</span>
+    </div>
+    <div class="input-group">
+        <label for="agentGamesCheckbox">
+            Run Agent/Textractor:
+            <input type="checkbox" id="agentGamesCheckbox">
+        </label>
+    </div>
+    <div class="input-group">
+        <label for="ocrGamesCheckbox">
+            Run OCR:
+            <input type="checkbox" id="ocrGamesCheckbox">
+        </label>
+    </div>
 </div>
 
-<div id="ocrSection">
-    <!--    <h2>Selected OCR Config</h2>-->
-    <label for="currentOcrConfig">OCR Config:</label>
-    <span id="currentOcrConfig">Not Selected</span>
-    <!--    <button id="setupOcrButton">Setup OCR</button>-->
-</div>
-
-<div>
-    <label for="agentGamesCheckbox">
-        Run Agent/Textractor:
-        <input type="checkbox" id="agentGamesCheckbox">
-    </label>
-    <label for="ocrGamesCheckbox">
-        Run OCR:
-        <input type="checkbox" id="ocrGamesCheckbox">
-    </label>
-</div>
-
-<div id="startSection">
+<div id="startSection" class="card">
     <button id="startButton">Start</button>
 </div>
 
@@ -192,7 +195,7 @@
             }
             if (ocrGamesCheckbox.checked && selectedOCRConfig) {
                 setTimeout(() => {
-                ipcRenderer.send('ocr.start-ocr', selectedOCRConfig);
+                    ipcRenderer.send('ocr.start-ocr', selectedOCRConfig);
                 }, 3000);
                 statusMessage.textContent += " with OCR enabled.";
             } else if (ocrGamesCheckbox.checked && !selectedOCRConfig) {

@@ -7,30 +7,48 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Yuzu Game Config/Launcher</h1>
-<div>
-    <label for="sceneSelect">Scenes:</label>
-    <select id="sceneSelect"></select>
-    <button id="refreshScenesBtn">&#x21bb;</button>
-</div>
-<div>
-    <label>
-        Game Select:
-        <select id="gameSelect" class="gameSelect">
-            <option value="" disabled selected>Select a game</option>
-        </select>
-    </label>
-    <button id="addToHomeBtn" disabled>Add Game to Launcher</button>
-    <button id="launchBtn" class="pathBtn" disabled>Launch Game</button>
-</div>
-<div>
-    <button id="setScriptsPathBtn" class="pathBtn">Set Scripts Path</button>
-    <button id="setAgentBtn" class="pathBtn">Set Agent Path</button>
-    <button id="setYuzuPathBtn" class="pathBtn">Set Yuzu Path</button>
-    <button id="setRomPathBtn" class="pathBtn">Set ROMS Path</button>
+<div class="grid-container">
+    <div class="card">
+        <h2>Scene Selection</h2>
+        <div class="form-group">
+            <div class="input-group">
+                <label for="sceneSelect">Scenes:</label>
+                <select id="sceneSelect"></select>
+                <button id="refreshScenesBtn">&#x21bb;</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Game Control</h2>
+        <div class="form-group">
+            <div class="input-group">
+                <label for="gameSelect">Game Select:</label>
+                <select id="gameSelect" class="gameSelect">
+                    <option value="" disabled selected>Select a game</option>
+                </select>
+            </div>
+            <button id="addToHomeBtn" disabled>Add Game to Launcher</button>
+            <button id="launchBtn" class="pathBtn" disabled>Launch Game</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Path Configuration</h2>
+        <div class="form-group">
+            <button id="setScriptsPathBtn" class="pathBtn secondary">Set Scripts Path</button>
+            <button id="setAgentBtn" class="pathBtn secondary">Set Agent Path</button>
+            <button id="setYuzuPathBtn" class="pathBtn secondary">Set Yuzu Path</button>
+            <button id="setRomPathBtn" class="pathBtn secondary">Set ROMS Path</button>
+        </div>
+    </div>
 </div>
 
-<p id="status"></p>
+<div class="card">
+    <h2>Status</h2>
+    <p id="status"></p>
+</div>
+
 
 <script>
     const { ipcRenderer } = require('electron');
@@ -108,7 +126,7 @@
     }
 
     addToHomeBtn.addEventListener('click', () => {
-       ipcRenderer.invoke('yuzu.addToHomeBtn', {name: gameSelect.selectedOptions[0].textContent, id: gameSelect.value, scene: obsScenes.find(scene2 => scene2.id === sceneSelect.value)});
+        ipcRenderer.invoke('yuzu.addToHomeBtn', {name: gameSelect.selectedOptions[0].textContent, id: gameSelect.value, scene: obsScenes.find(scene2 => scene2.id === sceneSelect.value)});
     });
 
     setAgentBtn.addEventListener('click', () => {
@@ -147,7 +165,7 @@
     };
 
     sceneSelect.addEventListener('change', () => {
-       validate()
+        validate()
     });
 
     gameSelect.addEventListener('change', () => {

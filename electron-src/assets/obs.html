@@ -50,67 +50,52 @@
 
     </style>
 </head>
-<body class="antialiased">
-<!--<div class="control">-->
-<!--    <button id="launchObsBtn">Launch OBS</button>-->
-<!--</div>-->
-<!--<div class="control">-->
-<!--    <button id="saveReplayBtn">Save Replay Buffer</button>-->
-<!--</div>-->
-<h2>Game Capture (Required)</h2>
-<div class="control">
-    <label for="sceneSelect">Game:</label>
-    <select id="sceneSelect" class="p-2 border border-gray-300 rounded-md"></select>
-    <button id="refreshScenesBtn" class="p-2 bg-blue-500 text-white rounded-md">&#x21bb;</button>
-    <button id="removeSceneBtn" class="p-2 bg-red-500 text-white rounded-md">Remove Game</button>
-</div>
-<div class="control">
-    <label for="windowSelect">Setup New Game:</label>
-    <select id="windowSelect" class="p-2 border border-gray-300 rounded-md"></select>
-    <button id="refreshWindowsBtn" class="p-2 bg-blue-500 text-white rounded-md">&#x21bb;</button>
-    <!--        <label for="sceneNameInput">Override Scene Name:</label>-->
-    <!--        <input type="text" id="sceneNameInput" class="inputField"  placeholder="Enter a name for the new scene">-->
-    <button id="createNewSceneBtn" class="p-2 bg-green-500 text-white rounded-md">Create New Scene (Window Capture)
-    </button>
-    <button id="createNewSceneGameBtn" class="p-2 bg-green-500 text-white rounded-md">Create New Scene (Game Capture)
-    </button>
-    <span class="tooltip">❓
+<body>
+<div class="card">
+    <h2>Game Capture (Required)</h2>
+    <div class="input-group">
+        <label for="sceneSelect">Game:</label>
+        <select id="sceneSelect"></select>
+        <button id="refreshScenesBtn">&#x21bb;</button>
+        <button id="removeSceneBtn" class="danger">Remove Game</button>
+    </div>
+    <div class="input-group">
+        <label for="windowSelect">Setup New Game:</label>
+        <select id="windowSelect"></select>
+        <button id="refreshWindowsBtn">&#x21bb;</button>
+        <button id="createNewSceneBtn">New Window Capture</button>
+        <button id="createNewSceneGameBtn">New Game Capture</button>
+        <span class="tooltip">?
         <span class="tooltiptext">
             Window Capture works for most applications
             <br>
             Game Capture is recommended for fullscreen games.
         </span>
     </span>
+    </div>
 </div>
-<div>
-    <!--    <button id="reinstallPythonBtn" class="button-blue">Reinstall Python/Python Package</button>-->
-    <button id="openGSMSettingsBtn" class="button-blue">Open GSM Settings</button>
+<div class="card">
+    <button id="openGSMSettingsBtn">Open GSM Settings</button>
 </div>
-<div>
+<div class="card">
     <h2>Status:</h2>
     <button class="status-button" id="gsm-status" title="GSM Status: Indicates whether the GSM Python app is running.">
-        <span class="icon">⛏</span> GSM <span></span>
+        <span class="icon">⛏</span> <span>GSM</span> <span></span>
     </button>
     <button class="status-button" id="clipboard-status"
             title="Clipboard Status: Indicates whether the clipboard is being monitored.">
-        <span class="icon">📋</span> Clipboard <span></span>
+        <span class="icon">📋</span> <span>Clipboard</span> <span></span>
     </button>
     <span id="websocket_container">
 
     </span>
-    <!--    <button class="status-button" id="websocket-status">-->
-    <!--        <span class="icon">🔗</span> Text Source: <span></span>-->
-    <!--    </button>-->
     <button class="status-button" id="obs-status" title="OBS Status: Indicates whether OBS is running.">
-        <span class="icon">📹</span> OBS <span></span>
+        <span class="icon">📹</span> <span>OBS</span> <span></span>
     </button>
     <button class="status-button" id="anki-status" title="Anki Status: Indicates whether Anki is connected.">
-        <span class="icon">📘</span> Anki <span></span>
+        <span class="icon">📘</span> <span>Anki</span> <span></span>
     </button>
 </div>
-<!--<div class="control">-->
-<!--    <h2>Status:</h2>-->
-<!--</div>-->
 <script>
     const {ipcRenderer} = require('electron');
     const removeSceneBtn = document.getElementById('removeSceneBtn');

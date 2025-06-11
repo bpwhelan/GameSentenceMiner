@@ -7,58 +7,63 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Settings</h1>
+<div class="card">
+    <h2>Settings</h2>
 
-<div class="setting-group">
-    <div>
-    <label for="autoUpdateGSMApp">Auto Update GSM Python App:</label>
-    <input type="checkbox" id="autoUpdateGSMApp" class="setting-checkbox">
-        <span class="tooltip">❓
-        <span class="tooltiptext">
-                Automatically updates the GSM Python "Backend" to the latest version. This is what does all the heavy lifting. Audio Trim, Screenshot, etc.
-            </span>
-        </span>
+    <div class="form-group">
+        <div class="input-group">
+            <label for="autoUpdateGSMApp">Auto Update GSM Python App:</label>
+            <input type="checkbox" id="autoUpdateGSMApp">
+            <span class="tooltip">?
+                    <span class="tooltiptext">
+                        Automatically updates the GSM Python "Backend" to the latest version. This is what does all the heavy lifting. Audio Trim, Screenshot, etc.
+                    </span>
+                </span>
+        </div>
+
+        <div class="input-group">
+            <label for="autoUpdateElectron">Auto Update GSM Electron App:</label>
+            <input type="checkbox" id="autoUpdateElectron">
+            <span class="tooltip">?
+                    <span class="tooltiptext">
+                        Automatically updates the GSM Electron application to the latest version. This is the application you are on.
+                    </span>
+                </span>
+        </div>
+
+        <div class="input-group">
+            <label for="startConsoleMinimized">Start Console Minimized:</label>
+            <input type="checkbox" id="startConsoleMinimized">
+            <span class="tooltip">?
+                    <span class="tooltiptext">
+                        Starts the console in a minimized state when the application launches.
+                    </span>
+                </span>
+        </div>
+
+        <div class="input-group">
+            <label for="showYuzuTab">Show Yuzu Launcher:</label>
+            <input type="checkbox" id="showYuzuTab">
+            <span class="tooltip">?
+                    <span class="tooltiptext">
+                        Enables or disables the Yuzu Launcher tab in the launcher interface.
+                    </span>
+                </span>
+        </div>
     </div>
 
-    <div class="setting-group">
-    <label for="autoUpdateElectron">Auto Update GSM Electron App:</label>
-    <input type="checkbox" id="autoUpdateElectron" class="setting-checkbox">
-        <span class="tooltip">❓
-        <span class="tooltiptext">
-                Automatically updates the GSM Electron application to the latest version. This is the application you are on.
-            </span>
-        </span>
+    <div class="form-group" style="margin-top: 20px;">
+        <div class="input-group">
+            <label for="customPythonPackage">Custom Python Package DO NOT CHANGE UNLESS YOU KNOW WHAT YOU ARE DOING:</label>
+            <input type="text" id="customPythonPackage" placeholder="GameSentenceMiner">
+        </div>
     </div>
 
-    <div class="setting-group">
-    <label for="startConsoleMinimized">Start Console Minimized:</label>
-    <input type="checkbox" id="startConsoleMinimized" class="setting-checkbox">
-        <span class="tooltip">❓
-        <span class="tooltiptext">
-                Starts the console in a minimized state when the application launches.
-            </span>
-        </span>
+    <div class="form-group" style="margin-top: 20px;">
+        <button id="openGSMSettingsBtn">Open GSM Settings</button>
     </div>
-
-    <div class="setting-group">
-    <label for="showYuzuTab">Show Yuzu Launcher:</label>
-    <input type="checkbox" id="showYuzuTab" class="setting-checkbox">
-        <span class="tooltip">❓
-        <span class="tooltiptext">
-                Enables or disables the Yuzu Launcher tab in the launcher interface.
-            </span>
-        </span>
-    </div>
-
 </div>
-<div>
-    <label for="customPythonPackage">Custom Python Package DO NOT CHANGE UNLESS YOU KNOW WHAT YOU ARE DOING:</label>
-    <input type="text" id="customPythonPackage" class="setting-input" placeholder="GameSentenceMiner">
-</div>
 
-<div>
-    <button id="openGSMSettingsBtn" class="button-blue">Open GSM Settings</button>
-</div>
 <script>
     const {ipcRenderer} = require('electron');
     const autoUpdateGSMAppCheckbox = document.getElementById('autoUpdateGSMApp');
