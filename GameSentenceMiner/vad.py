@@ -93,15 +93,26 @@ class VADProcessor(ABC):
         return float(result.stdout.strip())
 
     @staticmethod
-    def extract_audio_and_combine_segments(input_audio, segments, output_audio, padding=0.2):
+    def extract_audio_and_combine_segments(input_audio, segments, output_audio, padding=0.1):
         files = []
         ffmpeg_threads = []
         logger.info(f"Extracting {len(segments)} segments from {input_audio} with padding {padding} seconds.")
-        for segment in segments:
+
+        current_start = None
+        for i in range(len(segments)):
+            segment = segments[i]
             logger.info(segment)
-            temp_file = make_unique_file_name(os.path.join(get_temporary_directory(), "segment." + get_config().audio.extension))
+            if i < len(segments) - 1 and (segments[i + 1]['start'] - segment['end']) < padding * 2:
+                logger.info(f"Adjusting segment {segments[i + 1]} due to insufficient padding.")
+                current_start = segment['start'] if current_start is None else current_start
+                continue
+            temp_file = make_unique_file_name(
+                os.path.join(get_temporary_directory(), "segment." + get_config().audio.extension))
             files.append(temp_file)
-            ffmpeg_threads.append(run_new_thread(lambda: ffmpeg.trim_audio(input_audio, segment['start'] - padding, segment['end'] + padding, temp_file, trim_beginning=True)))
+            ffmpeg_threads.append(run_new_thread(
+                lambda: ffmpeg.trim_audio(input_audio, (current_start if current_start else segment['start']) - padding, segment['end'] + padding, temp_file,
+                                          trim_beginning=True)))
+            current_start = None
             time.sleep(0.1)  # Small delay to ensure unique file names
 
         for thread in ffmpeg_threads:
@@ -109,8 +120,8 @@ class VADProcessor(ABC):
 
         if len(files) > 1:
             ffmpeg.combine_audio_files(files, output_audio)
-            # for file in files:
-            #     os.remove(file)
+            for file in files:
+                os.remove(file)
         else:
             shutil.move(files[0], output_audio)
 
@@ -361,7 +372,7 @@ class GroqVADProcessor(VADProcessor):
 vad_processor = VADSystem()
 
 # test_vad = SileroVADProcessor()
-#
+# #
 # if os.path.exists(r"C:\Users\Beangate\GSM\Electron App\test\after_splice.opus"):
 #     os.remove(r"C:\Users\Beangate\GSM\Electron App\test\after_splice.opus")
 # test_vad.process_audio(r"C:\Users\Beangate\GSM\Electron App\test\before_splice.opus", r"C:\Users\Beangate\GSM\Electron App\test\after_splice.opus", None)
