@@ -465,7 +465,7 @@ def initialize(reloading=False):
             download_obs_if_needed()
             download_ffmpeg_if_needed()
             if shutil.which("ffmpeg") is None:
-                os.environ["PATH"] += os.pathsep + get_ffmpeg_path()
+                os.environ["PATH"] += os.pathsep + os.path.dirname(get_ffmpeg_path())
         if get_config().obs.enabled:
             if get_config().obs.open_obs:
                 obs_process = obs.start_obs()
