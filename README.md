@@ -41,7 +41,7 @@ Audio: https://github.com/user-attachments/assets/2d7b3967-cd5c-4132-b489-75058e
 
 ### OCR
 
-GSM integrates with [OwOCR](https://github.com/AuroraWright/owocr/) to provide accurate text capture from games that do not have a hook. Here are some improvements GSM makes on stock OwOCR:
+GSM runs a fork of [OwOCR](https://github.com/AuroraWright/owocr/) to provide accurate text capture from games that do not have a hook. Here are some improvements GSM makes on stock OwOCR:
 
 * **Easier Setup**: With GSM's managed Python install, setup is only a matter of clicking a few buttons.
 
