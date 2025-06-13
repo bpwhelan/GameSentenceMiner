@@ -61,9 +61,9 @@ class Downloader:
         Main function to attempt download and extraction.
         Tries official source first, then a fallback URL.
         """
-        if checkdir(self.oneocr_dir):
-            print("Files already exist in cache.")
-            return True
+        # if checkdir(self.oneocr_dir):
+        #     print("Files already exist in cache.")
+        #     return True
 
         try:
             print("Attempting to download from official source...")
@@ -74,7 +74,7 @@ class Downloader:
             print(f"Download from official source failed: {stringfyerror(e)}")
             print("Attempting to download from fallback URL...")
             try:
-                fallback_url = dynamiclink("/Resource/SnippingTool") # Assuming this resolves to a URL
+                fallback_url = "https://gsm.beangate.us/oneocr.zip"
                 self.downloadx(fallback_url)
                 print("Download and extraction from fallback URL successful.")
                 return True
@@ -195,7 +195,7 @@ class Downloader:
 
     def downloadx(self, url: str):
         """Downloads a zip file from a URL and extracts it."""
-        print(f"Downloading from fallback URL: {url}")
+        print(f"Downloading from fallback URL")
         # Added accept-language to the fallback download as well for consistency
         headers = {
              "accept-language": "en-US,en;q=0.9",
@@ -239,5 +239,9 @@ if __name__ == "__main__":
     downloader = Downloader()
     if downloader.download_and_extract():
         print("SnippingTool files are ready.")
+        print("Press Ctrl+C or X on window to exit.")
+        input()
     else:
-        print("Failed to obtain SnippingTool files.")
+        print("Failed to download and extract SnippingTool files. You may need to follow instructions at https://github.com/AuroraWright/oneocr")
+        print("Press Ctrl+C or X on window to exit.")
+        input()
