@@ -161,7 +161,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                                       tango=tango,
                                       should_update_audio=vad_result.success,
                                       ss_time=ss_timing,
-                                      game_line=start_line,
+                                      game_line=mined_line,
                     selected_lines=selected_lines
                 )
             elif get_config().features.notify_on_update and vad_result.success:
