@@ -90,7 +90,7 @@ class VADProcessor(ABC):
         for i in range(len(segments)):
             segment = segments[i]
             logger.info(segment)
-            if i < len(segments) - 1 and (segments[i + 1]['start'] - segment['end']) < padding * 2:
+            if i < len(segments) - 1 and (segments[i + 1]['start'] - segment['end']) < (padding * 2 + padding / 2):
                 logger.info(f"Adjusting segment {segments[i + 1]} due to insufficient padding.")
                 current_start = segment['start'] if current_start is None else current_start
                 continue
@@ -98,7 +98,7 @@ class VADProcessor(ABC):
                 os.path.join(get_temporary_directory(), "segment." + get_config().audio.extension))
             files.append(temp_file)
             ffmpeg_threads.append(run_new_thread(
-                lambda: ffmpeg.trim_audio(input_audio, (current_start if current_start else segment['start']) - padding, segment['end'] + padding, temp_file,
+                lambda: ffmpeg.trim_audio(input_audio, (current_start if current_start else segment['start']) - (padding * 2), segment['end'] + (padding / 2), temp_file,
                                           trim_beginning=True)))
             current_start = None
             time.sleep(0.1)  # Small delay to ensure unique file names
@@ -360,8 +360,10 @@ class GroqVADProcessor(VADProcessor):
 
 vad_processor = VADSystem()
 
-# test_vad = SileroVADProcessor()
-# #
+# test_vad = WhisperVADProcessor()
+#
 # if os.path.exists(r"C:\Users\Beangate\GSM\Electron App\test\after_splice.opus"):
 #     os.remove(r"C:\Users\Beangate\GSM\Electron App\test\after_splice.opus")
-# test_vad.process_audio(r"C:\Users\Beangate\GSM\Electron App\test\before_splice.opus", r"C:\Users\Beangate\GSM\Electron App\test\after_splice.opus", None)
+# get_config().vad.cut_and_splice_segments = True
+# get_config().vad.splice_padding = 0.3
+# test_vad.process_audio(r"C:\Users\Beangate\GSM\Electron App\test\temp_audio.opus", r"C:\Users\Beangate\GSM\Electron App\test\after_splice.opus", None)
