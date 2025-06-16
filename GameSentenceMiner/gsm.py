@@ -80,6 +80,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
         vad_trimmed_audio = ''
         final_audio_output = ''
         skip_delete = False
+        selected_lines = []
+        anki_card_creation_time = None
+        mined_line = None
         gsm_state.previous_replay = video_path
         if gsm_state.line_for_audio or gsm_state.line_for_screenshot:
             handle_texthooker_button(video_path, get_audio_from_video=VideoToAudioHandler.get_audio)
@@ -87,6 +90,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
         try:
             if anki.card_queue and len(anki.card_queue) > 0:
                 last_note, anki_card_creation_time, selected_lines = anki.card_queue.pop(0)
+            elif get_config().features.backfill_audio:
+                last_note = anki.get_cards_by_sentence(gametext.current_line_after_regex)
             else:
                 logger.info("Replay buffer initiated externally. Skipping processing.")
                 skip_delete = True
@@ -103,8 +108,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 logger.error(
                     f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
                 return
+
+            # Just for safety
             if not last_note:
-                logger.debug("Attempting to get last anki card")
                 if get_config().anki.update_anki:
                     last_note = anki.get_last_anki_card()
                 if get_config().features.backfill_audio:
@@ -165,7 +171,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
             elif get_config().features.notify_on_update and vad_result.success:
                 notification.send_audio_generated_notification(vad_trimmed_audio)
         except Exception as e:
-            anki_results[mined_line.id] = AnkiUpdateResult.failure()
+            if mined_line:
+                anki_results[mined_line.id] = AnkiUpdateResult.failure()
             logger.error(f"Failed Processing and/or adding to Anki: Reason {e}")
             logger.debug(f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
             notification.send_error_no_anki_update()

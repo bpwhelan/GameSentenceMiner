@@ -23,8 +23,10 @@ def handle_texthooker_button(video_path='', get_audio_from_video=None):
                 elif get_config().advanced.video_player_path:
                     play_video_in_external(line, gsm_state.previous_audio)
                 else:
-                    play_obj = gsm_state.previous_audio.play()
-                    play_obj.wait_done()
+                    import sounddevice as sd
+                    data, samplerate = gsm_state.previous_audio
+                    sd.play(data, samplerate)
+                    sd.wait()
                 return
             gsm_state.previous_line_for_audio = line
             if get_config().advanced.audio_player_path:
@@ -37,13 +39,14 @@ def handle_texthooker_button(video_path='', get_audio_from_video=None):
                 gsm_state.previous_audio = new_video_path
                 gsm_state.previous_replay = new_video_path
             else:
-                import simpleaudio as sa
+                import sounddevice as sd
+                import soundfile as sf
                 audio = get_audio_from_video(line, line.next.time if line.next else None, video_path,
                                              temporary=True)
-                wave_obj = sa.WaveObject.from_wave_file(audio)
-                play_obj = wave_obj.play()
-                play_obj.wait_done()
-                gsm_state.previous_audio = wave_obj
+                data, samplerate = sf.read(audio)
+                sd.play(data, samplerate)
+                sd.wait()
+                gsm_state.previous_audio = (data, samplerate)
             return
         if gsm_state.line_for_screenshot:
             line: GameLine = gsm_state.line_for_screenshot

@@ -261,11 +261,13 @@ def get_cards_by_sentence(sentence):
         logger.warning(f'Found more than 1, and not updating cards for query: \n{query}')
         return {}
 
-    last_notes = invoke('notesInfo', notes=[card_ids[0]])[0]
-
-    logger.info(f"Found Card to backfill!: {card_ids[0]}")
-
-    return last_notes
+    card_dict = invoke('notesInfo', notes=[card_ids[-1]])[0]
+    try:
+        return AnkiCard.from_dict(card_dict)
+    except Exception as e:
+        logger.error(f"Error fetching last card: {e}")
+        logger.info(card_dict)
+        raise e
 
 last_connection_error = datetime.now()
 
