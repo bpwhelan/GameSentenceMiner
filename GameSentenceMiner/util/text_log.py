@@ -113,7 +113,7 @@ def one_contains_the_other(a, b):
 def lines_match(a, b):
     similarity = similar(a, b)
     logger.debug(f"Comparing: {a} with {b} - Similarity: {similarity}, Or One contains the other: {one_contains_the_other(a, b)}")
-    return similar(a, b) >= 0.60 or one_contains_the_other(a, b)
+    return similar(a, b) >= 0.80 or one_contains_the_other(a, b)
 
 
 def get_text_event(last_note) -> GameLine:
@@ -163,7 +163,7 @@ def get_mined_line(last_note: AnkiCard, lines=None):
         lines = get_all_lines()
 
     sentence = last_note.get_field(get_config().anki.sentence_field)
-    for line in lines:
+    for line in reversed(lines):
         if lines_match(line.text, remove_html_and_cloze_tags(sentence)):
             return line
     return lines[-1]

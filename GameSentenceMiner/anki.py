@@ -86,10 +86,6 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
     if prev_screenshot_in_anki and get_config().anki.previous_image_field != get_config().anki.picture_field:
         note['fields'][get_config().anki.previous_image_field] = prev_screenshot_html
 
-    if get_config().anki.anki_custom_fields:
-        for key, value in get_config().anki.anki_custom_fields.items():
-            note['fields'][key] = str(value)
-
 
     tags = []
     if get_config().anki.custom_tags:
@@ -100,6 +96,8 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         tag_string = " ".join(tags)
         invoke("addTags", tags=tag_string, notes=[last_note.noteId])
 
+
+    logger.info(f"Adding {game_line.id} to Anki Results Dict...")
     if not reuse_audio:
         anki_results[game_line.id] = AnkiUpdateResult(
             success=True,
@@ -298,18 +296,20 @@ def update_new_card():
     if not last_card or not check_tags_for_should_update(last_card):
         return
     gsm_status.add_word_being_processed(last_card.get_field(get_config().anki.word_field))
-    use_prev_audio = sentence_is_same_as_previous(last_card)
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(last_card)}")
+    lines = texthooking_page.get_selected_lines()
+    game_line = get_mined_line(last_card, lines)
+    use_prev_audio = sentence_is_same_as_previous(last_card, lines) or game_line.id in anki_results
     logger.info(f"New card using previous audio: {use_prev_audio}")
     if get_config().obs.get_game_from_scene:
         obs.update_current_game()
     if use_prev_audio:
-        lines = texthooking_page.get_selected_lines()
         run_new_thread(lambda: update_card_from_same_sentence(last_card, lines=lines, game_line=get_mined_line(last_card, lines)))
         texthooking_page.reset_checked_lines()
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
-        card_queue.append((last_card, datetime.now()))
+        card_queue.append((last_card, datetime.now(), lines))
+        texthooking_page.reset_checked_lines()
         try:
             obs.save_replay_buffer()
         except Exception as e:
@@ -329,10 +329,10 @@ def update_card_from_same_sentence(last_card, lines, game_line):
         notification.send_error_no_anki_update()
 
 
-def sentence_is_same_as_previous(last_card):
+def sentence_is_same_as_previous(last_card, lines=None):
     if not gsm_state.last_mined_line:
         return False
-    return gsm_state.last_mined_line.id == get_mined_line(last_card).id
+    return gsm_state.last_mined_line.id == get_mined_line(last_card, lines).id
 
 def get_sentence(card):
     return card.get_field(get_config().anki.sentence_field)

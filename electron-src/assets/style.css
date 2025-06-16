@@ -3,7 +3,7 @@
     --surface-color: #2c2c2c;
     --primary-color: #1a73e8;
     --text-color: #e0e0e0;
-    --text-muted-color: #a0a0a0;
+    --text-muted-color: #d0d0d0;
     --border-color: #444;
     --success-color: #4caf50;
     --error-color: #f44336;
@@ -69,6 +69,14 @@ select, input[type="text"], input[type="number"] {
     border-radius: 4px;
     padding: 8px 12px;
     font-size: 1em;
+}
+
+input[type="range"] {
+    width: 100%;
+    max-width: 500px;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    /*padding: 8px 12px;*/
 }
 
 button {
@@ -139,6 +147,54 @@ button.danger:hover {
     opacity: 1;
 }
 
+/* This class now defines the trigger's initial styling (e.g., circular question mark) */
+/* If you want other elements (like labels) to just show the tooltip on hover without this initial styling,
+   they would only use .tooltip-indicator and the .tooltip-content class for the actual text. */
+.tooltip-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: #555;
+    color: white;
+    cursor: help;
+    font-weight: bold;
+}
+
+/* This class marks any element that should act as a tooltip container/trigger */
+.tooltip-indicator {
+    position: relative; /* Essential for positioning the tooltip text */
+    display: inline-block; /* Allows width/height and positioning */
+    cursor: help; /* Indicates interactivity */
+}
+
+/* This defines the style for the actual tooltip text that appears */
+.tooltip-indicator .tooltiptext {
+    visibility: hidden;
+    width: 300px;
+    background-color: #111;
+    color: #fff;
+    text-align: left;
+    border-radius: 6px;
+    padding: 10px;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    left: 50%;
+    margin-left: -125px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    font-weight: normal;
+}
+
+/* When the element with .tooltip-indicator is hovered, show its child .tooltip-content */
+.tooltip-indicator:hover .tooltiptext {
+    visibility: visible;
+    opacity: 1;
+}
+
 .collapsible-header {
     cursor: pointer;
     display: flex;
@@ -154,4 +210,75 @@ button.danger:hover {
     font-size: 16px;
     margin-left: 10px;
     color: var(--primary-color);
+}
+
+/* Styles for the status buttons */
+.status-button {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start; /* Align icon and text to the start */
+    gap: 0.75rem; /* Space between icon and text */
+    font-weight: 500; /* Lighter font weight for a modern look */
+    color: var(--text-color); /* Use the text color from your root variables */
+    border: 1px solid var(--border-color); /* Use the border color from your root variables */
+    border-radius: 8px; /* Slightly less rounded corners to match .card */
+    padding: 10px 15px; /* Adjust padding for better look */
+    transition: all 0.2s ease-in-out; /* Smooth transitions for all properties */
+    cursor: default; /* Still not clickable directly */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Softer initial shadow */
+    width: 100%; /* Take full width of its container (e.g., grid cell) */
+}
+
+/* Ensure the .card class styles are applied */
+.status-button.card {
+    background-color: var(--surface-color);
+}
+
+.status-button .icon {
+    font-size: 1.4em; /* Slightly adjusted size relative to parent font size */
+    flex-shrink: 0; /* Prevent icon from shrinking */
+}
+
+.status-button span:last-child {
+    flex-grow: 1; /* Allow the status text to take available space */
+    text-align: right; /* Align status text to the right */
+    /*color: #b0b0b0; !* Slightly less muted color for the status text *!*/
+    color: var(--text-muted-color); /* Muted color for the status text */
+}
+
+.status-button.green {
+    background-color: var(--success-color); /* Use success color from root */
+    border-color: var(--success-color);
+    color: white; /* Ensure text is white on success background */
+}
+
+.status-button.red {
+    background-color: var(--error-color); /* Use error color from root */
+    border-color: var(--error-color);
+    color: white; /* Ensure text is white on error background */
+}
+
+.status-button.neutral {
+    background-color: var(--primary-color); /* Use primary color for neutral */
+    border-color: var(--primary-color);
+    color: white; /* Ensure text is white on primary background */
+}
+
+/* Hover effects for a more modern feel */
+.status-button:hover {
+    transform: translateY(-2px); /* Slight lift */
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3); /* More pronounced shadow on hover */
+    border-color: var(--primary-color); /* Highlight border on hover */
+}
+
+/* Active state for a pressed look */
+.status-button:active {
+    transform: translateY(0); /* Return to original position */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Restore original shadow */
+}
+
+/* Tooltip text remains styled by the .tooltip class */
+.status-button:hover .tooltiptext {
+    visibility: visible;
+    opacity: 1;
 }

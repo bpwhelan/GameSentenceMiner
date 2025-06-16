@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import requests
 from rapidfuzz import process
 
 from GameSentenceMiner.util.configuration import logger, get_config, get_app_directory
@@ -249,3 +250,57 @@ os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
 #                 f.write(data)
 #     except Exception as e:
 #         logger.error(f"Failed to fetch JSON from {url}: {e}")
+
+
+# Remove GitHub replacements from local OCR replacements file, these replacements are not needed
+def remove_github_replacements_from_local_ocr():
+    github_url = "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/main/electron-src/assets/ocr_replacements.json"
+
+    github_replacements = {}
+    try:
+        response = requests.get(github_url)
+        response.raise_for_status()
+        github_data = response.json()
+        github_replacements = github_data.get('args', {}).get('replacements', {})
+        logger.debug(f"Successfully fetched {len(github_replacements)} replacements from GitHub.")
+    except requests.exceptions.RequestException as e:
+        logger.debug(f"Failed to fetch GitHub replacements from {github_url}: {e}")
+        return
+    except json.JSONDecodeError as e:
+        logger.debug(f"Error decoding JSON from GitHub response: {e}")
+        return
+
+    if not os.path.exists(OCR_REPLACEMENTS_FILE):
+        logger.warning(f"Local file {OCR_REPLACEMENTS_FILE} does not exist. No replacements to remove.")
+        return
+
+    try:
+        with open(OCR_REPLACEMENTS_FILE, 'r', encoding='utf-8') as f:
+            local_ocr_data = json.load(f)
+
+        local_replacements = local_ocr_data.get('args', {}).get('replacements', {})
+        original_count = len(local_replacements)
+        logger.debug(f"Loaded {original_count} replacements from local file.")
+
+        removed_count = 0
+        for key_to_remove in github_replacements.keys():
+            if key_to_remove in local_replacements:
+                del local_replacements[key_to_remove]
+                removed_count += 1
+
+        if removed_count > 0:
+            local_ocr_data['args']['replacements'] = local_replacements
+            with open(OCR_REPLACEMENTS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(local_ocr_data, f, ensure_ascii=False, indent=4)
+            logger.debug(f"Successfully removed {removed_count} replacements from {OCR_REPLACEMENTS_FILE}.")
+            logger.debug(f"Remaining replacements in local file: {len(local_replacements)}")
+        else:
+            logger.debug("No matching replacements from GitHub found in your local file to remove.")
+
+    except json.JSONDecodeError as e:
+        logger.debug(f"Error decoding JSON from {OCR_REPLACEMENTS_FILE}: {e}. Please ensure it's valid JSON.")
+    except Exception as e:
+        logger.debug(f"An unexpected error occurred while processing {OCR_REPLACEMENTS_FILE}: {e}")
+
+
+remove_github_replacements_from_local_ocr()

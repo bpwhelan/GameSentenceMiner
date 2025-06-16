@@ -1,4 +1,5 @@
 import asyncio
+import io
 import json
 import logging
 import os
@@ -11,7 +12,9 @@ from pathlib import Path
 from tkinter import messagebox
 
 import mss
+import mss.tools
 import websockets
+from PIL import Image
 from rapidfuzz import fuzz
 
 from GameSentenceMiner import obs
@@ -42,35 +45,6 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
-
-
-def get_new_game_cords():
-    """Allows multiple coordinate selections."""
-    coords_list = []
-    with mss.mss() as sct:
-        monitors = sct.monitors
-        monitor_map = {i: mon for i, mon in enumerate(monitors)}
-        while True:
-            selected_monitor_index, cords = screen_coordinate_picker.get_screen_selection_with_monitor(monitor_map)
-            selected_monitor = monitor_map[selected_monitor_index]
-            coords_list.append({"monitor": {"left": selected_monitor["left"], "top": selected_monitor["top"],
-                                            "width": selected_monitor["width"], "height": selected_monitor["height"],
-                                            "index": selected_monitor_index}, "coordinates": cords,
-                                "is_excluded": False})
-            if messagebox.askyesno("Add Another Region", "Do you want to add another region?"):
-                continue
-            else:
-                break
-    app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
-    ocr_config_dir = app_dir / "ocr_config"
-    ocr_config_dir.mkdir(parents=True, exist_ok=True)
-    obs.connect_to_obs_sync()
-    scene = sanitize_filename(obs.get_current_scene())
-    config_path = ocr_config_dir / f"{scene}.json"
-    with open(config_path, 'w') as f:
-        json.dump({"scene": scene, "window": None, "rectangles": coords_list}, f, indent=4)
-    print(f"Saved OCR config to {config_path}")
-    return coords_list
 
 
 def get_ocr_config(window=None) -> OCRConfig:
@@ -213,11 +187,11 @@ def do_second_ocr(ocr1_text, time, img, filtering):
     try:
         orig_text, text = run.process_and_write_results(img, None, last_ocr2_result, filtering, None,
                                                         engine=ocr2, furigana_filter_sensitivity=furigana_filter_sensitivity)
-        if fuzz.ratio(last_ocr2_result, text) >= 90:
+        if fuzz.ratio(last_ocr2_result, orig_text) >= 90:
             logger.info("Seems like the same text from previous ocr2 result, not sending")
             return
         save_result_image(img)
-        last_ocr2_result = text
+        last_ocr2_result = orig_text
         asyncio.run(send_result(text, time))
     except json.JSONDecodeError:
         print("Invalid JSON received.")
@@ -238,7 +212,7 @@ def save_result_image(img):
 async def send_result(text, time):
     if text:
         text = do_text_replacements(text, OCR_REPLACEMENTS_FILE)
-        if get_config().advanced.ocr_sends_to_clipboard or manual:
+        if clipboard_output:
             import pyperclip
             pyperclip.copy(text)
         try:
@@ -365,14 +339,23 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
 
 def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
     import keyboard
-    cropper = ScreenCropper()
+    secret_ss_hotkey = "F15"
     filtering = TextFiltering(lang=language)
+    cropper = ScreenCropper()
     def capture():
         print("Taking screenshot...")
         img = cropper.run()
         do_second_ocr("", datetime.now(), img, filtering)
+    def capture_main_monitor():
+        print("Taking screenshot of main monitor...")
+        with mss.mss() as sct:
+            main_monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+            img = sct.grab(main_monitor)
+            img_bytes = mss.tools.to_png(img.rgb, img.size)
+            do_second_ocr("", datetime.now(), img_bytes, filtering)
     try:
         keyboard.add_hotkey(ss_hotkey, capture)
+        keyboard.add_hotkey(secret_ss_hotkey, capture_main_monitor)
         print(f"Press {ss_hotkey} to take a screenshot.")
     except Exception as e:
         logger.error(f"Error setting up screenshot hotkey with keyboard, Attempting Backup: {e}")
@@ -414,6 +397,7 @@ if __name__ == "__main__":
     parser.add_argument("--twopassocr", type=int, choices=[0, 1], default=1, help="Enable two-pass OCR (default: 1)")
     parser.add_argument("--manual", action="store_true", help="Use screenshot-only mode")
     parser.add_argument("--clipboard", action="store_true", help="Use clipboard for input")
+    parser.add_argument("--clipboard-output", action="store_true", default=False, help="Use clipboard for output")
     parser.add_argument("--window", type=str, help="Specify the window name for OCR")
     parser.add_argument("--furigana_filter_sensitivity", type=float, default=0, help="Furigana Filter Sensitivity for OCR (default: 0)")
     parser.add_argument("--manual_ocr_hotkey", type=str, default=None, help="Hotkey for manual OCR (default: None)")
@@ -431,6 +415,7 @@ if __name__ == "__main__":
     furigana_filter_sensitivity = args.furigana_filter_sensitivity
     ss_hotkey = args.area_select_ocr_hotkey.lower()
     manual_ocr_hotkey = args.manual_ocr_hotkey.lower().replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>") if args.manual_ocr_hotkey else None
+    clipboard_output = args.clipboard_output
 
     logger.info(f"Received arguments: {vars(args)}")
     # set_force_stable_hotkey()

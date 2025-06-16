@@ -7,8 +7,6 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Game Launcher</h1>
-
 <div id="gamesSection" class="card">
     <h2>Select a Game</h2>
     <div class="form-group">
@@ -103,7 +101,7 @@
         agentGamesCheckbox.checked = state.agentEnabled || false;
         ocrGamesCheckbox.checked = state.ocrEnabled || false;
         selectedGameObject = state.selectedGame || '';
-        selectedGame = selectedGameObject.id || '';
+        selectedGame = selectedGameObject.name || '';
         launchableGames = state.launchableGames || [];
         updateAllGamesDropdown();
 

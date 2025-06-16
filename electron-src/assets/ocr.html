@@ -26,7 +26,9 @@
                     <option value="pip install owocr[gvision]">Google Vision (apikey required)</option>
                     <option value="pip install owocr[azure]">Azure (apikey required)</option>
                     <option value="pip install owocr[ocrspace]">OCRSpace (apikey required)</option>
-                    <option value="pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128">CUDA</option>
+                    <option value="pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128">
+                        CUDA
+                    </option>
                 </select>
                 <button id="install-selected-dep" class="secondary">Install</button>
                 <div class="tooltip">?
@@ -107,36 +109,70 @@
                 </select>
             </div>
             <div class="input-group">
-                <label for="two-pass-ocr">Enable Two Pass OCR:</label>
+                <label for="two-pass-ocr" class="tooltip-indicator">
+                    <span class="tooltiptext">OCR Option 1 runs at the set scan rate. If two pass is enabled, and the text does not change by the next scan, it will then do the second scan.</span>
+                    Enable Two Pass OCR:
+                </label>
                 <input type="checkbox" id="two-pass-ocr">
+            </div>
+            <div class="input-group">
+                <label for="send-to-clipboard" class="tooltip-indicator">
+                    <span class="tooltiptext">OCR Sends text to Websocket by default, with this enabled, it will also copy to clipboard.</span>
+                    Send Text to Clipboard:
+                </label>
+
+                <input type="checkbox" id="send-to-clipboard" checked>
             </div>
         </div>
         <div class="form-group">
             <div class="input-group">
-                <label for="ocr-scan-rate">Scan Rate (s):</label>
+                <label for="ocr-scan-rate" class="tooltip-indicator">Scan Rate (s):
+                    <span class="tooltiptext">
+                        <ul>
+                            <li>The OCR scan rate determines how frequently the OCR process scans the screen.</li>
+                            <li>Lower values increase responsiveness but may consume more resources.</li>
+                            <li>Higher values reduce resource usage but may delay updates.</li>
+                            <li>If your text doesn't appear instantly, lower values may result in partial text results.</li>
+                        </ul>
+                    </span>
+                </label>
                 <input type="number" id="ocr-scan-rate" value=".5" min="0" step=".1">
             </div>
             <div class="input-group">
-                <label for="area-select-ocr-hotkey">Area Select Hotkey:</label>
+                <label for="area-select-ocr-hotkey" class="tooltip-indicator">Area Select Hotkey:
+                    <span class="tooltiptext">On Press, will allow you to select an area to OCR one time. Useful for menus</span>
+                </label>
                 <input type="text" id="area-select-ocr-hotkey" value="Ctrl+Shift+O">
             </div>
             <div class="input-group">
-                <label for="manual-ocr-hotkey">Manual OCR Hotkey:</label>
+                <label for="manual-ocr-hotkey" class="tooltip-indicator">Manual OCR Hotkey:
+                    <span class="tooltiptext">
+                    Hotkey to manually OCR the selected area. This will run the OCR on the selected area and return the result. <strong>Note:</strong> This uses the OCR Option 2, and is only used for "Manual OCR".
+                </span>
+                </label>
                 <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G">
             </div>
             <div class="input-group">
-                <label for="require-open-window">Require Active Window:</label>
+                <label for="require-open-window" class="tooltip-indicator">Require Active Window:
+                <span class="tooltiptext">If enabled, OCR will only run if the selected window is active AND focused. </span>
+                </label>
                 <input type="checkbox" id="require-open-window">
             </div>
             <div class="input-group">
-                <label for="ocr-screenshots">OCR Clipboard Screenshots:</label>
+                <label for="ocr-screenshots" class="tooltip-indicator">OCR Clipboard Screenshots:
+                    <span class="tooltiptext">If enabled, OCR will also process screenshots taken from the clipboard. THIS MAY BE REMOVED IN THE FUTURE</span>
+                </label>
                 <input type="checkbox" id="ocr-screenshots">
             </div>
         </div>
     </div>
     <div class="form-group" style="margin-top: 15px;">
-        <label for="furigana-filter-sensitivity">Furigana Filter Sensitivity (WIP): <span id="furigana-filter-sensitivity-value">0</span><span id="dynamic-size-display">龍</span></label>
+        <label id="furigana-filter-label" for="furigana-filter-sensitivity" class="tooltip-indicator">Furigana Filter Sensitivity (WIP):
+            <span class="tooltiptext">Filters characters smaller than the selected textsize. Very experimental, if you notice real text being filtered out, either lower this or disable it.</span>
+            <span
+                id="furigana-filter-sensitivity-value">0</span><span id="dynamic-size-display">龍</span></label>
         <input type="range" id="furigana-filter-sensitivity" min="0" max="100" value="0" step="1">
+        <button id="run-furigana-window" style="width: 500px">Show/Hide Preview</button>
     </div>
 </div>
 
@@ -201,6 +237,7 @@
     const dynamicSizeDisplay = document.getElementById('dynamic-size-display');
     const areaSelectOCRHotkeyInput = document.getElementById('area-select-ocr-hotkey');
     const sceneSelect = document.getElementById('sceneSelect');
+    const sendToClipboardCheckbox = document.getElementById('send-to-clipboard');
 
     const setHotkey = (event, inputElement) => {
         event.preventDefault();
@@ -219,7 +256,8 @@
     furiganaFilterSlider.addEventListener('input', () => {
         const sensitivity = furiganaFilterSlider.value;
         furiganaFilterValue.textContent = sensitivity;
-        dynamicSizeDisplay.style.fontSize = Math.max(16, sensitivity) + 'px';
+        dynamicSizeDisplay.style.fontSize = sensitivity + 'px';
+        ipcRenderer.send('update-furigana-character', "龍", sensitivity);
         saveOCRConfig();
     });
 
@@ -329,7 +367,7 @@
                     option.textContent = scene.name;
                     sceneSelect.appendChild(option);
                 }
-                if(scene) sceneSelect.value = scene.id;
+                if (scene) sceneSelect.value = scene.id;
             });
             getWindows();
         });
@@ -348,6 +386,7 @@
             furigana_filter_sensitivity: document.getElementById('furigana-filter-sensitivity').value,
             manualOcrHotkey: manualOcrHotkeyInput.value,
             areaSelectOcrHotkey: areaSelectOCRHotkeyInput.value,
+            sendToClipboard: sendToClipboardCheckbox.checked,
         };
         await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
     }
@@ -362,17 +401,32 @@
             document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
             document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
             document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots || false;
+            sendToClipboardCheckbox.checked = ocr_settings.sendToClipboard || true;
 
             const sensitivity = ocr_settings.furigana_filter_sensitivity || 0;
             furiganaFilterSlider.value = sensitivity;
             furiganaFilterValue.textContent = sensitivity;
-            dynamicSizeDisplay.style.fontSize = Math.max(16, sensitivity) + 'px';
+            dynamicSizeDisplay.style.fontSize = sensitivity + 'px';
 
             manualOcrHotkeyInput.value = ocr_settings.manualOcrHotkey || 'Ctrl+Shift+G';
             areaSelectOCRHotkeyInput.value = ocr_settings.areaSelectOcrHotkey || 'Ctrl+Shift+O';
         }
         refreshScenesAndWindows();
     }
+
+    document.getElementById('furigana-filter-label').addEventListener('click', () => {
+        ipcRenderer.send('run-furigana-window', {
+            char: "龍",
+            fontSize: furiganaFilterSlider.value,
+        });
+    });
+
+    document.getElementById('run-furigana-window').addEventListener('click', () => {
+        ipcRenderer.send('run-furigana-window', {
+            char: "龍",
+            fontSize: furiganaFilterSlider.value,
+        });
+    });
 
     document.addEventListener('DOMContentLoaded', initialize);
 </script>

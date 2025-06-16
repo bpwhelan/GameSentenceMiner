@@ -119,6 +119,9 @@
             window.addEventListener('resize', () => fitAddon.fit());
 
             ipcRenderer.on('terminal-output', (event, data) => {
+                if (data.includes("ERROR: INFO:") || data.includes("DEBUG:")) {
+                    return; // THIS IS DEBUG THAT SOMEHOW GETS THROUGH TO STDOUT
+                }
                 // if (data.includes("GameSentenceMiner - "))
                 //     data = data.split("GameSentenceMiner - ")[1];
                 if (data.includes("- ERROR -")) {

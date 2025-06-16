@@ -41,6 +41,14 @@ DEFAULT_CONFIG = 'Default'
 
 current_game = ''
 
+supported_formats = {
+    'opus': 'libopus',
+    'mp3': 'libmp3lame',
+    'ogg': 'libvorbis',
+    'aac': 'aac',
+    'm4a': 'aac',
+}
+
 def is_linux():
     return platform == 'linux'
 
@@ -77,7 +85,6 @@ class General:
     open_multimine_on_startup: bool = True
     texthook_replacement_regex: str = ""
     texthooker_port: int = 55000
-    use_old_texthooker: bool = False
 
 
 @dataclass_json
@@ -90,6 +97,10 @@ class Paths:
     remove_audio: bool = False
     remove_screenshot: bool = False
 
+    def __post_init__(self):
+        self.folder_to_watch = os.path.normpath(self.folder_to_watch)
+        self.audio_destination = os.path.normpath(self.audio_destination)
+        self.screenshot_destination = os.path.normpath(self.screenshot_destination)
 
 @dataclass_json
 @dataclass
@@ -109,13 +120,10 @@ class Anki:
     overwrite_audio: bool = False
     overwrite_picture: bool = True
     multi_overwrites_sentence: bool = True
-    anki_custom_fields: Dict[str, str] = None  # Initialize to None and set it in __post_init__
 
     def __post_init__(self):
         if self.custom_tags is None:
-            self.custom_tags = []
-        if self.anki_custom_fields is None:
-            self.anki_custom_fields = {}
+            self.custom_tags = ['GSM']
         if self.tags_to_check is None:
             self.tags_to_check = []
 
@@ -145,7 +153,7 @@ class Screenshot:
     seconds_after_line: float = 1.0
     use_beginning_of_line_as_screenshot: bool = True
     use_new_screenshot_logic: bool = False
-    screenshot_timing_setting: str = ''  # 'middle', 'end'
+    screenshot_timing_setting: str = 'beginning'  # 'middle', 'end'
     use_screenshot_selector: bool = False
 
     def __post_init__(self):
@@ -167,10 +175,18 @@ class Audio:
     end_offset: float = 0.5
     pre_vad_end_offset: float = 0.0
     ffmpeg_reencode_options: str = '-c:a libopus -f opus -af \"afade=t=in:d=0.10\"' if is_windows() else ''
+    ffmpeg_reencode_options_to_use: str = ''
     external_tool: str = ""
     anki_media_collection: str = ""
     external_tool_enabled: bool = True
     custom_encode_settings: str = ''
+
+    def __post_init__(self):
+        self.ffmpeg_reencode_options_to_use = self.ffmpeg_reencode_options.replace("{format}", self.extension).replace("{encoder}", supported_formats.get(self.extension, ''))
+
+        self.anki_media_collection = os.path.normpath(self.anki_media_collection)
+        self.external_tool = os.path.normpath(self.external_tool)
+
 
 
 @dataclass_json
@@ -231,7 +247,6 @@ class Advanced:
     show_screenshot_buttons: bool = False
     multi_line_line_break: str = '<br>'
     multi_line_sentence_storage_field: str = ''
-    ocr_sends_to_clipboard: bool = True
     ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 55001
     use_anki_note_creation_time: bool = True
@@ -334,8 +349,6 @@ class ProfileConfig:
 
         self.hotkeys.reset_line = config_data['hotkeys'].get('reset_line', self.hotkeys.reset_line)
         self.hotkeys.take_screenshot = config_data['hotkeys'].get('take_screenshot', self.hotkeys.take_screenshot)
-
-        self.anki.anki_custom_fields = config_data.get('anki_custom_fields', {})
 
         with open(get_config_path(), 'w') as f:
             f.write(self.to_json(indent=4))
@@ -446,12 +459,10 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "overwrite_audio")
             self.sync_shared_field(config.anki, profile.anki, "overwrite_picture")
             self.sync_shared_field(config.anki, profile.anki, "multi_overwrites_sentence")
-            self.sync_shared_field(config.anki, profile.anki, "anki_custom_fields")
             self.sync_shared_field(config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(config.general, profile.general, "websocket_uri")
             self.sync_shared_field(config.general, profile.general, "texthooker_port")
-            self.sync_shared_field(config.general, profile.general, "use_old_texthooker")
             self.sync_shared_field(config.audio, profile.audio, "external_tool")
             self.sync_shared_field(config.audio, profile.audio, "anki_media_collection")
             self.sync_shared_field(config.audio, profile.audio, "external_tool_enabled")
@@ -633,13 +644,15 @@ console_handler.setFormatter(formatter)
 
 logger.addHandler(console_handler)
 
-# Create rotating file handler with level DEBUG
 file_path = get_log_path()
 try:
-    if os.path.exists(file_path) and os.path.getsize(file_path) > 10 * 1024 * 1024 and os.access(file_path, os.W_OK):
-        shutil.move(file_path, os.path.join(os.path.dirname(file_path), "gamesentenceminer_old.log"))
+    if os.path.exists(file_path) and os.path.getsize(file_path) > 1 * 1024 * 1024 and os.access(file_path, os.W_OK):
+        old_log_path = os.path.join(os.path.dirname(file_path), "gamesentenceminer_old.log")
+        if os.path.exists(old_log_path):
+            os.remove(old_log_path)
+        shutil.move(file_path, old_log_path)
 except Exception as e:
-    logger.debug("Error rotating log, probably because the file is being written to by another process.")
+    logger.info("Couldn't rotate log, probably because the file is being written to by another process. NOT AN ERROR")
 
 file_handler = logging.FileHandler(file_path, encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)
@@ -655,6 +668,7 @@ class GsmAppState:
         self.anki_note_for_screenshot = None
         self.previous_line_for_audio = None
         self.previous_line_for_screenshot = None
+        self.previous_trim_args = None
         self.previous_audio = None
         self.previous_screenshot = None
         self.previous_replay = None
@@ -700,6 +714,21 @@ class GsmStatus:
             self.words_being_processed.remove(word)
 
 
+def is_running_from_source():
+    # Check for .git directory at the project root
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = current_dir
+    while project_root != os.path.dirname(project_root): # Avoid infinite loop
+        if os.path.isdir(os.path.join(project_root, '.git')):
+            return True
+        if os.path.isfile(os.path.join(project_root, 'pyproject.toml')):
+            return True
+        project_root = os.path.dirname(project_root)
+    return False
+
 gsm_status = GsmStatus()
 anki_results = {}
 gsm_state = GsmAppState()
+is_dev = is_running_from_source()
+
+logger.debug(f"Running in development mode: {is_dev}")
