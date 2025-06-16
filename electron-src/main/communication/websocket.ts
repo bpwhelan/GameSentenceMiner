@@ -30,6 +30,7 @@ interface Message {
 }
 
 let connected = false;
+let shuttingDown = false;
 
 class WebSocketManager {
     private wss: WebSocketServer | null = null;
@@ -121,6 +122,10 @@ class WebSocketManager {
             const intervalTime = 200;
 
             const checkConnection = () => {
+                if (shuttingDown) {
+                    clearInterval(interval);
+                    resolve();
+                }
                 if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                     clearInterval(interval);
                     resolve();
@@ -155,6 +160,7 @@ class WebSocketManager {
     }
 
     async stopServer(): Promise<void> {
+        shuttingDown = true;
         if (this.wss) {
             console.log("Shutting down WebSocket server...");
 

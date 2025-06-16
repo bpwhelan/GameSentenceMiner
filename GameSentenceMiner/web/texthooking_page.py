@@ -224,11 +224,11 @@ def serve_static(filename):
 
 @app.route('/')
 def index():
-    return flask.render_template('utility.html' if get_config().general.use_old_texthooker else 'index.html', websocket_port=websocket_port)
+    return send_from_directory('templates', 'index.html')
 
 @app.route('/texthooker')
 def texthooker():
-    return flask.render_template('utility.html' if get_config().general.use_old_texthooker else 'index.html', websocket_port=websocket_port)
+    return send_from_directory('templates', 'index.html')
 
 @app.route('/textreplacements')
 def textreplacements():

@@ -1,24 +1,24 @@
 import {exec, spawn} from 'child_process';
-import {dialog, ipcMain} from 'electron';
+import {dialog, ipcMain, BrowserWindow, screen } from 'electron';
 import {
     getAutoUpdateElectron,
     getAutoUpdateGSMApp,
     getOCRConfig,
     getPythonPath,
-    getStartConsoleMinimized, setFuriganaFilterSensitivity, setManualOcrHotkey,
+    getStartConsoleMinimized, setAreaSelectOcrHotkey, setFuriganaFilterSensitivity, setManualOcrHotkey,
     setOCR1,
     setOCR2,
     setOCRConfig,
     setOCRLanguage,
     setOCRScanRate,
-    setRequiresOpenWindow,
+    setRequiresOpenWindow, setSendToClipboard,
     setShouldOCRScreenshots,
     setTwoPassOCR,
     setWindowName
 } from "../store.js";
-import {mainWindow} from "../main.js";
+import {isQuitting, mainWindow} from "../main.js";
 import {getCurrentScene, ObsScene} from "./obs.js";
-import {BASE_DIR, getPlatform, sanitizeFilename} from "../util.js";
+import {BASE_DIR, getAssetsDir, getPlatform, sanitizeFilename} from "../util.js";
 import path, {resolve} from "path";
 import * as fs from "node:fs";
 import {windowManager, Window} from 'node-window-manager'; // Import the library
@@ -244,6 +244,8 @@ export function registerOCRUtilsIPC() {
         setShouldOCRScreenshots(config.ocr_screenshots);
         setFuriganaFilterSensitivity(config.furigana_filter_sensitivity);
         setManualOcrHotkey(config.manualOcrHotkey);
+        setSendToClipboard(config.sendToClipboard);
+        setAreaSelectOcrHotkey(config.areaSelectOcrHotkey);
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     })
 
@@ -271,6 +273,80 @@ export function registerOCRUtilsIPC() {
         const windowsList: LibraryWindowInfo[] = getWindowsListWithLibrary();
         return windowsList.map(window => window.title).sort((a, b) => a.localeCompare(b));
     });
+
+    ipcMain.on('run-furigana-window', async (_, args: { char: string; fontSize: number }) => {
+        const { char, fontSize } = args;
+        if (!furiganaWindow) {
+            furiganaWindow = createFuriganaWindow();
+            furiganaWindow.webContents.send('set-furigana-character', char, fontSize);
+        } else {
+            if (furiganaWindow.isVisible()) {
+                furiganaWindow.hide();
+            } else {
+                furiganaWindow.show();
+                furiganaWindow.webContents.send('set-furigana-character', char, fontSize);
+                furiganaWindow.focus();
+            }
+        }
+    });
+
+    ipcMain.on('update-furigana-character', (_, char: string, fontSize: number) => {
+        if (furiganaWindow) {
+            furiganaWindow.webContents.send('set-furigana-character', char, fontSize);
+        }
+    });
+
+    ipcMain.on('close-furigana-window', () => {
+        if (furiganaWindow) {
+            furiganaWindow.hide();
+        }
+    });
+}
+
+let furiganaWindow: BrowserWindow | null = null;
+
+function createFuriganaWindow(): BrowserWindow {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width, height } = primaryDisplay.workAreaSize;
+
+    furiganaWindow = new BrowserWindow({
+        width: 150,
+        height: 150,
+        x: Math.floor(width / 2) - 25,
+        y: Math.floor(height / 2) - 25,
+        transparent: true,
+        frame: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        resizable: false,
+        focusable: true,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+        }
+    });
+
+    furiganaWindow.loadFile(path.join(getAssetsDir(), 'furigana.html'));
+
+    furiganaWindow.webContents.on('did-finish-load', () => {
+        if (furiganaWindow) { // Check if window still exists before setting
+            // furiganaWindow.setIgnoreMouseEvents(true);
+        }
+    });
+
+    furiganaWindow.on('close', (event: any) => {
+        if (isQuitting) {
+            furiganaWindow = null; // Allow the window to be garbage collected
+            return;
+        }
+        event.preventDefault();
+        furiganaWindow?.hide();
+    });
+
+    return furiganaWindow;
+
+    // Optional: for debugging, open DevTools
+    // furiganaWindow.webContents.openDevTools({ mode: 'detach' });
 }
 
 // Check library docs for exact properties. Example:

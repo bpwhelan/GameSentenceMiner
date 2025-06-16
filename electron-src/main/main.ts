@@ -1,4 +1,4 @@
-import {app, BrowserWindow, dialog, ipcMain, Menu, shell, Tray, Notification} from 'electron';
+import {app, BrowserWindow, dialog, ipcMain, Menu, MenuItem, shell, Tray, Notification} from 'electron';
 import * as path from 'path';
 import {ChildProcessWithoutNullStreams, spawn} from 'child_process';
 import {getOrInstallPython} from "./python/python_downloader.js";
@@ -32,6 +32,7 @@ export let isQuitting = false;
 let isUpdating: boolean = false;
 let restartingGSM: boolean = false;
 let pythonPath: string;
+let pythonUpdating: boolean = false
 const originalLog = console.log;
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,6 +40,7 @@ export const __dirname = path.dirname(__filename);
 
 function getAutoUpdater(): AppUpdater {
     const {autoUpdater} = electronUpdater;
+    autoUpdater.autoDownload = false; // Disable auto download
     return autoUpdater;
 }
 
@@ -63,10 +65,15 @@ async function autoUpdate() {
     //     });
     // });
 
-    autoUpdater.on("update-downloaded", () => {
+    autoUpdater.on("update-downloaded", async () => {
         log.info("Update downloaded.");
         const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
         fs.writeFileSync(updateFilePath, '');
+
+        while (pythonUpdating) {
+            await new Promise(resolve => setTimeout(resolve, 100)); // Wait for 100ms
+        }
+
         autoUpdater.quitAndInstall();
     });
 
@@ -194,7 +201,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
 async function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280,
-        height: 720,
+        height: 1000,
         icon: getIconPath(32),
         show: !getStartConsoleMinimized(),
         webPreferences: {
@@ -246,6 +253,17 @@ async function createWindow() {
         },
     ]);
 
+    if (isDev) {
+        menu.append(new MenuItem({
+            label: "Refresh",
+            click: () => {
+                if (mainWindow) {
+                    mainWindow.reload();
+                }
+            }
+        }));
+    }
+
     mainWindow.setMenu(menu);
 
     console.log = function (...args) {
@@ -272,6 +290,7 @@ async function update(shouldRestart: boolean = false, force = false): Promise<vo
 
 async function updateGSM(shouldRestart: boolean = false, force = false): Promise<void> {
     isUpdating = true;
+    pythonUpdating = true;
     const {updateAvailable, latestVersion} = await checkForUpdates();
     if (updateAvailable || force) {
         if (pyProc) {
@@ -299,6 +318,7 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
     } else {
         console.log("You're already using the latest version.");
     }
+    pythonUpdating = false;
 }
 
 function createTray() {
@@ -380,7 +400,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
 
     app.whenReady().then(async () => {
-        if (!isDev && getAutoUpdateElectron()) {
+        if (getAutoUpdateElectron()) {
             if (await isConnected()) {
                 console.log("Checking for updates...");
                 await autoUpdate();
@@ -397,11 +417,16 @@ if (!app.requestSingleInstanceLock()) {
                         fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
                     }
                 }
-                ensureAndRunGSM(pythonPath).then(async () => {
-                    if (!isUpdating) {
-                        quit();
-                    }
-                });
+                try {
+                    ensureAndRunGSM(pythonPath).then(async () => {
+                        if (!isUpdating) {
+                            quit();
+                        }
+                    });
+                } catch (err) {
+                    console.log("Failed to run GSM, attempting repair of python package...", err);
+                    await updateGSM(true, true);
+                }
             });
 
             checkForUpdates().then(({updateAvailable, latestVersion}) => {
@@ -414,8 +439,7 @@ if (!app.requestSingleInstanceLock()) {
 
                     notification.on('click', async () => {
                         console.log("Notification Clicked, Updating GSM...");
-                        await updateGSM(true).then(() => {
-                        });
+                        await update(true, false)
                     });
 
                     notification.show();

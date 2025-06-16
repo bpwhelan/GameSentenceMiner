@@ -5,144 +5,58 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OBS Controller</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        /* Styles for the status buttons */
-        .status-button {
-            display: flex;
-            align-items: center;
-            padding: 0.75rem 1.25rem;
-            border-radius: 0.75rem; /* Rounded corners */
-            font-weight: 600;
-            color: #ffffff; /* White text */
-            /*transition: background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out;*/
-            border: none; /* Remove default button border */
-            cursor: default; /* Indicate it's not clickable for now */
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); /* Soft shadow */
-            margin-bottom: 0.75rem; /* Space between buttons */
-            width: fit-content; /* Adjust width to content */
-        }
-
-        .status-button .icon {
-            font-size: 1.5rem; /* Larger emoji icon */
-            margin-right: 0.75rem;
-        }
-
-        .status-button span {
-            font-size: 1.1rem;
-        }
-
-        .status-button.green {
-            background-color: #0f8a3a;
-        }
-
-        .status-button.red {
-            background-color: #ef4444;
-        }
-
-        .status-button.neutral {
-            background-color: #2563eb;
-        }
-
-        .status-button:hover .tooltiptext {
-            visibility: visible;
-            opacity: 1;
-        }
-
-    </style>
 </head>
-<body class="antialiased">
-<!--<div class="control">-->
-<!--    <button id="launchObsBtn">Launch OBS</button>-->
-<!--</div>-->
-<!--<div class="control">-->
-<!--    <button id="saveReplayBtn">Save Replay Buffer</button>-->
-<!--</div>-->
-<h2>Game Capture (Required)</h2>
-<div class="control">
-    <label for="sceneSelect">Game:</label>
-    <select id="sceneSelect" class="p-2 border border-gray-300 rounded-md"></select>
-    <button id="refreshScenesBtn" class="p-2 bg-blue-500 text-white rounded-md">&#x21bb;</button>
-    <button id="removeSceneBtn" class="p-2 bg-red-500 text-white rounded-md">Remove Game</button>
-</div>
-<div class="control">
-    <label for="windowSelect">Setup New Game:</label>
-    <select id="windowSelect" class="p-2 border border-gray-300 rounded-md"></select>
-    <button id="refreshWindowsBtn" class="p-2 bg-blue-500 text-white rounded-md">&#x21bb;</button>
-    <!--        <label for="sceneNameInput">Override Scene Name:</label>-->
-    <!--        <input type="text" id="sceneNameInput" class="inputField"  placeholder="Enter a name for the new scene">-->
-    <button id="createNewSceneBtn" class="p-2 bg-green-500 text-white rounded-md">Create New Scene (Window Capture)
-    </button>
-    <button id="createNewSceneGameBtn" class="p-2 bg-green-500 text-white rounded-md">Create New Scene (Game Capture)
-    </button>
-    <span class="tooltip">❓
+<body>
+<div class="card">
+    <h2>Game Capture (Required)</h2>
+    <div class="input-group">
+        <label for="sceneSelect">Game:</label>
+        <select id="sceneSelect"></select>
+        <button id="refreshScenesBtn">&#x21bb;</button>
+        <button id="removeSceneBtn" class="danger">Remove Game</button>
+    </div>
+    <div class="input-group">
+        <label for="windowSelect">Setup New Game:</label>
+        <select id="windowSelect"></select>
+        <button id="refreshWindowsBtn">&#x21bb;</button>
+        <button id="createNewSceneBtn">New Window Capture</button>
+        <button id="createNewSceneGameBtn">New Game Capture</button>
+        <span class="tooltip">?
         <span class="tooltiptext">
             Window Capture works for most applications
             <br>
             Game Capture is recommended for fullscreen games.
         </span>
     </span>
+    </div>
 </div>
-<div>
-    <!--    <button id="reinstallPythonBtn" class="button-blue">Reinstall Python/Python Package</button>-->
-    <button id="openGSMSettingsBtn" class="button-blue">Open GSM Settings</button>
+<div class="card">
+    <button id="openGSMSettingsBtn">Open GSM Settings</button>
 </div>
-<div>
+<div class="card">
     <h2>Status:</h2>
-    <button class="status-button" id="gsm-status" title="GSM Status: Indicates whether the GSM Python app is running.">
-        <span class="icon">⛏</span> GSM <span></span>
-    </button>
-    <button class="status-button" id="clipboard-status"
-            title="Clipboard Status: Indicates whether the clipboard is being monitored.">
-        <span class="icon">📋</span> Clipboard <span></span>
-    </button>
-    <span id="websocket_container">
-
-    </span>
-    <!--    <button class="status-button" id="websocket-status">-->
-    <!--        <span class="icon">🔗</span> Text Source: <span></span>-->
-    <!--    </button>-->
-    <button class="status-button" id="obs-status" title="OBS Status: Indicates whether OBS is running.">
-        <span class="icon">📹</span> OBS <span></span>
-    </button>
-    <button class="status-button" id="anki-status" title="Anki Status: Indicates whether Anki is connected.">
-        <span class="icon">📘</span> Anki <span></span>
-    </button>
+    <div class="grid-container">
+        <button class="status-button card" id="gsm-status" title="GSM Status: Indicates whether the GSM Python app is running.">
+            <span class="icon">⛏</span> <span>GSM</span> <span></span>
+        </button>
+        <button class="status-button card" id="clipboard-status"
+                title="Clipboard Status: Indicates whether the clipboard is being monitored.">
+            <span class="icon">📋</span> <span>Clipboard</span> <span></span>
+        </button>
+        <span id="websocket_container" class="grid-container">
+            </span>
+        <button class="status-button card" id="obs-status" title="OBS Status: Indicates whether OBS is running.">
+            <span class="icon">📹</span> <span>OBS</span> <span></span>
+        </button>
+        <button class="status-button card" id="anki-status" title="Anki Status: Indicates whether Anki is connected.">
+            <span class="icon">📘</span> <span>Anki</span> <span></span>
+        </button>
+    </div>
 </div>
-<!--<div class="control">-->
-<!--    <h2>Status:</h2>-->
-<!--</div>-->
 <script>
     const {ipcRenderer} = require('electron');
     const removeSceneBtn = document.getElementById('removeSceneBtn');
     const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
-
-    // Get status button elements
-
-    // Removed the ipcRenderer.on listeners as status will be updated via get_gsm_status polling
-    // document.addEventListener('DOMContentLoaded', () => {
-    //     ipcRenderer.on('websocket-status-update', (event, isConnected) => {
-    //         websocketStatus.classList.toggle('green', isConnected);
-    //         websocketStatus.classList.toggle('red', !isConnected);
-    //         websocketStatus.querySelector('span').textContent = isConnected ? 'Connected' : 'Disconnected';
-    //         websocketStatus.setAttribute('data-tooltip', isConnected ? 'WebSocket is connected.' : 'WebSocket is disconnected.');
-    //     });
-    //
-    //     ipcRenderer.on('obs-status-update', (event, isStarted) => {
-    //         obsStatus.classList.toggle('green', isStarted);
-    //         obsStatus.classList.toggle('red', !isStarted);
-    //         obsStatus.querySelector('span').textContent = isStarted ? 'Started' : 'Stopped';
-    //         obsStatus.setAttribute('data-tooltip', isStarted ? 'OBS is running.' : 'OBS is stopped.');
-    //     });
-    // });
-
-
-    // document.getElementById('launchObsBtn').addEventListener('click', () => {
-    //     ipcRenderer.invoke('obs.launch');
-    // });
-    //
-    // document.getElementById('saveReplayBtn').addEventListener('click', () => {
-    //     ipcRenderer.invoke('obs.saveReplay');
-    // });
 
     document.getElementById('sceneSelect').addEventListener('change', (event) => {
         ipcRenderer.invoke('obs.switchScene.id', event.target.value);
@@ -224,9 +138,6 @@
             value: selectedWindow.value,
             sceneName: selectedWindow.textContent,
         };
-        // if (document.getElementById('sceneNameInput').value) {
-        //     windowData.sceneName = document.getElementById('sceneNameInput').value.trim();
-        // }
         console.log(windowData)
         ipcRenderer.invoke('obs.createScene', windowData);
     })
@@ -239,15 +150,12 @@
             value: selectedWindow.value,
             sceneName: selectedWindow.textContent,
         };
-        // if (document.getElementById('sceneNameInput').value) {
-        //     windowData.sceneName = document.getElementById('sceneNameInput').value.trim();
-        // }
         console.log(windowData)
         ipcRenderer.invoke('obs.createScene.Game', windowData);
     })
 
     const gsmStatusButton = document.getElementById('gsm-status');
-    const websocketStatus = document.getElementById('websocket_container');
+    const websocketContainer = document.getElementById('websocket_container');
     const obsStatus = document.getElementById('obs-status');
     const ankiStatus = document.getElementById('anki-status');
     const clipboardStatus = document.getElementById('clipboard-status');
@@ -258,27 +166,27 @@
         ipcRenderer.invoke('get_gsm_status').then(gsmStatus => {
             if (gsmStatus === null) {
                 gsmStatusButton.classList.toggle('red', true);
-                gsmStatusButton.querySelector('span:last-child').textContent = ": Initializing";
+                gsmStatusButton.classList.toggle('green', false);
+                gsmStatusButton.querySelector('span:last-child').textContent = "Installing/Initializing";
                 return;
             }
-            const ready = gsmStatus.ready; // This variable is not used in this snippet, but kept for context.
-            const status = gsmStatus.status; // This variable is not used in this snippet, but kept for context.
+            const ready = gsmStatus.ready;
+            const status = gsmStatus.status;
             const websockets_connected = gsmStatus.websockets_connected;
-            const websockets_connected_bool = gsmStatus.websockets_connected.length > 0; // Check if any websockets are connected
             const obs_connected = gsmStatus.obs_connected;
             const anki_connected = gsmStatus.anki_connected;
-            const last_line_received = gsmStatus.last_line_received; // This variable is not used in this snippet, but kept for context.
-            const words_being_processed = gsmStatus.words_being_processed; // This variable is not used in this snippet, but kept for context.
-            const clipboard_enabled = gsmStatus.clipboard_enabled; // This variable is not used in this snippet, but kept for context.
+            const last_line_received = gsmStatus.last_line_received;
+            const words_being_processed = gsmStatus.words_being_processed;
+            const clipboard_enabled = gsmStatus.clipboard_enabled;
 
             // Update GSM status
             gsmStatusButton.classList.toggle('green', ready);
             gsmStatusButton.classList.toggle('red', !ready);
-            gsmStatusButton.querySelector('span:last-child').textContent = ready ? `: ${status}` : ': GSM is not running';
+            gsmStatusButton.querySelector('span:last-child').textContent = ready ? `${status}` : 'GSM is not running';
             if (words_being_processed.length > 0) {
-                gsmStatusButton.querySelector('span:last-child').textContent = `: Processing: ${words_being_processed}`;
+                gsmStatusButton.querySelector('span:last-child').textContent = `Processing: ${words_being_processed}`;
             }
-            const timeDifference = Math.floor((Date.now() - new Date(last_line_received).getTime()) / 1000); // Difference in seconds
+            const timeDifference = Math.floor((Date.now() - new Date(last_line_received).getTime()) / 1000);
             let relativeTime = '';
             if (!last_line_received) {
                 relativeTime = 'Not received yet';
@@ -294,53 +202,77 @@
                 relativeTime = `${Math.floor(timeDifference / 86400)} days ago`;
             }
 
-            gsmStatusButton.setAttribute('title', ready ? `Status: ${status}\nWebSockets: ${websockets_connected}\nOBS: ${obs_connected ? 'Started' : 'Stopped'}\nAnki: ${anki_connected ? 'Connected' : 'Disconnected'}\nLast Line Received: ${relativeTime}` : 'GSM is stopped.');
+            gsmStatusButton.setAttribute('title', ready ? `Status: ${status}\nWebSockets: ${websockets_connected.length > 0 ? websockets_connected.join(', ') : 'None'}\nOBS: ${obs_connected ? 'Started' : 'Stopped'}\nAnki: ${anki_connected ? 'Connected' : 'Disconnected'}\nLast Line Received: ${relativeTime}` : 'GSM is stopped.');
 
-            clipboardStatus.classList.toggle('green', gsmStatus.clipboard_enabled);
-            clipboardStatus.classList.toggle('red', !gsmStatus.clipboard_enabled);
-            clipboardStatus.classList.toggle('neutral', !gsmStatus.clipboard_enabled && websockets_connected_bool);
-            clipboardStatus.querySelector('span:last-child').textContent = gsmStatus.clipboard_enabled ? ': Enabled' : ': Disabled';
-            clipboardStatus.setAttribute('title', gsmStatus.clipboard_enabled ? 'Clipboard monitoring is enabled.' : 'Clipboard monitoring is disabled.');
+            // Update Clipboard status
+            clipboardStatus.classList.toggle('green', clipboard_enabled);
+            clipboardStatus.classList.toggle('red', !clipboard_enabled);
+            clipboardStatus.querySelector('span:last-child').textContent = clipboard_enabled ? 'Enabled' : 'Disabled';
+            clipboardStatus.setAttribute('title', clipboard_enabled ? 'Clipboard monitoring is enabled.' : 'Clipboard monitoring is disabled.');
 
-            // Update WebSocket status
+            // Update WebSocket status buttons
             websockets_connected.forEach(ws => {
                 if (!ws_showing[ws]) {
                     const wsButton = document.createElement('button');
-                    wsButton.className = 'status-button';
-                    wsButton.classList.add(websockets_connected_bool ? 'green' : 'red');
-                    wsButton.innerHTML = `<span class="icon">📋</span> ${ws} <span></span>`;
-                    wsButton.setAttribute('title', websockets_connected_bool ? `${ws} is connected.` : `${ws} is disconnected.`);
-                    websocketStatus.appendChild(wsButton);
+                    wsButton.className = 'status-button card'; // Add card class for styling
+                    wsButton.id = `ws-${ws.replace(/[^a-zA-Z0-9]/g, '-')}`; // Create a valid ID
+                    wsButton.innerHTML = `<span class="icon">🔗</span> <span>${ws}</span> <span></span>`; // Use link icon for WebSocket
+                    websocketContainer.appendChild(wsButton);
                     ws_showing[ws] = wsButton;
                 }
+                const currentWsButton = ws_showing[ws];
+                currentWsButton.classList.toggle('green', true); // WebSockets listed are always connected
+                currentWsButton.classList.toggle('red', false);
+                currentWsButton.querySelector('span:last-child').textContent = 'Connected';
+                currentWsButton.setAttribute('title', `${ws} is connected.`);
             });
 
             // Remove buttons for disconnected WebSockets
             Object.keys(ws_showing).forEach(ws => {
                 if (!websockets_connected.includes(ws)) {
-                    websocketStatus.removeChild(ws_showing[ws]);
+                    websocketContainer.removeChild(ws_showing[ws]);
                     delete ws_showing[ws];
                 }
             });
-            // Update WebSocket status
-            // websocketStatus.classList.toggle('green', websockets_connected_bool);
-            // websocketStatus.classList.toggle('red', !websockets_connected_bool);
-            // websocketStatus.querySelector('span:last-child').textContent = websockets_connected_bool ? `${websockets_connected.join(', ')}` : ' Disconnected';
-            // websocketStatus.setAttribute('title', websockets_connected_bool ? `${websockets_connected.join(', ')}` : 'WebSocket is disconnected.');
 
             // Update OBS status
             obsStatus.classList.toggle('green', obs_connected);
             obsStatus.classList.toggle('red', !obs_connected);
-            // obsStatus.querySelector('span:last-child').textContent = obs_connected ? 'Started' : 'Stopped';
+            obsStatus.querySelector('span:last-child').textContent = obs_connected ? 'Connected' : 'Disconnected';
+            obsStatus.setAttribute('title', obs_connected ? 'OBS is connected.' : 'OBS is disconnected.');
+
 
             // Update Anki status
             ankiStatus.classList.toggle('green', anki_connected);
             ankiStatus.classList.toggle('red', !anki_connected);
-            // ankiStatus.querySelector('span:last-child').textContent = anki_connected ? 'Connected' : 'Stopped';
+            ankiStatus.querySelector('span:last-child').textContent = anki_connected ? 'Connected' : 'Disconnected';
+            ankiStatus.setAttribute('title', anki_connected ? 'Anki is connected.' : 'Anki is disconnected.');
 
-            last_websockets = websockets_connected
         }).catch(error => {
             console.error('Error fetching GSM status:', error);
+            // Optionally, set all statuses to error/red if communication with backend fails
+            gsmStatusButton.classList.toggle('red', true);
+            gsmStatusButton.classList.toggle('green', false);
+            gsmStatusButton.querySelector('span:last-child').textContent = "Error";
+            gsmStatusButton.setAttribute('title', 'Error communicating with GSM backend.');
+
+            clipboardStatus.classList.toggle('red', true);
+            clipboardStatus.classList.toggle('green', false);
+            clipboardStatus.querySelector('span:last-child').textContent = "Error";
+
+            obsStatus.classList.toggle('red', true);
+            obsStatus.classList.toggle('green', false);
+            obsStatus.querySelector('span:last-child').textContent = "Error";
+
+            ankiStatus.classList.toggle('red', true);
+            ankiStatus.classList.toggle('green', false);
+            ankiStatus.querySelector('span:last-child').textContent = "Error";
+
+            // Clear dynamic websocket buttons
+            Object.keys(ws_showing).forEach(ws => {
+                websocketContainer.removeChild(ws_showing[ws]);
+                delete ws_showing[ws];
+            });
         });
     }, 200);
 

@@ -731,6 +731,8 @@ class ScreenSelector:
         window.bind('<Button-3>', on_right_click)  # Right click delete
         window.bind("<m>", toggle_image_mode)  # Toggle image mode (alpha)
 
+        canvas.focus_set()
+
     def start(self):
         """Initializes the Tkinter root and creates windows for each monitor."""
         self.root = tk.Tk()

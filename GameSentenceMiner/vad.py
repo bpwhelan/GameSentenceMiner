@@ -1,4 +1,3 @@
-import subprocess
 import tempfile
 import time
 import warnings
@@ -6,7 +5,7 @@ from abc import abstractmethod, ABC
 
 from GameSentenceMiner.util import configuration, ffmpeg
 from GameSentenceMiner.util.configuration import *
-from GameSentenceMiner.util.ffmpeg import get_ffprobe_path
+from GameSentenceMiner.util.ffmpeg import get_audio_length
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name, run_new_thread
 from GameSentenceMiner.util.model import VADResult
 
@@ -82,17 +81,6 @@ class VADProcessor(ABC):
         pass
 
     @staticmethod
-    def get_audio_length(path):
-        result = subprocess.run(
-            [get_ffprobe_path(), "-v", "error", "-show_entries", "format=duration", "-of",
-             "default=noprint_wrappers=1:nokey=1", path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        return float(result.stdout.strip())
-
-    @staticmethod
     def extract_audio_and_combine_segments(input_audio, segments, output_audio, padding=0.1):
         files = []
         ffmpeg_threads = []
@@ -138,7 +126,7 @@ class VADProcessor(ABC):
 
         # Attempt to fix the end time if the last segment is too short
         if game_line and game_line.next and len(voice_activity) > 1:
-            audio_length = self.get_audio_length(input_audio)
+            audio_length = get_audio_length(input_audio)
             if 0 > audio_length - voice_activity[-1]['start'] + get_config().audio.beginning_offset:
                 end_time = voice_activity[-2]['end']
 
@@ -368,6 +356,7 @@ class GroqVADProcessor(VADProcessor):
         except Exception as e:
             logger.error(f"Error detecting voice with Groq: {e}")
             return [], 0.0
+
 
 vad_processor = VADSystem()
 

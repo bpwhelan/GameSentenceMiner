@@ -1,4 +1,5 @@
 import ctypes
+from copy import deepcopy
 from dataclasses import dataclass
 from math import floor, ceil
 
@@ -43,12 +44,14 @@ class WindowGeometry:
 class OCRConfig:
     scene: str
     rectangles: List[Rectangle]
+    pre_scale_rectangles: List[Rectangle] = None
     coordinate_system: str = None
     window_geometry: Optional[WindowGeometry] = None
     window: Optional[str] = None
     language: str = "ja"
 
     def __post_init__(self):
+        self.pre_scale_rectangles = deepcopy(self.rectangles)
         if self.coordinate_system and self.coordinate_system == "percentage" and self.window:
             import pygetwindow as gw
             try:
@@ -70,6 +73,19 @@ class OCRConfig:
                     ceil(rectangle.coordinates[2] * self.window_geometry.width),
                     ceil(rectangle.coordinates[3] * self.window_geometry.height),
                 ]
+
+    def scale_to_custom_size(self, width, height):
+        print(self.pre_scale_rectangles)
+        self.rectangles = self.pre_scale_rectangles.copy()
+        if self.coordinate_system and self.coordinate_system == "percentage":
+            for rectangle in self.rectangles:
+                rectangle.coordinates = [
+                    floor(rectangle.coordinates[0] * width),
+                    floor(rectangle.coordinates[1] * height),
+                    floor(rectangle.coordinates[2] * width),
+                    floor(rectangle.coordinates[3] * height),
+                ]
+
 
 def get_window(title):
     import pygetwindow as gw

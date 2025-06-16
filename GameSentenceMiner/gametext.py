@@ -14,11 +14,13 @@ current_line = ''
 current_line_after_regex = ''
 current_line_time = datetime.now()
 
+last_clipboard = ''
+
 reconnecting = False
 websocket_connected = {}
 
 async def monitor_clipboard():
-    global current_line
+    global current_line, last_clipboard
     current_line = pyperclip.paste()
     send_message_on_resume = False
     while True:
@@ -37,7 +39,8 @@ async def monitor_clipboard():
         gsm_status.clipboard_enabled = True
         current_clipboard = pyperclip.paste()
 
-        if current_clipboard and current_clipboard != current_line:
+        if current_clipboard and current_clipboard != current_line and current_clipboard != last_clipboard:
+            last_clipboard = current_clipboard
             await handle_new_text_event(current_clipboard)
 
         await asyncio.sleep(0.05)

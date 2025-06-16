@@ -7,26 +7,29 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Game Launcher Config</h1>
-<div>
-    <label>
-        Game Select:
-        <select id="gameSelect" class="gameSelect">
+<div class="card form-group">
+    <h2>Game Management</h2>
+    <div class="input-group">
+        <label for="gameSelect">Game Select:</label>
+        <select id="gameSelect">
             <option value="" disabled selected>Select a game</option>
         </select>
-    </label>
-    <button id="configGameBtn" class="pathBtn">Add Game</button>
-    <button id="removeGameBtn">Remove Game</button>
-</div>
-<div>
-    <button id="setAgentBtn" class="pathBtn">Set Agent Path</button>
-    <button id="setTextractorPathBtn">Set Textractor Path</button>
-    <button id="setSteamPathBtn" class="pathBtn">Set Steam.exe Path</button>
-</div>
-<div>
-    <div>
-        <button id="goBackBtn" onclick="location.href='launcher.html'">Go Back</button>
     </div>
+    <div style="display: flex; gap: 10px;">
+        <button id="configGameBtn">Add Game</button>
+        <button id="removeGameBtn" class="danger">Remove Game</button>
+    </div>
+</div>
+
+<div class="card form-group">
+    <h2>Path Configuration</h2>
+    <button id="setAgentBtn">Set Agent Path</button>
+    <button id="setTextractorPathBtn">Set Textractor Path</button>
+    <button id="setSteamPathBtn">Set Steam.exe Path</button>
+</div>
+
+<div class="card">
+    <button id="goBackBtn" class="secondary" onclick="location.href='launcher.html'">Go Back</button>
 </div>
 
 <p id="status"></p>
@@ -44,7 +47,7 @@
 
     async function loadGames() {
         const games = await ipcRenderer.invoke('steam.getSteamGames');
-        gameSelect.innerHTML = '<option value="">Select a game</option>';
+        gameSelect.innerHTML = '<option value="" disabled selected>Select a game</option>';
 
         while (gameSelect.options.length > 1) {
             gameSelect.remove(1);
@@ -72,8 +75,8 @@
     ipcRenderer.on('steamGamesUpdated', loadGames);
 
     removeGameBtn.addEventListener('click', () => {
-       ipcRenderer.invoke('steam.removeSteamGame', gameSelect.options[gameSelect.selectedIndex].innerText);
-       loadGames()
+        ipcRenderer.invoke('steam.removeSteamGame', gameSelect.options[gameSelect.selectedIndex].innerText);
+        loadGames()
     });
 
     setAgentBtn.addEventListener('click', () => {

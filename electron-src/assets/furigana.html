@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Furigana Overlay</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0);
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+            font-family: 'Arial', sans-serif;
+            color: red;
+            user-select: none;
+            /* Make the entire body draggable */
+            -webkit-app-region: drag;
+            cursor: grab; /* Indicate it's draggable */
+        }
+
+        #character {
+            font-weight: bold;
+            line-height: 1;
+            text-shadow: 1px 1px 2px black;
+            /* The character itself is now part of the draggable region */
+            cursor: grab;
+        }
+
+        #toggleHandle { /* Renamed from closeHandle for clarity */
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 20px;
+            height: 20px;
+            background-color: rgba(255, 0, 0, 0.3); /* Semi-transparent red for visibility */
+            cursor: pointer;
+            /* Important: Prevent dragging when clicking this handle, allow it to be clicked. */
+            -webkit-app-region: no-drag;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 12px;
+            color: white;
+            border-radius: 0 0 0 5px; /* Rounded bottom-left corner */
+        }
+    </style>
+</head>
+<body>
+<div id="character"></div>
+<div id="toggleHandle">X</div>
+<script>
+    // Directly import ipcRenderer since nodeIntegration is true
+    const {ipcRenderer} = require('electron');
+
+    const charElement = document.getElementById('character');
+    const toggleHandle = document.getElementById('toggleHandle');
+    let isDragging = false;
+    let size = 0;
+
+    // Listener for character/font size updates from the main process
+    ipcRenderer.on('set-furigana-character', (event, char, fontSize) => {
+        if (charElement) {
+            charElement.style.width = `${fontSize}px`;
+            charElement.style.height = `${fontSize}px`;
+            // charElement.style.fontSize = `${fontSize}px`;
+            charElement.style.border = '1px solid red'; // Add a red border for visibility
+        }
+        size = fontSize;
+    });
+
+    function resize() {
+        // charElement.style.fontSize = `${size}px`;
+        charElement.style.width = `${size}px`;
+        charElement.style.height = `${size}px`;
+        // charElement.textContent = ipcRenderer.sendSync('get-furigana-character'); // Get the character from the main process
+    }
+
+    // --- Dragging Logic ---
+    // document.body.addEventListener('mousedown', (e) => {
+    //     // If the click is on the 'no-drag' toggle handle, do not start drag.
+    //     if (e.target === toggleHandle) {
+    //         return;
+    //     }
+    //
+    //     isDragging = true;
+    //     // Tell the main process to temporarily enable mouse events for dragging.
+    //     // This temporarily disables the click-through behavior.
+    //     ipcRenderer.send('set-ignore-mouse-events', false);
+    //     document.body.style.cursor = 'grabbing'; // Change cursor to indicate dragging
+    // });
+    //
+    // document.body.addEventListener('mouseup', () => {
+    //     if (isDragging) {
+    //         isDragging = false;
+    //         // Tell the main process to re-enable click-through, but still forward mouse move events.
+    //         ipcRenderer.send('set-ignore-mouse-events', true, {forward: true});
+    //         document.body.style.cursor = 'grab'; // Reset cursor
+    //     }
+    // });
+
+    // --- Toggle (Hide/Show) Logic ---
+    // Clicking the "X" handle toggles visibility.
+    toggleHandle.addEventListener('click', () => {
+        ipcRenderer.send('close-furigana-window');
+    });
+
+    // Double-click anywhere on the window (except the "X" handle) to toggle visibility.
+    // document.body.addEventListener('dblclick', (e) => {
+    //     if (e.target === toggleHandle) {
+    //         return;
+    //     }
+    //     ipcRenderer.send('toggle-furigana-window');
+    // });
+
+    // Right-click anywhere on the window (except the "X" handle) to toggle visibility.
+    // document.body.addEventListener('contextmenu', (e) => {
+    //     e.preventDefault(); // Prevent default browser context menu
+    //     if (e.target === toggleHandle) {
+    //         return;
+    //     }
+    //     ipcRenderer.send('toggle-furigana-window');
+    // });
+
+    document.body.addEventListener('wheel', (e) => {
+        e.preventDefault(); // Prevent default scrolling behavior')
+        if (e.deltaY < 0) {
+            // Scroll up
+            size += 1;
+            resize();
+        } else {
+            // Scroll down
+            size -= 1;
+            resize();
+        }
+    });
+</script>
+</body>
+</html>

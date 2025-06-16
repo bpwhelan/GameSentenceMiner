@@ -282,83 +282,6 @@ def get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation
 
     return trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line_time, anki_card_creation_time)
 
-def get_audio_and_trim_combined(video_path, game_line, next_line_time, anki_card_creation_time):
-    supported_formats = {
-        'opus': 'libopus',
-        'mp3': 'libmp3lame',
-        'ogg': 'libvorbis',
-        'aac': 'aac',
-        'm4a': 'aac',
-    }
-
-    codec = get_audio_codec(video_path)
-    output_extension = get_config().audio.extension
-    output_audio_path = tempfile.NamedTemporaryFile(
-        dir=configuration.get_temporary_directory(),
-        suffix=f".{output_extension}",
-        delete=False
-    ).name
-
-    if codec == output_extension:
-        codec_command = ['-c:a', 'copy']
-        logger.debug(f"Extracting {output_extension} from video (copying)")
-    else:
-        codec_command = ["-c:a", f"{supported_formats[output_extension]}"]
-        logger.debug(f"Re-encoding {codec} to {output_extension}")
-
-    start_trim_time, start_time_float, total_seconds_after_offset, file_length = get_video_timings(video_path, game_line, anki_card_creation_time)
-
-    ffmpeg_command = ffmpeg_base_command_list + [
-        "-ss", str(start_trim_time),
-        "-i", video_path,
-        "-map", "0:a"
-    ]
-
-    end_trim_time_str = ""
-
-    if next_line_time and next_line_time > game_line.time:
-        end_total_seconds = next_line_time + get_config().audio.pre_vad_end_offset
-        hours, remainder = divmod(end_total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        end_trim_time_str = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
-        ffmpeg_command.extend(['-to', end_trim_time_str])
-        logger.debug(
-            f"Trimming end of audio to {end_trim_time_str} based on next line time.")
-    elif get_config().audio.pre_vad_end_offset is not None and get_config().audio.pre_vad_end_offset < 0:
-        end_total_seconds = file_length + get_config().audio.pre_vad_end_offset
-        end_total_seconds = max(end_total_seconds, start_time_float)
-
-        hours, remainder = divmod(end_total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        end_trim_time_str = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
-        ffmpeg_command.extend(['-to', end_trim_time_str])
-        logger.debug(f"Trimming end of audio to {end_trim_time_str} due to negative pre-vad end offset.")
-
-    ffmpeg_command.extend(codec_command)
-    ffmpeg_command.append(output_audio_path)
-
-    logger.debug("Executing combined audio extraction and trimming command")
-    logger.debug(" ".join(ffmpeg_command))
-
-    try:
-        subprocess.run(ffmpeg_command, check=True)
-        logger.debug(f"{total_seconds_after_offset} trimmed off of beginning")
-
-        if end_trim_time_str:
-            logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds with end time {end_trim_time_str}")
-        else:
-            logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds (to end of file)")
-
-        logger.debug(f"Audio trimmed and saved to {output_audio_path}")
-        return output_audio_path
-    except subprocess.CalledProcessError as e:
-        logger.error(f"FFmpeg command failed: {e}")
-        logger.error(f"Command: {' '.join(ffmpeg_command)}")
-        raise
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
-        raise
-
 
 def get_video_duration(file_path):
     ffprobe_command = [
@@ -379,26 +302,22 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     trimmed_audio = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(),
                                                 suffix=f".{get_config().audio.extension}").name
     start_trim_time, total_seconds, total_seconds_after_offset, file_length = get_video_timings(video_path, game_line, anki_card_creation_time)
-    end_trim_time = ""
+    end_trim_time = 0
 
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
         "-ss", str(start_trim_time)]
     if next_line and next_line > game_line.time:
         end_total_seconds = total_seconds + (next_line - game_line.time).total_seconds() + get_config().audio.pre_vad_end_offset
-        hours, remainder = divmod(end_total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        end_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
+        end_trim_time = f"{end_total_seconds:.3f}"
         ffmpeg_command.extend(['-to', end_trim_time])
         logger.debug(
-            f"Looks Like this is mining from History, or Multiple Lines were selected Trimming end of audio to {end_trim_time}")
+            f"Looks Like this is mining from History, or Multiple Lines were selected Trimming end of audio to {end_trim_time} seconds")
     elif get_config().audio.pre_vad_end_offset and get_config().audio.pre_vad_end_offset < 0:
         end_total_seconds = file_length + get_config().audio.pre_vad_end_offset
-        hours, remainder = divmod(end_total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        end_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
+        end_trim_time = f"{end_total_seconds:.3f}"
         ffmpeg_command.extend(['-to', end_trim_time])
-        logger.debug(f"Trimming end of audio to {end_trim_time} due to pre-vad end offset")
+        logger.debug(f"Trimming end of audio to {end_trim_time} seconds due to pre-vad end offset")
 
     ffmpeg_command.extend([
         "-c", "copy",  # Using copy to avoid re-encoding, adjust if needed
@@ -407,6 +326,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
 
     logger.debug(" ".join(ffmpeg_command))
     subprocess.run(ffmpeg_command)
+    gsm_state.previous_trim_args = (untrimmed_audio, start_trim_time, end_trim_time)
 
     logger.debug(f"{total_seconds_after_offset} trimmed off of beginning")
 
@@ -431,12 +351,9 @@ def get_video_timings(video_path, game_line, anki_card_creation_time=None):
     if total_seconds < 0 or total_seconds >= file_length:
         logger.error("Line mined is outside of the replay buffer! Defaulting to the beginning of the replay buffer. ")
         logger.info("Recommend either increasing replay buffer length in OBS Settings or mining faster.")
-        return 0, 0, 0
+        return 0, 0, 0, file_length
 
-    hours, remainder = divmod(total_seconds_after_offset, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    start_trim_time = "{:02}:{:02}:{:06.3f}".format(int(hours), int(minutes), seconds)
-    return start_trim_time, total_seconds, total_seconds_after_offset, file_length
+    return total_seconds_after_offset, total_seconds, total_seconds_after_offset, file_length
 
 
 def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_options):
@@ -528,7 +445,7 @@ def convert_audio_to_mp3(input_audio):
 
 
 # Trim the audio using FFmpeg based on detected speech timestamps
-def trim_audio(input_audio, start_time, end_time, output_audio, trim_beginning=False, fade_in_duration=0.05,
+def trim_audio(input_audio, start_time, end_time=0, output_audio=None, trim_beginning=False, fade_in_duration=0.05,
                fade_out_duration=0.05):
     command = ffmpeg_base_command_list.copy()
 
@@ -545,9 +462,10 @@ def trim_audio(input_audio, start_time, end_time, output_audio, trim_beginning=F
         fade_filter.append(f'afade=t=out:st={end_time - fade_out_duration:.2f}:d={fade_out_duration}')
     #     fade_filter.append(f'afade=t=out:d={fade_out_duration}')
 
-    command.extend([
-        '-to', f"{end_time:.2f}",
-    ])
+    if end_time > 0:
+        command.extend([
+            '-to', f"{end_time:.2f}",
+        ])
 
     if fade_filter:
         command.extend(['-af', f'afade=t=in:d={fade_in_duration},afade=t=out:st={end_time - fade_out_duration:.2f}:d={fade_out_duration}'])
@@ -596,3 +514,13 @@ def is_video_big_enough(file_path, min_size_kb=250):
         logger.error(f"Error: {e}")
         return False
 
+
+def get_audio_length(path):
+    result = subprocess.run(
+        [get_ffprobe_path(), "-v", "error", "-show_entries", "format=duration", "-of",
+         "default=noprint_wrappers=1:nokey=1", path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+    return float(result.stdout.strip())

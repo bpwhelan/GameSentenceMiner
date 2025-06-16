@@ -7,6 +7,7 @@ import io
 
 class ScreenCropper:
     def __init__(self):
+        self.main_monitor = None
         self.root = None
         self.canvas = None
         self.captured_image = None
@@ -23,6 +24,7 @@ class ScreenCropper:
         try:
             with mss.mss() as sct:
                 all_monitors_bbox = sct.monitors[0]
+                self.main_monitor = sct.monitors[1]
                 self.monitor_geometry = {
                     'left': all_monitors_bbox['left'],
                     'top': all_monitors_bbox['top'],
@@ -74,6 +76,15 @@ class ScreenCropper:
 
         self.root.destroy()
 
+    def _on_enter(self, event):
+        print(event)
+        print("Enter key pressed, grabbing main monitor area.")
+        self.cropped_image = self.captured_image.crop((self.main_monitor['left'], self.main_monitor['top'],
+                                                  self.main_monitor['left'] + self.main_monitor['width'],
+                                                   self.main_monitor['top'] + self.main_monitor['height']))
+        self.root.destroy()
+
+
     def show_image_and_select_box(self):
         if self.captured_image is None or self.monitor_geometry is None:
             print("No image or monitor geometry to display. Capture all monitors first.")
@@ -101,13 +112,18 @@ class ScreenCropper:
         self.canvas.bind("<B1-Motion>", self._on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_button_release)
 
+
         self.root.mainloop()
 
     def get_cropped_image(self):
         return self.cropped_image
 
-    def run(self):
+    def run(self, return_main_monitor=False):
         self.grab_all_monitors()
+        if return_main_monitor and self.captured_image:
+            return self.captured_image.crop((self.main_monitor['left'], self.main_monitor['top'],
+                                                  self.main_monitor['left'] + self.main_monitor['width'],
+                                                   self.main_monitor['top'] + self.main_monitor['height']))
         if self.captured_image and self.monitor_geometry:
             self.show_image_and_select_box()
             return self.get_cropped_image()

@@ -3,7 +3,7 @@ import subprocess
 import sys
 
 import os
-
+import warnings
 
 os.environ.pop('TCL_LIBRARY', None)
 
@@ -60,7 +60,7 @@ obs_paused = False
 icon: Icon
 menu: Menu
 root = None
-
+warnings.simplefilter("ignore", DeprecationWarning)
 
 
 class VideoToAudioHandler(FileSystemEventHandler):
@@ -78,6 +78,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     def process_replay(self, video_path):
         vad_trimmed_audio = ''
+        final_audio_output = ''
         skip_delete = False
         gsm_state.previous_replay = video_path
         if gsm_state.line_for_audio or gsm_state.line_for_screenshot:
@@ -85,7 +86,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:
-                last_note, anki_card_creation_time = anki.card_queue.pop(0)
+                last_note, anki_card_creation_time, selected_lines = anki.card_queue.pop(0)
             else:
                 logger.info("Replay buffer initiated externally. Skipping processing.")
                 skip_delete = True
@@ -115,9 +116,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 if mined_line.next:
                     line_cutoff = mined_line.next.time
 
-            selected_lines = []
-            if texthooking_page.are_lines_selected():
-                selected_lines = texthooking_page.get_selected_lines()
+            if selected_lines:
                 start_line = selected_lines[0]
                 mined_line = get_mined_line(last_note, selected_lines)
                 line_cutoff = selected_lines[-1].get_next_time()
@@ -126,7 +125,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 logger.debug(last_note.to_json())
             note = anki.get_initial_card_info(last_note, selected_lines)
             tango = last_note.get_field(get_config().anki.word_field) if last_note else ''
-            texthooking_page.reset_checked_lines()
 
             if get_config().anki.sentence_audio_field and get_config().audio.enabled:
                 logger.debug("Attempting to get audio from video")
@@ -138,7 +136,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     mined_line=mined_line)
             else:
                 final_audio_output = ""
-                vad_result = VADResult(False, 0, 0, '')
+                vad_result = VADResult(True, 0, 0, '')
                 vad_trimmed_audio = ""
                 if not get_config().audio.enabled:
                     logger.info("Audio is disabled in config, skipping audio processing!")
@@ -177,6 +175,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     os.remove(video_path)
                 if vad_trimmed_audio and get_config().paths.remove_audio and os.path.exists(vad_trimmed_audio):
                     os.remove(vad_trimmed_audio)
+                if final_audio_output and get_config().paths.remove_audio and os.path.exists(final_audio_output):
+                    os.remove(final_audio_output)
 
     @staticmethod
     def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None):
@@ -191,9 +191,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
         vad_result = vad_processor.trim_audio_with_vad(trimmed_audio, vad_trimmed_audio, game_line)
         if timing_only:
             return vad_result
-        if get_config().audio.ffmpeg_reencode_options and os.path.exists(vad_trimmed_audio):
+        if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(vad_trimmed_audio):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
-                                                  get_config().audio.ffmpeg_reencode_options)
+                                                  get_config().audio.ffmpeg_reencode_options_to_use)
         elif os.path.exists(vad_trimmed_audio):
             shutil.move(vad_trimmed_audio, final_audio_output)
         return final_audio_output, vad_result, vad_trimmed_audio

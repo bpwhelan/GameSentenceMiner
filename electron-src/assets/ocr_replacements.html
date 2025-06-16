@@ -5,42 +5,56 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OCR Error Fixes (Electron)</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
 </head>
-<body> <div class="container">
+<body>
+<div class="card">
     <h1>OCR Error Fixes</h1>
 
-    <div class="control"> <button id="add-new-btn" class="button-blue">Add New Entry</button> <div class="search-container"> <input type="text" id="search-input" placeholder="Search key or value..." class="inputField"> <button id="search-button" class="button-green">Search</button> </div>
-        <button id="go-back-btn" class="button-gray">Go Back</button> </div>
+    <div class="form-group" style="flex-direction: row; justify-content: space-between; align-items: center;">
+        <button id="add-new-btn">Add New Entry</button>
+        <div class="input-group">
+            <input type="text" id="search-input" placeholder="Search key or value...">
+            <button id="search-button">Search</button>
+        </div>
+        <button id="go-back-btn" class="secondary">Go Back</button>
+    </div>
 
-    <div id="data-table-container" class="table-container"> <table id="data-table" class="data-table"> <thead>
-    <tr>
-        <th>
-            Incorrect Text (Key)
-        </th>
-        <th>
-            Correct Text (Value)
-        </th>
-        <th>
-            Actions
-        </th>
-    </tr>
-    </thead>
-        <tbody id="data-table-body">
-        </tbody>
-    </table>
-        <p id="no-entries-message" class="no-entries-message hidden">No entries found.</p> </div>
+    <div id="data-table-container" class="table-container">
+        <table id="data-table">
+            <thead>
+            <tr>
+                <th>Incorrect Text (Key)</th>
+                <th>Correct Text (Value)</th>
+                <th>Actions</th>
+            </tr>
+            </thead>
+            <tbody id="data-table-body">
+            </tbody>
+        </table>
+        <p id="no-entries-message" class="hidden">No entries found.</p>
+    </div>
 </div>
 
-<div id="entry-modal" class="modal"> <div class="modal-content"> <span class="close-button">&times;</span> <h2 id="modal-title">Add New Entry</h2> <form id="entry-form">
-    <p>"re:" at the beginning = regex pattern (ex. re:.{3,}) </p>
-    <div class="form-group"> <label for="key-input" class="form-label">Incorrect Text (Key):</label> <input type="text" id="key-input" name="key" required class="form-input"> <input type="hidden" id="original-key-input">
+<div id="entry-modal" class="modal card" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; width: 90%; max-width: 500px;">
+    <div class="modal-content">
+        <span class="close-button" style="float: right; font-size: 24px; cursor: pointer;">&times;</span>
+        <h2 id="modal-title">Add New Entry</h2>
+        <form id="entry-form">
+            <p>"re:" at the beginning = regex pattern (ex. re:.{3,}) </p>
+            <div class="form-group">
+                <label for="key-input">Incorrect Text (Key):</label>
+                <input type="text" id="key-input" name="key" required>
+                <input type="hidden" id="original-key-input">
+            </div>
+            <div class="form-group">
+                <label for="value-input">Correct Text (Value):</label>
+                <input type="text" id="value-input" name="value">
+            </div>
+            <div class="form-group" style="align-items: flex-end;">
+                <button type="submit">Save Entry</button>
+            </div>
+        </form>
     </div>
-    <div class="form-group"> <label for="value-input" class="form-label">Correct Text (Value):</label> <input type="text" id="value-input" name="value" class="form-input">
-    </div>
-    <div class="flex-end"> <button type="submit" class="button-blue">Save Entry</button> </div>
-</form>
-</div>
 </div>
 
 <script>
@@ -53,93 +67,23 @@
     const DATA_FILE = path.join(process.env.APPDATA, 'GameSentenceMiner', 'config', 'ocr_replacements.json');
     let ocrData = {}; // In-memory storage for the data
 
-    // Initial data to load if the file doesn't exist or is empty
-    // Extracted from the provided JSON content
-    // const initialHardcodedData = {
-    //     "\\|二": "に",
-    //     "ムロ": "合",
-    //     "カゝ": "か",
-    //     "蜜トル辞典": "蜜ドル辞典",
-    //     "あはよう": "おはよう",
-    //     "しちやぇ": "しちゃえ",
-    //     "し丶": "い",
-    //     "こっちをずっと行ってください": "こつちをずつと行つてください",
-    //     "ぁたし": "あたし",
-    //     "|こ": "に",
-    //     "|ナ": "け",
-    //     "|ま": "は",
-    //     "言つてんの": "言ってんの",
-    //     "ヵ〝": "が",
-    //     "し で る つ で話だ": "し て る っ て話だ ",
-    //     "さ つき": "さ っき",
-    //     "言つて": "言って",
-    //     "だつて": "だって",
-    //     "入つてる": "入ってる",
-    //     "民閤": "民間",
-    //     "思つた": "思った",
-    //     "売ってやるょ": "売ってやるよ",
-    //     "じやぁ": "じゃぁ",
-    //     "ちよつと": "ちょっと",
-    //     "せつかく": "せっかく",
-    //     "~丶": "い",
-    //     "|~": "ト",
-    //     "じや": "じゃ",
-    //     "[い": "い",
-    //     "な料い": "ない",
-    //     "患い出": "思い出",
-    //     "がぁ": "があ",
-    //     "無駄便い": "無駄使い",
-    //     "ィヒ": "化",
-    //     "饗ま翼": "は真",
-    //     "饗ま": "は",
-    //     "翼つ赤な": "真っ赤な",
-    //     "こいつ饗ま翼つ赤なニセモノだ": "こいつは真っ赤なニセモノだ",
-    //     "|讀2壷": "は真っ赤",
-    //     "真つ": "真っ",
-    //     "つ赤": "っ赤",
-    //     "ガいノ'ノン": "ガソリン",
-    //     "ガいノ'ノ": "ガソリ",
-    //     "いノ'ノン": "ソリン",
-    //     "いノ'ノ": "ソリ",
-    //     "スバナ": "スパナ",
-    //     "力メラ": "カメラ",
-    //     "ヵメラ": "カメラ",
-    //     "ヵメ": "カメ",
-    //     "ビビ`って": "ビビって",
-    //     "ビ`っ": "ビっ",
-    //     "力メ": "カメ",
-    //     "と つ と": "と っ と",
-    //     "と つ と と": "と っ と と",
-    //     "とつとと": "とっとと"
-    // };
-
-
     // Function to load data from the JSON file
     function loadData() {
-        // Start with the hardcoded initial data
-        // ocrData = { ...initialHardcodedData };
-
         if (fs.existsSync(DATA_FILE)) {
             try {
                 const rawData = fs.readFileSync(DATA_FILE, 'utf-8');
                 const fullData = JSON.parse(rawData);
-                // Assuming the relevant data is under args -> replacements (based on your snippet)
                 const fileData = fullData.args?.replacements || {};
-
-                // Merge file data, overwriting initial data if keys overlap
                 ocrData = { ...fileData };
-
             } catch (error) {
                 console.error("Error loading data from file:", error);
-                // If file loading fails, ocrData remains the initialHardcodedData
             }
         } else {
             console.warn("Data file not found. Starting with initial hardcoded data.");
-            // If file doesn't exist, create it with the initial data structure
             const initialDataStructure = {
                 "enabled": true,
                 "args": {
-                    "replacements": ocrData // Save the initial hardcoded data using the new key
+                    "replacements": ocrData
                 }
             };
             try {
@@ -153,65 +97,58 @@
     // Function to save data to the JSON file
     function saveData() {
         let fullData = {};
-        // Try to load the existing structure first to preserve other keys if they exist
         if (fs.existsSync(DATA_FILE)) {
             try {
                 const rawData = fs.readFileSync(DATA_FILE, 'utf-8');
                 fullData = JSON.parse(rawData);
             } catch (error) {
                 console.error("Error reading file structure before saving:", error);
-                fullData = {}; // If reading fails, start with a basic structure
+                fullData = {};
             }
         }
 
-        // Ensure the 'args' and 'replacements' structure exists (using the new name)
         if (!fullData.args) {
             fullData.args = {};
         }
-        fullData.args['replacements'] = ocrData; // Save the current ocrData using the new key
+        fullData.args['replacements'] = ocrData;
 
         try {
             fs.writeFileSync(DATA_FILE, JSON.stringify(fullData, null, 4), 'utf-8');
         } catch (error) {
             console.error("Error saving data:", error);
-            // Optionally, show an error message to the user
         }
     }
 
     // Function to render the data table
     function renderTable(dataToRender = ocrData) {
         const tableBody = document.getElementById('data-table-body');
-        // Use a document fragment or build a string for better performance
-        let tableHtml = ''; // String to build the table body HTML
+        let tableHtml = '';
         const noEntriesMessage = document.getElementById('no-entries-message');
         const dataTable = document.getElementById('data-table');
-
 
         const keys = Object.keys(dataToRender);
 
         if (keys.length === 0) {
             noEntriesMessage.classList.remove('hidden');
-            dataTable.classList.add('hidden'); // Hide table if no entries
+            dataTable.classList.add('hidden');
         } else {
             noEntriesMessage.classList.add('hidden');
-            dataTable.classList.remove('hidden'); // Show table if entries exist
+            dataTable.classList.remove('hidden');
             keys.forEach(key => {
                 const value = dataToRender[key];
-                // Append row HTML to the string instead of directly to innerHTML
                 tableHtml += `
                         <tr>
-                            <td>${escapeHTML(key)}</td> <td>${escapeHTML(value)}</td> <td>
-                                <button class="action-button edit-btn" data-key="${escapeHTML(key)}">Edit</button>
-                                <button class="action-button delete-button delete-btn" data-key="${escapeHTML(key)}">Delete</button>
+                            <td>${escapeHTML(key)}</td>
+                            <td>${escapeHTML(value)}</td>
+                            <td>
+                                <button class="edit-btn" data-key="${escapeHTML(key)}">Edit</button>
+                                <button class="delete-btn danger" data-key="${escapeHTML(key)}">Delete</button>
                             </td>
                         </tr>
                     `;
             });
-
-            // Set the innerHTML once after the loop
             tableBody.innerHTML = tableHtml;
 
-            // Add event listeners to the new buttons AFTER setting innerHTML
             document.querySelectorAll('.edit-btn').forEach(button => {
                 button.addEventListener('click', handleEditClick);
             });
@@ -243,9 +180,9 @@
         modalTitle.textContent = 'Add New Entry';
         keyInput.value = '';
         valueInput.value = '';
-        originalKeyInput.value = ''; // Clear original key for add
-        keyInput.disabled = false; // Key is editable when adding
-        modal.style.display = 'flex'; // Use flex to center
+        originalKeyInput.value = '';
+        keyInput.disabled = false;
+        modal.style.display = 'flex';
     });
 
     // Open modal for editing
@@ -256,9 +193,8 @@
         modalTitle.textContent = 'Edit Entry';
         keyInput.value = keyToEdit;
         valueInput.value = valueToEdit;
-        originalKeyInput.value = keyToEdit; // Store original key
-        // keyInput.disabled = true; // Prevent changing the key during edit
-        modal.style.display = 'flex'; // Use flex to center
+        originalKeyInput.value = keyToEdit;
+        modal.style.display = 'flex';
     }
 
     // Close modal
@@ -279,10 +215,9 @@
 
         const key = keyInput.value.trim();
         const value = valueInput.value.trim();
-        const originalKey = originalKeyInput.value; // Get the original key
+        const originalKey = originalKeyInput.value;
 
         if (!key) {
-            // Basic validation
             alert('Key and Value cannot be empty.');
             return;
         }
@@ -309,7 +244,7 @@
 
         saveData();
         renderTable();
-        modal.style.display = 'none'; // Close the modal
+        modal.style.display = 'none';
     });
 
     // --- Delete Handling ---
@@ -319,7 +254,7 @@
             if (ocrData.hasOwnProperty(keyToDelete)) {
                 delete ocrData[keyToDelete];
                 saveData();
-                renderTable(); // Re-render the table
+                renderTable();
             }
         }
     }
@@ -331,7 +266,7 @@
     function performSearch() {
         const query = searchInput.value.toLowerCase();
         if (!query) {
-            renderTable(ocrData); // Show all data if search is empty
+            renderTable(ocrData);
             return;
         }
 
@@ -344,24 +279,21 @@
                 }
             }
         }
-        renderTable(filteredData); // Render only the filtered data
+        renderTable(filteredData);
     }
 
     searchButton.addEventListener('click', performSearch);
-    searchInput.addEventListener('input', performSearch); // Live search as user types
+    searchInput.addEventListener('input', performSearch);
 
     // --- Go Back Button Handling ---
     const goBackBtn = document.getElementById('go-back-btn');
     goBackBtn.addEventListener('click', () => {
-        window.history.back(); // Use the browser's history to go back
+        window.history.back();
     });
 
-
     // --- Initial Load ---
-    // Load data and render the table when the page loads
     loadData();
     renderTable();
-
 </script>
 </body>
 </html>

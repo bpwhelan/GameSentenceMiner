@@ -49,6 +49,7 @@ interface OCRConfig {
     furigana_filter_sensitivity: number;
     manualOcrHotkey: string;
     areaSelectOcrHotkey: string;
+    sendToClipboard: boolean;
 }
 
 export enum HookableGameType {
@@ -135,8 +136,9 @@ export const store = new Store<StoreConfig>({
             language: "ja",
             ocr_screenshots: false,
             furigana_filter_sensitivity: 0,
-            manualOcrHotkey: "Ctrl+Shift+O",
-            areaSelectOcrHotkey: "Ctrl+Shift+G",
+            manualOcrHotkey: "Ctrl+Shift+G",
+            areaSelectOcrHotkey: "Ctrl+Shift+O",
+            sendToClipboard: true,
         },
         customPythonPackage: "GameSentenceMiner"
     },
@@ -271,6 +273,22 @@ export function getManualOcrHotkey(): string {
 
 export function setManualOcrHotkey(hotkey: string): void {
     store.set("OCR.manualOcrHotkey", hotkey);
+}
+
+export function getSendToClipboard(): boolean {
+    return store.get("OCR.sendToClipboard");
+}
+
+export function setSendToClipboard(sendToClipboard: boolean): void {
+    store.set("OCR.sendToClipboard", sendToClipboard);
+}
+
+export function getAreaSelectOcrHotkey(): string {
+    return store.get("OCR.areaSelectOcrHotkey");
+}
+
+export function setAreaSelectOcrHotkey(hotkey: string): void {
+    store.set("OCR.areaSelectOcrHotkey", hotkey);
 }
 
 // Yuzu config getters and setters

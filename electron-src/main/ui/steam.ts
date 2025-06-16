@@ -310,8 +310,8 @@ export function registerSteamIPC() {
         if (mainWindow) {
             // Show the game configuration dialog
             gameConfigWindow = new BrowserWindow({
-                width: 800,
-                height: 600,
+                width: 1280,
+                height: 1000,
                 parent: mainWindow,
                 modal: true,
                 webPreferences: {
@@ -357,6 +357,7 @@ export function registerSteamIPC() {
                         games.push(newGame);
                         setSteamGames(games);
                         mainWindow?.webContents.send('steamGamesUpdated');
+                        gameConfigWindow?.hide()
                         return {status: 'success', message: 'Configuration saved successfully!'};
                     } catch (error) {
                         console.error('Error saving configuration:', error);

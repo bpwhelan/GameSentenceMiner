@@ -1,323 +1,284 @@
+:root {
+    --background-color: #1a1a1a;
+    --surface-color: #2c2c2c;
+    --primary-color: #1a73e8;
+    --text-color: #e0e0e0;
+    --text-muted-color: #d0d0d0;
+    --border-color: #444;
+    --success-color: #4caf50;
+    --error-color: #f44336;
+}
+
 body {
-    background-color: #121212;
-    color: #e0e0e0;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    margin: 20px; /* Keep existing margin */
-}
-
-h1 {
-    color: #ffffff;
-    text-align: center;
-    font-weight: 300;
-    margin-bottom: 24px; /* Added margin to match previous layout */
-}
-
-/* Styles for the main container */
-.container {
-    max-width: 64rem; /* Equivalent to max-w-4xl */
-    margin-left: auto;
-    margin-right: auto;
-    background-color: #1e1e1e; /* Darker background for the container */
-    padding: 32px; /* Equivalent to p-8 */
-    border-radius: 8px; /* rounded-lg */
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* shadow-md */
-}
-
-
-.inputField {
-    background-color: #1e1e1e;
-    color: #e0e0e0;
-    border: 1px solid #333;
-    padding: 10px;
-    font-size: 16px;
-    /* margin-bottom: 15px; Removed as it's part of flex/gap now */
-    border-radius: 5px;
-    flex-grow: 1; /* Added to make it fill space in flex container */
-}
-/* Placeholder color for the search input */
-.inputField::placeholder {
-    color: #a0a0a0; /* Slightly lighter placeholder */
-}
-.inputField:focus {
-    border-color: #1a73e8; /* Highlight color on focus */
-    outline: none;
-}
-
-
-/*.control {*/
-/*    margin-bottom: 24px; !* Adjusted margin to match previous layout *!*/
-/*    display: flex;*/
-/*    flex-direction: column; !* Default to column for small screens *!*/
-/*    gap: 16px; !* Space between items *!*/
-/*}*/
-
-@media (min-width: 640px) { /* sm breakpoint equivalent */
-    .control {
-        flex-direction: row; /* Row layout for larger screens */
-        gap: 16px; /* Space between items */
-    }
-}
-
-
-button {
-    background-color: #1a73e8;
-    color: #ffffff;
-    border: none;
-    padding: 10px 20px;
-    font-size: 16px;
-    cursor: pointer;
-    transition: background-color 0.3s;
-    border-radius: 5px;
-    line-height: 1; /* Ensures consistent text height */
-    vertical-align: middle; /* Aligns content vertically */
-}
-
-button:disabled {
-    background-color: #444;
-    cursor: not-allowed;
-}
-
-button:hover:not(:disabled) {
-    background-color: #1669c1;
-}
-
-/* Specific button styles based on previous Tailwind colors */
-.button-blue {
-    background-color: #1a73e8; /* Match existing button style */
-}
-.button-blue:hover:not(:disabled) {
-    background-color: #1669c1; /* Match existing button hover */
-}
-
-.button-green {
-    background-color: #34a853; /* Google Green */
-}
-.button-green:hover:not(:disabled) {
-    background-color: #2e8b4a;
-}
-
-.button-gray {
-    background-color: #5f6368; /* Google Gray */
-}
-.button-gray:hover:not(:disabled) {
-    background-color: #54575c;
-}
-
-
-select {
-    background-color: #1e1e1e;
-    color: #e0e0e0;
-    border: 1px solid #333;
-    padding: 10px;
-    width: 220px;
-    font-size: 16px;
-    margin-left: 5px;
-    margin-right: 5px;
-    border-radius: 5px;
-}
-
-div {
-    margin-bottom: 15px;
-}
-
-/* Table Styles */
-.table-container {
-    overflow-x: auto;
-    border-radius: 8px;
-    border: 1px solid #333;
-}
-
-.data-table {
-    width: 100%; /* Use width instead of min-width */
-    border-collapse: collapse;
-}
-
-.data-table thead {
-    background-color: #333;
-}
-
-.data-table th {
-    padding: 12px 24px;
-    text-align: left;
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: #b0b0b0; /* Lighter gray for header text */
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-.data-table th:last-child {
-    text-align: right;
-}
-
-.data-table tbody tr {
-    background-color: #1e1e1e; /* Match input field background */
-    border-bottom: 1px solid #333; /* Border between rows */
-}
-
-.data-table tbody tr:last-child {
-     border-bottom: none; /* No border on the last row */
-}
-
-
-.data-table td {
-    padding: 16px 24px;
-    white-space: nowrap;
-    font-size: 0.875rem;
-    color: #e0e0e0; /* Default text color for cells */
-}
-
-.data-table td:nth-child(1) {
-     font-weight: 500;
-     color: #ffffff; /* White color for the key */
-}
-
-.data-table td:last-child {
-    text-align: right;
-    font-weight: 500;
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-}
-
-/* Action buttons in the table */
-/* Styles for Edit Button */
-.action-button.edit-btn {
-    color: #a0c3ff; /* Lighter blue for edit */
-    cursor: pointer;
-    background: none; /* Ensure no background */
-    border: none; /* Ensure no border */
-    padding: 0; /* Remove padding */
-    font-size: 0.875rem;
-    text-decoration: underline; /* Add underline for link-like appearance */
-    transition: color 0.3s ease; /* Smooth transition for color */
-}
-.action-button.edit-btn:hover {
-    color: #7ba7ff; /* Darker blue on hover */
-    text-decoration: none; /* Remove underline on hover */
-}
-
-/* Styles for Delete Button */
-.action-button.delete-btn {
-    color: #ff6b6b; /* Red for delete */
-    cursor: pointer;
-    background: none; /* Ensure no background */
-    border: none; /* Ensure no border */
-    padding: 0; /* Remove padding */
-    font-size: 0.875rem;
-    text-decoration: underline; /* Add underline for link-like appearance */
-    transition: color 0.3s ease; /* Smooth transition for color */
-}
-.action-button.delete-btn:hover {
-    color: #ff4c4c; /* Darker red on hover */
-    text-decoration: none; /* Remove underline on hover */
-}
-
-
-.no-entries-message {
-    color: #b0b0b0; /* Match header text color */
-    padding: 16px;
-    text-align: center;
-}
-
-/* Modal styles */
-.modal {
-    display: none; /* Hidden by default */
-    position: fixed; /* Stay in place */
-    z-index: 1000; /* Sit on top */
-    left: 0;
-    top: 0;
-    width: 100%; /* Full width */
-    height: 100%; /* Full height */
-    overflow: auto; /* Enable scroll if needed */
-    background-color: rgba(0,0,0,0.6); /* Darker overlay */
-    align-items: center;
-    justify-content: center;
-}
-.modal-content {
-    background-color: #1e1e1e; /* Match input field background */
-    margin: auto;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    margin: 0;
     padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.card {
+    background-color: var(--surface-color);
     border-radius: 8px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3); /* Darker shadow */
-    width: 90%;
-    max-width: 500px;
-    color: #e0e0e0;
+    padding: 10px;
+    border: 1px solid var(--border-color);
 }
-.close-button {
-    color: #b0b0b0; /* Match header text color */
-    float: right;
-    font-size: 28px;
-    font-weight: bold;
+
+h2 {
+    margin-top: 0;
+    color: var(--primary-color);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 10px;
+    font-size: 1.2em;
 }
-.close-button:hover,
-.close-button:focus {
-    color: #ffffff; /* White on hover */
-    text-decoration: none;
-    cursor: pointer;
+
+.grid-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
 }
 
 .form-group {
-    margin-bottom: 15px; /* Consistent margin */
-}
-
-.form-label {
-    display: block;
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: #b0b0b0; /* Match header text color */
-    margin-bottom: 5px; /* Spacing below label */
-}
-
-.form-input {
-    display: block;
-    width: 95%;
-    padding: 10px 12px; /* Slightly more padding */
-    border: 1px solid #333;
-    border-radius: 5px; /* Match other inputs */
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    outline: none;
-    background-color: #121212; /* Darker background for input */
-    color: #e0e0e0;
-}
-.form-input::placeholder {
-    color: #a0a0a0;
-}
-.form-input:focus {
-    border-color: #1a73e8;
-    box-shadow: 0 0 0 1px #1a73e8;
-}
-
-.flex-end {
     display: flex;
-    justify-content: flex-end;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.input-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px;
+}
+
+label {
+    font-weight: 500;
+    color: var(--text-muted-color);
+    flex-shrink: 0;
+}
+
+select, input[type="text"], input[type="number"] {
+    width: 100%;
+    max-width: 500px;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 1em;
+}
+
+input[type="range"] {
+    width: 100%;
+    max-width: 500px;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    /*padding: 8px 12px;*/
+}
+
+button {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    font-weight: 500;
+}
+
+button:hover {
+    background-color: #5a7dff;
+}
+
+button.secondary {
+    background-color: #4a4a4a;
+}
+
+button.secondary:hover {
+    background-color: #5a5a5a;
+}
+
+button.danger {
+    background-color: var(--error-color);
+}
+
+button.danger:hover {
+    background-color: #d32f2f;
 }
 
 .tooltip {
     position: relative;
-    display: inline-block;
-    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: #555;
+    color: white;
+    cursor: help;
+    font-weight: bold;
 }
 
-.tooltiptext {
+.tooltip .tooltiptext {
     visibility: hidden;
-    min-width: 300px;
-    max-width: 500px;
-    background-color: #555;
+    width: 300px;
+    background-color: #111;
     color: #fff;
     text-align: left;
-    font-size: 14px;
-    border-radius: 5px;
-    padding: 5px;
+    border-radius: 6px;
+    padding: 10px;
     position: absolute;
     z-index: 1;
-    bottom: 125%; /* Position above the tooltip */
-    left: 60%; /* Shift slightly to the right */
-    transform: translateX(-40%); /* Adjust centering */
+    bottom: 125%;
+    left: 50%;
+    margin-left: -125px;
     opacity: 0;
     transition: opacity 0.3s;
+    font-weight: normal;
 }
 
 .tooltip:hover .tooltiptext {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* This class now defines the trigger's initial styling (e.g., circular question mark) */
+/* If you want other elements (like labels) to just show the tooltip on hover without this initial styling,
+   they would only use .tooltip-indicator and the .tooltip-content class for the actual text. */
+.tooltip-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: #555;
+    color: white;
+    cursor: help;
+    font-weight: bold;
+}
+
+/* This class marks any element that should act as a tooltip container/trigger */
+.tooltip-indicator {
+    position: relative; /* Essential for positioning the tooltip text */
+    display: inline-block; /* Allows width/height and positioning */
+    cursor: help; /* Indicates interactivity */
+}
+
+/* This defines the style for the actual tooltip text that appears */
+.tooltip-indicator .tooltiptext {
+    visibility: hidden;
+    width: 300px;
+    background-color: #111;
+    color: #fff;
+    text-align: left;
+    border-radius: 6px;
+    padding: 10px;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    left: 50%;
+    margin-left: -125px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    font-weight: normal;
+}
+
+/* When the element with .tooltip-indicator is hovered, show its child .tooltip-content */
+.tooltip-indicator:hover .tooltiptext {
+    visibility: visible;
+    opacity: 1;
+}
+
+.collapsible-header {
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#extra-debug-content {
+    margin-top: 15px;
+}
+
+#dynamic-size-display {
+    font-size: 16px;
+    margin-left: 10px;
+    color: var(--primary-color);
+}
+
+/* Styles for the status buttons */
+.status-button {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start; /* Align icon and text to the start */
+    gap: 0.75rem; /* Space between icon and text */
+    font-weight: 500; /* Lighter font weight for a modern look */
+    color: var(--text-color); /* Use the text color from your root variables */
+    border: 1px solid var(--border-color); /* Use the border color from your root variables */
+    border-radius: 8px; /* Slightly less rounded corners to match .card */
+    padding: 10px 15px; /* Adjust padding for better look */
+    transition: all 0.2s ease-in-out; /* Smooth transitions for all properties */
+    cursor: default; /* Still not clickable directly */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Softer initial shadow */
+    width: 100%; /* Take full width of its container (e.g., grid cell) */
+}
+
+/* Ensure the .card class styles are applied */
+.status-button.card {
+    background-color: var(--surface-color);
+}
+
+.status-button .icon {
+    font-size: 1.4em; /* Slightly adjusted size relative to parent font size */
+    flex-shrink: 0; /* Prevent icon from shrinking */
+}
+
+.status-button span:last-child {
+    flex-grow: 1; /* Allow the status text to take available space */
+    text-align: right; /* Align status text to the right */
+    /*color: #b0b0b0; !* Slightly less muted color for the status text *!*/
+    color: var(--text-muted-color); /* Muted color for the status text */
+}
+
+.status-button.green {
+    background-color: var(--success-color); /* Use success color from root */
+    border-color: var(--success-color);
+    color: white; /* Ensure text is white on success background */
+}
+
+.status-button.red {
+    background-color: var(--error-color); /* Use error color from root */
+    border-color: var(--error-color);
+    color: white; /* Ensure text is white on error background */
+}
+
+.status-button.neutral {
+    background-color: var(--primary-color); /* Use primary color for neutral */
+    border-color: var(--primary-color);
+    color: white; /* Ensure text is white on primary background */
+}
+
+/* Hover effects for a more modern feel */
+.status-button:hover {
+    transform: translateY(-2px); /* Slight lift */
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3); /* More pronounced shadow on hover */
+    border-color: var(--primary-color); /* Highlight border on hover */
+}
+
+/* Active state for a pressed look */
+.status-button:active {
+    transform: translateY(0); /* Return to original position */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Restore original shadow */
+}
+
+/* Tooltip text remains styled by the .tooltip class */
+.status-button:hover .tooltiptext {
     visibility: visible;
     opacity: 1;
 }
