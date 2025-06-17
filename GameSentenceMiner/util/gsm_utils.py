@@ -275,7 +275,7 @@ def remove_github_replacements_from_local_ocr():
         return
 
     if not os.path.exists(OCR_REPLACEMENTS_FILE):
-        logger.warning(f"Local file {OCR_REPLACEMENTS_FILE} does not exist. No replacements to remove.")
+        logger.debug(f"Local file {OCR_REPLACEMENTS_FILE} does not exist. No replacements to remove.")
         return
 
     try:

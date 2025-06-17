@@ -1,4 +1,11 @@
+
 import os
+import sys
+
+sys_stdout = sys.stdout
+sys_stderr = sys.stderr
+sys.stdout = open(os.devnull, 'w')
+sys.stderr = open(os.devnull, 'w')
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import soundfile as sf
@@ -175,7 +182,10 @@ class AudioOffsetGUI:
 
         beg_offset = self.beg_slider.get() - 5.0
         end_offset = self.duration # End offset is always full duration
-
+        sys.stdout.close()
+        sys.stderr.close()
+        sys.stdout = sys_stdout
+        sys.stderr = sys_stderr
         print(f"{beg_offset:.2f}")
         exit(0)
 

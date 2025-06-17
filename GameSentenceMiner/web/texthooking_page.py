@@ -56,6 +56,7 @@ class EventManager:
 
     def __init__(self):
         self.events = []
+        self.ids = []
         self.events_dict = {}
         self._connect()
         self._create_table()
@@ -86,6 +87,7 @@ class EventManager:
             line = GameLine(line_id, text, timestamp, None, None, 0)
             event = EventItem(line, event_id, text, timestamp, False, timestamp < initial_time)
             self.events.append(event)
+            self.ids.append(event_id)
             self.events_dict[event_id] = event
 
     def __iter__(self):
@@ -97,6 +99,7 @@ class EventManager:
     def add_gameline(self, line: GameLine):
         new_event = EventItem(line, line.id, line.text, line.time, False, False)
         self.events_dict[line.id] = new_event
+        self.ids.append(line.id)
         self.events.append(new_event)
         # self.store_to_db(new_event)
         # event_queue.put(new_event)
@@ -111,10 +114,14 @@ class EventManager:
 
     def add_event(self, event):
         self.events.append(event)
+        self.ids.append(event.id)
         event_queue.put(event)
 
     def get(self, event_id):
         return self.events_dict.get(event_id)
+
+    def get_ids(self):
+        return self.ids
 
     def close_connection(self):
         if self.conn:
@@ -237,6 +244,10 @@ def textreplacements():
 @app.route('/data', methods=['GET'])
 def get_data():
     return jsonify([event.to_dict() for event in event_manager])
+
+@app.route('/get_ids', methods=['GET'])
+def get_ids():
+    return jsonify(event_manager.get_ids())
 
 @app.route('/clear_history', methods=['POST'])
 def clear_history():

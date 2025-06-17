@@ -1,14 +1,21 @@
-import tkinter as tk
-from PIL import Image, ImageTk
-import subprocess
+
+
 import os
 import sys
+import subprocess
 
+# Suppress stdout and stderr during imports
+sys_stdout = sys.stdout
+sys_stderr = sys.stderr
+sys.stdout = open(os.devnull, 'w')
+sys.stderr = open(os.devnull, 'w')
+
+import tkinter as tk
+from PIL import Image, ImageTk
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 from GameSentenceMiner.util.configuration import get_temporary_directory, logger
 from GameSentenceMiner.util.ffmpeg import ffmpeg_base_command_list
 from GameSentenceMiner.util import ffmpeg
-
 
 def extract_frames(video_path, timestamp, temp_dir, mode):
     frame_paths = []
@@ -98,6 +105,10 @@ def run_extraction_and_display(video_path, timestamp_str, mode):
     if image_paths:
         selected_image_path = display_images(image_paths, golden_frame)
         if selected_image_path:
+            sys.stdout.close()
+            sys.stderr.close()
+            sys.stdout = sys_stdout
+            sys.stderr = sys_stderr
             print(selected_image_path)
         else:
             logger.debug("No image was selected.")
@@ -105,6 +116,8 @@ def run_extraction_and_display(video_path, timestamp_str, mode):
         logger.debug("Frame extraction failed.")
 
 def main():
+
+
     # if len(sys.argv) != 3:
     #     print("Usage: python script.py <video_path> <timestamp>")
     #     sys.exit(1)
