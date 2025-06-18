@@ -339,7 +339,7 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
 
 def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
     import keyboard
-    secret_ss_hotkey = "F15"
+    secret_ss_hotkey = "F14"
     filtering = TextFiltering(lang=language)
     cropper = ScreenCropper()
     def capture():
@@ -355,7 +355,8 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
             do_second_ocr("", datetime.now(), img_bytes, filtering)
     try:
         keyboard.add_hotkey(ss_hotkey, capture)
-        keyboard.add_hotkey(secret_ss_hotkey, capture_main_monitor)
+        if "f13" in ss_hotkey.lower():
+            keyboard.add_hotkey(secret_ss_hotkey, capture_main_monitor)
         print(f"Press {ss_hotkey} to take a screenshot.")
     except Exception as e:
         logger.error(f"Error setting up screenshot hotkey with keyboard, Attempting Backup: {e}")
