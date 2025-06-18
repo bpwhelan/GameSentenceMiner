@@ -120,6 +120,7 @@ class Anki:
     overwrite_audio: bool = False
     overwrite_picture: bool = True
     multi_overwrites_sentence: bool = True
+    parent_tag: str = "Game"
 
     def __post_init__(self):
         if self.custom_tags is None:

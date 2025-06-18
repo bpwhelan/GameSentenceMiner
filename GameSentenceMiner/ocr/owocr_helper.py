@@ -353,12 +353,15 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
             img = sct.grab(main_monitor)
             img_bytes = mss.tools.to_png(img.rgb, img.size)
             do_second_ocr("", datetime.now(), img_bytes, filtering)
+    hotkey_reg = None
     try:
-        keyboard.add_hotkey(ss_hotkey, capture)
+        hotkey_reg = keyboard.add_hotkey(ss_hotkey, capture)
         if "f13" in ss_hotkey.lower():
             keyboard.add_hotkey(secret_ss_hotkey, capture_main_monitor)
         print(f"Press {ss_hotkey} to take a screenshot.")
     except Exception as e:
+        if hotkey_reg:
+            keyboard.remove_hotkey(hotkey_reg)
         logger.error(f"Error setting up screenshot hotkey with keyboard, Attempting Backup: {e}")
         logger.debug(e)
         pynput_hotkey = ss_hotkey.replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")

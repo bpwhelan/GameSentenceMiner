@@ -85,7 +85,7 @@ class ConfigApp:
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
         self.obs_scene_listbox_changed = False
 
-        self.window.geometry("800x600")
+        self.window.geometry("800x700")
         self.current_row = 0
 
         self.master_config: Config = configuration.load_config()
@@ -116,13 +116,13 @@ class ConfigApp:
         ttk.Button(button_frame, text="Save Settings", command=self.save_settings, bootstyle="success").grid(row=0,
                                                                                                              column=0,
                                                                                                              padx=10)
-        # if len(self.master_config.configs) > 1:
-        #     ttk.Button(button_frame, text="Save and Sync Changes",
-        #                command=lambda: self.save_settings(profile_change=False, sync_changes=True),
-        #                bootstyle="info").grid(row=0, column=1, padx=10)
-        #     HoverInfoWidget(button_frame,
-        #                     "Saves Settings and Syncs changed settings to all profiles (if you have them)", row=0,
-        #                     column=2)
+        if len(self.master_config.configs) > 1:
+            ttk.Button(button_frame, text="Save and Sync Changes",
+                       command=lambda: self.save_settings(profile_change=False, sync_changes=True),
+                       bootstyle="info").grid(row=0, column=1, padx=10)
+            HoverInfoWidget(button_frame,
+                            "Saves Settings and Syncs CHANGED SETTINGS to all profiles.", row=0,
+                            column=2)
 
         self.window.withdraw()
 
@@ -169,8 +169,7 @@ class ConfigApp:
 
         # Create a new Config instance
         config = ProfileConfig(
-            scenes=[self.obs_scene_listbox.get(i) for i in
-                    self.obs_scene_listbox.curselection()] if self.obs_scene_listbox_changed else self.settings.scenes,
+            scenes=self.settings.scenes,
             general=General(
                 use_websocket=self.websocket_enabled.get(),
                 use_clipboard=self.clipboard_enabled.get(),
@@ -205,6 +204,7 @@ class ConfigApp:
                 overwrite_audio=self.overwrite_audio.get(),
                 overwrite_picture=self.overwrite_picture.get(),
                 multi_overwrites_sentence=self.multi_overwrites_sentence.get(),
+                parent_tag=self.parent_tag.get(),
             ),
             features=Features(
                 full_auto=self.full_auto.get(),
@@ -356,7 +356,6 @@ class ConfigApp:
             self.create_profiles_tab()
             self.create_advanced_tab()
             self.create_ai_tab()
-            self.create_help_tab()  # Re-add help tab for modern styling consistent application
 
     def increment_row(self):
         """Increment the current row index and return the new value."""
@@ -749,6 +748,18 @@ class ConfigApp:
         ttk.Checkbutton(anki_frame, variable=self.add_game_tag, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                                column=1, sticky='W',
                                                                                                pady=2)
+
+        self.current_row += 1
+
+        HoverInfoLabelWidget(anki_frame, text="Game Parent Tag:",
+                             foreground="green", font=("Helvetica", 10, "bold"),
+                             tooltip="Parent tag for the Game Tag. If empty, no parent tag will be added. i.e. Game::{Game_Title}. You can think of this as a \"Folder\" for your tags",
+                             row=self.current_row, column=0)
+        self.parent_tag = ttk.Entry(anki_frame, width=50)
+        self.parent_tag.insert(0, self.settings.anki.parent_tag)
+        self.parent_tag.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+
+
         self.current_row += 1
 
         HoverInfoLabelWidget(anki_frame, text="Overwrite Audio:", tooltip="Overwrite existing audio in Anki cards.",
@@ -1232,6 +1243,8 @@ class ConfigApp:
             profiles_frame.grid_rowconfigure(row, minsize=30)
 
     def on_obs_scene_select(self, event):
+        self.settings.scenes = [self.obs_scene_listbox.get(i) for i in
+                    self.obs_scene_listbox.curselection()]
         self.obs_scene_listbox_changed = True
 
     def refresh_obs_scenes(self):

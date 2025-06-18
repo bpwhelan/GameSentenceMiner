@@ -88,10 +88,13 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
 
 
     tags = []
+    if get_config().anki.add_game_tag:
+        game = get_current_game().replace(" ", "").replace("::", "")
+        if get_config().anki.parent_tag:
+            game = f"{get_config().anki.parent_tag}::{game}"
+        tags.append(game)
     if get_config().anki.custom_tags:
         tags.extend(get_config().anki.custom_tags)
-    if get_config().anki.add_game_tag:
-        tags.append(get_current_game().replace(" ", ""))
     if tags:
         tag_string = " ".join(tags)
         invoke("addTags", tags=tag_string, notes=[last_note.noteId])

@@ -159,6 +159,7 @@ export function registerOCRUtilsIPC() {
             ];
 
             if (ocr_config.ocr_screenshots) command.push("--clipboard");
+            if (ocr_config.sendToClipboard) command.push("--clipboard-output")
             if (ocr_config.window_name) command.push("--window", `${ocr_config.window_name}`);
             if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
             if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
@@ -179,6 +180,7 @@ export function registerOCRUtilsIPC() {
                 `--manual`
             ];
             if (ocr_config.ocr_screenshots) command.push("--clipboard");
+            if (ocr_config.sendToClipboard) command.push("--clipboard-output")
             if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
             if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
             if (ocr_config.manualOcrHotkey) command.push("--manual_ocr_hotkey", `${ocr_config.manualOcrHotkey}`);
