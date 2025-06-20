@@ -89,23 +89,31 @@ class OCRConfig:
 
 def get_window(title):
     import pygetwindow as gw
-    windows = gw.getWindowsWithTitle(title)
-    if not windows:
+    all_windows = gw.getWindowsWithTitle(title)
+    if not all_windows:
         raise ValueError(f"No windows found with title '{title}'.")
+
+    filtered_windows = []
+    for window in all_windows:
+        if "cmd.exe" in window.title.lower():
+            logger.info(f"Skipping cmd.exe window with title: {window.title}")
+            continue
+        filtered_windows.append(window)
+
+    if not filtered_windows:
+        raise ValueError(f"No non-cmd.exe windows found with title '{title}'.")
+
     ret = None
-    if windows:
-        for window in windows:
-            if "cmd.exe" in window.title.lower():
-                logger.info(f"Skipping cmd.exe window with title: {window.title}")
-                continue
-            if len(windows) > 1:
-                logger.info(
-                    f"Warning: More than 1 window with title, Window Title: {window.title}, Geometry: {window.left}, {window.top}, {window.width}, {window.height}")
-            if window.title == title:
-                if window.isMinimized or not window.visible:
-                    logger.info(f"Warning: Window '{title}' is minimized. Attempting to restore it.")
-                    window.restore()
-                return window
+    for window in filtered_windows:
+        if len(filtered_windows) > 1:
+            logger.info(
+                f"Warning: More than 1 non-cmd.exe window with title, Window Title: {window.title}, Geometry: {window.left}, {window.top}, {window.width}, {window.height}")
+
+        if window.title.strip() == title.strip():
+            if window.isMinimized or not window.visible:
+                logger.info(f"Warning: Window '{title}' is minimized or not visible. Attempting to restore it.")
+                window.restore()
+            return window
     return ret
 
 # try w10+, fall back to w8.1+
