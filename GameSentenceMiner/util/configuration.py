@@ -250,7 +250,6 @@ class Advanced:
     multi_line_sentence_storage_field: str = ''
     ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 55001
-    use_anki_note_creation_time: bool = True
 
 @dataclass_json
 @dataclass
