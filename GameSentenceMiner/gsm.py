@@ -200,7 +200,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             return vad_result
         if vad_result.output_audio:
             vad_trimmed_audio = vad_result.output_audio
-        if vadget_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(vad_trimmed_audio):
+        if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(vad_trimmed_audio):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
                                                   get_config().audio.ffmpeg_reencode_options_to_use)
         elif os.path.exists(vad_trimmed_audio):
