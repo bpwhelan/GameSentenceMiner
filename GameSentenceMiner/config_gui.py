@@ -274,6 +274,7 @@ class ConfigApp:
                 # use_anki_note_creation_time=self.use_anki_note_creation_time.get(),
                 ocr_websocket_port=int(self.ocr_websocket_port.get()),
                 texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port.get()),
+                plaintext_websocket_port=int(self.plaintext_websocket_export_port.get()),
             ),
             ai=Ai(
                 enabled=self.ai_enabled.get(),
@@ -1328,6 +1329,15 @@ class ConfigApp:
                                                             str(self.settings.advanced.texthooker_communication_websocket_port))
         self.texthooker_communication_websocket_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
+
+        HoverInfoLabelWidget(advanced_frame, text="Plaintext Websocket Export Port:",
+                             tooltip="Port for GSM Plaintext WebSocket Export communication. Does nothing right now, hardcoded to 55002",
+                             row=self.current_row, column=0)
+        self.plaintext_websocket_export_port = ttk.Entry(advanced_frame)
+        self.plaintext_websocket_export_port.insert(0, str(self.settings.advanced.plaintext_websocket_port))
+        self.plaintext_websocket_export_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
 
         # HoverInfoLabelWidget(advanced_frame, text="Use Anki Creation Date for Audio Timing:",
         #                      tooltip="Use the Anki note creation date for audio timing instead of the OBS replay time.",

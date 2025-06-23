@@ -184,7 +184,7 @@ class VADResult:
         self.end = end
         self.model = model
         self.segments = segments if segments is not None else []
-        self.output_audio = None
+        self.output_audio = output_audio
 
     def __repr__(self):
         return f"VADResult(success={self.success}, start={self.start}, end={self.end}, model={self.model}, output_audio={self.output_audio})"

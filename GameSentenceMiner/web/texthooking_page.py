@@ -264,7 +264,8 @@ async def add_event_to_texthooker(line: GameLine):
         'sentence': line.text,
         'data': new_event.to_serializable()
     })
-    await plaintext_websocket_server_thread.send_text(line.text)
+    if get_config().advanced.plaintext_websocket_port:
+        await plaintext_websocket_server_thread.send_text(line.text)
 
 
 @app.route('/update_checkbox', methods=['POST'])
@@ -465,8 +466,9 @@ async def texthooker_page_coro():
     websocket_server_thread = WebsocketServerThread(read=True, ws_port=get_config().advanced.texthooker_communication_websocket_port)
     websocket_server_thread.start()
 
-    plaintext_websocket_server_thread = WebsocketServerThread(read=False, ws_port=get_config().advanced.texthooker_communication_websocket_port + 1)
-    plaintext_websocket_server_thread.start()
+    if get_config().advanced.plaintext_websocket_port:
+        plaintext_websocket_server_thread = WebsocketServerThread(read=False, ws_port=get_config().advanced.plaintext_websocket_port)
+        plaintext_websocket_server_thread.start()
 
     # Keep the main asyncio event loop running (for the WebSocket server)
 

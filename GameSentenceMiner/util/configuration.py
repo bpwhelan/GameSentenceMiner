@@ -243,6 +243,7 @@ class VAD:
 @dataclass_json
 @dataclass
 class Advanced:
+    plaintext_websocket_port: int = -1
     audio_player_path: str = ''
     video_player_path: str = ''
     show_screenshot_buttons: bool = False
@@ -251,6 +252,11 @@ class Advanced:
     ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 55001
     use_anki_note_creation_time: bool = True
+
+    def __post_init__(self):
+        if self.plaintext_websocket_port == -1:
+            self.plaintext_websocket_port = self.texthooker_communication_websocket_port + 1
+
 
 @dataclass_json
 @dataclass
