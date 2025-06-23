@@ -42,8 +42,8 @@ interface OCRConfig {
     ocr1: string;
     ocr2: string;
     window_name: string;
-    requiresOpenWindow?: boolean;
-    scanRate?: number;
+    requiresOpenWindow: boolean;
+    scanRate: number;
     language: string;
     ocr_screenshots: boolean;
     furigana_filter_sensitivity: number;
@@ -139,6 +139,8 @@ export const store = new Store<StoreConfig>({
             manualOcrHotkey: "Ctrl+Shift+G",
             areaSelectOcrHotkey: "Ctrl+Shift+O",
             sendToClipboard: true,
+            scanRate: 0.5,
+            requiresOpenWindow: false,
         },
         customPythonPackage: "GameSentenceMiner"
     },
