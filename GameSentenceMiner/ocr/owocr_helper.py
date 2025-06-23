@@ -182,11 +182,11 @@ all_cords = None
 rectangles = None
 last_ocr2_result = ""
 
-def do_second_ocr(ocr1_text, time, img, filtering):
+def do_second_ocr(ocr1_text, time, img, filtering, ignore_furigana_filter=False):
     global twopassocr, ocr2, last_ocr2_result
     try:
         orig_text, text = run.process_and_write_results(img, None, last_ocr2_result, filtering, None,
-                                                        engine=ocr2, furigana_filter_sensitivity=furigana_filter_sensitivity)
+                                                        engine=ocr2, furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
         if fuzz.ratio(last_ocr2_result, orig_text) >= 90:
             logger.info("Seems like the same text from previous ocr2 result, not sending")
             return
@@ -313,7 +313,7 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
 
     run.init_config(False)
     try:
-        run.run(read_from="screencapture",
+        run.run(read_from="screencapture" if window else "",
                 read_from_secondary="clipboard" if ss_clipboard else None,
                 write_to="callback",
                 screen_capture_area=screen_area,
@@ -345,14 +345,14 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
     def capture():
         print("Taking screenshot...")
         img = cropper.run()
-        do_second_ocr("", datetime.now(), img, filtering)
+        do_second_ocr("", datetime.now(), img, filtering, ignore_furigana_filter=True)
     def capture_main_monitor():
         print("Taking screenshot of main monitor...")
         with mss.mss() as sct:
             main_monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
             img = sct.grab(main_monitor)
             img_bytes = mss.tools.to_png(img.rgb, img.size)
-            do_second_ocr("", datetime.now(), img_bytes, filtering)
+            do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True)
     hotkey_reg = None
     try:
         hotkey_reg = keyboard.add_hotkey(ss_hotkey, capture)
@@ -389,7 +389,7 @@ def set_force_stable_hotkey():
     print("Press Ctrl+Shift+F to toggle force stable mode.")
 
 if __name__ == "__main__":
-    global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey
+    global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window
     import sys
 
     import argparse
@@ -428,7 +428,8 @@ if __name__ == "__main__":
         if ocr_config.window:
             start_time = time.time()
             while time.time() - start_time < 30:
-                if get_window(ocr_config.window):
+                window = get_window(ocr_config.window)
+                if window or manual:
                     break
                 logger.info(f"Window: {ocr_config.window} Could not be found, retrying in 1 second...")
                 time.sleep(1)

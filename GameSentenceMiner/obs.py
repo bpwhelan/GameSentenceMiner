@@ -334,7 +334,7 @@ def get_screenshot(compression=-1):
         logger.error(f"Error getting screenshot: {e}")
         return None
 
-def get_screenshot_base64():
+def get_screenshot_base64(compression=0, width=None, height=None):
     try:
         # update_current_game()
         current_game = get_current_game()
@@ -346,10 +346,8 @@ def get_screenshot_base64():
         if not current_source_name:
             logger.error("No active source found in the current scene.")
             return None
-        response = client.get_source_screenshot(name=current_source_name, img_format='png', quality=0, width=None, height=None)
+        response = client.get_source_screenshot(name=current_source_name, img_format='png', quality=compression, width=width, height=height)
         if response and response.image_data:
-            with open('screenshot_response.txt', 'wb') as f:
-                f.write(str(response).encode())
             return response.image_data
         else:
             logger.error(f"Error getting base64 screenshot: {response}")

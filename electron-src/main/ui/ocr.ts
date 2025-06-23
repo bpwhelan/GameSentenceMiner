@@ -65,14 +65,31 @@ function runOCR(command: string[]) {
 }
 
 export function registerOCRUtilsIPC() {
+    ipcMain.on('ocr.install-recommended-deps', () => {
+        const owocrCommand = `${getPythonPath()} -m pip install --upgrade --no-warn-script-location owocr[oneocr] owocr[lens] & exit`;
+        // const googleLensCommand = `${getPythonPath()} -m pip install --upgrade owocr[lens] & exit`;
+        const oneocrFilesDownload = `${getPythonPath()} -m GameSentenceMiner.util.downloader.oneocr_dl & exit`;
+
+        spawn('cmd', ['/c', 'start', 'cmd', '/k', owocrCommand], {detached: false}); // Open in new cmd window
+        // mainWindow?.webContents.send('terminal-output', `Installing OneOCR dependencies in new terminal...`);
+        // spawn('cmd', ['/c', 'start', 'cmd', '/k', googleLensCommand], {detached: false}); // Open in new cmd window
+        mainWindow?.webContents.send('terminal-output', `Installing Google Lens dependencies in new terminal...`);
+        spawn('cmd', ['/c', 'start', 'cmd', '/k', oneocrFilesDownload], {detached: false}); // Open in new cmd window
+    })
+
     ipcMain.on('ocr.install-owocr-deps', () => {
-        const command = `${getPythonPath()} -m pip install --upgrade owocr & exit`;
+        const command = `${getPythonPath()} -m pip install --upgrade --no-warn-script-location owocr & exit`;
         spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
         mainWindow?.webContents.send('terminal-output', `Installing OWOCR dependencies in new terminal...`);
     });
 
     ipcMain.on('ocr.install-selected-dep', (_, dependency: string) => {
-        const command = `${getPythonPath()} -m  ${dependency} --upgrade & exit`;
+        let command = ''
+        if (dependency.includes("pip")) {
+            command = `${getPythonPath()} -m  ${dependency} --upgrade --no-warn-script-location & exit`;
+        } else {
+            command = `${getPythonPath()} -m ${dependency} & exit`;
+        }
         spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
         mainWindow?.webContents.send('terminal-output', `Installing ${dependency} dependencies in new terminal...`);
     });

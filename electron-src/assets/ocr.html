@@ -11,12 +11,13 @@
     <div class="card">
         <h2>Setup</h2>
         <div class="form-group">
-            <button id="install-owocr-deps">Install OWOCR Dependencies</button>
+            <button id="install-recommended-btn">Install OwOCR</button>
             <div class="input-group">
+                <label for="dependency-select">Optional:</label>
                 <select id="dependency-select">
-                    <option value="pip install owocr[lens]">Google Lens (Recommended)</option>
-                    <option value="pip install owocr[oneocr]">OneOCR (Recommended)</option>
-                    <option value="GameSentenceMiner.downloader.oneocr_dl">OneOCR Files (Required for OneOCR)</option>
+<!--                    <option value="pip install owocr[lens]">Google Lens (Recommended)</option>-->
+<!--                    <option value="pip install owocr[oneocr]">OneOCR (Recommended)</option>-->
+<!--                    <option value="GameSentenceMiner.downloader.oneocr_dl">OneOCR Files (Required for OneOCR)</option>-->
                     <option value="pip install owocr[faster-png]">Faster PNG (Recommended if w11)</option>
                     <option value="pip install owocr[accurate-filtering]">Accurate Filtering (Not recommended)</option>
                     <option value="pip install owocr[winrtocr]">WindowsOCR</option>
@@ -32,7 +33,7 @@
                 </select>
                 <button id="install-selected-dep" class="secondary">Install</button>
                 <div class="tooltip">?
-                    <span class="tooltiptext">Install the selected dependency. For OneOCR, you also need to install OneOCR files. If unsure, choose a recommended option.</span>
+                    <span class="tooltiptext">Install the selected dependency. If unsure, choose a recommended option. Google Lens, and OneOCR are now installed with "Install OwOCR" button.</span>
                 </div>
             </div>
         </div>
@@ -51,7 +52,21 @@
                 <select id="windowSelect"></select>
                 <button id="refreshWindowsBtn" class="secondary">&#x21bb;</button>
             </div>
-            <button id="run-screen-selector">Run Area Selector (Recommended)</button>
+            <div class="input-group">
+                <button id="run-screen-selector">Run Area(s) Selector (Recommended)</button>
+                <span class="tooltip">?
+                    <span class="tooltiptext">
+                        <ul>
+                            <li>Left Click: Select area</li>
+                            <li>Shift Left Click: Select Exclusion Zone</li>
+                            <li>Ctrl+S: Save</li>
+                            <li>Ctrl+Z: Undo Rectangle</li>
+                            <li>Ctrl+Y: Re-Apply Rectangle</li>
+                            <li>Esc: Quit Without Saving</li>
+                        </ul>
+                    </span>
+                </span>
+            </div>
         </div>
     </div>
 </div>
@@ -121,7 +136,7 @@
                     Send Text to Clipboard:
                 </label>
 
-                <input type="checkbox" id="send-to-clipboard" checked>
+                <input type="checkbox" id="send-to-clipboard">
             </div>
         </div>
         <div class="form-group">
@@ -154,7 +169,7 @@
             </div>
             <div class="input-group">
                 <label for="require-open-window" class="tooltip-indicator">Require Active Window:
-                <span class="tooltiptext">If enabled, OCR will only run if the selected window is active AND focused. </span>
+                    <span class="tooltiptext">If enabled, OCR will only run if the selected window is active AND focused. </span>
                 </label>
                 <input type="checkbox" id="require-open-window">
             </div>
@@ -167,10 +182,11 @@
         </div>
     </div>
     <div class="form-group" style="margin-top: 15px;">
-        <label id="furigana-filter-label" for="furigana-filter-sensitivity" class="tooltip-indicator">Furigana Filter Sensitivity (WIP):
+        <label id="furigana-filter-label" for="furigana-filter-sensitivity" class="tooltip-indicator">Furigana Filter
+            Sensitivity (WIP):
             <span class="tooltiptext">Filters characters smaller than the selected textsize. Very experimental, if you notice real text being filtered out, either lower this or disable it.</span>
             <span
-                id="furigana-filter-sensitivity-value">0</span><span id="dynamic-size-display">龍</span></label>
+                    id="furigana-filter-sensitivity-value">0</span><span id="dynamic-size-display">龍</span></label>
         <input type="range" id="furigana-filter-sensitivity" min="0" max="100" value="0" step="1">
         <button id="run-furigana-window" style="width: 500px">Show/Hide Preview</button>
     </div>
@@ -229,6 +245,7 @@
     let windows = [];
     let scenes = [];
 
+    const installRecommendedBtn = document.getElementById('install-recommended-btn');
     const openOcrPageBtn = document.getElementById('open-ocr-page-btn');
     const windowSelect = document.getElementById("windowSelect");
     const manualOcrHotkeyInput = document.getElementById('manual-ocr-hotkey');
@@ -261,6 +278,10 @@
         saveOCRConfig();
     });
 
+    installRecommendedBtn.addEventListener('click', () => {
+        ipcRenderer.send('ocr.install-recommended-deps');
+    });
+
     document.getElementById('toggle-extra-debug').addEventListener('click', () => {
         const content = document.getElementById('extra-debug-content');
         const arrowIcon = document.getElementById('arrow-icon');
@@ -273,7 +294,9 @@
         window.location.href = 'ocr_replacements.html';
     });
 
-    document.getElementById('install-owocr-deps').addEventListener('click', () => ipcRenderer.send('ocr.install-owocr-deps'));
+    sendToClipboardCheckbox.addEventListener('click', saveOCRConfig)
+
+    // document.getElementById('install-owocr-deps').addEventListener('click', () => ipcRenderer.send('ocr.install-owocr-deps'));
     document.getElementById('refreshWindowsBtn').addEventListener('click', getWindows);
     document.getElementById('install-selected-dep').addEventListener('click', () => {
         const selectedDep = document.getElementById('dependency-select').value;
@@ -393,15 +416,16 @@
 
     async function initialize() {
         ocr_settings = await ipcRenderer.invoke('ocr.get-ocr-config');
+        console.log('Loaded OCR Settings:', ocr_settings);
         if (ocr_settings) {
             document.getElementById('ocr1-input').value = ocr_settings.ocr1 || '';
             document.getElementById('ocr2-input').value = ocr_settings.ocr2 || '';
-            document.getElementById('two-pass-ocr').checked = ocr_settings.twoPassOCR || false;
-            document.getElementById('require-open-window').checked = ocr_settings.requiresOpenWindow || false;
+            document.getElementById('two-pass-ocr').checked = ocr_settings.twoPassOCR;
+            document.getElementById('require-open-window').checked = ocr_settings.requiresOpenWindow;
             document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
             document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
-            document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots || false;
-            sendToClipboardCheckbox.checked = ocr_settings.sendToClipboard || true;
+            document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots;
+            sendToClipboardCheckbox.checked = ocr_settings.sendToClipboard;
 
             const sensitivity = ocr_settings.furigana_filter_sensitivity || 0;
             furiganaFilterSlider.value = sensitivity;

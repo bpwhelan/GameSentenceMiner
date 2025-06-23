@@ -91,7 +91,7 @@ def get_window(title):
     import pygetwindow as gw
     all_windows = gw.getWindowsWithTitle(title)
     if not all_windows:
-        raise ValueError(f"No windows found with title '{title}'.")
+        return None
 
     filtered_windows = []
     for window in all_windows:
@@ -101,7 +101,7 @@ def get_window(title):
         filtered_windows.append(window)
 
     if not filtered_windows:
-        raise ValueError(f"No non-cmd.exe windows found with title '{title}'.")
+        return None
 
     ret = None
     for window in filtered_windows:

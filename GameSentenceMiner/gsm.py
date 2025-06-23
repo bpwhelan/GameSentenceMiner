@@ -198,6 +198,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
         vad_result = vad_processor.trim_audio_with_vad(trimmed_audio, vad_trimmed_audio, game_line)
         if timing_only:
             return vad_result
+        vad_trimmed_audio = vad_result.output_audio
         if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(vad_trimmed_audio):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
                                                   get_config().audio.ffmpeg_reencode_options_to_use)

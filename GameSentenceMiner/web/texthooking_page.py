@@ -382,6 +382,7 @@ class WebsocketServerThread(threading.Thread):
         self.clients = set()
         self._event = threading.Event()
         self.ws_port = ws_port
+        self.backedup_text = []
 
     @property
     def loop(self):
@@ -389,12 +390,19 @@ class WebsocketServerThread(threading.Thread):
         return self._loop
 
     async def send_text_coroutine(self, message):
+        if not self.clients:
+            self.backedup_text.append(message)
+            return
         for client in self.clients:
             await client.send(message)
 
     async def server_handler(self, websocket):
         self.clients.add(websocket)
         try:
+            if self.backedup_text:
+                for message in self.backedup_text:
+                    await websocket.send(message)
+                self.backedup_text.clear()
             async for message in websocket:
                 if self.read and not paused:
                     websocket_queue.put(message)

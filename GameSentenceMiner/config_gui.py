@@ -271,7 +271,7 @@ class ConfigApp:
                 video_player_path=self.video_player_path.get(),
                 multi_line_line_break=self.multi_line_line_break.get(),
                 multi_line_sentence_storage_field=self.multi_line_sentence_storage_field.get(),
-                use_anki_note_creation_time=self.use_anki_note_creation_time.get(),
+                # use_anki_note_creation_time=self.use_anki_note_creation_time.get(),
                 ocr_websocket_port=int(self.ocr_websocket_port.get()),
                 texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port.get()),
             ),
@@ -1329,13 +1329,13 @@ class ConfigApp:
         self.texthooker_communication_websocket_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(advanced_frame, text="Use Anki Creation Date for Audio Timing:",
-                             tooltip="Use the Anki note creation date for audio timing instead of the OBS replay time.",
-                             row=self.current_row, column=0)
-        self.use_anki_note_creation_time = tk.BooleanVar(value=self.settings.advanced.use_anki_note_creation_time)
-        ttk.Checkbutton(advanced_frame, variable=self.use_anki_note_creation_time, bootstyle="round-toggle").grid(
-            row=self.current_row, column=1, sticky='W', pady=2)
-        self.current_row += 1
+        # HoverInfoLabelWidget(advanced_frame, text="Use Anki Creation Date for Audio Timing:",
+        #                      tooltip="Use the Anki note creation date for audio timing instead of the OBS replay time.",
+        #                      row=self.current_row, column=0)
+        # self.use_anki_note_creation_time = tk.BooleanVar(value=self.settings.advanced.use_anki_note_creation_time)
+        # ttk.Checkbutton(advanced_frame, variable=self.use_anki_note_creation_time, bootstyle="round-toggle").grid(
+        #     row=self.current_row, column=1, sticky='W', pady=2)
+        # self.current_row += 1
 
         HoverInfoLabelWidget(advanced_frame, text="Reset Line Hotkey:",
                              tooltip="Hotkey to reset the current line of dialogue.", row=self.current_row, column=0)
