@@ -452,6 +452,13 @@ def cleanup():
     if icon:
         icon.stop()
 
+    for video in gsm_state.videos_to_remove:
+        try:
+            if os.path.exists(video):
+                os.remove(video)
+        except Exception as e:
+            logger.error(f"Error removing temporary video file {video}: {e}")
+
     settings_window.window.destroy()
     time.sleep(5)
     logger.info("Cleanup complete.")

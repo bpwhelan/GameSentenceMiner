@@ -683,6 +683,7 @@ class GsmAppState:
         self.last_mined_line = None
         self.keep_running = True
         self.current_game = ''
+        self.videos_to_remove = set()
 
 @dataclass_json
 @dataclass

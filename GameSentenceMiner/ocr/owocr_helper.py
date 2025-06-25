@@ -241,12 +241,12 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
 
     line_start_time = time if time else datetime.now()
 
-    if not twopassocr:
+    if manual or not twopassocr:
         if previous_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 90:
             logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img)
-        asyncio.run(send_result(text, time))
+        asyncio.run(send_result(text, line_start_time))
         previous_orig_text = orig_text_string
         previous_text = None
         previous_img = None

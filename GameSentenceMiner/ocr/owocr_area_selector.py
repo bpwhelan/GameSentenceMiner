@@ -20,6 +20,7 @@ except ImportError:
 
 try:
     import tkinter as tk
+    from tkinter import font as tkfont  # NEW: Import for better font control
 
     selector_available = True
 except ImportError:
@@ -206,6 +207,66 @@ class ScreenSelector:
         self.drawn_rect_ids.append(new_rect_id)
         print("Redo: Restored rectangle.")
 
+    # --- NEW METHOD TO DISPLAY INSTRUCTIONS ---
+    def _create_instructions_widget(self, canvas):
+        """Creates a text box with usage instructions on the canvas."""
+        instructions_text = (
+            "How to Use:\n"
+            "  • Left Click + Drag: Create a capture area (green).\n"
+            "  • Shift + Left Click + Drag: Create an exclusion area (orange).\n"
+            "  • Right-Click on a box: Delete it.\n\n"
+            "Hotkeys:\n"
+            "  • Ctrl + S: Save and Quit\n"
+            "  • Ctrl + Z / Ctrl + Y: Undo / Redo\n"
+            "  • M: Toggle background visibility\n"
+            "  • I: Toggle these instructions\n"
+            "  • Esc: Quit without saving"
+            "  "
+        )
+
+        # Use a common, readable font
+        instruction_font = tkfont.Font(family="Segoe UI", size=10, weight="normal")
+
+        # Create the text item first to get its size
+        text_id = canvas.create_text(
+            20, 20,  # Position with a small margin
+            text=instructions_text,
+            anchor=tk.NW,
+            fill='white',
+            font=instruction_font,
+            justify=tk.LEFT
+        )
+
+        # Get the bounding box of the text to draw a background
+        text_bbox = canvas.bbox(text_id)
+
+        # Create a background rectangle with padding
+        rect_id = canvas.create_rectangle(
+            text_bbox[0] - 10,  # left
+            text_bbox[1] - 10,  # top
+            text_bbox[2] + 10,  # right
+            text_bbox[3] + 10,  # bottom
+            fill='#2B2B2B',  # Dark, semi-opaque background
+            outline='white',
+            width=1
+        )
+
+        # Lower the rectangle so it's behind the text
+        canvas.tag_lower(rect_id, text_id)
+
+    def toggle_instructions(self, event=None):
+        canvas = event.widget.winfo_toplevel().winfo_children()[0]
+        # Find all text and rectangle items (assuming only one of each for instructions)
+        text_items = [item for item in canvas.find_all() if canvas.type(item) == 'text']
+        rect_items = [item for item in canvas.find_all() if canvas.type(item) == 'rectangle']
+
+        if text_items and rect_items:
+            current_state = canvas.itemcget(text_items[0], 'state')
+            new_state = tk.NORMAL if current_state == tk.HIDDEN else tk.HIDDEN
+            for item in text_items + rect_items:
+                canvas.itemconfigure(item, state=new_state)
+            print("Toggled instructions visibility.")
+
     def start(self):
         self.root = tk.Tk()
         self.root.withdraw()
@@ -229,6 +290,10 @@ class ScreenSelector:
         canvas = tk.Canvas(window, cursor='cross', highlightthickness=0)
         canvas.pack(fill=tk.BOTH, expand=True)
         canvas.create_image(0, 0, image=self.photo_image, anchor=tk.NW)
+
+        # --- MODIFIED: CALL THE INSTRUCTION WIDGET CREATOR ---
+        self._create_instructions_widget(canvas)
+        # --- END MODIFICATION ---
 
         # Draw existing rectangles (which were converted to absolute pixels on load)
         for _, abs_coords, is_excluded in self.rectangles:
@@ -275,17 +340,37 @@ class ScreenSelector:
             self.current_rect_id = self.start_x = self.start_y = None
 
         def on_right_click(event):
-            items = canvas.find_closest(event.x, event.y)
-            if items and items[0] in self.drawn_rect_ids:
-                item_id = items[0]
-                idx_to_del = self.drawn_rect_ids.index(item_id)
-                del self.drawn_rect_ids[idx_to_del]
-                del self.rectangles[idx_to_del]
-                self.redo_stack.clear()
-                canvas.delete(item_id)
+            # Iterate through our rectangles in reverse to find the topmost one.
+            for i in range(len(self.rectangles) - 1, -1, -1):
+                _monitor, abs_coords, _is_excluded = self.rectangles[i]
+                x_abs, y_abs, w_abs, h_abs = abs_coords
+                canvas_x1 = x_abs - self.bounding_box['left']
+                canvas_y1 = y_abs - self.bounding_box['top']
+                canvas_x2 = canvas_x1 + w_abs
+                canvas_y2 = canvas_y1 + h_abs
+
+                if canvas_x1 <= event.x <= canvas_x2 and canvas_y1 <= event.y <= canvas_y2:
+                    # --- UNDO/REDO CHANGE ---
+                    # We found the rectangle. Prepare the 'remove' action.
+                    # We need to save the data AND its original index to restore it correctly.
+                    rect_tuple_to_del = self.rectangles[i]
+                    item_id_to_del = self.drawn_rect_ids[i]
+
+                    self.redo_stack.append((*rect_tuple_to_del, i))
+
+                    # Now, perform the deletion
+                    del self.rectangles[i]
+                    del self.drawn_rect_ids[i]
+                    canvas.delete(item_id_to_del)
+                    print("Deleted rectangle.")
+
+                    break  # Stop after deleting the topmost one
 
         def toggle_image_mode(e=None):
-            self.image_mode = not self.image_mode; window.attributes("-alpha", 1.0 if self.image_mode else 0.25)
+            self.image_mode = not self.image_mode
+            # Only change alpha of the main window, not the text widget
+            window.attributes("-alpha", 1.0 if self.image_mode else 0.25)
+            print("Toggled background visibility.")
 
         def on_enter(e=None):
             canvas.focus_set()
@@ -296,13 +381,15 @@ class ScreenSelector:
         canvas.bind('<ButtonRelease-1>', on_release)
         canvas.bind('<Button-3>', on_right_click)
         canvas.bind('<Control-s>', self.save_rects)
-        canvas.bind('<Control-z>', self.undo_last_rect)
         canvas.bind('<Control-y>', self.redo_last_rect)
+        canvas.bind('<Control-z>', self.undo_last_rect)
         canvas.bind("<Escape>", self.quit_app)
         canvas.bind("<m>", toggle_image_mode)
+        canvas.bind("<i>", self.toggle_instructions)
 
         canvas.focus_set()
-        print("Starting UI. Press Esc to quit, Ctrl+S to save, M to toggle background.")
+        # The print message is now redundant but kept for console feedback
+        print("Starting UI. See on-screen instructions. Press Esc to quit, Ctrl+S to save.")
         self.root.mainloop()
 
     def quit_app(self, event=None):
@@ -350,10 +437,6 @@ if __name__ == "__main__":
     target_window_title = "Windowed Projector (Preview)"  # Default
     if len(sys.argv) > 1:
         target_window_title = sys.argv[1]
-    # else:
-    #     print("Usage: python your_script_name.py \"Target Window Title\"", file=sys.stderr)
-    #     print("Example: python selector.py \"Windowed Projector (Preview)\"", file=sys.stderr)
-    #     sys.exit(1)
 
     selection_result = get_screen_selection(target_window_title)
 

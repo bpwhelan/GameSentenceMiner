@@ -287,8 +287,8 @@ def get_screenshot():
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
     gsm_state.line_for_screenshot = get_line_by_id(event_id)
-    if gsm_state.previous_line_for_screenshot and gsm_state.line_for_screenshot.id == gsm_state.previous_line_for_screenshot.id:
-        handle_texthooker_button()
+    if gsm_state.previous_line_for_screenshot and gsm_state.line_for_screenshot.id == gsm_state.previous_line_for_screenshot.id or gsm_state.previous_line_for_audio:
+        handle_texthooker_button(gsm_state.previous_replay)
     else:
         obs.save_replay_buffer()
     return jsonify({}), 200
@@ -301,8 +301,8 @@ def play_audio():
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
     gsm_state.line_for_audio = get_line_by_id(event_id)
-    if gsm_state.previous_line_for_audio and gsm_state.line_for_audio == gsm_state.previous_line_for_audio:
-        handle_texthooker_button()
+    if gsm_state.previous_line_for_audio and gsm_state.line_for_audio == gsm_state.previous_line_for_audio or gsm_state.previous_line_for_screenshot:
+        handle_texthooker_button(gsm_state.previous_replay)
     else:
         obs.save_replay_buffer()
     return jsonify({}), 200
