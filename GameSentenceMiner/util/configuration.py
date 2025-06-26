@@ -172,7 +172,7 @@ class Screenshot:
 class Audio:
     enabled: bool = True
     extension: str = 'opus'
-    beginning_offset: float = 0.0
+    beginning_offset: float = -0.5
     end_offset: float = 0.5
     pre_vad_end_offset: float = 0.0
     ffmpeg_reencode_options: str = '-c:a libopus -f opus -af \"afade=t=in:d=0.10\"' if is_windows() else ''

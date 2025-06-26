@@ -80,6 +80,7 @@ class ConfigApp:
     def __init__(self, root):
         self.window = root
         self.on_exit = None
+        self.window.tk.call('tk', 'scaling', 1.5)  # Set DPI scaling factor
         # self.window = ttk.Window(themename='darkly')
         self.window.title('GameSentenceMiner Configuration')
         self.window.protocol("WM_DELETE_WINDOW", self.hide)

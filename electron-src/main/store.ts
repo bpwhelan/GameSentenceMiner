@@ -39,6 +39,7 @@ interface SteamConfig {
 
 interface OCRConfig {
     twoPassOCR: boolean;
+    optimize_second_scan: boolean;
     ocr1: string;
     ocr2: string;
     window_name: string;
@@ -130,6 +131,7 @@ export const store = new Store<StoreConfig>({
         agentPath: "",
         OCR: {
             twoPassOCR: true,
+            optimize_second_scan: true,
             ocr1: "oneOCR",
             ocr2: "glens",
             window_name: "",
@@ -291,6 +293,10 @@ export function getAreaSelectOcrHotkey(): string {
 
 export function setAreaSelectOcrHotkey(hotkey: string): void {
     store.set("OCR.areaSelectOcrHotkey", hotkey);
+}
+
+export function setOptimizeSecondScan(optimize: boolean): void {
+    store.set("OCR.optimize_second_scan", optimize);
 }
 
 // Yuzu config getters and setters

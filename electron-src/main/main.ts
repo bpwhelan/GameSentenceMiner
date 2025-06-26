@@ -208,7 +208,8 @@ async function createWindow() {
             nodeIntegration: true,
             contextIsolation: false,
             devTools: true,
-            nodeIntegrationInSubFrames: true
+            nodeIntegrationInSubFrames: true,
+            backgroundThrottling: false
         },
         title: `${APP_NAME} v${app.getVersion()}`,
     });
@@ -385,6 +386,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
     restartingGSM = false;
 }
 
+app.disableHardwareAcceleration();
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 
 if (!app.requestSingleInstanceLock()) {
