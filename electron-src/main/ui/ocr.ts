@@ -14,7 +14,7 @@ import {
     setRequiresOpenWindow, setSendToClipboard,
     setShouldOCRScreenshots,
     setTwoPassOCR, setOptimizeSecondScan,
-    setWindowName
+    setWindowName, setUseWindowForConfig, setLastWindowSelected
 } from "../store.js";
 import {isQuitting, mainWindow} from "../main.js";
 import {getCurrentScene, ObsScene} from "./obs.js";
@@ -28,12 +28,18 @@ let ocrProcess: any = null;
 async function runScreenSelector(windowTitle: string) {
     const ocr_config = getOCRConfig();
     await new Promise((resolve, reject) => {
-        const process = spawn(getPythonPath(), ['-m', 'GameSentenceMiner.ocr.owocr_area_selector', windowTitle], {
+        let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector', windowTitle];
+
+        if (ocr_config.useWindowForConfig) {
+            args.push('--use_window_for_config');
+        }
+        const process = spawn(getPythonPath(), args, {
             detached: false,
             stdio: 'ignore'
         });
 
         process.on('close', (code) => {
+            console.log(`Screen selector exited with code ${code}`);
             if (code === 0) {
                 resolve(null);
             } else {
@@ -176,7 +182,7 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.handle('ocr.open-config-json', async () => {
         try {
-            const ocrConfigPath = await getActiveOCRConfigPath();
+            const ocrConfigPath = await getActiveOCRConfigPath(getOCRConfig().useWindowForConfig);
             console.log(ocrConfigPath);
             exec(`start "" "${ocrConfigPath}"`); // Opens the file with the default editor
             return true;
@@ -204,7 +210,7 @@ export function registerOCRUtilsIPC() {
         }
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
-            const config = await getActiveOCRCOnfig()
+            const config = await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig)
             if (!config) {
                 const response = await dialog.showMessageBox(mainWindow!, {
                     type: 'question',
@@ -234,6 +240,7 @@ export function registerOCRUtilsIPC() {
             if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
             if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
             if (ocr_config.optimize_second_scan) command.push("--optimize_second_scan");
+            if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
 
             runOCR(command);
         }
@@ -255,6 +262,7 @@ export function registerOCRUtilsIPC() {
             if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
             if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
             if (ocr_config.manualOcrHotkey) command.push("--manual_ocr_hotkey", `${ocr_config.manualOcrHotkey}`);
+            if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
             runOCR(command);
         }
     });
@@ -322,15 +330,18 @@ export function registerOCRUtilsIPC() {
         setSendToClipboard(config.sendToClipboard);
         setAreaSelectOcrHotkey(config.areaSelectOcrHotkey);
         setOptimizeSecondScan(config.optimize_second_scan);
+        setUseWindowForConfig(config.useWindowForConfig);
+        setLastWindowSelected(config.lastWindowSelected);
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     })
 
     ipcMain.handle('ocr.getActiveOCRConfig', async () => {
-        return await getActiveOCRCOnfig();
+        return await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig);
     });
 
     ipcMain.handle('ocr.getActiveOCRConfigWindowName', async () => {
-        const ocrConfig = await getActiveOCRCOnfig();
+        const config = getOCRConfig();
+        const ocrConfig = await getActiveOCRCOnfig(config.useWindowForConfig);
         return ocrConfig ? ocrConfig.window : "";
     });
 
@@ -452,8 +463,8 @@ function getWindowsListWithLibrary(): LibraryWindowInfo[] {
 }
 
 
-export async function getActiveOCRCOnfig() {
-    const sceneConfigPath = await getActiveOCRConfigPath();
+export async function getActiveOCRCOnfig(useWindow: boolean) {
+    const sceneConfigPath = await getActiveOCRConfigPath(useWindow);
     if (!fs.existsSync(sceneConfigPath)) {
         console.warn(`OCR config file does not exist at ${sceneConfigPath}`);
         return null;
@@ -467,7 +478,11 @@ export async function getActiveOCRCOnfig() {
     }
 }
 
-export async function getActiveOCRConfigPath() {
+export async function getActiveOCRConfigPath(useWindow: boolean) {
+    if (useWindow) {
+        const ocrConfig = getOCRConfig();
+        return path.join(BASE_DIR, 'ocr_config', `${sanitizeFilename(ocrConfig.window_name)}.json`);
+    }
     const currentScene = await getCurrentScene();
     return getSceneOCRConfig(currentScene);
 }

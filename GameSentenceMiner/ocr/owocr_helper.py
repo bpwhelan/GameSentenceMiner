@@ -47,13 +47,16 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 
-def get_ocr_config(window=None) -> OCRConfig:
+def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
     """Loads and updates screen capture areas from the corresponding JSON file."""
     app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
     ocr_config_dir = app_dir / "ocr_config"
     os.makedirs(ocr_config_dir, exist_ok=True)
-    obs.connect_to_obs_sync()
-    scene = sanitize_filename(obs.get_current_scene())
+    obs.connect_to_obs_sync(retry=0)
+    if use_window_for_config and window:
+        scene = sanitize_filename(window)
+    else:
+        scene = sanitize_filename(obs.get_current_scene())
     config_path = ocr_config_dir / f"{scene}.json"
     if not config_path.exists():
         ocr_config = OCRConfig(scene=scene, window=window, rectangles=[], coordinate_system="percentage")
@@ -401,7 +404,7 @@ def set_force_stable_hotkey():
 
 if __name__ == "__main__":
     try:
-        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan
+        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config
         import sys
 
         import argparse
@@ -423,6 +426,8 @@ if __name__ == "__main__":
                             help="Hotkey for area selection OCR (default: ctrl+shift+o)")
         parser.add_argument("--optimize_second_scan", action="store_true",
                             help="Optimize second scan by cropping based on first scan results")
+        parser.add_argument("--use_window_for_config", action="store_true",
+                            help="Use the specified window for loading OCR configuration")
 
         args = parser.parse_args()
 
@@ -440,11 +445,12 @@ if __name__ == "__main__":
             "alt", "<alt>") if args.manual_ocr_hotkey else None
         clipboard_output = args.clipboard_output
         optimize_second_scan = args.optimize_second_scan
+        use_window_for_config = args.use_window_for_config
 
         window = None
         logger.info(f"Received arguments: {vars(args)}")
         # set_force_stable_hotkey()
-        ocr_config: OCRConfig = get_ocr_config(window=window_name)
+        ocr_config: OCRConfig = get_ocr_config(window=window_name, use_window_for_config=use_window_for_config)
         if ocr_config:
             if ocr_config.window:
                 start_time = time.time()

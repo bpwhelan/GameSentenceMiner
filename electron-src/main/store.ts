@@ -51,6 +51,8 @@ interface OCRConfig {
     manualOcrHotkey: string;
     areaSelectOcrHotkey: string;
     sendToClipboard: boolean;
+    useWindowForConfig: boolean;
+    lastWindowSelected: string;
 }
 
 export enum HookableGameType {
@@ -143,6 +145,8 @@ export const store = new Store<StoreConfig>({
             sendToClipboard: true,
             scanRate: 0.5,
             requiresOpenWindow: false,
+            useWindowForConfig: false,
+            lastWindowSelected: "",
         },
         customPythonPackage: "GameSentenceMiner"
     },
@@ -297,6 +301,23 @@ export function setAreaSelectOcrHotkey(hotkey: string): void {
 
 export function setOptimizeSecondScan(optimize: boolean): void {
     store.set("OCR.optimize_second_scan", optimize);
+}
+
+// Use Window for Config
+export function getUseWindowForConfig(): boolean {
+    return store.get("OCR.useWindowForConfig");
+}
+
+export function setUseWindowForConfig(useWindow: boolean): void {
+    store.set("OCR.useWindowForConfig", useWindow);
+}
+
+export function getLastWindowSelected(): string {
+    return store.get("OCR.lastWindowSelected");
+}
+
+export function setLastWindowSelected(window: string): void {
+    store.set("OCR.lastWindowSelected", window);
 }
 
 // Yuzu config getters and setters

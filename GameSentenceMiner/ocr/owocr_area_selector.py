@@ -34,7 +34,7 @@ COORD_SYSTEM_PERCENTAGE = "percentage"
 
 
 class ScreenSelector:
-    def __init__(self, result, window_name):
+    def __init__(self, result, window_name, use_window_as_config):
         if not selector_available or not gw:
             raise RuntimeError("tkinter or pygetwindow is not available.")
         if not window_name:
@@ -60,6 +60,8 @@ class ScreenSelector:
         # ---
 
         self.root = None
+        self.scene = ''
+        self.use_window_as_config = use_window_as_config
         self.result = result
         self.rectangles = []  # Internal storage is ALWAYS absolute pixels for drawing
         self.drawn_rect_ids = []
@@ -94,11 +96,14 @@ class ScreenSelector:
         ocr_config_dir = app_dir / "ocr_config"
         ocr_config_dir.mkdir(parents=True, exist_ok=True)
         try:
-            scene = sanitize_filename(obs.get_current_scene() or "default_scene")
+            if self.use_window_as_config:
+                self.scene = sanitize_filename(self.window_name)
+            else:
+                self.scene = sanitize_filename(obs.get_current_scene() or "")
         except Exception as e:
             print(f"Error getting OBS scene: {e}. Using default config name.")
-            scene = "default_scene"
-        return ocr_config_dir / f"{scene}.json"
+            self.scene = ""
+        return ocr_config_dir / f"{self.scene}.json"
 
     def load_existing_rectangles(self):
         """Loads rectangles from config, converting from percentage to absolute pixels for use."""
@@ -170,7 +175,7 @@ class ScreenSelector:
             })
 
         save_data = {
-            "scene": obs.get_current_scene() or "default_scene",
+            "scene": self.scene or "",
             "window": self.window_name,
             "coordinate_system": COORD_SYSTEM_PERCENTAGE,  # Always save as percentage
             "window_geometry": win_geom,  # Save the geometry used for conversion
@@ -397,9 +402,9 @@ class ScreenSelector:
         self.root = None
 
 
-def run_screen_selector(result_dict, window_name):
+def run_screen_selector(result_dict, window_name, use_window_as_config):
     try:
-        selector = ScreenSelector(result_dict, window_name)
+        selector = ScreenSelector(result_dict, window_name, use_window_as_config)
         selector.start()
     except Exception as e:
         print(f"Error in selector process: {e}", file=sys.stderr)
@@ -408,7 +413,7 @@ def run_screen_selector(result_dict, window_name):
         result_dict['error'] = str(e)
 
 
-def get_screen_selection(window_name):
+def get_screen_selection(window_name, use_window_as_config=False):
     if not selector_available or not gw: return None
     if not window_name:
         print("Error: A target window name must be provided.", file=sys.stderr)
@@ -416,7 +421,7 @@ def get_screen_selection(window_name):
 
     with Manager() as manager:
         result_data = manager.dict()
-        process = Process(target=run_screen_selector, args=(result_data, window_name))
+        process = Process(target=run_screen_selector, args=(result_data, window_name, use_window_as_config))
         print(f"Starting ScreenSelector process...")
         process.start()
         process.join()
@@ -434,11 +439,15 @@ def get_screen_selection(window_name):
 
 if __name__ == "__main__":
     set_dpi_awareness()
-    target_window_title = "Windowed Projector (Preview)"  # Default
+    target_window_title = "YouTube - JP"
+    use_window_as_config = False
     if len(sys.argv) > 1:
         target_window_title = sys.argv[1]
+    if len(sys.argv) > 2:
+        use_window_as_config = True
+        target_window_title = sys.argv[1]
 
-    selection_result = get_screen_selection(target_window_title)
+    selection_result = get_screen_selection(target_window_title, use_window_as_config)
 
     if selection_result is None:
         print("\n--- Screen selection failed. ---")

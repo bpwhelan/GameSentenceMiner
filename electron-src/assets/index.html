@@ -131,7 +131,7 @@
                                 </option>
                             </select>
                             <button id="install-selected-dep" class="secondary">Install</button>
-                            <div class="tooltip">?
+                            <div class="tooltip">❓
                                 <span class="tooltiptext">Install the selected dependency. If unsure, choose a recommended option. Google Lens, and OneOCR are now installed with "Install OwOCR" button.</span>
                             </div>
                         </div>
@@ -144,7 +144,7 @@
                 <div class="collapsible-content" style="display: block;">
                     <div class="form-group">
                         <div class="input-group">
-                            <label for="sceneSelect">Game:</label>
+                            <label for="sceneSelect">Game (OBS Scene):</label>
                             <select id="sceneSelect"></select>
                             <button id="refreshScenesBtn" class="secondary">↻</button>
                         </div>
@@ -152,6 +152,10 @@
                             <label for="windowSelect">Window:</label>
                             <select id="windowSelect"></select>
                             <button id="refreshWindowsBtn" class="secondary">↻</button>
+                            <input type="checkbox" id="use-window-for-config">
+                            <label for="use-window-for-config" class="tooltip-indicator tooltip-left" style="margin-left: 8px;">Bind Config to Window
+                                <span class="tooltiptext tooltiptext-left">If enabled, the Area Config will be saved under the name of the Window instead of the Game/OBS Scene</span>
+                            </label>
                         </div>
                         <div class="input-group" style="justify-content: center;">
                             <button id="run-screen-selector">Run Area(s) Selector (Recommended)</button>
@@ -215,7 +219,7 @@
                             </select>
                         </div>
                         <div class="input-group">
-                            <label for="two-pass-ocr" class="tooltip-indicator">
+                            <label for="two-pass-ocr" class="tooltip-indicator tooltip-bottom tooltip-right">
                                 <span class="tooltiptext">
                                     OCR Option 1 runs at the set scan rate.
                                     If two pass is enabled, and the text does not change by the next scan,
@@ -226,7 +230,7 @@
                             <input type="checkbox" id="two-pass-ocr">
                         </div>
                         <div class="input-group">
-                            <label for="optimize-second-scan" class="tooltip-indicator">
+                            <label for="optimize-second-scan" class="tooltip-indicator tooltip-bottom tooltip-right">
                                 <span class="tooltiptext">Trim Image for second scan to improve performance. (OneOCR 1st ONLY)<br> If your game's text is odd, and some text doesn't get captured, maybe try turning this off.</span>
                                 Optimize 2nd scan:
                             </label>
@@ -235,7 +239,7 @@
                     </div>
                     <div class="form-group">
                         <div class="input-group">
-                            <label for="ocr-scan-rate" class="tooltip-indicator">Scan Rate (s):
+                            <label for="ocr-scan-rate" class="tooltip-indicator tooltip-bottom tooltip-right">Scan Rate (s):
                                 <span class="tooltiptext">
                             <ul>
                                 <li>The OCR scan rate determines how frequently the OCR process scans the screen.</li>
@@ -248,33 +252,32 @@
                             <input type="number" id="ocr-scan-rate" value=".5" min="0" step=".1">
                         </div>
                         <div class="input-group">
-                            <label for="area-select-ocr-hotkey" class="tooltip-indicator">Area Select Hotkey:
+                            <label for="area-select-ocr-hotkey" class="tooltip-indicator tooltip-bottom tooltip-right">Area Select Hotkey:
                                 <span class="tooltiptext">On Press, will allow you to select an area to OCR one time. Useful for menus</span>
                             </label>
                             <input type="text" id="area-select-ocr-hotkey" value="Ctrl+Shift+O">
                         </div>
                         <div class="input-group">
-                            <label for="manual-ocr-hotkey" class="tooltip-indicator">Manual OCR Hotkey:
+                            <label for="manual-ocr-hotkey" class="tooltip-indicator tooltip-bottom tooltip-right">Manual OCR Hotkey:
                                 <span class="tooltiptext">
-                        Hotkey to manually OCR the selected area. This will run the OCR on the selected area and return the result. <strong>Note:</strong> This uses the OCR Option 2, and is only used for "Manual OCR".
-                    </span>
+                        Hotkey to manually OCR the selected area. This will run the OCR on the selected area and return the result. <strong>Note:</strong> This uses the OCR Option 2, and is only used for "Manual OCR".</span>
                             </label>
                             <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G">
                         </div>
                         <div class="input-group">
-                            <label for="require-open-window" class="tooltip-indicator">Require Active Window:
+                            <label for="require-open-window" class="tooltip-indicator tooltip-bottom tooltip-right">Require Active Window:
                                 <span class="tooltiptext">If enabled, OCR will only run if the selected window is active AND focused. </span>
                             </label>
                             <input type="checkbox" id="require-open-window">
                         </div>
                         <div class="input-group">
-                            <label for="ocr-screenshots" class="tooltip-indicator">OCR Clipboard Screenshots:
+                            <label for="ocr-screenshots" class="tooltip-indicator tooltip-bottom tooltip-right">OCR Clipboard Screenshots:
                                 <span class="tooltiptext">If enabled, OCR will also process screenshots taken from the clipboard. THIS MAY BE REMOVED IN THE FUTURE</span>
                             </label>
                             <input type="checkbox" id="ocr-screenshots">
                         </div>
                         <div class="input-group">
-                            <label for="send-to-clipboard" class="tooltip-indicator">
+                            <label for="send-to-clipboard" class="tooltip-indicator tooltip-bottom tooltip-right">
                                 <span class="tooltiptext">OCR Sends text to Websocket by default, with this enabled, it will also copy to clipboard.</span>
                                 Send Text to Clipboard:
                             </label>
@@ -284,7 +287,7 @@
                     </div>
                 </div>
                 <div class="form-group" style="margin-top: 15px; width: 25%">
-                    <label id="furigana-filter-label" for="furigana-filter-sensitivity" class="tooltip-indicator">Furigana
+                    <label id="furigana-filter-label" for="furigana-filter-sensitivity" class="tooltip-indicator tooltip-bottom tooltip-right">Furigana
                         Filter
                         Sensitivity (WIP):
                         <span class="tooltiptext">Filters characters smaller than the selected textsize. Very experimental, if you notice real text being filtered out, either lower this or disable it.</span>
@@ -472,6 +475,7 @@
             const areaSelectOCRHotkeyInput = document.getElementById('area-select-ocr-hotkey');
             const sceneSelect = document.getElementById('sceneSelect');
             const sendToClipboardCheckbox = document.getElementById('send-to-clipboard');
+            const useWindowForConfigCheckbox = document.getElementById('use-window-for-config');
 
             const setHotkey = (event, inputElement) => {
                 event.preventDefault();
@@ -503,7 +507,11 @@
                 window.location.href = 'ocr_replacements.html';
             });
 
-            sendToClipboardCheckbox.addEventListener('click', saveOCRConfig)
+            sendToClipboardCheckbox.addEventListener('change', saveOCRConfig)
+            useWindowForConfigCheckbox.addEventListener('change', () => {
+                saveOCRConfig();
+                refreshActiveOCRWindow();
+            });
 
             document.getElementById('refreshWindowsBtn').addEventListener('click', getWindows);
             document.getElementById('install-selected-dep').addEventListener('click', () => {
@@ -514,9 +522,11 @@
                 const selectedDep = document.getElementById('dependency-select-removal').value;
                 ipcRenderer.send('ocr.uninstall-selected-dep', selectedDep);
             });
-            document.getElementById('run-screen-selector').addEventListener('click', () => {
+            document.getElementById('run-screen-selector').addEventListener('click', async () => {
                 const windowName = document.getElementById('windowSelect').value.trim();
-                ipcRenderer.send('ocr.run-screen-selector', windowName);
+                console.log('Screen selector start:', new Date().toISOString());
+                await ipcRenderer.send('ocr.run-screen-selector', windowName);
+                console.log('Screen selector end:', new Date().toISOString());
             });
             document.getElementById('open-config-json').addEventListener('click', () => ipcRenderer.invoke('ocr.open-config-json'));
             document.getElementById('open-config-folder').addEventListener('click', () => ipcRenderer.invoke('ocr.open-config-folder'));
@@ -550,6 +560,11 @@
             document.getElementById('sceneSelect').addEventListener('change', (event) => {
                 ipcRenderer.invoke('obs.switchScene.id', event.target.value);
                 setTimeout(() => refreshActiveOCRWindow(), 500);
+            });
+
+            windowSelect.addEventListener('change', (event) => {
+                saveOCRConfig();
+                refreshActiveOCRWindow();
             });
             document.getElementById('refreshScenesBtn').addEventListener('click', refreshScenesAndWindows);
 
@@ -602,6 +617,7 @@
 
             function refreshScenesAndWindows() {
                 sceneSelect.innerHTML = '';
+                getWindows();
                 ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
                     scenes = obsScenes;
                     scenes.forEach(scene => {
@@ -638,6 +654,8 @@
                     manualOcrHotkey: manualOcrHotkeyInput.value,
                     areaSelectOcrHotkey: areaSelectOCRHotkeyInput.value,
                     sendToClipboard: sendToClipboardCheckbox.checked,
+                    useWindowForConfig: useWindowForConfigCheckbox.checked,
+                    lastWindowSelected: windowSelect.value.trim(),
                 };
                 await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
             }
@@ -655,6 +673,8 @@
                     document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
                     document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots;
                     sendToClipboardCheckbox.checked = ocr_settings.sendToClipboard;
+                    useWindowForConfigCheckbox.checked = ocr_settings.useWindowForConfig;
+                    windowSelect.value = ocr_settings.lastWindowSelected;
 
                     const sensitivity = ocr_settings.furigana_filter_sensitivity || 0;
                     furiganaFilterSlider.value = sensitivity;
