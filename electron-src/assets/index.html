@@ -564,7 +564,8 @@
 
             windowSelect.addEventListener('change', (event) => {
                 saveOCRConfig();
-                refreshActiveOCRWindow();
+                if (useWindowForConfigCheckbox.checked)
+                    refreshActiveOCRWindow();
             });
             document.getElementById('refreshScenesBtn').addEventListener('click', refreshScenesAndWindows);
 
