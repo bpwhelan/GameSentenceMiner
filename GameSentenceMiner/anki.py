@@ -16,7 +16,7 @@ from GameSentenceMiner.util import ffmpeg, notification
 from GameSentenceMiner.util.configuration import *
 from GameSentenceMiner.util.configuration import get_config
 from GameSentenceMiner.util.model import AnkiCard
-from GameSentenceMiner.util.text_log import get_all_lines, get_text_event, get_mined_line
+from GameSentenceMiner.util.text_log import get_all_lines, get_text_event, get_mined_line, lines_match
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.web import texthooking_page
 
@@ -162,7 +162,7 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines):
             sentence_in_anki = last_note.get_field(get_config().anki.sentence_field)
             logger.info(f"Attempting Preserve HTML for multi-line")
             for line in selected_lines:
-                if remove_html_and_cloze_tags(sentence_in_anki) in line.text:
+                if lines_match(line.text, remove_html_and_cloze_tags(sentence_in_anki)):
                     sentences.append(sentence_in_anki)
                     logger.info("Found matching line in Anki, Preserving HTML!")
                 else:

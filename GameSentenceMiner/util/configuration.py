@@ -184,9 +184,10 @@ class Audio:
 
     def __post_init__(self):
         self.ffmpeg_reencode_options_to_use = self.ffmpeg_reencode_options.replace("{format}", self.extension).replace("{encoder}", supported_formats.get(self.extension, ''))
-
-        self.anki_media_collection = os.path.normpath(self.anki_media_collection)
-        self.external_tool = os.path.normpath(self.external_tool)
+        if self.anki_media_collection:
+            self.anki_media_collection = os.path.normpath(self.anki_media_collection)
+        if self.external_tool:
+            self.external_tool = os.path.normpath(self.external_tool)
 
 
 
@@ -220,7 +221,7 @@ class VAD:
     language: str = 'ja'
     vosk_url: str = VOSK_BASE
     selected_vad_model: str = WHISPER
-    backup_vad_model: str = OFF
+    backup_vad_model: str = SILERO
     trim_beginning: bool = False
     beginning_offset: float = -0.25
     add_audio_on_no_results: bool = False
@@ -264,7 +265,7 @@ class Ai:
     enabled: bool = False
     anki_field: str = ''
     provider: str = AI_GEMINI
-    gemini_model: str = 'gemini-2.0-flash'
+    gemini_model: str = 'gemini-2.5-flash'
     groq_model: str = 'meta-llama/llama-4-scout-17b-16e-instruct'
     api_key: str = '' # Deprecated
     gemini_api_key: str = ''

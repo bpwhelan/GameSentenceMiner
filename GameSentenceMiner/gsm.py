@@ -173,7 +173,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
         except Exception as e:
             if mined_line:
                 anki_results[mined_line.id] = AnkiUpdateResult.failure()
-            logger.error(f"Failed Processing and/or adding to Anki: Reason {e}")
+            logger.error(f"Failed Processing and/or adding to Anki: Reason {e}", exc_info=True)
             logger.debug(f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
             notification.send_error_no_anki_update()
         finally:

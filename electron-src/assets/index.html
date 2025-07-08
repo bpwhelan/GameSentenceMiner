@@ -309,7 +309,7 @@
                 <button id="start-ocr-ss-only" class="secondary">Start Manual OCR</button>
             </div>
             <div id="stop-ocr-controls" class="input-group" style="justify-content: center; display: none;">
-                <button id="stop-ocr" class="danger">Stop OCR</button>
+                <button id="stop-ocr" class="danger">Stop OCR (Open Settings)</button>
                 <button id="pause-ocr" class="secondary">Pause OCR</button>
             </div>
         </div>
@@ -764,6 +764,9 @@
         });
 
         ipcRenderer.on('terminal-error', (event, data) => {
+        if (data.includes("INFO:") || data.includes("DEBUG:") || data.includes("ERROR:")) {
+                return; // BAD STDERR, NOT SURE WHY THIS IS HAPPENING
+            }
             term.write(`\x1b[31mERROR: ${data}\x1b[0m`); // Red text for errors
         });
 
