@@ -173,7 +173,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
         except Exception as e:
             if mined_line:
                 anki_results[mined_line.id] = AnkiUpdateResult.failure()
-            logger.error(f"Failed Processing and/or adding to Anki: Reason {e}")
+            logger.error(f"Failed Processing and/or adding to Anki: Reason {e}", exc_info=True)
             logger.debug(f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
             notification.send_error_no_anki_update()
         finally:
@@ -198,6 +198,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
         vad_result = vad_processor.trim_audio_with_vad(trimmed_audio, vad_trimmed_audio, game_line)
         if timing_only:
             return vad_result
+        if vad_result.output_audio:
+            vad_trimmed_audio = vad_result.output_audio
         if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(vad_trimmed_audio):
             ffmpeg.reencode_file_with_user_config(vad_trimmed_audio, final_audio_output,
                                                   get_config().audio.ffmpeg_reencode_options_to_use)
@@ -449,6 +451,13 @@ def cleanup():
 
     if icon:
         icon.stop()
+
+    for video in gsm_state.videos_to_remove:
+        try:
+            if os.path.exists(video):
+                os.remove(video)
+        except Exception as e:
+            logger.error(f"Error removing temporary video file {video}: {e}")
 
     settings_window.window.destroy()
     time.sleep(5)

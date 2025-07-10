@@ -40,12 +40,19 @@ def download_obs_if_needed():
         logger.info("OBS directory exists but executable is missing. Re-downloading OBS...")
         shutil.rmtree(obs_path)
 
+    def get_windows_obs_url():
+        machine = platform.machine().lower()
+        if machine in ['arm64', 'aarch64']:
+            return next(asset['browser_download_url'] for asset in latest_release['assets'] if
+                        asset['name'].endswith('Windows-arm64.zip'))
+        return next(asset['browser_download_url'] for asset in latest_release['assets'] if 
+                    asset['name'].endswith('Windows-x64.zip'))
+
     latest_release_url = "https://api.github.com/repos/obsproject/obs-studio/releases/latest"
     with urllib.request.urlopen(latest_release_url) as response:
         latest_release = json.load(response)
         obs_url = {
-            "Windows": next(asset['browser_download_url'] for asset in latest_release['assets'] if
-                            asset['name'].endswith('Windows.zip')),
+            "Windows": get_windows_obs_url(),
             "Linux": next(asset['browser_download_url'] for asset in latest_release['assets'] if
                           asset['name'].endswith('Ubuntu-24.04-x86_64.deb')),
             "Darwin": next(asset['browser_download_url'] for asset in latest_release['assets'] if

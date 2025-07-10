@@ -47,13 +47,16 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 
-def get_ocr_config(window=None) -> OCRConfig:
+def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
     """Loads and updates screen capture areas from the corresponding JSON file."""
     app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
     ocr_config_dir = app_dir / "ocr_config"
     os.makedirs(ocr_config_dir, exist_ok=True)
-    obs.connect_to_obs_sync()
-    scene = sanitize_filename(obs.get_current_scene())
+    obs.connect_to_obs_sync(retry=0)
+    if use_window_for_config and window:
+        scene = sanitize_filename(window)
+    else:
+        scene = sanitize_filename(obs.get_current_scene())
     config_path = ocr_config_dir / f"{scene}.json"
     if not config_path.exists():
         ocr_config = OCRConfig(scene=scene, window=window, rectangles=[], coordinate_system="percentage")
@@ -178,17 +181,28 @@ class WebsocketServerThread(threading.Thread):
         asyncio.run(main())
 
 
+def compare_ocr_results(prev_text, new_text, threshold=90):
+    if not prev_text or not new_text:
+        return False
+    if isinstance(prev_text, list):
+        prev_text = ''.join([item for item in prev_text if item is not None]) if prev_text else ""
+    if isinstance(new_text, list):
+        new_text = ''.join([item for item in new_text if item is not None]) if new_text else ""
+    similarity = fuzz.ratio(prev_text, new_text)
+    return similarity >= threshold
+
 all_cords = None
 rectangles = None
-last_ocr2_result = ""
+last_ocr2_result = []
 
-def do_second_ocr(ocr1_text, time, img, filtering):
+def do_second_ocr(ocr1_text, time, img, filtering, ignore_furigana_filter=False):
     global twopassocr, ocr2, last_ocr2_result
     try:
         orig_text, text = run.process_and_write_results(img, None, last_ocr2_result, filtering, None,
-                                                        engine=ocr2, furigana_filter_sensitivity=furigana_filter_sensitivity)
-        if fuzz.ratio(last_ocr2_result, orig_text) >= 90:
-            logger.info("Seems like the same text from previous ocr2 result, not sending")
+                                                        engine=ocr2, furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
+
+        if compare_ocr_results(last_ocr2_result, orig_text):
+            logger.info("Detected similar text from previous OCR2 result, not sending")
             return
         save_result_image(img)
         last_ocr2_result = orig_text
@@ -241,12 +255,12 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
 
     line_start_time = time if time else datetime.now()
 
-    if not twopassocr:
-        if previous_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 90:
+    if manual or not twopassocr:
+        if compare_ocr_results(previous_orig_text, orig_text_string):
             logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img)
-        asyncio.run(send_result(text, time))
+        asyncio.run(send_result(text, line_start_time))
         previous_orig_text = orig_text_string
         previous_text = None
         previous_img = None
@@ -260,13 +274,13 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
         if previous_text and text_stable_start_time:
             stable_time = text_stable_start_time
             previous_img_local = previous_img
-            if previous_text and fuzz.ratio(orig_text_string, previous_orig_text) >= 90:
+            if compare_ocr_results(previous_orig_text, orig_text_string):
                 logger.info("Seems like Text we already sent, not doing anything.")
                 previous_text = None
                 return
             previous_orig_text = orig_text_string
             previous_ocr1_result = previous_text
-            if crop_coords:
+            if crop_coords and optimize_second_scan:
                 previous_img_local.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
                 previous_img_local = previous_img_local.crop(crop_coords)
             second_ocr_queue.put((previous_text, stable_time, previous_img_local, filtering))
@@ -313,7 +327,7 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
 
     run.init_config(False)
     try:
-        run.run(read_from="screencapture",
+        run.run(read_from="screencapture" if window else "",
                 read_from_secondary="clipboard" if ss_clipboard else None,
                 write_to="callback",
                 screen_capture_area=screen_area,
@@ -345,14 +359,14 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
     def capture():
         print("Taking screenshot...")
         img = cropper.run()
-        do_second_ocr("", datetime.now(), img, filtering)
+        do_second_ocr("", datetime.now(), img, filtering, ignore_furigana_filter=True)
     def capture_main_monitor():
         print("Taking screenshot of main monitor...")
         with mss.mss() as sct:
             main_monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
             img = sct.grab(main_monitor)
             img_bytes = mss.tools.to_png(img.rgb, img.size)
-            do_second_ocr("", datetime.now(), img_bytes, filtering)
+            do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True)
     hotkey_reg = None
     try:
         hotkey_reg = keyboard.add_hotkey(ss_hotkey, capture)
@@ -389,69 +403,91 @@ def set_force_stable_hotkey():
     print("Press Ctrl+Shift+F to toggle force stable mode.")
 
 if __name__ == "__main__":
-    global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey
-    import sys
+    try:
+        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config
+        import sys
 
-    import argparse
+        import argparse
 
-    parser = argparse.ArgumentParser(description="OCR Configuration")
-    parser.add_argument("--language", type=str, default="ja", help="Language for OCR (default: ja)")
-    parser.add_argument("--ocr1", type=str, default="oneocr", help="Primary OCR engine (default: oneocr)")
-    parser.add_argument("--ocr2", type=str, default="glens", help="Secondary OCR engine (default: glens)")
-    parser.add_argument("--twopassocr", type=int, choices=[0, 1], default=1, help="Enable two-pass OCR (default: 1)")
-    parser.add_argument("--manual", action="store_true", help="Use screenshot-only mode")
-    parser.add_argument("--clipboard", action="store_true", help="Use clipboard for input")
-    parser.add_argument("--clipboard-output", action="store_true", default=False, help="Use clipboard for output")
-    parser.add_argument("--window", type=str, help="Specify the window name for OCR")
-    parser.add_argument("--furigana_filter_sensitivity", type=float, default=0, help="Furigana Filter Sensitivity for OCR (default: 0)")
-    parser.add_argument("--manual_ocr_hotkey", type=str, default=None, help="Hotkey for manual OCR (default: None)")
-    parser.add_argument("--area_select_ocr_hotkey", type=str, default="ctrl+shift+o", help="Hotkey for area selection OCR (default: ctrl+shift+o)")
+        parser = argparse.ArgumentParser(description="OCR Configuration")
+        parser.add_argument("--language", type=str, default="ja", help="Language for OCR (default: ja)")
+        parser.add_argument("--ocr1", type=str, default="oneocr", help="Primary OCR engine (default: oneocr)")
+        parser.add_argument("--ocr2", type=str, default="glens", help="Secondary OCR engine (default: glens)")
+        parser.add_argument("--twopassocr", type=int, choices=[0, 1], default=1,
+                            help="Enable two-pass OCR (default: 1)")
+        parser.add_argument("--manual", action="store_true", help="Use screenshot-only mode")
+        parser.add_argument("--clipboard", action="store_true", help="Use clipboard for input")
+        parser.add_argument("--clipboard-output", action="store_true", default=False, help="Use clipboard for output")
+        parser.add_argument("--window", type=str, help="Specify the window name for OCR")
+        parser.add_argument("--furigana_filter_sensitivity", type=float, default=0,
+                            help="Furigana Filter Sensitivity for OCR (default: 0)")
+        parser.add_argument("--manual_ocr_hotkey", type=str, default=None, help="Hotkey for manual OCR (default: None)")
+        parser.add_argument("--area_select_ocr_hotkey", type=str, default="ctrl+shift+o",
+                            help="Hotkey for area selection OCR (default: ctrl+shift+o)")
+        parser.add_argument("--optimize_second_scan", action="store_true",
+                            help="Optimize second scan by cropping based on first scan results")
+        parser.add_argument("--use_window_for_config", action="store_true",
+                            help="Use the specified window for loading OCR configuration")
 
-    args = parser.parse_args()
+        args = parser.parse_args()
 
-    language = args.language
-    ocr1 = args.ocr1
-    ocr2 = args.ocr2 if args.ocr2 else None
-    twopassocr = bool(args.twopassocr)
-    manual = args.manual
-    ss_clipboard = args.clipboard
-    window_name = args.window
-    furigana_filter_sensitivity = args.furigana_filter_sensitivity
-    ss_hotkey = args.area_select_ocr_hotkey.lower()
-    manual_ocr_hotkey = args.manual_ocr_hotkey.lower().replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>") if args.manual_ocr_hotkey else None
-    clipboard_output = args.clipboard_output
+        language = args.language
+        ocr1 = args.ocr1
+        ocr2 = args.ocr2 if args.ocr2 else None
+        twopassocr = bool(args.twopassocr)
+        manual = args.manual
+        ss_clipboard = args.clipboard
+        window_name = args.window
+        furigana_filter_sensitivity = args.furigana_filter_sensitivity
+        ss_hotkey = args.area_select_ocr_hotkey.lower()
+        manual_ocr_hotkey = args.manual_ocr_hotkey.lower().replace("ctrl", "<ctrl>").replace("shift",
+                                                                                             "<shift>").replace(
+            "alt", "<alt>") if args.manual_ocr_hotkey else None
+        clipboard_output = args.clipboard_output
+        optimize_second_scan = args.optimize_second_scan
+        use_window_for_config = args.use_window_for_config
 
-    logger.info(f"Received arguments: {vars(args)}")
-    # set_force_stable_hotkey()
-    ocr_config: OCRConfig = get_ocr_config(window=window_name)
-    if ocr_config:
-        if ocr_config.window:
-            start_time = time.time()
-            while time.time() - start_time < 30:
-                if get_window(ocr_config.window):
-                    break
-                logger.info(f"Window: {ocr_config.window} Could not be found, retrying in 1 second...")
-                time.sleep(1)
-            else:
-                logger.error(f"Window '{ocr_config.window}' not found within 30 seconds.")
-                sys.exit(1)
-        logger.info(f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
-    set_dpi_awareness()
-    if manual or ocr_config:
-        rectangles = ocr_config.rectangles if ocr_config and ocr_config.rectangles else []
-        oneocr_threads = []
-        ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config,rectangles ), daemon=True)
-        ocr_thread.start()
-        if not manual:
-            worker_thread = threading.Thread(target=process_task_queue, daemon=True)
-            worker_thread.start()
-        websocket_server_thread = WebsocketServerThread(read=True)
-        websocket_server_thread.start()
-        add_ss_hotkey(ss_hotkey)
-        try:
-            while not done:
-                time.sleep(1)
-        except KeyboardInterrupt as e:
-            pass
-    else:
-        print("Failed to load OCR configuration. Please check the logs.")
+        window = None
+        logger.info(f"Received arguments: {vars(args)}")
+        # set_force_stable_hotkey()
+        ocr_config: OCRConfig = get_ocr_config(window=window_name, use_window_for_config=use_window_for_config)
+        if ocr_config:
+            if ocr_config.window:
+                start_time = time.time()
+                while time.time() - start_time < 30:
+                    window = get_window(ocr_config.window)
+                    if window or manual:
+                        if window:
+                            ocr_config.scale_coords()
+                        break
+                    logger.info(f"Window: {ocr_config.window} Could not be found, retrying in 1 second...")
+                    time.sleep(1)
+                else:
+                    logger.error(f"Window '{ocr_config.window}' not found within 30 seconds.")
+                    sys.exit(1)
+            logger.info(
+                f"Starting OCR with configuration: Window: {ocr_config.window}, Rectangles: {ocr_config.rectangles}, Engine 1: {ocr1}, Engine 2: {ocr2}, Two-pass OCR: {twopassocr}")
+        set_dpi_awareness()
+        if manual or ocr_config:
+            rectangles = ocr_config.rectangles if ocr_config and ocr_config.rectangles else []
+            oneocr_threads = []
+            ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config, rectangles), daemon=True)
+            ocr_thread.start()
+            if not manual:
+                worker_thread = threading.Thread(target=process_task_queue, daemon=True)
+                worker_thread.start()
+            websocket_server_thread = WebsocketServerThread(read=True)
+            websocket_server_thread.start()
+            add_ss_hotkey(ss_hotkey)
+            try:
+                while not done:
+                    time.sleep(1)
+            except KeyboardInterrupt as e:
+                pass
+        else:
+            print("Failed to load OCR configuration. Please check the logs.")
+    except Exception as e:
+        logger.info(e, exc_info=True)
+        logger.debug(e, exc_info=True)
+        logger.info("Closing in 5 seconds...")
+        time.sleep(5)

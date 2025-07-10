@@ -1,5 +1,6 @@
 import asyncio
 import subprocess
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, scrolledtext, font
 
@@ -51,8 +52,10 @@ class HoverInfoWidget:
             self.tooltip.destroy()
             self.tooltip = None
 
+
 class HoverInfoLabelWidget:
-    def __init__(self, parent, text, tooltip, row, column, padx=5, pady=2, foreground="white", sticky='W', bootstyle=None, font=("Arial", 10, "normal")):
+    def __init__(self, parent, text, tooltip, row, column, padx=5, pady=2, foreground="white", sticky='W',
+                 bootstyle=None, font=("Arial", 10, "normal")):
         self.label = ttk.Label(parent, text=text, foreground=foreground, cursor="hand2", bootstyle=bootstyle, font=font)
         self.label.grid(row=row, column=column, padx=(0, padx), pady=0, sticky=sticky)
         self.label.bind("<Enter>", lambda e: self.show_info_box(tooltip))
@@ -76,10 +79,36 @@ class HoverInfoLabelWidget:
             self.tooltip = None
 
 
+class ResetToDefaultButton(ttk.Button):
+    def __init__(self, parent, command, text="Reset to Default", bootstyle="danger", **kwargs):
+        super().__init__(parent, text=text, command=command, bootstyle=bootstyle, **kwargs)
+        self.tooltip = None
+        self.bind("<Enter>", self.show_tooltip)
+        self.bind("<Leave>", self.hide_tooltip)
+
+    def show_tooltip(self, event):
+        if not self.tooltip:
+            x = self.winfo_rootx() + 20
+            y = self.winfo_rooty() + 20
+            self.tooltip = tk.Toplevel(self)
+            self.tooltip.wm_overrideredirect(True)
+            self.tooltip.wm_geometry(f"+{x}+{y}")
+            label = ttk.Label(self.tooltip, text="Reset Current Tab Settings to default values.", relief="solid",
+                              borderwidth=1,
+                              font=("tahoma", "12", "normal"))
+            label.pack(ipadx=1)
+
+    def hide_tooltip(self, event):
+        if self.tooltip:
+            self.tooltip.destroy()
+            self.tooltip = None
+
+
 class ConfigApp:
     def __init__(self, root):
         self.window = root
         self.on_exit = None
+        self.window.tk.call('tk', 'scaling', 1.5)  # Set DPI scaling factor
         # self.window = ttk.Window(themename='darkly')
         self.window.title('GameSentenceMiner Configuration')
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
@@ -91,21 +120,26 @@ class ConfigApp:
         self.master_config: Config = configuration.load_config()
 
         self.settings = self.master_config.get_config()
+        self.default_master_settings = Config.new()
+        self.default_settings = self.default_master_settings.get_config()
 
         self.notebook = ttk.Notebook(self.window)
         self.notebook.pack(pady=10, expand=True, fill='both')
 
-        self.general_frame = self.create_general_tab()
-        self.create_paths_tab()
-        self.create_anki_tab()
-        self.create_vad_tab()
-        self.create_features_tab()
-        self.create_screenshot_tab()
-        self.create_audio_tab()
-        self.create_obs_tab()
-        self.create_profiles_tab()
-        self.create_ai_tab()
-        self.create_advanced_tab()
+        self.general_tab = None
+        self.paths_tab = None
+        self.anki_tab = None
+        self.vad_tab = None
+        self.features_tab = None
+        self.screenshot_tab = None
+        self.audio_tab = None
+        self.obs_tab = None
+        self.profiles_tab = None
+        self.ai_tab = None
+        self.advanced_tab = None
+
+        self.create_tabs()
+
         # self.create_help_tab()
 
         self.notebook.bind("<<NotebookTabChanged>>", self.on_profiles_tab_selected)
@@ -125,6 +159,44 @@ class ConfigApp:
                             column=2)
 
         self.window.withdraw()
+
+    def create_tabs(self):
+        self.create_general_tab()
+        self.create_paths_tab()
+        self.create_anki_tab()
+        self.create_vad_tab()
+        self.create_features_tab()
+        self.create_screenshot_tab()
+        self.create_audio_tab()
+        self.create_obs_tab()
+        self.create_profiles_tab()
+        self.create_ai_tab()
+        self.create_advanced_tab()
+
+    def add_reset_button(self, frame, category, row, column=0, recreate_tab=None):
+        """
+        Adds a reset button to the given frame that resets the settings in the frame to default values.
+        """
+        reset_button = ResetToDefaultButton(frame, command=lambda: self.reset_to_default(category, recreate_tab),
+                                            text="Reset to Default")
+        reset_button.grid(row=row, column=column, sticky='W', padx=5, pady=5)
+        return reset_button
+
+    # Category is the dataclass name of the settings being reset, default is a default instance of that dataclass
+    def reset_to_default(self, category, recreate_tab):
+        """
+        Resets the settings in the current tab to default values.
+        """
+        if not messagebox.askyesno("Reset to Default",
+                                   "Are you sure you want to reset all settings in this tab to default?"):
+            return
+
+        default_category_config = getattr(self.default_settings, category)
+
+        setattr(self.settings, category, default_category_config)
+        recreate_tab()
+        self.save_settings(profile_change=False)
+        self.reload_settings()
 
     def show_scene_selection(self, matched_configs):
         selected_scene = None
@@ -271,9 +343,10 @@ class ConfigApp:
                 video_player_path=self.video_player_path.get(),
                 multi_line_line_break=self.multi_line_line_break.get(),
                 multi_line_sentence_storage_field=self.multi_line_sentence_storage_field.get(),
-                use_anki_note_creation_time=self.use_anki_note_creation_time.get(),
+                # use_anki_note_creation_time=self.use_anki_note_creation_time.get(),
                 ocr_websocket_port=int(self.ocr_websocket_port.get()),
                 texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port.get()),
+                plaintext_websocket_port=int(self.plaintext_websocket_export_port.get()),
             ),
             ai=Ai(
                 enabled=self.ai_enabled.get(),
@@ -311,6 +384,14 @@ class ConfigApp:
             self.master_config.current_profile = current_profile
             self.master_config.set_config_for_profile(current_profile, config)
 
+
+        config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
+        os.makedirs(config_backup_folder, exist_ok=True)
+        # write a timesstamped backup of the current config before saving
+        timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+        with open(os.path.join(config_backup_folder, f"config_backup_{timestamp}.json"), 'w') as backup_file:
+            backup_file.write(self.master_config.to_json(indent=4))
+
         self.master_config = self.master_config.sync_shared_fields()
 
         if sync_changes:
@@ -345,17 +426,20 @@ class ConfigApp:
             for frame in self.notebook.winfo_children():
                 frame.destroy()
 
-            self.general_frame = self.create_general_tab()
-            self.create_paths_tab()
-            self.create_anki_tab()
-            self.create_vad_tab()
-            self.create_features_tab()
-            self.create_screenshot_tab()
-            self.create_audio_tab()
-            self.create_obs_tab()
-            self.create_profiles_tab()
-            self.create_advanced_tab()
-            self.create_ai_tab()
+            # Reset tab frames so they are recreated
+            self.general_tab = None
+            self.paths_tab = None
+            self.anki_tab = None
+            self.vad_tab = None
+            self.features_tab = None
+            self.screenshot_tab = None
+            self.audio_tab = None
+            self.obs_tab = None
+            self.profiles_tab = None
+            self.ai_tab = None
+            self.advanced_tab = None
+
+            self.create_tabs()
 
     def increment_row(self):
         """Increment the current row index and return the new value."""
@@ -371,111 +455,120 @@ class ConfigApp:
 
     @new_tab
     def create_general_tab(self):
-        general_frame = ttk.Frame(self.notebook, padding=5)
-        self.notebook.add(general_frame, text='General')
+        if self.general_tab is None:
+            self.general_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.general_tab, text='General')
+        else:
+            for widget in self.general_tab.winfo_children():
+                widget.destroy()
 
-        HoverInfoLabelWidget(general_frame, text="Websocket Enabled:",
+        HoverInfoLabelWidget(self.general_tab, text="Websocket Enabled:",
                              foreground="dark orange", font=("Helvetica", 10, "bold"),
                              tooltip="Enable or disable WebSocket communication. Enabling this will disable the clipboard monitor.",
                              row=self.current_row, column=0)
         self.websocket_enabled = tk.BooleanVar(value=self.settings.general.use_websocket)
-        ttk.Checkbutton(general_frame, variable=self.websocket_enabled, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(self.general_tab, variable=self.websocket_enabled, bootstyle="round-toggle").grid(
             row=self.current_row, column=1,
             sticky='W', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(general_frame, text="Clipboard Enabled:",
+        HoverInfoLabelWidget(self.general_tab, text="Clipboard Enabled:",
                              foreground="dark orange", font=("Helvetica", 10, "bold"),
                              tooltip="Enable or disable Clipboard monitoring.", row=self.current_row, column=0)
         self.clipboard_enabled = tk.BooleanVar(value=self.settings.general.use_clipboard)
-        ttk.Checkbutton(general_frame, variable=self.clipboard_enabled, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(self.general_tab, variable=self.clipboard_enabled, bootstyle="round-toggle").grid(
             row=self.current_row, column=1,
             sticky='W', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(general_frame, text="Allow Both Simultaneously:",
+        HoverInfoLabelWidget(self.general_tab, text="Allow Both Simultaneously:",
                              foreground="red", font=("Helvetica", 10, "bold"),
                              tooltip="Enable to allow GSM to accept both clipboard and websocket input at the same time.",
                              row=self.current_row, column=0)
         self.use_both_clipboard_and_websocket = tk.BooleanVar(
             value=self.settings.general.use_both_clipboard_and_websocket)
-        ttk.Checkbutton(general_frame, variable=self.use_both_clipboard_and_websocket, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(self.general_tab, variable=self.use_both_clipboard_and_websocket,
+                        bootstyle="round-toggle").grid(
             row=self.current_row, column=1,
             sticky='W', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(general_frame, text="Websocket URI(s):",
+        HoverInfoLabelWidget(self.general_tab, text="Websocket URI(s):",
                              tooltip="WebSocket URI for connecting. Allows Comma Separated Values for Connecting Multiple.",
                              row=self.current_row, column=0)
-        self.websocket_uri = ttk.Entry(general_frame, width=50)
+        self.websocket_uri = ttk.Entry(self.general_tab, width=50)
         self.websocket_uri.insert(0, self.settings.general.websocket_uri)
         self.websocket_uri.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(general_frame, text="TextHook Replacement Regex:",
+        HoverInfoLabelWidget(self.general_tab, text="TextHook Replacement Regex:",
                              tooltip="Regex to run replacement on texthook input, set this to the same as what you may have in your texthook page.",
                              row=self.current_row, column=0)
-        self.texthook_replacement_regex = ttk.Entry(general_frame)
+        self.texthook_replacement_regex = ttk.Entry(self.general_tab)
         self.texthook_replacement_regex.insert(0, self.settings.general.texthook_replacement_regex)
         self.texthook_replacement_regex.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(general_frame, text="Open Config on Startup:",
+        HoverInfoLabelWidget(self.general_tab, text="Open Config on Startup:",
                              tooltip="Whether to open config when the script starts.", row=self.current_row, column=0)
         self.open_config_on_startup = tk.BooleanVar(value=self.settings.general.open_config_on_startup)
-        ttk.Checkbutton(general_frame, variable=self.open_config_on_startup, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(self.general_tab, variable=self.open_config_on_startup, bootstyle="round-toggle").grid(
             row=self.current_row, column=1,
             sticky='W', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(general_frame, text="Open GSM Texthooker on Startup:",
+        HoverInfoLabelWidget(self.general_tab, text="Open GSM Texthooker on Startup:",
                              tooltip="Whether to open Texthooking page when the script starts.", row=self.current_row,
                              column=0)
         self.open_multimine_on_startup = tk.BooleanVar(value=self.settings.general.open_multimine_on_startup)
-        ttk.Checkbutton(general_frame, variable=self.open_multimine_on_startup, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(self.general_tab, variable=self.open_multimine_on_startup, bootstyle="round-toggle").grid(
             row=self.current_row, column=1,
             sticky='W', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(general_frame, text="GSM Texthooker Port:",
+        HoverInfoLabelWidget(self.general_tab, text="GSM Texthooker Port:",
                              tooltip="Port for the Texthooker to run on. Only change if you know what you are doing.",
                              row=self.current_row, column=0)
-        self.texthooker_port = ttk.Entry(general_frame)
+        self.texthooker_port = ttk.Entry(self.general_tab)
         self.texthooker_port.insert(0, str(self.settings.general.texthooker_port))
         self.texthooker_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(general_frame, text="Current Version:", bootstyle="secondary",
+        HoverInfoLabelWidget(self.general_tab, text="Current Version:", bootstyle="secondary",
                              tooltip="The current version of the application.", row=self.current_row, column=0)
-        self.current_version = ttk.Label(general_frame, text=get_current_version(), bootstyle="secondary")
+        self.current_version = ttk.Label(self.general_tab, text=get_current_version(), bootstyle="secondary")
         self.current_version.grid(row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(general_frame, text="Latest Version:", bootstyle="secondary",
+        HoverInfoLabelWidget(self.general_tab, text="Latest Version:", bootstyle="secondary",
                              tooltip="The latest available version of the application.", row=self.current_row, column=0)
-        self.latest_version = ttk.Label(general_frame, text=get_latest_version(), bootstyle="secondary")
+        self.latest_version = ttk.Label(self.general_tab, text=get_latest_version(), bootstyle="secondary")
         self.latest_version.grid(row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
-        ttk.Label(general_frame, text="Indicates important/required settings.", foreground="dark orange",
+        ttk.Label(self.general_tab, text="Indicates important/required settings.", foreground="dark orange",
                   font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
         self.current_row += 1
-        ttk.Label(general_frame, text="Highlights Advanced Features that may break things.", foreground="red",
+        ttk.Label(self.general_tab, text="Highlights Advanced Features that may break things.", foreground="red",
                   font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
         self.current_row += 1
-        ttk.Label(general_frame, text="Indicates Recommended, but completely optional settings.", foreground="green",
+        ttk.Label(self.general_tab, text="Indicates Recommended, but completely optional settings.", foreground="green",
                   font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
         self.current_row += 1
-        ttk.Label(general_frame, text="Every Label in settings has a tooltip with more information if you hover over them.",
-                font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
+        ttk.Label(self.general_tab,
+                  text="Every Label in settings has a tooltip with more information if you hover over them.",
+                  font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
         self.current_row += 1
 
-        general_frame.grid_columnconfigure(0, weight=0)  # No expansion for the label column
-        general_frame.grid_columnconfigure(1, weight=0)  # Entry column gets more space
+        # Add Reset to Default button
+        self.add_reset_button(self.general_tab, "general", self.current_row, column=0, recreate_tab=self.create_general_tab)
+
+        self.general_tab.grid_columnconfigure(0, weight=0)  # No expansion for the label column
+        self.general_tab.grid_columnconfigure(1, weight=0)  # Entry column gets more space
         for row in range(self.current_row):
-            general_frame.grid_rowconfigure(row, minsize=30)
+            self.general_tab.grid_rowconfigure(row, minsize=30)
 
-        return general_frame
+        return self.general_tab
 
     @new_tab
     def create_required_settings_tab(self):
@@ -485,8 +578,14 @@ class ConfigApp:
 
     @new_tab
     def create_vad_tab(self):
-        vad_frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(vad_frame, text='VAD')
+        if self.vad_tab is None:
+            self.vad_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.vad_tab, text='VAD')
+        else:
+            for widget in self.vad_tab.winfo_children():
+                widget.destroy()
+
+        vad_frame = self.vad_tab
 
         HoverInfoLabelWidget(vad_frame, text="Voice Detection Postprocessing:",
                              tooltip="Enable post-processing of audio to trim just the voiceline.",
@@ -573,16 +672,26 @@ class ConfigApp:
         self.splice_padding.grid(row=self.current_row, column=3, sticky='EW', pady=2)
         self.current_row += 1
 
+        self.add_reset_button(vad_frame, "vad", self.current_row, 0, self.create_vad_tab)
+
         for col in range(5):
             vad_frame.grid_columnconfigure(col, weight=0)
 
         for row in range(self.current_row):
             vad_frame.grid_rowconfigure(row, minsize=30)
 
+        return vad_frame
+
     @new_tab
     def create_paths_tab(self):
-        paths_frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(paths_frame, text='Paths')
+        if self.paths_tab is None:
+            self.paths_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.paths_tab, text='Paths')
+        else:
+            for widget in self.paths_tab.winfo_children():
+                widget.destroy()
+
+        paths_frame = self.paths_tab
 
         HoverInfoLabelWidget(paths_frame, text="Folder to Watch:", tooltip="Path where the OBS Replays will be saved.",
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
@@ -640,6 +749,8 @@ class ConfigApp:
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
+        self.add_reset_button(paths_frame, "paths", self.current_row, 0, self.create_paths_tab)
+
         paths_frame.grid_columnconfigure(0, weight=0)
         paths_frame.grid_columnconfigure(1, weight=0)
         paths_frame.grid_columnconfigure(2, weight=0)
@@ -663,8 +774,14 @@ class ConfigApp:
 
     @new_tab
     def create_anki_tab(self):
-        anki_frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(anki_frame, text='Anki')
+        if self.anki_tab is None:
+            self.anki_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.anki_tab, text='Anki')
+        else:
+            for widget in self.anki_tab.winfo_children():
+                widget.destroy()
+
+        anki_frame = self.anki_tab
 
         HoverInfoLabelWidget(anki_frame, text="Update Anki:", tooltip="Automatically update Anki with new data.",
                              row=self.current_row, column=0)
@@ -759,7 +876,6 @@ class ConfigApp:
         self.parent_tag.insert(0, self.settings.anki.parent_tag)
         self.parent_tag.grid(row=self.current_row, column=1, sticky='EW', pady=2)
 
-
         self.current_row += 1
 
         HoverInfoLabelWidget(anki_frame, text="Overwrite Audio:", tooltip="Overwrite existing audio in Anki cards.",
@@ -788,6 +904,8 @@ class ConfigApp:
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
+        self.add_reset_button(anki_frame, "anki", self.current_row, 0, self.create_anki_tab)
+
         anki_frame.grid_columnconfigure(0, weight=0)
         anki_frame.grid_columnconfigure(1, weight=0)
 
@@ -805,8 +923,14 @@ class ConfigApp:
 
     @new_tab
     def create_features_tab(self):
-        features_frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(features_frame, text='Features')
+        if self.features_tab is None:
+            self.features_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.features_tab, text='Features')
+        else:
+            for widget in self.features_tab.winfo_children():
+                widget.destroy()
+
+        features_frame = self.features_tab
 
         HoverInfoLabelWidget(features_frame, text="Notify on Update:", tooltip="Notify the user when an update occurs.",
                              row=self.current_row, column=0)
@@ -854,16 +978,26 @@ class ConfigApp:
                                                                                                 pady=2)
         self.current_row += 1
 
+        self.add_reset_button(features_frame, "features", self.current_row, 0, self.create_features_tab)
+
         for col in range(3):
             features_frame.grid_columnconfigure(col, weight=0)
 
         for row in range(self.current_row):
             features_frame.grid_rowconfigure(row, minsize=30)
 
+        return features_frame
+
     @new_tab
     def create_screenshot_tab(self):
-        screenshot_frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(screenshot_frame, text='Screenshot')
+        if self.screenshot_tab is None:
+            self.screenshot_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.screenshot_tab, text='Screenshot')
+        else:
+            for widget in self.screenshot_tab.winfo_children():
+                widget.destroy()
+
+        screenshot_frame = self.screenshot_tab
 
         HoverInfoLabelWidget(screenshot_frame, text="Enabled:", tooltip="Enable or disable screenshot processing.",
                              row=self.current_row, column=0)
@@ -949,11 +1083,15 @@ class ConfigApp:
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
+        self.add_reset_button(screenshot_frame, "screenshot", self.current_row, 0, self.create_screenshot_tab)
+
         for col in range(3):
             screenshot_frame.grid_columnconfigure(col, weight=0)
 
         for row in range(self.current_row):
             screenshot_frame.grid_rowconfigure(row, minsize=30)
+
+        return screenshot_frame
 
     def update_audio_ffmpeg_settings(self, event):
         selected_option = self.ffmpeg_audio_preset_options.get()
@@ -966,8 +1104,14 @@ class ConfigApp:
 
     @new_tab
     def create_audio_tab(self):
-        audio_frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(audio_frame, text='Audio')
+        if self.audio_tab is None:
+            self.audio_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.audio_tab, text='Audio')
+        else:
+            for widget in self.audio_tab.winfo_children():
+                widget.destroy()
+
+        audio_frame = self.audio_tab
 
         HoverInfoLabelWidget(audio_frame, text="Enabled:", tooltip="Enable or disable audio processing.",
                              row=self.current_row, column=0)
@@ -991,11 +1135,11 @@ class ConfigApp:
         self.beginning_offset.insert(0, str(self.settings.audio.beginning_offset))
         self.beginning_offset.grid(row=self.current_row, column=1, sticky='EW', pady=2)
 
-        ttk.Button(audio_frame, text="Find Offset (WIP)", command=self.call_audio_offset_selector, bootstyle="info").grid(
+        ttk.Button(audio_frame, text="Find Offset (WIP)", command=self.call_audio_offset_selector,
+                   bootstyle="info").grid(
             row=self.current_row, column=2, sticky='EW', pady=2, padx=5)
 
         self.current_row += 1
-
 
         HoverInfoLabelWidget(audio_frame, text="Audio Extraction End Offset:",
                              tooltip="Offset in seconds to trim from the end before VAD processing starts. Warning: May Result in lost audio if negative.",
@@ -1067,12 +1211,15 @@ class ConfigApp:
                                                                                           column=1, pady=5)
         self.current_row += 1
 
+        self.add_reset_button(audio_frame, "audio", self.current_row, 0, self.create_audio_tab)
+
         for col in range(5):
             audio_frame.grid_columnconfigure(col, weight=0)
 
         for row in range(self.current_row):
             audio_frame.grid_rowconfigure(row, minsize=30)
 
+        return audio_frame
 
     def call_audio_offset_selector(self):
         try:
@@ -1118,11 +1265,16 @@ class ConfigApp:
             logger.error(f"An unexpected error occurred: {e}")
             return None
 
-
     @new_tab
     def create_obs_tab(self):
-        obs_frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(obs_frame, text='OBS')
+        if self.obs_tab is None:
+            self.obs_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.obs_tab, text='OBS')
+        else:
+            for widget in self.obs_tab.winfo_children():
+                widget.destroy()
+
+        obs_frame = self.obs_tab
 
         HoverInfoLabelWidget(obs_frame, text="Enabled:", tooltip="Enable or disable OBS integration.",
                              row=self.current_row, column=0)
@@ -1183,16 +1335,26 @@ class ConfigApp:
         self.minimum_replay_size.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
+        self.add_reset_button(obs_frame, "obs", self.current_row, 0, self.create_obs_tab)
+
         for col in range(3):
             obs_frame.grid_columnconfigure(col, weight=0)
 
         for row in range(self.current_row):
             obs_frame.grid_rowconfigure(row, minsize=30)
 
+        return obs_frame
+
     @new_tab
     def create_profiles_tab(self):
-        profiles_frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(profiles_frame, text='Profiles')
+        if self.profiles_tab is None:
+            self.profiles_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.profiles_tab, text='Profiles')
+        else:
+            for widget in self.profiles_tab.winfo_children():
+                widget.destroy()
+
+        profiles_frame = self.profiles_tab
 
         HoverInfoLabelWidget(profiles_frame, text="Select Profile:", tooltip="Select a profile to load its settings.",
                              row=self.current_row, column=0)
@@ -1242,9 +1404,11 @@ class ConfigApp:
         for row in range(self.current_row):
             profiles_frame.grid_rowconfigure(row, minsize=30)
 
+        return profiles_frame
+
     def on_obs_scene_select(self, event):
         self.settings.scenes = [self.obs_scene_listbox.get(i) for i in
-                    self.obs_scene_listbox.curselection()]
+                                self.obs_scene_listbox.curselection()]
         self.obs_scene_listbox_changed = True
 
     def refresh_obs_scenes(self):
@@ -1261,8 +1425,14 @@ class ConfigApp:
 
     @new_tab
     def create_advanced_tab(self):
-        advanced_frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(advanced_frame, text='Advanced')
+        if self.advanced_tab is None:
+            self.advanced_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.advanced_tab, text='Advanced')
+        else:
+            for widget in self.advanced_tab.winfo_children():
+                widget.destroy()
+
+        advanced_frame = self.advanced_tab
 
         ttk.Label(advanced_frame, text="Note: Only one of these will take effect, prioritizing audio.",
                   foreground="red", font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=3,
@@ -1329,13 +1499,21 @@ class ConfigApp:
         self.texthooker_communication_websocket_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(advanced_frame, text="Use Anki Creation Date for Audio Timing:",
-                             tooltip="Use the Anki note creation date for audio timing instead of the OBS replay time.",
+        HoverInfoLabelWidget(advanced_frame, text="Plaintext Websocket Export Port:",
+                             tooltip="Port for GSM Plaintext WebSocket Export communication. Does nothing right now, hardcoded to 55002",
                              row=self.current_row, column=0)
-        self.use_anki_note_creation_time = tk.BooleanVar(value=self.settings.advanced.use_anki_note_creation_time)
-        ttk.Checkbutton(advanced_frame, variable=self.use_anki_note_creation_time, bootstyle="round-toggle").grid(
-            row=self.current_row, column=1, sticky='W', pady=2)
+        self.plaintext_websocket_export_port = ttk.Entry(advanced_frame)
+        self.plaintext_websocket_export_port.insert(0, str(self.settings.advanced.plaintext_websocket_port))
+        self.plaintext_websocket_export_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
+
+        # HoverInfoLabelWidget(advanced_frame, text="Use Anki Creation Date for Audio Timing:",
+        #                      tooltip="Use the Anki note creation date for audio timing instead of the OBS replay time.",
+        #                      row=self.current_row, column=0)
+        # self.use_anki_note_creation_time = tk.BooleanVar(value=self.settings.advanced.use_anki_note_creation_time)
+        # ttk.Checkbutton(advanced_frame, variable=self.use_anki_note_creation_time, bootstyle="round-toggle").grid(
+        #     row=self.current_row, column=1, sticky='W', pady=2)
+        # self.current_row += 1
 
         HoverInfoLabelWidget(advanced_frame, text="Reset Line Hotkey:",
                              tooltip="Hotkey to reset the current line of dialogue.", row=self.current_row, column=0)
@@ -1355,9 +1533,12 @@ class ConfigApp:
         HoverInfoLabelWidget(advanced_frame, text="Vosk URL:", tooltip="URL for connecting to the Vosk server.",
                              row=self.current_row, column=0)
         self.vosk_url = ttk.Combobox(advanced_frame, values=[VOSK_BASE, VOSK_SMALL], state="readonly")
-        self.vosk_url.set(VOSK_BASE if self.settings.vad.vosk_url == 'https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip' else VOSK_SMALL)
+        self.vosk_url.set(
+            VOSK_BASE if self.settings.vad.vosk_url == 'https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip' else VOSK_SMALL)
         self.vosk_url.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
+
+        self.add_reset_button(advanced_frame, "advanced", self.current_row, 0, self.create_advanced_tab)
 
         for col in range(4):
             advanced_frame.grid_columnconfigure(col, weight=0)
@@ -1365,10 +1546,18 @@ class ConfigApp:
         for row in range(self.current_row):
             advanced_frame.grid_rowconfigure(row, minsize=30)
 
+        return advanced_frame
+
     @new_tab
     def create_ai_tab(self):
-        ai_frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(ai_frame, text='AI')
+        if self.ai_tab is None:
+            self.ai_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.ai_tab, text='AI')
+        else:
+            for widget in self.ai_tab.winfo_children():
+                widget.destroy()
+
+        ai_frame = self.ai_tab
 
         HoverInfoLabelWidget(ai_frame, text="Enabled:", tooltip="Enable or disable AI integration.",
                              row=self.current_row, column=0)
@@ -1386,10 +1575,12 @@ class ConfigApp:
 
         HoverInfoLabelWidget(ai_frame, text="Gemini AI Model:", tooltip="Select the AI model to use.",
                              row=self.current_row, column=0)
-        self.gemini_model = ttk.Combobox(ai_frame, values=['gemini-2.0-flash', 'gemini-2.0-flash-lite',
-                                                           'gemini-2.5-pro-preview-05-06',
-                                                           'gemini-2.5-flash-preview-05-20'], state="readonly")
-        self.gemini_model.set(self.settings.ai.gemini_model)
+        self.gemini_model = ttk.Combobox(ai_frame, values=['gemini-2.5-flash', 'gemini-2.5-pro','gemini-2.0-flash', 'gemini-2.0-flash-lite',
+                                                           'gemini-2.5-flash-lite-preview-06-17'], state="readonly")
+        try:
+            self.gemini_model.set(self.settings.ai.gemini_model)
+        except Exception:
+            self.gemini_model.set('gemini-2.5-flash')
         self.gemini_model.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
@@ -1448,6 +1639,8 @@ class ConfigApp:
         self.custom_prompt.insert(tk.END, self.settings.ai.custom_prompt)
         self.custom_prompt.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
+
+        self.add_reset_button(ai_frame, "ai", self.current_row, 0, self.create_ai_tab)
 
         for col in range(3):
             ai_frame.grid_columnconfigure(col, weight=0)

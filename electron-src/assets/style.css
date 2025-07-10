@@ -7,6 +7,7 @@
     --border-color: #444;
     --success-color: #4caf50;
     --error-color: #f44336;
+    scrollbar-width: none;
 }
 
 body {
@@ -14,10 +15,21 @@ body {
     background-color: var(--background-color);
     color: var(--text-color);
     margin: 0;
-    padding: 20px;
+    padding: 15px;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 15px;
+}
+
+.tab-container {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
 }
 
 .card {
@@ -38,20 +50,20 @@ h2 {
 .grid-container {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 20px;
+    gap: 15px;
 }
 
 .form-group {
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    gap: 12px;
 }
 
 .input-group {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 5px;
+    padding: 4px;
 }
 
 label {
@@ -62,7 +74,7 @@ label {
 
 select, input[type="text"], input[type="number"] {
     width: 100%;
-    max-width: 500px;
+    max-width: 800px;
     background-color: var(--background-color);
     color: var(--text-color);
     border: 1px solid var(--border-color);
@@ -110,89 +122,145 @@ button.danger:hover {
     background-color: #d32f2f;
 }
 
-.tooltip {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background-color: #555;
-    color: white;
-    cursor: help;
-    font-weight: bold;
-}
+/* ========================================================= */
+/* === IMPROVED TOOLTIP STYLES (VERSION 2 - PRESERVES HTML) === */
+/* ========================================================= */
 
-.tooltip .tooltiptext {
-    visibility: hidden;
-    width: 300px;
-    background-color: #111;
-    color: #fff;
-    text-align: left;
-    border-radius: 6px;
-    padding: 10px;
-    position: absolute;
-    z-index: 1;
-    bottom: 125%;
-    left: 50%;
-    margin-left: -125px;
-    opacity: 0;
-    transition: opacity 0.3s;
-    font-weight: normal;
-}
-
-.tooltip:hover .tooltiptext {
-    visibility: visible;
-    opacity: 1;
-}
-
-/* This class now defines the trigger's initial styling (e.g., circular question mark) */
-/* If you want other elements (like labels) to just show the tooltip on hover without this initial styling,
-   they would only use .tooltip-indicator and the .tooltip-content class for the actual text. */
-.tooltip-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background-color: #555;
-    color: white;
-    cursor: help;
-    font-weight: bold;
-}
-
-/* This class marks any element that should act as a tooltip container/trigger */
+/* Main container for any element that triggers a tooltip */
+/* Add directional classes here (e.g., class="tooltip tooltip-right") */
+.tooltip,
 .tooltip-indicator {
     position: relative; /* Essential for positioning the tooltip text */
-    display: inline-block; /* Allows width/height and positioning */
-    cursor: help; /* Indicates interactivity */
+    display: inline-block;
+    cursor: help;
 }
 
-/* This defines the style for the actual tooltip text that appears */
+/* The actual tooltip text box */
+.tooltip .tooltiptext,
 .tooltip-indicator .tooltiptext {
+    /* Visibility & Animation */
     visibility: hidden;
-    width: 300px;
-    background-color: #111;
-    color: #fff;
-    text-align: left;
-    border-radius: 6px;
-    padding: 10px;
-    position: absolute;
-    z-index: 1;
-    bottom: 125%;
-    left: 50%;
-    margin-left: -125px;
     opacity: 0;
-    transition: opacity 0.3s;
-    font-weight: normal;
+    transform: translateY(4px); /* Start slightly lower for a subtle lift effect */
+    transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+
+    /* Themed Appearance */
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+
+    /* Text & Sizing */
+    text-align: left;
+    font-weight: 500;
+    padding: 8px 12px;
+    border-radius: 6px;
+
+    /* Positioning */
+    position: absolute;
+    z-index: 10;
+    width: max-content;
+    max-width: 240px;
 }
 
-/* When the element with .tooltip-indicator is hovered, show its child .tooltip-content */
-.tooltip-indicator:hover .tooltiptext {
+/* The small arrow pointing to the trigger */
+.tooltip .tooltiptext::after,
+.tooltip-indicator .tooltiptext::after {
+    content: '';
+    position: absolute;
+    border-width: 6px;
+    border-style: solid;
+}
+
+/* --- Show the tooltip on hover/focus --- */
+/* Using :focus-within for better accessibility */
+.tooltip:hover .tooltiptext,
+.tooltip:focus-within .tooltiptext,
+.tooltip-indicator:hover .tooltiptext,
+.tooltip-indicator:focus-within .tooltiptext {
     visibility: visible;
     opacity: 1;
+    transform: translateY(0); /* Move to final position */
+    pointer-events: auto;
+}
+
+
+/* --- Directional Modifier Classes --- */
+
+/* TOP (Default Position) */
+.tooltip:not([class*="tooltip-"]) .tooltiptext,
+.tooltip-indicator:not([class*="tooltip-"]) .tooltiptext,
+.tooltip.tooltip-top .tooltiptext,
+.tooltip-indicator.tooltip-top .tooltiptext {
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 8px; /* Space between trigger and tooltip */
+}
+
+.tooltip:not([class*="tooltip-"]) .tooltiptext::after,
+.tooltip-indicator:not([class*="tooltip-"]) .tooltiptext::after,
+.tooltip.tooltip-top .tooltiptext::after,
+.tooltip-indicator.tooltip-top .tooltiptext::after {
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-color: var(--surface-color) transparent transparent transparent;
+}
+
+
+/* BOTTOM */
+.tooltip.tooltip-bottom .tooltiptext,
+.tooltip-indicator.tooltip-bottom .tooltiptext {
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 8px;
+}
+
+.tooltip.tooltip-bottom .tooltiptext::after,
+.tooltip-indicator.tooltip-bottom .tooltiptext::after {
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-color: transparent transparent var(--surface-color) transparent;
+}
+
+
+/* RIGHT */
+.tooltip.tooltip-right .tooltiptext,
+.tooltip-indicator.tooltip-right .tooltiptext {
+    top: 50%;
+    left: 100%;
+    transform: translateY(-50%);
+    margin-left: 8px;
+}
+
+.tooltip.tooltip-right .tooltiptext::after,
+.tooltip-indicator.tooltip-right .tooltiptext::after {
+    top: 50%;
+    right: 100%;
+    transform: translateY(-50%);
+    border-color: transparent var(--surface-color) transparent transparent;
+}
+
+
+/* LEFT */
+.tooltip.tooltip-left .tooltiptext,
+.tooltip-indicator.tooltip-left .tooltiptext {
+    top: 50%;
+    right: 100%;
+    transform: translateY(-50%);
+    margin-right: 8px;
+}
+
+.tooltip.tooltip-left .tooltiptext::after,
+.tooltip-indicator.tooltip-left .tooltiptext::after {
+    top: 50%;
+    left: 100%;
+    transform: translateY(-50%);
+    border-color: transparent transparent transparent var(--surface-color);
 }
 
 .collapsible-header {
@@ -281,4 +349,28 @@ button.danger:hover {
 .status-button:hover .tooltiptext {
     visibility: visible;
     opacity: 1;
+}
+
+.collapsible-header {
+    cursor: pointer;
+    user-select: none; /* Prevents text selection on click */
+}
+.arrow-icon {
+    float: right;
+    font-style: normal;
+}
+
+/* For WebKit browsers (Chrome, Safari, Edge, etc.) */
+#terminal-container::-webkit-scrollbar {
+    display: none; /* Hides the scrollbar */
+}
+
+/* For Firefox */
+#terminal-container {
+    scrollbar-width: none; /* Hides the scrollbar */
+}
+
+/* For Internet Explorer and older Edge */
+#terminal-container {
+    -ms-overflow-style: none; /* Hides the scrollbar */
 }

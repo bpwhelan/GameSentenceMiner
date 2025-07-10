@@ -1,4 +1,5 @@
 import os
+import time
 import zipfile
 import shutil
 from os.path import expanduser
@@ -61,12 +62,13 @@ class Downloader:
         Main function to attempt download and extraction.
         Tries official source first, then a fallback URL.
         """
-        # if checkdir(self.oneocr_dir):
-        #     print("Files already exist in cache.")
-        #     return True
+        if checkdir(self.oneocr_dir):
+            print("Files already exist in cache.")
+            return True
 
         try:
             print("Attempting to download from official source...")
+            # raise Exception("")
             self.downloadofficial()
             print("Download and extraction from official source successful.")
             return True

@@ -135,7 +135,7 @@ def get_obs_websocket_config_values():
         full_config.save()
         reload_config()
 
-async def connect_to_obs(retry_count=0):
+async def connect_to_obs(retry=5):
     global client, obs_connection_manager, event_client, connecting
     if not get_config().obs.enabled:
         return
@@ -166,11 +166,18 @@ async def connect_to_obs(retry_count=0):
             update_current_game()
             break  # Exit the loop once connected
         except Exception as e:
+            if retry <= 0:
+                gsm_status.obs_connected = False
+                logger.error(f"Failed to connect to OBS WebSocket: {e}")
+                client = None
+                event_client = None
+                connecting = False
+                break
             await asyncio.sleep(1)
-            retry_count += 1
+            retry -= 1
     connecting = False
 
-def connect_to_obs_sync(retry_count=0):
+def connect_to_obs_sync(retry=2):
     global client, obs_connection_manager, event_client
     if not get_config().obs.enabled or client:
         return
@@ -198,8 +205,15 @@ def connect_to_obs_sync(retry_count=0):
             update_current_game()
             break  # Exit the loop once connected
         except Exception as e:
+            if retry <= 0:
+                gsm_status.obs_connected = False
+                logger.error(f"Failed to connect to OBS WebSocket: {e}")
+                client = None
+                event_client = None
+                connecting = False
+                break
             time.sleep(1)
-            retry_count += 1
+            retry -= 1
 
 
 def disconnect_from_obs():
@@ -334,7 +348,7 @@ def get_screenshot(compression=-1):
         logger.error(f"Error getting screenshot: {e}")
         return None
 
-def get_screenshot_base64():
+def get_screenshot_base64(compression=0, width=None, height=None):
     try:
         # update_current_game()
         current_game = get_current_game()
@@ -346,10 +360,8 @@ def get_screenshot_base64():
         if not current_source_name:
             logger.error("No active source found in the current scene.")
             return None
-        response = client.get_source_screenshot(name=current_source_name, img_format='png', quality=0, width=None, height=None)
+        response = client.get_source_screenshot(name=current_source_name, img_format='png', quality=compression, width=width, height=height)
         if response and response.image_data:
-            with open('screenshot_response.txt', 'wb') as f:
-                f.write(str(response).encode())
             return response.image_data
         else:
             logger.error(f"Error getting base64 screenshot: {response}")

@@ -103,3 +103,4 @@ package-lock.json
 test.py
 *.opus
 .vscode/settings.json
+GameSentenceMiner.wiki/

@@ -13,8 +13,8 @@ import {
     setOCRScanRate,
     setRequiresOpenWindow, setSendToClipboard,
     setShouldOCRScreenshots,
-    setTwoPassOCR,
-    setWindowName
+    setTwoPassOCR, setOptimizeSecondScan,
+    setWindowName, setUseWindowForConfig, setLastWindowSelected
 } from "../store.js";
 import {isQuitting, mainWindow} from "../main.js";
 import {getCurrentScene, ObsScene} from "./obs.js";
@@ -28,12 +28,18 @@ let ocrProcess: any = null;
 async function runScreenSelector(windowTitle: string) {
     const ocr_config = getOCRConfig();
     await new Promise((resolve, reject) => {
-        const process = spawn(getPythonPath(), ['-m', 'GameSentenceMiner.ocr.owocr_area_selector', windowTitle], {
+        let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector', windowTitle];
+
+        if (ocr_config.useWindowForConfig) {
+            args.push('--use_window_for_config');
+        }
+        const process = spawn(getPythonPath(), args, {
             detached: false,
             stdio: 'ignore'
         });
 
         process.on('close', (code) => {
+            console.log(`Screen selector exited with code ${code}`);
             if (code === 0) {
                 resolve(null);
             } else {
@@ -48,31 +54,96 @@ async function runScreenSelector(windowTitle: string) {
     mainWindow?.webContents.send('terminal-output', `Running screen area selector in background...`);
 }
 
+/**
+ * Runs the OCR command, ensuring only one instance is active at a time.
+ * The command is executed directly, without a detached cmd window.
+ *
+ * @param command - An array where the first element is the executable
+ *                  and the rest are its arguments (e.g., ['tesseract', 'image.png', 'stdout']).
+ */
 function runOCR(command: string[]) {
-    ocrProcess = spawn('cmd', ['/c', 'start', 'cmd', '/k', ...command], {detached: false}); // Open in new cmd window
-
-    ocrProcess.on('exit', (code: any, signal: any) => {
+    // 1. If an OCR process is already running, terminate it gracefully.
+    if (ocrProcess) {
+        console.log('An OCR process is already running. Terminating the old one...');
+        ocrProcess.kill('SIGTERM'); // 'SIGTERM' is a graceful shutdown signal
         ocrProcess = null;
-        // console.log(`OCR process exited with code: ${code}, signal: ${signal}`);
+    }
+
+    // 2. Separate the executable from its arguments.
+    const [executable, ...args] = command;
+
+    if (!executable) {
+        console.error('Error: Command is empty. Cannot start OCR process.');
+        return;
+    }
+
+    console.log(`Starting OCR process with command: ${executable} ${args.join(' ')}`);
+    mainWindow?.webContents.send('ocr-started');
+
+    // 3. Spawn the new process directly.
+    // { shell: true } can be helpful on Windows to resolve .exe, .cmd, .bat files
+    // without specifying the full extension, and to find commands in the system PATH.
+    // For maximum security and performance, use { shell: false } and provide a full
+    // path to the executable if it's not in the PATH.
+    ocrProcess = spawn(executable, args);
+
+    // 4. Capture and log standard output from the process.
+    ocrProcess.stdout?.on('data', (data: Buffer) => {
+        const log = data.toString().trim();
+        console.log(`[OCR STDOUT]: ${log}`);
+        mainWindow?.webContents.send('ocr-log', log);
     });
 
-    ocrProcess.on('error', (err: any) => {
-        // console.log(`OCR process error: ${err}`);
+    // 5. Capture and log standard error from the process.
+    ocrProcess.stderr?.on('data', (data: Buffer) => {
+        const errorLog = data.toString().trim();
+        console.error(`[OCR STDERR]: ${errorLog}`);
+        mainWindow?.webContents.send('ocr-log', errorLog);
+    });
+
+    // 6. Handle the process exiting.
+    // The 'close' event is often better than 'exit' as it waits for stdio streams to close.
+    ocrProcess.on('close', (code: number) => {
+        console.log(`OCR process exited with code: ${code}`);
+        mainWindow?.webContents.send('ocr-stopped');
+        // Clear the reference so we know the process has stopped.
         ocrProcess = null;
     });
 
-    console.log(`Starting OCR process with command: ${command.join(' ')}`);
+    // 7. Handle errors during process spawning (e.g., command not found).
+    ocrProcess.on('error', (err: Error) => {
+        console.error(`Failed to start OCR process: ${err.message}`);
+        mainWindow?.webContents.send('ocr-stopped');
+        ocrProcess = null;
+    });
 }
 
 export function registerOCRUtilsIPC() {
+    ipcMain.on('ocr.install-recommended-deps', () => {
+        const owocrCommand = `${getPythonPath()} -m pip install --upgrade --no-warn-script-location owocr[oneocr] owocr[lens] & exit`;
+        // const googleLensCommand = `${getPythonPath()} -m pip install --upgrade owocr[lens] & exit`;
+        const oneocrFilesDownload = `${getPythonPath()} -m GameSentenceMiner.util.downloader.oneocr_dl & exit`;
+
+        spawn('cmd', ['/c', 'start', 'cmd', '/k', owocrCommand], {detached: false}); // Open in new cmd window
+        // mainWindow?.webContents.send('terminal-output', `Installing OneOCR dependencies in new terminal...`);
+        // spawn('cmd', ['/c', 'start', 'cmd', '/k', googleLensCommand], {detached: false}); // Open in new cmd window
+        mainWindow?.webContents.send('terminal-output', `Installing Google Lens dependencies in new terminal...`);
+        spawn('cmd', ['/c', 'start', 'cmd', '/k', oneocrFilesDownload], {detached: false}); // Open in new cmd window
+    })
+
     ipcMain.on('ocr.install-owocr-deps', () => {
-        const command = `${getPythonPath()} -m pip install --upgrade owocr & exit`;
+        const command = `${getPythonPath()} -m pip install --upgrade --no-warn-script-location owocr & exit`;
         spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
         mainWindow?.webContents.send('terminal-output', `Installing OWOCR dependencies in new terminal...`);
     });
 
     ipcMain.on('ocr.install-selected-dep', (_, dependency: string) => {
-        const command = `${getPythonPath()} -m  ${dependency} --upgrade & exit`;
+        let command = ''
+        if (dependency.includes("pip")) {
+            command = `${getPythonPath()} -m  ${dependency} --upgrade --no-warn-script-location & exit`;
+        } else {
+            command = `${getPythonPath()} -m ${dependency} & exit`;
+        }
         spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
         mainWindow?.webContents.send('terminal-output', `Installing ${dependency} dependencies in new terminal...`);
     });
@@ -111,7 +182,7 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.handle('ocr.open-config-json', async () => {
         try {
-            const ocrConfigPath = await getActiveOCRConfigPath();
+            const ocrConfigPath = await getActiveOCRConfigPath(getOCRConfig().useWindowForConfig);
             console.log(ocrConfigPath);
             exec(`start "" "${ocrConfigPath}"`); // Opens the file with the default editor
             return true;
@@ -132,9 +203,14 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.start-ocr', async () => {
+        // This should never happen, but just in case
+        if (ocrProcess) {
+            ocrProcess.kill('SIGTERM'); // terminate it gracefully if running
+            ocrProcess = null;
+        }
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
-            const config = await getActiveOCRCOnfig()
+            const config = await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig)
             if (!config) {
                 const response = await dialog.showMessageBox(mainWindow!, {
                     type: 'question',
@@ -163,6 +239,8 @@ export function registerOCRUtilsIPC() {
             if (ocr_config.window_name) command.push("--window", `${ocr_config.window_name}`);
             if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
             if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
+            if (ocr_config.optimize_second_scan) command.push("--optimize_second_scan");
+            if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
 
             runOCR(command);
         }
@@ -184,19 +262,22 @@ export function registerOCRUtilsIPC() {
             if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
             if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
             if (ocr_config.manualOcrHotkey) command.push("--manual_ocr_hotkey", `${ocr_config.manualOcrHotkey}`);
+            if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
             runOCR(command);
         }
     });
 
     ipcMain.on('ocr.kill-ocr', () => {
         if (ocrProcess) {
-            exec(`taskkill /F /PID ${ocrProcess.pid}`, (error, stdout, stderr) => {
-                if (error) {
-                    mainWindow?.webContents.send('terminal-error', `Error killing OCR process: ${stderr}`);
-                }
-                mainWindow?.webContents.send('terminal-output', `Killing OCR Process...`);
-            });
-            ocrProcess = null;
+            mainWindow?.webContents.send('ocr-log', 'Stopping OCR process...');
+            ocrProcess.kill('SIGTERM');
+        }
+    });
+
+    ipcMain.on('ocr.stdin', (_, data) => {
+        if (ocrProcess) {
+            console.log("Sending to OCR stdin:", data);
+            ocrProcess.stdin.write(data);
         }
     });
 
@@ -248,15 +329,19 @@ export function registerOCRUtilsIPC() {
         setManualOcrHotkey(config.manualOcrHotkey);
         setSendToClipboard(config.sendToClipboard);
         setAreaSelectOcrHotkey(config.areaSelectOcrHotkey);
+        setOptimizeSecondScan(config.optimize_second_scan);
+        setUseWindowForConfig(config.useWindowForConfig);
+        setLastWindowSelected(config.lastWindowSelected);
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     })
 
     ipcMain.handle('ocr.getActiveOCRConfig', async () => {
-        return await getActiveOCRCOnfig();
+        return await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig);
     });
 
     ipcMain.handle('ocr.getActiveOCRConfigWindowName', async () => {
-        const ocrConfig = await getActiveOCRCOnfig();
+        const config = getOCRConfig();
+        const ocrConfig = await getActiveOCRCOnfig(config.useWindowForConfig);
         return ocrConfig ? ocrConfig.window : "";
     });
 
@@ -378,8 +463,8 @@ function getWindowsListWithLibrary(): LibraryWindowInfo[] {
 }
 
 
-export async function getActiveOCRCOnfig() {
-    const sceneConfigPath = await getActiveOCRConfigPath();
+export async function getActiveOCRCOnfig(useWindow: boolean) {
+    const sceneConfigPath = await getActiveOCRConfigPath(useWindow);
     if (!fs.existsSync(sceneConfigPath)) {
         console.warn(`OCR config file does not exist at ${sceneConfigPath}`);
         return null;
@@ -393,7 +478,11 @@ export async function getActiveOCRCOnfig() {
     }
 }
 
-export async function getActiveOCRConfigPath() {
+export async function getActiveOCRConfigPath(useWindow: boolean) {
+    if (useWindow) {
+        const ocrConfig = getOCRConfig();
+        return path.join(BASE_DIR, 'ocr_config', `${sanitizeFilename(ocrConfig.window_name)}.json`);
+    }
     const currentScene = await getCurrentScene();
     return getSceneOCRConfig(currentScene);
 }

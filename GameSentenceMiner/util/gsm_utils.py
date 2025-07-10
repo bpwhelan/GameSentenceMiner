@@ -157,27 +157,32 @@ def combine_dialogue(dialogue_lines, new_lines=None):
 
     return new_lines
 
-def wait_for_stable_file(file_path, timeout=10, check_interval=0.1):
+def wait_for_stable_file(file_path, timeout=10, check_interval=0.5):
     elapsed_time = 0
     last_size = -1
+
+    logger.info(f"Waiting for file '{file_path}' to stabilize or become accessible...")
 
     while elapsed_time < timeout:
         try:
             current_size = os.path.getsize(file_path)
             if current_size == last_size:
                 try:
-                    with open(file_path, 'rb') as f:
+                    with open(file_path, 'rb'):
                         return True
-                except Exception as e:
-                    time.sleep(check_interval)
-                    elapsed_time += check_interval
+                except IOError:
+                    pass
             last_size = current_size
-            time.sleep(check_interval)
-            elapsed_time += check_interval
+        except FileNotFoundError:
+            last_size = -1
         except Exception as e:
-            logger.warning(f"Error checking file size, will still try updating Anki Card!: {e}")
-            return False
-    logger.warning("File size did not stabilize within the timeout period. Continuing...")
+            logger.warning(f"Error checking file {file_path}, will retry: {e}")
+            last_size = -1
+
+        time.sleep(check_interval)
+        elapsed_time += check_interval
+
+    logger.warning(f"File '{file_path}' did not stabilize or become accessible within {timeout} seconds. Continuing...")
     return False
 
 def isascii(s: str):

@@ -172,7 +172,7 @@ class Screenshot:
 class Audio:
     enabled: bool = True
     extension: str = 'opus'
-    beginning_offset: float = 0.0
+    beginning_offset: float = -0.5
     end_offset: float = 0.5
     pre_vad_end_offset: float = 0.0
     ffmpeg_reencode_options: str = '-c:a libopus -f opus -af \"afade=t=in:d=0.10\"' if is_windows() else ''
@@ -184,9 +184,10 @@ class Audio:
 
     def __post_init__(self):
         self.ffmpeg_reencode_options_to_use = self.ffmpeg_reencode_options.replace("{format}", self.extension).replace("{encoder}", supported_formats.get(self.extension, ''))
-
-        self.anki_media_collection = os.path.normpath(self.anki_media_collection)
-        self.external_tool = os.path.normpath(self.external_tool)
+        if self.anki_media_collection:
+            self.anki_media_collection = os.path.normpath(self.anki_media_collection)
+        if self.external_tool:
+            self.external_tool = os.path.normpath(self.external_tool)
 
 
 
@@ -220,7 +221,7 @@ class VAD:
     language: str = 'ja'
     vosk_url: str = VOSK_BASE
     selected_vad_model: str = WHISPER
-    backup_vad_model: str = OFF
+    backup_vad_model: str = SILERO
     trim_beginning: bool = False
     beginning_offset: float = -0.25
     add_audio_on_no_results: bool = False
@@ -243,6 +244,7 @@ class VAD:
 @dataclass_json
 @dataclass
 class Advanced:
+    plaintext_websocket_port: int = -1
     audio_player_path: str = ''
     video_player_path: str = ''
     show_screenshot_buttons: bool = False
@@ -251,13 +253,18 @@ class Advanced:
     ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 55001
 
+    def __post_init__(self):
+        if self.plaintext_websocket_port == -1:
+            self.plaintext_websocket_port = self.texthooker_communication_websocket_port + 1
+
+
 @dataclass_json
 @dataclass
 class Ai:
     enabled: bool = False
     anki_field: str = ''
     provider: str = AI_GEMINI
-    gemini_model: str = 'gemini-2.0-flash'
+    gemini_model: str = 'gemini-2.5-flash'
     groq_model: str = 'meta-llama/llama-4-scout-17b-16e-instruct'
     api_key: str = '' # Deprecated
     gemini_api_key: str = ''
@@ -676,6 +683,7 @@ class GsmAppState:
         self.last_mined_line = None
         self.keep_running = True
         self.current_game = ''
+        self.videos_to_remove = set()
 
 @dataclass_json
 @dataclass

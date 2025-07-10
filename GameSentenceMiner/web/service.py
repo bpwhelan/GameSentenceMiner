@@ -21,7 +21,7 @@ def handle_texthooker_button(video_path='', get_audio_from_video=None):
                 if get_config().advanced.audio_player_path:
                     play_audio_in_external(gsm_state.previous_audio)
                 elif get_config().advanced.video_player_path:
-                    play_video_in_external(line, gsm_state.previous_audio)
+                    play_video_in_external(line, video_path)
                 else:
                     import sounddevice as sd
                     data, samplerate = gsm_state.previous_audio
@@ -35,9 +35,7 @@ def handle_texthooker_button(video_path='', get_audio_from_video=None):
                 play_audio_in_external(audio)
                 gsm_state.previous_audio = audio
             elif get_config().advanced.video_player_path:
-                new_video_path = play_video_in_external(line, video_path)
-                gsm_state.previous_audio = new_video_path
-                gsm_state.previous_replay = new_video_path
+                play_video_in_external(line, video_path)
             else:
                 import sounddevice as sd
                 import soundfile as sf
@@ -75,8 +73,8 @@ def handle_texthooker_button(video_path='', get_audio_from_video=None):
         logger.debug(f"Error Playing Audio/Video: {e}", exc_info=True)
         return
     finally:
-        if video_path and get_config().paths.remove_video and os.path.exists(video_path):
-            os.remove(video_path)
+        gsm_state.previous_replay = video_path
+        gsm_state.videos_to_remove.add(video_path)
 
 
 def play_audio_in_external(filepath):
@@ -94,37 +92,28 @@ def play_audio_in_external(filepath):
 
 
 def play_video_in_external(line, filepath):
-    def move_video_when_closed(p, fp):
-        p.wait()
-        os.remove(fp)
-
-    shutil.move(filepath, get_temporary_directory())
-    new_filepath = os.path.join(get_temporary_directory(), os.path.basename(filepath))
-
     command = [get_config().advanced.video_player_path]
 
-    start, _, _, _ = get_video_timings(new_filepath, line)
+    start, _, _, _ = get_video_timings(filepath, line)
 
     if start:
         if "vlc" in get_config().advanced.video_player_path:
             command.extend(["--start-time", convert_to_vlc_seconds(start), '--one-instance'])
         else:
             command.extend(["--start", convert_to_vlc_seconds(start)])
-    command.append(os.path.normpath(new_filepath))
+    command.append(os.path.normpath(filepath))
 
     logger.info(" ".join(command))
 
 
 
     try:
-        proc = subprocess.Popen(command)
-        print(f"Opened {filepath} in {get_config().advanced.video_player_path}.")
-        threading.Thread(target=move_video_when_closed, args=(proc, filepath)).start()
+        subprocess.Popen(command)
+        logger.info(f"Opened {filepath} in {get_config().advanced.video_player_path}.")
     except FileNotFoundError:
-        print("VLC not found. Make sure it's installed and in your PATH.")
+        logger.error("VLC not found. Make sure it's installed and in your PATH.")
     except Exception as e:
-        print(f"An error occurred: {e}")
-    return new_filepath
+        logger.error(f"An error occurred: {e}")
 
 
 def convert_to_vlc_seconds(time_str):

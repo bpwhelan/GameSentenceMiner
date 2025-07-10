@@ -39,17 +39,20 @@ interface SteamConfig {
 
 interface OCRConfig {
     twoPassOCR: boolean;
+    optimize_second_scan: boolean;
     ocr1: string;
     ocr2: string;
     window_name: string;
-    requiresOpenWindow?: boolean;
-    scanRate?: number;
+    requiresOpenWindow: boolean;
+    scanRate: number;
     language: string;
     ocr_screenshots: boolean;
     furigana_filter_sensitivity: number;
     manualOcrHotkey: string;
     areaSelectOcrHotkey: string;
     sendToClipboard: boolean;
+    useWindowForConfig: boolean;
+    lastWindowSelected: string;
 }
 
 export enum HookableGameType {
@@ -130,6 +133,7 @@ export const store = new Store<StoreConfig>({
         agentPath: "",
         OCR: {
             twoPassOCR: true,
+            optimize_second_scan: true,
             ocr1: "oneOCR",
             ocr2: "glens",
             window_name: "",
@@ -139,6 +143,10 @@ export const store = new Store<StoreConfig>({
             manualOcrHotkey: "Ctrl+Shift+G",
             areaSelectOcrHotkey: "Ctrl+Shift+O",
             sendToClipboard: true,
+            scanRate: 0.5,
+            requiresOpenWindow: false,
+            useWindowForConfig: false,
+            lastWindowSelected: "",
         },
         customPythonPackage: "GameSentenceMiner"
     },
@@ -289,6 +297,27 @@ export function getAreaSelectOcrHotkey(): string {
 
 export function setAreaSelectOcrHotkey(hotkey: string): void {
     store.set("OCR.areaSelectOcrHotkey", hotkey);
+}
+
+export function setOptimizeSecondScan(optimize: boolean): void {
+    store.set("OCR.optimize_second_scan", optimize);
+}
+
+// Use Window for Config
+export function getUseWindowForConfig(): boolean {
+    return store.get("OCR.useWindowForConfig");
+}
+
+export function setUseWindowForConfig(useWindow: boolean): void {
+    store.set("OCR.useWindowForConfig", useWindow);
+}
+
+export function getLastWindowSelected(): string {
+    return store.get("OCR.lastWindowSelected");
+}
+
+export function setLastWindowSelected(window: string): void {
+    store.set("OCR.lastWindowSelected", window);
 }
 
 // Yuzu config getters and setters

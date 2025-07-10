@@ -19,9 +19,9 @@
         <label for="windowSelect">Setup New Game:</label>
         <select id="windowSelect"></select>
         <button id="refreshWindowsBtn">&#x21bb;</button>
-        <button id="createNewSceneBtn">New Window Capture</button>
-        <button id="createNewSceneGameBtn">New Game Capture</button>
-        <span class="tooltip">?
+        <button id="createNewSceneBtn" style="width: 300px">New Window Capture</button>
+        <button id="createNewSceneGameBtn" style="width: 300px">New Game Capture</button>
+        <span class="tooltip tooltip-left">❓
         <span class="tooltiptext">
             Window Capture works for most applications
             <br>
@@ -178,6 +178,7 @@
             const last_line_received = gsmStatus.last_line_received;
             const words_being_processed = gsmStatus.words_being_processed;
             const clipboard_enabled = gsmStatus.clipboard_enabled;
+            const anyWebsocketsConnected = websockets_connected.length > 0;
 
             // Update GSM status
             gsmStatusButton.classList.toggle('green', ready);
@@ -207,6 +208,7 @@
             // Update Clipboard status
             clipboardStatus.classList.toggle('green', clipboard_enabled);
             clipboardStatus.classList.toggle('red', !clipboard_enabled);
+            clipboardStatus.classList.toggle('neutral', !clipboard_enabled && anyWebsocketsConnected);
             clipboardStatus.querySelector('span:last-child').textContent = clipboard_enabled ? 'Enabled' : 'Disabled';
             clipboardStatus.setAttribute('title', clipboard_enabled ? 'Clipboard monitoring is enabled.' : 'Clipboard monitoring is disabled.');
 

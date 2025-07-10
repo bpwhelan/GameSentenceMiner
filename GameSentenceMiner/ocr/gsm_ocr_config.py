@@ -44,13 +44,13 @@ class WindowGeometry:
 class OCRConfig:
     scene: str
     rectangles: List[Rectangle]
-    pre_scale_rectangles: List[Rectangle] = None
+    pre_scale_rectangles: Optional[List[Rectangle]] = None
     coordinate_system: str = None
     window_geometry: Optional[WindowGeometry] = None
     window: Optional[str] = None
     language: str = "ja"
 
-    def __post_init__(self):
+    def scale_coords(self):
         self.pre_scale_rectangles = deepcopy(self.rectangles)
         if self.coordinate_system and self.coordinate_system == "percentage" and self.window:
             import pygetwindow as gw
@@ -91,7 +91,7 @@ def get_window(title):
     import pygetwindow as gw
     all_windows = gw.getWindowsWithTitle(title)
     if not all_windows:
-        raise ValueError(f"No windows found with title '{title}'.")
+        return None
 
     filtered_windows = []
     for window in all_windows:
@@ -101,7 +101,7 @@ def get_window(title):
         filtered_windows.append(window)
 
     if not filtered_windows:
-        raise ValueError(f"No non-cmd.exe windows found with title '{title}'.")
+        return None
 
     ret = None
     for window in filtered_windows:
