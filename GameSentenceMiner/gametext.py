@@ -125,7 +125,7 @@ async def handle_new_text_event(current_clipboard, line_time=None):
     add_line(current_line_after_regex, line_time)
     if len(get_text_log().values) > 0:
         await add_event_to_texthooker(get_text_log()[-1])
-    # await find_box_for_sentence(current_line)
+    await find_box_for_sentence(current_line)
 
 async def find_box_for_sentence(sentence):
     box, font_size = await get_overlay_coords.find_box_for_sentence(current_line)

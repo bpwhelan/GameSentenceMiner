@@ -43,9 +43,10 @@ async def get_full_screenshot() -> Image.Image | None:
     print("Getting Screenshot from OBS")
     try:
         start_time = time.time()
-        image_data = get_screenshot_base64(width=1280, height=720)
+        image_data = get_screenshot_base64(compression=75, width=1280, height=720)
         image_data = base64.b64decode(image_data.split(",")[1])
         img = Image.open(io.BytesIO(image_data)).convert("RGBA").resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+        # img.show()
         print(f"Screenshot captured in {time.time() - start_time:.2f} seconds.")
 
         return img
@@ -66,7 +67,7 @@ async def find_box_for_sentence(sentence_to_check):
         print("\n--- OCR Results ---")
         print(ocr_results)
 
-        return ocr_results[2], ocr_results[3]
+        return ocr_results[2], 48
         # from PIL import ImageDraw
         # draw = ImageDraw.Draw(full_screenshot_image)
         # draw.rectangle([x1, y1, x2, y2], outline="red", width=3)
