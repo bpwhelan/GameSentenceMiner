@@ -264,37 +264,23 @@ if __name__ == '__main__':
     lines = [
         # Sexual/Explicit Japanese words and phrases
         GameLine(index=0, text="ねぇ、あたしのおっぱい、揉んでみない？", id=None, time=None, prev=None, next=None),
-        # Hey, wanna try feeling my breasts?
         GameLine(index=1, text="お前、本当に痴女だな。股が開いてるぜ。", id=None, time=None, prev=None, next=None),
-        # You're really a pervert, your legs are open. (Vulgar insult)
         GameLine(index=2, text="今夜は熱い夜にしましょうね…ふふ。", id=None, time=None, prev=None, next=None),
-        # Let's make tonight a hot night... hehe. (Suggestive)
         GameLine(index=3, text="あぁ…もっと奥まで…ダメ…イッちゃう…！", id=None, time=None, prev=None, next=None),
-        # Ah... deeper... no... I'm coming...! (Explicit sexual context)
         GameLine(index=4, text="あんたみたいなクズ、生きてる価値ないわ。さっさと自害しろ。", id=None, time=None, prev=None,
-                 next=None),  # Trash like you has no right to live. Go kill yourself quickly. (Inciting self-harm)
+                 next=None),
         GameLine(index=5, text="このブス！誰がお前なんかを相手にするかよ。", id=None, time=None, prev=None, next=None),
-        # You ugly hag! Who would even bother with you? (Insult)
         GameLine(index=6, text="こんにちは、元気ですか？", id=None, time=None, prev=None, next=None),
-        # Normal line, for contrast
         GameLine(index=7, text="次会ったら、ぶっ殺してやるからな。", id=None, time=None, prev=None, next=None),
-        # Next time we meet, I'll kill you. (Violent threat)
         GameLine(index=8, text="今日はいい天気ですね。", id=None, time=None, prev=None, next=None),
-        # Normal line, for contrast
         GameLine(index=9, text="お前の体、隅々まで味わい尽くしてやる。", id=None, time=None, prev=None, next=None),
-        # I'll savor every inch of your body. (Predatory/sexual threat)
         GameLine(index=10, text="自害しろ", id=None, time=None, prev=None, next=None),
-        # Target line for `sentence` and `current_line`
         GameLine(index=11, text="この売女！金のために魂まで売るのか？！", id=None, time=None, prev=None, next=None),
-        # You whore! Will you sell your soul for money?! (Vulgar insult/slur)
         GameLine(index=12, text="俺の股間のモノで黙らせてやるよ。", id=None, time=None, prev=None, next=None),
-        # I'll shut you up with what's between my legs. (Explicit sexual threat/harassment)
         GameLine(index=13, text="くっ…イク…頭が…おかしくなりそう…！", id=None, time=None, prev=None, next=None),
-        # Ngh... I'm coming... my head... I'm going crazy...! (More explicit sexual context)
     ]
 
     sentence = "あぁ…もっと奥まで…ダメ…イッちゃう…"
-    # Adjust current_line index to point to the normal line amidst the bad context
     current_line = lines[3]
     game_title = "Corrupted Reality"
 
