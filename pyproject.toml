@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.10.16"
+version = "2.10.17"
 description = "A tool for mining sentences from games. Update: Full UI Re-design"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -42,13 +42,13 @@ dependencies = [
   "numpy",
   "pystray",
   "pywin32; sys_platform == 'win32'",
-  "google-generativeai",
   "pygetwindow; sys_platform == 'win32'",
   "flask",
   "groq",
   "obsws-python~=1.7.2",
   "matplotlib",
-  "sounddevice"
+  "sounddevice",
+  "google-genai"
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will

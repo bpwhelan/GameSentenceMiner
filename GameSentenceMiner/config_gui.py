@@ -1575,7 +1575,7 @@ class ConfigApp:
 
         HoverInfoLabelWidget(ai_frame, text="Gemini AI Model:", tooltip="Select the AI model to use.",
                              row=self.current_row, column=0)
-        self.gemini_model = ttk.Combobox(ai_frame, values=['gemini-2.5-flash', 'gemini-2.5-pro','gemini-2.0-flash', 'gemini-2.0-flash-lite',
+        self.gemini_model = ttk.Combobox(ai_frame, values=['gemini-2.5-flash','gemini-2.0-flash', 'gemini-2.0-flash-lite',
                                                            'gemini-2.5-flash-lite-preview-06-17'], state="readonly")
         try:
             self.gemini_model.set(self.settings.ai.gemini_model)
