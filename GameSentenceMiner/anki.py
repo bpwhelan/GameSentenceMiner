@@ -76,10 +76,14 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
 
     if note and 'fields' in note and get_config().ai.enabled:
         sentence_field = note['fields'].get(get_config().anki.sentence_field, {})
-        sentence_to_translate = sentence_field if sentence_field else last_note.get_field(
-            get_config().anki.sentence_field)
-        translation = get_ai_prompt_result(get_all_lines(), sentence_to_translate,
-                                 game_line, get_current_game())
+        if not selected_lines and game_line.TL:
+            logger.info("Using TL from texthooker for AI Prompt Result")
+            translation = game_line.TL
+        else:
+            sentence_to_translate = sentence_field if sentence_field else last_note.get_field(
+                get_config().anki.sentence_field)
+            translation = get_ai_prompt_result(get_all_lines(), sentence_to_translate,
+                                     game_line, get_current_game())
         logger.info(f"AI prompt Result: {translation}")
         note['fields'][get_config().ai.anki_field] = translation
 

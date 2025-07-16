@@ -14,7 +14,7 @@ import {
     setRequiresOpenWindow, setSendToClipboard,
     setShouldOCRScreenshots,
     setTwoPassOCR, setOptimizeSecondScan,
-    setWindowName, setUseWindowForConfig, setLastWindowSelected
+    setWindowName, setUseWindowForConfig, setLastWindowSelected, setKeepNewline
 } from "../store.js";
 import {isQuitting, mainWindow} from "../main.js";
 import {getCurrentScene, ObsScene} from "./obs.js";
@@ -241,6 +241,7 @@ export function registerOCRUtilsIPC() {
             if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
             if (ocr_config.optimize_second_scan) command.push("--optimize_second_scan");
             if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
+            if (ocr_config.keep_newline) command.push("--keep_newline");
 
             runOCR(command);
         }
@@ -263,6 +264,7 @@ export function registerOCRUtilsIPC() {
             if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
             if (ocr_config.manualOcrHotkey) command.push("--manual_ocr_hotkey", `${ocr_config.manualOcrHotkey}`);
             if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
+            if (ocr_config.keep_newline) command.push("--keep_newline");
             runOCR(command);
         }
     });
@@ -332,6 +334,7 @@ export function registerOCRUtilsIPC() {
         setOptimizeSecondScan(config.optimize_second_scan);
         setUseWindowForConfig(config.useWindowForConfig);
         setLastWindowSelected(config.lastWindowSelected);
+        setKeepNewline(config.keep_newline);
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     })
 

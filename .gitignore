@@ -104,3 +104,4 @@ test.py
 *.opus
 .vscode/settings.json
 GameSentenceMiner.wiki/
+/test

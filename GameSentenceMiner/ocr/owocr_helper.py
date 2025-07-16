@@ -195,10 +195,10 @@ all_cords = None
 rectangles = None
 last_ocr2_result = []
 
-def do_second_ocr(ocr1_text, time, img, filtering, ignore_furigana_filter=False):
+def do_second_ocr(ocr1_text, time, img, filtering, ignore_furigana_filter=False, ignore_previous_result=False):
     global twopassocr, ocr2, last_ocr2_result
     try:
-        orig_text, text = run.process_and_write_results(img, None, last_ocr2_result, filtering, None,
+        orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, filtering, None,
                                                         engine=ocr2, furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
 
         if compare_ocr_results(last_ocr2_result, orig_text):
@@ -344,7 +344,8 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
                 gsm_ocr_config=ocr_config,
                 screen_capture_areas=screen_areas,
                 furigana_filter_sensitivity=furigana_filter_sensitivity,
-                screen_capture_combo=manual_ocr_hotkey if manual_ocr_hotkey and manual else None)
+                screen_capture_combo=manual_ocr_hotkey if manual_ocr_hotkey and manual else None,
+                keep_line_breaks=keep_newline)
     except Exception as e:
         logger.exception(f"Error running OneOCR: {e}")
     done = True
@@ -359,14 +360,14 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
     def capture():
         print("Taking screenshot...")
         img = cropper.run()
-        do_second_ocr("", datetime.now(), img, filtering, ignore_furigana_filter=True)
+        do_second_ocr("", datetime.now(), img, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
     def capture_main_monitor():
         print("Taking screenshot of main monitor...")
         with mss.mss() as sct:
             main_monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
             img = sct.grab(main_monitor)
             img_bytes = mss.tools.to_png(img.rgb, img.size)
-            do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True)
+            do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
     hotkey_reg = None
     try:
         hotkey_reg = keyboard.add_hotkey(ss_hotkey, capture)
@@ -404,7 +405,7 @@ def set_force_stable_hotkey():
 
 if __name__ == "__main__":
     try:
-        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config
+        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline
         import sys
 
         import argparse
@@ -428,6 +429,7 @@ if __name__ == "__main__":
                             help="Optimize second scan by cropping based on first scan results")
         parser.add_argument("--use_window_for_config", action="store_true",
                             help="Use the specified window for loading OCR configuration")
+        parser.add_argument("--keep_newline", action="store_true", help="Keep new lines in OCR output")
 
         args = parser.parse_args()
 
@@ -446,6 +448,7 @@ if __name__ == "__main__":
         clipboard_output = args.clipboard_output
         optimize_second_scan = args.optimize_second_scan
         use_window_for_config = args.use_window_for_config
+        keep_newline = args.keep_newline
 
         window = None
         logger.info(f"Received arguments: {vars(args)}")

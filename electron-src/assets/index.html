@@ -281,8 +281,14 @@
                                 <span class="tooltiptext">OCR Sends text to Websocket by default, with this enabled, it will also copy to clipboard.</span>
                                 Send Text to Clipboard:
                             </label>
-
                             <input type="checkbox" id="send-to-clipboard">
+                        </div>
+                        <div class="input-group">
+                            <label for="keep-newline" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                <span class="tooltiptext">If enabled, OCR will keep newlines in the output text (for better readability).</span>
+                                Maintain Line Breaks in Output:
+                            </label>
+                            <input type="checkbox" id="keep-newline">
                         </div>
                     </div>
                 </div>
@@ -573,6 +579,8 @@
                 document.getElementById(id).addEventListener('change', saveOCRConfig);
             });
 
+            document.getElementById('keep-newline').addEventListener('change', saveOCRConfig);
+
             function refreshActiveOCRWindow() {
                 ipcRenderer.invoke('ocr.getActiveOCRConfig').then(config => {
                     if (!config) {
@@ -657,6 +665,7 @@
                     sendToClipboard: sendToClipboardCheckbox.checked,
                     useWindowForConfig: useWindowForConfigCheckbox.checked,
                     lastWindowSelected: windowSelect.value.trim(),
+                    keep_newline: document.getElementById('keep-newline').checked,
                 };
                 await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
             }
@@ -673,6 +682,7 @@
                     document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
                     document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
                     document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots;
+                    document.getElementById('keep-newline').checked = ocr_settings.keep_newline || false;
                     sendToClipboardCheckbox.checked = ocr_settings.sendToClipboard;
                     useWindowForConfigCheckbox.checked = ocr_settings.useWindowForConfig;
                     windowSelect.value = ocr_settings.lastWindowSelected;

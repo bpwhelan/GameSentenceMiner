@@ -16,13 +16,13 @@ import toml
 from dataclasses_json import dataclass_json
 
 OFF = 'OFF'
-VOSK = 'VOSK'
+# VOSK = 'VOSK'
 SILERO = 'SILERO'
 WHISPER = 'WHISPER'
-GROQ = 'GROQ'
+# GROQ = 'GROQ'
 
-VOSK_BASE = 'BASE'
-VOSK_SMALL = 'SMALL'
+# VOSK_BASE = 'BASE'
+# VOSK_SMALL = 'SMALL'
 
 WHISPER_TINY = 'tiny'
 WHISPER_BASE = 'base'
@@ -33,6 +33,7 @@ WHISPER_TURBO = 'turbo'
 
 AI_GEMINI = 'Gemini'
 AI_GROQ = 'Groq'
+AI_LOCAL = 'Local'
 
 INFO = 'INFO'
 DEBUG = 'DEBUG'
@@ -219,7 +220,7 @@ class VAD:
     whisper_model: str = WHISPER_BASE
     do_vad_postprocessing: bool = True
     language: str = 'ja'
-    vosk_url: str = VOSK_BASE
+    # vosk_url: str = VOSK_BASE
     selected_vad_model: str = WHISPER
     backup_vad_model: str = SILERO
     trim_beginning: bool = False
@@ -234,11 +235,11 @@ class VAD:
     def is_whisper(self):
         return self.selected_vad_model == WHISPER or self.backup_vad_model == WHISPER
 
-    def is_vosk(self):
-        return self.selected_vad_model == VOSK or self.backup_vad_model == VOSK
+    # def is_vosk(self):
+    #     return self.selected_vad_model == VOSK or self.backup_vad_model == VOSK
 
-    def is_groq(self):
-        return self.selected_vad_model == GROQ or self.backup_vad_model == GROQ
+    # def is_groq(self):
+    #     return self.selected_vad_model == GROQ or self.backup_vad_model == GROQ
 
 
 @dataclass_json
@@ -266,6 +267,7 @@ class Ai:
     anki_field: str = ''
     provider: str = AI_GEMINI
     gemini_model: str = 'gemini-2.5-flash'
+    local_model: str = OFF
     groq_model: str = 'meta-llama/llama-4-scout-17b-16e-instruct'
     api_key: str = '' # Deprecated
     gemini_api_key: str = ''

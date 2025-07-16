@@ -53,6 +53,7 @@ interface OCRConfig {
     sendToClipboard: boolean;
     useWindowForConfig: boolean;
     lastWindowSelected: string;
+    keep_newline: boolean;
 }
 
 export enum HookableGameType {
@@ -147,6 +148,7 @@ export const store = new Store<StoreConfig>({
             requiresOpenWindow: false,
             useWindowForConfig: false,
             lastWindowSelected: "",
+            keep_newline: false
         },
         customPythonPackage: "GameSentenceMiner"
     },
@@ -194,6 +196,13 @@ export function setCustomPythonPackage(packageName: string): void {
 }
 
 //OCR
+export function getKeepNewline(): boolean {
+    return store.get("OCR.keep_newline");
+}
+
+export function setKeepNewline(keep: boolean): void {
+    store.set("OCR.keep_newline", keep);
+}
 
 export function getOCRConfig(): OCRConfig {
     return store.get("OCR");

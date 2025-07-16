@@ -20,6 +20,7 @@ class GameLine:
     next: 'GameLine | None'
     index: int = 0
     scene: str = ""
+    TL: str = ""
 
     def get_previous_time(self):
         if self.prev:
@@ -30,6 +31,9 @@ class GameLine:
         if self.next:
             return self.next.time
         return 0
+
+    def set_TL(self, tl: str):
+        self.TL = tl
 
     def __str__(self):
         return str({"text": self.text, "time": self.time})

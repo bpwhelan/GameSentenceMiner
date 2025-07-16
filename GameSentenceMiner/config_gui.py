@@ -328,7 +328,7 @@ class ConfigApp:
             vad=VAD(
                 whisper_model=self.whisper_model.get(),
                 do_vad_postprocessing=self.do_vad_postprocessing.get(),
-                vosk_url='https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip' if self.vosk_url.get() == VOSK_BASE else "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip",
+                # vosk_url='https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip' if self.vosk_url.get() == VOSK_BASE else "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip",
                 selected_vad_model=self.selected_vad_model.get(),
                 backup_vad_model=self.backup_vad_model.get(),
                 trim_beginning=self.vad_trim_beginning.get(),
@@ -356,6 +356,7 @@ class ConfigApp:
                 gemini_api_key=self.gemini_api_key.get(),
                 api_key=self.gemini_api_key.get(),
                 groq_api_key=self.groq_api_key.get(),
+                local_model=self.local_ai_model.get(),
                 anki_field=self.ai_anki_field.get(),
                 use_canned_translation_prompt=self.use_canned_translation_prompt.get(),
                 use_canned_context_prompt=self.use_canned_context_prompt.get(),
@@ -413,13 +414,13 @@ class ConfigApp:
         for func in on_save:
             func()
 
-    def reload_settings(self):
+    def reload_settings(self, force_refresh=False):
         new_config = configuration.load_config()
         current_config = new_config.get_config()
 
         self.window.title("GameSentenceMiner Configuration - " + current_config.name)
 
-        if current_config.name != self.settings.name or self.settings.config_changed(current_config):
+        if current_config.name != self.settings.name or self.settings.config_changed(current_config) or force_refresh:
             logger.info("Config changed, reloading settings.")
             self.master_config = new_config
             self.settings = current_config
@@ -597,7 +598,7 @@ class ConfigApp:
         self.current_row += 1
 
         HoverInfoLabelWidget(vad_frame, text="Language:",
-                             tooltip="Select the language for VAD. This is used for Whisper and Groq (if i implemented it)",
+                             tooltip="Select the language for VAD. This is used for Whisper Only.",
                              row=self.current_row, column=0)
         self.language = ttk.Combobox(vad_frame, values=AVAILABLE_LANGUAGES, state="readonly")
         self.language.set(self.settings.vad.language)
@@ -614,7 +615,7 @@ class ConfigApp:
 
         HoverInfoLabelWidget(vad_frame, text="Select VAD Model:", tooltip="Select which VAD model to use.",
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.selected_vad_model = ttk.Combobox(vad_frame, values=[VOSK, SILERO, WHISPER, GROQ], state="readonly")
+        self.selected_vad_model = ttk.Combobox(vad_frame, values=[SILERO, WHISPER], state="readonly")
         self.selected_vad_model.set(self.settings.vad.selected_vad_model)
         self.selected_vad_model.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
@@ -622,7 +623,7 @@ class ConfigApp:
         HoverInfoLabelWidget(vad_frame, text="Backup VAD Model:",
                              tooltip="Select which model to use as a backup if no audio is found.",
                              row=self.current_row, column=0)
-        self.backup_vad_model = ttk.Combobox(vad_frame, values=[OFF, VOSK, SILERO, WHISPER, GROQ], state="readonly")
+        self.backup_vad_model = ttk.Combobox(vad_frame, values=[OFF, SILERO, WHISPER], state="readonly")
         self.backup_vad_model.set(self.settings.vad.backup_vad_model)
         self.backup_vad_model.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
@@ -1530,13 +1531,13 @@ class ConfigApp:
         self.polling_rate.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
-        HoverInfoLabelWidget(advanced_frame, text="Vosk URL:", tooltip="URL for connecting to the Vosk server.",
-                             row=self.current_row, column=0)
-        self.vosk_url = ttk.Combobox(advanced_frame, values=[VOSK_BASE, VOSK_SMALL], state="readonly")
-        self.vosk_url.set(
-            VOSK_BASE if self.settings.vad.vosk_url == 'https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip' else VOSK_SMALL)
-        self.vosk_url.grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        self.current_row += 1
+        # HoverInfoLabelWidget(advanced_frame, text="Vosk URL:", tooltip="URL for connecting to the Vosk server.",
+        #                      row=self.current_row, column=0)
+        # self.vosk_url = ttk.Combobox(advanced_frame, values=[VOSK_BASE, VOSK_SMALL], state="readonly")
+        # self.vosk_url.set(
+        #     VOSK_BASE if self.settings.vad.vosk_url == 'https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip' else VOSK_SMALL)
+        # self.vosk_url.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        # self.current_row += 1
 
         self.add_reset_button(advanced_frame, "advanced", self.current_row, 0, self.create_advanced_tab)
 
@@ -1568,15 +1569,14 @@ class ConfigApp:
 
         HoverInfoLabelWidget(ai_frame, text="Provider:", tooltip="Select the AI provider.", row=self.current_row,
                              column=0)
-        self.ai_provider = ttk.Combobox(ai_frame, values=['Gemini', 'Groq'], state="readonly")
+        self.ai_provider = ttk.Combobox(ai_frame, values=[AI_GEMINI, AI_GROQ, AI_LOCAL], state="readonly")
         self.ai_provider.set(self.settings.ai.provider)
         self.ai_provider.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         HoverInfoLabelWidget(ai_frame, text="Gemini AI Model:", tooltip="Select the AI model to use.",
                              row=self.current_row, column=0)
-        self.gemini_model = ttk.Combobox(ai_frame, values=['gemini-2.5-flash','gemini-2.0-flash', 'gemini-2.0-flash-lite',
-                                                           'gemini-2.5-flash-lite-preview-06-17'], state="readonly")
+        self.gemini_model = ttk.Combobox(ai_frame, values=['gemma-3n-e4b-it', 'gemini-2.5-flash-lite-preview-06-17', 'gemini-2.5-flash','gemini-2.0-flash', 'gemini-2.0-flash-lite'], state="readonly")
         try:
             self.gemini_model.set(self.settings.ai.gemini_model)
         except Exception:
@@ -1606,6 +1606,14 @@ class ConfigApp:
         self.groq_api_key = ttk.Entry(ai_frame, show="*")  # Mask the API key for security
         self.groq_api_key.insert(0, self.settings.ai.groq_api_key)
         self.groq_api_key.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
+        # red
+        HoverInfoLabelWidget(ai_frame, text="Local AI Model:", tooltip="Local AI Model to Use, Only very basic Translation is supported atm. May require some other setup, but idk."
+                             ,foreground="red", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
+        self.local_ai_model = ttk.Combobox(ai_frame, values=[OFF, 'facebook/nllb-200-distilled-600M', 'facebook/nllb-200-1.3B', 'facebook/nllb-200-3.3B'])
+        self.local_ai_model.set(self.settings.ai.local_model)
+        self.local_ai_model.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         HoverInfoLabelWidget(ai_frame, text="Anki Field:", tooltip="Field in Anki for AI-generated content.",
@@ -1661,7 +1669,7 @@ class ConfigApp:
 
     def on_profile_change(self, event):
         self.save_settings(profile_change=True)
-        self.reload_settings()
+        self.reload_settings(force_refresh=True)
         self.refresh_obs_scenes()
         if self.master_config.current_profile != DEFAULT_CONFIG:
             self.delete_profile_button.grid(row=1, column=2, pady=5)
