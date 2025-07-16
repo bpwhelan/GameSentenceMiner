@@ -161,7 +161,7 @@ class WhisperVADProcessor(VADProcessor):
     def load_whisper_model(self):
         import stable_whisper as whisper
         if not self.vad_model:
-            with warnings.catch_warnings(action="ignore"):
+            with warnings.catch_warnings():
                 self.vad_model = whisper.load_model(get_config().vad.whisper_model)
             logger.info(f"Whisper model '{get_config().vad.whisper_model}' loaded.")
         return self.vad_model
@@ -175,7 +175,7 @@ class WhisperVADProcessor(VADProcessor):
         logger.info('transcribing audio...')
 
         # Transcribe the audio using Whisper
-        with warnings.catch_warnings(action="ignore"):
+        with warnings.catch_warnings():
             result: WhisperResult = self.vad_model.transcribe(temp_wav, vad=True, language=get_config().vad.language,
                                                              temperature=0.0)
         voice_activity = []
