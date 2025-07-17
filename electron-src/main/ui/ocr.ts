@@ -121,34 +121,64 @@ function runOCR(command: string[]) {
     });
 }
 
+function runCommandAndLog(command: string[]) {
+    const [executable, ...args] = command;
+
+    if (!executable) {
+        console.error('Error: Command is empty. Cannot start process.');
+        return;
+    }
+
+    console.log(`Starting process with command: ${executable} ${args.join(' ')}`);
+    const process = spawn(executable, args);
+
+    process.stdout?.on('data', (data: Buffer) => {
+        const log = data.toString().trim();
+        console.log(`[STDOUT]: ${log}`);
+        mainWindow?.webContents.send('ocr-log', log);
+    });
+
+    process.stderr?.on('data', (data: Buffer) => {
+        const errorLog = data.toString().trim();
+        console.error(`[STDERR]: ${errorLog}`);
+        mainWindow?.webContents.send('ocr-log', errorLog);
+    });
+
+    process.on('close', (code: number) => {
+        console.log(`Process exited with code: ${code}`);
+        mainWindow?.webContents.send('ocr-log', `Process exited with code: ${code}`);
+    });
+
+    process.on('error', (err: Error) => {
+        console.error(`Failed to start process: ${err.message}`);
+        mainWindow?.webContents.send('ocr-log', `Failed to start process: ${err.message}`);
+    });
+}
+
 export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.install-recommended-deps', () => {
-        const owocrCommand = `${getPythonPath()} -m pip install --upgrade --no-warn-script-location owocr[oneocr] owocr[lens] & exit`;
-        // const googleLensCommand = `${getPythonPath()} -m pip install --upgrade owocr[lens] & exit`;
-        const oneocrFilesDownload = `${getPythonPath()} -m GameSentenceMiner.util.downloader.oneocr_dl & exit`;
-
-        spawn('cmd', ['/c', 'start', 'cmd', '/k', owocrCommand], {detached: false}); // Open in new cmd window
-        // mainWindow?.webContents.send('terminal-output', `Installing OneOCR dependencies in new terminal...`);
-        // spawn('cmd', ['/c', 'start', 'cmd', '/k', googleLensCommand], {detached: false}); // Open in new cmd window
-        mainWindow?.webContents.send('terminal-output', `Installing Google Lens dependencies in new terminal...`);
-        spawn('cmd', ['/c', 'start', 'cmd', '/k', oneocrFilesDownload], {detached: false}); // Open in new cmd window
+        const pythonPath = getPythonPath();
+        mainWindow?.webContents.send('ocr-log', `Installing recommended dependencies...`);
+        runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'owocr[oneocr]', 'owocr[lens]']);
+        mainWindow?.webContents.send('ocr-log', `Downloading OneOCR files...`);
+        runCommandAndLog([pythonPath, '-m', 'GameSentenceMiner.util.downloader.oneocr_dl']);
     })
 
     ipcMain.on('ocr.install-owocr-deps', () => {
-        const command = `${getPythonPath()} -m pip install --upgrade --no-warn-script-location owocr & exit`;
-        spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
-        mainWindow?.webContents.send('terminal-output', `Installing OWOCR dependencies in new terminal...`);
+        mainWindow?.webContents.send('ocr-log', `Installing OWOCR dependencies...`);
+        runCommandAndLog([getPythonPath(), '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'owocr']);
     });
 
     ipcMain.on('ocr.install-selected-dep', (_, dependency: string) => {
-        let command = ''
+        const pythonPath = getPythonPath();
+        let command: string[];
         if (dependency.includes("pip")) {
-            command = `${getPythonPath()} -m  ${dependency} --upgrade --no-warn-script-location & exit`;
+            command = [pythonPath, '-m', ...dependency.split(' '), '--upgrade', '--no-warn-script-location'];
         } else {
-            command = `${getPythonPath()} -m ${dependency} & exit`;
+            command = [pythonPath, '-m', dependency];
         }
-        spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
-        mainWindow?.webContents.send('terminal-output', `Installing ${dependency} dependencies in new terminal...`);
+        mainWindow?.webContents.send('ocr-log', `Installing ${dependency} dependencies...`);
+        runCommandAndLog(command);
     });
 
     ipcMain.on('ocr.uninstall-selected-dep', async (_, dependency: string) => {
@@ -161,11 +191,11 @@ export function registerOCRUtilsIPC() {
         });
 
         if (response.response === 0) { // 'Yes' button
-            const command = `${getPythonPath()} -m pip uninstall -y ${dependency}`;
-            spawn('cmd', ['/c', 'start', 'cmd', '/k', command], {detached: false}); // Open in new cmd window
-            mainWindow?.webContents.send('terminal-output', `Uninstalling ${dependency} dependencies in new terminal...`);
+            const command = [getPythonPath(), '-m', 'pip', 'uninstall', '-y', dependency];
+            mainWindow?.webContents.send('ocr-log', `Uninstalling ${dependency} dependencies...`);
+            runCommandAndLog(command);
         } else {
-            mainWindow?.webContents.send('terminal-output', `Uninstall canceled for ${dependency}.`);
+            mainWindow?.webContents.send('ocr-log', `Uninstall canceled for ${dependency}.`);
         }
     });
 

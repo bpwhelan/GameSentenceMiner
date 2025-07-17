@@ -431,6 +431,8 @@
 
             ipcRenderer.on('ocr-log', (event, data) => {
                 const trimmedData = data.trim();
+                if (trimmedData.includes("Process exited with code:"))
+                    closeOCRConsole();
                 if (trimmedData.endsWith('OneOCR:') || trimmedData.endsWith('Google Lens:') && !paused) {
                     if (!isScanning) {
                         isScanning = true;
@@ -463,20 +465,28 @@
             });
 
             ipcRenderer.on('ocr-started', () => {
+                openOCRConsole();
+            });
+
+            ipcRenderer.on('ocr-stopped', () => {
+                closeOCRConsole();
+            });
+
+            function openOCRConsole() {
                 document.getElementById('ocr-settings-card').style.display = 'none';
                 document.getElementById('ocr-log-card').style.display = 'block';
                 document.getElementById('start-ocr-controls').style.display = 'none';
                 document.getElementById('stop-ocr-controls').style.display = 'flex';
                 setInterval(() => ocrFitAddon.fit(), 500);
-            });
+            }
 
-            ipcRenderer.on('ocr-stopped', () => {
+            function closeOCRConsole() {
                 stopScanningAnimation();
                 document.getElementById('ocr-settings-card').style.display = 'block';
                 document.getElementById('ocr-log-card').style.display = 'none';
                 document.getElementById('start-ocr-controls').style.display = 'flex';
                 document.getElementById('stop-ocr-controls').style.display = 'none';
-            });
+            }
 
             const installRecommendedBtn = document.getElementById('install-recommended-btn');
             const openOcrPageBtn = document.getElementById('open-ocr-page-btn');
@@ -513,6 +523,7 @@
             });
 
             installRecommendedBtn.addEventListener('click', () => {
+                openOCRConsole();
                 ipcRenderer.send('ocr.install-recommended-deps');
             });
 
@@ -529,6 +540,7 @@
             document.getElementById('refreshWindowsBtn').addEventListener('click', getWindows);
             document.getElementById('install-selected-dep').addEventListener('click', () => {
                 const selectedDep = document.getElementById('dependency-select').value;
+                openOCRConsole();
                 ipcRenderer.send('ocr.install-selected-dep', selectedDep);
             });
             document.getElementById('uninstall-selected-dep').addEventListener('click', () => {
