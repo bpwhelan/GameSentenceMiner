@@ -18,7 +18,7 @@ import {
 } from "../store.js";
 import {isQuitting, mainWindow} from "../main.js";
 import {getCurrentScene, ObsScene} from "./obs.js";
-import {BASE_DIR, getAssetsDir, getPlatform, sanitizeFilename} from "../util.js";
+import {BASE_DIR, getAssetsDir, getPlatform, isWindows, sanitizeFilename} from "../util.js";
 import path, {resolve} from "path";
 import * as fs from "node:fs";
 import {windowManager, Window} from 'node-window-manager'; // Import the library
@@ -26,6 +26,9 @@ import {windowManager, Window} from 'node-window-manager'; // Import the library
 let ocrProcess: any = null;
 
 async function runScreenSelector(windowTitle: string) {
+    if (windowTitle === "") {
+        windowTitle = "OBS";
+    }
     const ocr_config = getOCRConfig();
     await new Promise((resolve, reject) => {
         let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector', windowTitle];
@@ -36,6 +39,9 @@ async function runScreenSelector(windowTitle: string) {
         if (ocr_config.useObsAsSource) {
             args.push('--obs_ocr');
         }
+
+        console.log(`Running screen selector with args: ${args.join(' ')}`);
+
         const process = spawn(getPythonPath(), args, {
             detached: false,
             stdio: 'ignore'
@@ -121,7 +127,7 @@ function runOCR(command: string[]) {
     });
 }
 
-function runCommandAndLog(command: string[]) {
+function runCommandAndLog(command: string[], closeConsoleOnFinish = true) {
     const [executable, ...args] = command;
 
     if (!executable) {
@@ -147,6 +153,9 @@ function runCommandAndLog(command: string[]) {
     process.on('close', (code: number) => {
         console.log(`Process exited with code: ${code}`);
         mainWindow?.webContents.send('ocr-log', `Process exited with code: ${code}`);
+        if (closeConsoleOnFinish) {
+            mainWindow?.webContents.send('ocr-log', 'COMMAND_FINISHED');
+        }
     });
 
     process.on('error', (err: Error) => {
@@ -158,10 +167,15 @@ function runCommandAndLog(command: string[]) {
 export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.install-recommended-deps', () => {
         const pythonPath = getPythonPath();
-        mainWindow?.webContents.send('ocr-log', `Installing recommended dependencies...`);
-        runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'owocr[oneocr]', 'owocr[lens]']);
         mainWindow?.webContents.send('ocr-log', `Downloading OneOCR files...`);
-        runCommandAndLog([pythonPath, '-m', 'GameSentenceMiner.util.downloader.oneocr_dl']);
+        runCommandAndLog([pythonPath, '-m', 'install', '--upgrade', '--no-warn-script-location', 'owocr'], false);
+        if (isWindows()) {
+            runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'oneocr'], false);
+            runCommandAndLog([pythonPath, '-m', 'GameSentenceMiner.util.downloader.oneocr_dl'], false);
+        }
+
+        mainWindow?.webContents.send('ocr-log', `Installing recommended dependencies...`);
+        runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'betterproto==2.0.0b7'], true);
     })
 
     ipcMain.on('ocr.install-owocr-deps', () => {
@@ -200,16 +214,16 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.run-screen-selector', async (_, window_title: string) => {
-        if (window_title === "") {
-            const response = await dialog.showMessageBox(mainWindow!, {
-                type: 'warning',
-                buttons: ['OK'],
-                defaultId: 0,
-                title: 'No Window Selected',
-                message: 'Please select a window to run the area selector on.'
-            });
-            return;
-        }
+        // if (window_title === "") {
+        //     const response = await dialog.showMessageBox(mainWindow!, {
+        //         type: 'warning',
+        //         buttons: ['OK'],
+        //         defaultId: 0,
+        //         title: 'No Window Selected',
+        //         message: 'Please select a window to run the area selector on.'
+        //     });
+        //     return;
+        // }
         await runScreenSelector(window_title);
     });
 
@@ -244,6 +258,7 @@ export function registerOCRUtilsIPC() {
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
             const config = await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig)
+            console.log(config);
             if (!config) {
                 const response = await dialog.showMessageBox(mainWindow!, {
                     type: 'question',
@@ -308,6 +323,7 @@ export function registerOCRUtilsIPC() {
         if (ocrProcess) {
             mainWindow?.webContents.send('ocr-log', 'Stopping OCR process...');
             ocrProcess.kill('SIGTERM');
+            ocrProcess.kill('SIGKILL'); // Ensure it is killed on all platforms
         }
     });
 

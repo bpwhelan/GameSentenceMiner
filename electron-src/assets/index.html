@@ -429,10 +429,14 @@
                 // }
             }
 
+            previous_message = "";
+
             ipcRenderer.on('ocr-log', (event, data) => {
                 const trimmedData = data.trim();
-                if (trimmedData.includes("Process exited with code:"))
+                if (trimmedData.includes("COMMAND_FINISHED")) {
                     closeOCRConsole();
+                    return;
+                }
                 if (trimmedData.endsWith('OneOCR:') || trimmedData.endsWith('Google Lens:') && !paused) {
                     if (!isScanning) {
                         isScanning = true;
@@ -452,6 +456,10 @@
                     //         }
                     //     }, 500);
                     // }
+                } else if (trimmedData.includes("Seems like Text we already sent")) {
+                    // Add a "Duplicate" flag at the end of the previous line"
+                    ocrTerm.write('\r\x1b[2K'); // Clear the line
+                    ocrTerm.write(`\x1b[33m${previous_message} (Duplicate)\x1b[0m\n`);
                 } else if (trimmedData) {
                     stopScanningAnimation();
                     if (data.includes('OneOCR:')) {
@@ -461,6 +469,7 @@
                     } else {
                         ocrTerm.writeln(data);
                     }
+                    previous_message = trimmedData;
                 }
             });
 
@@ -569,6 +578,7 @@
             });
             document.getElementById('stop-ocr').addEventListener('click', () => {
                 ipcRenderer.send('ocr.kill-ocr');
+                closeOCRConsole();
             });
             document.getElementById('pause-ocr').addEventListener('click', () => {
                 if (document.getElementById('pause-ocr').innerText === 'Resume OCR') {

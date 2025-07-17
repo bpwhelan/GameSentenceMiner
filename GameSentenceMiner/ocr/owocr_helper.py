@@ -22,7 +22,7 @@ from GameSentenceMiner.ocr.ss_picker import ScreenCropper
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory
 from GameSentenceMiner.util.electron_config import get_ocr_scan_rate, get_requires_open_window
-from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness, get_window
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness, get_window, get_ocr_config_path
 from GameSentenceMiner.owocr.owocr import screen_coordinate_picker, run
 from GameSentenceMiner.util.gsm_utils import sanitize_filename, do_text_replacements, OCR_REPLACEMENTS_FILE
 
@@ -49,15 +49,13 @@ logger.addHandler(console_handler)
 
 def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
     """Loads and updates screen capture areas from the corresponding JSON file."""
-    app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
-    ocr_config_dir = app_dir / "ocr_config"
-    os.makedirs(ocr_config_dir, exist_ok=True)
+    ocr_config_dir = get_ocr_config_path()
     obs.connect_to_obs_sync(retry=0)
     if use_window_for_config and window:
         scene = sanitize_filename(window)
     else:
         scene = sanitize_filename(obs.get_current_scene())
-    config_path = ocr_config_dir / f"{scene}.json"
+    config_path = Path(ocr_config_dir) / f"{scene}.json"
     if not config_path.exists():
         ocr_config = OCRConfig(scene=scene, window=window, rectangles=[], coordinate_system="percentage")
         with open(config_path, 'w', encoding="utf-8") as f:

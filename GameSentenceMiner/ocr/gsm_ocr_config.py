@@ -1,11 +1,15 @@
+import os
 from copy import deepcopy
 from dataclasses import dataclass
 from math import floor, ceil
+from pathlib import Path
 
+from GameSentenceMiner import obs
 from dataclasses_json import dataclass_json
 from typing import List, Optional, Union
 
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.configuration import logger, get_app_directory
+from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 
 @dataclass_json
@@ -125,3 +129,20 @@ def set_dpi_awareness():
     import ctypes
     per_monitor_awareness = 2
     ctypes.windll.shcore.SetProcessDpiAwareness(per_monitor_awareness)
+
+def get_scene_ocr_config(use_window_as_config=False, window=""):
+    ocr_config_dir = get_ocr_config_path()
+    try:
+        if use_window_as_config:
+            scene = sanitize_filename(window)
+        else:
+            scene = sanitize_filename(obs.get_current_scene() or "Default")
+    except Exception as e:
+        print(f"Error getting OBS scene: {e}. Using default config name.")
+        scene = "Default"
+    return os.path.join(ocr_config_dir, f"{scene}.json")
+
+def get_ocr_config_path():
+    ocr_config_dir = os.path.join(get_app_directory(), "ocr_config")
+    os.makedirs(ocr_config_dir, exist_ok=True)
+    return ocr_config_dir
