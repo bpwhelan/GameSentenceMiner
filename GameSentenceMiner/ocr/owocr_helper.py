@@ -200,7 +200,8 @@ def do_second_ocr(ocr1_text, time, img, filtering, ignore_furigana_filter=False,
                                                         engine=ocr2, furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
 
         if compare_ocr_results(last_ocr2_result, orig_text):
-            logger.info("Detected similar text from previous OCR2 result, not sending")
+            if text:
+                logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img)
         last_ocr2_result = orig_text
@@ -255,7 +256,8 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
 
     if manual or not twopassocr:
         if compare_ocr_results(previous_orig_text, orig_text_string):
-            logger.info("Seems like Text we already sent, not doing anything.")
+            if text:
+                logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img)
         asyncio.run(send_result(text, line_start_time))
@@ -273,7 +275,8 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
             stable_time = text_stable_start_time
             previous_img_local = previous_img
             if compare_ocr_results(previous_orig_text, orig_text_string):
-                logger.info("Seems like Text we already sent, not doing anything.")
+                if text:
+                    logger.info("Seems like Text we already sent, not doing anything.")
                 previous_text = None
                 return
             previous_orig_text = orig_text_string

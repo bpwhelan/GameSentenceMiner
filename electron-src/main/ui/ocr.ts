@@ -74,8 +74,9 @@ function runOCR(command: string[]) {
     // 1. If an OCR process is already running, terminate it gracefully.
     if (ocrProcess) {
         console.log('An OCR process is already running. Terminating the old one...');
-        ocrProcess.kill('SIGTERM'); // 'SIGTERM' is a graceful shutdown signal
-        ocrProcess = null;
+        // Sending SIGTERM. The 'close' handler of the old process will eventually fire.
+        // The new logic in the 'close' handler prevents it from interfering with a new process.
+        ocrProcess.kill();
     }
 
     // 2. Separate the executable from its arguments.
@@ -89,41 +90,43 @@ function runOCR(command: string[]) {
     console.log(`Starting OCR process with command: ${executable} ${args.join(' ')}`);
     mainWindow?.webContents.send('ocr-started');
 
-    // 3. Spawn the new process directly.
-    // { shell: true } can be helpful on Windows to resolve .exe, .cmd, .bat files
-    // without specifying the full extension, and to find commands in the system PATH.
-    // For maximum security and performance, use { shell: false } and provide a full
-    // path to the executable if it's not in the PATH.
-    ocrProcess = spawn(executable, args);
+    // 3. Spawn the new process and store it in a local variable.
+    const newOcrProcess = spawn(executable, args);
+    ocrProcess = newOcrProcess; // Assign to the global variable.
 
     // 4. Capture and log standard output from the process.
-    ocrProcess.stdout?.on('data', (data: Buffer) => {
+    newOcrProcess.stdout?.on('data', (data: Buffer) => {
         const log = data.toString().trim();
         console.log(`[OCR STDOUT]: ${log}`);
         mainWindow?.webContents.send('ocr-log', log);
     });
 
     // 5. Capture and log standard error from the process.
-    ocrProcess.stderr?.on('data', (data: Buffer) => {
+    newOcrProcess.stderr?.on('data', (data: Buffer) => {
         const errorLog = data.toString().trim();
         console.error(`[OCR STDERR]: ${errorLog}`);
         mainWindow?.webContents.send('ocr-log', errorLog);
     });
 
     // 6. Handle the process exiting.
-    // The 'close' event is often better than 'exit' as it waits for stdio streams to close.
-    ocrProcess.on('close', (code: number) => {
+    newOcrProcess.on('close', (code: number) => {
         console.log(`OCR process exited with code: ${code}`);
         mainWindow?.webContents.send('ocr-stopped');
-        // Clear the reference so we know the process has stopped.
-        ocrProcess = null;
+        // Clear the global reference only if it's this specific process instance.
+        // This prevents a race condition where an old process's close event
+        // nullifies the reference to a newer, active process.
+        if (ocrProcess === newOcrProcess) {
+            ocrProcess = null;
+        }
     });
 
     // 7. Handle errors during process spawning (e.g., command not found).
-    ocrProcess.on('error', (err: Error) => {
+    newOcrProcess.on('error', (err: Error) => {
         console.error(`Failed to start OCR process: ${err.message}`);
         mainWindow?.webContents.send('ocr-stopped');
-        ocrProcess = null;
+        if (ocrProcess === newOcrProcess) {
+            ocrProcess = null;
+        }
     });
 }
 
@@ -322,8 +325,7 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.kill-ocr', () => {
         if (ocrProcess) {
             mainWindow?.webContents.send('ocr-log', 'Stopping OCR process...');
-            ocrProcess.kill('SIGTERM');
-            ocrProcess.kill('SIGKILL'); // Ensure it is killed on all platforms
+            ocrProcess.kill(); // Sends SIGTERM by default, which is a graceful shutdown.
         }
     });
 
@@ -336,15 +338,11 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.on('ocr.restart-ocr', () => {
         if (ocrProcess) {
-            exec(`taskkill /F /PID ${ocrProcess.pid}`, (error, stdout, stderr) => {
-                if (error) {
-                    mainWindow?.webContents.send('terminal-error', `Error killing OCR process: ${stderr}`);
-                }
-                mainWindow?.webContents.send('terminal-output', `Restarting OCR Process...`);
-            });
-            ocrProcess = null;
+            mainWindow?.webContents.send('terminal-output', `Restarting OCR Process...`);
+            ocrProcess.kill(); // Terminate the existing process
+            ocrProcess = null; // Clear the reference
         }
-        ipcMain.emit('ocr.start-ocr');
+        ipcMain.emit('ocr.start-ocr'); // Start a new OCR process
     });
 
     ipcMain.on('ocr.save-two-pass', (_, twoPass: boolean) => {
