@@ -1,4 +1,3 @@
-import ctypes
 from copy import deepcopy
 from dataclasses import dataclass
 from math import floor, ceil
@@ -50,8 +49,10 @@ class OCRConfig:
     window: Optional[str] = None
     language: str = "ja"
 
-    def scale_coords(self):
+    def __post_init__(self):
         self.pre_scale_rectangles = deepcopy(self.rectangles)
+
+    def scale_coords(self):
         if self.coordinate_system and self.coordinate_system == "percentage" and self.window:
             import pygetwindow as gw
             try:
@@ -116,7 +117,11 @@ def get_window(title):
             return window
     return ret
 
-# try w10+, fall back to w8.1+
+# if windows, set dpi awareness to per-monitor v2
 def set_dpi_awareness():
+    import sys
+    if sys.platform != "win32":
+        return
+    import ctypes
     per_monitor_awareness = 2
     ctypes.windll.shcore.SetProcessDpiAwareness(per_monitor_awareness)

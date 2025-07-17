@@ -1,4 +1,7 @@
+import argparse
+import base64
 import ctypes
+import io
 import json
 import sys
 from multiprocessing import Process, Manager
@@ -34,15 +37,16 @@ COORD_SYSTEM_PERCENTAGE = "percentage"
 
 
 class ScreenSelector:
-    def __init__(self, result, window_name, use_window_as_config):
-        if not selector_available or not gw:
-            raise RuntimeError("tkinter or pygetwindow is not available.")
+    def __init__(self, result, window_name, use_window_as_config, use_obs_screenshot=False):
+        if not selector_available:
+            raise RuntimeError("tkinter is not available.")
         if not window_name:
-            raise ValueError("A target window name is required for percentage-based coordinates.")
+            raise ValueError("A target window name is required for configuration.")
 
         obs.connect_to_obs_sync()
         self.window_name = window_name
-        print(f"Targeting window: '{window_name}'")
+        self.use_obs_screenshot = use_obs_screenshot
+        self.screenshot_img = None
 
         self.sct = mss.mss()
         self.monitors = self.sct.monitors[1:]
@@ -51,13 +55,34 @@ class ScreenSelector:
         for i, monitor in enumerate(self.monitors):
             monitor['index'] = i
 
-        # --- Window Awareness is now critical ---
-        self.target_window = self._find_target_window()
-        self.target_window_geometry = self._get_window_geometry(self.target_window)
-        if not self.target_window_geometry:
-            raise RuntimeError(f"Could not find or get geometry for window '{self.window_name}'.")
-        print(f"Found target window at: {self.target_window_geometry}")
-        # ---
+        if self.use_obs_screenshot:
+            print("Using OBS screenshot as target.")
+            screenshot_base64 = obs.get_screenshot_base64(compression=75)
+            print(screenshot_base64)
+            if not screenshot_base64:
+                raise RuntimeError("Failed to get OBS screenshot.")
+            try:
+                img_data = base64.b64decode(screenshot_base64)
+                self.screenshot_img = Image.open(io.BytesIO(img_data))
+            except Exception as e:
+                raise RuntimeError(f"Failed to decode or open OBS screenshot: {e}")
+
+            self.target_window = None
+            self.target_window_geometry = {
+                "left": 0, "top": 0,
+                "width": self.screenshot_img.width,
+                "height": self.screenshot_img.height
+            }
+            print(f"OBS Screenshot dimensions: {self.target_window_geometry}")
+        else:
+            if not gw:
+                raise RuntimeError("pygetwindow is not available for window selection.")
+            print(f"Targeting window: '{window_name}'")
+            self.target_window = self._find_target_window()
+            self.target_window_geometry = self._get_window_geometry(self.target_window)
+            if not self.target_window_geometry:
+                raise RuntimeError(f"Could not find or get geometry for window '{self.window_name}'.")
+            print(f"Found target window at: {self.target_window_geometry}")
 
         self.root = None
         self.scene = ''
@@ -276,18 +301,30 @@ class ScreenSelector:
         self.root = tk.Tk()
         self.root.withdraw()
 
-        # Calculate bounding box of all monitors
-        left = min(m['left'] for m in self.monitors)
-        top = min(m['top'] for m in self.monitors)
-        right = max(m['left'] + m['width'] for m in self.monitors)
-        bottom = max(m['top'] + m['height'] for m in self.monitors)
-        self.bounding_box = {'left': left, 'top': top, 'width': right - left, 'height': bottom - top}
+        if self.use_obs_screenshot:
+            # Use the pre-loaded OBS screenshot
+            img = self.screenshot_img
+            self.bounding_box = self.target_window_geometry
+            # Center the window on the primary monitor
+            primary_monitor = self.sct.monitors[1] if len(self.sct.monitors) > 1 else self.sct.monitors[0]
+            win_x = primary_monitor['left'] + (primary_monitor['width'] - img.width) // 2
+            win_y = primary_monitor['top'] + (primary_monitor['height'] - img.height) // 2
+            window_geometry = f"{img.width}x{img.height}+{int(win_x)}+{int(win_y)}"
+        else:
+            # Calculate bounding box of all monitors for the overlay
+            left = min(m['left'] for m in self.monitors)
+            top = min(m['top'] for m in self.monitors)
+            right = max(m['left'] + m['width'] for m in self.monitors)
+            bottom = max(m['top'] + m['height'] for m in self.monitors)
+            self.bounding_box = {'left': left, 'top': top, 'width': right - left, 'height': bottom - top}
 
-        sct_img = self.sct.grab(self.sct.monitors[0])
-        img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+            # Capture the entire desktop area covered by all monitors
+            sct_img = self.sct.grab(self.bounding_box)
+            img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+            window_geometry = f"{self.bounding_box['width']}x{self.bounding_box['height']}+{left}+{top}"
 
         window = tk.Toplevel(self.root)
-        window.geometry(f"{self.bounding_box['width']}x{self.bounding_box['height']}+{left}+{top}")
+        window.geometry(window_geometry)
         window.overrideredirect(1)
         window.attributes('-topmost', 1)
 
@@ -402,9 +439,9 @@ class ScreenSelector:
         self.root = None
 
 
-def run_screen_selector(result_dict, window_name, use_window_as_config):
+def run_screen_selector(result_dict, window_name, use_window_as_config, use_obs_screenshot):
     try:
-        selector = ScreenSelector(result_dict, window_name, use_window_as_config)
+        selector = ScreenSelector(result_dict, window_name, use_window_as_config, use_obs_screenshot)
         selector.start()
     except Exception as e:
         print(f"Error in selector process: {e}", file=sys.stderr)
@@ -413,7 +450,7 @@ def run_screen_selector(result_dict, window_name, use_window_as_config):
         result_dict['error'] = str(e)
 
 
-def get_screen_selection(window_name, use_window_as_config=False):
+def get_screen_selection(window_name, use_window_as_config=False, use_obs_screenshot=False):
     if not selector_available or not gw: return None
     if not window_name:
         print("Error: A target window name must be provided.", file=sys.stderr)
@@ -421,7 +458,7 @@ def get_screen_selection(window_name, use_window_as_config=False):
 
     with Manager() as manager:
         result_data = manager.dict()
-        process = Process(target=run_screen_selector, args=(result_data, window_name, use_window_as_config))
+        process = Process(target=run_screen_selector, args=(result_data, window_name, use_window_as_config, use_obs_screenshot))
         print(f"Starting ScreenSelector process...")
         process.start()
         process.join()
@@ -439,18 +476,22 @@ def get_screen_selection(window_name, use_window_as_config=False):
 
 if __name__ == "__main__":
     set_dpi_awareness()
-    target_window_title = "YouTube - JP"
-    use_window_as_config = False
-    if len(sys.argv) > 1:
-        target_window_title = sys.argv[1]
-    if len(sys.argv) > 2:
-        use_window_as_config = True
-        target_window_title = sys.argv[1]
 
-    selection_result = get_screen_selection(target_window_title, use_window_as_config)
+    parser = argparse.ArgumentParser(description="Screen Selector Arguments")
+    parser.add_argument("window_title", nargs="?", default="YouTube - JP", help="Target window title")
+    parser.add_argument("--obs_ocr", action="store_true", help="Use OBS screenshot")
+    parser.add_argument("--use_window_for_config", action="store_true", help="Use window for config")
+    args = parser.parse_args()
+
+    target_window_title = args.window_title
+    use_obs_screenshot = args.obs_ocr
+    use_window_as_config = args.use_window_for_config
+
+    # Example of how to call it
+    selection_result = get_screen_selection(target_window_title, use_window_as_config, use_obs_screenshot)
 
     if selection_result is None:
-        print("\n--- Screen selection failed. ---")
+        print("--- Screen selection failed. ---")
     elif not selection_result:
         print("\n--- Screen selection cancelled. ---")
     elif 'rectangles' in selection_result:

@@ -236,6 +236,13 @@
                             </label>
                             <input type="checkbox" id="optimize-second-scan" checked>
                         </div>
+                        <div class="input-group">
+                            <label for="use-obs-as-source" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                <span class="tooltiptext">If enabled, will use the OBS as the source for OCR instead of the selected window. This is different from targeting the OBS Preview. Also probably less performant. LINUX COMPAT TOO</span>
+                                Use OBS Game Capture as Image Source:
+                            </label>
+                            <input type="checkbox" id="use-obs-as-source">
+                        </div>
                     </div>
                     <div class="form-group">
                         <div class="input-group">
@@ -575,7 +582,7 @@
             });
             document.getElementById('refreshScenesBtn').addEventListener('click', refreshScenesAndWindows);
 
-            ['two-pass-ocr', 'windowSelect', 'ocr1-input', 'ocr2-input', 'ocr-scan-rate', 'require-open-window', 'languageSelect', 'ocr-screenshots'].forEach(id => {
+            ['two-pass-ocr', 'windowSelect', 'ocr1-input', 'ocr2-input', 'ocr-scan-rate', 'require-open-window', 'languageSelect', 'ocr-screenshots', 'use-obs-as-source'].forEach(id => {
                 document.getElementById(id).addEventListener('change', saveOCRConfig);
             });
 
@@ -666,6 +673,7 @@
                     useWindowForConfig: useWindowForConfigCheckbox.checked,
                     lastWindowSelected: windowSelect.value.trim(),
                     keep_newline: document.getElementById('keep-newline').checked,
+                    useObsAsSource: document.getElementById('use-obs-as-source').checked,
                 };
                 await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
             }
@@ -685,6 +693,7 @@
                     document.getElementById('keep-newline').checked = ocr_settings.keep_newline || false;
                     sendToClipboardCheckbox.checked = ocr_settings.sendToClipboard;
                     useWindowForConfigCheckbox.checked = ocr_settings.useWindowForConfig;
+                    document.getElementById('use-obs-as-source').checked = ocr_settings.useObsAsSource || false;
                     windowSelect.value = ocr_settings.lastWindowSelected;
 
                     const sensitivity = ocr_settings.furigana_filter_sensitivity || 0;

@@ -292,6 +292,10 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
         previous_text = None
         return
 
+    # Make sure it's an actual new line before starting the timer
+    if compare_ocr_results(orig_text_string, previous_orig_text):
+        return
+
     if not text_stable_start_time:
         text_stable_start_time = line_start_time
     previous_text = text
@@ -327,8 +331,14 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
 
     run.init_config(False)
     try:
-        run.run(read_from="screencapture" if window else "",
-                read_from_secondary="clipboard" if ss_clipboard else None,
+        read_from = ""
+        if obs_ocr:
+            read_from = "obs"
+        elif window:
+            read_from = "screencapture"
+        read_from_secondary = "clipboard" if ss_clipboard else None
+        run.run(read_from=read_from,
+                read_from_secondary=read_from_secondary,
                 write_to="callback",
                 screen_capture_area=screen_area,
                 # screen_capture_monitor=monitor_config['index'],
@@ -405,7 +415,7 @@ def set_force_stable_hotkey():
 
 if __name__ == "__main__":
     try:
-        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline
+        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline, obs_ocr
         import sys
 
         import argparse
@@ -430,6 +440,7 @@ if __name__ == "__main__":
         parser.add_argument("--use_window_for_config", action="store_true",
                             help="Use the specified window for loading OCR configuration")
         parser.add_argument("--keep_newline", action="store_true", help="Keep new lines in OCR output")
+        parser.add_argument('--obs_ocr', action='store_true', help='Use OBS for Picture Source (not implemented)')
 
         args = parser.parse_args()
 
@@ -449,12 +460,13 @@ if __name__ == "__main__":
         optimize_second_scan = args.optimize_second_scan
         use_window_for_config = args.use_window_for_config
         keep_newline = args.keep_newline
+        obs_ocr = args.obs_ocr
 
         window = None
         logger.info(f"Received arguments: {vars(args)}")
         # set_force_stable_hotkey()
         ocr_config: OCRConfig = get_ocr_config(window=window_name, use_window_for_config=use_window_for_config)
-        if ocr_config:
+        if ocr_config and not obs_ocr:
             if ocr_config.window:
                 start_time = time.time()
                 while time.time() - start_time < 30:

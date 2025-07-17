@@ -14,7 +14,7 @@ import {
     setRequiresOpenWindow, setSendToClipboard,
     setShouldOCRScreenshots,
     setTwoPassOCR, setOptimizeSecondScan,
-    setWindowName, setUseWindowForConfig, setLastWindowSelected, setKeepNewline
+    setWindowName, setUseWindowForConfig, setLastWindowSelected, setKeepNewline, setUseObsAsSource
 } from "../store.js";
 import {isQuitting, mainWindow} from "../main.js";
 import {getCurrentScene, ObsScene} from "./obs.js";
@@ -32,6 +32,9 @@ async function runScreenSelector(windowTitle: string) {
 
         if (ocr_config.useWindowForConfig) {
             args.push('--use_window_for_config');
+        }
+        if (ocr_config.useObsAsSource) {
+            args.push('--obs_ocr');
         }
         const process = spawn(getPythonPath(), args, {
             detached: false,
@@ -242,6 +245,7 @@ export function registerOCRUtilsIPC() {
             if (ocr_config.optimize_second_scan) command.push("--optimize_second_scan");
             if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
             if (ocr_config.keep_newline) command.push("--keep_newline");
+            if (ocr_config.useObsAsSource) command.push('--obs_ocr')
 
             runOCR(command);
         }
@@ -265,6 +269,7 @@ export function registerOCRUtilsIPC() {
             if (ocr_config.manualOcrHotkey) command.push("--manual_ocr_hotkey", `${ocr_config.manualOcrHotkey}`);
             if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
             if (ocr_config.keep_newline) command.push("--keep_newline");
+            if (ocr_config.useObsAsSource) command.push("--obs_ocr");
             runOCR(command);
         }
     });
@@ -335,6 +340,7 @@ export function registerOCRUtilsIPC() {
         setUseWindowForConfig(config.useWindowForConfig);
         setLastWindowSelected(config.lastWindowSelected);
         setKeepNewline(config.keep_newline);
+        setUseObsAsSource(config.useObsAsSource);
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     })
 
