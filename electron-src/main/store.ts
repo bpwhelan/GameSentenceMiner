@@ -94,6 +94,7 @@ interface StoreConfig {
     autoUpdateElectron: boolean;
     autoUpdateGSMApp: boolean;
     customPythonPackage: string;
+    windowTransparencyToolHotkey: string;
     pythonPath: string;
     VN: VNConfig;
     steam: SteamConfig;
@@ -152,7 +153,8 @@ export const store = new Store<StoreConfig>({
             keep_newline: false,
             useObsAsSource: false
         },
-        customPythonPackage: "GameSentenceMiner"
+        customPythonPackage: "GameSentenceMiner",
+        windowTransparencyToolHotkey: 'Ctrl+Alt+Y'
     },
     cwd: "electron"
 });
@@ -195,6 +197,14 @@ export function getCustomPythonPackage(): string {
 
 export function setCustomPythonPackage(packageName: string): void {
     store.set("customPythonPackage", packageName);
+}
+
+export function getWindowTransparencyToolHotkey(): string {
+    return store.get("windowTransparencyToolHotkey");
+}
+
+export function setWindowTransparencyToolHotkey(hotkey: string): void {
+    store.set("windowTransparencyToolHotkey", hotkey);
 }
 
 //OCR

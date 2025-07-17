@@ -53,18 +53,10 @@ class VADSystem:
         match model:
             case configuration.OFF:
                 return VADResult(False, 0, 0, "OFF")
-            # case configuration.GROQ:
-            #     if not self.groq:
-            #         self.groq = GroqVADProcessor()
-            #     return self.groq.process_audio(input_audio, output_audio, game_line)
             case configuration.SILERO:
                 if not self.silero:
                     self.silero = SileroVADProcessor()
                 return self.silero.process_audio(input_audio, output_audio, game_line)
-            # case configuration.VOSK:
-            #     if not self.vosk:
-            #         self.vosk = VoskVADProcessor()
-            #     return self.vosk.process_audio(input_audio, output_audio, game_line)
             case configuration.WHISPER:
                 if not self.whisper:
                     self.whisper = WhisperVADProcessor()
@@ -121,8 +113,6 @@ class VADProcessor(ABC):
             logger.info("No voice activity detected in the audio.")
             return VADResult(False, 0, 0, self.vad_system_name)
 
-        print(voice_activity)
-
         start_time = voice_activity[0]['start'] if voice_activity else 0
         end_time = voice_activity[-1]['end'] if voice_activity else 0
 
@@ -131,6 +121,17 @@ class VADProcessor(ABC):
             audio_length = get_audio_length(input_audio)
             if 0 > audio_length - voice_activity[-1]['start'] + get_config().audio.beginning_offset:
                 end_time = voice_activity[-2]['end']
+
+        # if detected text is much shorter than game_line.text, if no text, guess based on length
+        if 'text' in voice_activity[0]:
+            dectected_text = ''.join([item['text'] for item in voice_activity])
+            if game_line and game_line.text and len(dectected_text) < len(game_line.text) / 2:
+                logger.info(f"Detected text '{dectected_text}' is much shorter than expected '{game_line.text}', skipping.")
+                return VADResult(False, 0, 0, self.vad_system_name)
+        else:
+            if game_line and game_line.text and (end_time - start_time) < max(0.5, len(game_line.text) * 0.05):
+                logger.info(f"Detected audio length {end_time - start_time} is much shorter than expected for text '{game_line.text}', skipping.")
+                return VADResult(False, 0, 0, self.vad_system_name)
 
         if get_config().vad.cut_and_splice_segments:
             self.extract_audio_and_combine_segments(input_audio, voice_activity, output_audio, padding=get_config().vad.splice_padding)
@@ -186,13 +187,14 @@ class WhisperVADProcessor(VADProcessor):
 
         # Process the segments to extract tokens, timestamps, and confidence
         for i, segment in enumerate(result.segments):
-            if len(segment.text) == 1 and (i > 1 and segment.start - result.segments[i - 1].end > 1.0) or (i < len(result.segments) - 1 and result.segments[i + 1].start - segment.end > 1.0):
+            if len(segment.text) <= 2 and ((i > 1 and segment.start - result.segments[i - 1].end > 1.0) or (i < len(result.segments) - 1 and result.segments[i + 1].start - segment.end > 1.0)):
                 if segment.text in ['えー', 'ん']:
                         logger.debug(f"Skipping filler segment: {segment.text} at {segment.start}-{segment.end}")
                         continue
                 else:
                     logger.info(
                         "Unknown single character segment, not skipping, but logging, please report if this is a mistake: " + segment.text)
+
 
             logger.debug(segment.to_dict())
             voice_activity.append({

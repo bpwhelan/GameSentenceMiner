@@ -1,11 +1,18 @@
 // settings.ts
-import { ipcMain, dialog } from 'electron';
+import {ipcMain, dialog} from 'electron';
+import {spawn} from 'child_process';
 import {
     getAutoUpdateElectron,
-    getAutoUpdateGSMApp, getCustomPythonPackage, getShowYuzuTab, getStartConsoleMinimized,
+    getAutoUpdateGSMApp,
+    getCustomPythonPackage, getPythonPath,
+    getShowYuzuTab,
+    getStartConsoleMinimized,
+    getWindowTransparencyToolHotkey,
     setAutoUpdateElectron,
-    setAutoUpdateGSMApp, setCustomPythonPackage, setShowYuzuTab,
-    setStartConsoleMinimized,
+    setAutoUpdateGSMApp,
+    setCustomPythonPackage,
+    setShowYuzuTab,
+    setStartConsoleMinimized, setWindowTransparencyToolHotkey,
     store
 } from "../store.js";
 import {webSocketManager} from "../communication/websocket.js";
@@ -30,7 +37,8 @@ export function registerSettingsIPC() {
         setStartConsoleMinimized(settings.startConsoleMinimized);
         setCustomPythonPackage(settings.customPythonPackage);
         setShowYuzuTab(settings.showYuzuTab);
-        return { success: true };
+        setWindowTransparencyToolHotkey(settings.windowTransparencyToolHotkey);
+        return {success: true};
     });
 
     ipcMain.handle('settings.setAutoUpdateGSMApp', async (_, value: boolean) => {
@@ -57,12 +65,25 @@ export function registerSettingsIPC() {
         if (response.response === 0) { // Yes
             try {
                 await reinstallPython();
-                return { success: true, message: 'Python reinstalled successfully.' };
+                return {success: true, message: 'Python reinstalled successfully.'};
             } catch (error) {
                 console.error('Failed to reinstall Python:', error);
-                return { success: false, message: 'Failed to reinstall Python.' };
+                return {success: false, message: 'Failed to reinstall Python.'};
             }
         }
+    });
+
+    let proc: any = null;
+
+    ipcMain.handle('settings.runWindowTransparencyTool', async () => {
+        const hotkey = getWindowTransparencyToolHotkey();
+        proc = spawn(getPythonPath(), ['-m', 'GameSentenceMiner.util.window_transparency', '--hotkey', hotkey]);
+        proc.stdout.on('data', (data: any) => {
+            console.log(`Window Transparency Tool: ${data}`);
+        });
+        proc.stderr.on('data', (data: any) => {
+            console.error(`Window Transparency Tool Error: ${data}`);
+        });
     });
 
     // ipcMain.handle('settings.selectPythonPath', async () => {
