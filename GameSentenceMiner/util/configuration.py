@@ -275,6 +275,7 @@ class Ai:
     use_canned_translation_prompt: bool = True
     use_canned_context_prompt: bool = False
     custom_prompt: str = ''
+    dialogue_context_length: int = 10
 
     def __post_init__(self):
         if not self.gemini_api_key:

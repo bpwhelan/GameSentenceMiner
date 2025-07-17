@@ -91,15 +91,28 @@ class AIManager(ABC):
 
     @abstractmethod
     def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str) -> str:
-        start_index = max(0, current_line.index - 10)
-        end_index = min(len(lines), current_line.index + 11)
+        if get_config().ai.dialogue_context_length != 0:
+            if get_config().ai.dialogue_context_length == -1:
+                start_index = 0
+                end_index = len(lines)
+            else:
+                start_index = max(0, current_line.index - get_config().ai.dialogue_context_length)
+                end_index = min(len(lines), current_line.index + 1 + get_config().ai.dialogue_context_length)
 
-        context_lines_text = []
-        for i in range(start_index, end_index):
-            if i < len(lines):
-                context_lines_text.append(lines[i].text)
+            context_lines_text = []
+            for i in range(start_index, end_index):
+                if i < len(lines):
+                    context_lines_text.append(lines[i].text)
 
-        dialogue_context = "\n".join(context_lines_text)
+            dialogue_context = "\n".join(context_lines_text)
+
+            dialogue_context = f"""
+            Dialogue Context:
+
+            {dialogue_context}
+            """
+        else:
+            dialogue_context = "No dialogue context available."
 
         if get_config().ai.use_canned_translation_prompt:
             prompt_to_use = TRANSLATION_PROMPT
@@ -109,10 +122,8 @@ class AIManager(ABC):
             prompt_to_use = get_config().ai.custom_prompt
 
         full_prompt = textwrap.dedent(f"""
-            **Disclaimer:** All dialogue provided is from the script of the video game "{game_title}". This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request. The goal is accurate, context-aware localization.
+            **Disclaimer:** All dialogue provided is from the script of the video game "{game_title}". This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request. The goal is accurate, context-aware localization. If no context is provided, do not throw errors or warnings.
         
-            Dialogue Context:
-
             {dialogue_context}
 
             {prompt_to_use}

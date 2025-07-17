@@ -360,7 +360,8 @@ class ConfigApp:
                 anki_field=self.ai_anki_field.get(),
                 use_canned_translation_prompt=self.use_canned_translation_prompt.get(),
                 use_canned_context_prompt=self.use_canned_context_prompt.get(),
-                custom_prompt=self.custom_prompt.get("1.0", tk.END)
+                custom_prompt=self.custom_prompt.get("1.0", tk.END),
+                dialogue_context_length=int(self.ai_dialogue_context_length.get()),
             )
         )
 
@@ -1621,6 +1622,13 @@ class ConfigApp:
         self.ai_anki_field = ttk.Entry(ai_frame)
         self.ai_anki_field.insert(0, self.settings.ai.anki_field)
         self.ai_anki_field.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
+        HoverInfoLabelWidget(ai_frame, text="Dialogue Context Length:", tooltip="Number of previous/next lines to include as context for AI. 0 to disable. -1 for as many as possible (Use With Caution)",
+                             foreground="red", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
+        self.ai_dialogue_context_length = ttk.Entry(ai_frame)
+        self.ai_dialogue_context_length.insert(0, str(self.settings.ai.dialogue_context_length))
+        self.ai_dialogue_context_length.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         HoverInfoLabelWidget(ai_frame, text="Use Canned Translation Prompt:",
