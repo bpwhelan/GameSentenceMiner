@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.11.0"
+version = "2.11.1"
 description = "A tool for mining sentences from games. Update: Full UI Re-design"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,7 +26,6 @@ dependencies = [
   "watchdog~=5.0.2",
   "DateTime~=5.5",
   "pyperclip~=1.9.0",
-  "vosk~=0.3.45",
   "soundfile~=0.12.1",
   "toml~=0.10.2",
   "psutil~=6.0.0",
