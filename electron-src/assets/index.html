@@ -236,6 +236,13 @@
                             </label>
                             <input type="checkbox" id="optimize-second-scan" checked>
                         </div>
+                        <div class="input-group">
+                            <label for="use-obs-as-source" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                <span class="tooltiptext">If enabled, will use the OBS as the source for OCR instead of the selected window. This is different from targeting the OBS Preview. Also probably less performant. LINUX COMPAT TOO</span>
+                                Use OBS Game Capture as Image Source:
+                            </label>
+                            <input type="checkbox" id="use-obs-as-source">
+                        </div>
                     </div>
                     <div class="form-group">
                         <div class="input-group">
@@ -422,8 +429,14 @@
                 // }
             }
 
+            previous_message = "";
+
             ipcRenderer.on('ocr-log', (event, data) => {
                 const trimmedData = data.trim();
+                if (trimmedData.includes("COMMAND_FINISHED")) {
+                    closeOCRConsole();
+                    return;
+                }
                 if (trimmedData.endsWith('OneOCR:') || trimmedData.endsWith('Google Lens:') && !paused) {
                     if (!isScanning) {
                         isScanning = true;
@@ -443,6 +456,10 @@
                     //         }
                     //     }, 500);
                     // }
+                } else if (trimmedData.includes("Seems like Text we already sent")) {
+                    // Add a "Duplicate" flag at the end of the previous line"
+                    ocrTerm.write('\r\x1b[2K'); // Clear the line
+                    ocrTerm.write(`\x1b[33m${previous_message} (Duplicate)\x1b[0m\n`);
                 } else if (trimmedData) {
                     stopScanningAnimation();
                     if (data.includes('OneOCR:')) {
@@ -452,24 +469,33 @@
                     } else {
                         ocrTerm.writeln(data);
                     }
+                    previous_message = trimmedData;
                 }
             });
 
             ipcRenderer.on('ocr-started', () => {
+                openOCRConsole();
+            });
+
+            ipcRenderer.on('ocr-stopped', () => {
+                // closeOCRConsole();
+            });
+
+            function openOCRConsole() {
                 document.getElementById('ocr-settings-card').style.display = 'none';
                 document.getElementById('ocr-log-card').style.display = 'block';
                 document.getElementById('start-ocr-controls').style.display = 'none';
                 document.getElementById('stop-ocr-controls').style.display = 'flex';
                 setInterval(() => ocrFitAddon.fit(), 500);
-            });
+            }
 
-            ipcRenderer.on('ocr-stopped', () => {
+            function closeOCRConsole() {
                 stopScanningAnimation();
                 document.getElementById('ocr-settings-card').style.display = 'block';
                 document.getElementById('ocr-log-card').style.display = 'none';
                 document.getElementById('start-ocr-controls').style.display = 'flex';
                 document.getElementById('stop-ocr-controls').style.display = 'none';
-            });
+            }
 
             const installRecommendedBtn = document.getElementById('install-recommended-btn');
             const openOcrPageBtn = document.getElementById('open-ocr-page-btn');
@@ -506,6 +532,7 @@
             });
 
             installRecommendedBtn.addEventListener('click', () => {
+                openOCRConsole();
                 ipcRenderer.send('ocr.install-recommended-deps');
             });
 
@@ -522,6 +549,7 @@
             document.getElementById('refreshWindowsBtn').addEventListener('click', getWindows);
             document.getElementById('install-selected-dep').addEventListener('click', () => {
                 const selectedDep = document.getElementById('dependency-select').value;
+                openOCRConsole();
                 ipcRenderer.send('ocr.install-selected-dep', selectedDep);
             });
             document.getElementById('uninstall-selected-dep').addEventListener('click', () => {
@@ -550,6 +578,7 @@
             });
             document.getElementById('stop-ocr').addEventListener('click', () => {
                 ipcRenderer.send('ocr.kill-ocr');
+                closeOCRConsole();
             });
             document.getElementById('pause-ocr').addEventListener('click', () => {
                 if (document.getElementById('pause-ocr').innerText === 'Resume OCR') {
@@ -575,7 +604,7 @@
             });
             document.getElementById('refreshScenesBtn').addEventListener('click', refreshScenesAndWindows);
 
-            ['two-pass-ocr', 'windowSelect', 'ocr1-input', 'ocr2-input', 'ocr-scan-rate', 'require-open-window', 'languageSelect', 'ocr-screenshots'].forEach(id => {
+            ['two-pass-ocr', 'windowSelect', 'ocr1-input', 'ocr2-input', 'ocr-scan-rate', 'require-open-window', 'languageSelect', 'ocr-screenshots', 'use-obs-as-source'].forEach(id => {
                 document.getElementById(id).addEventListener('change', saveOCRConfig);
             });
 
@@ -666,6 +695,7 @@
                     useWindowForConfig: useWindowForConfigCheckbox.checked,
                     lastWindowSelected: windowSelect.value.trim(),
                     keep_newline: document.getElementById('keep-newline').checked,
+                    useObsAsSource: document.getElementById('use-obs-as-source').checked,
                 };
                 await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
             }
@@ -685,6 +715,7 @@
                     document.getElementById('keep-newline').checked = ocr_settings.keep_newline || false;
                     sendToClipboardCheckbox.checked = ocr_settings.sendToClipboard;
                     useWindowForConfigCheckbox.checked = ocr_settings.useWindowForConfig;
+                    document.getElementById('use-obs-as-source').checked = ocr_settings.useObsAsSource || false;
                     windowSelect.value = ocr_settings.lastWindowSelected;
 
                     const sensitivity = ocr_settings.furigana_filter_sensitivity || 0;

@@ -54,6 +54,7 @@ interface OCRConfig {
     useWindowForConfig: boolean;
     lastWindowSelected: string;
     keep_newline: boolean;
+    useObsAsSource: boolean;
 }
 
 export enum HookableGameType {
@@ -148,7 +149,8 @@ export const store = new Store<StoreConfig>({
             requiresOpenWindow: false,
             useWindowForConfig: false,
             lastWindowSelected: "",
-            keep_newline: false
+            keep_newline: false,
+            useObsAsSource: false
         },
         customPythonPackage: "GameSentenceMiner"
     },
@@ -310,6 +312,14 @@ export function setAreaSelectOcrHotkey(hotkey: string): void {
 
 export function setOptimizeSecondScan(optimize: boolean): void {
     store.set("OCR.optimize_second_scan", optimize);
+}
+
+export function setUseObsAsSource(useObs: boolean): void {
+    store.set("OCR.useObsAsSource", useObs);
+}
+
+export function getUseObsAsSource(): boolean {
+    return store.get("OCR.useObsAsSource");
 }
 
 // Use Window for Config

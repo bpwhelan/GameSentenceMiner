@@ -34,6 +34,14 @@ export const getPlatform = (): SupportedPlatform => {
     }
 };
 
+export function isWindows(): boolean {
+    return getPlatform() === 'win32';
+}
+
+export function isLinux(): boolean {
+    return getPlatform() === 'linux';
+}
+
 /**
  * Get the base directory for assets.
  * Handles both development and production (ASAR) environments.

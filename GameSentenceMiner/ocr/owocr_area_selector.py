@@ -1,22 +1,18 @@
+import argparse
+import base64
 import ctypes
+import io
 import json
 import sys
 from multiprocessing import Process, Manager
 from pathlib import Path
 
-import mss
 from PIL import Image, ImageTk
 
 # Assuming a mock or real obs module exists in this path
 from GameSentenceMiner import obs
-from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window
+from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
-
-try:
-    import pygetwindow as gw
-except ImportError:
-    print("Error: pygetwindow library not found. Please install it: pip install pygetwindow")
-    gw = None
 
 try:
     import tkinter as tk
@@ -34,30 +30,59 @@ COORD_SYSTEM_PERCENTAGE = "percentage"
 
 
 class ScreenSelector:
-    def __init__(self, result, window_name, use_window_as_config):
-        if not selector_available or not gw:
-            raise RuntimeError("tkinter or pygetwindow is not available.")
+    def __init__(self, result, window_name, use_window_as_config, use_obs_screenshot=False):
+        if not selector_available:
+            raise RuntimeError("tkinter is not available.")
         if not window_name:
-            raise ValueError("A target window name is required for percentage-based coordinates.")
+            raise ValueError("A target window name is required for configuration.")
 
         obs.connect_to_obs_sync()
         self.window_name = window_name
-        print(f"Targeting window: '{window_name}'")
+        self.use_obs_screenshot = use_obs_screenshot
+        self.screenshot_img = None
+        try:
+            import mss
+            self.sct = mss.mss()
+            self.monitors = self.sct.monitors[1:]
+            if not self.monitors:
+                raise RuntimeError("No monitors found by mss.")
+            for i, monitor in enumerate(self.monitors):
+                monitor['index'] = i
+        except ImportError:
+            print("Error: mss library not found. Please install it: pip install mss")
+            raise RuntimeError("mss is required for screen selection.")
 
-        self.sct = mss.mss()
-        self.monitors = self.sct.monitors[1:]
-        if not self.monitors:
-            raise RuntimeError("No monitors found by mss.")
-        for i, monitor in enumerate(self.monitors):
-            monitor['index'] = i
+        if self.use_obs_screenshot:
+            print("Using OBS screenshot as target.")
+            screenshot_base64 = obs.get_screenshot_base64(compression=75)
+            # print(screenshot_base64)
+            if not screenshot_base64:
+                raise RuntimeError("Failed to get OBS screenshot.")
+            try:
+                img_data = base64.b64decode(screenshot_base64)
+                self.screenshot_img = Image.open(io.BytesIO(img_data))
+                # Scale image to 1280x720
+                self.screenshot_img = self.screenshot_img.resize((1280, 720), Image.LANCZOS)
+            except Exception as e:
+                raise RuntimeError(f"Failed to decode or open OBS screenshot: {e}")
 
-        # --- Window Awareness is now critical ---
-        self.target_window = self._find_target_window()
-        self.target_window_geometry = self._get_window_geometry(self.target_window)
-        if not self.target_window_geometry:
-            raise RuntimeError(f"Could not find or get geometry for window '{self.window_name}'.")
-        print(f"Found target window at: {self.target_window_geometry}")
-        # ---
+            self.target_window = None
+            self.target_window_geometry = {
+                "left": 0, "top": 0,
+                "width": self.screenshot_img.width,
+                "height": self.screenshot_img.height
+            }
+            print(f"OBS Screenshot dimensions: {self.target_window_geometry}")
+        else:
+            import pygetwindow as gw
+            if not gw:
+                raise RuntimeError("pygetwindow is not available for window selection.")
+            print(f"Targeting window: '{window_name}'")
+            self.target_window = self._find_target_window()
+            self.target_window_geometry = self._get_window_geometry(self.target_window)
+            if not self.target_window_geometry:
+                raise RuntimeError(f"Could not find or get geometry for window '{self.window_name}'.")
+            print(f"Found target window at: {self.target_window_geometry}")
 
         self.root = None
         self.scene = ''
@@ -70,6 +95,11 @@ class ScreenSelector:
         self.image_mode = True
         self.redo_stack = []
         self.bounding_box = {}  # Geometry of the single large canvas window
+
+        self.canvas = None
+        self.window = None
+        self.instructions_widget = None
+        self.instructions_window_id = None
 
         self.load_existing_rectangles()
 
@@ -91,23 +121,9 @@ class ScreenSelector:
                 return None
         return None
 
-    def get_scene_ocr_config(self):
-        app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
-        ocr_config_dir = app_dir / "ocr_config"
-        ocr_config_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            if self.use_window_as_config:
-                self.scene = sanitize_filename(self.window_name)
-            else:
-                self.scene = sanitize_filename(obs.get_current_scene() or "")
-        except Exception as e:
-            print(f"Error getting OBS scene: {e}. Using default config name.")
-            self.scene = ""
-        return ocr_config_dir / f"{self.scene}.json"
-
     def load_existing_rectangles(self):
         """Loads rectangles from config, converting from percentage to absolute pixels for use."""
-        config_path = self.get_scene_ocr_config()
+        config_path = get_scene_ocr_config(self.use_window_as_config, self.window_name)
         win_geom = self.target_window_geometry  # Use current geometry for conversion
         win_w, win_h, win_l, win_t = win_geom['width'], win_geom['height'], win_geom['left'], win_geom['top']
 
@@ -152,7 +168,7 @@ class ScreenSelector:
 
     def save_rects(self, event=None):
         """Saves rectangles to config, converting from absolute pixels to percentages."""
-        config_path = self.get_scene_ocr_config()
+        config_path = get_scene_ocr_config(self.use_window_as_config, self.window_name)
         win_geom = self.target_window_geometry
         win_l, win_t, win_w, win_h = win_geom['left'], win_geom['top'], win_geom['width'], win_geom['height']
         print(f"Saving rectangles to: {config_path} relative to window: {win_geom}")
@@ -200,6 +216,12 @@ class ScreenSelector:
             event.widget.winfo_toplevel().winfo_children()[0].delete(last_rect_id)
             print("Undo: Removed last rectangle.")
 
+    def toggle_image_mode(self, e=None):
+        self.image_mode = not self.image_mode
+        # Only change alpha of the main window, not the text widget
+        self.window.attributes("-alpha", 1.0 if self.image_mode else 0.25)
+        print("Toggled background visibility.")
+
     def redo_last_rect(self, event=None):
         if not self.redo_stack: return
         monitor, abs_coords, is_excluded, old_rect_id = self.redo_stack.pop()
@@ -213,8 +235,63 @@ class ScreenSelector:
         print("Redo: Restored rectangle.")
 
     # --- NEW METHOD TO DISPLAY INSTRUCTIONS ---
-    def _create_instructions_widget(self, canvas):
-        """Creates a text box with usage instructions on the canvas."""
+    def _create_instructions_widget(self, parent_canvas):
+        """Creates a separate, persistent window for instructions and control buttons."""
+        if self.instructions_widget and self.instructions_widget.winfo_exists():
+            self.instructions_widget.lift()
+            return
+
+        self.instructions_widget = tk.Toplevel(parent_canvas)
+        self.instructions_widget.title("Controls")
+
+        # --- Position it near the main window ---
+        parent_window = parent_canvas.winfo_toplevel()
+        # Make the instructions window transient to the main window to keep it on top
+        # self.instructions_widget.transient(parent_window)
+        self.instructions_widget.attributes('-topmost', 1)
+        # parent_window.update_idletasks()  # Ensure dimensions are up-to-date
+        pos_x = parent_window.winfo_x() + 50
+        pos_y = parent_window.winfo_y() + 50
+        self.instructions_widget.geometry(f"+{pos_x}+{pos_y}")
+        
+        main_frame = tk.Frame(self.instructions_widget, padx=10, pady=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        instructions_text = (
+            "How to Use:\n"
+            "• Left Click + Drag: Create a capture area (green).\n"
+            "• Shift + Left Click + Drag: Create an exclusion area (orange).\n"
+            "• Right-Click on a box: Delete it."
+        )
+        tk.Label(main_frame, text=instructions_text, justify=tk.LEFT, anchor="w").pack(pady=(0, 10), fill=tk.X)
+
+        button_frame = tk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=5)
+
+        def canvas_event_wrapper(func):
+            class MockEvent:
+                def __init__(self, widget):
+                    self.widget = widget
+            return lambda: func(MockEvent(self.canvas))
+
+        def root_event_wrapper(func):
+            return lambda: func(None)
+
+        tk.Button(button_frame, text="Save and Quit (Ctrl+S)", command=root_event_wrapper(self.save_rects)).pack(fill=tk.X, pady=2)
+        tk.Button(button_frame, text="Undo (Ctrl+Z)", command=canvas_event_wrapper(self.undo_last_rect)).pack(fill=tk.X, pady=2)
+        tk.Button(button_frame, text="Redo (Ctrl+Y)", command=canvas_event_wrapper(self.redo_last_rect)).pack(fill=tk.X, pady=2)
+        tk.Button(button_frame, text="Toggle Background (M)", command=root_event_wrapper(self.toggle_image_mode)).pack(fill=tk.X, pady=2)
+        tk.Button(button_frame, text="Quit without Saving (Esc)", command=root_event_wrapper(self.quit_app)).pack(fill=tk.X, pady=2)
+
+        hotkeys_text = "\n• I: Toggle this instruction panel"
+        tk.Label(main_frame, text=hotkeys_text, justify=tk.LEFT, anchor="w").pack(pady=(10, 0), fill=tk.X)
+
+        self.instructions_widget.protocol("WM_DELETE_WINDOW", self.toggle_instructions)
+
+
+    # --- NEW METHOD TO DISPLAY INSTRUCTIONS ---
+    def print_instructions_box(self, canvas):
+        """Creates a separate, persistent window for instructions and control buttons."""
         instructions_text = (
             "How to Use:\n"
             "  • Left Click + Drag: Create a capture area (green).\n"
@@ -260,44 +337,51 @@ class ScreenSelector:
         canvas.tag_lower(rect_id, text_id)
 
     def toggle_instructions(self, event=None):
-        canvas = event.widget.winfo_toplevel().winfo_children()[0]
-        # Find all text and rectangle items (assuming only one of each for instructions)
-        text_items = [item for item in canvas.find_all() if canvas.type(item) == 'text']
-        rect_items = [item for item in canvas.find_all() if canvas.type(item) == 'rectangle']
-
-        if text_items and rect_items:
-            current_state = canvas.itemcget(text_items[0], 'state')
-            new_state = tk.NORMAL if current_state == tk.HIDDEN else tk.HIDDEN
-            for item in text_items + rect_items:
-                canvas.itemconfigure(item, state=new_state)
-            print("Toggled instructions visibility.")
+        if self.instructions_widget and self.instructions_widget.winfo_exists() and self.instructions_widget.state() == "normal":
+            self.instructions_widget.withdraw()
+            print("Toggled instructions visibility: OFF")
+        else:
+            self._create_instructions_widget(self.canvas)
+            print("Toggled instructions visibility: ON")
 
     def start(self):
         self.root = tk.Tk()
         self.root.withdraw()
 
-        # Calculate bounding box of all monitors
-        left = min(m['left'] for m in self.monitors)
-        top = min(m['top'] for m in self.monitors)
-        right = max(m['left'] + m['width'] for m in self.monitors)
-        bottom = max(m['top'] + m['height'] for m in self.monitors)
-        self.bounding_box = {'left': left, 'top': top, 'width': right - left, 'height': bottom - top}
+        if self.use_obs_screenshot:
+            # Use the pre-loaded OBS screenshot
+            img = self.screenshot_img
+            self.bounding_box = self.target_window_geometry
+            # Center the window on the primary monitor
+            primary_monitor = self.sct.monitors[1] if len(self.sct.monitors) > 1 else self.sct.monitors[0]
+            win_x = primary_monitor['left'] + (primary_monitor['width'] - img.width) // 2
+            win_y = primary_monitor['top'] + (primary_monitor['height'] - img.height) // 2
+            window_geometry = f"{img.width}x{img.height}+{int(win_x)}+{int(win_y)}"
+        else:
+            # Calculate bounding box of all monitors for the overlay
+            left = min(m['left'] for m in self.monitors)
+            top = min(m['top'] for m in self.monitors)
+            right = max(m['left'] + m['width'] for m in self.monitors)
+            bottom = max(m['top'] + m['height'] for m in self.monitors)
+            self.bounding_box = {'left': left, 'top': top, 'width': right - left, 'height': bottom - top}
 
-        sct_img = self.sct.grab(self.sct.monitors[0])
-        img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+            # Capture the entire desktop area covered by all monitors
+            sct_img = self.sct.grab(self.bounding_box)
+            img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+            window_geometry = f"{self.bounding_box['width']}x{self.bounding_box['height']}+{left}+{top}"
 
-        window = tk.Toplevel(self.root)
-        window.geometry(f"{self.bounding_box['width']}x{self.bounding_box['height']}+{left}+{top}")
-        window.overrideredirect(1)
-        window.attributes('-topmost', 1)
+        self.window = tk.Toplevel(self.root)
+        self.window.geometry(window_geometry)
+        self.window.overrideredirect(1)
+        self.window.attributes('-topmost', 1)
 
         self.photo_image = ImageTk.PhotoImage(img)
-        canvas = tk.Canvas(window, cursor='cross', highlightthickness=0)
-        canvas.pack(fill=tk.BOTH, expand=True)
-        canvas.create_image(0, 0, image=self.photo_image, anchor=tk.NW)
+        self.canvas = tk.Canvas(self.window, cursor='cross', highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.canvas.create_image(0, 0, image=self.photo_image, anchor=tk.NW)
 
         # --- MODIFIED: CALL THE INSTRUCTION WIDGET CREATOR ---
-        self._create_instructions_widget(canvas)
+        # self._create_instructions_widget(self.canvas)
         # --- END MODIFICATION ---
 
         # Draw existing rectangles (which were converted to absolute pixels on load)
@@ -305,29 +389,29 @@ class ScreenSelector:
             x_abs, y_abs, w_abs, h_abs = abs_coords
             canvas_x = x_abs - self.bounding_box['left']
             canvas_y = y_abs - self.bounding_box['top']
-            rect_id = canvas.create_rectangle(canvas_x, canvas_y, canvas_x + w_abs, canvas_y + h_abs,
+            rect_id = self.canvas.create_rectangle(canvas_x, canvas_y, canvas_x + w_abs, canvas_y + h_abs,
                                               outline='orange' if is_excluded else 'green', width=2)
             self.drawn_rect_ids.append(rect_id)
 
         def on_click(event):
             self.start_x, self.start_y = event.x, event.y
             outline = 'purple' if bool(event.state & 0x0001) else 'red'
-            self.current_rect_id = canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y,
+            self.current_rect_id = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y,
                                                            outline=outline, width=2)
 
         def on_drag(event):
-            if self.current_rect_id: canvas.coords(self.current_rect_id, self.start_x, self.start_y, event.x, event.y)
+            if self.current_rect_id: self.canvas.coords(self.current_rect_id, self.start_x, self.start_y, event.x, event.y)
 
         def on_release(event):
             if not self.current_rect_id: return
-            coords = canvas.coords(self.current_rect_id)
+            coords = self.canvas.coords(self.current_rect_id)
             x_abs = int(min(coords[0], coords[2]) + self.bounding_box['left'])
             y_abs = int(min(coords[1], coords[3]) + self.bounding_box['top'])
             w, h = int(abs(coords[2] - coords[0])), int(abs(coords[3] - coords[1]))
 
             if w >= MIN_RECT_WIDTH and h >= MIN_RECT_HEIGHT:
                 is_excl = bool(event.state & 0x0001)
-                canvas.itemconfig(self.current_rect_id, outline='orange' if is_excl else 'green')
+                self.canvas.itemconfig(self.current_rect_id, outline='orange' if is_excl else 'green')
 
                 center_x, center_y = x_abs + w / 2, y_abs + h / 2
                 target_mon = self.monitors[0]
@@ -341,7 +425,7 @@ class ScreenSelector:
                 self.drawn_rect_ids.append(self.current_rect_id)
                 self.redo_stack.clear()
             else:
-                canvas.delete(self.current_rect_id)
+                self.canvas.delete(self.current_rect_id)
             self.current_rect_id = self.start_x = self.start_y = None
 
         def on_right_click(event):
@@ -366,45 +450,45 @@ class ScreenSelector:
                     # Now, perform the deletion
                     del self.rectangles[i]
                     del self.drawn_rect_ids[i]
-                    canvas.delete(item_id_to_del)
+                    self.canvas.delete(item_id_to_del)
                     print("Deleted rectangle.")
 
                     break  # Stop after deleting the topmost one
 
-        def toggle_image_mode(e=None):
-            self.image_mode = not self.image_mode
-            # Only change alpha of the main window, not the text widget
-            window.attributes("-alpha", 1.0 if self.image_mode else 0.25)
-            print("Toggled background visibility.")
-
         def on_enter(e=None):
-            canvas.focus_set()
+            self.canvas.focus_set()
 
-        canvas.bind('<Enter>', on_enter)
-        canvas.bind('<ButtonPress-1>', on_click)
-        canvas.bind('<B1-Motion>', on_drag)
-        canvas.bind('<ButtonRelease-1>', on_release)
-        canvas.bind('<Button-3>', on_right_click)
-        canvas.bind('<Control-s>', self.save_rects)
-        canvas.bind('<Control-y>', self.redo_last_rect)
-        canvas.bind('<Control-z>', self.undo_last_rect)
-        canvas.bind("<Escape>", self.quit_app)
-        canvas.bind("<m>", toggle_image_mode)
-        canvas.bind("<i>", self.toggle_instructions)
+        self.canvas.bind('<Enter>', on_enter)
+        self.canvas.bind('<ButtonPress-1>', on_click)
+        self.canvas.bind('<B1-Motion>', on_drag)
+        self.canvas.bind('<ButtonRelease-1>', on_release)
+        self.canvas.bind('<Button-3>', on_right_click)
+        self.canvas.bind('<Control-s>', self.save_rects)
+        self.canvas.bind('<Control-y>', self.redo_last_rect)
+        self.canvas.bind('<Control-z>', self.undo_last_rect)
+        self.canvas.bind("<Escape>", self.quit_app)
+        self.canvas.bind("<m>", self.toggle_image_mode)
+        self.canvas.bind("<i>", self.toggle_instructions)
 
-        canvas.focus_set()
+        self.canvas.focus_set()
+        self._create_instructions_widget(self.window)
+        self.window.winfo_toplevel().update_idletasks()
+        self.print_instructions_box(self.canvas)
         # The print message is now redundant but kept for console feedback
         print("Starting UI. See on-screen instructions. Press Esc to quit, Ctrl+S to save.")
+        # self.canvas.update_idletasks()
         self.root.mainloop()
 
     def quit_app(self, event=None):
+        if self.instructions_widget and self.instructions_widget.winfo_exists():
+            self.instructions_widget.destroy()
         if self.root and self.root.winfo_exists(): self.root.destroy()
         self.root = None
 
 
-def run_screen_selector(result_dict, window_name, use_window_as_config):
+def run_screen_selector(result_dict, window_name, use_window_as_config, use_obs_screenshot):
     try:
-        selector = ScreenSelector(result_dict, window_name, use_window_as_config)
+        selector = ScreenSelector(result_dict, window_name, use_window_as_config, use_obs_screenshot)
         selector.start()
     except Exception as e:
         print(f"Error in selector process: {e}", file=sys.stderr)
@@ -413,15 +497,15 @@ def run_screen_selector(result_dict, window_name, use_window_as_config):
         result_dict['error'] = str(e)
 
 
-def get_screen_selection(window_name, use_window_as_config=False):
-    if not selector_available or not gw: return None
+def get_screen_selection(window_name, use_window_as_config=False, use_obs_screenshot=False):
+    if not selector_available: return None
     if not window_name:
         print("Error: A target window name must be provided.", file=sys.stderr)
         return None
 
     with Manager() as manager:
         result_data = manager.dict()
-        process = Process(target=run_screen_selector, args=(result_data, window_name, use_window_as_config))
+        process = Process(target=run_screen_selector, args=(result_data, window_name, use_window_as_config, use_obs_screenshot))
         print(f"Starting ScreenSelector process...")
         process.start()
         process.join()
@@ -439,18 +523,24 @@ def get_screen_selection(window_name, use_window_as_config=False):
 
 if __name__ == "__main__":
     set_dpi_awareness()
-    target_window_title = "YouTube - JP"
-    use_window_as_config = False
-    if len(sys.argv) > 1:
-        target_window_title = sys.argv[1]
-    if len(sys.argv) > 2:
-        use_window_as_config = True
-        target_window_title = sys.argv[1]
 
-    selection_result = get_screen_selection(target_window_title, use_window_as_config)
+    parser = argparse.ArgumentParser(description="Screen Selector Arguments")
+    parser.add_argument("window_title", nargs="?", default="", help="Target window title")
+    parser.add_argument("--obs_ocr", action="store_true", help="Use OBS screenshot")
+    parser.add_argument("--use_window_for_config", action="store_true", help="Use window for config")
+    args = parser.parse_args()
+
+    target_window_title = args.window_title
+    use_obs_screenshot = args.obs_ocr
+    use_window_as_config = args.use_window_for_config
+
+    print(f"Arguments: Window Title='{target_window_title}', Use OBS Screenshot={use_obs_screenshot}, Use Window for Config={use_window_as_config}")
+
+    # Example of how to call it
+    selection_result = get_screen_selection(target_window_title, use_window_as_config, use_obs_screenshot)
 
     if selection_result is None:
-        print("\n--- Screen selection failed. ---")
+        print("--- Screen selection failed. ---")
     elif not selection_result:
         print("\n--- Screen selection cancelled. ---")
     elif 'rectangles' in selection_result:

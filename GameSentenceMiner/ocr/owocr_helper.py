@@ -22,7 +22,7 @@ from GameSentenceMiner.ocr.ss_picker import ScreenCropper
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory
 from GameSentenceMiner.util.electron_config import get_ocr_scan_rate, get_requires_open_window
-from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness, get_window
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness, get_window, get_ocr_config_path
 from GameSentenceMiner.owocr.owocr import screen_coordinate_picker, run
 from GameSentenceMiner.util.gsm_utils import sanitize_filename, do_text_replacements, OCR_REPLACEMENTS_FILE
 
@@ -49,15 +49,13 @@ logger.addHandler(console_handler)
 
 def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
     """Loads and updates screen capture areas from the corresponding JSON file."""
-    app_dir = Path.home() / "AppData" / "Roaming" / "GameSentenceMiner"
-    ocr_config_dir = app_dir / "ocr_config"
-    os.makedirs(ocr_config_dir, exist_ok=True)
+    ocr_config_dir = get_ocr_config_path()
     obs.connect_to_obs_sync(retry=0)
     if use_window_for_config and window:
         scene = sanitize_filename(window)
     else:
         scene = sanitize_filename(obs.get_current_scene())
-    config_path = ocr_config_dir / f"{scene}.json"
+    config_path = Path(ocr_config_dir) / f"{scene}.json"
     if not config_path.exists():
         ocr_config = OCRConfig(scene=scene, window=window, rectangles=[], coordinate_system="percentage")
         with open(config_path, 'w', encoding="utf-8") as f:
@@ -202,7 +200,8 @@ def do_second_ocr(ocr1_text, time, img, filtering, ignore_furigana_filter=False,
                                                         engine=ocr2, furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
 
         if compare_ocr_results(last_ocr2_result, orig_text):
-            logger.info("Detected similar text from previous OCR2 result, not sending")
+            if text:
+                logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img)
         last_ocr2_result = orig_text
@@ -257,7 +256,8 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
 
     if manual or not twopassocr:
         if compare_ocr_results(previous_orig_text, orig_text_string):
-            logger.info("Seems like Text we already sent, not doing anything.")
+            if text:
+                logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img)
         asyncio.run(send_result(text, line_start_time))
@@ -275,7 +275,8 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
             stable_time = text_stable_start_time
             previous_img_local = previous_img
             if compare_ocr_results(previous_orig_text, orig_text_string):
-                logger.info("Seems like Text we already sent, not doing anything.")
+                if text:
+                    logger.info("Seems like Text we already sent, not doing anything.")
                 previous_text = None
                 return
             previous_orig_text = orig_text_string
@@ -290,6 +291,10 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
             text_stable_start_time = None
             last_oneocr_time = None
         previous_text = None
+        return
+
+    # Make sure it's an actual new line before starting the timer
+    if compare_ocr_results(orig_text_string, previous_orig_text):
         return
 
     if not text_stable_start_time:
@@ -327,8 +332,14 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
 
     run.init_config(False)
     try:
-        run.run(read_from="screencapture" if window else "",
-                read_from_secondary="clipboard" if ss_clipboard else None,
+        read_from = ""
+        if obs_ocr:
+            read_from = "obs"
+        elif window:
+            read_from = "screencapture"
+        read_from_secondary = "clipboard" if ss_clipboard else None
+        run.run(read_from=read_from,
+                read_from_secondary=read_from_secondary,
                 write_to="callback",
                 screen_capture_area=screen_area,
                 # screen_capture_monitor=monitor_config['index'],
@@ -405,7 +416,7 @@ def set_force_stable_hotkey():
 
 if __name__ == "__main__":
     try:
-        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline
+        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline, obs_ocr
         import sys
 
         import argparse
@@ -430,6 +441,7 @@ if __name__ == "__main__":
         parser.add_argument("--use_window_for_config", action="store_true",
                             help="Use the specified window for loading OCR configuration")
         parser.add_argument("--keep_newline", action="store_true", help="Keep new lines in OCR output")
+        parser.add_argument('--obs_ocr', action='store_true', help='Use OBS for Picture Source (not implemented)')
 
         args = parser.parse_args()
 
@@ -449,12 +461,13 @@ if __name__ == "__main__":
         optimize_second_scan = args.optimize_second_scan
         use_window_for_config = args.use_window_for_config
         keep_newline = args.keep_newline
+        obs_ocr = args.obs_ocr
 
         window = None
         logger.info(f"Received arguments: {vars(args)}")
         # set_force_stable_hotkey()
         ocr_config: OCRConfig = get_ocr_config(window=window_name, use_window_for_config=use_window_for_config)
-        if ocr_config:
+        if ocr_config and not obs_ocr:
             if ocr_config.window:
                 start_time = time.time()
                 while time.time() - start_time < 30:
