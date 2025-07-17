@@ -525,7 +525,7 @@ if __name__ == "__main__":
     set_dpi_awareness()
 
     parser = argparse.ArgumentParser(description="Screen Selector Arguments")
-    parser.add_argument("window_title", nargs="?", default="YouTube - JP", help="Target window title")
+    parser.add_argument("window_title", nargs="?", default="", help="Target window title")
     parser.add_argument("--obs_ocr", action="store_true", help="Use OBS screenshot")
     parser.add_argument("--use_window_for_config", action="store_true", help="Use window for config")
     args = parser.parse_args()
