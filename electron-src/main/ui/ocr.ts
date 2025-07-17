@@ -171,7 +171,7 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.install-recommended-deps', () => {
         const pythonPath = getPythonPath();
         mainWindow?.webContents.send('ocr-log', `Downloading OneOCR files...`);
-        runCommandAndLog([pythonPath, '-m', 'install', '--upgrade', '--no-warn-script-location', 'owocr'], false);
+        runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'owocr'], false);
         if (isWindows()) {
             runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'oneocr'], false);
             runCommandAndLog([pythonPath, '-m', 'GameSentenceMiner.util.downloader.oneocr_dl'], false);

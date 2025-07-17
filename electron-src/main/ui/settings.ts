@@ -27,7 +27,8 @@ export function registerSettingsIPC() {
             // agentScriptsPath: getAgentScriptsPath(),
             startConsoleMinimized: getStartConsoleMinimized(),
             customPythonPackage: getCustomPythonPackage(),
-            showYuzuTab: getShowYuzuTab()
+            showYuzuTab: getShowYuzuTab(),
+            windowTransparencyToolHotkey: getWindowTransparencyToolHotkey(),
         };
     });
 
