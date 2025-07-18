@@ -34,7 +34,7 @@ dependencies = [
   "keyboard~=0.13.5",
   "websockets~=15.0.1",
   "openai-whisper",
-  "stable-ts",
+  "stable-ts-whisperless",
   "silero-vad~=5.1.2",
   "ttkbootstrap~=1.10.1",
   "dataclasses_json~=0.6.7",
