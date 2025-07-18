@@ -33,6 +33,7 @@ dependencies = [
   "plyer~=2.1.0",
   "keyboard~=0.13.5",
   "websockets~=15.0.1",
+  "openai-whisper",
   "stable-ts~=2.19.0",
   "silero-vad~=5.1.2",
   "ttkbootstrap~=1.10.1",
