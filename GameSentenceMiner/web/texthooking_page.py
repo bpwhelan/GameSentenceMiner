@@ -381,7 +381,7 @@ def start_web_server():
     if get_config().general.open_multimine_on_startup:
         open_texthooker()
 
-    app.run(port=port, debug=False) # debug=True provides helpful error messages during development
+    app.run(host='0.0.0.0', port=port, debug=False) # debug=True provides helpful error messages during development
 
 
 websocket_server_thread = None
