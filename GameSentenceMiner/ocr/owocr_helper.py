@@ -195,7 +195,7 @@ all_cords = None
 rectangles = None
 last_ocr2_result = []
 
-def do_second_ocr(ocr1_text, time, img, filtering, pre_crop_image, ignore_furigana_filter=False, ignore_previous_result=False):
+def do_second_ocr(ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False):
     global twopassocr, ocr2, last_ocr2_result
     try:
         orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, filtering, None,
