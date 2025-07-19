@@ -20,6 +20,7 @@ class GameLine:
     next: 'GameLine | None'
     index: int = 0
     scene: str = ""
+    TL: str = ""
 
     def get_previous_time(self):
         if self.prev:
@@ -30,6 +31,12 @@ class GameLine:
         if self.next:
             return self.next.time
         return 0
+
+    def set_TL(self, tl: str):
+        self.TL = tl
+
+    def get_stripped_text(self):
+        return self.text.replace('\n', '').strip()
 
     def __str__(self):
         return str({"text": self.text, "time": self.time})
@@ -147,10 +154,10 @@ def get_line_and_future_lines(last_note):
         found = False
         for line in game_log.values:
             if found:
-                found_lines.append(line.text)
+                found_lines.append(line)
             if lines_match(line.text, remove_html_and_cloze_tags(sentence)):  # 80% similarity threshold
                 found = True
-                found_lines.append(line.text)
+                found_lines.append(line)
     return found_lines
 
 
@@ -164,7 +171,7 @@ def get_mined_line(last_note: AnkiCard, lines=None):
 
     sentence = last_note.get_field(get_config().anki.sentence_field)
     for line in reversed(lines):
-        if lines_match(line.text, remove_html_and_cloze_tags(sentence)):
+        if lines_match(line.get_stripped_text(), remove_html_and_cloze_tags(sentence)):
             return line
     return lines[-1]
 

@@ -10,8 +10,10 @@ from dataclasses import dataclass
 import flask
 import websockets
 
+from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
+from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
-from GameSentenceMiner.util.text_log import GameLine, get_line_by_id, initial_time
+from GameSentenceMiner.util.text_log import GameLine, get_line_by_id, initial_time, get_all_lines
 from flask import request, jsonify, send_from_directory
 import webbrowser
 from GameSentenceMiner import obs
@@ -307,6 +309,18 @@ def play_audio():
         obs.save_replay_buffer()
     return jsonify({}), 200
 
+@app.route("/translate-line", methods=['POST'])
+def translate_line():
+    data = request.get_json()
+    event_id = data.get('id')
+    if event_id is None:
+        return jsonify({'error': 'Missing id'}), 400
+    line_to_translate = get_line_by_id(event_id)
+    translation = get_ai_prompt_result(get_all_lines(), line_to_translate.text,
+                                       line_to_translate, get_current_game())
+    line_to_translate.set_TL(translation)
+    return jsonify({'TL': translation}), 200
+
 
 @app.route('/get_status', methods=['GET'])
 def get_status():
@@ -367,7 +381,7 @@ def start_web_server():
     if get_config().general.open_multimine_on_startup:
         open_texthooker()
 
-    app.run(port=port, debug=False) # debug=True provides helpful error messages during development
+    app.run(host='0.0.0.0', port=port, debug=False) # debug=True provides helpful error messages during development
 
 
 websocket_server_thread = None

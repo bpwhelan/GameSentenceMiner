@@ -1,12 +1,15 @@
-import ctypes
+import os
 from copy import deepcopy
 from dataclasses import dataclass
 from math import floor, ceil
+from pathlib import Path
 
+from GameSentenceMiner import obs
 from dataclasses_json import dataclass_json
 from typing import List, Optional, Union
 
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.configuration import logger, get_app_directory
+from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 
 @dataclass_json
@@ -50,8 +53,10 @@ class OCRConfig:
     window: Optional[str] = None
     language: str = "ja"
 
-    def scale_coords(self):
+    def __post_init__(self):
         self.pre_scale_rectangles = deepcopy(self.rectangles)
+
+    def scale_coords(self):
         if self.coordinate_system and self.coordinate_system == "percentage" and self.window:
             import pygetwindow as gw
             try:
@@ -116,7 +121,38 @@ def get_window(title):
             return window
     return ret
 
-# try w10+, fall back to w8.1+
+# if windows, set dpi awareness to per-monitor v2
 def set_dpi_awareness():
+    import sys
+    if sys.platform != "win32":
+        return
+    import ctypes
     per_monitor_awareness = 2
     ctypes.windll.shcore.SetProcessDpiAwareness(per_monitor_awareness)
+
+def get_scene_ocr_config(use_window_as_config=False, window=""):
+    path = get_scene_ocr_config_path(use_window_as_config, window)
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        from json import load
+        data = load(f)
+        ocr_config = OCRConfig.from_dict(data)
+        return ocr_config
+
+def get_scene_ocr_config_path(use_window_as_config=False, window=""):
+    ocr_config_dir = get_ocr_config_path()
+    try:
+        if use_window_as_config:
+            scene = sanitize_filename(window)
+        else:
+            scene = sanitize_filename(obs.get_current_scene() or "Default")
+    except Exception as e:
+        print(f"Error getting OBS scene: {e}. Using default config name.")
+        scene = "Default"
+    return os.path.join(ocr_config_dir, f"{scene}.json")
+
+def get_ocr_config_path():
+    ocr_config_dir = os.path.join(get_app_directory(), "ocr_config")
+    os.makedirs(ocr_config_dir, exist_ok=True)
+    return ocr_config_dir

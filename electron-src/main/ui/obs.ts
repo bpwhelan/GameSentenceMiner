@@ -118,7 +118,7 @@ export function openOBSWindow() {
         },
     });
 
-    obsWindow.loadFile(path.join(getAssetsDir(), 'obs.html'));
+    obsWindow.loadFile(path.join(getAssetsDir(), 'home.html'));
 
     obsWindow.on('close', (event) => {
         if (!isQuitting) {
@@ -504,6 +504,11 @@ export async function registerOBSIPC() {
     });
 
     await getOBSConnection();
+}
+
+export async function setOBSScene(sceneName: string): Promise<void> {
+    await getOBSConnection();
+    await obs.call('SetCurrentProgramScene', {sceneName});
 }
 
 export async function getOBSScenes(): Promise<ObsScene[]> {

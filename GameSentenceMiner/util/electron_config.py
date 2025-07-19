@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 from dataclasses_json import dataclass_json
 
-from GameSentenceMiner.util.configuration import get_app_directory
+from GameSentenceMiner.util.configuration import get_app_directory, logger
 
 
 # @dataclass_json
@@ -42,12 +42,26 @@ class VNConfig:
 @dataclass_json
 @dataclass
 class OCRConfig:
-    twoPassOCR: bool = False
+    twoPassOCR: bool = True
+    optimize_second_scan: bool = True
     ocr1: str = "oneOCR"
     ocr2: str = "glens"
     window_name: str = ""
-    requiresOpenWindow: Optional[bool] = None
-    scanRate: Optional[float] = None
+    language: str = "ja"
+    ocr_screenshots: bool = False
+    furigana_filter_sensitivity: int = 0
+    manualOcrHotkey: str = "Ctrl+Shift+G"
+    areaSelectOcrHotkey: str = "Ctrl+Shift+O"
+    sendToClipboard: bool = True
+    scanRate: float = 0.5
+    requiresOpenWindow: bool = False
+    useWindowForConfig: bool = False
+    lastWindowSelected: str = ""
+    keep_newline: bool = False
+    useObsAsSource: bool = False
+
+    def has_changed(self, other: 'OCRConfig') -> bool:
+        return self.to_dict() != other.to_dict()
 
 @dataclass_json
 @dataclass
@@ -66,15 +80,21 @@ class StoreConfig:
 
 class Store:
     def __init__(self, config_path=os.path.join(get_app_directory(), "electron", "config.json"), defaults: Optional[StoreConfig] = None):
+        self.data: StoreConfig = StoreConfig()
         self.config_path = config_path
         self.defaults = defaults if defaults is not None else StoreConfig()
         self._load_config()
 
     def _load_config(self):
         if os.path.exists(self.config_path):
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                self.data = StoreConfig.from_dict(data)
+            while True:
+                try:
+                    with open(self.config_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        self.data = StoreConfig.from_dict(data)
+                    break
+                except (json.JSONDecodeError, IOError) as e:
+                    logger.debug(f"File being written to: {e}. Retrying...")
         else:
             self.data = self.defaults
             self._save_config()
@@ -82,6 +102,9 @@ class Store:
     def _save_config(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump(self.data.to_dict(), f, indent=4)
+
+    def reload_config(self):
+        self._load_config()
 
     def get(self, key, default=None):
         keys = key.split('.')
@@ -127,189 +150,107 @@ class Store:
         print(json.dumps(self.data.to_dict(), indent=4))
 
 # Initialize the store
-store = Store(config_path=os.path.join(get_app_directory(), "electron", "config.json"), defaults=StoreConfig())
-
-# --- Convenience functions ---
-
-def get_auto_update_gsm_app() -> bool:
-    return store.get("autoUpdateGSMApp")
-
-def set_auto_update_gsm_app(auto_update: bool):
-    store.set("autoUpdateGSMApp", auto_update)
-
-def get_auto_update_electron() -> bool:
-    return store.get("autoUpdateElectron")
-
-def set_auto_update_electron(auto_update: bool):
-    store.set("autoUpdateElectron", auto_update)
-
-def get_python_path() -> str:
-    return store.get("pythonPath")
-
-def set_python_path(path: str):
-    store.set("pythonPath", path)
-
-# OCR
-
-def get_ocr_config() -> OCRConfig:
-    ocr_data = store.get("OCR")
-    return ocr_data if isinstance(ocr_data, OCRConfig) else OCRConfig.from_dict(ocr_data) if isinstance(ocr_data, dict) else OCRConfig()
-
-def set_ocr_config(config: OCRConfig):
-    store.set("OCR", config)
-
-def get_two_pass_ocr() -> bool:
-    return store.get("OCR.twoPassOCR")
-
-def set_two_pass_ocr(two_pass: bool):
-    store.set("OCR.twoPassOCR", two_pass)
-
-def get_ocr1() -> str:
-    return store.get("OCR.ocr1")
-
-def set_ocr1(ocr: str):
-    store.set("OCR.ocr1", ocr)
-
-def get_ocr2() -> str:
-    return store.get("OCR.ocr2")
-
-def set_ocr2(ocr: str):
-    store.set("OCR.ocr2", ocr)
-
-def get_window_name() -> str:
-    return store.get("OCR.window_name")
-
-def set_window_name(name: str):
-    store.set("OCR.window_name", name)
-
-def get_requires_open_window() -> Optional[bool]:
-    return store.get("OCR.requiresOpenWindow")
-
-def set_requires_open_window(requires_open_window: Optional[bool]):
-    store.set("OCR.requiresOpenWindow", requires_open_window)
-
-def get_ocr_scan_rate() -> Optional[int]:
-    return store.get("OCR.scanRate")
-
-def set_ocr_scan_rate(scan_rate: Optional[int]):
-    store.set("OCR.scanRate", scan_rate)
-
-# Yuzu config getters and setters
-def get_yuzu_config() -> YuzuConfig:
-    yuzu_data = store.get('yuzu')
-    return yuzu_data if isinstance(yuzu_data, YuzuConfig) else YuzuConfig.from_dict(yuzu_data) if isinstance(yuzu_data, dict) else YuzuConfig()
-
-def set_yuzu_config(config: YuzuConfig):
-    store.set('yuzu', config)
+electron_store = Store(config_path=os.path.join(get_app_directory(), "electron", "config.json"), defaults=StoreConfig())
 
 
-# Yuzu emulator path getters and setters
-def get_yuzu_emu_path() -> str:
-    return store.get('yuzu.emuPath')
+# def has_section_changed(section_class: type) -> bool:
+#     global electron_store
+#     # Get the attribute name from the class (e.g. OCRConfig -> OCR)
+#     section_name = None
+#     for attr, value in StoreConfig.__dataclass_fields__.items():
+#         if value.type == section_class:
+#             section_name = attr
+#             break
+#     if not section_name:
+#         return False
+#     if not os.path.exists(electron_store.config_path):
+#         return False
+#     with open(electron_store.config_path, 'r', encoding='utf-8') as f:
+#         data = json.load(f)
+#         current = StoreConfig.from_dict(data)
+#         current_section = getattr(current, section_name)
+#         old_section = getattr(electron_store, section_name)
+#         if hasattr(current_section, 'to_dict') and hasattr(old_section, 'to_dict'):
+#             return current_section.to_dict() != old_section.to_dict()
+#         electron_store = Store(config_path=electron_store.config_path)
+#         return True
 
-def set_yuzu_emu_path(path: str):
-    store.set('yuzu.emuPath', path)
+# Helper Methods
+def get_electron_store() -> Store:
+    global electron_store
+    return electron_store
 
-# Yuzu ROMs path getters and setters
-def get_yuzu_roms_path() -> str:
-    return store.get('yuzu.romsPath')
+def get_ocr_two_pass_ocr():
+    return electron_store.data.OCR.twoPassOCR
 
-def set_yuzu_roms_path(path: str):
-    store.set('yuzu.romsPath', path)
+def get_ocr_optimize_second_scan():
+    return electron_store.data.OCR.optimize_second_scan
 
-def get_launch_yuzu_game_on_start() -> str:
-    return store.get("yuzu.launchGameOnStart")
+def get_ocr_ocr1():
+    return electron_store.data.OCR.ocr1
 
-def set_launch_yuzu_game_on_start(path: str):
-    store.set("yuzu.launchGameOnStart", path)
+def get_ocr_ocr2():
+    return electron_store.data.OCR.ocr2
 
-def get_last_yuzu_game_launched() -> str:
-    return store.get("yuzu.lastGameLaunched")
+def get_ocr_window_name():
+    return electron_store.data.OCR.window_name or ""
 
-def set_last_yuzu_game_launched(path: str):
-    store.set("yuzu.lastGameLaunched", path)
+def get_ocr_language():
+    return electron_store.data.OCR.language or "ja"
 
-# Agent scripts path getters and setters
-def get_agent_scripts_path() -> str:
-    return store.get('agentScriptsPath')
+def get_ocr_ocr_screenshots():
+    return electron_store.data.OCR.ocr_screenshots
 
-def set_agent_scripts_path(path: str):
-    store.set('agentScriptsPath', path)
+def get_ocr_furigana_filter_sensitivity():
+    return electron_store.data.OCR.furigana_filter_sensitivity
 
-def set_agent_path(path: str):
-    store.set('agentPath', path)
+def get_ocr_manual_ocr_hotkey():
+    return electron_store.data.OCR.manualOcrHotkey
 
-def get_agent_path() -> str:
-    return store.get('agentPath')
+def get_ocr_area_select_ocr_hotkey():
+    return electron_store.data.OCR.areaSelectOcrHotkey
 
-def get_start_console_minimized() -> bool:
-    return store.get("startConsoleMinimized")
+def get_ocr_send_to_clipboard():
+    return electron_store.data.OCR.sendToClipboard
 
-def set_start_console_minimized(should_minimize: bool):
-    store.set("startConsoleMinimized", should_minimize)
+def get_ocr_scan_rate():
+    return electron_store.data.OCR.scanRate
 
-def get_vns() -> List[str]:
-    return store.get('VN.vns')
+def get_ocr_requires_open_window():
+    return electron_store.data.OCR.requiresOpenWindow
 
-def set_vns(vns: List[str]):
-    store.set('VN.vns', vns)
+def get_ocr_use_window_for_config():
+    return electron_store.data.OCR.useWindowForConfig
 
-def get_textractor_path() -> str:
-    return store.get("VN.textractorPath")
+def get_ocr_last_window_selected():
+    return electron_store.data.OCR.lastWindowSelected
 
-def set_textractor_path(path: str):
-    store.set("VN.textractorPath", path)
+def get_ocr_keep_newline():
+    return electron_store.data.OCR.keep_newline
 
-def get_launch_vn_on_start() -> str:
-    return store.get("VN.launchVNOnStart")
+def get_ocr_use_obs_as_source():
+    return electron_store.data.OCR.useObsAsSource
 
-def set_launch_vn_on_start(vn: str):
-    store.set("VN.launchVNOnStart", vn)
+def has_ocr_config_changed() -> bool:
+    global electron_store
+    if not os.path.exists(electron_store.config_path):
+        return False, {}
+    with open(electron_store.config_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+        current = StoreConfig.from_dict(data)
+        current_section = current.OCR
+        old_section = electron_store.data.OCR
+    if not (hasattr(current_section, 'to_dict') and hasattr(old_section, 'to_dict')):
+        return False, {}
+    current_dict = current_section.to_dict()
+    old_dict = old_section.to_dict()
+    if current_dict != old_dict:
+        changes = {k: (old_dict[k], current_dict[k]) for k in current_dict if old_dict.get(k) != current_dict.get(k)}
+        # logger.info(f"OCR Config changes detected: {changes}")
+        return True, changes
+    return False, {}
 
-def get_last_vn_launched() -> str:
-    return store.get("VN.lastVNLaunched")
-
-def set_last_vn_launched(vn: str):
-    store.set("VN.lastVNLaunched", vn)
-
-def get_steam_path() -> str:
-    return store.get('steam.steamPath')
-
-def set_steam_path(path: str):
-    store.set('steam.steamPath', path)
-
-def get_launch_steam_on_start() -> int:
-    return store.get('steam.launchSteamOnStart')
-
-def set_launch_steam_on_start(game_id: int):
-    store.set('steam.launchSteamOnStart', game_id)
-
-def get_last_steam_game_launched() -> int:
-    return store.get('steam.lastGameLaunched')
-
-def set_last_steam_game_launched(game_id: int):
-    store.set('steam.lastGameLaunched', game_id)
-
-# def get_steam_games() -> List[SteamGame]:
-#     steam_games_data = store.get('steam.steamGames')
-#     return [SteamGame.from_dict(game_data) for game_data in steam_games_data] if isinstance(steam_games_data, list) else []
-
-# def set_steam_games(games: List[SteamGame]):
-#     store.set('steam.steamGames', [game.to_dict() for game in games])
-
-# if __name__ == "__main__":
-#     # Example usage:
-#     print(f"Initial Yuzu Emulator Path: {get_yuzu_emu_path()}")
-#     set_yuzu_emu_path("D:\\NewEmulators\\yuzu\\yuzu.exe")
-#     print(f"Updated Yuzu Emulator Path: {get_yuzu_emu_path()}")
-#
-#     ocr_config = get_ocr_config()
-#     print(f"Initial Two-Pass OCR: {ocr_config.twoPassOCR}")
-#     set_two_pass_ocr(True)
-#     print(f"Updated Two-Pass OCR: {get_two_pass_ocr()}")
-#
-#     steam_games = get_steam_games()
-#     print(f"Initial Steam Games: {[game.name for game in steam_games]}")
-#     new_games = [SteamGame(123, "Game One"), SteamGame(456, "Game Two")]
-#     set_steam_games(new_games)
-#     print(f"Updated Steam Games: {[game.name for game in get_steam_games()]}")
+def reload_electron_config():
+    global electron_store
+    electron_store.reload_config()
+    return electron_store

@@ -12,16 +12,16 @@ import {
     getAutoUpdateGSMApp, getCustomPythonPackage, getLaunchSteamOnStart,
     getLaunchVNOnStart, getLaunchYuzuGameOnStart,
     getStartConsoleMinimized,
-    setPythonPath
+    setPythonPath, setWindowName
 } from "./store.js";
 import {launchYuzuGameID, openYuzuWindow, registerYuzuIPC} from "./ui/yuzu.js";
 import {checkForUpdates} from "./update_checker.js";
 import {launchVNWorkflow, openVNWindow, registerVNIPC} from "./ui/vn.js";
 import {launchSteamGameID, openSteamWindow, registerSteamIPC} from "./ui/steam.js";
 import {webSocketManager} from "./communication/websocket.js";
-import {openOBSWindow, registerOBSIPC} from "./ui/obs.js";
+import {getOBSConnection, openOBSWindow, registerOBSIPC, setOBSScene} from "./ui/obs.js";
 import {registerSettingsIPC} from "./ui/settings.js";
-import {registerOCRUtilsIPC} from "./ui/ocr.js";
+import {registerOCRUtilsIPC, startOCR} from "./ui/ocr.js";
 import * as fs from "node:fs";
 import {registerFrontPageIPC} from "./ui/front.js";
 
@@ -386,6 +386,41 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
     restartingGSM = false;
 }
 
+
+async function processArgs() {
+    const args = process.argv.slice(1);
+    let gameName: string | undefined;
+    let windowName: string | undefined;
+    let runOCR = false;
+
+    await getOBSConnection();
+
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--scene' && args[i + 1]) {
+            await setOBSScene(args[i + 1]);
+            i++;
+        } else if (args[i] === '--game' && args[i + 1]) {
+            gameName = args[i + 1];
+            i++;
+        } else if (args[i] === '--window' && args[i + 1]) {
+            windowName = args[i + 1];
+            i++;
+        } else if (args[i] === '--ocr') {
+            runOCR = true;
+        }
+    }
+
+    if (windowName) {
+        setWindowName(windowName);
+    }
+    if (gameName) {
+        await launchSteamGameID(gameName);
+    }
+    if (runOCR) {
+        await startOCR();
+    }
+}
+
 app.disableHardwareAcceleration();
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 
@@ -400,8 +435,8 @@ if (!app.requestSingleInstanceLock()) {
         app.quit()
     });
 } else {
-
     app.whenReady().then(async () => {
+        processArgs().then(_ => console.log("Processed Args"));
         if (getAutoUpdateElectron()) {
             if (await isConnected()) {
                 console.log("Checking for updates...");

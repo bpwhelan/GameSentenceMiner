@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import {Downloader} from "nodejs-file-downloader";
 import * as tar from "tar";
 import {BASE_DIR, execFileAsync, getPlatform, isArmMac, SupportedPlatform} from "../util.js";
@@ -33,10 +34,18 @@ const downloads: Record<SupportedPlatform, PythonDownload> = {
 
 const PYTHON_DIR = path.join(BASE_DIR, 'python');
 
+function getVenvPath(): string {
+    return path.join(os.homedir(), '.config', 'GameSentenceMiner', 'python_venv');
+}
+
 /**
  * Checks if Python is installed
  */
 function isPythonInstalled(): boolean {
+    if (getPlatform() === 'linux') {
+        const venvPath = getVenvPath();
+        return fs.existsSync(path.join(venvPath, 'bin', 'python'));
+    }
     return fs.existsSync(
         path.join(BASE_DIR, downloads[getPlatform()].path)
     );
@@ -95,6 +104,25 @@ async function installPython(): Promise<void> {
         return;
     }
 
+    if (getPlatform() === 'linux') {
+        console.log('Python venv not found. Creating...');
+        const venvPath = getVenvPath();
+        try {
+            fs.mkdirSync(path.dirname(venvPath), { recursive: true });
+            await execFileAsync('python3', ['-m', 'venv', venvPath]);
+            console.log('Python venv created at', venvPath);
+        } catch (e) {
+            const errorMessage = 'Failed to create python venv. Make sure python3 and the "venv" module are installed on your system.';
+            console.error(errorMessage, e);
+            mainWindow?.webContents.send('notification', {
+                title: 'Error',
+                message: errorMessage,
+            });
+            throw e;
+        }
+        return;
+    }
+
     console.log('Python is missing. Downloading...');
 
     if (!fs.existsSync(BASE_DIR)) {
@@ -115,11 +143,33 @@ async function installPython(): Promise<void> {
     } catch (error) {
         console.error('Failed to install Python:', error);
     } finally {
-        fs.unlinkSync(tarPath);
+        if (fs.existsSync(tarPath)) {
+            fs.unlinkSync(tarPath);
+        }
     }
 }
 
 export async function getOrInstallPython(): Promise<string> {
+    if (getPlatform() === 'linux') {
+        const venvPath = getVenvPath();
+        const pythonPath = path.join(venvPath, 'bin', 'python');
+
+        if (!isPythonInstalled()) {
+            mainWindow?.webContents.send('notification', {
+                title: 'Install',
+                message: 'Setting up Python virtual environment. Might take a while... Please check the Console tab for more details.',
+            });
+            console.log('Python venv not found. Creating...');
+            await installPython();
+        }
+
+        if (!fs.existsSync(pythonPath)) {
+            throw new Error('Python venv creation failed or missing executable.');
+        }
+
+        return pythonPath;
+    }
+
     const pythonPath = path.join(BASE_DIR, downloads[getPlatform()].path);
 
     if (!isPythonInstalled()) {
@@ -139,6 +189,16 @@ export async function getOrInstallPython(): Promise<string> {
 }
 
 export async function reinstallPython(): Promise<void> {
+    if (getPlatform() === 'linux') {
+        const venvPath = getVenvPath();
+        if (fs.existsSync(venvPath)) {
+            console.log('Removing existing python venv...');
+            fs.rmSync(venvPath, { recursive: true, force: true });
+        }
+        await installPython();
+        return;
+    }
+
     const pythonPath = path.join(BASE_DIR, downloads[getPlatform()].path);
 
     if (fs.existsSync(pythonPath)) {

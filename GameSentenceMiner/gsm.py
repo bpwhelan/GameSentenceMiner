@@ -12,6 +12,7 @@ from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
 from GameSentenceMiner.vad import vad_processor
 from GameSentenceMiner.util.model import VADResult
+import time
 
 try:
     import os.path
@@ -45,7 +46,6 @@ try:
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
-    import time
     logger.info("Something bad happened during import/initialization, closing in 5 seconds")
     logger.exception(e)
     time.sleep(5)
@@ -97,8 +97,28 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 skip_delete = True
                 return
 
-            mined_line = get_text_event(last_note)
+            # Just for safety
+            if not last_note:
+                if get_config().anki.update_anki:
+                    last_note = anki.get_last_anki_card()
+                if get_config().features.backfill_audio:
+                    last_note = anki.get_cards_by_sentence(gametext.current_line_after_regex)
+
+            # Get Info of line mined
+            line_cutoff = None
+            start_line = None
+            if selected_lines:
+                start_line = selected_lines[0]
+                mined_line = get_mined_line(last_note, selected_lines)
+                line_cutoff = selected_lines[-1].get_next_time()
+            else:
+                mined_line = get_text_event(last_note)
+                if mined_line:
+                    start_line = mined_line
+                    if mined_line.next:
+                        line_cutoff = mined_line.next.time
             gsm_state.last_mined_line = mined_line
+
             if os.path.exists(video_path) and os.access(video_path, os.R_OK):
                 logger.debug(f"Video found and is readable: {video_path}")
             if get_config().obs.minimum_replay_size and not ffmpeg.is_video_big_enough(video_path,
@@ -108,24 +128,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 logger.error(
                     f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
                 return
-
-            # Just for safety
-            if not last_note:
-                if get_config().anki.update_anki:
-                    last_note = anki.get_last_anki_card()
-                if get_config().features.backfill_audio:
-                    last_note = anki.get_cards_by_sentence(gametext.current_line_after_regex)
-            line_cutoff = None
-            start_line = None
-            if mined_line:
-                start_line = mined_line
-                if mined_line.next:
-                    line_cutoff = mined_line.next.time
-
-            if selected_lines:
-                start_line = selected_lines[0]
-                mined_line = get_mined_line(last_note, selected_lines)
-                line_cutoff = selected_lines[-1].get_next_time()
 
             if last_note:
                 logger.debug(last_note.to_json())

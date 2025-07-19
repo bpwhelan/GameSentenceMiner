@@ -53,6 +53,8 @@ interface OCRConfig {
     sendToClipboard: boolean;
     useWindowForConfig: boolean;
     lastWindowSelected: string;
+    keep_newline: boolean;
+    useObsAsSource: boolean;
 }
 
 export enum HookableGameType {
@@ -92,6 +94,7 @@ interface StoreConfig {
     autoUpdateElectron: boolean;
     autoUpdateGSMApp: boolean;
     customPythonPackage: string;
+    windowTransparencyToolHotkey: string;
     pythonPath: string;
     VN: VNConfig;
     steam: SteamConfig;
@@ -147,8 +150,11 @@ export const store = new Store<StoreConfig>({
             requiresOpenWindow: false,
             useWindowForConfig: false,
             lastWindowSelected: "",
+            keep_newline: false,
+            useObsAsSource: false
         },
-        customPythonPackage: "GameSentenceMiner"
+        customPythonPackage: "GameSentenceMiner",
+        windowTransparencyToolHotkey: 'Ctrl+Alt+Y'
     },
     cwd: "electron"
 });
@@ -193,7 +199,22 @@ export function setCustomPythonPackage(packageName: string): void {
     store.set("customPythonPackage", packageName);
 }
 
+export function getWindowTransparencyToolHotkey(): string {
+    return store.get("windowTransparencyToolHotkey");
+}
+
+export function setWindowTransparencyToolHotkey(hotkey: string): void {
+    store.set("windowTransparencyToolHotkey", hotkey);
+}
+
 //OCR
+export function getKeepNewline(): boolean {
+    return store.get("OCR.keep_newline");
+}
+
+export function setKeepNewline(keep: boolean): void {
+    store.set("OCR.keep_newline", keep);
+}
 
 export function getOCRConfig(): OCRConfig {
     return store.get("OCR");
@@ -301,6 +322,14 @@ export function setAreaSelectOcrHotkey(hotkey: string): void {
 
 export function setOptimizeSecondScan(optimize: boolean): void {
     store.set("OCR.optimize_second_scan", optimize);
+}
+
+export function setUseObsAsSource(useObs: boolean): void {
+    store.set("OCR.useObsAsSource", useObs);
+}
+
+export function getUseObsAsSource(): boolean {
+    return store.get("OCR.useObsAsSource");
 }
 
 // Use Window for Config

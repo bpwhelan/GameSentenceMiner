@@ -26,18 +26,15 @@ GSM significantly enhances your Anki cards with rich contextual information:
 * **AI Translation**: Integrates AI to provide quick translations of the captured sentence. Custom Prompts also supported. (Optional, Bring your own Key)
 
 
-#### Game Example
-![anki_RozcrisS8B](https://github.com/user-attachments/assets/b1f08150-6b46-4d7d-ad90-e6c468076b05)
+#### Game Example (Has Audio)
 
-Audio: https://github.com/user-attachments/assets/94360986-8dbf-42c9-b3c3-d054893eac3d
+https://github.com/user-attachments/assets/df6bc38e-d74d-423e-b270-8a82eec2394c
 
 ---
 
-#### VN Example
-![anki_Lk3Ds2T1Bz](https://github.com/user-attachments/assets/e8ae4d66-f138-4ae1-9df7-46e16249be41)
+#### VN Example (Has Audio)
 
-Audio: https://github.com/user-attachments/assets/2d7b3967-cd5c-4132-b489-75058ea20921
-
+https://github.com/user-attachments/assets/ee670fda-1a8b-4dec-b9e6-072264155c6e
 
 ### OCR
 
@@ -54,10 +51,8 @@ GSM runs a fork of [OwOCR](https://github.com/AuroraWright/owocr/) to provide ac
 * **More Language Support**: Stock OwOCR is hard-coded to Japanese, while in GSM you can use a variety of languages.
 
 
-![GameSentenceMiner_efBTEpbZ2A](https://github.com/user-attachments/assets/4b873f9e-c049-428c-9bfd-20907e095054)
-![anki_f3PdqYLN2n](https://github.com/user-attachments/assets/a901221c-6f7c-471b-a1f3-f29e8ced102c)
+https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
-Audio: https://github.com/user-attachments/assets/8c44780a-9b74-41af-bf16-28a742f4de12
 
 
 ### Game Launcher Capabilities (WIP)
@@ -70,7 +65,7 @@ This is probably the feature I care least about, but if you are lazy like me, yo
 
 This feature simplifies the process of launching games and (potentially) hooking them, making the entire workflow more efficient.
 
-![image](https://github.com/user-attachments/assets/eb630535-d291-4386-a5af-9f54b718896a)
+<img width="2560" height="1392" alt="GameSentenceMiner_1zuov0R9xK" src="https://github.com/user-attachments/assets/205769bb-3dd2-493b-9383-2d6e2ca05c2d" />
 
 ## Basic Requirements
 

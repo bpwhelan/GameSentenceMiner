@@ -205,6 +205,7 @@ def connect_to_obs_sync(retry=2):
                 obs_connection_manager = OBSConnectionManager()
                 obs_connection_manager.start()
             update_current_game()
+            logger.info("Connected to OBS WebSocket.")
             break  # Exit the loop once connected
         except Exception as e:
             if retry <= 0:
@@ -297,6 +298,12 @@ def get_source_from_scene(scene_name):
         logger.error(f"Error getting source from scene: {e}")
         return ''
 
+def get_active_source():
+    current_game = get_current_game()
+    if not current_game:
+        return None
+    return get_source_from_scene(current_game)
+
 def get_record_directory():
     try:
         response = client.get_record_directory()
@@ -328,6 +335,7 @@ async def register_scene_change_callback(callback):
         event_client.callback.register(on_current_program_scene_changed)
 
         logger.info("Scene change callback registered.")
+
 
 def get_screenshot(compression=-1):
     try:
@@ -369,13 +377,14 @@ def get_screenshot_base64(compression=75, width=None, height=None):
         response = client.get_source_screenshot(name=current_source_name, img_format='png', quality=compression, width=width, height=height)
         # print(responseraw)
         if response and response.image_data:
-            return response.image_data
+            return response.image_data.split(',', 1)[-1]  # Remove data:image/png;base64, prefix if present
         else:
             logger.error(f"Error getting base64 screenshot: {response}")
             return None
     except Exception as e:
         logger.error(f"Error getting screenshot: {e}")
         return None
+
 
 def update_current_game():
     gsm_state.current_game = get_current_scene()

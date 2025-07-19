@@ -62,6 +62,19 @@
     <div class="form-group" style="margin-top: 20px;">
         <button id="openGSMSettingsBtn">Open GSM Settings</button>
     </div>
+
+    <div class="form-group">
+        <div class="input-group">
+            <label for="window-transparency-tool-hotkey" class="tooltip-indicator tooltip-bottom tooltip-right">Window Transparency Tool Hotkey:
+                <span class="tooltiptext">With tool running. On Press, will enable a special mode on the focused window that will keep it on top, but transparent unless hovered.</span>
+            </label>
+            <input type="text" id="window-transparency-tool-hotkey" value="Ctrl+Alt+Y">
+        </div>
+        <div class="input-group">
+            <button id="runWindowTransparencyToolBtn">Run Window Transparency Tool</button>
+            <label id="window-transparency-label"></label>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -76,6 +89,21 @@
     const customPythonPackageInput = document.getElementById('customPythonPackage');
     const showYuzuTab = document.getElementById('showYuzuTab');
     const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
+    const windowTransparencyToolHotkeyInput = document.getElementById('window-transparency-tool-hotkey');
+    const runWindowTransparencyToolBtn = document.getElementById('runWindowTransparencyToolBtn');
+
+    const setHotkey = (event, inputElement) => {
+        event.preventDefault();
+        const keys = [];
+        if (event.ctrlKey) keys.push('Ctrl');
+        if (event.shiftKey) keys.push('Shift');
+        if (event.altKey) keys.push('Alt');
+        if (event.key && !['Control', 'Shift', 'Alt'].includes(event.key)) keys.push(event.key.toUpperCase());
+        inputElement.value = keys.join('+');
+        saveSettings();
+    };
+
+    windowTransparencyToolHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, windowTransparencyToolHotkeyInput));
 
     async function loadSettings() {
         const settings = await ipcRenderer.invoke('settings.getSettings');
@@ -87,6 +115,7 @@
             startConsoleMinimizedCheckbox.checked = settings.startConsoleMinimized || false;
             customPythonPackageInput.value = settings.customPythonPackage || 'GameSentenceMiner';
             showYuzuTab.checked = settings.showYuzuTab || false;
+            windowTransparencyToolHotkeyInput.value = settings.windowTransparencyToolHotkey || 'Ctrl+Alt+Y';
         }
     }
 
@@ -99,6 +128,7 @@
             startConsoleMinimized: startConsoleMinimizedCheckbox.checked,
             customPythonPackage: customPythonPackageInput.value,
             showYuzuTab: showYuzuTab.checked,
+            windowTransparencyToolHotkey: windowTransparencyToolHotkeyInput.value,
         };
         await ipcRenderer.invoke('settings.saveSettings', settings);
     }
@@ -122,6 +152,10 @@
     openGSMSettingsBtn.addEventListener('click', async () => {
         console.log("Opening GSM Settings");
         await ipcRenderer.invoke('settings.openGSMSettings');
+    });
+
+    runWindowTransparencyToolBtn.addEventListener('click', async () => {
+        await ipcRenderer.invoke('settings.runWindowTransparencyTool');
     });
 
     // selectPythonPathButton.addEventListener('click', async () => {
