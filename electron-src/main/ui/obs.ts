@@ -118,7 +118,7 @@ export function openOBSWindow() {
         },
     });
 
-    obsWindow.loadFile(path.join(getAssetsDir(), 'obs.html'));
+    obsWindow.loadFile(path.join(getAssetsDir(), 'home.html'));
 
     obsWindow.on('close', (event) => {
         if (!isQuitting) {

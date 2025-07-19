@@ -53,10 +53,34 @@
         </button>
     </div>
 </div>
+<div class="card">
+    <h2>Support GSM Development</h2>
+    <p style="margin-bottom: 15px; color: #afacac; font-size: 14px; text-align: center;">
+        GSM will always be free, but a lot of work goes into maintaining and improving it. If you've found this project helpful in any way, please consider supporting continued development:
+    </p>
+    <div class="donation-links" style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+        <a href="#" onclick="openExternalLink('https://github.com/sponsors/bpwhelan')" class="donation-link" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #24292e; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#1a1e22'" onmouseout="this.style.backgroundColor='#24292e'">
+            <span style="font-size: 16px;">💖</span>
+            <span>GitHub Sponsors</span>
+        </a>
+        <a href="#" onclick="openExternalLink('https://ko-fi.com/beangate')" class="donation-link" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #ff5722; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#e64a19'" onmouseout="this.style.backgroundColor='#ff5722'">
+            <span style="font-size: 16px;">☕</span>
+            <span>Ko-fi</span>
+        </a>
+        <a href="#" onclick="openExternalLink('https://www.patreon.com/GameSentenceMiner')" class="donation-link" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #f96854; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#e5452f'" onmouseout="this.style.backgroundColor='#f96854'">
+            <span style="font-size: 16px;">🎯</span>
+            <span>Patreon</span>
+        </a>
+    </div>
+</div>
 <script>
     const {ipcRenderer} = require('electron');
     const removeSceneBtn = document.getElementById('removeSceneBtn');
     const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
+
+    function openExternalLink(url) {
+        ipcRenderer.invoke('open-external-link', url);
+    }
 
     document.getElementById('sceneSelect').addEventListener('change', (event) => {
         ipcRenderer.invoke('obs.switchScene.id', event.target.value);

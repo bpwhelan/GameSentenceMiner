@@ -94,7 +94,7 @@
         <iframe src="launcher.html"></iframe>
     </div>
     <div id="obs" class="tab-content active">
-        <iframe src="obs.html"></iframe>
+        <iframe src="home.html"></iframe>
     </div>
     <div id="steam" class="tab-content">
         <iframe src="steam.html"></iframe>
@@ -392,7 +392,7 @@
                 </div>
                 <div id="stop-ocr-controls" class="input-group"
                     style="display: none; position: relative; justify-content: center; align-items: center; gap: 16px;">
-                    <label id="ocr-status-label" style="position: absolute; left: 0; text-align: left; font-size: 18px;"></label>
+                    <label id="ocr-status-label" style="position: absolute; left: 0; text-align: left; font-size: 18px; padding-bottom: 15px"></label>
                     <div style="display: flex; gap: 16px;">
                         <button id="stop-ocr" class="danger">Stop OCR (Open Settings)</button>
                         <button id="pause-ocr" class="secondary">Pause OCR</button>
@@ -558,7 +558,7 @@
                         } else if (isSleeping || ocr_settings?.scanRate > 0.5) {
                             // ocrTerm.write('\r\x1b[2K');
                             // ocrTerm.write('\r' + trimmedData.trim() + dotsAnimation[sleepingAnimationFrame]);
-                            document.getElementById('ocr-status-label').innerHTML = "Status: Sleeping - Image empty or unchanged" + '<span style="font-size: 2.0em;">' + dotsAnimation[sleepingAnimationFrame] + '</span>';
+                            document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Sleeping - Image empty or unchanged" + '<span style="font-size: 2.0em;">' + dotsAnimation[sleepingAnimationFrame] + '</span>';
                             sleepingAnimationFrame = (sleepingAnimationFrame + 1) % dotsAnimation.length;
                         }
                         return;
@@ -570,7 +570,7 @@
                     }
                     if (trimmedData.endsWith(engine_name + ":") && !paused) {
                         // Start scanning animation
-                        document.getElementById('ocr-status-label').innerHTML = "Status: Scanning using " + engine_pretty_html + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>' ;
+                        document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Scanning using " + engine_pretty_html + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>' ;
                         animationFrame = (animationFrame + 1) % scanningAnimation.length;
                         //if (!isScanning) {
                         //   isScanning = true;

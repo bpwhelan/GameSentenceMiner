@@ -61,6 +61,11 @@ export function registerFrontPageIPC() {
     ipcMain.handle('front.getAllOCRConfigs', async () => {
         return await getAllOCRConfigs();
     });
+
+    ipcMain.handle('open-external-link', async (_, url: string) => {
+        const { shell } = await import('electron');
+        await shell.openExternal(url);
+    });
 }
 
 
