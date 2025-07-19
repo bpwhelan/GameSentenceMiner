@@ -131,6 +131,16 @@ def set_dpi_awareness():
     ctypes.windll.shcore.SetProcessDpiAwareness(per_monitor_awareness)
 
 def get_scene_ocr_config(use_window_as_config=False, window=""):
+    path = get_scene_ocr_config_path(use_window_as_config, window)
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        from json import load
+        data = load(f)
+        ocr_config = OCRConfig.from_dict(data)
+        return ocr_config
+
+def get_scene_ocr_config_path(use_window_as_config=False, window=""):
     ocr_config_dir = get_ocr_config_path()
     try:
         if use_window_as_config:

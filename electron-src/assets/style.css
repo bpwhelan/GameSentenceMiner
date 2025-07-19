@@ -164,14 +164,6 @@ button.danger:hover {
     max-width: 240px;
 }
 
-/* The small arrow pointing to the trigger */
-.tooltip .tooltiptext::after,
-.tooltip-indicator .tooltiptext::after {
-    content: '';
-    position: absolute;
-    border-width: 6px;
-    border-style: solid;
-}
 
 /* --- Show the tooltip on hover/focus --- */
 /* Using :focus-within for better accessibility */

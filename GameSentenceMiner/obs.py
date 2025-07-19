@@ -334,6 +334,7 @@ async def register_scene_change_callback(callback):
 
         logger.info("Scene change callback registered.")
 
+
 def get_screenshot(compression=-1):
     try:
         screenshot = os.path.join(configuration.get_temporary_directory(), make_unique_file_name('screenshot.png'))
@@ -376,6 +377,7 @@ def get_screenshot_base64(compression=0, width=None, height=None):
     except Exception as e:
         logger.error(f"Error getting screenshot: {e}")
         return None
+
 
 def update_current_game():
     gsm_state.current_game = get_current_scene()

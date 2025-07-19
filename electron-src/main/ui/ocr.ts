@@ -167,6 +167,53 @@ function runCommandAndLog(command: string[], closeConsoleOnFinish = true) {
     });
 }
 
+export async function startOCR() {
+    // This should never happen, but just in case
+    if (ocrProcess) {
+        ocrProcess.kill('SIGTERM'); // terminate it gracefully if running
+        ocrProcess = null;
+    }
+    if (!ocrProcess) {
+        const ocr_config = getOCRConfig();
+        const config = await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig)
+        console.log(config);
+        if (!config) {
+            const response = await dialog.showMessageBox(mainWindow!, {
+                type: 'question',
+                buttons: ['Yes', 'No'],
+                defaultId: 1,
+                title: 'No OCR Found',
+                message: `No OCR found for scene, run area selector on currently selected window: ${ocr_config.window_name}? ("No" will ocr the entire window)`
+            });
+
+            if (response.response === 0) { // 'Yes' button
+                await runScreenSelector(ocr_config.window_name)
+            } else {
+                // Do nothing, just run OCR on the entire window
+            }
+        }
+        const command = [
+            `${getPythonPath()}`, `-m`, `GameSentenceMiner.ocr.owocr_helper`,
+            `--language`, `${ocr_config.language}`,
+            `--ocr1`, `${ocr_config.ocr1}`,
+            `--ocr2`, `${ocr_config.ocr2}`,
+            `--twopassocr`, `${ocr_config.twoPassOCR ? 1 : 0}`,
+        ];
+
+        if (ocr_config.ocr_screenshots) command.push("--clipboard");
+        if (ocr_config.sendToClipboard) command.push("--clipboard-output")
+        if (ocr_config.window_name) command.push("--window", `${ocr_config.window_name}`);
+        if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
+        if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
+        if (ocr_config.optimize_second_scan) command.push("--optimize_second_scan");
+        if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
+        if (ocr_config.keep_newline) command.push("--keep_newline");
+        if (ocr_config.useObsAsSource) command.push('--obs_ocr')
+
+        runOCR(command);
+    }
+}
+
 export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.install-recommended-deps', () => {
         const pythonPath = getPythonPath();
@@ -253,50 +300,7 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.start-ocr', async () => {
-        // This should never happen, but just in case
-        if (ocrProcess) {
-            ocrProcess.kill('SIGTERM'); // terminate it gracefully if running
-            ocrProcess = null;
-        }
-        if (!ocrProcess) {
-            const ocr_config = getOCRConfig();
-            const config = await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig)
-            console.log(config);
-            if (!config) {
-                const response = await dialog.showMessageBox(mainWindow!, {
-                    type: 'question',
-                    buttons: ['Yes', 'No'],
-                    defaultId: 1,
-                    title: 'No OCR Found',
-                    message: `No OCR found for scene, run area selector on currently selected window: ${ocr_config.window_name}? ("No" will ocr the entire window)`
-                });
-
-                if (response.response === 0) { // 'Yes' button
-                    await runScreenSelector(ocr_config.window_name)
-                } else {
-                    // Do nothing, just run OCR on the entire window
-                }
-            }
-            const command = [
-                `${getPythonPath()}`, `-m`, `GameSentenceMiner.ocr.owocr_helper`,
-                `--language`, `${ocr_config.language}`,
-                `--ocr1`, `${ocr_config.ocr1}`,
-                `--ocr2`, `${ocr_config.ocr2}`,
-                `--twopassocr`, `${ocr_config.twoPassOCR ? 1 : 0}`,
-            ];
-
-            if (ocr_config.ocr_screenshots) command.push("--clipboard");
-            if (ocr_config.sendToClipboard) command.push("--clipboard-output")
-            if (ocr_config.window_name) command.push("--window", `${ocr_config.window_name}`);
-            if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
-            if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
-            if (ocr_config.optimize_second_scan) command.push("--optimize_second_scan");
-            if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
-            if (ocr_config.keep_newline) command.push("--keep_newline");
-            if (ocr_config.useObsAsSource) command.push('--obs_ocr')
-
-            runOCR(command);
-        }
+        await startOCR();
     });
 
     ipcMain.on('ocr.start-ocr-ss-only', () => {

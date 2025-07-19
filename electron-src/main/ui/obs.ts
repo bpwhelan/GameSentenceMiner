@@ -506,6 +506,11 @@ export async function registerOBSIPC() {
     await getOBSConnection();
 }
 
+export async function setOBSScene(sceneName: string): Promise<void> {
+    await getOBSConnection();
+    await obs.call('SetCurrentProgramScene', {sceneName});
+}
+
 export async function getOBSScenes(): Promise<ObsScene[]> {
     const {scenes} = await obs.call('GetSceneList');
     return scenes

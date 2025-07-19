@@ -11,7 +11,7 @@ from PIL import Image, ImageTk
 
 # Assuming a mock or real obs module exists in this path
 from GameSentenceMiner import obs
-from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config
+from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config_path
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 try:
@@ -123,7 +123,7 @@ class ScreenSelector:
 
     def load_existing_rectangles(self):
         """Loads rectangles from config, converting from percentage to absolute pixels for use."""
-        config_path = get_scene_ocr_config(self.use_window_as_config, self.window_name)
+        config_path = get_scene_ocr_config_path(self.use_window_as_config, self.window_name)
         win_geom = self.target_window_geometry  # Use current geometry for conversion
         win_w, win_h, win_l, win_t = win_geom['width'], win_geom['height'], win_geom['left'], win_geom['top']
 
@@ -168,7 +168,7 @@ class ScreenSelector:
 
     def save_rects(self, event=None):
         """Saves rectangles to config, converting from absolute pixels to percentages."""
-        config_path = get_scene_ocr_config(self.use_window_as_config, self.window_name)
+        config_path = get_scene_ocr_config_path(self.use_window_as_config, self.window_name)
         win_geom = self.target_window_geometry
         win_l, win_t, win_w, win_h = win_geom['left'], win_geom['top'], win_geom['width'], win_geom['height']
         print(f"Saving rectangles to: {config_path} relative to window: {win_geom}")

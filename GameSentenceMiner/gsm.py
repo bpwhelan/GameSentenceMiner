@@ -12,6 +12,7 @@ from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
 from GameSentenceMiner.vad import vad_processor
 from GameSentenceMiner.util.model import VADResult
+import time
 
 try:
     import os.path
@@ -45,7 +46,6 @@ try:
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
-    import time
     logger.info("Something bad happened during import/initialization, closing in 5 seconds")
     logger.exception(e)
     time.sleep(5)
