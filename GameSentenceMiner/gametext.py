@@ -130,15 +130,14 @@ async def handle_new_text_event(current_clipboard, line_time=None):
 async def find_box_for_sentence(sentence):
     boxes = []
     logger.info(f"Finding Box for Sentence: {sentence}")
-    box, font_size = await get_overlay_coords.find_box_for_sentence(sentence)
-    logger.info(f"Found Box: {box}, Font Size: {font_size}")
-    if box:
-        x1, y1, x2, y2 = box
-        boxes.append({'sentence': sentence, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'fontSize': font_size})
+    boxes, font_size = await get_overlay_coords.find_box_for_sentence(sentence)
+    logger.info(f"Found Boxes: {boxes}, Font Size: {font_size}")
+    # if boxes:
+        # x1, y1, x2, y2 = box
+        # boxes.append({'sentence': sentence, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'fontSize': font_size})
         # x1, y1, x2, y2 = box
         # requests.post("http://localhost:3000/open-overlay", json={"sentence": sentence, "x1": x1, "y1": y1, "x2": x2, "y2": y2, "fontSize": font_size})
-        return boxes
-    return None
+    return boxes
 
 def reset_line_hotkey_pressed():
     global current_line_time

@@ -4,7 +4,7 @@ import base64
 from PIL import Image
 import obsws_python as obs
 
-from GameSentenceMiner.owocr.owocr.ocr import OneOCR
+from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, OneOCR
 from GameSentenceMiner.obs import *
 
 # OBS WebSocket settings
@@ -16,6 +16,7 @@ WINDOW_NAME = "Nier:Automata"
 WIDTH = 2560
 HEIGHT = 1440
 oneocr = OneOCR()
+lens = GoogleLens()
 
 async def get_full_screenshot() -> Image.Image | None:
     # print(f"Attempting to connect to OBS WebSocket at ws://{OBS_HOST}:{OBS_PORT}")
@@ -63,7 +64,8 @@ async def find_box_for_sentence(sentence_to_check):
     full_screenshot_image = await get_full_screenshot()
     if full_screenshot_image:
         print("Full screenshot captured successfully. Now performing local OCR...")
-        ocr_results = oneocr(full_screenshot_image, sentence_to_check=sentence_to_check)
+        ocr_results = lens(full_screenshot_image, return_coords=True)
+        # ocr_results = oneocr(full_screenshot_image, sentence_to_check=sentence_to_check)
         print("\n--- OCR Results ---")
         print(ocr_results)
 
