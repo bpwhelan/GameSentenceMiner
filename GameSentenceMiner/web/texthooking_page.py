@@ -259,7 +259,7 @@ def clear_history():
     return jsonify({'message': 'History cleared successfully'}), 200
 
 
-async def add_event_to_texthooker(line: GameLine):
+async def add_event_to_texthooker(line: GameLine, boxes=None):
     new_event = event_manager.add_gameline(line)
     await websocket_server_thread.send_text({
         'event': 'text_received',
@@ -268,6 +268,8 @@ async def add_event_to_texthooker(line: GameLine):
     })
     if get_config().advanced.plaintext_websocket_port:
         await plaintext_websocket_server_thread.send_text(line.text)
+    if boxes and len(boxes) > 0 and overlay_server_thread:
+        await overlay_server_thread.send_text(boxes)
 
 
 @app.route('/update_checkbox', methods=['POST'])
@@ -437,7 +439,7 @@ class WebsocketServerThread(threading.Thread):
 
     async def send_text(self, text):
         if text:
-            if isinstance(text, dict):
+            if isinstance(text, dict) or isinstance(text, list):
                 text = json.dumps(text)
             return asyncio.run_coroutine_threadsafe(
                 self.send_text_coroutine(text), self.loop)
@@ -471,7 +473,7 @@ def handle_exit_signal(loop):
         task.cancel()
 
 async def texthooker_page_coro():
-    global websocket_server_thread, plaintext_websocket_server_thread
+    global websocket_server_thread, plaintext_websocket_server_thread, overlay_server_thread
     # Run the WebSocket server in the asyncio event loop
     flask_thread = threading.Thread(target=start_web_server)
     flask_thread.daemon = True
@@ -483,6 +485,9 @@ async def texthooker_page_coro():
     if get_config().advanced.plaintext_websocket_port:
         plaintext_websocket_server_thread = WebsocketServerThread(read=False, ws_port=get_config().advanced.plaintext_websocket_port)
         plaintext_websocket_server_thread.start()
+        
+    overlay_server_thread = WebsocketServerThread(read=False, ws_port=49999)
+    overlay_server_thread.start()
 
     # Keep the main asyncio event loop running (for the WebSocket server)
 

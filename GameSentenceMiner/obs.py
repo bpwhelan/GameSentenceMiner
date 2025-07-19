@@ -360,7 +360,7 @@ def get_screenshot(compression=-1):
 
 def get_screenshot_base64(compression=75, width=None, height=None):
     try:
-        # update_current_game()
+        update_current_game()
         current_game = get_current_game()
         if not current_game:
             logger.error("No active game scene found.")
@@ -370,7 +370,6 @@ def get_screenshot_base64(compression=75, width=None, height=None):
         if not current_source_name:
             logger.error("No active source found in the current scene.")
             return None
-        print(current_source_name)
         # version = client.send("GetVersion", raw=True)
         # pprint(version)
         # responseraw = client.send("GetSourceScreenshot", {"sourceName": current_source_name, "imageFormat": "png", "imageWidth": width, "imageHeight": height, "compressionQuality": compression}, raw=True)

@@ -123,17 +123,22 @@ async def handle_new_text_event(current_clipboard, line_time=None):
     current_line_time = line_time if line_time else datetime.now()
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")
     add_line(current_line_after_regex, line_time)
+    boxes = await find_box_for_sentence(current_line)
     if len(get_text_log().values) > 0:
-        await add_event_to_texthooker(get_text_log()[-1])
-    await find_box_for_sentence(current_line)
+        await add_event_to_texthooker(get_text_log()[-1], boxes=boxes)
 
 async def find_box_for_sentence(sentence):
-    box, font_size = await get_overlay_coords.find_box_for_sentence(current_line)
-    print(box)
-    print(font_size)
+    boxes = []
+    logger.info(f"Finding Box for Sentence: {sentence}")
+    box, font_size = await get_overlay_coords.find_box_for_sentence(sentence)
+    logger.info(f"Found Box: {box}, Font Size: {font_size}")
     if box:
         x1, y1, x2, y2 = box
-        requests.post("http://localhost:3000/open-overlay", json={"sentence": current_line, "x1": x1, "y1": y1, "x2": x2, "y2": y2, "fontSize": font_size})
+        boxes.append({'sentence': sentence, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'fontSize': font_size})
+        # x1, y1, x2, y2 = box
+        # requests.post("http://localhost:3000/open-overlay", json={"sentence": sentence, "x1": x1, "y1": y1, "x2": x2, "y2": y2, "fontSize": font_size})
+        return boxes
+    return None
 
 def reset_line_hotkey_pressed():
     global current_line_time

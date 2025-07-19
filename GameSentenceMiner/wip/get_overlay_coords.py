@@ -4,7 +4,7 @@ import base64
 from PIL import Image
 import obsws_python as obs
 
-from GameSentenceMiner.owocr.owocr.ocr import *
+from GameSentenceMiner.owocr.owocr.ocr import OneOCR
 from GameSentenceMiner.obs import *
 
 # OBS WebSocket settings
@@ -38,13 +38,13 @@ async def get_full_screenshot() -> Image.Image | None:
     #     if not response.image_data:
     #         print("Failed to get screenshot data from OBS.")
     #         return None
-    #
 
     print("Getting Screenshot from OBS")
     try:
+        update_current_game()
         start_time = time.time()
         image_data = get_screenshot_base64(compression=75, width=1280, height=720)
-        image_data = base64.b64decode(image_data.split(",")[1])
+        image_data = base64.b64decode(image_data)
         img = Image.open(io.BytesIO(image_data)).convert("RGBA").resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
         # img.show()
         print(f"Screenshot captured in {time.time() - start_time:.2f} seconds.")
@@ -58,7 +58,7 @@ async def get_full_screenshot() -> Image.Image | None:
 async def find_box_for_sentence(sentence_to_check):
     # connect_to_obs_sync(5)
     print("in find_box")
-    await asyncio.sleep(.5)
+    # await asyncio.sleep(.5)
     print("after_initial_sleep")
     full_screenshot_image = await get_full_screenshot()
     if full_screenshot_image:
