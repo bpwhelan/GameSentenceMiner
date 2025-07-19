@@ -26,13 +26,13 @@ GSM significantly enhances your Anki cards with rich contextual information:
 * **AI Translation**: Integrates AI to provide quick translations of the captured sentence. Custom Prompts also supported. (Optional, Bring your own Key)
 
 
-#### Game Example
+#### Game Example (Has Audio)
 
 https://github.com/user-attachments/assets/df6bc38e-d74d-423e-b270-8a82eec2394c
 
 ---
 
-#### VN Example
+#### VN Example (Has Audio)
 
 https://github.com/user-attachments/assets/ee670fda-1a8b-4dec-b9e6-072264155c6e
 
