@@ -136,7 +136,7 @@ class VADProcessor(ABC):
         if get_config().vad.cut_and_splice_segments:
             self.extract_audio_and_combine_segments(input_audio, voice_activity, output_audio, padding=get_config().vad.splice_padding)
         else:
-            ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio, trim_beginning=get_config().vad.trim_beginning, fade_in_duration=0.05, fade_out_duration=00)
+            ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio, trim_beginning=get_config().vad.trim_beginning, fade_in_duration=0.05, fade_out_duration=0)
         return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, self.vad_system_name, voice_activity, output_audio)
 
 class SileroVADProcessor(VADProcessor):
