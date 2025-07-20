@@ -259,7 +259,7 @@ def clear_history():
     return jsonify({'message': 'History cleared successfully'}), 200
 
 
-async def add_event_to_texthooker(line: GameLine, boxes=None):
+async def add_event_to_texthooker(line: GameLine):
     new_event = event_manager.add_gameline(line)
     await websocket_server_thread.send_text({
         'event': 'text_received',
@@ -268,6 +268,9 @@ async def add_event_to_texthooker(line: GameLine, boxes=None):
     })
     if get_config().advanced.plaintext_websocket_port:
         await plaintext_websocket_server_thread.send_text(line.text)
+        
+        
+async def send_word_coordinates_to_overlay(boxes):
     if boxes and len(boxes) > 0 and overlay_server_thread:
         await overlay_server_thread.send_text(boxes)
 

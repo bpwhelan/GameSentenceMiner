@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional, List
+from enum import Enum
 
 from dataclasses_json import dataclass_json
 
