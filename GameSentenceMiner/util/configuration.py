@@ -15,6 +15,7 @@ from enum import Enum
 import toml
 from dataclasses_json import dataclass_json
 
+
 OFF = 'OFF'
 # VOSK = 'VOSK'
 SILERO = 'SILERO'
@@ -71,9 +72,231 @@ class Language(Enum):
     PORTUGUESE = "pt"
     HINDI = "hi"
     ARABIC = "ar"
+    TURKISH = "tr"
+    DUTCH = "nl"
+    SWEDISH = "sv"
+    FINNISH = "fi"
+    DANISH = "da"
+    NORWEGIAN = "no"
+    
 
 AVAILABLE_LANGUAGES = [lang.value for lang in Language]
 AVAILABLE_LANGUAGES_DICT = {lang.value: lang for lang in Language}
+
+class CommonLanguages(str, Enum):
+    """
+    An Enum of the world's most common languages, based on total speaker count.
+
+    The enum member is the common English name (e.g., ENGLISH) and its
+    value is the ISO 639-1 two-letter code (e.g., 'en').
+
+    Inheriting from `str` allows for direct comparison and use in functions
+    that expect a string, e.g., `CommonLanguages.FRENCH == 'fr'`.
+
+    This list is curated from Wikipedia's "List of languages by total number of speakers"
+    and contains over 200 entries to provide broad but practical coverage.
+    """
+    ENGLISH = 'en'
+    AFRIKAANS = 'af'
+    AKAN = 'ak'
+    ALBANIAN = 'sq'
+    ALGERIAN_SPOKEN_ARABIC = 'arq'
+    AMHARIC = 'am'
+    ARMENIAN = 'hy'
+    ASSAMESE = 'as'
+    BAMBARA = 'bm'
+    BASQUE = 'eu'
+    BELARUSIAN = 'be'
+    BENGALI = 'bn'
+    BHOJPURI = 'bho'
+    BOSNIAN = 'bs'
+    BODO = 'brx'
+    BULGARIAN = 'bg'
+    BURMESE = 'my'
+    CAPE_VERDEAN_CREOLE = 'kea'
+    CATALAN = 'ca'
+    CEBUANO = 'ceb'
+    CHHATTISGARHI = 'hns'
+    CHITTAGONIAN = 'ctg'
+    CROATIAN = 'hr'
+    CZECH = 'cs'
+    DANISH = 'da'
+    DECCAN = 'dcc'
+    DOGRI = 'doi'
+    DZONGKHA = 'dz'
+    DUTCH = 'nl'
+    EGYPTIAN_SPOKEN_ARABIC = 'arz'
+    ESTONIAN = 'et'
+    EWE = 'ee'
+    FAROESE = 'fo'
+    FIJIAN = 'fj'
+    FINNISH = 'fi'
+    FRENCH = 'fr'
+    GALICIAN = 'gl'
+    GAN_CHINESE = 'gan'
+    GEORGIAN = 'ka'
+    GERMAN = 'de'
+    GREEK = 'el'
+    GREENLANDIC = 'kl'
+    GUJARATI = 'gu'
+    HAITIAN_CREOLE = 'ht'
+    HAUSA = 'ha'
+    HAKKA_CHINESE = 'hak'
+    HARYANVI = 'bgc'
+    HEBREW = 'he'
+    HINDI = 'hi'
+    HUNGARIAN = 'hu'
+    ICELANDIC = 'is'
+    IGBO = 'ig'
+    INDONESIAN = 'id'
+    IRANIAN_PERSIAN = 'fa'
+    IRISH = 'ga'
+    ITALIAN = 'it'
+    JAVANESE = 'jv'
+    JAMAICAN_PATOIS = 'jam'
+    JAPANESE = 'ja'
+    KANNADA = 'kn'
+    KASHMIRI = 'ks'
+    KAZAKH = 'kk'
+    KHMER = 'km'
+    KONGO = 'kg'
+    KONKANI = 'kok'
+    KOREAN = 'ko'
+    KURDISH = 'kmr'
+    LAO = 'lo'
+    LATVIAN = 'lv'
+    LINGALA = 'ln'
+    LITHUANIAN = 'lt'
+    LUBA_KASAI = 'lua'
+    LUXEMBOURGISH = 'lb'
+    MACEDONIAN = 'mk'
+    MADURESE = 'mad'
+    MAGAHI = 'mag'
+    MAITHILI = 'mai'
+    MALAGASY = 'mg'
+    MALAYALAM = 'ml'
+    MALTESE = 'mt'
+    MANDARIN_CHINESE = 'zh'
+    MANIPURI = 'mni'
+    MARATHI = 'mr'
+    MAORI = 'mi'
+    MAURITIAN_CREOLE = 'mfe'
+    MIN_NAN_CHINESE = 'nan'
+    MINANGKABAU = 'min'
+    MONGOLIAN = 'mn'
+    MONTENEGRIN = 'cnr'
+    MOROCCAN_SPOKEN_ARABIC = 'ary'
+    NDEBELE = 'nr'
+    NEPALI = 'ne'
+    NIGERIAN_PIDGIN = 'pcm'
+    NORTHERN_KURDISH = 'kmr'
+    NORTHERN_PASHTO = 'pbu'
+    NORTHERN_UZBEK = 'uz'
+    NORWEGIAN = 'no'
+    ODIA = 'or'
+    PAPIAMENTO = 'pap'
+    POLISH = 'pl'
+    PORTUGUESE = 'pt'
+    ROMANIAN = 'ro'
+    RWANDA = 'rw'
+    RUSSIAN = 'ru'
+    SAMOAN = 'sm'
+    SANTALI = 'sat'
+    SARAIKI = 'skr'
+    SCOTTISH_GAELIC = 'gd'
+    SEYCHELLOIS_CREOLE = 'crs'
+    SERBIAN = 'sr'
+    SHONA = 'sn'
+    SINDHI = 'sd'
+    SINHALA = 'si'
+    SLOVAK = 'sk'
+    SLOVENIAN = 'sl'
+    SOMALI = 'so'
+    SOTHO = 'st'
+    SOUTH_AZERBAIJANI = 'azb'
+    SOUTHERN_PASHTO = 'ps'
+    SPANISH = 'es'
+    STANDARD_ARABIC = 'ar'
+    SUDANESE_SPOKEN_ARABIC = 'apd'
+    SUNDANESE = 'su'
+    SWAHILI = 'sw'
+    SWATI = 'ss'
+    SWEDISH = 'sv'
+    SYLHETI = 'syl'
+    TAGALOG = 'tl'
+    TAMIL = 'ta'
+    TELUGU = 'te'
+    THAI = 'th'
+    TIGRINYA = 'ti'
+    TIBETAN = 'bo'
+    TONGAN = 'to'
+    TSONGA = 'ts'
+    TSWANA = 'tn'
+    TWI = 'twi'
+    UKRAINIAN = 'uk'
+    URDU = 'ur'
+    UYGHUR = 'ug'
+    VENDA = 've'
+    VIETNAMESE = 'vi'
+    WELSH = 'cy'
+    WESTERN_PUNJABI = 'pnb'
+    WOLOF = 'wo'
+    WU_CHINESE = 'wuu'
+    XHOSA = 'xh'
+    YORUBA = 'yo'
+    YUE_CHINESE = 'yue'
+    ZULU = 'zu'
+    
+
+    # Helper methods
+    @classmethod
+    def get_all_codes(cls) -> list[str]:
+        """Returns a list of all language codes (e.g., ['en', 'zh', 'hi'])."""
+        return [lang.value for lang in cls]
+
+    @classmethod
+    def get_all_names(cls) -> list[str]:
+        """Returns a list of all language names (e.g., ['ENGLISH', 'MANDARIN_CHINESE'])."""
+        return [lang.name for lang in cls]
+    
+    @classmethod
+    def get_all_names_pretty(cls) -> list[str]:
+        """Returns a list of all language names formatted for display (e.g., ['English', 'Mandarin Chinese'])."""
+        return [lang.name.replace('_', ' ').title() for lang in cls]
+
+    @classmethod
+    def get_choices(cls) -> list[tuple[str, str]]:
+        """
+        Returns a list of (value, label) tuples for use in web framework
+        choice fields (e.g., Django, Flask).
+
+        Example: [('en', 'English'), ('zh', 'Mandarin Chinese')]
+        """
+        return [(lang.value, lang.name.replace('_', ' ').title()) for lang in cls]
+    
+    # Method to lookup language by it's name
+    @classmethod
+    def from_name(cls, name: str) -> 'CommonLanguages':
+        """
+        Looks up a language by its name (e.g., 'ENGLISH') and returns the corresponding enum member.
+        Raises ValueError if not found.
+        """
+        try:
+            return cls[name]
+        except KeyError:
+            raise ValueError(f"Language '{name}' not found in CommonLanguages")
+        
+    # Method to lookup language by its code
+    @classmethod
+    def from_code(cls, code: str) -> 'CommonLanguages':
+        """
+        Looks up a language by its code (e.g., 'en') and returns the corresponding enum member.
+        Raises ValueError if not found.
+        """
+        for lang in cls:
+            if lang.value == code:
+                return lang
+        raise ValueError(f"Language code '{code}' not found in CommonLanguages")
 
 @dataclass_json
 @dataclass
@@ -86,6 +309,7 @@ class General:
     open_multimine_on_startup: bool = True
     texthook_replacement_regex: str = ""
     texthooker_port: int = 55000
+    native_language: str = CommonLanguages.ENGLISH.value
 
 
 @dataclass_json
@@ -283,6 +507,16 @@ class Ai:
                 self.provider = AI_GEMINI
             if self.provider == 'groq':
                 self.provider = AI_GROQ
+                
+                
+# Experimental Features section, will change often
+@dataclass_json
+@dataclass
+class WIP:
+    overlay_websocket_port: int = 55003
+    overlay_websocket_send: bool = False
+                    
+
 
 @dataclass_json
 @dataclass
@@ -300,6 +534,7 @@ class ProfileConfig:
     vad: VAD = field(default_factory=VAD)
     advanced: Advanced = field(default_factory=Advanced)
     ai: Ai = field(default_factory=Ai)
+    wip: WIP = field(default_factory=WIP)
 
 
     # This is just for legacy support
@@ -481,6 +716,7 @@ class Config:
             self.sync_shared_field(config, profile, "advanced")
             self.sync_shared_field(config, profile, "paths")
             self.sync_shared_field(config, profile, "obs")
+            self.sync_shared_field(config, profile, "wip")
             self.sync_shared_field(config.ai, profile.ai, "anki_field")
             self.sync_shared_field(config.ai, profile.ai, "provider")
             self.sync_shared_field(config.ai, profile.ai, "api_key")
