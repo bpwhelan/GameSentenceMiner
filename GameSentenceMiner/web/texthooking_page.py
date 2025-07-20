@@ -489,7 +489,7 @@ async def texthooker_page_coro():
         plaintext_websocket_server_thread = WebsocketServerThread(read=False, ws_port=get_config().advanced.plaintext_websocket_port)
         plaintext_websocket_server_thread.start()
         
-    overlay_server_thread = WebsocketServerThread(read=False, ws_port=49999)
+    overlay_server_thread = WebsocketServerThread(read=False, ws_port=get_config().wip.overlay_websocket_port)
     overlay_server_thread.start()
 
     # Keep the main asyncio event loop running (for the WebSocket server)
