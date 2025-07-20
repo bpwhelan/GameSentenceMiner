@@ -297,6 +297,14 @@ class CommonLanguages(str, Enum):
             if lang.value == code:
                 return lang
         raise ValueError(f"Language code '{code}' not found in CommonLanguages")
+    
+    @classmethod
+    def name_from_code(cls, code: str) -> str:
+        """
+        Returns the name of the language given its code (e.g., 'en' -> 'ENGLISH').
+        Raises ValueError if not found.
+        """
+        return cls.from_code(code).name
 
 @dataclass_json
 @dataclass
@@ -310,6 +318,12 @@ class General:
     texthook_replacement_regex: str = ""
     texthooker_port: int = 55000
     native_language: str = CommonLanguages.ENGLISH.value
+
+    def get_native_language_name(self) -> str:
+        try:
+            return CommonLanguages.name_from_code(self.native_language)
+        except ValueError:
+            return "Unknown"
 
 
 @dataclass_json
