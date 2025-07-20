@@ -1,9 +1,11 @@
+import sys
 import win32gui
 import win32con
 import win32api
 import keyboard
 import time
 import threading
+import signal
 
 from GameSentenceMiner.util.configuration import logger
 
@@ -137,6 +139,22 @@ def mouse_monitor_loop():
         # A small delay to reduce CPU usage
         time.sleep(0.1)
 
+class HandleSTDINThread(threading.Thread):
+    def run(self):
+        while True:
+            try:
+                line = input()
+                if "exit" in line.strip().lower():
+                    handle_quit()
+                    break
+            except EOFError:
+                break
+            
+def handle_quit():
+    if is_toggled and target_hwnd:
+        reset_window_state(target_hwnd)
+    logger.info("Exiting Window Transparency Tool.")
+
 # --- Main Execution Block ---
 
 if __name__ == "__main__":
@@ -155,8 +173,18 @@ if __name__ == "__main__":
     # Register the global hotkey
     keyboard.add_hotkey(hotkey, toggle_functionality)
 
+    # Handle SigINT/SigTERM gracefully
+    def signal_handler(sig, frame):
+        handle_quit()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     logger.info(f"Script running. Press '{hotkey}' on a window to toggle transparency.")
     logger.info("Press Ctrl+C in this console to exit.")
+    
+    HandleSTDINThread().start()
 
     # Keep the script running to listen for the hotkey.
     # keyboard.wait() is a blocking call that waits indefinitely.
