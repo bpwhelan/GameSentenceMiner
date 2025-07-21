@@ -529,6 +529,7 @@ class Ai:
 class WIP:
     overlay_websocket_port: int = 55499
     overlay_websocket_send: bool = False
+    monitor_to_capture: int = 0
                     
 
 

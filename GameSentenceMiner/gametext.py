@@ -137,7 +137,7 @@ async def find_box_for_sentence(sentence):
     boxes = []
     logger.info(f"Finding Box for Sentence: {sentence}")
     boxes, font_size = await get_overlay_coords.find_box_for_sentence(sentence)
-    logger.info(f"Found Boxes: {boxes}, Font Size: {font_size}")
+    # logger.info(f"Found Boxes: {boxes}, Font Size: {font_size}")
     # if boxes:
         # x1, y1, x2, y2 = box
         # boxes.append({'sentence': sentence, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'fontSize': font_size})

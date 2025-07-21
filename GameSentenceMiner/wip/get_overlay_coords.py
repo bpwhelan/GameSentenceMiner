@@ -108,11 +108,24 @@ async def get_full_screenshot() -> Image.Image | None:
 
     logger.info("Getting Screenshot from OBS")
     try:
-        update_current_game()
+        import mss as mss
         start_time = time.time()
-        image_data = get_screenshot_base64(compression=75, width=1280, height=720)
-        image_data = base64.b64decode(image_data)
-        img = Image.open(io.BytesIO(image_data)).convert("RGBA").resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+        with mss.mss() as sct:
+            monitors = sct.monitors
+            if len(monitors) > 1:
+                monitors = monitors[1:]
+            else:
+                monitors = [monitors[0]]
+            monitor = monitors[get_config().wip.monitor_to_capture]
+            sct_img = sct.grab(monitor)
+            img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+            # img.show()
+            return img
+            # update_current_game()
+
+            # image_data = get_screenshot_base64(compression=75, width=1280, height=720)
+            # image_data = base64.b64decode(image_data)
+        # img = Image.open(io.BytesIO(image_data)).convert("RGBA").resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
         # img.show()
         logger.info(f"Screenshot captured in {time.time() - start_time:.2f} seconds.")
 

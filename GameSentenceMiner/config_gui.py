@@ -139,6 +139,16 @@ class ConfigApp:
         self.ai_tab = None
         self.advanced_tab = None
         self.wip_tab = None
+        self.monitors = []
+        
+        try:
+            import mss as mss
+            self.monitors = [f"Monitor {i}: width: {monitor['width']}, height: {monitor['height']}" for i, monitor in enumerate(mss.mss().monitors[1:], start=1)]
+            print(self.monitors)
+            if len(self.monitors) == 0:
+                self.monitors = [1]
+        except ImportError:
+            self.monitors = []
 
         self.create_tabs()
 
@@ -375,7 +385,8 @@ class ConfigApp:
             ),
             wip=WIP(
                 overlay_websocket_port=int(self.overlay_websocket_port.get()),
-                overlay_websocket_send=self.overlay_websocket_send.get()
+                overlay_websocket_send=self.overlay_websocket_send.get(),
+                monitor_to_capture=self.monitor_to_capture.current()
             )
         )
 
@@ -1741,6 +1752,19 @@ class ConfigApp:
         self.overlay_websocket_send = tk.BooleanVar(value=self.settings.wip.overlay_websocket_send)
         ttk.Checkbutton(wip_frame, variable=self.overlay_websocket_send, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+
+        HoverInfoLabelWidget(wip_frame, text="Monitor to Capture:",
+                             tooltip="Select the monitor to capture (1-based index).",
+                             row=self.current_row, column=0)
+        self.monitor_to_capture = ttk.Combobox(wip_frame, values=self.monitors, state="readonly")
+        
+        # set index of monitor to capture, not the string
+        if self.monitors:
+            self.monitor_to_capture.current(self.settings.wip.monitor_to_capture)
+        else:
+            self.monitor_to_capture.set("OwOCR Not Detected")
+        self.monitor_to_capture.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         self.add_reset_button(wip_frame, "wip", self.current_row, 0, self.create_wip_tab)

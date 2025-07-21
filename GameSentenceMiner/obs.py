@@ -383,7 +383,33 @@ def get_screenshot_base64(compression=75, width=None, height=None):
     except Exception as e:
         logger.error(f"Error getting screenshot: {e}")
         return None
+    
 
+def get_screenshot_PIL(compression=75, img_format='png', width=None, height=None, retry=3):
+    import io
+    import base64
+    from PIL import Image
+    while True:
+        response = client.get_source_screenshot(name=get_current_game(), img_format=img_format, quality=compression, width=width, height=height)
+        try:
+            response.image_data = response.image_data.split(',', 1)[-1]  # Remove data:image/png;base64, prefix if present
+        except AttributeError:
+            retry -= 1
+            if retry <= 0:
+                logger.error(f"Error getting screenshot: {response}")
+                return None
+            continue
+        if response and response.image_data:
+            image_data = response.image_data.split(',', 1)[-1]  # Remove data:image/png;base64, prefix if present
+            image_data = base64.b64decode(image_data)
+            img = Image.open(io.BytesIO(image_data)).convert("RGBA")
+        # if width and height:
+            # img = img.resize((width, height), Image.Resampling.LANCZOS)
+            return img
+    return None
+
+    
+    
 
 def update_current_game():
     gsm_state.current_game = get_current_scene()
@@ -433,8 +459,31 @@ def main():
     disconnect_from_obs()
 
 if __name__ == '__main__':
+    from mss import mss
     logging.basicConfig(level=logging.INFO)
     # main()
     connect_to_obs_sync()
-    print(get_screenshot_base64(compression=75, width=1280, height=720))
+    i = 100
+    # for i in range(1, 100):
+    print(f"Getting screenshot {i}")
+    start = time.time()
+    # get_screenshot(compression=95)
+    # get_screenshot_base64(compression=95, width=1280, height=720)
+    img = get_screenshot_PIL(compression=i, img_format='png')
+    end = time.time()
+    print(f"Time taken to get screenshot with compression {i}: {end - start} seconds")
+    img.show()
+    
+    
+    start = time.time()
+    with mss() as sct:
+        monitor = sct.monitors[1]
+        sct_img = sct.grab(monitor)
+        img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+        img.show()
+    end = time.time()
+    print(f"Time taken to get screenshot with mss: {end - start} seconds")
+
+    
+    # print(get_screenshot_base64(compression=75, width=1280, height=720))
 
