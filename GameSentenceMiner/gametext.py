@@ -10,7 +10,9 @@ from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEM
 from GameSentenceMiner.util.configuration import *
 from GameSentenceMiner.util.text_log import *
 from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, send_word_coordinates_to_overlay, overlay_server_thread
-from GameSentenceMiner.wip import get_overlay_coords
+
+if get_config().wip.overlay_websocket_send:
+    import GameSentenceMiner.wip.get_overlay_coords as get_overlay_coords
 
 current_line = ''
 current_line_after_regex = ''
