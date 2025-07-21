@@ -609,9 +609,6 @@ async def async_main(reloading=False):
     signal.signal(signal.SIGINT, handle_exit())  # Handle Ctrl+C
     if is_windows():
         win32api.SetConsoleCtrlHandler(handle_exit())
-        
-    if is_beangate:
-        settings_window.set_test_func(lambda: run_new_thread(run_test_code))
 
     gsm_status.ready = True
     gsm_status.status = "Ready"
