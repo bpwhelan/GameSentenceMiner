@@ -282,7 +282,7 @@ class CommonLanguages(str, Enum):
         Raises ValueError if not found.
         """
         try:
-            return cls[name]
+            return cls[name.upper()]
         except KeyError:
             raise ValueError(f"Language '{name}' not found in CommonLanguages")
         
@@ -527,7 +527,7 @@ class Ai:
 @dataclass_json
 @dataclass
 class WIP:
-    overlay_websocket_port: int = 55003
+    overlay_websocket_port: int = 55499
     overlay_websocket_send: bool = False
                     
 
@@ -549,7 +549,14 @@ class ProfileConfig:
     advanced: Advanced = field(default_factory=Advanced)
     ai: Ai = field(default_factory=Ai)
     wip: WIP = field(default_factory=WIP)
-
+    
+    
+    def get_field_value(self, section: str, field_name: str):
+        section_obj = getattr(self, section, None)
+        if section_obj and hasattr(section_obj, field_name):
+            return getattr(section_obj, field_name)
+        else:
+            raise ValueError(f"Field '{field_name}' not found in section '{section}' of ProfileConfig.")
 
     # This is just for legacy support
     def load_from_toml(self, file_path: str):
@@ -992,4 +999,7 @@ anki_results = {}
 gsm_state = GsmAppState()
 is_dev = is_running_from_source()
 
+is_beangate = os.path.exists("C:/Users/Beangate")
+
 logger.debug(f"Running in development mode: {is_dev}")
+logger.debug(f"Running on Beangate's PC: {is_beangate}")

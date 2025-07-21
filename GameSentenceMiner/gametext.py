@@ -9,7 +9,7 @@ from websockets import InvalidStatus
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
 from GameSentenceMiner.util.configuration import *
 from GameSentenceMiner.util.text_log import *
-from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, send_word_coordinates_to_overlay
+from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, send_word_coordinates_to_overlay, overlay_server_thread
 from GameSentenceMiner.wip import get_overlay_coords
 
 current_line = ''
@@ -125,7 +125,7 @@ async def handle_new_text_event(current_clipboard, line_time=None):
     add_line(current_line_after_regex, line_time)
     if len(get_text_log().values) > 0:
         await add_event_to_texthooker(get_text_log()[-1])
-    if get_config().wip.overlay_websocket_port and get_config().wip.overlay_websocket_send:
+    if get_config().wip.overlay_websocket_port and get_config().wip.overlay_websocket_send and overlay_server_thread.has_clients():
         boxes = await find_box_for_sentence(current_line_after_regex)
         if boxes:
             await send_word_coordinates_to_overlay(boxes)

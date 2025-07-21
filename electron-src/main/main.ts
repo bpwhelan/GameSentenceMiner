@@ -11,6 +11,7 @@ import {
     getAutoUpdateElectron,
     getAutoUpdateGSMApp, getCustomPythonPackage, getLaunchSteamOnStart,
     getLaunchVNOnStart, getLaunchYuzuGameOnStart,
+    getPullPreReleases,
     getStartConsoleMinimized,
     setPythonPath, setWindowName
 } from "./store.js";
@@ -41,6 +42,8 @@ export const __dirname = path.dirname(__filename);
 function getAutoUpdater(): AppUpdater {
     const {autoUpdater} = electronUpdater;
     autoUpdater.autoDownload = false; // Disable auto download
+    autoUpdater.allowPrerelease = getPullPreReleases(); // Enable pre-releases
+    autoUpdater.allowDowngrade = true; // Allow downgrades
     return autoUpdater;
 }
 

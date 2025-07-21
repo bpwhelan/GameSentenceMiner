@@ -545,6 +545,8 @@ def async_loop():
             await check_obs_folder_is_correct()
         logger.info("Post-Initialization started.")
         vad_processor.init()
+        # if is_beangate:
+            # await run_test_code()
 
     asyncio.run(loop())
 
@@ -577,6 +579,13 @@ async def register_scene_switcher_callback():
             update_icon()
 
     await obs.register_scene_change_callback(scene_switcher_callback)
+    
+async def run_test_code():
+    if get_config().wip.overlay_websocket_port and get_config().wip.overlay_websocket_send:
+        boxes = await gametext.find_box_for_sentence("ちぇっ少しなの？")
+        if boxes:
+            await texthooking_page.send_word_coordinates_to_overlay(boxes)
+        await asyncio.sleep(2)
 
 async def async_main(reloading=False):
     global root, settings_window
@@ -600,6 +609,9 @@ async def async_main(reloading=False):
     signal.signal(signal.SIGINT, handle_exit())  # Handle Ctrl+C
     if is_windows():
         win32api.SetConsoleCtrlHandler(handle_exit())
+        
+    if is_beangate:
+        settings_window.set_test_func(lambda: run_new_thread(run_test_code))
 
     gsm_status.ready = True
     gsm_status.status = "Ready"

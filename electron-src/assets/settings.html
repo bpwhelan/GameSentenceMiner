@@ -54,6 +54,10 @@
 
     <div class="form-group" style="margin-top: 20px;">
         <div class="input-group">
+            <label for="pullPreReleases">Pull Pre-Releases:</label>
+            <input type="checkbox" id="pullPreReleases" value="false">
+        </div>
+        <div class="input-group">
             <label for="customPythonPackage">Custom Python Package DO NOT CHANGE UNLESS YOU KNOW WHAT YOU ARE DOING:</label>
             <input type="text" id="customPythonPackage" placeholder="GameSentenceMiner">
         </div>
@@ -91,6 +95,7 @@
     const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
     const windowTransparencyToolHotkeyInput = document.getElementById('window-transparency-tool-hotkey');
     const runWindowTransparencyToolBtn = document.getElementById('runWindowTransparencyToolBtn');
+    const pullPreReleasesCheckbox = document.getElementById('pullPreReleases');
 
     const setHotkey = (event, inputElement) => {
         event.preventDefault();
@@ -116,6 +121,7 @@
             customPythonPackageInput.value = settings.customPythonPackage || 'GameSentenceMiner';
             showYuzuTab.checked = settings.showYuzuTab || false;
             windowTransparencyToolHotkeyInput.value = settings.windowTransparencyToolHotkey || 'Ctrl+Alt+Y';
+            pullPreReleasesCheckbox.checked = settings.pullPreReleases || false;
         }
     }
 
@@ -129,24 +135,24 @@
             customPythonPackage: customPythonPackageInput.value,
             showYuzuTab: showYuzuTab.checked,
             windowTransparencyToolHotkey: windowTransparencyToolHotkeyInput.value,
+            pullPreReleases: pullPreReleasesCheckbox.checked,
         };
         await ipcRenderer.invoke('settings.saveSettings', settings);
     }
 
-    autoUpdateGSMAppCheckbox.addEventListener('change', async () => {
-        await ipcRenderer.invoke('settings.setAutoUpdateGSMApp', autoUpdateGSMAppCheckbox.checked);
-    });
-
-    autoUpdateElectronCheckbox.addEventListener('change', async () => {
-        await ipcRenderer.invoke('settings.setAutoUpdateElectron', autoUpdateElectronCheckbox.checked);
-    });
-
-    customPythonPackageInput.addEventListener('change', async () => {
-        await saveSettings();
-    });
-
-    showYuzuTab.addEventListener('change', async () => {
-        await saveSettings();
+    [
+        autoUpdateGSMAppCheckbox,
+        autoUpdateElectronCheckbox,
+        customPythonPackageInput,
+        showYuzuTab,
+        windowTransparencyToolHotkeyInput,
+        pullPreReleasesCheckbox,
+        startConsoleMinimizedCheckbox
+    ].forEach(element => {
+        element.addEventListener('change', async () => {
+            await saveSettings();
+            console.log("Settings saved.");
+        });
     });
 
     openGSMSettingsBtn.addEventListener('click', async () => {
@@ -171,10 +177,6 @@
     //     agentScriptsPathInput.value = result.filePath;
     //   }
     // });
-
-    startConsoleMinimizedCheckbox.addEventListener('change', async () => {
-        await ipcRenderer.invoke('settings.setStartConsoleMinimized', startConsoleMinimizedCheckbox.checked);
-    });
 
     document.addEventListener('DOMContentLoaded', loadSettings);
 </script>

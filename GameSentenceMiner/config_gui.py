@@ -113,6 +113,7 @@ class ConfigApp:
         self.window.title('GameSentenceMiner Configuration')
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
         self.obs_scene_listbox_changed = False
+        self.test_func = None
 
         # self.window.geometry("800x500")
         self.current_row = 0
@@ -162,6 +163,9 @@ class ConfigApp:
         self.window.update_idletasks()
         self.window.geometry("")
         self.window.withdraw()
+        
+    def set_test_func(self, func):
+        self.test_func = func
 
     def create_tabs(self):
         self.create_general_tab()
@@ -580,6 +584,12 @@ class ConfigApp:
                   text="Every Label in settings has a tooltip with more information if you hover over them.",
                   font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
         self.current_row += 1
+        
+        if is_beangate:
+            ttk.Button(self.general_tab, text="Run Function", command=self.test_func, bootstyle="info").grid(
+                row=self.current_row, column=0, pady=5
+            )
+            self.current_row += 1
 
         # Add Reset to Default button
         self.add_reset_button(self.general_tab, "general", self.current_row, column=0, recreate_tab=self.create_general_tab)

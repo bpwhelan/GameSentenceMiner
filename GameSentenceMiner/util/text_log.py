@@ -113,8 +113,8 @@ def similar(a, b):
 
 
 def lines_match(texthooker_sentence, anki_sentence):
-    texthooker_sentence = texthooker_sentence.replace("\n", "").replace("\r", "").strip()
-    anki_sentence = anki_sentence.replace("\n", "").replace("\r", "").strip()
+    texthooker_sentence = texthooker_sentence.replace("\n", "").replace("\r", "").replace(' ', '').strip()
+    anki_sentence = anki_sentence.replace("\n", "").replace("\r", "").replace(' ', '').strip()
     similarity = similar(texthooker_sentence, anki_sentence)
     if texthooker_sentence in anki_sentence:
         logger.debug(f"One contains the other: {texthooker_sentence} in {anki_sentence} - Similarity: {similarity}")
