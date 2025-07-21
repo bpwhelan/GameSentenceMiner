@@ -18,6 +18,8 @@ import {
 import {webSocketManager} from "../communication/websocket.js";
 import {reinstallPython} from "../python/python_downloader.js";
 
+export let window_transparency_process: any = null; // Process for the Window Transparency Tool
+
 export function registerSettingsIPC() {
     ipcMain.handle('settings.getSettings', async () => {
         return {
@@ -74,15 +76,17 @@ export function registerSettingsIPC() {
         }
     });
 
-    let proc: any = null;
-
     ipcMain.handle('settings.runWindowTransparencyTool', async () => {
         const hotkey = getWindowTransparencyToolHotkey();
-        proc = spawn(getPythonPath(), ['-m', 'GameSentenceMiner.util.window_transparency', '--hotkey', hotkey]);
-        proc.stdout.on('data', (data: any) => {
+        if (window_transparency_process && !window_transparency_process.killed) {
+            console.log('Stopping existing Window Transparency Tool process');
+            window_transparency_process.kill();
+        }
+        window_transparency_process = spawn(getPythonPath(), ['-m', 'GameSentenceMiner.util.window_transparency', '--hotkey', hotkey]);
+        window_transparency_process.stdout.on('data', (data: any) => {
             console.log(`Window Transparency Tool: ${data}`);
         });
-        proc.stderr.on('data', (data: any) => {
+        window_transparency_process.stderr.on('data', (data: any) => {
             console.error(`Window Transparency Tool Error: ${data}`);
         });
     });

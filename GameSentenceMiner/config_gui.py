@@ -113,8 +113,9 @@ class ConfigApp:
         self.window.title('GameSentenceMiner Configuration')
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
         self.obs_scene_listbox_changed = False
+        self.test_func = None
 
-        self.window.geometry("800x700")
+        # self.window.geometry("800x500")
         self.current_row = 0
 
         self.master_config: Config = configuration.load_config()
@@ -137,6 +138,7 @@ class ConfigApp:
         self.profiles_tab = None
         self.ai_tab = None
         self.advanced_tab = None
+        self.wip_tab = None
 
         self.create_tabs()
 
@@ -158,7 +160,12 @@ class ConfigApp:
                             "Saves Settings and Syncs CHANGED SETTINGS to all profiles.", row=0,
                             column=2)
 
+        self.window.update_idletasks()
+        self.window.geometry("")
         self.window.withdraw()
+        
+    def set_test_func(self, func):
+        self.test_func = func
 
     def create_tabs(self):
         self.create_general_tab()
@@ -172,6 +179,7 @@ class ConfigApp:
         self.create_profiles_tab()
         self.create_ai_tab()
         self.create_advanced_tab()
+        self.create_wip_tab()
 
     def add_reset_button(self, frame, category, row, column=0, recreate_tab=None):
         """
@@ -230,6 +238,7 @@ class ConfigApp:
         if self.window is not None:
             self.window.deiconify()
             self.window.lift()
+            self.window.update_idletasks()
             return
 
     def hide(self):
@@ -250,7 +259,8 @@ class ConfigApp:
                 open_multimine_on_startup=self.open_multimine_on_startup.get(),
                 texthook_replacement_regex=self.texthook_replacement_regex.get(),
                 use_both_clipboard_and_websocket=self.use_both_clipboard_and_websocket.get(),
-                texthooker_port=int(self.texthooker_port.get())
+                texthooker_port=int(self.texthooker_port.get()),
+                native_language=CommonLanguages.from_name(self.native_language.get()) if self.native_language.get() else CommonLanguages.ENGLISH.value,
             ),
             paths=Paths(
                 folder_to_watch=self.folder_to_watch.get(),
@@ -362,6 +372,10 @@ class ConfigApp:
                 use_canned_context_prompt=self.use_canned_context_prompt.get(),
                 custom_prompt=self.custom_prompt.get("1.0", tk.END),
                 dialogue_context_length=int(self.ai_dialogue_context_length.get()),
+            ),
+            wip=WIP(
+                overlay_websocket_port=int(self.overlay_websocket_port.get()),
+                overlay_websocket_send=self.overlay_websocket_send.get()
             )
         )
 
@@ -547,6 +561,15 @@ class ConfigApp:
         self.latest_version = ttk.Label(self.general_tab, text=get_latest_version(), bootstyle="secondary")
         self.latest_version.grid(row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
+        
+        # Native Language Selection
+        HoverInfoLabelWidget(self.general_tab, text="Native Language:",
+                             tooltip="Select your native language. This is used for various features, but will not change the look of GSM.",
+                                row=self.current_row, column=0)
+        self.native_language = ttk.Combobox(self.general_tab, values=CommonLanguages.get_all_names_pretty(), state="readonly")
+        self.native_language.set(CommonLanguages.from_code(self.settings.general.native_language).name.replace('_', ' ').title())
+        self.native_language.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
 
         ttk.Label(self.general_tab, text="Indicates important/required settings.", foreground="dark orange",
                   font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
@@ -561,6 +584,12 @@ class ConfigApp:
                   text="Every Label in settings has a tooltip with more information if you hover over them.",
                   font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
         self.current_row += 1
+        
+        if is_beangate:
+            ttk.Button(self.general_tab, text="Run Function", command=self.test_func, bootstyle="info").grid(
+                row=self.current_row, column=0, pady=5
+            )
+            self.current_row += 1
 
         # Add Reset to Default button
         self.add_reset_button(self.general_tab, "general", self.current_row, column=0, recreate_tab=self.create_general_tab)
@@ -1674,6 +1703,54 @@ class ConfigApp:
     #
     #
     #     help_frame.grid_columnconfigure(0, weight=1)
+    
+    @new_tab
+    def create_wip_tab(self):
+        if self.wip_tab is None:
+            self.wip_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.wip_tab, text='WIP')
+        else:
+            for widget in self.wip_tab.winfo_children():
+                widget.destroy()
+
+        wip_frame = self.wip_tab
+
+        ttk.Label(wip_frame, text="Warning: These features are experimental and may not work as expected.",
+                  foreground="red", font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2,
+                                                                       sticky='W', pady=5)
+                  
+        self.current_row += 1
+        
+        ttk.Label(wip_frame, text="Overlay requires OwOCR dependencies to be installed, and requires an external app to be running.",
+                  foreground="red", font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2,
+                                                                       sticky='W', pady=5)
+                  
+        self.current_row += 1
+
+        HoverInfoLabelWidget(wip_frame, text="Overlay WebSocket Port:",
+                             tooltip="Port for the overlay WebSocket communication. Used for experimental overlay features.",
+                             row=self.current_row, column=0)
+        self.overlay_websocket_port = ttk.Entry(wip_frame)
+        self.overlay_websocket_port.insert(0, str(self.settings.wip.overlay_websocket_port))
+        self.overlay_websocket_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
+        HoverInfoLabelWidget(wip_frame, text="Overlay WebSocket Send:",
+                             tooltip="Enable to send overlay data via WebSocket. Experimental feature.",
+                             row=self.current_row, column=0)
+        self.overlay_websocket_send = tk.BooleanVar(value=self.settings.wip.overlay_websocket_send)
+        ttk.Checkbutton(wip_frame, variable=self.overlay_websocket_send, bootstyle="round-toggle").grid(
+            row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+
+        self.add_reset_button(wip_frame, "wip", self.current_row, 0, self.create_wip_tab)
+
+        for col in range(2):
+            wip_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            wip_frame.grid_rowconfigure(row, minsize=30)
+
+        return wip_frame
 
     def on_profile_change(self, event):
         self.save_settings(profile_change=True)

@@ -3,6 +3,8 @@ import os.path
 import subprocess
 import threading
 import time
+from pprint import pprint
+
 import psutil
 
 import obsws_python as obs
@@ -356,9 +358,9 @@ def get_screenshot(compression=-1):
         logger.error(f"Error getting screenshot: {e}")
         return None
 
-def get_screenshot_base64(compression=0, width=None, height=None):
+def get_screenshot_base64(compression=75, width=None, height=None):
     try:
-        # update_current_game()
+        update_current_game()
         current_game = get_current_game()
         if not current_game:
             logger.error("No active game scene found.")
@@ -368,7 +370,11 @@ def get_screenshot_base64(compression=0, width=None, height=None):
         if not current_source_name:
             logger.error("No active source found in the current scene.")
             return None
+        # version = client.send("GetVersion", raw=True)
+        # pprint(version)
+        # responseraw = client.send("GetSourceScreenshot", {"sourceName": current_source_name, "imageFormat": "png", "imageWidth": width, "imageHeight": height, "compressionQuality": compression}, raw=True)
         response = client.get_source_screenshot(name=current_source_name, img_format='png', quality=compression, width=width, height=height)
+        # print(responseraw)
         if response and response.image_data:
             return response.image_data.split(',', 1)[-1]  # Remove data:image/png;base64, prefix if present
         else:
@@ -428,5 +434,7 @@ def main():
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    main()
+    # main()
+    connect_to_obs_sync()
+    print(get_screenshot_base64(compression=75, width=1280, height=720))
 

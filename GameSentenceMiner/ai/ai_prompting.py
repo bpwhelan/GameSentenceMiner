@@ -33,10 +33,10 @@ TRANSLATION_PROMPT = f"""
 **Professional Game Localization Task**
 
 **Task Directive:**
-Translate ONLY the single line of game dialogue specified below into natural-sounding, context-aware English. The translation must preserve the original tone and intent of the character.
+Translate ONLY the single line of game dialogue specified below into natural-sounding, context-aware {get_config().general.get_native_language_name()}. The translation must preserve the original tone and intent of the character.
 
 **Output Requirements:**
-- Provide only the single, best English translation.
+- Provide only the single, best {get_config().general.get_native_language_name()} translation.
 - Use expletives if they are natural for the context and enhance the translation's impact, but do not over-exaggerate.
 - Preserve or add HTML tags (e.g., `<i>`, `<b>`) if appropriate for emphasis.
 - Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line.
@@ -47,7 +47,7 @@ Translate ONLY the single line of game dialogue specified below into natural-sou
 CONTEXT_PROMPT = textwrap.dedent(f"""
 
 **Task Directive:**
-Provide a very brief summary of the scene in English based on the provided Japanese dialogue and context. Focus on the characters' actions and the immediate situation being described.
+Provide a very brief summary of the scene in {get_config().general.get_native_language_name()} based on the provided Japanese dialogue and context. Focus on the characters' actions and the immediate situation being described.
 
 Current Sentence:
 """)

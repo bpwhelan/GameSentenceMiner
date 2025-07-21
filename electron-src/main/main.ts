@@ -11,6 +11,7 @@ import {
     getAutoUpdateElectron,
     getAutoUpdateGSMApp, getCustomPythonPackage, getLaunchSteamOnStart,
     getLaunchVNOnStart, getLaunchYuzuGameOnStart,
+    getPullPreReleases,
     getStartConsoleMinimized,
     setPythonPath, setWindowName
 } from "./store.js";
@@ -20,7 +21,7 @@ import {launchVNWorkflow, openVNWindow, registerVNIPC} from "./ui/vn.js";
 import {launchSteamGameID, openSteamWindow, registerSteamIPC} from "./ui/steam.js";
 import {webSocketManager} from "./communication/websocket.js";
 import {getOBSConnection, openOBSWindow, registerOBSIPC, setOBSScene} from "./ui/obs.js";
-import {registerSettingsIPC} from "./ui/settings.js";
+import {registerSettingsIPC, window_transparency_process} from "./ui/settings.js";
 import {registerOCRUtilsIPC, startOCR} from "./ui/ocr.js";
 import * as fs from "node:fs";
 import {registerFrontPageIPC} from "./ui/front.js";
@@ -41,6 +42,8 @@ export const __dirname = path.dirname(__filename);
 function getAutoUpdater(): AppUpdater {
     const {autoUpdater} = electronUpdater;
     autoUpdater.autoDownload = false; // Disable auto download
+    autoUpdater.allowPrerelease = getPullPreReleases(); // Enable pre-releases
+    autoUpdater.allowDowngrade = true; // Allow downgrades
     return autoUpdater;
 }
 
@@ -517,7 +520,18 @@ async function restartGSM(): Promise<void> {
     });
 }
 
+async function stopScripts(): Promise<void> {
+    if (window_transparency_process && !window_transparency_process.killed) {
+        console.log('Stopping existing Window Transparency Tool process');
+        window_transparency_process.stdin.write('exit\n');
+        setTimeout(() => {
+            window_transparency_process.kill();
+        }, 1000);
+    }
+}
+
 async function quit(): Promise<void> {
+    await stopScripts();
     if (pyProc != null) {
         await closeGSM();
         await webSocketManager.stopServer();

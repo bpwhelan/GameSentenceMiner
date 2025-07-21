@@ -2,13 +2,15 @@ import asyncio
 import re
 
 import pyperclip
+import requests
 import websockets
 from websockets import InvalidStatus
 
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
 from GameSentenceMiner.util.configuration import *
 from GameSentenceMiner.util.text_log import *
-from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker
+from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, send_word_coordinates_to_overlay, overlay_server_thread
+from GameSentenceMiner.wip import get_overlay_coords
 
 current_line = ''
 current_line_after_regex = ''
@@ -123,6 +125,23 @@ async def handle_new_text_event(current_clipboard, line_time=None):
     add_line(current_line_after_regex, line_time)
     if len(get_text_log().values) > 0:
         await add_event_to_texthooker(get_text_log()[-1])
+    if get_config().wip.overlay_websocket_port and get_config().wip.overlay_websocket_send and overlay_server_thread.has_clients():
+        boxes = await find_box_for_sentence(current_line_after_regex)
+        if boxes:
+            await send_word_coordinates_to_overlay(boxes)
+    
+
+async def find_box_for_sentence(sentence):
+    boxes = []
+    logger.info(f"Finding Box for Sentence: {sentence}")
+    boxes, font_size = await get_overlay_coords.find_box_for_sentence(sentence)
+    logger.info(f"Found Boxes: {boxes}, Font Size: {font_size}")
+    # if boxes:
+        # x1, y1, x2, y2 = box
+        # boxes.append({'sentence': sentence, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'fontSize': font_size})
+        # x1, y1, x2, y2 = box
+        # requests.post("http://localhost:3000/open-overlay", json={"sentence": sentence, "x1": x1, "y1": y1, "x2": x2, "y2": y2, "fontSize": font_size})
+    return boxes
 
 def reset_line_hotkey_pressed():
     global current_line_time

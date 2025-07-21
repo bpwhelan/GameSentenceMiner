@@ -268,6 +268,11 @@ async def add_event_to_texthooker(line: GameLine):
     })
     if get_config().advanced.plaintext_websocket_port:
         await plaintext_websocket_server_thread.send_text(line.text)
+        
+        
+async def send_word_coordinates_to_overlay(boxes):
+    if boxes and len(boxes) > 0 and overlay_server_thread:
+        await overlay_server_thread.send_text(boxes)
 
 
 @app.route('/update_checkbox', methods=['POST'])
@@ -384,19 +389,18 @@ def start_web_server():
     app.run(host='0.0.0.0', port=port, debug=False) # debug=True provides helpful error messages during development
 
 
-websocket_server_thread = None
 websocket_queue = queue.Queue()
 paused = False
 
 
 class WebsocketServerThread(threading.Thread):
-    def __init__(self, read, ws_port):
+    def __init__(self, read, get_ws_port_func):
         super().__init__(daemon=True)
         self._loop = None
         self.read = read
         self.clients = set()
         self._event = threading.Event()
-        self.ws_port = ws_port
+        self.get_ws_port_func = get_ws_port_func
         self.backedup_text = []
 
     @property
@@ -437,10 +441,13 @@ class WebsocketServerThread(threading.Thread):
 
     async def send_text(self, text):
         if text:
-            if isinstance(text, dict):
+            if isinstance(text, dict) or isinstance(text, list):
                 text = json.dumps(text)
             return asyncio.run_coroutine_threadsafe(
                 self.send_text_coroutine(text), self.loop)
+            
+    def has_clients(self):
+        return len(self.clients) > 0
 
     def stop_server(self):
         self.loop.call_soon_threadsafe(self._stop_event.set)
@@ -454,7 +461,7 @@ class WebsocketServerThread(threading.Thread):
                 try:
                     self.server = start_server = websockets.serve(self.server_handler,
                                                                   "0.0.0.0",
-                                                                  self.ws_port,
+                                                                  self.get_ws_port_func(),
                                                                   max_size=1000000000)
                     async with start_server:
                         await stop_event.wait()
@@ -469,20 +476,23 @@ def handle_exit_signal(loop):
     logger.info("Received exit signal. Shutting down...")
     for task in asyncio.all_tasks(loop):
         task.cancel()
+        
+websocket_server_thread = WebsocketServerThread(read=True, get_ws_port_func=lambda : get_config().get_field_value('advanced', 'texthooker_communication_websocket_port'))
+websocket_server_thread.start()
+
+if get_config().advanced.plaintext_websocket_port:
+    plaintext_websocket_server_thread = WebsocketServerThread(read=False, get_ws_port_func=lambda : get_config().get_field_value('advanced', 'plaintext_websocket_port'))
+    plaintext_websocket_server_thread.start()
+    
+overlay_server_thread = WebsocketServerThread(read=False, get_ws_port_func=lambda : get_config().get_field_value('wip', 'overlay_websocket_port'))
+overlay_server_thread.start()
 
 async def texthooker_page_coro():
-    global websocket_server_thread, plaintext_websocket_server_thread
+    global websocket_server_thread, plaintext_websocket_server_thread, overlay_server_thread
     # Run the WebSocket server in the asyncio event loop
     flask_thread = threading.Thread(target=start_web_server)
     flask_thread.daemon = True
     flask_thread.start()
-
-    websocket_server_thread = WebsocketServerThread(read=True, ws_port=get_config().advanced.texthooker_communication_websocket_port)
-    websocket_server_thread.start()
-
-    if get_config().advanced.plaintext_websocket_port:
-        plaintext_websocket_server_thread = WebsocketServerThread(read=False, ws_port=get_config().advanced.plaintext_websocket_port)
-        plaintext_websocket_server_thread.start()
 
     # Keep the main asyncio event loop running (for the WebSocket server)
 
