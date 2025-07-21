@@ -5,16 +5,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
-
-
-try:
-    import torch
-    from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM, pipeline
-
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    TRANSFORMERS_AVAILABLE = False
-
 from google import genai
 from google.genai import types
 from groq import Groq
@@ -136,6 +126,13 @@ class AIManager(ABC):
 class LocalAIManager(AIManager):
     def __init__(self, model, logger: Optional[logging.Logger] = None):
         super().__init__(LocalAIConfig(model=model), logger)
+        try:
+            import torch
+            from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM, pipeline
+
+            self.transformers_available = True
+        except (ImportError, OSError):
+            self.transformers_available = False
         self.model_name = self.ai_config.model
         if MANUAL_MODEL_OVERRIDE:
             self.model_name = MANUAL_MODEL_OVERRIDE
@@ -147,7 +144,7 @@ class LocalAIManager(AIManager):
         self.is_encoder_decoder = False
         self.is_nllb = "nllb" in self.model_name.lower()
 
-        if not TRANSFORMERS_AVAILABLE:
+        if not self.transformers_available:
             self.logger.error("Local AI dependencies not found. Please run: pip install torch transformers sentencepiece")
             return
 

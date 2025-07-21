@@ -2,8 +2,10 @@ import asyncio
 import io
 import base64
 from PIL import Image
+from GameSentenceMiner.util.configuration import get_config
 
-from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, OneOCR
+if get_config().wip.overlay_websocket_send:
+    from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, OneOCR
 from GameSentenceMiner.obs import *
 
 # OBS WebSocket settings
@@ -14,8 +16,9 @@ OBS_PASSWORD = 'your_obs_websocket_password' # Set your OBS WebSocket password h
 WINDOW_NAME = "Nier:Automata"
 WIDTH = 2560
 HEIGHT = 1440
-oneocr = OneOCR()
-lens = GoogleLens()
+if get_config().wip.overlay_websocket_send:
+    oneocr = OneOCR()
+    lens = GoogleLens()
 
 def correct_ocr_text(detected_text: str, reference_text: str) -> str:
     """
