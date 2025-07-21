@@ -191,7 +191,7 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines):
             if get_config().anki.sentence_field not in note['fields']:
                 logger.info("No HTML tags found to preserve, just fixing spacing")
                 note['fields'][get_config().anki.sentence_field] = game_line.text
-    elif selected_lines:
+    if selected_lines:
         try:
             sentence_in_anki = last_note.get_field(get_config().anki.sentence_field)
             logger.info(f"Attempting Preserve HTML for multi-line")
