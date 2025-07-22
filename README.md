@@ -107,6 +107,8 @@ If you encounter issues, please ask for help in my [Discord](https://discord.gg/
 
 * [Renji's Texthooker](https://github.com/Renji-XD/texthooker-ui)
 
+* https://github.com/Saplling/transparent-texthooker-overlay
+
 ## Donations
 
 If you've found this or any of my other projects helpful, please consider supporting my work through [GitHub Sponsors](https://github.com/sponsors/bpwhelan), [Ko-fi](https://ko-fi.com/beangate), or [Patreon](https://www.patreon.com/GameSentenceMiner).
