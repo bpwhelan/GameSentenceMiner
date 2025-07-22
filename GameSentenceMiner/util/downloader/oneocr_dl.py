@@ -239,11 +239,12 @@ class Downloader:
 # Example usage:
 if __name__ == "__main__":
     downloader = Downloader()
-    if downloader.download_and_extract():
-        print("SnippingTool files are ready.")
-        print("Press Ctrl+C or X on window to exit.")
-        input()
-    else:
-        print("Failed to download and extract SnippingTool files. You may need to follow instructions at https://github.com/AuroraWright/oneocr")
-        print("Press Ctrl+C or X on window to exit.")
-        input()
+    downloader.download_and_extract()
+    # if downloader.download_and_extract():
+    #     print("SnippingTool files are ready.")
+    #     print("Press Ctrl+C or X on window to exit.")
+    #     # input()
+    # else:
+    #     # print("Failed to download and extract SnippingTool files. You may need to follow instructions at https://github.com/AuroraWright/oneocr")
+    #     print("Press Ctrl+C or X on window to exit.")
+    #     input()

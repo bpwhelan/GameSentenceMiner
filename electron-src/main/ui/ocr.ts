@@ -130,40 +130,43 @@ function runOCR(command: string[]) {
     });
 }
 
-function runCommandAndLog(command: string[], closeConsoleOnFinish = true) {
-    const [executable, ...args] = command;
+async function runCommandAndLog(command: string[]): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const [executable, ...args] = command;
 
-    if (!executable) {
-        console.error('Error: Command is empty. Cannot start process.');
-        return;
-    }
-
-    console.log(`Starting process with command: ${executable} ${args.join(' ')}`);
-    const process = spawn(executable, args);
-
-    process.stdout?.on('data', (data: Buffer) => {
-        const log = data.toString().trim();
-        console.log(`[STDOUT]: ${log}`);
-        mainWindow?.webContents.send('ocr-log', log);
-    });
-
-    process.stderr?.on('data', (data: Buffer) => {
-        const errorLog = data.toString().trim();
-        console.error(`[STDERR]: ${errorLog}`);
-        mainWindow?.webContents.send('ocr-log', errorLog);
-    });
-
-    process.on('close', (code: number) => {
-        console.log(`Process exited with code: ${code}`);
-        mainWindow?.webContents.send('ocr-log', `Process exited with code: ${code}`);
-        if (closeConsoleOnFinish) {
-            mainWindow?.webContents.send('ocr-log', 'COMMAND_FINISHED');
+        if (!executable) {
+            const errorMsg = 'Error: Command is empty. Cannot start process.';
+            console.error(errorMsg);
+            reject(new Error(errorMsg));
+            return;
         }
-    });
 
-    process.on('error', (err: Error) => {
-        console.error(`Failed to start process: ${err.message}`);
-        mainWindow?.webContents.send('ocr-log', `Failed to start process: ${err.message}`);
+        console.log(`Starting process with command: ${executable} ${args.join(' ')}`);
+        const process = spawn(executable, args);
+
+        process.stdout?.on('data', (data: Buffer) => {
+            const log = data.toString().trim();
+            console.log(`[STDOUT]: ${log}`);
+            mainWindow?.webContents.send('ocr-log', log);
+        });
+
+        process.stderr?.on('data', (data: Buffer) => {
+            const errorLog = data.toString().trim();
+            console.error(`[STDERR]: ${errorLog}`);
+            mainWindow?.webContents.send('ocr-log', errorLog);
+        });
+
+        process.on('close', (code: number) => {
+            console.log(`Process exited with code: ${code}`);
+            mainWindow?.webContents.send('ocr-log', `Process exited with code: ${code}`);
+            resolve();
+        });
+
+        process.on('error', (err: Error) => {
+            console.error(`Failed to start process: ${err.message}`);
+            mainWindow?.webContents.send('ocr-log', `Failed to start process: ${err.message}`);
+            reject(err);
+        });
     });
 }
 
@@ -215,25 +218,44 @@ export async function startOCR() {
 }
 
 export function registerOCRUtilsIPC() {
-    ipcMain.on('ocr.install-recommended-deps', () => {
+    ipcMain.on('ocr.install-recommended-deps', async () => {
         const pythonPath = getPythonPath();
         mainWindow?.webContents.send('ocr-log', `Downloading OneOCR files...`);
-        runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'owocr'], false);
+        const dependencies = [
+            "jaconv",
+            "loguru",
+            "numpy",
+            "Pillow>=10.0.0",
+            "pyperclipfix",
+            "pynput<=1.7.8",
+            "websockets>=14.0",
+            "desktop-notifier>=6.1.0",
+            "mss",
+            "pysbd",
+            "langid",
+            "psutil",
+            "requests",
+            "pywin32;platform_system=='Windows'",
+            "pyobjc;platform_system=='Darwin'"
+        ];
+        const promises: Promise<void>[] = [];
         if (isWindows()) {
-            runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'oneocr'], false);
-            runCommandAndLog([pythonPath, '-m', 'GameSentenceMiner.util.downloader.oneocr_dl'], false);
+            await runCommandAndLog([pythonPath, '-m', 'GameSentenceMiner.util.downloader.oneocr_dl']);
+            await runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'oneocr']);
         }
-
+        await runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', ...dependencies]);
         mainWindow?.webContents.send('ocr-log', `Installing recommended dependencies...`);
-        runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'betterproto==2.0.0b7'], true);
-    })
+        await runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'betterproto==2.0.0b7']);
 
-    ipcMain.on('ocr.install-owocr-deps', () => {
-        mainWindow?.webContents.send('ocr-log', `Installing OWOCR dependencies...`);
-        runCommandAndLog([getPythonPath(), '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'owocr']);
+        // Wait for all promises to settle before closing the console
+        await Promise.allSettled(promises);
+        // Wrap the message in ASCII green text (using ANSI escape codes)
+        mainWindow?.webContents.send('ocr-log', `\x1b[32mAll recommended dependencies installed successfully.\x1b[0m`);
+        mainWindow?.webContents.send('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
+        // setTimeout(() => mainWindow?.webContents.send('ocr-log', 'COMMAND_FINISHED'), 5000);
     });
 
-    ipcMain.on('ocr.install-selected-dep', (_, dependency: string) => {
+    ipcMain.on('ocr.install-selected-dep', async (_, dependency: string) => {
         const pythonPath = getPythonPath();
         let command: string[];
         if (dependency.includes("pip")) {
@@ -242,7 +264,9 @@ export function registerOCRUtilsIPC() {
             command = [pythonPath, '-m', dependency];
         }
         mainWindow?.webContents.send('ocr-log', `Installing ${dependency} dependencies...`);
-        runCommandAndLog(command);
+        await runCommandAndLog(command);
+        mainWindow?.webContents.send('ocr-log', `\x1b[32mInstalled ${dependency} successfully.\x1b[0m`);
+        mainWindow?.webContents.send('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
     });
 
     ipcMain.on('ocr.uninstall-selected-dep', async (_, dependency: string) => {
@@ -257,7 +281,9 @@ export function registerOCRUtilsIPC() {
         if (response.response === 0) { // 'Yes' button
             const command = [getPythonPath(), '-m', 'pip', 'uninstall', '-y', dependency];
             mainWindow?.webContents.send('ocr-log', `Uninstalling ${dependency} dependencies...`);
-            runCommandAndLog(command);
+            await runCommandAndLog(command);
+            mainWindow?.webContents.send('ocr-log', `\x1b[32mUninstalled ${dependency} successfully.\x1b[0m`);
+            mainWindow?.webContents.send('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
         } else {
             mainWindow?.webContents.send('ocr-log', `Uninstall canceled for ${dependency}.`);
         }

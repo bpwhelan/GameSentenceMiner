@@ -385,12 +385,17 @@ def get_screenshot_base64(compression=75, width=None, height=None):
         return None
     
 
-def get_screenshot_PIL(compression=75, img_format='png', width=None, height=None, retry=3):
+def get_screenshot_PIL(source_name=None, compression=75, img_format='png', width=None, height=None, retry=3):
     import io
     import base64
     from PIL import Image
+    if not source_name:
+        source_name = get_active_source().get('sourceName', None)
+    if not source_name:
+        logger.error("No active source found in the current scene.")
+        return None
     while True:
-        response = client.get_source_screenshot(name=get_current_game(), img_format=img_format, quality=compression, width=width, height=height)
+        response = client.get_source_screenshot(name=source_name, img_format=img_format, quality=compression, width=width, height=height)
         try:
             response.image_data = response.image_data.split(',', 1)[-1]  # Remove data:image/png;base64, prefix if present
         except AttributeError:
@@ -463,26 +468,42 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     # main()
     connect_to_obs_sync()
-    i = 100
+    # i = 100
     # for i in range(1, 100):
-    print(f"Getting screenshot {i}")
-    start = time.time()
-    # get_screenshot(compression=95)
-    # get_screenshot_base64(compression=95, width=1280, height=720)
-    img = get_screenshot_PIL(compression=i, img_format='png')
-    end = time.time()
-    print(f"Time taken to get screenshot with compression {i}: {end - start} seconds")
-    img.show()
+    #     print(f"Getting screenshot {i}")
+    #     start = time.time()
+    # # get_screenshot(compression=95)
+    # # get_screenshot_base64(compression=95, width=1280, height=720)
     
+    #     img = get_screenshot_PIL(compression=i, img_format='jpg', width=1280, height=720)
+    #     end = time.time()
+    #     print(f"Time taken to get screenshot with compression {i}: {end - start} seconds")
+        
+    # for i in range(1, 100):
+    #     print(f"Getting screenshot {i}")
+    #     start = time.time()
+    # # get_screenshot(compression=95)
+    # # get_screenshot_base64(compression=95, width=1280, height=720)
     
-    start = time.time()
-    with mss() as sct:
-        monitor = sct.monitors[1]
-        sct_img = sct.grab(monitor)
-        img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
-        img.show()
-    end = time.time()
-    print(f"Time taken to get screenshot with mss: {end - start} seconds")
+    #     img = get_screenshot_PIL(compression=i, img_format='jpg', width=2560, height=1440)
+    #     end = time.time()
+    #     print(f"Time taken to get screenshot full sized jpg with compression {i}: {end - start} seconds")
+
+    # png_img = get_screenshot_PIL(compression=75, img_format='png', width=1280, height=720)
+
+    # jpg_img = get_screenshot_PIL(compression=100, img_format='jpg', width=2560, height=1440)
+
+    # png_img.show()
+    # jpg_img.show()
+    
+    # start = time.time()
+    # with mss() as sct:
+    #     monitor = sct.monitors[1]
+    #     sct_img = sct.grab(monitor)
+    #     img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+    #     img.show()
+    # end = time.time()
+    # print(f"Time taken to get screenshot with mss: {end - start} seconds")
 
     
     # print(get_screenshot_base64(compression=75, width=1280, height=720))
