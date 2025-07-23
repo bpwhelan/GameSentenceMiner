@@ -201,7 +201,7 @@ def do_second_ocr(ocr1_text, time, img, filtering, pre_crop_image=None, ignore_f
         orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, filtering, None,
                                                         engine=get_ocr_ocr2(), furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
 
-        if compare_ocr_results(last_ocr2_result, orig_text):
+        if compare_ocr_results(last_ocr2_result, orig_text, threshold=99):
             if text:
                 logger.info("Seems like Text we already sent, not doing anything.")
             return
