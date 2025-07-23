@@ -194,6 +194,7 @@ def compare_ocr_results(prev_text, new_text, threshold=90):
 all_cords = None
 rectangles = None
 last_ocr2_result = []
+last_sent_result = ""
 
 def do_second_ocr(ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False):
     global twopassocr, ocr2, last_ocr2_result
@@ -201,12 +202,13 @@ def do_second_ocr(ocr1_text, time, img, filtering, pre_crop_image=None, ignore_f
         orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, filtering, None,
                                                         engine=get_ocr_ocr2(), furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
 
-        if compare_ocr_results(last_ocr2_result, orig_text, threshold=99):
+        if compare_ocr_results(last_sent_result, text, threshold=80):
             if text:
                 logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img, pre_crop_image=pre_crop_image)
         last_ocr2_result = orig_text
+        last_sent_result = text
         asyncio.run(send_result(text, time))
     except json.JSONDecodeError:
         print("Invalid JSON received.")
@@ -304,12 +306,13 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
     line_start_time = time if time else datetime.now()
 
     if manual or not get_ocr_two_pass_ocr():
-        if compare_ocr_results(previous_orig_text, orig_text_string):
+        if compare_ocr_results(last_sent_result, text, 80):
             if text:
                 logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img)
         asyncio.run(send_result(text, line_start_time))
+        last_sent_result = text
         previous_orig_text = orig_text_string
         previous_text = None
         previous_img = None
