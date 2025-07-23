@@ -95,6 +95,9 @@ interface StoreConfig {
     autoUpdateGSMApp: boolean;
     customPythonPackage: string;
     windowTransparencyToolHotkey: string;
+    windowTransparencyTarget: string; // Target window for transparency tool
+    autoRunWindowTransparencyTool: boolean; // Whether to auto-run the transparency tool
+    obsOcrScenes: string[];
     pullPreReleases: boolean;
     pythonPath: string;
     VN: VNConfig;
@@ -152,10 +155,13 @@ export const store = new Store<StoreConfig>({
             useWindowForConfig: false,
             lastWindowSelected: "",
             keep_newline: false,
-            useObsAsSource: false
+            useObsAsSource: true
         },
         customPythonPackage: "GameSentenceMiner",
         windowTransparencyToolHotkey: 'Ctrl+Alt+Y',
+        windowTransparencyTarget: '', // Default to empty string if not set
+        autoRunWindowTransparencyTool: false, // Whether to auto-run the transparency tool
+        obsOcrScenes: [],
         pullPreReleases: false,
     },
     cwd: "electron"
@@ -207,6 +213,29 @@ export function getWindowTransparencyToolHotkey(): string {
 
 export function setWindowTransparencyToolHotkey(hotkey: string): void {
     store.set("windowTransparencyToolHotkey", hotkey);
+}
+
+export function setWindowTransparencyTarget(target: string): void {
+    store.set("windowTransparencyTarget", target);
+}
+
+export function getWindowTransparencyTarget(): string {
+    return store.get("windowTransparencyTarget") || '';
+}
+
+export function setAutoRunWindowTransparencyTool(autoRun: boolean): void {
+    store.set("autoRunWindowTransparencyTool", autoRun);
+}
+
+export function getAutoRunWindowTransparencyTool(): boolean {
+    return store.get("autoRunWindowTransparencyTool");
+}
+
+export function getObsOcrScenes(): string[] {
+    return store.get("obsOcrScenes") || [];
+}
+export function setObsOcrScenes(scenes: string[]): void {
+    store.set("obsOcrScenes", scenes);
 }
 
 export function getPullPreReleases(): boolean {

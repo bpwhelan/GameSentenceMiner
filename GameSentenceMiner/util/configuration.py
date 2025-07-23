@@ -312,6 +312,7 @@ class General:
     use_websocket: bool = True
     use_clipboard: bool = True
     use_both_clipboard_and_websocket: bool = False
+    merge_matching_sequential_text: bool = False
     websocket_uri: str = 'localhost:6677,localhost:9001,localhost:2333'
     open_config_on_startup: bool = False
     open_multimine_on_startup: bool = True
@@ -530,6 +531,10 @@ class WIP:
     overlay_websocket_port: int = 55499
     overlay_websocket_send: bool = False
     monitor_to_capture: int = 0
+    
+    def __post_init__(self):
+        if self.monitor_to_capture == -1:
+            self.monitor_to_capture = 0  # Default to the first monitor if not set
                     
 
 

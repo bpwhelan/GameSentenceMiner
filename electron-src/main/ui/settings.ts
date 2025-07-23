@@ -2,21 +2,26 @@
 import {ipcMain, dialog} from 'electron';
 import {spawn} from 'child_process';
 import {
+    getAutoRunWindowTransparencyTool,
     getAutoUpdateElectron,
     getAutoUpdateGSMApp,
     getCustomPythonPackage, getPythonPath,
     getShowYuzuTab,
     getStartConsoleMinimized,
+    getWindowTransparencyTarget,
     getWindowTransparencyToolHotkey,
+    setAutoRunWindowTransparencyTool,
     setAutoUpdateElectron,
     setAutoUpdateGSMApp,
     setCustomPythonPackage,
+    setObsOcrScenes,
     setShowYuzuTab,
-    setStartConsoleMinimized, setWindowTransparencyToolHotkey,
+    setStartConsoleMinimized, setWindowTransparencyTarget, setWindowTransparencyToolHotkey,
     store
 } from "../store.js";
 import {webSocketManager} from "../communication/websocket.js";
 import {reinstallPython} from "../python/python_downloader.js";
+import { runPipInstall } from '../main.js';
 
 export let window_transparency_process: any = null; // Process for the Window Transparency Tool
 
@@ -31,6 +36,9 @@ export function registerSettingsIPC() {
             customPythonPackage: getCustomPythonPackage(),
             showYuzuTab: getShowYuzuTab(),
             windowTransparencyToolHotkey: getWindowTransparencyToolHotkey(),
+            windowTransparencyTarget: store.get('windowTransparencyTarget') || '', // Default to empty string if not set
+            autoRunWindowTransparencyTool: getAutoRunWindowTransparencyTool(),
+            obsOcrScenes: store.get('obsOcrScenes') || [], // Default to empty array if not set
         };
     });
 
@@ -41,6 +49,9 @@ export function registerSettingsIPC() {
         setCustomPythonPackage(settings.customPythonPackage);
         setShowYuzuTab(settings.showYuzuTab);
         setWindowTransparencyToolHotkey(settings.windowTransparencyToolHotkey);
+        setWindowTransparencyTarget(settings.windowTransparencyTarget);
+        setAutoRunWindowTransparencyTool(settings.autoRunWindowTransparencyTool);
+        setObsOcrScenes(settings.obsOcrScenes || []); // Ensure it's always an array
         return {success: true};
     });
 
@@ -82,13 +93,24 @@ export function registerSettingsIPC() {
             console.log('Stopping existing Window Transparency Tool process');
             window_transparency_process.kill();
         }
-        window_transparency_process = spawn(getPythonPath(), ['-m', 'GameSentenceMiner.util.window_transparency', '--hotkey', hotkey]);
+        console.log(`Starting Window Transparency Tool with hotkey: ${hotkey} and target: ${getWindowTransparencyTarget()}`);
+        window_transparency_process = spawn(getPythonPath(), ['-m', 'GameSentenceMiner.util.window_transparency', '--hotkey', hotkey, '--window', getWindowTransparencyTarget()]);
         window_transparency_process.stdout.on('data', (data: any) => {
             console.log(`Window Transparency Tool: ${data}`);
         });
         window_transparency_process.stderr.on('data', (data: any) => {
             console.error(`Window Transparency Tool Error: ${data}`);
         });
+    });
+
+    ipcMain.handle('settings.runPipInstall', async (_, pkg: string) => {
+        try {
+            await runPipInstall(pkg);
+            return { success: true };
+        } catch (error: any) {
+            console.error('Failed to run pip install:', error);
+            return { success: false, error: error.message };
+        }
     });
 
     // ipcMain.handle('settings.selectPythonPath', async () => {

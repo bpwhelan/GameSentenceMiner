@@ -719,6 +719,7 @@
                     ipcRenderer.send('ocr.uninstall-selected-dep', selectedDep);
                 });
                 document.getElementById('run-screen-selector').addEventListener('click', async () => {
+                    openOCRConsole();
                     const windowName = document.getElementById('windowSelect').value.trim();
                     console.log('Screen selector start:', new Date().toISOString());
                     await ipcRenderer.send('ocr.run-screen-selector', windowName);

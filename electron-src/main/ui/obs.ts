@@ -9,6 +9,8 @@ import Store from "electron-store";
 import * as fs from "node:fs";
 import {webSocketManager} from "../communication/websocket.js";
 import axios from 'axios';
+import { getObsOcrScenes } from '../store.js';
+import { startOCR } from './ocr.js';
 
 
 interface ObsConfig {
@@ -37,11 +39,24 @@ let obsConnected = false;
 const HELPER_SCENE = 'GSM Helper';
 const WINDOW_GETTER_INPUT = 'window_getter';
 const GAME_WINDOW_INPUT = 'game_window_getter';
+let sceneSwitcherRegistered = false;
 
 let connectionPromise: Promise<void> | null = null;
 
 async function connectOBSWebSocket(retries = 5, delay = 2000): Promise<void> {
     await obs.connect(`ws://${obsConfig.host}:${obsConfig.port}`, obsConfig.password);
+    const obsOcrScenes = getObsOcrScenes();
+    if (obsOcrScenes && obsOcrScenes.length > 0) {
+        getCurrentScene().then((scene) => {
+            if (obsOcrScenes.includes(scene.name)) {
+                startOCR();
+            }
+        });
+    }
+    if (!sceneSwitcherRegistered) {
+        setOBSSceneSwitcherCallback();
+        sceneSwitcherRegistered = true;
+    }
     obsConnected = true;
     return;
 }
@@ -130,6 +145,16 @@ export function openOBSWindow() {
     });
 
     registerOBSIPC();
+}
+
+function setOBSSceneSwitcherCallback() {
+    obs.on('CurrentProgramSceneChanged', (data) => {
+        const ocrScenes = getObsOcrScenes();
+        if (ocrScenes && ocrScenes.length > 0 && ocrScenes.includes(data.sceneName)) {
+            startOCR();
+        }
+        console.log(`Switched to OBS scene: ${data.sceneName}`);
+    });
 }
 
 export async function registerOBSIPC() {

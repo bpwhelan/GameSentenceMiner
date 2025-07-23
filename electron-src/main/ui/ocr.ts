@@ -44,12 +44,19 @@ async function runScreenSelector(windowTitle: string) {
 
         const process = spawn(getPythonPath(), args, {
             detached: false,
-            stdio: 'ignore'
+        });
+
+        process.stdout?.on('data', (data: Buffer) => {
+            const log = data.toString().trim();
+            console.log(`[Screen Selector STDOUT]: ${log}`);
+            mainWindow?.webContents.send('ocr-log', log);
         });
 
         process.on('close', (code) => {
             console.log(`Screen selector exited with code ${code}`);
             if (code === 0) {
+                mainWindow?.webContents.send('ocr-log', 'Screen selector completed successfully.');
+                mainWindow?.webContents.send('ocr-log', 'COMMAND_FINISHED');
                 resolve(null);
             } else {
                 reject(new Error(`Screen selector process exited with code ${code}`));
@@ -224,7 +231,7 @@ export function registerOCRUtilsIPC() {
         const dependencies = [
             "jaconv",
             "loguru",
-            "numpy",
+            "numpy==2.2.6",
             "Pillow>=10.0.0",
             "pyperclipfix",
             "pynput<=1.7.8",

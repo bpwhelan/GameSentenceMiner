@@ -65,18 +65,21 @@ def reset_window_state(hwnd):
 
 # --- Hotkey Callback (equivalent to AHK ^!y::) ---
 
-def toggle_functionality():
+def toggle_functionality(window_hwnd=None):
     """
     This function is called when the hotkey is pressed.
     It manages the toggling logic.
     """
     global is_toggled, target_hwnd
-
-    # Get the currently focused window (equivalent to WinGetID("A"))
-    current_hwnd = win32gui.GetForegroundWindow()
-    if not current_hwnd:
-        logger.info("No window is currently active!")
-        return
+    
+    if window_hwnd:
+        current_hwnd = window_hwnd
+    else:
+        # Get the currently focused window (equivalent to WinGetID("A"))
+        current_hwnd = win32gui.GetForegroundWindow()
+        if not current_hwnd:
+            logger.info("No window is currently active!")
+            return
 
     with state_lock:
         # Case 1: The hotkey is pressed on the currently toggled window to disable it.
@@ -167,8 +170,23 @@ if __name__ == "__main__":
     # get hotkey from args
     parser = argparse.ArgumentParser(description="Window Transparency Toggle Script")
     parser.add_argument('--hotkey', type=str, default=HOTKEY, help='Hotkey to toggle transparency (default: ctrl+alt+y)')
+    parser.add_argument('--window', type=str, help='Window title to target (optional)')
 
-    hotkey = parser.parse_args().hotkey.lower()
+    args = parser.parse_args()
+    hotkey = args.hotkey.lower()
+    target_window_title = args.window
+    
+    if target_window_title:
+        # Find the window by title if specified
+        target_hwnd = win32gui.FindWindow(None, target_window_title)
+        logger.info(f"Searching for window with title: {target_window_title}")
+        logger.info(f"Target HWND: {target_hwnd}")
+        if not target_hwnd:
+            logger.error(f"Window with title '{target_window_title}' not found.")
+            sys.exit(1)
+        else:
+            logger.info(f"Target window found: {target_window_title}")
+            toggle_functionality(target_hwnd)  # Enable functionality for the specified window
 
     # Register the global hotkey
     keyboard.add_hotkey(hotkey, toggle_functionality)

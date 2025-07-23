@@ -13,6 +13,7 @@ from PIL import Image, ImageTk
 from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config_path
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
+from GameSentenceMiner.util.configuration import logger
 
 try:
     import tkinter as tk
@@ -95,6 +96,7 @@ class ScreenSelector:
         self.image_mode = True
         self.redo_stack = []
         self.bounding_box = {}  # Geometry of the single large canvas window
+        self.instructions_showing = True
 
         self.canvas = None
         self.window = None
@@ -282,11 +284,10 @@ class ScreenSelector:
         tk.Button(button_frame, text="Redo (Ctrl+Y)", command=canvas_event_wrapper(self.redo_last_rect)).pack(fill=tk.X, pady=2)
         tk.Button(button_frame, text="Toggle Background (M)", command=root_event_wrapper(self.toggle_image_mode)).pack(fill=tk.X, pady=2)
         tk.Button(button_frame, text="Quit without Saving (Esc)", command=root_event_wrapper(self.quit_app)).pack(fill=tk.X, pady=2)
+        tk.Button(button_frame, text="Toggle Instructions (I)", command=canvas_event_wrapper(self.toggle_instructions)).pack(fill=tk.X, pady=2)
 
-        hotkeys_text = "\n• I: Toggle this instruction panel"
-        tk.Label(main_frame, text=hotkeys_text, justify=tk.LEFT, anchor="w").pack(pady=(10, 0), fill=tk.X)
-
-        self.instructions_widget.protocol("WM_DELETE_WINDOW", self.toggle_instructions)
+        # hotkeys_text = "\n• I: Toggle this instruction panel"
+        # tk.Label(main_frame, text=hotkeys_text, justify=tk.LEFT, anchor="w").pack(pady=(10, 0), fill=tk.X)
 
 
     # --- NEW METHOD TO DISPLAY INSTRUCTIONS ---
@@ -310,7 +311,7 @@ class ScreenSelector:
         instruction_font = tkfont.Font(family="Segoe UI", size=10, weight="normal")
 
         # Create the text item first to get its size
-        text_id = canvas.create_text(
+        self.instructions_overlay = canvas.create_text(
             20, 20,  # Position with a small margin
             text=instructions_text,
             anchor=tk.NW,
@@ -320,10 +321,10 @@ class ScreenSelector:
         )
 
         # Get the bounding box of the text to draw a background
-        text_bbox = canvas.bbox(text_id)
+        text_bbox = canvas.bbox(self.instructions_overlay)
 
         # Create a background rectangle with padding
-        rect_id = canvas.create_rectangle(
+        self.instructions_rect = canvas.create_rectangle(
             text_bbox[0] - 10,  # left
             text_bbox[1] - 10,  # top
             text_bbox[2] + 10,  # right
@@ -334,15 +335,27 @@ class ScreenSelector:
         )
 
         # Lower the rectangle so it's behind the text
-        canvas.tag_lower(rect_id, text_id)
+        canvas.tag_lower(self.instructions_rect, self.instructions_overlay)
+        
 
     def toggle_instructions(self, event=None):
-        if self.instructions_widget and self.instructions_widget.winfo_exists() and self.instructions_widget.state() == "normal":
-            self.instructions_widget.withdraw()
-            print("Toggled instructions visibility: OFF")
-        else:
-            self._create_instructions_widget(self.canvas)
-            print("Toggled instructions visibility: ON")
+        canvas = event.widget.winfo_toplevel().winfo_children()[0]
+        for element in [self.instructions_overlay, self.instructions_rect]:
+            current_state = canvas.itemcget(element, 'state')
+            new_state = tk.NORMAL if current_state == tk.HIDDEN else tk.HIDDEN
+            canvas.itemconfigure(element, state=new_state)
+        
+        # if self.instructions_showing:
+        #     self.instructions_widget.withdraw()
+        #     logger.info(f"Toggled instructions visibility: OFF")
+        #     self.instructions_showing = False
+        # else:
+        #     self.instructions_widget.deiconify()
+        #     self.instructions_widget.lift()
+        #     self.canvas.focus_set()
+        #     self.instructions_widget.update_idletasks()  # Ensure it is fully rendered
+        #     logger.info("Toggled instructions visibility: ON")
+        #     self.instructions_showing = True
 
     def start(self):
         self.root = tk.Tk()

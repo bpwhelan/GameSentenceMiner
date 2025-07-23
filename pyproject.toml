@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.12.7.post1"
+version = "2.12.8"
 description = "A tool for mining sentences from games. Update: Overlay?"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,7 +39,7 @@ dependencies = [
   "ttkbootstrap~=1.10.1",
   "dataclasses_json~=0.6.7",
   "win10toast; sys_platform == 'win32'",
-  "numpy",
+  "numpy==2.2.6",
   "pystray",
   "pywin32; sys_platform == 'win32'",
   "pygetwindow; sys_platform == 'win32'",

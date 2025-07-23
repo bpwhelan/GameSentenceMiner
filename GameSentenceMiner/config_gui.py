@@ -265,6 +265,7 @@ class ConfigApp:
                 use_websocket=self.websocket_enabled.get(),
                 use_clipboard=self.clipboard_enabled.get(),
                 websocket_uri=self.websocket_uri.get(),
+                merge_matching_sequential_text= self.merge_matching_sequential_text.get(),
                 open_config_on_startup=self.open_config_on_startup.get(),
                 open_multimine_on_startup=self.open_multimine_on_startup.get(),
                 texthook_replacement_regex=self.texthook_replacement_regex.get(),
@@ -515,6 +516,19 @@ class ConfigApp:
         self.use_both_clipboard_and_websocket = tk.BooleanVar(
             value=self.settings.general.use_both_clipboard_and_websocket)
         ttk.Checkbutton(self.general_tab, variable=self.use_both_clipboard_and_websocket,
+                        bootstyle="round-toggle").grid(
+            row=self.current_row, column=1,
+            sticky='W', pady=2)
+        self.current_row += 1
+        
+        HoverInfoLabelWidget(self.general_tab, text="Merge Matching Sequential Text:",
+                             foreground="red", font=("Helvetica", 10, "bold"),
+                             tooltip="Enable to merge matching sequential text into a single entry. Designed for Luna's Speech Recognition feature. Very niche.",
+                             row=self.current_row, column=0)
+        
+        self.merge_matching_sequential_text = tk.BooleanVar(
+            value=self.settings.general.merge_matching_sequential_text)
+        ttk.Checkbutton(self.general_tab, variable=self.merge_matching_sequential_text,
                         bootstyle="round-toggle").grid(
             row=self.current_row, column=1,
             sticky='W', pady=2)
