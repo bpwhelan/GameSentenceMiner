@@ -1725,47 +1725,52 @@ class ConfigApp:
                 widget.destroy()
 
         wip_frame = self.wip_tab
+        try:
 
-        ttk.Label(wip_frame, text="Warning: These features are experimental and may not work as expected.",
-                  foreground="red", font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2,
-                                                                       sticky='W', pady=5)
-                  
-        self.current_row += 1
-        
-        ttk.Label(wip_frame, text="Overlay requires OwOCR dependencies to be installed, and requires an external app to be running.",
-                  foreground="red", font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2,
-                                                                       sticky='W', pady=5)
-                  
-        self.current_row += 1
+            ttk.Label(wip_frame, text="Warning: These features are experimental and may not work as expected.",
+                    foreground="red", font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2,
+                                                                        sticky='W', pady=5)
+                    
+            self.current_row += 1
+            
+            ttk.Label(wip_frame, text="Overlay requires OwOCR dependencies to be installed, and requires an external app to be running.",
+                    foreground="red", font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2,
+                                                                        sticky='W', pady=5)
+                    
+            self.current_row += 1
 
-        HoverInfoLabelWidget(wip_frame, text="Overlay WebSocket Port:",
-                             tooltip="Port for the overlay WebSocket communication. Used for experimental overlay features.",
-                             row=self.current_row, column=0)
-        self.overlay_websocket_port = ttk.Entry(wip_frame)
-        self.overlay_websocket_port.insert(0, str(self.settings.wip.overlay_websocket_port))
-        self.overlay_websocket_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        self.current_row += 1
+            HoverInfoLabelWidget(wip_frame, text="Overlay WebSocket Port:",
+                                tooltip="Port for the overlay WebSocket communication. Used for experimental overlay features.",
+                                row=self.current_row, column=0)
+            self.overlay_websocket_port = ttk.Entry(wip_frame)
+            self.overlay_websocket_port.insert(0, str(self.settings.wip.overlay_websocket_port))
+            self.overlay_websocket_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+            self.current_row += 1
 
-        HoverInfoLabelWidget(wip_frame, text="Overlay WebSocket Send:",
-                             tooltip="Enable to send overlay data via WebSocket. Experimental feature.",
-                             row=self.current_row, column=0)
-        self.overlay_websocket_send = tk.BooleanVar(value=self.settings.wip.overlay_websocket_send)
-        ttk.Checkbutton(wip_frame, variable=self.overlay_websocket_send, bootstyle="round-toggle").grid(
-            row=self.current_row, column=1, sticky='W', pady=2)
-        self.current_row += 1
+            HoverInfoLabelWidget(wip_frame, text="Overlay WebSocket Send:",
+                                tooltip="Enable to send overlay data via WebSocket. Experimental feature.",
+                                row=self.current_row, column=0)
+            self.overlay_websocket_send = tk.BooleanVar(value=self.settings.wip.overlay_websocket_send)
+            ttk.Checkbutton(wip_frame, variable=self.overlay_websocket_send, bootstyle="round-toggle").grid(
+                row=self.current_row, column=1, sticky='W', pady=2)
+            self.current_row += 1
 
-        HoverInfoLabelWidget(wip_frame, text="Monitor to Capture:",
-                             tooltip="Select the monitor to capture (1-based index).",
-                             row=self.current_row, column=0)
-        self.monitor_to_capture = ttk.Combobox(wip_frame, values=self.monitors, state="readonly")
-        
-        # set index of monitor to capture, not the string
-        if self.monitors:
-            self.monitor_to_capture.current(self.settings.wip.monitor_to_capture)
-        else:
-            self.monitor_to_capture.set("OwOCR Not Detected")
-        self.monitor_to_capture.grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        self.current_row += 1
+            HoverInfoLabelWidget(wip_frame, text="Monitor to Capture:",
+                                tooltip="Select the monitor to capture (1-based index).",
+                                row=self.current_row, column=0)
+            self.monitor_to_capture = ttk.Combobox(wip_frame, values=self.monitors, state="readonly")
+            
+            # set index of monitor to capture, not the string
+            if self.monitors:
+                self.monitor_to_capture.current(self.settings.wip.monitor_to_capture)
+            else:
+                self.monitor_to_capture.set("OwOCR Not Detected")
+            self.monitor_to_capture.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+            self.current_row += 1
+
+        except Exception as e:
+            logger.error(f"Error setting up wip tab to capture: {e}")
+            ttk.Label(wip_frame, text="Error setting up WIP tab", foreground="red").grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=5)
 
         self.add_reset_button(wip_frame, "wip", self.current_row, 0, self.create_wip_tab)
 
