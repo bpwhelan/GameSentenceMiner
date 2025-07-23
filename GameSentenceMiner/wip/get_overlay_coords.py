@@ -9,12 +9,13 @@ from typing import Dict, Any, List, Tuple
 from GameSentenceMiner.util.electron_config import get_ocr_language
 
 if get_config().wip.overlay_websocket_send:
-    from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, OneOCR, get_regex
+    try: 
+        from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, OneOCR, get_regex
+        oneocr = OneOCR()
+        lens = GoogleLens()
+    except ImportError:
+        pass
 from GameSentenceMiner.obs import *
-
-if get_config().wip.overlay_websocket_send:
-    oneocr = OneOCR()
-    lens = GoogleLens()
 
 
 def _convert_box_to_pixels_v2(
