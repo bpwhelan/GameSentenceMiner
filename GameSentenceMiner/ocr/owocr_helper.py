@@ -197,7 +197,7 @@ last_ocr2_result = []
 last_sent_result = ""
 
 def do_second_ocr(ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False):
-    global twopassocr, ocr2, last_ocr2_result
+    global twopassocr, ocr2, last_ocr2_result, last_sent_result
     try:
         orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, filtering, None,
                                                         engine=get_ocr_ocr2(), furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
@@ -293,7 +293,7 @@ def reset_callback_vars():
     run.set_last_image(None)
 
 def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None):
-    global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, previous_text_list
+    global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, previous_text_list, last_sent_result
     orig_text_string = ''.join([item for item in orig_text if item is not None]) if orig_text else ""
     if came_from_ss:
         save_result_image(img)

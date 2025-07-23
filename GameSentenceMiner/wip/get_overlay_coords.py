@@ -314,7 +314,7 @@ async def get_full_screenshot() -> Image.Image | None:
             else:
                 monitors = [monitors[0]]
             monitor = monitors[get_config().wip.monitor_to_capture]
-            img = get_screenshot_PIL(compression=100, img_format='jpg')
+            img = get_screenshot_PIL(compression=90, img_format='jpg')
             # Put the image over a transparent background without stretching
             new_img = Image.new("RGBA", (monitor['width'], monitor['height']), (0, 0, 0, 0))
             # Calculate coordinates to center img horizontally and vertically
