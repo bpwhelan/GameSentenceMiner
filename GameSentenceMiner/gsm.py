@@ -597,7 +597,7 @@ async def async_main(reloading=False):
     observer = Observer()
     observer.schedule(VideoToAudioHandler(), get_config().paths.folder_to_watch, recursive=False)
     observer.start()
-    if not is_linux():
+    if not is_windows():
         register_hotkeys()
 
     run_new_thread(post_init2)

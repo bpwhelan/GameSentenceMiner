@@ -47,6 +47,8 @@ class VADSystem:
             else:
                 logger.info(result.trim_successful_string())
             return result
+        else:
+            return VADResult(True, 0, get_audio_length(input_audio), "OFF", [], input_audio)
 
 
     def _do_vad_processing(self, model, input_audio, output_audio, game_line):

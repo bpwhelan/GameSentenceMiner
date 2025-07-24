@@ -127,7 +127,7 @@ def get_text_event(last_note) -> GameLine:
     lines = game_log.values
 
     if not lines:
-        raise Exception("No lines in history. Text is required from either clipboard or websocket for GSM to work. Please check your setup/config.")
+        raise Exception("No voicelines in GSM. GSM can only do work on text that has been sent to it since it started. If you are not getting any text into GSM, please check your setup/config.")
 
     if not last_note:
         return lines[-1]
@@ -168,6 +168,8 @@ def get_mined_line(last_note: AnkiCard, lines=None):
         return lines[-1]
     if not lines:
         lines = get_all_lines()
+    if not lines:
+        raise Exception("No voicelines in GSM. GSM can only do work on text that has been sent to it since it started. If you are not getting any text into GSM, please check your setup/config.")
 
     sentence = last_note.get_field(get_config().anki.sentence_field)
     for line in reversed(lines):

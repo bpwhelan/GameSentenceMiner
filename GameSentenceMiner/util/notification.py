@@ -19,6 +19,7 @@ if is_windows():
 else:
     notifier = notification
 
+
 def open_browser_window(note_id, query=None):
     url = "http://localhost:8765"
     headers = {'Content-Type': 'application/json'}
@@ -75,17 +76,21 @@ def open_anki_card(note_id):
         logger.info(f"Error connecting to AnkiConnect: {e}")
 
 
-
 def send_notification(title, message, timeout):
-    if is_windows():
-        notifier.show_toast(title, message, duration=timeout, threaded=True)
-    else:
-        notification.notify(
-            title=title,
-            message=message,
-            app_name="GameSentenceMiner",
-            timeout=timeout  # Notification disappears after 5 seconds
-        )
+    try:
+        if is_windows():
+            notifier.show_toast(
+                title, message, duration=timeout, threaded=True)
+        else:
+            notification.notify(
+                title=title,
+                message=message,
+                app_name="GameSentenceMiner",
+                timeout=timeout  # Notification disappears after 5 seconds
+            )
+    except Exception as e:
+        logger.error(f"Failed to send notification: {e}")
+
 
 def send_note_updated(tango):
     send_notification(
@@ -93,6 +98,7 @@ def send_note_updated(tango):
         message=f"Audio and/or Screenshot added to note: {tango}",
         timeout=5  # Notification disappears after 5 seconds
     )
+
 
 def send_screenshot_updated(tango):
     send_notification(
@@ -132,5 +138,3 @@ def send_error_no_anki_update():
         message=f"Anki Card not updated, Check Console for Reason!",
         timeout=5  # Notification disappears after 5 seconds
     )
-
-
