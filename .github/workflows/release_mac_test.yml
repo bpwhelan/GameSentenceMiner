@@ -1,9 +1,9 @@
 name: Build Electron App
 
 on:
-#   push:
-    # branches:
-    #   - main # Or your default branch
+  push:
+    branches:
+      - mac_build # Or your default branch
   workflow_dispatch: # Allow manual trigger
 
 # Grant read permissions for checking releases and write for uploading assets
