@@ -192,9 +192,3 @@ class WebSocketManager {
 }
 
 export const webSocketManager = new WebSocketManager();
-
-webSocketManager.startServer().then((port) => {
-    console.log(`WebSocket server started on port ${port}`);
-}).catch(error => {
-    console.error("Failed to start WebSocket server:", error);
-});

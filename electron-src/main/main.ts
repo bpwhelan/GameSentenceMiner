@@ -425,6 +425,18 @@ async function isPackageInstalled(pythonPath: string, packageName: string): Prom
     }
 }
 
+async function startWebSocketServer(): Promise<void> {
+    return new Promise((resolve, reject) => {
+        webSocketManager.startServer().then((port) => {
+            console.log(`WebSocket server started on port ${port}`);
+            resolve();
+        }).catch(error => {
+            console.error("Failed to start WebSocket server:", error);
+            reject(error);
+        });
+    });
+}
+
 /**
  * Ensures GameSentenceMiner is installed before running it.
  */
@@ -526,6 +538,9 @@ if (!app.requestSingleInstanceLock()) {
         }
         createWindow().then(async () => {
             createTray();
+            startWebSocketServer().then(() => {
+                console.log('WebSocket server started successfully.');
+            });
             getOrInstallPython().then(async (pyPath: string) => {
                 pythonPath = pyPath;
                 setPythonPath(pythonPath);
