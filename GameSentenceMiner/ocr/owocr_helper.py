@@ -305,6 +305,7 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
 
     line_start_time = time if time else datetime.now()
 
+
     if manual or not get_ocr_two_pass_ocr():
         if compare_ocr_results(last_sent_result, text, 80):
             if text:
@@ -320,8 +321,6 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
         last_oneocr_time = None
         return
     if not text or force_stable:
-            # or FUTURE ATTEMPT, I THINK THIS IS CLOSE?
-            # (orig_text and previous_text and len(orig_text) == len(previous_text_list) and len(orig_text[0] < len(previous_text_list)))):
         force_stable = False
         if previous_text and text_stable_start_time:
             stable_time = text_stable_start_time
@@ -349,7 +348,7 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
     # Make sure it's an actual new line before starting the timer
     if text and compare_ocr_results(orig_text_string, previous_orig_text):
         return
-
+    
     if not text_stable_start_time:
         text_stable_start_time = line_start_time
     previous_text = text
