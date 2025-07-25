@@ -1,3 +1,4 @@
+import time
 import asyncio
 import subprocess
 import sys
@@ -7,12 +8,6 @@ import warnings
 
 os.environ.pop('TCL_LIBRARY', None)
 
-from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
-from GameSentenceMiner.util.communication.send import send_restart_signal
-from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
-from GameSentenceMiner.vad import vad_processor
-from GameSentenceMiner.util.model import VADResult
-import time
 
 try:
     import os.path
@@ -27,7 +22,11 @@ try:
     from watchdog.observers import Observer
     import psutil
 
-
+    from GameSentenceMiner.util.model import VADResult
+    from GameSentenceMiner.vad import vad_processor
+    from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
+    from GameSentenceMiner.util.communication.send import send_restart_signal
+    from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
     from GameSentenceMiner import anki
     from GameSentenceMiner import config_gui
     from GameSentenceMiner.util import configuration, notification, ffmpeg
@@ -46,7 +45,8 @@ try:
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
-    logger.info("Something bad happened during import/initialization, closing in 5 seconds")
+    logger.info(
+        "Something bad happened during import/initialization, closing in 5 seconds")
     logger.exception(e)
     time.sleep(5)
     sys.exit(1)
@@ -67,11 +67,11 @@ class VideoToAudioHandler(FileSystemEventHandler):
     def __init__(self):
         super().__init__()
 
-
     def on_created(self, event):
         if event.is_directory or ("Replay" not in event.src_path and "GSM" not in event.src_path):
             return
-        if event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):  # Adjust based on your OBS output format
+        # Adjust based on your OBS output format
+        if event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
             wait_for_stable_file(event.src_path)
             self.process_replay(event.src_path)
@@ -85,15 +85,19 @@ class VideoToAudioHandler(FileSystemEventHandler):
         mined_line = None
         gsm_state.previous_replay = video_path
         if gsm_state.line_for_audio or gsm_state.line_for_screenshot:
-            handle_texthooker_button(video_path, get_audio_from_video=VideoToAudioHandler.get_audio)
+            handle_texthooker_button(
+                video_path, get_audio_from_video=VideoToAudioHandler.get_audio)
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:
-                last_note, anki_card_creation_time, selected_lines = anki.card_queue.pop(0)
+                last_note, anki_card_creation_time, selected_lines = anki.card_queue.pop(
+                    0)
             elif get_config().features.backfill_audio:
-                last_note = anki.get_cards_by_sentence(gametext.current_line_after_regex)
+                last_note = anki.get_cards_by_sentence(
+                    gametext.current_line_after_regex)
             else:
-                logger.info("Replay buffer initiated externally. Skipping processing.")
+                logger.info(
+                    "Replay buffer initiated externally. Skipping processing.")
                 skip_delete = True
                 return
 
@@ -102,7 +106,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 if get_config().anki.update_anki:
                     last_note = anki.get_last_anki_card()
                 if get_config().features.backfill_audio:
-                    last_note = anki.get_cards_by_sentence(gametext.current_line_after_regex)
+                    last_note = anki.get_cards_by_sentence(
+                        gametext.current_line_after_regex)
 
             # Get Info of line mined
             line_cutoff = None
@@ -124,7 +129,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if get_config().obs.minimum_replay_size and not ffmpeg.is_video_big_enough(video_path,
                                                                                        get_config().obs.minimum_replay_size):
                 logger.debug("Checking if video is big enough")
-                notification.send_check_obs_notification(reason="Video may be empty, check scene in OBS.")
+                notification.send_check_obs_notification(
+                    reason="Video may be empty, check scene in OBS.")
                 logger.error(
                     f"Video was unusually small, potentially empty! Check OBS for Correct Scene Settings! Path: {video_path}")
                 return
@@ -132,7 +138,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if last_note:
                 logger.debug(last_note.to_json())
             note = anki.get_initial_card_info(last_note, selected_lines)
-            tango = last_note.get_field(get_config().anki.word_field) if last_note else ''
+            tango = last_note.get_field(
+                get_config().anki.word_field) if last_note else ''
 
             if get_config().anki.sentence_audio_field and get_config().audio.enabled:
                 logger.debug("Attempting to get audio from video")
@@ -147,11 +154,14 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 vad_result = VADResult(True, 0, 0, '')
                 vad_trimmed_audio = ""
                 if not get_config().audio.enabled:
-                    logger.info("Audio is disabled in config, skipping audio processing!")
+                    logger.info(
+                        "Audio is disabled in config, skipping audio processing!")
                 elif not get_config().anki.sentence_audio_field:
-                    logger.info("No SentenceAudio Field in config, skipping audio processing!")
+                    logger.info(
+                        "No SentenceAudio Field in config, skipping audio processing!")
 
-            ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_result=vad_result, doing_multi_line=bool(selected_lines), anki_card_creation_time=anki_card_creation_time)
+            ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line, vad_result=vad_result, doing_multi_line=bool(
+                selected_lines), anki_card_creation_time=anki_card_creation_time)
             # prev_ss_timing = 0
             # if get_config().anki.previous_image_field and get_config().vad.do_vad_postprocessing:
             #     prev_ss_timing = ffmpeg.get_screenshot_time(video_path, mined_line.prev,
@@ -164,19 +174,22 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if get_config().anki.update_anki and last_note:
                 anki.update_anki_card(
                     last_note, note, audio_path=final_audio_output, video_path=video_path,
-                                      tango=tango,
-                                      should_update_audio=vad_result.success,
-                                      ss_time=ss_timing,
-                                      game_line=mined_line,
+                    tango=tango,
+                    should_update_audio=vad_result.success,
+                    ss_time=ss_timing,
+                    game_line=mined_line,
                     selected_lines=selected_lines
                 )
             elif get_config().features.notify_on_update and vad_result.success:
-                notification.send_audio_generated_notification(vad_trimmed_audio)
+                notification.send_audio_generated_notification(
+                    vad_trimmed_audio)
         except Exception as e:
             if mined_line:
                 anki_results[mined_line.id] = AnkiUpdateResult.failure()
-            logger.error(f"Failed Processing and/or adding to Anki: Reason {e}", exc_info=True)
-            logger.debug(f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
+            logger.error(
+                f"Failed Processing and/or adding to Anki: Reason {e}", exc_info=True)
+            logger.debug(
+                f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
             notification.send_error_no_anki_update()
         finally:
             if not skip_delete:
@@ -189,7 +202,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     @staticmethod
     def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None):
-        trimmed_audio = get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time)
+        trimmed_audio = get_audio_and_trim(
+            video_path, game_line, next_line_time, anki_card_creation_time)
         if temporary:
             return ffmpeg.convert_audio_to_wav_lossless(trimmed_audio)
         vad_trimmed_audio = make_unique_file_name(
@@ -197,7 +211,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
         final_audio_output = make_unique_file_name(os.path.join(get_config().paths.audio_destination,
                                                                 f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
 
-        vad_result = vad_processor.trim_audio_with_vad(trimmed_audio, vad_trimmed_audio, game_line)
+        vad_result = vad_processor.trim_audio_with_vad(
+            trimmed_audio, vad_trimmed_audio, game_line)
         if timing_only:
             return vad_result
         if vad_result.output_audio:
@@ -215,17 +230,21 @@ def initial_checks():
         subprocess.run(ffmpeg.ffmpeg_base_command_list)
         logger.debug("FFMPEG is installed and accessible.")
     except FileNotFoundError:
-        logger.error("FFmpeg not found, please install it and add it to your PATH.")
+        logger.error(
+            "FFmpeg not found, please install it and add it to your PATH.")
         raise
 
 
 def register_hotkeys():
     if get_config().hotkeys.reset_line:
-        keyboard.add_hotkey(get_config().hotkeys.reset_line, gametext.reset_line_hotkey_pressed)
+        keyboard.add_hotkey(get_config().hotkeys.reset_line,
+                            gametext.reset_line_hotkey_pressed)
     if get_config().hotkeys.take_screenshot:
-        keyboard.add_hotkey(get_config().hotkeys.take_screenshot, get_screenshot)
+        keyboard.add_hotkey(
+            get_config().hotkeys.take_screenshot, get_screenshot)
     if get_config().hotkeys.play_latest_audio:
-        keyboard.add_hotkey(get_config().hotkeys.play_latest_audio, play_most_recent_audio)
+        keyboard.add_hotkey(
+            get_config().hotkeys.play_latest_audio, play_most_recent_audio)
 
 
 def get_screenshot():
@@ -273,7 +292,8 @@ def get_screenshot():
 #     return image
 
 def create_image():
-    image_path = os.path.join(os.path.dirname(__file__), "assets", "pickaxe.png")
+    image_path = os.path.join(os.path.dirname(
+        __file__), "assets", "pickaxe.png")
     return Image.open(image_path)
 
 
@@ -288,7 +308,8 @@ def play_most_recent_audio():
         gsm_state.line_for_audio = get_all_lines()[-1]
         obs.save_replay_buffer()
     else:
-        logger.error("Feature Disabled. No audio or video player path set in config!")
+        logger.error(
+            "Feature Disabled. No audio or video player path set in config!")
 
 
 def open_log():
@@ -411,7 +432,8 @@ def close_obs():
     obs.disconnect_from_obs()
     if obs.obs_process_pid:
         try:
-            subprocess.run(["taskkill", "/PID", str(obs.obs_process_pid), "/F"], check=True, capture_output=True, text=True)
+            subprocess.run(["taskkill", "/PID", str(obs.obs_process_pid),
+                           "/F"], check=True, capture_output=True, text=True)
             print(f"OBS (PID {obs.obs_process_pid}) has been terminated.")
             if os.path.exists(obs.OBS_PID_FILE):
                 os.remove(obs.OBS_PID_FILE)
@@ -476,6 +498,7 @@ def handle_exit():
 
     return _handle_exit
 
+
 def initialize(reloading=False):
     global obs_process
     if not reloading:
@@ -483,7 +506,8 @@ def initialize(reloading=False):
             download_obs_if_needed()
             download_ffmpeg_if_needed()
             if shutil.which("ffmpeg") is None:
-                os.environ["PATH"] += os.pathsep + os.path.dirname(get_ffmpeg_path())
+                os.environ["PATH"] += os.pathsep + \
+                    os.path.dirname(get_ffmpeg_path())
         if get_config().obs.enabled:
             if get_config().obs.open_obs:
                 obs_process = obs.start_obs()
@@ -501,6 +525,7 @@ def initialize(reloading=False):
     #     if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
     #         whisper_helper.initialize_whisper_model()
 
+
 def initialize_async():
     tasks = [connect_websocket, run_tray]
     threads = []
@@ -508,6 +533,7 @@ def initialize_async():
     for task in tasks:
         threads.append(run_new_thread(task))
     return threads
+
 
 def handle_websocket_message(message: Message):
     match FunctionName(message.function):
@@ -531,7 +557,9 @@ def handle_websocket_message(message: Message):
         case FunctionName.EXIT:
             exit_program(None, None)
         case _:
-            logger.debug(f"unknown message from electron websocket: {message.to_json()}")
+            logger.debug(
+                f"unknown message from electron websocket: {message.to_json()}")
+
 
 def post_init2():
     asyncio.run(gametext.start_text_monitor())
@@ -546,7 +574,7 @@ def async_loop():
         logger.info("Post-Initialization started.")
         vad_processor.init()
         # if is_beangate:
-            # await run_test_code()
+        # await run_test_code()
 
     asyncio.run(loop())
 
@@ -555,13 +583,16 @@ async def register_scene_switcher_callback():
     def scene_switcher_callback(scene):
         logger.info(f"Scene changed to: {scene}")
         gsm_state.current_game = obs.get_current_game(sanitize=True)
-        all_configured_scenes = [config.scenes for config in get_master_config().configs.values()]
+        all_configured_scenes = [
+            config.scenes for config in get_master_config().configs.values()]
         print(all_configured_scenes)
-        matching_configs = [name.strip() for name, config in config_instance.configs.items() if scene.strip() in config.scenes]
+        matching_configs = [name.strip() for name, config in config_instance.configs.items(
+        ) if scene.strip() in config.scenes]
         switch_to = None
 
         if len(matching_configs) > 1:
-            selected_scene = settings_window.show_scene_selection(matched_configs=matching_configs)
+            selected_scene = settings_window.show_scene_selection(
+                matched_configs=matching_configs)
             if selected_scene:
                 switch_to = selected_scene
             else:
@@ -579,7 +610,8 @@ async def register_scene_switcher_callback():
             update_icon()
 
     await obs.register_scene_change_callback(scene_switcher_callback)
-    
+
+
 async def run_test_code():
     if get_config().wip.overlay_websocket_port and get_config().wip.overlay_websocket_send:
         boxes = await gametext.find_box_for_sentence("ちぇっ少しなの？")
@@ -587,48 +619,66 @@ async def run_test_code():
             await texthooking_page.send_word_coordinates_to_overlay(boxes)
         await asyncio.sleep(2)
 
+
 async def async_main(reloading=False):
-    global root, settings_window
-    initialize(reloading)
-    logger.info("Script started.")
-    root = ttk.Window(themename='darkly')
-    settings_window = config_gui.ConfigApp(root)
-    initialize_async()
-    observer = Observer()
-    observer.schedule(VideoToAudioHandler(), get_config().paths.folder_to_watch, recursive=False)
-    observer.start()
-    if not is_windows():
-        register_hotkeys()
-
-    run_new_thread(post_init2)
-    run_new_thread(run_text_hooker_page)
-    run_new_thread(async_loop)
-
-    # Register signal handlers for graceful shutdown
-    signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
-    signal.signal(signal.SIGINT, handle_exit())  # Handle Ctrl+C
-    if is_windows():
-        win32api.SetConsoleCtrlHandler(handle_exit())
-
-    gsm_status.ready = True
-    gsm_status.status = "Ready"
     try:
-        if get_config().general.open_config_on_startup:
-            root.after(50, settings_window.show)
-        settings_window.add_save_hook(update_icon)
-        settings_window.on_exit = exit_program
-        root.mainloop()
-    except KeyboardInterrupt:
-        cleanup()
+        global root, settings_window
+        initialize(reloading)
+        logger.info("Script started.")
+        root = ttk.Window(themename='darkly')
+        settings_window = config_gui.ConfigApp(root)
+        initialize_async()
+        observer = Observer()
+        observer.schedule(VideoToAudioHandler(),
+                        get_config().paths.folder_to_watch, recursive=False)
+        observer.start()
+        if is_windows():
+            register_hotkeys()
 
-    try:
-        observer.stop()
-        observer.join()
+        run_new_thread(post_init2)
+        run_new_thread(run_text_hooker_page)
+        run_new_thread(async_loop)
+
+        # Register signal handlers for graceful shutdown
+        signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
+        signal.signal(signal.SIGINT, handle_exit())  # Handle Ctrl+C
+        if is_windows():
+            win32api.SetConsoleCtrlHandler(handle_exit())
+
+        gsm_status.ready = True
+        gsm_status.status = "Ready"
+        try:
+            if get_config().general.open_config_on_startup:
+                root.after(50, settings_window.show)
+            settings_window.add_save_hook(update_icon)
+            settings_window.on_exit = exit_program
+            root.mainloop()
+        except KeyboardInterrupt:
+            cleanup()
+
+        try:
+            observer.stop()
+            observer.join()
+        except Exception as e:
+            logger.error(f"Error stopping observer: {e}")
     except Exception as e:
-        logger.error(f"Error stopping observer: {e}")
+        logger.error(f"An error occurred during initialization: {e}", exc_info=True)
+        notification.send_error_notification(
+            "An error occurred during initialization. Check the log for details.")
+        asyncio.sleep(5)
+        raise e
+
 
 def main():
-    asyncio.run(async_main())
+    """Main function to run the Game Sentence Miner."""
+    logger.info("Starting GSM")
+    try:
+        asyncio.run(async_main())
+    except Exception as e:
+        logger.exception(e, exc_info=True)
+        logger.info(
+            "An error occurred during initialization, closing in 5 seconds")
+        time.sleep(5)
 
 
 if __name__ == "__main__":
@@ -636,4 +686,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(async_main())
     except Exception as e:
-        logger.exception(e)
+        logger.exception(e, exc_info=True)
+        logger.info(
+            "An error occurred during initialization, closing in 5 seconds")
+        time.sleep(5)
