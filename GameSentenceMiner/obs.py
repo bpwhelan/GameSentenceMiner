@@ -419,8 +419,8 @@ def get_screenshot_PIL(source_name=None, compression=75, img_format='png', width
 def update_current_game():
     gsm_state.current_game = get_current_scene()
 
-def get_current_game(sanitize=False):
-    if not gsm_state.current_game:
+def get_current_game(sanitize=False, update=True):
+    if not gsm_state.current_game or update:
         update_current_game()
 
     if sanitize:
