@@ -58,6 +58,39 @@ def is_linux():
 def is_windows():
     return platform == 'win32'
 
+class Locale(Enum):
+    English = 'en_us'
+    日本語 = 'ja_jp'
+    한국어 = 'ko_kr'
+    中文 = 'zh_cn'
+    Español = 'es_es'
+    Français = 'fr_fr'
+    Deutsch = 'de_de'
+    Italiano = 'it_it'
+    Русский = 'ru_ru'
+
+    @classmethod
+    def from_any(cls, value: str) -> 'Locale':
+        """
+        Lookup Locale by either enum name (e.g. 'English') or value (e.g. 'en_us').
+        Case-insensitive.
+        """
+        value_lower = value.lower()
+        for locale in cls:
+            if locale.name.lower() == value_lower or locale.value.lower() == value_lower:
+                return locale
+        raise KeyError(f"Locale '{value}' not found.")
+
+    def __getitem__(cls, item):
+        try:
+            return cls.from_any(item)
+        except KeyError:
+            raise
+        
+
+# Patch Enum's __getitem__ for this class
+Locale.__getitem__ = classmethod(Locale.__getitem__)
+
 
 class Language(Enum):
     JAPANESE = "ja"
@@ -78,6 +111,8 @@ class Language(Enum):
     FINNISH = "fi"
     DANISH = "da"
     NORWEGIAN = "no"
+    
+    
     
 
 AVAILABLE_LANGUAGES = [lang.value for lang in Language]
@@ -504,7 +539,7 @@ class Ai:
     enabled: bool = False
     anki_field: str = ''
     provider: str = AI_GEMINI
-    gemini_model: str = 'gemini-2.5-flash'
+    gemini_model: str = 'gemini-2.5-flash-lite'
     local_model: str = OFF
     groq_model: str = 'meta-llama/llama-4-scout-17b-16e-instruct'
     api_key: str = '' # Deprecated
@@ -522,6 +557,10 @@ class Ai:
                 self.provider = AI_GEMINI
             if self.provider == 'groq':
                 self.provider = AI_GROQ
+                
+        # Change Legacy Model Name
+        if self.gemini_model == 'gemini-2.5-flash-lite-preview-06-17':
+            self.gemini_model = 'gemini-2.5-flash-lite'
                 
                 
 # Experimental Features section, will change often
@@ -650,6 +689,7 @@ class Config:
     configs: Dict[str, ProfileConfig] = field(default_factory=dict)
     current_profile: str = DEFAULT_CONFIG
     switch_to_default_if_not_found: bool = True
+    locale: Locale = Locale.English
 
     @classmethod
     def new(cls):

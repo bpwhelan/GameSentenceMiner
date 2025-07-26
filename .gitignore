@@ -105,3 +105,4 @@ test.py
 .vscode/settings.json
 GameSentenceMiner.wiki/
 /test
+/.venv
