@@ -1,0 +1,592 @@
+{
+  "python": {
+    "config": {
+      "app": {
+        "title": "GameSentenceMiner 配置",
+        "title_with_profile": "GameSentenceMiner 配置 - {profile_name}"
+      },
+      "buttons": {
+        "save": "保存设置",
+        "sync_changes": {
+          "label": "同步更改到配置文件",
+          "tooltip": "将更改同步到所有配置文件。"
+        },
+        "reset_to_default": {
+          "text": "重置为默认值",
+          "tooltip": "将当前选项卡的设置重置为默认值。"
+        },
+        "browse": "浏览",
+        "ok": "确定",
+        "run_function": "运行功能"
+      },
+      "tabs": {
+        "key_settings": {
+          "title": "关键设置",
+          "description": "一个简化的配置界面，用于快速设置。",
+          "key_settings": {
+            "label": "关键设置",
+            "tooltip": "这些是快速设置中最重要的设置。所有这些设置都在其他选项卡中重复。"
+          },
+          "anki_enabled": {
+            "label": "启用 Anki:",
+            "tooltip": "启用或禁用 Anki 集成。"
+          },
+          "obs_enabled": {
+            "label": "启用 OBS:",
+            "tooltip": "启用或禁用 OBS 集成。"
+          },
+          "audio_enabled": {
+            "label": "启用音频:",
+            "tooltip": "启用或禁用音频处理。"
+          },
+          "screenshot_enabled": {
+            "label": "启用截图:",
+            "tooltip": "启用或禁用截图处理。"
+          },
+          "vad_enabled": {
+            "label": "启用 VAD:",
+            "tooltip": "启用或禁用语音活动检测 (VAD) 处理。"
+          },
+          "ai_enabled": {
+            "label": "启用 AI:",
+            "tooltip": "启用或禁用 AI 集成。"
+          }
+        },
+        "general": {
+          "title": "通用",
+          "websocket_enabled": {
+            "label": "启用 WebSocket:",
+            "tooltip": "启用或禁用 WebSocket 通信。启用此项将禁用剪贴板监视器。"
+          },
+          "clipboard_enabled": {
+            "label": "启用剪贴板:",
+            "tooltip": "启用或禁用剪贴板监视。"
+          },
+          "allow_both_simultaneously": {
+            "label": "允许同时使用:",
+            "tooltip": "允许 GSM 同时接受剪贴板和 WebSocket 输入。"
+          },
+          "merge_sequential_text": {
+            "label": "合并连续匹配文本:",
+            "tooltip": "将连续匹配的文本合并为单个条目。这是一个非常特殊的功能。"
+          },
+          "websocket_uri": {
+            "label": "WebSocket URI:",
+            "tooltip": "用于连接的 WebSocket URI。允许使用逗号分隔的值连接多个。"
+          },
+          "texthook_regex": {
+            "label": "TextHook 替换 Regex:",
+            "tooltip": "对 TextHook 输入运行替换的正则表达式(Regex)。"
+          },
+          "open_config_on_startup": {
+            "label": "启动时打开配置:",
+            "tooltip": "脚本启动时是否打开配置窗口。"
+          },
+          "open_texthooker_on_startup": {
+            "label": "启动时打开 GSM Texthooker:",
+            "tooltip": "脚本启动时是否打开 Texthooker 页面。"
+          },
+          "texthooker_port": {
+            "label": "GSM Texthooker 端口:",
+            "tooltip": "Texthooker 运行的端口。如果您不清楚，请勿更改。"
+          },
+          "current_version": {
+            "label": "当前版本:",
+            "tooltip": "应用程序的当前版本。"
+          },
+          "latest_version": {
+            "label": "最新版本:",
+            "tooltip": "可用的最新版本。"
+          },
+          "native_language": {
+            "label": "母语:",
+            "tooltip": "选择您的母语。此设置用于多种功能，但不会改变 GSM 的界面语言。"
+          },
+          "legend": {
+            "important": "表示重要/必需的设置。",
+            "advanced": "突出显示可能导致问题的进阶功能。",
+            "recommended": "表示推荐但完全可选的设置。",
+            "tooltip_info": "将鼠标悬停在设置中的每个标签上，都会有更多信息的工具提示。"
+          },
+          "locale": {
+            "label": "语言:",
+            "tooltip": "选择应用程序的语言。这将更改界面的语言。"
+          }
+        },
+        "paths": {
+          "title": "路径",
+          "folder_to_watch": {
+            "label": "监视文件夹:",
+            "tooltip": "OBS 录像回放的保存路径。"
+          },
+          "audio_destination": {
+            "label": "音频保存位置:",
+            "tooltip": "剪切后音频的保存路径。"
+          },
+          "screenshot_destination": {
+            "label": "截图保存位置:",
+            "tooltip": "截图的保存路径。"
+          },
+          "remove_video": {
+            "label": "删除视频:",
+            "tooltip": "处理后删除视频文件。"
+          },
+          "remove_audio": {
+            "label": "删除音频:",
+            "tooltip": "处理后删除音频文件。"
+          },
+          "remove_screenshot": {
+            "label": "删除截图:",
+            "tooltip": "处理后删除截图文件。"
+          }
+        },
+        "anki": {
+          "title": "Anki",
+          "update_anki": {
+            "label": "更新 Anki:",
+            "tooltip": "使用新数据自动更新 Anki。"
+          },
+          "url": {
+            "label": "Anki URL:",
+            "tooltip": "连接到您的 Anki 实例的 URL。"
+          },
+          "sentence_field": {
+            "label": "句子字段:",
+            "tooltip": "Anki 中用于主句子的字段。"
+          },
+          "sentence_audio_field": {
+            "label": "句子音频字段:",
+            "tooltip": "Anki 中用于句子相关音频的字段。留空以禁用音频处理。"
+          },
+          "picture_field": {
+            "label": "图片字段:",
+            "tooltip": "Anki 中用于相关图片的字段。"
+          },
+          "word_field": {
+            "label": "单词字段:",
+            "tooltip": "Anki 中用于单个单词的字段。"
+          },
+          "previous_sentence_field": {
+            "label": "上一句字段:",
+            "tooltip": "Anki 中用于上一句对话的字段。如果为空，则不填充。"
+          },
+          "previous_image_field": {
+            "label": "上一句截图字段:",
+            "tooltip": "Anki 中用于上一句截图的字段。如果为空，则不填充。"
+          },
+          "custom_tags": {
+            "label": "添加标签:",
+            "tooltip": "Anki 卡片的自定义标签（以逗号分隔）。"
+          },
+          "tags_to_check": {
+            "label": "处理的标签:",
+            "tooltip": "脚本将只对带有这些标签的卡片进行一键操作（建议留空）。"
+          },
+          "add_game_tag": {
+            "label": "添加游戏为标签:",
+            "tooltip": "在 Anki 卡片上包含游戏标签。"
+          },
+          "parent_tag": {
+            "label": "游戏父标签:",
+            "tooltip": "游戏标签的父标签。如果为空，则不添加父标签。例如：Game::{Game_Title}。"
+          },
+          "overwrite_audio": {
+            "label": "覆盖音频:",
+            "tooltip": "覆盖 Anki 卡片中现有的音频。"
+          },
+          "overwrite_picture": {
+            "label": "覆盖图片:",
+            "tooltip": "覆盖 Anki 卡片中现有的图片。"
+          },
+          "multi_overwrites_sentence": {
+            "label": "多行挖掘覆盖句子:",
+            "tooltip": "使用多行挖掘时，用所选行的串联覆盖句子。"
+          }
+        },
+        "vad": {
+          "title": "VAD",
+          "do_postprocessing": {
+            "label": "语音检测后处理:",
+            "tooltip": "对音频进行后处理，仅修剪出语音部分。"
+          },
+          "language": {
+            "label": "语言:",
+            "tooltip": "为 VAD 选择语言。仅用于 Whisper。"
+          },
+          "whisper_model": {
+            "label": "Whisper 模型:",
+            "tooltip": "为 VAD 选择 Whisper 模型大小。"
+          },
+          "selected_model": {
+            "label": "选择 VAD 模型:",
+            "tooltip": "选择要使用的 VAD 模型。"
+          },
+          "backup_model": {
+            "label": "备用 VAD 模型:",
+            "tooltip": "在未找到音频时选择备用模型。"
+          },
+          "add_on_no_results": {
+            "label": "无结果时添加音频:",
+            "tooltip": "即使 VAD 未找到结果，也添加音频。"
+          },
+          "audio_end_offset": {
+            "label": "音频结束偏移量:",
+            "tooltip": "从视频末尾提取的偏移秒数。"
+          },
+          "trim_beginning": {
+            "label": "修剪开头:",
+            "tooltip": "VAD 修剪后的开始偏移量。仅在“修剪开头”开启时有效。负值 = 开头时间更长。"
+          },
+          "beginning_offset": {
+            "label": "开始偏移量:",
+            "tooltip": "VAD 修剪后的开始偏移量。仅在“修剪开头”开启时有效。负值 = 开头时间更长。"
+          },
+          "cut_and_splice": {
+            "label": "剪切和拼接片段:",
+            "tooltip": "剪切检测到的语音片段并将其重新拼接。更多填充 = 语音间距更大。"
+          },
+          "splice_padding": {
+            "label": "填充:",
+            "tooltip": "剪切检测到的语音片段并将其重新拼接。更多填充 = 语音间距更大。"
+          }
+        },
+        "features": {
+          "title": "功能",
+          "notify_on_update": {
+            "label": "更新时通知:",
+            "tooltip": "发生更新时通知用户。"
+          },
+          "open_anki_edit": {
+            "label": "打开 Anki 编辑:",
+            "tooltip": "更新后自动打开 Anki 进行编辑。"
+          },
+          "open_anki_browser": {
+            "label": "在浏览器中打开 Anki 笔记:",
+            "tooltip": "更新后在浏览器中打开 Anki 笔记。"
+          },
+          "browser_query": {
+            "label": "浏览器查询:",
+            "tooltip": "在浏览器中打开 Anki 笔记时使用的查询。例如：'added:1'。"
+          },
+          "backfill_audio": {
+            "label": "回填音频:",
+            "tooltip": "为现有条目填充音频数据。"
+          },
+          "full_auto": {
+            "label": "全自动模式:",
+            "tooltip": "Yomitan 一键创建 Anki 卡片。"
+          }
+        },
+        "screenshot": {
+          "title": "截图",
+          "enabled": {
+            "label": "启用:",
+            "tooltip": "启用或禁用截图处理。"
+          },
+          "width": {
+            "label": "宽度:",
+            "tooltip": "截图的宽度（像素）。"
+          },
+          "height": {
+            "label": "高度:",
+            "tooltip": "截图的高度（像素）。"
+          },
+          "quality": {
+            "label": "质量:",
+            "tooltip": "截图的质量（0-100）。"
+          },
+          "extension": {
+            "label": "扩展名:",
+            "tooltip": "截图格式的文件扩展名。"
+          },
+          "ffmpeg_options": {
+            "label": "FFmpeg 重编码选项:",
+            "tooltip": "用于重编码截图的自定义 FFmpeg 选项。"
+          },
+          "timing": {
+            "label": "截图时机:",
+            "tooltip": "选择相对于句子何时截图：开始、中间或结束。"
+          },
+          "offset": {
+            "label": "截图偏移量:",
+            "tooltip": "根据上述时机设置偏移截图的时间（秒）。"
+          },
+          "use_selector": {
+            "label": "为每张卡片使用截图选择器:",
+            "tooltip": "启用截图选择器为每张卡片选择截图点。"
+          },
+          "hotkey": {
+            "label": "截图热键:",
+            "tooltip": "截图的热键。"
+          },
+          "hotkey_updates_anki": {
+            "label": "截图热键更新 Anki:",
+            "tooltip": "允许截图热键/按钮更新最新的 Anki 卡片。"
+          }
+        },
+        "audio": {
+          "title": "音频",
+          "enabled": {
+            "label": "启用:",
+            "tooltip": "启用或禁用音频处理。"
+          },
+          "extension": {
+            "label": "音频扩展名:",
+            "tooltip": "音频文件的文件扩展名。"
+          },
+          "beginning_offset": {
+            "label": "音频提取开始偏移量:",
+            "tooltip": "从视频开头提取的偏移秒数（通常为负数或0）。"
+          },
+          "find_offset_button": "查找偏移量 (WIP)",
+          "end_offset": {
+            "label": "音频提取结束偏移量:",
+            "tooltip": "在 VAD 处理开始前从末尾修剪的偏移秒数。警告：如果为负数，可能导致音频丢失。"
+          },
+          "ffmpeg_preset": {
+            "label": "FFmpeg 预设选项:",
+            "tooltip": "为重编码截图选择一个预设的 FFmpeg 选项。",
+            "options": {
+              "no_reencode": "不重编码",
+              "fade_in": "简单淡入，避免音频削波（默认）",
+              "loudness_norm": "简单响度归一化（最简单，从此开始）",
+              "downmix_norm": "下混到单声道并归一化（推荐？）",
+              "downmix_norm_low_bitrate": "下混到单声道，30kbps，归一化（最优？）",
+              "custom": "自定义"
+            }
+          },
+          "ffmpeg_options": {
+            "label": "FFmpeg 重编码选项:",
+            "tooltip": "用于重编码音频文件的自定义 FFmpeg 选项。"
+          },
+          "anki_media_collection": {
+            "label": "Anki 媒体集:",
+            "tooltip": "Anki 媒体集的路径，用于外部修剪工具。末尾不要加斜杠。"
+          },
+          "external_tool": {
+            "label": "外部音频编辑工具:",
+            "tooltip": "打开音频进行手动修剪的外部工具路径。我推荐使用 OcenAudio 进行原地编辑。"
+          },
+          "external_tool_enabled": {
+            "label": "启用:",
+            "tooltip": "将音频发送到外部工具进行编辑。"
+          },
+          "install_ocenaudio_button": "安装 Ocenaudio",
+          "get_anki_media_button": "获取 Anki 媒体集"
+        },
+        "obs": {
+          "title": "OBS",
+          "enabled": {
+            "label": "启用:",
+            "tooltip": "启用或禁用 OBS 集成。"
+          },
+          "open_obs": {
+            "label": "打开 OBS:",
+            "tooltip": "GSM 启动时打开 OBS。"
+          },
+          "close_obs": {
+            "label": "关闭 OBS:",
+            "tooltip": "GSM 关闭时关闭 OBS。"
+          },
+          "host": {
+            "label": "主机:",
+            "tooltip": "OBS WebSocket 服务器的主机地址。"
+          },
+          "port": {
+            "label": "端口:",
+            "tooltip": "OBS WebSocket 服务器的端口号。"
+          },
+          "password": {
+            "label": "密码:",
+            "tooltip": "OBS WebSocket 服务器的密码。"
+          },
+          "game_from_scene": {
+            "label": "从场景名称获取游戏:",
+            "tooltip": "将当前游戏更改为场景名称。"
+          },
+          "min_replay_size": {
+            "label": "最小回放大小 (KB):",
+            "tooltip": "OBS 录像回放的最小大小（KB）。如果回放小于此大小，将不抓取音频/截图。"
+          }
+        },
+        "profiles": {
+          "title": "配置文件",
+          "select_profile": {
+            "label": "选择配置文件:",
+            "tooltip": "选择一个配置文件以加载其设置。"
+          },
+          "add_button": "添加配置文件",
+          "copy_button": "复制配置文件",
+          "delete_button": "删除配置",
+          "obs_scene": {
+            "label": "OBS 场景 (自动切换):",
+            "tooltip": "选择一个 OBS 场景与此配置文件关联（可选）。"
+          },
+          "refresh_scenes_button": "刷新场景",
+          "switch_to_default": {
+            "label": "未找到时切换到默认:",
+            "tooltip": "如果未找到所选的 OBS 场景，则切换到默认配置文件。"
+          }
+        },
+        "advanced": {
+          "title": "高级",
+          "player_note": "注意：这些选项中只有一个会生效，优先考虑音频。",
+          "audio_player_path": {
+            "label": "音频播放器路径:",
+            "tooltip": "音频播放器可执行文件的路径。将打开修剪后的音频。"
+          },
+          "video_player_path": {
+            "label": "视频播放器路径:",
+            "tooltip": "视频播放器可执行文件的路径。将跳转到录像回放中句子的位置。"
+          },
+          "play_latest_hotkey": {
+            "label": "播放最新视频/音频热键:",
+            "tooltip": "修剪并播放最新音频的热键。"
+          },
+          "multiline_linebreak": {
+            "label": "多行换行符:",
+            "tooltip": "多行挖掘的换行符。此符号将插入每个句子之间。"
+          },
+          "multiline_storage_field": {
+            "label": "多行句子存储字段:",
+            "tooltip": "Anki 中用于临时存储多行句子的字段。"
+          },
+          "ocr_port": {
+            "label": "OCR WebSocket 端口:",
+            "tooltip": "OCR WebSocket 通信的端口。GSM 也将在此端口上侦听。"
+          },
+          "texthooker_comm_port": {
+            "label": "Texthooker 通信 WebSocket 端口:",
+            "tooltip": "GSM Texthooker WebSocket 通信的端口。目前不起作用，硬编码为 55001。"
+          },
+          "plaintext_export_port": {
+            "label": "纯文本 WebSocket 导出端口:",
+            "tooltip": "GSM 纯文本 WebSocket 导出通信的端口。目前不起作用，硬编码为 55002。"
+          },
+          "reset_line_hotkey": {
+            "label": "重置行热键:",
+            "tooltip": "重置当前对话行的热键。"
+          },
+          "polling_rate": {
+            "label": "轮询率:",
+            "tooltip": "Anki 检查更新的速率（毫秒）。"
+          }
+        },
+        "ai": {
+          "title": "AI",
+          "enabled": {
+            "label": "启用:",
+            "tooltip": "启用或禁用 AI 集成。"
+          },
+          "provider": {
+            "label": "提供商:",
+            "tooltip": "选择 AI 提供商。"
+          },
+          "gemini_model": {
+            "label": "Gemini AI 模型:",
+            "tooltip": "选择要使用的 AI 模型。"
+          },
+          "gemini_api_key": {
+            "label": "Gemini API 密钥:",
+            "tooltip": "所选 AI 提供商的 API 密钥（目前仅限 Gemini）。"
+          },
+          "groq_model": {
+            "label": "Groq AI 模型:",
+            "tooltip": "选择要使用的 Groq AI 模型。"
+          },
+          "groq_api_key": {
+            "label": "Groq API 密钥:",
+            "tooltip": "Groq AI 提供商的 API 密钥。"
+          },
+          "local_model": {
+            "label": "本地 AI 模型:",
+            "tooltip": "要使用的本地 AI 模型，目前仅支持非常基本的翻译。"
+          },
+          "anki_field": {
+            "label": "Anki 字段:",
+            "tooltip": "Anki 中用于 AI 生成内容的字段。"
+          },
+          "context_length": {
+            "label": "对话上下文长度:",
+            "tooltip": "作为 AI 上下文包含的前后行数。0 表示禁用。-1 表示尽可能多（请谨慎使用）。"
+          },
+          "use_canned_translation": {
+            "label": "使用预设翻译提示:",
+            "tooltip": "为 AI 使用预定义的翻译提示。"
+          },
+          "use_canned_context": {
+            "label": "使用预设上下文提示:",
+            "tooltip": "为 AI 使用预定义的上下文提示。"
+          },
+          "custom_prompt": {
+            "label": "自定义提示:",
+            "tooltip": "用于 AI 处理的自定义提示。"
+          }
+        },
+        "wip": {
+          "title": "WIP",
+          "warning_experimental": "警告：这些功能是实验性的，可能无法按预期工作。",
+          "warning_overlay_deps": "覆盖层需要安装 OwOCR 依赖项，并需要运行一个外部应用程序。",
+          "overlay_port": {
+            "label": "覆盖层 WebSocket 端口:",
+            "tooltip": "用于实验性覆盖层功能的覆盖层 WebSocket 通信端口。"
+          },
+          "overlay_send": {
+            "label": "覆盖层 WebSocket 发送:",
+            "tooltip": "启用通过 WebSocket 发送覆盖层数据。实验性功能。"
+          },
+          "monitor_capture": {
+            "label": "捕获的显示器:",
+            "tooltip": "选择要捕获的显示器（从1开始的索引）。",
+            "not_detected": "未检测到 OwOCR"
+          },
+          "error_setup": "设置 WIP 选项卡时出错"
+        }
+      },
+      "dialogs": {
+        "reset_to_default": {
+          "title": "重置为默认值",
+          "message": "您确定要将此选项卡中的所有设置重置为默认值吗？"
+        },
+        "select_profile": {
+          "title": "选择配置文件",
+          "message": "多个配置文件与当前场景匹配。请选择配置文件："
+        },
+        "config_error": {
+          "title": "配置错误",
+          "full_auto_and_backfill": "不能同时开启全自动模式和回填模式！注意：回填是一个非常特殊的工作流程。",
+          "no_input_method": "不能同时禁用剪贴板和 WebSocket。"
+        },
+        "offset_copied": {
+          "title": "剪贴板",
+          "message": "偏移量已复制到剪贴板！"
+        },
+        "add_profile": {
+          "title": "输入",
+          "prompt": "输入新的配置文件名称："
+        },
+        "copy_profile": {
+          "title": "输入",
+          "prompt": "输入新的配置文件名称："
+        },
+        "delete_profile": {
+          "title": "确认删除",
+          "message": "您确定要删除配置文件 '{profile_name}' 吗？",
+          "error_title": "错误",
+          "error_cannot_delete_default": "无法删除默认配置文件。"
+        },
+        "install_ocenaudio": {
+          "title": "下载 OcenAudio？",
+          "message": "您想下载并安装 OcenAudio 吗？它是一款免费的音频编辑软件，与 GSM 配合得非常好。",
+          "downloading_message": "正在下载 OcenAudio...",
+          "success_title": "OcenAudio 已下载",
+          "success_message": "OcenAudio 已下载并安装。您可以在 {path} 找到它。"
+        },
+        "set_anki_media": {
+          "title": "设置默认 Anki 媒体集？",
+          "message": "您想设置默认的 Anki 媒体集路径吗？这将帮助脚本找到用于外部修剪的媒体集。\n\n默认值：%APPDATA%/Anki2/User 1/collection.media"
+        }
+      }
+    }
+  }
+}

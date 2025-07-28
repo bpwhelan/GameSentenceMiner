@@ -1,0 +1,592 @@
+{
+  "python": {
+    "config": {
+      "app": {
+        "title": "GameSentenceMiner Configuration",
+        "title_with_profile": "GameSentenceMiner Configuration - {profile_name}"
+      },
+      "buttons": {
+        "save": "Save Settings",
+        "sync_changes": {
+          "label": "Sync Changes to Profiles",
+          "tooltip": "Sync changes made to all profiles."
+        },
+        "reset_to_default": {
+          "text": "Reset to Default",
+          "tooltip": "Reset Current Tab Settings to default values."
+        },
+        "browse": "Browse",
+        "ok": "OK",
+        "run_function": "Run Function"
+      },
+      "tabs": {
+        "key_settings": {
+          "title": "Key Settings",
+          "description": "A simplified configuration interface for quick setup.",
+          "key_settings": {
+            "label": "Key Settings",
+            "tooltip": "These are the most important settings for quick setup. All of these settings are duplicated from other tabs."
+          },
+          "anki_enabled": {
+            "label": "Anki Enabled:",
+            "tooltip": "Enable or disable Anki integration."
+          },
+          "obs_enabled": {
+            "label": "OBS Enabled:",
+            "tooltip": "Enable or disable OBS integration."
+          },
+          "audio_enabled": {
+            "label": "Audio Enabled:",
+            "tooltip": "Enable or disable audio processing."
+          },
+          "screenshot_enabled": {
+            "label": "Screenshot Enabled:",
+            "tooltip": "Enable or disable screenshot processing."
+          },
+          "vad_enabled": {
+            "label": "VAD Enabled:",
+            "tooltip": "Enable or disable Voice Activity Detection (VAD) processing."
+          },
+          "ai_enabled": {
+            "label": "AI Enabled:",
+            "tooltip": "Enable or disable AI integration."
+          }
+        },
+        "general": {
+          "title": "General",
+          "websocket_enabled": {
+            "label": "Websocket Enabled:",
+            "tooltip": "Enable or disable WebSocket communication. Enabling this will disable the clipboard monitor."
+          },
+          "clipboard_enabled": {
+            "label": "Clipboard Enabled:",
+            "tooltip": "Enable or disable Clipboard monitoring."
+          },
+          "allow_both_simultaneously": {
+            "label": "Allow Both Simultaneously:",
+            "tooltip": "Enable to allow GSM to accept both clipboard and websocket input at the same time."
+          },
+          "merge_sequential_text": {
+            "label": "Merge Matching Sequential Text:",
+            "tooltip": "Enable to merge matching sequential text into a single entry. Designed for Luna's Speech Recognition feature. Very niche."
+          },
+          "websocket_uri": {
+            "label": "Websocket URI(s):",
+            "tooltip": "WebSocket URI for connecting. Allows Comma Separated Values for Connecting Multiple."
+          },
+          "texthook_regex": {
+            "label": "TextHook Replacement Regex:",
+            "tooltip": "Regex to run replacement on texthook input, set this to the same as what you may have in your texthook page."
+          },
+          "open_config_on_startup": {
+            "label": "Open Config on Startup:",
+            "tooltip": "Whether to open config when the script starts."
+          },
+          "open_texthooker_on_startup": {
+            "label": "Open GSM Texthooker on Startup:",
+            "tooltip": "Whether to open Texthooking page when the script starts."
+          },
+          "texthooker_port": {
+            "label": "GSM Texthooker Port:",
+            "tooltip": "Port for the Texthooker to run on. Only change if you know what you are doing."
+          },
+          "current_version": {
+            "label": "Current Version:",
+            "tooltip": "The current version of the application."
+          },
+          "latest_version": {
+            "label": "Latest Version:",
+            "tooltip": "The latest available version of the application."
+          },
+          "native_language": {
+            "label": "Native Language:",
+            "tooltip": "Select your native language. This is used for various features, but will not change the look of GSM."
+          },
+          "legend": {
+            "important": "Indicates important/required settings.",
+            "advanced": "Highlights Advanced Features that may break things.",
+            "recommended": "Indicates Recommended, but completely optional settings.",
+            "tooltip_info": "Every Label in settings has a tooltip with more information if you hover over them."
+          },
+          "locale": {
+            "label": "Language:",
+            "tooltip": "Select the application's language. This will change the interface language."
+          }
+        },
+        "paths": {
+          "title": "Paths",
+          "folder_to_watch": {
+            "label": "Folder to Watch:",
+            "tooltip": "Path where the OBS Replays will be saved."
+          },
+          "audio_destination": {
+            "label": "Audio Destination:",
+            "tooltip": "Path where the cut Audio will be saved."
+          },
+          "screenshot_destination": {
+            "label": "Screenshot Destination:",
+            "tooltip": "Path where the Screenshot will be saved."
+          },
+          "remove_video": {
+            "label": "Remove Video:",
+            "tooltip": "Remove video from the output."
+          },
+          "remove_audio": {
+            "label": "Remove Audio:",
+            "tooltip": "Remove audio from the output."
+          },
+          "remove_screenshot": {
+            "label": "Remove Screenshot:",
+            "tooltip": "Remove screenshots after processing."
+          }
+        },
+        "anki": {
+          "title": "Anki",
+          "update_anki": {
+            "label": "Update Anki:",
+            "tooltip": "Automatically update Anki with new data."
+          },
+          "url": {
+            "label": "Anki URL:",
+            "tooltip": "The URL to connect to your Anki instance."
+          },
+          "sentence_field": {
+            "label": "Sentence Field:",
+            "tooltip": "Field in Anki for the main sentence."
+          },
+          "sentence_audio_field": {
+            "label": "Sentence Audio Field:",
+            "tooltip": "Field in Anki for audio associated with the sentence. Leave Blank to Disable Audio Processing."
+          },
+          "picture_field": {
+            "label": "Picture Field:",
+            "tooltip": "Field in Anki for associated pictures."
+          },
+          "word_field": {
+            "label": "Word Field:",
+            "tooltip": "Field in Anki for individual words."
+          },
+          "previous_sentence_field": {
+            "label": "Previous Sentence Field:",
+            "tooltip": "Field in Anki for the previous line of dialogue. If Empty, will not populate"
+          },
+          "previous_image_field": {
+            "label": "Previous VoiceLine SS Field:",
+            "tooltip": "Field in Anki for the screenshot of previous line. If Empty, will not populate"
+          },
+          "custom_tags": {
+            "label": "Add Tags:",
+            "tooltip": "Comma-separated custom tags for the Anki cards."
+          },
+          "tags_to_check": {
+            "label": "Tags to work on:",
+            "tooltip": "Comma-separated Tags, script will only do 1-click on cards with these tags (Recommend keep empty, or use Yomitan Profile to add custom tag from texthooker page)"
+          },
+          "add_game_tag": {
+            "label": "Add Game as Tag:",
+            "tooltip": "Include a tag for the game on the Anki card."
+          },
+          "parent_tag": {
+            "label": "Game Parent Tag:",
+            "tooltip": "Parent tag for the Game Tag. If empty, no parent tag will be added. i.e. Game::{Game_Title}. You can think of this as a \"Folder\" for your tags"
+          },
+          "overwrite_audio": {
+            "label": "Overwrite Audio:",
+            "tooltip": "Overwrite existing audio in Anki cards."
+          },
+          "overwrite_picture": {
+            "label": "Overwrite Picture:",
+            "tooltip": "Overwrite existing pictures in Anki cards."
+          },
+          "multi_overwrites_sentence": {
+            "label": "Multi-line Mining Overwrite Sentence:",
+            "tooltip": "When using Multi-line Mining, overwrite the sentence with a concatenation of the lines selected."
+          }
+        },
+        "vad": {
+          "title": "VAD",
+          "do_postprocessing": {
+            "label": "Voice Detection Postprocessing:",
+            "tooltip": "Enable post-processing of audio to trim just the voiceline."
+          },
+          "language": {
+            "label": "Language:",
+            "tooltip": "Select the language for VAD. This is used for Whisper Only."
+          },
+          "whisper_model": {
+            "label": "Whisper Model:",
+            "tooltip": "Select the Whisper model size for VAD."
+          },
+          "selected_model": {
+            "label": "Select VAD Model:",
+            "tooltip": "Select which VAD model to use."
+          },
+          "backup_model": {
+            "label": "Backup VAD Model:",
+            "tooltip": "Select which model to use as a backup if no audio is found."
+          },
+          "add_on_no_results": {
+            "label": "Add Audio on No Results:",
+            "tooltip": "Add audio even if no results are found by VAD."
+          },
+          "audio_end_offset": {
+            "label": "Audio End Offset:",
+            "tooltip": "Offset in seconds from end of the video to extract."
+          },
+          "trim_beginning": {
+            "label": "Trim Beginning:",
+            "tooltip": "Beginning offset after VAD Trim, Only active if \"Trim Beginning\" is ON. Negative values = more time at the beginning"
+          },
+          "beginning_offset": {
+            "label": "Beginning Offset:",
+            "tooltip": "Beginning offset after VAD Trim, Only active if \"Trim Beginning\" is ON. Negative values = more time at the beginning"
+          },
+          "cut_and_splice": {
+            "label": "Cut and Splice Segments:",
+            "tooltip": "Cut Detected Voice Segments and Paste them back together. More Padding = More Space between voicelines."
+          },
+          "splice_padding": {
+            "label": "Padding:",
+            "tooltip": "Cut Detected Voice Segments and Paste them back together. More Padding = More Space between voicelines."
+          }
+        },
+        "features": {
+          "title": "Features",
+          "notify_on_update": {
+            "label": "Notify on Update:",
+            "tooltip": "Notify the user when an update occurs."
+          },
+          "open_anki_edit": {
+            "label": "Open Anki Note in Edit View:",
+            "tooltip": "Automatically open Anki for editing after updating."
+          },
+          "open_anki_browser": {
+            "label": "Open Anki Note in Browser View:",
+            "tooltip": "Open Anki note in browser after updating."
+          },
+          "browser_query": {
+            "label": "Browser Query:",
+            "tooltip": "Query to use when opening Anki notes in the browser. Ex: 'Added:1'"
+          },
+          "backfill_audio": {
+            "label": "Backfill Audio:",
+            "tooltip": "Fill in audio data for existing entries."
+          },
+          "full_auto": {
+            "label": "Full Auto Mode:",
+            "tooltip": "Yomitan 1-click anki card creation."
+          }
+        },
+        "screenshot": {
+          "title": "Screenshot",
+          "enabled": {
+            "label": "Enabled:",
+            "tooltip": "Enable or disable screenshot processing."
+          },
+          "width": {
+            "label": "Width:",
+            "tooltip": "Width of the screenshot in pixels."
+          },
+          "height": {
+            "label": "Height:",
+            "tooltip": "Height of the screenshot in pixels."
+          },
+          "quality": {
+            "label": "Quality:",
+            "tooltip": "Quality of the screenshot (0-100)."
+          },
+          "extension": {
+            "label": "Extension:",
+            "tooltip": "File extension for the screenshot format."
+          },
+          "ffmpeg_options": {
+            "label": "FFmpeg Reencode Options:",
+            "tooltip": "Custom FFmpeg options for re-encoding screenshots."
+          },
+          "timing": {
+            "label": "Screenshot Timing:",
+            "tooltip": "Select when to take the screenshot relative to the line: beginning, middle, or end."
+          },
+          "offset": {
+            "label": "Screenshot Offset:",
+            "tooltip": "Time in seconds to offset the screenshot based on the Timing setting above (should almost always be positive, can be negative if you use \"middle\")"
+          },
+          "use_selector": {
+            "label": "Use Screenshot Selector for every card:",
+            "tooltip": "Enable to use the screenshot selector to choose the screenshot point on every card."
+          },
+          "hotkey": {
+            "label": "Take Screenshot Hotkey:",
+            "tooltip": "Hotkey to take a screenshot."
+          },
+          "hotkey_updates_anki": {
+            "label": "Screenshot Hotkey Updates Anki:",
+            "tooltip": "Enable to allow Screenshot hotkey/button to update the latest anki card."
+          }
+        },
+        "audio": {
+          "title": "Audio",
+          "enabled": {
+            "label": "Enabled:",
+            "tooltip": "Enable or disable audio processing."
+          },
+          "extension": {
+            "label": "Audio Extension:",
+            "tooltip": "File extension for audio files."
+          },
+          "beginning_offset": {
+            "label": "Audio Extraction Beginning Offset:",
+            "tooltip": "Offset in seconds from beginning of the video to extract (Should Usually be negative or 0). If you find that the beginning of your audio is cut off, try decreasing this value."
+          },
+          "find_offset_button": "Find Offset (WIP)",
+          "end_offset": {
+            "label": "Audio Extraction End Offset:",
+            "tooltip": "Offset in seconds to trim from the end before VAD processing starts. Warning: May Result in lost audio if negative."
+          },
+          "ffmpeg_preset": {
+            "label": "FFmpeg Preset Options:",
+            "tooltip": "Select a preset FFmpeg option for re-encoding screenshots.",
+            "options": {
+              "no_reencode": "No Re-encode",
+              "fade_in": "Simple Fade-in, Avoids Audio Clipping (Default)",
+              "loudness_norm": "Simple loudness normalization (Simplest, Start Here)",
+              "downmix_norm": "Downmix to mono with normalization (Recommended(?))",
+              "downmix_norm_low_bitrate": "Downmix to mono, 30kbps, normalized (Optimal(?))",
+              "custom": "Custom"
+            }
+          },
+          "ffmpeg_options": {
+            "label": "FFmpeg Reencode Options:",
+            "tooltip": "Custom FFmpeg options for re-encoding audio files."
+          },
+          "anki_media_collection": {
+            "label": "Anki Media Collection:",
+            "tooltip": "Path of the Anki Media Collection, used for external Trimming tool. NO TRAILING SLASH"
+          },
+          "external_tool": {
+            "label": "External Audio Editing Tool:",
+            "tooltip": "Path to External tool that opens the audio up for manual trimming. I recommend OcenAudio for in-place Editing."
+          },
+          "external_tool_enabled": {
+            "label": "Enabled:",
+            "tooltip": "Send Audio to External Tool for Editing."
+          },
+          "install_ocenaudio_button": "Install Ocenaudio",
+          "get_anki_media_button": "Get Anki Media Collection"
+        },
+        "obs": {
+          "title": "OBS",
+          "enabled": {
+            "label": "Enabled:",
+            "tooltip": "Enable or disable OBS integration."
+          },
+          "open_obs": {
+            "label": "Open OBS:",
+            "tooltip": "Open OBS when the GSM starts."
+          },
+          "close_obs": {
+            "label": "Close OBS:",
+            "tooltip": "Close OBS when the GSM closes."
+          },
+          "host": {
+            "label": "Host:",
+            "tooltip": "Host address for the OBS WebSocket server."
+          },
+          "port": {
+            "label": "Port:",
+            "tooltip": "Port number for the OBS WebSocket server."
+          },
+          "password": {
+            "label": "Password:",
+            "tooltip": "Password for the OBS WebSocket server."
+          },
+          "game_from_scene": {
+            "label": "Get Game From Scene Name:",
+            "tooltip": "Changes Current Game to Scene Name"
+          },
+          "min_replay_size": {
+            "label": "Minimum Replay Size (KB):",
+            "tooltip": "Minimum Replay Size for OBS Replays in KB. If Replay is Under this, Audio/Screenshot Will not be grabbed."
+          }
+        },
+        "profiles": {
+          "title": "Profiles",
+          "select_profile": {
+            "label": "Select Profile:",
+            "tooltip": "Select a profile to load its settings."
+          },
+          "add_button": "Add Profile",
+          "copy_button": "Copy Profile",
+          "delete_button": "Delete Config",
+          "obs_scene": {
+            "label": "OBS Scene (Auto Switch Profile):",
+            "tooltip": "Select an OBS scene to associate with this profile. (Optional)"
+          },
+          "refresh_scenes_button": "Refresh Scenes",
+          "switch_to_default": {
+            "label": "Switch To Default If Not Found:",
+            "tooltip": "Enable to switch to the default profile if the selected OBS scene is not found."
+          }
+        },
+        "advanced": {
+          "title": "Advanced",
+          "player_note": "Note: Only one of these will take effect, prioritizing audio.",
+          "audio_player_path": {
+            "label": "Audio Player Path:",
+            "tooltip": "Path to the audio player executable. Will open the trimmed Audio"
+          },
+          "video_player_path": {
+            "label": "Video Player Path:",
+            "tooltip": "Path to the video player executable. Will seek to the location of the line in the replay"
+          },
+          "play_latest_hotkey": {
+            "label": "Play Latest Video/Audio Hotkey:",
+            "tooltip": "Hotkey to trim and play the latest audio."
+          },
+          "multiline_linebreak": {
+            "label": "Multi-line Line-Break:",
+            "tooltip": "Line break for multi-line mining. This goes between each sentence"
+          },
+          "multiline_storage_field": {
+            "label": "Multi-Line Sentence Storage Field:",
+            "tooltip": "Field in Anki for storing the multi-line sentence temporarily."
+          },
+          "ocr_port": {
+            "label": "OCR WebSocket Port:",
+            "tooltip": "Port for OCR WebSocket communication. GSM will also listen on this port"
+          },
+          "texthooker_comm_port": {
+            "label": "Texthooker Communication WebSocket Port:",
+            "tooltip": "Port for GSM Texthooker WebSocket communication. Does nothing right now, hardcoded to 55001"
+          },
+          "plaintext_export_port": {
+            "label": "Plaintext Websocket Export Port:",
+            "tooltip": "Port for GSM Plaintext WebSocket Export communication. Does nothing right now, hardcoded to 55002"
+          },
+          "reset_line_hotkey": {
+            "label": "Reset Line Hotkey:",
+            "tooltip": "Hotkey to reset the current line of dialogue."
+          },
+          "polling_rate": {
+            "label": "Polling Rate:",
+            "tooltip": "Rate at which Anki will check for updates (in milliseconds)."
+          }
+        },
+        "ai": {
+          "title": "AI",
+          "enabled": {
+            "label": "Enabled:",
+            "tooltip": "Enable or disable AI integration."
+          },
+          "provider": {
+            "label": "Provider:",
+            "tooltip": "Select the AI provider."
+          },
+          "gemini_model": {
+            "label": "Gemini AI Model:",
+            "tooltip": "Select the AI model to use."
+          },
+          "gemini_api_key": {
+            "label": "Gemini API Key:",
+            "tooltip": "API key for the selected AI provider (Gemini only currently)."
+          },
+          "groq_model": {
+            "label": "Groq AI Model:",
+            "tooltip": "Select the Groq AI model to use."
+          },
+          "groq_api_key": {
+            "label": "Groq API Key:",
+            "tooltip": "API key for Groq AI provider."
+          },
+          "local_model": {
+            "label": "Local AI Model:",
+            "tooltip": "Local AI Model to Use, Only very basic Translation is supported atm. May require some other setup, but idk."
+          },
+          "anki_field": {
+            "label": "Anki Field:",
+            "tooltip": "Field in Anki for AI-generated content."
+          },
+          "context_length": {
+            "label": "Dialogue Context Length:",
+            "tooltip": "Number of previous/next lines to include as context for AI. 0 to disable. -1 for as many as possible (Use With Caution)"
+          },
+          "use_canned_translation": {
+            "label": "Use Canned Translation Prompt:",
+            "tooltip": "Use a pre-defined translation prompt for AI."
+          },
+          "use_canned_context": {
+            "label": "Use Canned Context Prompt:",
+            "tooltip": "Use a pre-defined context prompt for AI."
+          },
+          "custom_prompt": {
+            "label": "Custom Prompt:",
+            "tooltip": "Custom prompt for AI processing."
+          }
+        },
+        "wip": {
+          "title": "WIP",
+          "warning_experimental": "Warning: These features are experimental and may not work as expected.",
+          "warning_overlay_deps": "Overlay requires OwOCR dependencies to be installed, and requires an external app to be running.",
+          "overlay_port": {
+            "label": "Overlay WebSocket Port:",
+            "tooltip": "Port for the overlay WebSocket communication. Used for experimental overlay features."
+          },
+          "overlay_send": {
+            "label": "Overlay WebSocket Send:",
+            "tooltip": "Enable to send overlay data via WebSocket. Experimental feature."
+          },
+          "monitor_capture": {
+            "label": "Monitor to Capture:",
+            "tooltip": "Select the monitor to capture (1-based index).",
+            "not_detected": "OwOCR Not Detected"
+          },
+          "error_setup": "Error setting up WIP tab"
+        }
+      },
+      "dialogs": {
+        "reset_to_default": {
+          "title": "Reset to Default",
+          "message": "Are you sure you want to reset all settings in this tab to default?"
+        },
+        "select_profile": {
+          "title": "Select Profile",
+          "message": "Multiple profiles match the current scene. Please select the profile:"
+        },
+        "config_error": {
+          "title": "Configuration Error",
+          "full_auto_and_backfill": "Cannot have Full Auto and Backfill mode on at the same time! Note: Backfill is a very niche workflow.",
+          "no_input_method": "Cannot have both Clipboard and Websocket Disabled."
+        },
+        "offset_copied": {
+          "title": "Clipboard",
+          "message": "Offset copied to clipboard!"
+        },
+        "add_profile": {
+          "title": "Input",
+          "prompt": "Enter new profile name:"
+        },
+        "copy_profile": {
+          "title": "Input",
+          "prompt": "Enter new profile name:"
+        },
+        "delete_profile": {
+          "title": "Confirm Delete",
+          "message": "Are you sure you want to delete the profile '{profile_name}'?",
+          "error_title": "Error",
+          "error_cannot_delete_default": "Cannot delete the Default profile."
+        },
+        "install_ocenaudio": {
+          "title": "Download OcenAudio?",
+          "message": "Would you like to download and install OcenAudio? It is a free audio editing software that works extremely well with GSM.",
+          "downloading_message": "Downloading OcenAudio...",
+          "success_title": "OcenAudio Downloaded",
+          "success_message": "OcenAudio has been downloaded and installed. You can find it at {path}."
+        },
+        "set_anki_media": {
+          "title": "Set Default Anki Media Collection?",
+          "message": "Would you like to set the default Anki media collection path? This will help the script find the media collection for external trimming.\n\nDefault: %APPDATA%/Anki2/User 1/collection.media"
+        }
+      }
+    }
+  }
+}

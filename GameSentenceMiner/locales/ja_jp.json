@@ -1,0 +1,591 @@
+{
+  "python": {
+    "config": {
+      "app": {
+        "title": "GameSentenceMiner 設定",
+        "title_with_profile": "GameSentenceMiner 設定 - {profile_name}"
+      },
+      "buttons": {
+        "save": "設定を保存",
+        "sync_changes": {
+          "label": "プロファイルに変更を同期",
+          "tooltip": "すべてのプロファイルに変更を同期します。"
+        },
+        "reset_to_default": {
+          "text": "初期設定に戻す",
+          "tooltip": "このタブの設定を初期値にリセットします。"
+        },
+        "browse": "参照",
+        "ok": "OK",
+        "run_function": "機能を実行"
+      },
+      "tabs": {
+        "key_settings": {
+          "title": "主要な設定",
+          "key_settings": {
+            "label": "主要な設定項目",
+            "tooltip": "これらの設定は、GSMの基本的な機能を有効化または無効化します。"
+          },
+          "anki_enabled": {
+            "label": "Anki有効化:",
+            "tooltip": "Ankiとの連携を有効化または無効化します。"
+          },
+          "obs_enabled": {
+            "label": "OBS有効化:",
+            "tooltip": "OBSとの連携を有効化または無効化します。"
+          },
+          "audio_enabled": {
+            "label": "音声処理有効化:",
+            "tooltip": "音声処理を有効化または無効化します。"
+          },
+          "screenshot_enabled": {
+            "label": "スクリーンショット処理有効化:",
+            "tooltip": "スクリーンショット処理を有効化または無効化します。"
+          },
+          "vad_enabled": {
+            "label": "VAD処理有効化:",
+            "tooltip": "音声活動検出（VAD）処理を有効化または無効化します。"
+          },
+          "ai_enabled": {
+            "label": "AI連携有効化:",
+            "tooltip": "AIとの連携を有効化または無効化します。"
+          }
+        },
+        "general": {
+          "title": "一般",
+          "websocket_enabled": {
+            "label": "WebSocket有効化:",
+            "tooltip": "WebSocket通信を有効化します。クリップボード監視は無効になります。"
+          },
+          "clipboard_enabled": {
+            "label": "クリップボード有効化:",
+            "tooltip": "クリップボードの監視を有効化します。"
+          },
+          "allow_both_simultaneously": {
+            "label": "両方を同時に許可:",
+            "tooltip": "クリップボードとWebSocketの両方から同時に入力できるようにします。"
+          },
+          "merge_sequential_text": {
+            "label": "連続する一致テキストを結合:",
+            "tooltip": "連続する同じテキストを一つにまとめます。特殊な用途向けです。"
+          },
+          "websocket_uri": {
+            "label": "WebSocket URI:",
+            "tooltip": "接続先のWebSocket URI。複数指定はカンマ区切り。"
+          },
+          "texthook_regex": {
+            "label": "TextHook置換Regex:",
+            "tooltip": "テキストフックからの入力に適用する正規表現(Regex)。"
+          },
+          "open_config_on_startup": {
+            "label": "起動時に設定を開く:",
+            "tooltip": "起動時にこの設定画面を開くかどうか。"
+          },
+          "open_texthooker_on_startup": {
+            "label": "起動時にGSM Texthookerを開く:",
+            "tooltip": "起動時にTexthookerページを開くかどうか。"
+          },
+          "texthooker_port": {
+            "label": "GSM Texthookerポート:",
+            "tooltip": "Texthookerが使用するポート番号。"
+          },
+          "current_version": {
+            "label": "現在のバージョン:",
+            "tooltip": "アプリケーションの現在のバージョン。"
+          },
+          "latest_version": {
+            "label": "最新バージョン:",
+            "tooltip": "利用可能な最新バージョン。"
+          },
+          "native_language": {
+            "label": "母国語:",
+            "tooltip": "あなたの母国語を選択してください。各種機能で使用されます。"
+          },
+          "legend": {
+            "important": "重要/必須の設定項目を示します。",
+            "advanced": "問題を起こす可能性のある高度な機能を示します。",
+            "recommended": "推奨されるが、任意の設定項目を示します。",
+            "tooltip_info": "各ラベルにカーソルを合わせると、詳細なツールチップが表示されます。"
+          },
+          "locale": {
+            "label": "ロケール:",
+            "tooltip": "アプリケーションのロケールを選択します。これにより、インターフェースの言語が変更されます。"
+          }
+        },
+        "paths": {
+          "title": "パス",
+          "folder_to_watch": {
+            "label": "監視フォルダ:",
+            "tooltip": "OBSリプレイが保存されるパス。"
+          },
+          "audio_destination": {
+            "label": "音声保存先:",
+            "tooltip": "切り出した音声の保存先パス。"
+          },
+          "screenshot_destination": {
+            "label": "画像保存先:",
+            "tooltip": "スクリーンショットの保存先パス。"
+          },
+          "remove_video": {
+            "label": "動画を削除:",
+            "tooltip": "処理後に動画ファイルを削除します。"
+          },
+          "remove_audio": {
+            "label": "音声を削除:",
+            "tooltip": "処理後に音声ファイルを削除します。"
+          },
+          "remove_screenshot": {
+            "label": "画像を削除:",
+            "tooltip": "処理後に画像ファイルを削除します。"
+          }
+        },
+        "anki": {
+          "title": "Anki",
+          "update_anki": {
+            "label": "Ankiを更新:",
+            "tooltip": "自動的にAnkiを更新します。"
+          },
+          "url": {
+            "label": "Anki URL:",
+            "tooltip": "AnkiConnectの接続URL。"
+          },
+          "sentence_field": {
+            "label": "文章フィールド:",
+            "tooltip": "Ankiの文章用フィールド名。"
+          },
+          "sentence_audio_field": {
+            "label": "音声フィールド:",
+            "tooltip": "Ankiの音声用フィールド名。空欄で無効。"
+          },
+          "picture_field": {
+            "label": "画像フィールド:",
+            "tooltip": "Ankiの画像用フィールド名。"
+          },
+          "word_field": {
+            "label": "単語フィールド:",
+            "tooltip": "Ankiの単語用フィールド名。"
+          },
+          "previous_sentence_field": {
+            "label": "前の文章フィールド:",
+            "tooltip": "前のセリフを保存するフィールド。空欄で無効。"
+          },
+          "previous_image_field": {
+            "label": "前の画像フィールド:",
+            "tooltip": "前のセリフの画像を保存するフィールド。空欄で無効。"
+          },
+          "custom_tags": {
+            "label": "追加タグ:",
+            "tooltip": "Ankiカードに追加するカスタムタグ（カンマ区切り）。"
+          },
+          "tags_to_check": {
+            "label": "対象タグ:",
+            "tooltip": "これらのタグを持つカードのみワンクリック対象になります（通常は空を推奨）。"
+          },
+          "add_game_tag": {
+            "label": "ゲーム名をタグに追加:",
+            "tooltip": "ゲーム名をAnkiカードのタグに含めます。"
+          },
+          "parent_tag": {
+            "label": "ゲームの親タグ:",
+            "tooltip": "ゲームタグの親タグ。例: Game::{Game_Title}。タグのフォルダのように機能します。"
+          },
+          "overwrite_audio": {
+            "label": "音声を上書き:",
+            "tooltip": "既存の音声を上書きします。"
+          },
+          "overwrite_picture": {
+            "label": "画像を上書き:",
+            "tooltip": "既存の画像を上書きします。"
+          },
+          "multi_overwrites_sentence": {
+            "label": "複数行マイニングで文章を上書き:",
+            "tooltip": "複数行マイニング時、選択した行を結合して文章フィールドを上書きします。"
+          }
+        },
+        "vad": {
+          "title": "VAD",
+          "do_postprocessing": {
+            "label": "音声検出後処理:",
+            "tooltip": "音声ファイルからセリフ部分のみを切り出す後処理を有効化します。"
+          },
+          "language": {
+            "label": "言語:",
+            "tooltip": "VADの言語を選択 (Whisperのみ)。"
+          },
+          "whisper_model": {
+            "label": "Whisperモデル:",
+            "tooltip": "VADに使用するWhisperモデルのサイズを選択。"
+          },
+          "selected_model": {
+            "label": "VADモデル選択:",
+            "tooltip": "使用するVADモデルを選択。"
+          },
+          "backup_model": {
+            "label": "バックアップVADモデル:",
+            "tooltip": "音声が見つからない場合のバックアップモデルを選択。"
+          },
+          "add_on_no_results": {
+            "label": "結果なしでも音声追加:",
+            "tooltip": "VADで音声が見つからなくても音声を追加します。"
+          },
+          "audio_end_offset": {
+            "label": "音声終了オフセット:",
+            "tooltip": "動画の末尾から抽出するオフセット（秒）。"
+          },
+          "trim_beginning": {
+            "label": "開始位置をトリム:",
+            "tooltip": "VADトリム後の開始オフセット。負の値で開始が早まります。"
+          },
+          "beginning_offset": {
+            "label": "開始オフセット:",
+            "tooltip": "VADトリム後の開始オフセット。負の値で開始が早まります。"
+          },
+          "cut_and_splice": {
+            "label": "セグメントをカット＆結合:",
+            "tooltip": "検出された音声セグメントを切り貼りします。パディングで間隔を調整。"
+          },
+          "splice_padding": {
+            "label": "パディング:",
+            "tooltip": "結合する音声セグメント間の間隔（秒）。"
+          }
+        },
+        "features": {
+          "title": "機能",
+          "notify_on_update": {
+            "label": "更新時に通知:",
+            "tooltip": "更新があった場合に通知します。"
+          },
+          "open_anki_edit": {
+            "label": "Anki編集画面を開く:",
+            "tooltip": "更新後、自動的にAnkiの編集画面を開きます。"
+          },
+          "open_anki_browser": {
+            "label": "Ankiブラウザで開く:",
+            "tooltip": "更新後、Ankiのカードブラウザでノートを開きます。"
+          },
+          "browser_query": {
+            "label": "ブラウザクエリ:",
+            "tooltip": "Ankiブラウザでノートを開く際の検索クエリ。例: 'added:1'"
+          },
+          "backfill_audio": {
+            "label": "音声の後補充:",
+            "tooltip": "既存のカードに音声データを補充します。"
+          },
+          "full_auto": {
+            "label": "フルオートモード:",
+            "tooltip": "YomitanのワンクリックでAnkiカードを作成します。"
+          }
+        },
+        "screenshot": {
+          "title": "スクリーンショット",
+          "enabled": {
+            "label": "有効化:",
+            "tooltip": "スクリーンショット処理を有効化します。"
+          },
+          "width": {
+            "label": "幅:",
+            "tooltip": "スクリーンショットの幅（ピクセル）。"
+          },
+          "height": {
+            "label": "高さ:",
+            "tooltip": "スクリーンショットの高さ（ピクセル）。"
+          },
+          "quality": {
+            "label": "品質:",
+            "tooltip": "スクリーンショットの品質（0-100）。"
+          },
+          "extension": {
+            "label": "拡張子:",
+            "tooltip": "スクリーンショットのファイル形式。"
+          },
+          "ffmpeg_options": {
+            "label": "FFmpeg再エンコード設定:",
+            "tooltip": "スクリーンショットの再エンコードに使用するカスタムFFmpegオプション。"
+          },
+          "timing": {
+            "label": "撮影タイミング:",
+            "tooltip": "セリフに対して画像を撮るタイミング（開始、中間、終了）。"
+          },
+          "offset": {
+            "label": "撮影オフセット:",
+            "tooltip": "タイミング設定に基づくオフセット（秒）。通常は正の値。"
+          },
+          "use_selector": {
+            "label": "毎回セレクターを使用:",
+            "tooltip": "カードごとにスクリーンショットセレクターで撮影箇所を選択します。"
+          },
+          "hotkey": {
+            "label": "撮影ホットキー:",
+            "tooltip": "スクリーンショットを撮るホットキー。"
+          },
+          "hotkey_updates_anki": {
+            "label": "ホットキーでAnkiを更新:",
+            "tooltip": "撮影ホットキーで最新のAnkiカードを更新できるようにします。"
+          }
+        },
+        "audio": {
+          "title": "音声",
+          "enabled": {
+            "label": "有効化:",
+            "tooltip": "音声処理を有効化します。"
+          },
+          "extension": {
+            "label": "音声拡張子:",
+            "tooltip": "音声ファイルの拡張子。"
+          },
+          "beginning_offset": {
+            "label": "音声開始オフセット:",
+            "tooltip": "動画の開始時点からのオフセット（秒）。通常は負の値か0。"
+          },
+          "find_offset_button": "オフセット検索 (WIP)",
+          "end_offset": {
+            "label": "音声終了オフセット:",
+            "tooltip": "VAD処理前に末尾からトリムするオフセット（秒）。負の値は音声損失の可能性あり。"
+          },
+          "ffmpeg_preset": {
+            "label": "FFmpegプリセット:",
+            "tooltip": "音声再エンコード用のプリセットを選択。",
+            "options": {
+              "no_reencode": "再エンコードなし",
+              "fade_in": "シンプルフェードイン（デフォルト）",
+              "loudness_norm": "簡易ラウドネスノーマライズ",
+              "downmix_norm": "モノラル化＋ノーマライズ（推奨？）",
+              "downmix_norm_low_bitrate": "モノラル化＋ノーマライズ (30kbps, 最適？)",
+              "custom": "カスタム"
+            }
+          },
+          "ffmpeg_options": {
+            "label": "FFmpeg再エンコード設定:",
+            "tooltip": "音声再エンコード用のカスタムFFmpegオプション。"
+          },
+          "anki_media_collection": {
+            "label": "Ankiメディアコレクション:",
+            "tooltip": "Ankiメディアコレクションのパス。外部ツールで使用。"
+          },
+          "external_tool": {
+            "label": "外部音声編集ツール:",
+            "tooltip": "手動トリミング用の外部ツールパス。OcenAudioを推奨。"
+          },
+          "external_tool_enabled": {
+            "label": "有効化:",
+            "tooltip": "外部ツールで音声を編集します。"
+          },
+          "install_ocenaudio_button": "Ocenaudioをインストール",
+          "get_anki_media_button": "Ankiメディアパス取得"
+        },
+        "obs": {
+          "title": "OBS",
+          "enabled": {
+            "label": "有効化:",
+            "tooltip": "OBS連携を有効化します。"
+          },
+          "open_obs": {
+            "label": "OBSを開く:",
+            "tooltip": "GSM起動時にOBSを開きます。"
+          },
+          "close_obs": {
+            "label": "OBSを閉じる:",
+            "tooltip": "GSM終了時にOBSを閉じます。"
+          },
+          "host": {
+            "label": "ホスト:",
+            "tooltip": "OBS WebSocketサーバーのホストアドレス。"
+          },
+          "port": {
+            "label": "ポート:",
+            "tooltip": "OBS WebSocketサーバーのポート番号。"
+          },
+          "password": {
+            "label": "パスワード:",
+            "tooltip": "OBS WebSocketサーバーのパスワード。"
+          },
+          "game_from_scene": {
+            "label": "シーン名からゲーム名取得:",
+            "tooltip": "現在のゲーム名をシーン名に変更します。"
+          },
+          "min_replay_size": {
+            "label": "最小リプレイサイズ (KB):",
+            "tooltip": "このサイズ未満のリプレイは処理しません。"
+          }
+        },
+        "profiles": {
+          "title": "プロファイル",
+          "select_profile": {
+            "label": "プロファイル選択:",
+            "tooltip": "設定を読み込むプロファイルを選択。"
+          },
+          "add_button": "プロファイル追加",
+          "copy_button": "プロファイルコピー",
+          "delete_button": "設定を削除",
+          "obs_scene": {
+            "label": "OBSシーン (自動切替):",
+            "tooltip": "このプロファイルに連携するOBSシーンを選択（任意）。"
+          },
+          "refresh_scenes_button": "シーンを更新",
+          "switch_to_default": {
+            "label": "見つからない場合はDefaultに:",
+            "tooltip": "OBSシーンが見つからない場合、Defaultプロファイルに切り替えます。"
+          }
+        },
+        "advanced": {
+          "title": "高度な設定",
+          "player_note": "注意：音声と動画の両方が設定されている場合、音声が優先されます。",
+          "audio_player_path": {
+            "label": "音声プレイヤーパス:",
+            "tooltip": "切り出した音声を開くプレイヤーの実行ファイルパス。"
+          },
+          "video_player_path": {
+            "label": "動画プレイヤーパス:",
+            "tooltip": "リプレイ内のセリフ位置から再生するプレイヤーの実行ファイルパス。"
+          },
+          "play_latest_hotkey": {
+            "label": "最新の音声を再生するホットキー:",
+            "tooltip": "最新の音声を切り出して再生するホットキー。"
+          },
+          "multiline_linebreak": {
+            "label": "複数行の改行文字:",
+            "tooltip": "複数行マイニングで各文の間に挿入する文字。"
+          },
+          "multiline_storage_field": {
+            "label": "複数行保存用フィールド:",
+            "tooltip": "複数行の文章を一時的に保存するAnkiフィールド。"
+          },
+          "ocr_port": {
+            "label": "OCR WebSocketポート:",
+            "tooltip": "OCR WebSocket通信用のポート。GSMもこのポートで待機します。"
+          },
+          "texthooker_comm_port": {
+            "label": "Texthooker通信ポート:",
+            "tooltip": "GSM Texthooker通信用のWebSocketポート（現在未使用）。"
+          },
+          "plaintext_export_port": {
+            "label": "平文エクスポートポート:",
+            "tooltip": "GSM平文エクスポート用のWebSocketポート（現在未使用）。"
+          },
+          "reset_line_hotkey": {
+            "label": "行リセットホットキー:",
+            "tooltip": "現在のセリフをリセットするホットキー。"
+          },
+          "polling_rate": {
+            "label": "ポーリングレート:",
+            "tooltip": "Ankiの更新をチェックする間隔（ミリ秒）。"
+          }
+        },
+        "ai": {
+          "title": "AI",
+          "enabled": {
+            "label": "有効化:",
+            "tooltip": "AI連携を有効化します。"
+          },
+          "provider": {
+            "label": "プロバイダー:",
+            "tooltip": "AIプロバイダーを選択。"
+          },
+          "gemini_model": {
+            "label": "Gemini AIモデル:",
+            "tooltip": "使用するAIモデルを選択。"
+          },
+          "gemini_api_key": {
+            "label": "Gemini APIキー:",
+            "tooltip": "選択したAIプロバイダーのAPIキー（現在Geminiのみ）。"
+          },
+          "groq_model": {
+            "label": "Groq AIモデル:",
+            "tooltip": "使用するGroq AIモデルを選択。"
+          },
+          "groq_api_key": {
+            "label": "Groq APIキー:",
+            "tooltip": "Groq AIプロバイダーのAPIキー。"
+          },
+          "local_model": {
+            "label": "ローカルAIモデル:",
+            "tooltip": "使用するローカルAIモデル。基本的な翻訳のみ対応。"
+          },
+          "anki_field": {
+            "label": "Ankiフィールド:",
+            "tooltip": "AIが生成したコンテンツを保存するAnkiフィールド。"
+          },
+          "context_length": {
+            "label": "対話コンテキスト長:",
+            "tooltip": "AIに渡す前後のセリフの行数。0で無効、-1で最大（注意）。"
+          },
+          "use_canned_translation": {
+            "label": "定型翻訳プロンプト使用:",
+            "tooltip": "定義済みの翻訳プロンプトを使用します。"
+          },
+          "use_canned_context": {
+            "label": "定型コンテキストプロンプト使用:",
+            "tooltip": "定義済みのコンテキストプロンプトを使用します。"
+          },
+          "custom_prompt": {
+            "label": "カスタムプロンプト:",
+            "tooltip": "AI処理用のカスタムプロンプト。"
+          }
+        },
+        "wip": {
+          "title": "WIP",
+          "warning_experimental": "警告：これらの機能は実験的なものであり、期待通りに動作しない可能性があります。",
+          "warning_overlay_deps": "オーバーレイ機能にはOwOCRの依存関係と外部アプリの実行が必要です。",
+          "overlay_port": {
+            "label": "オーバーレイWebSocketポート:",
+            "tooltip": "実験的なオーバーレイ機能用のWebSocketポート。"
+          },
+          "overlay_send": {
+            "label": "オーバーレイWebSocket送信:",
+            "tooltip": "WebSocketでオーバーレイデータを送信します（実験的）。"
+          },
+          "monitor_capture": {
+            "label": "キャプチャ対象モニター:",
+            "tooltip": "キャプチャするモニターを選択（1から始まるインデックス）。",
+            "not_detected": "OwOCRが検出されません"
+          },
+          "error_setup": "WIPタブの設定中にエラーが発生しました"
+        }
+      },
+      "dialogs": {
+        "reset_to_default": {
+          "title": "初期設定に戻す",
+          "message": "このタブの全設定を初期値に戻しますか？"
+        },
+        "select_profile": {
+          "title": "プロファイル選択",
+          "message": "現在のシーンに複数のプロファイルが一致します。プロファイルを選択してください："
+        },
+        "config_error": {
+          "title": "設定エラー",
+          "full_auto_and_backfill": "フルオートモードと音声後補充モードは同時に有効にできません。",
+          "no_input_method": "クリップボードとWebSocketの両方を無効にすることはできません。"
+        },
+        "offset_copied": {
+          "title": "クリップボード",
+          "message": "オフセットをクリップボードにコピーしました！"
+        },
+        "add_profile": {
+          "title": "入力",
+          "prompt": "新しいプロファイル名を入力してください："
+        },
+        "copy_profile": {
+          "title": "入力",
+          "prompt": "新しいプロファイル名を入力してください："
+        },
+        "delete_profile": {
+          "title": "削除の確認",
+          "message": "プロファイル '{profile_name}' を本当に削除しますか？",
+          "error_title": "エラー",
+          "error_cannot_delete_default": "Defaultプロファイルは削除できません。"
+        },
+        "install_ocenaudio": {
+          "title": "Ocenaudioをダウンロードしますか？",
+          "message": "Ocenaudioをダウンロードしてインストールしますか？GSMと非常に相性の良い無料の音声編集ソフトです。",
+          "downloading_message": "Ocenaudioをダウンロード中...",
+          "success_title": "Ocenaudioダウンロード完了",
+          "success_message": "Ocenaudioがダウンロード・インストールされました。パス: {path}"
+        },
+        "set_anki_media": {
+          "title": "Ankiメディアコレクションのデフォルトパスを設定しますか？",
+          "message": "Ankiメディアコレクションのデフォルトパスを設定しますか？外部トリミングツールでパスを見つけやすくなります。\n\nデフォルト: %APPDATA%/Anki2/User 1/collection.media"
+        }
+      }
+    }
+  }
+}
