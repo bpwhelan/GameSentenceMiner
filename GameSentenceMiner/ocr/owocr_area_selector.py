@@ -55,15 +55,13 @@ class ScreenSelector:
 
         if self.use_obs_screenshot:
             print("Using OBS screenshot as target.")
-            screenshot_base64 = obs.get_screenshot_base64(compression=75)
+            self.screenshot_img = obs.get_screenshot_PIL(compression=75)
             # print(screenshot_base64)
-            if not screenshot_base64:
+            if not self.screenshot_img:
                 raise RuntimeError("Failed to get OBS screenshot.")
             try:
-                img_data = base64.b64decode(screenshot_base64)
-                self.screenshot_img = Image.open(io.BytesIO(img_data))
                 # Scale image to 1280x720
-                self.screenshot_img = self.screenshot_img.resize((1280, 720), Image.LANCZOS)
+                self.screenshot_img = self.screenshot_img.resize(self.scale_down_width_height(self.screenshot_img.width, self.screenshot_img.height), Image.LANCZOS)
             except Exception as e:
                 raise RuntimeError(f"Failed to decode or open OBS screenshot: {e}")
 
@@ -104,6 +102,35 @@ class ScreenSelector:
         self.instructions_window_id = None
 
         self.load_existing_rectangles()
+        
+    def scale_down_width_height(self, width, height):
+        if width == 0 or height == 0:
+            return self.width, self.height
+        aspect_ratio = width / height
+        if aspect_ratio > 2.66:
+            # Ultra-wide (32:9) - use 1920x540
+            return 1920, 540
+        elif aspect_ratio > 2.33:
+            # 21:9 - use 1920x800
+            return 1920, 800
+        elif aspect_ratio > 1.77:
+            # 16:9 - use 1280x720
+            return 1280, 720
+        elif aspect_ratio > 1.6:
+            # 16:10 - use 1280x800
+            return 1280, 800
+        elif aspect_ratio > 1.33:
+            # 4:3 - use 960x720
+            return 960, 720
+        elif aspect_ratio > 1.25:
+            # 5:4 - use 900x720
+            return 900, 720
+        elif aspect_ratio > 1.5:
+            # 3:2 - use 1080x720
+            return 1080, 720
+        else:
+            # Default/fallback - use 1280x720
+            return 1280, 720
 
     def _find_target_window(self):
         try:

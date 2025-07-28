@@ -468,6 +468,10 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     # main()
     connect_to_obs_sync()
+    
+    while True:
+        print(get_active_source())
+        time.sleep(3)
     # i = 100
     # for i in range(1, 100):
     #     print(f"Getting screenshot {i}")

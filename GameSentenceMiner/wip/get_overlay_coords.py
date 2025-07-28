@@ -168,8 +168,8 @@ def extract_text_with_pixel_boxes(
             
 
             for word in line.get("words", []):
-                if not regex.search(word.get("plain_text", "")):
-                    continue
+                # if not regex.search(word.get("plain_text", "")):
+                    # continue
                 word_text = word.get("plain_text", "")
                 line_text_parts.append(word_text)
                 

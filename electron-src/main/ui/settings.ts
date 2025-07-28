@@ -50,7 +50,7 @@ export function registerSettingsIPC() {
         setShowYuzuTab(settings.showYuzuTab);
         setWindowTransparencyToolHotkey(settings.windowTransparencyToolHotkey);
         setWindowTransparencyTarget(settings.windowTransparencyTarget);
-        setAutoRunWindowTransparencyTool(settings.autoRunWindowTransparencyTool);
+        // setAutoRunWindowTransparencyTool(settings.autoRunWindowTransparencyTool);
         setObsOcrScenes(settings.obsOcrScenes || []); // Ensure it's always an array
         return {success: true};
     });

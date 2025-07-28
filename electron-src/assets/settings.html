@@ -156,7 +156,7 @@
         const windowTransparencyToolHotkeyInput = document.getElementById('window-transparency-tool-hotkey');
         const windowTransparencyTargetInput = document.getElementById('window-transparency-target');
         const runWindowTransparencyToolBtn = document.getElementById('runWindowTransparencyToolBtn');
-        const autoRunWindowTransparencyToolCheckbox = document.getElementById('autoRunWindowTransparencyTool');
+        // const autoRunWindowTransparencyToolCheckbox = document.getElementById('autoRunWindowTransparencyTool');
         const pullPreReleasesCheckbox = document.getElementById('pullPreReleases');
         const obsSceneSelector = document.getElementById('obs-ocr-scene-selector');
         const runPipInstallInput = document.getElementById('runPipInstall');
@@ -209,7 +209,7 @@
                 showYuzuTab.checked = settings.showYuzuTab || false;
                 windowTransparencyToolHotkeyInput.value = settings.windowTransparencyToolHotkey || 'Ctrl+Alt+Y';
                 windowTransparencyTargetInput.value = settings.windowTransparencyTarget || '';
-                autoRunWindowTransparencyToolCheckbox.checked = settings.autoRunWindowTransparencyTool || false;
+                // autoRunWindowTransparencyToolCheckbox.checked = settings.autoRunWindowTransparencyTool || false;
                 pullPreReleasesCheckbox.checked = settings.pullPreReleases || false;
             }
             ipcRenderer.invoke('obs.getScenes').then(scenes => {
@@ -240,7 +240,7 @@
                 showYuzuTab: showYuzuTab.checked,
                 windowTransparencyToolHotkey: windowTransparencyToolHotkeyInput.value,
                 windowTransparencyTarget: windowTransparencyTargetInput.value.trim(),
-                autoRunWindowTransparencyTool: autoRunWindowTransparencyToolCheckbox.checked,
+                // autoRunWindowTransparencyTool: autoRunWindowTransparencyToolCheckbox.checked,
                 pullPreReleases: pullPreReleasesCheckbox.checked,
                 obsOcrScenes: Array.from(obsSceneSelector.selectedOptions).map(option => option.value)
             };
