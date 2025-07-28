@@ -582,7 +582,7 @@ def async_loop():
 async def register_scene_switcher_callback():
     def scene_switcher_callback(scene):
         logger.info(f"Scene changed to: {scene}")
-        gsm_state.current_game = obs.get_current_game(sanitize=True)
+        gsm_state.current_game = obs.get_current_game()
         all_configured_scenes = [
             config.scenes for config in get_master_config().configs.values()]
         print(all_configured_scenes)
