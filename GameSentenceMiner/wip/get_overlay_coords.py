@@ -371,7 +371,7 @@ async def do_work(sentence_to_check=None):
         cropped_image.save("C:\\Users\\Beangate\\GSM\\temp\\full_screenshot.png")
     # full_screenshot_image.show()
     if cropped_image:
-        logger.info("Full screenshot captured successfully. Now performing local OCR...")
+        logger.info("Full screenshot captured successfully. Now performing OCR...")
         # ocr_results = oneocr(full_screenshot_image, return_coords=True)
         google_ocr_results = lens(cropped_image, return_coords=True)[2]
         

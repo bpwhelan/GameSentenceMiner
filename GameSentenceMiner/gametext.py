@@ -10,6 +10,7 @@ from rapidfuzz import fuzz
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
 from GameSentenceMiner.util.configuration import *
 from GameSentenceMiner.util.text_log import *
+from GameSentenceMiner import obs
 from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, send_word_coordinates_to_overlay, overlay_server_thread
 
 if get_config().wip.overlay_websocket_send:
@@ -146,6 +147,7 @@ def schedule_merge(wait, coro, args):
 
 async def handle_new_text_event(current_clipboard, line_time=None):
     global current_line, current_line_time, current_line_after_regex, timer, current_sequence_start_time, last_raw_clipboard
+    obs.update_current_game()
     current_line = current_clipboard
     logger.info(f"Current Line: {current_line} last raw clipboard: {last_raw_clipboard}")
     # Only apply this logic if merging is enabled

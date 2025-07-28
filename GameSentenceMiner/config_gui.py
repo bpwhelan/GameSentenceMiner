@@ -29,7 +29,7 @@ def load_localization(locale=Locale.English):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         lang_file = os.path.join(script_dir, 'locales', f'{locale.value}.json')
         with open(lang_file, 'r', encoding='utf-8') as f:
-            return json.load(f)['config']
+            return json.load(f)['python']['config']
     except (FileNotFoundError, json.JSONDecodeError) as e:
         print(f"Warning: Could not load localization file '{locale.value}.json'. Error: {e}. Falling back to empty dict.")
         return {}
@@ -51,6 +51,15 @@ class HoverInfoWidget:
         self.info_icon.bind("<Enter>", lambda e: self.show_info_box(text))
         self.info_icon.bind("<Leave>", lambda e: self.hide_info_box())
         self.tooltip = None
+        
+    def change_text(self, text):
+        """
+        Change the text of the info icon.
+        """
+        if self.tooltip:
+            self.tooltip.destroy()
+            self.tooltip = None
+        self.info_icon.config(text=text)
 
     def show_info_box(self, text):
         x, y, _, _ = self.info_icon.bbox("insert")
@@ -71,9 +80,10 @@ class HoverInfoWidget:
 
 class HoverInfoLabelWidget:
     def __init__(self, parent, text, tooltip, row, column, padx=5, pady=2, foreground="white", sticky='W',
-                 bootstyle=None, font=("Arial", 10, "normal")):
-        self.label = ttk.Label(parent, text=text, foreground=foreground, cursor="hand2", bootstyle=bootstyle, font=font)
-        self.label.grid(row=row, column=column, padx=(0, padx), pady=0, sticky=sticky)
+                 bootstyle=None, font=("Arial", 10, "normal"), apply_to_parent=False, columnspan=1):
+        self.label_text_value = ttk.StringVar(value=text)
+        self.label = ttk.Label(parent, textvariable=self.label_text_value, foreground=foreground, cursor="hand2", bootstyle=bootstyle, font=font)
+        self.label.grid(row=row, column=column, padx=(0, padx), pady=0, sticky=sticky, columnspan=columnspan)
         self.label.bind("<Enter>", lambda e: self.show_info_box(tooltip))
         self.label.bind("<Leave>", lambda e: self.hide_info_box())
         self.tooltip = None
@@ -143,7 +153,9 @@ class ConfigApp:
 
         self.notebook = ttk.Notebook(self.window)
         self.notebook.pack(pady=10, expand=True, fill='both')
-
+        
+        self.required_settings_frame = None
+        self.starter_tab = None
         self.general_tab = None
         self.paths_tab = None
         self.anki_tab = None
@@ -166,6 +178,7 @@ class ConfigApp:
         except ImportError:
             self.monitors = []
 
+        self.create_vars()
         self.create_tabs()
         self.notebook.bind("<<NotebookTabChanged>>", self.on_profiles_tab_selected)
 
@@ -173,17 +186,25 @@ class ConfigApp:
         button_frame.pack(side="bottom", pady=20, anchor="center")
         
         buttons_i18n = self.i18n.get('buttons', {})
-        ttk.Button(button_frame, text=buttons_i18n.get('save', 'Save Settings'), command=self.save_settings, bootstyle="success").grid(row=0,
-                                                                                                             column=0,
-                                                                                                             padx=10)
+        self.save_button = ttk.Button(button_frame, text=buttons_i18n.get('save', 'Save Settings'), command=self.save_settings, bootstyle="success")
+        self.save_button.grid(row=0, column=0, padx=10)
+        
         if len(self.master_config.configs) > 1:
-            sync_btn_i18n = buttons_i18n.get('save_and_sync', {})
-            ttk.Button(button_frame, text=sync_btn_i18n.get('text', 'Save and Sync Changes'),
-                       command=lambda: self.save_settings(profile_change=False, sync_changes=True),
-                       bootstyle="info").grid(row=0, column=1, padx=10)
-            HoverInfoWidget(button_frame,
-                            sync_btn_i18n.get('tooltip', 'Saves Settings and Syncs CHANGED SETTINGS to all profiles.'), row=0,
-                            column=2)
+            self.sync_changes_var = tk.BooleanVar(value=False)
+            sync_btn_i18n = buttons_i18n.get('sync_changes', {})
+            self.sync_changes_checkbutton = ttk.Checkbutton(
+                button_frame,
+                text=sync_btn_i18n.get('label', 'Sync Changes to Profiles'),
+                variable=self.sync_changes_var,
+                bootstyle="info"
+            )
+            self.sync_changes_checkbutton.grid(row=0, column=1, padx=10)
+            self.sync_changes_hover_info = HoverInfoWidget(
+                button_frame,
+                sync_btn_i18n.get('tooltip', 'Syncs CHANGED SETTINGS to all profiles.'),
+                row=0,
+                column=2
+            )
 
         self.window.update_idletasks()
         self.window.geometry("")
@@ -191,16 +212,156 @@ class ConfigApp:
     
     def change_locale(self):
         """Change the locale of the application."""
-        self.i18n = load_localization(Locale[self.locale.get()])
+        if self.locale_value.get() == self.master_config.locale.name:
+            return
+        self.i18n = load_localization(Locale[self.locale_value.get()])
         self.save_settings()
         self.reload_settings(force_refresh=True)
+        
         self.window.title(self.i18n.get('app', {}).get('title', 'GameSentenceMiner Configuration'))
-        logger.info(f"Locale changed to {self.locale.get()}.")
+        self.save_button.config(text=self.i18n.get('buttons', {}).get('save', 'Save Settings'))
+        if hasattr(self, 'sync_changes_checkbutton'):
+            self.sync_changes_checkbutton.config(text=self.i18n.get('buttons', {}).get('sync_changes', {}).get('label', 'Sync Changes to Profiles'))
+
+        logger.info(f"Locale changed to {self.locale_value.get()}.")
 
     def set_test_func(self, func):
         self.test_func = func
+        
+    def create_vars(self):
+        """
+        Initializes all the tkinter variables used in the configuration GUI.
+        """
+        # General Settings
+        self.websocket_enabled_value = tk.BooleanVar(value=self.settings.general.use_websocket)
+        self.clipboard_enabled_value = tk.BooleanVar(value=self.settings.general.use_clipboard)
+        self.use_both_clipboard_and_websocket_value = tk.BooleanVar(value=self.settings.general.use_both_clipboard_and_websocket)
+        self.merge_matching_sequential_text_value = tk.BooleanVar(value=self.settings.general.merge_matching_sequential_text)
+        self.websocket_uri_value = tk.StringVar(value=self.settings.general.websocket_uri)
+        self.texthook_replacement_regex_value = tk.StringVar(value=self.settings.general.texthook_replacement_regex)
+        self.open_config_on_startup_value = tk.BooleanVar(value=self.settings.general.open_config_on_startup)
+        self.open_multimine_on_startup_value = tk.BooleanVar(value=self.settings.general.open_multimine_on_startup)
+        self.texthooker_port_value = tk.StringVar(value=str(self.settings.general.texthooker_port))
+        self.native_language_value = tk.StringVar(value=CommonLanguages.from_code(self.settings.general.native_language).name.replace('_', ' ').title())
+
+        # OBS Settings
+        self.obs_enabled_value = tk.BooleanVar(value=self.settings.obs.enabled)
+        self.obs_websocket_port_value = tk.StringVar(value=str(self.settings.obs.port))
+        self.obs_host_value = tk.StringVar(value=self.settings.obs.host)
+        self.obs_port_value = tk.StringVar(value=str(self.settings.obs.port))
+        self.obs_password_value = tk.StringVar(value=self.settings.obs.password)
+        self.obs_open_obs_value = tk.BooleanVar(value=self.settings.obs.open_obs)
+        self.obs_close_obs_value = tk.BooleanVar(value=self.settings.obs.close_obs)
+        self.obs_get_game_from_scene_name_value = tk.BooleanVar(value=self.settings.obs.get_game_from_scene)
+        self.obs_minimum_replay_size_value = tk.StringVar(value=str(self.settings.obs.minimum_replay_size))
+        
+        # Paths Settings
+        self.folder_to_watch_value = tk.StringVar(value=self.settings.paths.folder_to_watch)
+        self.audio_destination_value = tk.StringVar(value=self.settings.paths.audio_destination)
+        self.screenshot_destination_value = tk.StringVar(value=self.settings.paths.screenshot_destination)
+        self.remove_video_value = tk.BooleanVar(value=self.settings.paths.remove_video)
+        self.remove_audio_value = tk.BooleanVar(value=self.settings.paths.remove_audio)
+        self.remove_screenshot_value = tk.BooleanVar(value=self.settings.paths.remove_screenshot)
+
+        # Anki Settings
+        self.update_anki_value = tk.BooleanVar(value=self.settings.anki.update_anki)
+        self.anki_url_value = tk.StringVar(value=self.settings.anki.url)
+        self.sentence_field_value = tk.StringVar(value=self.settings.anki.sentence_field)
+        self.sentence_audio_field_value = tk.StringVar(value=self.settings.anki.sentence_audio_field)
+        self.picture_field_value = tk.StringVar(value=self.settings.anki.picture_field)
+        self.word_field_value = tk.StringVar(value=self.settings.anki.word_field)
+        self.previous_sentence_field_value = tk.StringVar(value=self.settings.anki.previous_sentence_field)
+        self.previous_image_field_value = tk.StringVar(value=self.settings.anki.previous_image_field)
+        self.custom_tags_value = tk.StringVar(value=', '.join(self.settings.anki.custom_tags))
+        self.tags_to_check_value = tk.StringVar(value=', '.join(self.settings.anki.tags_to_check))
+        self.add_game_tag_value = tk.BooleanVar(value=self.settings.anki.add_game_tag)
+        self.polling_rate_value = tk.StringVar(value=str(self.settings.anki.polling_rate))
+        self.overwrite_audio_value = tk.BooleanVar(value=self.settings.anki.overwrite_audio)
+        self.overwrite_picture_value = tk.BooleanVar(value=self.settings.anki.overwrite_picture)
+        self.multi_overwrites_sentence_value = tk.BooleanVar(value=self.settings.anki.multi_overwrites_sentence)
+        self.parent_tag_value = tk.StringVar(value=self.settings.anki.parent_tag)
+
+        # Features Settings
+        self.full_auto_value = tk.BooleanVar(value=self.settings.features.full_auto)
+        self.notify_on_update_value = tk.BooleanVar(value=self.settings.features.notify_on_update)
+        self.open_anki_edit_value = tk.BooleanVar(value=self.settings.features.open_anki_edit)
+        self.open_anki_browser_value = tk.BooleanVar(value=self.settings.features.open_anki_in_browser)
+        self.backfill_audio_value = tk.BooleanVar(value=self.settings.features.backfill_audio)
+        self.browser_query_value = tk.StringVar(value=self.settings.features.browser_query)
+        
+        # Screenshot Settings
+        self.screenshot_enabled_value = tk.BooleanVar(value=self.settings.screenshot.enabled)
+        self.screenshot_width_value = tk.StringVar(value=str(self.settings.screenshot.width))
+        self.screenshot_height_value = tk.StringVar(value=str(self.settings.screenshot.height))
+        self.screenshot_quality_value = tk.StringVar(value=str(self.settings.screenshot.quality))
+        self.screenshot_extension_value = tk.StringVar(value=self.settings.screenshot.extension)
+        self.screenshot_custom_ffmpeg_settings_value = tk.StringVar(value=self.settings.screenshot.custom_ffmpeg_settings)
+        self.screenshot_hotkey_update_anki_value = tk.BooleanVar(value=self.settings.screenshot.screenshot_hotkey_updates_anki)
+        self.seconds_after_line_value = tk.StringVar(value=str(self.settings.screenshot.seconds_after_line))
+        self.screenshot_timing_value = tk.StringVar(value=self.settings.screenshot.screenshot_timing_setting)
+        self.use_screenshot_selector_value = tk.BooleanVar(value=self.settings.screenshot.use_screenshot_selector)
+        
+        # Audio Settings
+        self.audio_enabled_value = tk.BooleanVar(value=self.settings.audio.enabled)
+        self.audio_extension_value = tk.StringVar(value=self.settings.audio.extension)
+        self.beginning_offset_value = tk.StringVar(value=str(self.settings.audio.beginning_offset))
+        self.end_offset_value = tk.StringVar(value=str(self.settings.audio.end_offset))
+        self.audio_ffmpeg_reencode_options_value = tk.StringVar(value=self.settings.audio.ffmpeg_reencode_options)
+        self.external_tool_value = tk.StringVar(value=self.settings.audio.external_tool)
+        self.anki_media_collection_value = tk.StringVar(value=self.settings.audio.anki_media_collection)
+        self.external_tool_enabled_value = tk.BooleanVar(value=self.settings.audio.external_tool_enabled)
+        self.pre_vad_audio_offset_value = tk.StringVar(value=str(self.settings.audio.pre_vad_end_offset))
+        
+        # Hotkeys Settings
+        self.reset_line_hotkey_value = tk.StringVar(value=self.settings.hotkeys.reset_line)
+        self.take_screenshot_hotkey_value = tk.StringVar(value=self.settings.hotkeys.take_screenshot)
+        self.play_latest_audio_hotkey_value = tk.StringVar(value=self.settings.hotkeys.play_latest_audio)
+        
+        # VAD Settings
+        self.whisper_model_value = tk.StringVar(value=self.settings.vad.whisper_model)
+        self.do_vad_postprocessing_value = tk.BooleanVar(value=self.settings.vad.do_vad_postprocessing)
+        self.selected_vad_model_value = tk.StringVar(value=self.settings.vad.selected_vad_model)
+        self.backup_vad_model_value = tk.StringVar(value=self.settings.vad.backup_vad_model)
+        self.vad_trim_beginning_value = tk.BooleanVar(value=self.settings.vad.trim_beginning)
+        self.vad_beginning_offset_value = tk.StringVar(value=str(self.settings.vad.beginning_offset))
+        self.add_audio_on_no_results_value = tk.BooleanVar(value=self.settings.vad.add_audio_on_no_results)
+        self.language_value = tk.StringVar(value=self.settings.vad.language)
+        self.cut_and_splice_segments_value = tk.BooleanVar(value=self.settings.vad.cut_and_splice_segments)
+        self.splice_padding_value = tk.StringVar(value=str(self.settings.vad.splice_padding) if self.settings.vad.splice_padding else "")
+        
+        # Advanced Settings
+        self.audio_player_path_value = tk.StringVar(value=self.settings.advanced.audio_player_path)
+        self.video_player_path_value = tk.StringVar(value=self.settings.advanced.video_player_path)
+        self.multi_line_line_break_value = tk.StringVar(value=self.settings.advanced.multi_line_line_break)
+        self.multi_line_sentence_storage_field_value = tk.StringVar(value=self.settings.advanced.multi_line_sentence_storage_field)
+        self.ocr_websocket_port_value = tk.StringVar(value=str(self.settings.advanced.ocr_websocket_port))
+        self.texthooker_communication_websocket_port_value = tk.StringVar(value=str(self.settings.advanced.texthooker_communication_websocket_port))
+        self.plaintext_websocket_export_port_value = tk.StringVar(value=str(self.settings.advanced.plaintext_websocket_port))
+        
+        # AI Settings
+        self.ai_enabled_value = tk.BooleanVar(value=self.settings.ai.enabled)
+        self.ai_provider_value = tk.StringVar(value=self.settings.ai.provider)
+        self.gemini_model_value = tk.StringVar(value=self.settings.ai.gemini_model)
+        self.groq_model_value = tk.StringVar(value=self.settings.ai.groq_model)
+        self.gemini_api_key_value = tk.StringVar(value=self.settings.ai.gemini_api_key)
+        self.groq_api_key_value = tk.StringVar(value=self.settings.ai.groq_api_key)
+        self.local_ai_model_value = tk.StringVar(value=self.settings.ai.local_model)
+        self.ai_anki_field_value = tk.StringVar(value=self.settings.ai.anki_field)
+        self.use_canned_translation_prompt_value = tk.BooleanVar(value=self.settings.ai.use_canned_translation_prompt)
+        self.use_canned_context_prompt_value = tk.BooleanVar(value=self.settings.ai.use_canned_context_prompt)
+        self.ai_dialogue_context_length_value = tk.StringVar(value=str(self.settings.ai.dialogue_context_length))
+        
+        # WIP Settings
+        self.overlay_websocket_port_value = tk.StringVar(value=str(self.settings.wip.overlay_websocket_port))
+        self.overlay_websocket_send_value = tk.BooleanVar(value=self.settings.wip.overlay_websocket_send)
+        
+        # Master Config Settings
+        self.switch_to_default_if_not_found_value = tk.BooleanVar(value=self.master_config.switch_to_default_if_not_found)
+        self.locale_value = tk.StringVar(value=self.master_config.locale.name)
+        
 
     def create_tabs(self):
+        self.create_required_settings_tab()
         self.create_general_tab()
         self.create_paths_tab()
         self.create_anki_tab()
@@ -285,134 +446,139 @@ class ConfigApp:
 
     def save_settings(self, profile_change=False, sync_changes=False):
         global settings_saved
+        
+        sync_changes = self.sync_changes_checkbutton.instate(['selected']) if hasattr(self, 'sync_changes_checkbutton') else sync_changes
+        # reset checkbox
+        if hasattr(self, 'sync_changes_checkbutton'):
+            self.sync_changes_checkbutton.state(['!selected'])
 
         # Create a new Config instance
         config = ProfileConfig(
             scenes=self.settings.scenes,
             general=General(
-                use_websocket=self.websocket_enabled.get(),
-                use_clipboard=self.clipboard_enabled.get(),
-                websocket_uri=self.websocket_uri.get(),
-                merge_matching_sequential_text= self.merge_matching_sequential_text.get(),
-                open_config_on_startup=self.open_config_on_startup.get(),
-                open_multimine_on_startup=self.open_multimine_on_startup.get(),
-                texthook_replacement_regex=self.texthook_replacement_regex.get(),
-                use_both_clipboard_and_websocket=self.use_both_clipboard_and_websocket.get(),
-                texthooker_port=int(self.texthooker_port.get()),
-                native_language=CommonLanguages.from_name(self.native_language.get()) if self.native_language.get() else CommonLanguages.ENGLISH.value,
+                use_websocket=self.websocket_enabled_value.get(),
+                use_clipboard=self.clipboard_enabled_value.get(),
+                websocket_uri=self.websocket_uri_value.get(),
+                merge_matching_sequential_text= self.merge_matching_sequential_text_value.get(),
+                open_config_on_startup=self.open_config_on_startup_value.get(),
+                open_multimine_on_startup=self.open_multimine_on_startup_value.get(),
+                texthook_replacement_regex=self.texthook_replacement_regex_value.get(),
+                use_both_clipboard_and_websocket=self.use_both_clipboard_and_websocket_value.get(),
+                texthooker_port=int(self.texthooker_port_value.get()),
+                native_language=CommonLanguages.from_name(self.native_language_value.get()) if self.native_language_value.get() else CommonLanguages.ENGLISH.value,
             ),
             paths=Paths(
-                folder_to_watch=self.folder_to_watch.get(),
-                audio_destination=self.audio_destination.get(),
-                screenshot_destination=self.screenshot_destination.get(),
-                remove_video=self.remove_video.get(),
-                remove_audio=self.remove_audio.get(),
-                remove_screenshot=self.remove_screenshot.get()
+                folder_to_watch=self.folder_to_watch_value.get(),
+                audio_destination=self.audio_destination_value.get(),
+                screenshot_destination=self.screenshot_destination_value.get(),
+                remove_video=self.remove_video_value.get(),
+                remove_audio=self.remove_audio_value.get(),
+                remove_screenshot=self.remove_screenshot_value.get()
             ),
             anki=Anki(
-                update_anki=self.update_anki.get(),
-                url=self.anki_url.get(),
-                sentence_field=self.sentence_field.get(),
-                sentence_audio_field=self.sentence_audio_field.get(),
-                picture_field=self.picture_field.get(),
-                word_field=self.word_field.get(),
-                previous_sentence_field=self.previous_sentence_field.get(),
-                previous_image_field=self.previous_image_field.get(),
-                custom_tags=[tag.strip() for tag in self.custom_tags.get().split(',') if tag.strip()],
-                tags_to_check=[tag.strip().lower() for tag in self.tags_to_check.get().split(',') if tag.strip()],
-                add_game_tag=self.add_game_tag.get(),
-                polling_rate=int(self.polling_rate.get()),
-                overwrite_audio=self.overwrite_audio.get(),
-                overwrite_picture=self.overwrite_picture.get(),
-                multi_overwrites_sentence=self.multi_overwrites_sentence.get(),
-                parent_tag=self.parent_tag.get(),
+                update_anki=self.update_anki_value.get(),
+                url=self.anki_url_value.get(),
+                sentence_field=self.sentence_field_value.get(),
+                sentence_audio_field=self.sentence_audio_field_value.get(),
+                picture_field=self.picture_field_value.get(),
+                word_field=self.word_field_value.get(),
+                previous_sentence_field=self.previous_sentence_field_value.get(),
+                previous_image_field=self.previous_image_field_value.get(),
+                custom_tags=[tag.strip() for tag in self.custom_tags_value.get().split(',') if tag.strip()],
+                tags_to_check=[tag.strip().lower() for tag in self.tags_to_check_value.get().split(',') if tag.strip()],
+                add_game_tag=self.add_game_tag_value.get(),
+                polling_rate=int(self.polling_rate_value.get()),
+                overwrite_audio=self.overwrite_audio_value.get(),
+                overwrite_picture=self.overwrite_picture_value.get(),
+                multi_overwrites_sentence=self.multi_overwrites_sentence_value.get(),
+                parent_tag=self.parent_tag_value.get(),
             ),
             features=Features(
-                full_auto=self.full_auto.get(),
-                notify_on_update=self.notify_on_update.get(),
-                open_anki_edit=self.open_anki_edit.get(),
-                open_anki_in_browser=self.open_anki_browser.get(),
-                backfill_audio=self.backfill_audio.get(),
-                browser_query=self.browser_query.get(),
+                full_auto=self.full_auto_value.get(),
+                notify_on_update=self.notify_on_update_value.get(),
+                open_anki_edit=self.open_anki_edit_value.get(),
+                open_anki_in_browser=self.open_anki_browser_value.get(),
+                backfill_audio=self.backfill_audio_value.get(),
+                browser_query=self.browser_query_value.get(),
             ),
             screenshot=Screenshot(
-                enabled=self.screenshot_enabled.get(),
-                width=self.screenshot_width.get(),
-                height=self.screenshot_height.get(),
-                quality=self.screenshot_quality.get(),
-                extension=self.screenshot_extension.get(),
-                custom_ffmpeg_settings=self.screenshot_custom_ffmpeg_settings.get(),
-                screenshot_hotkey_updates_anki=self.screenshot_hotkey_update_anki.get(),
-                seconds_after_line=float(self.seconds_after_line.get()) if self.seconds_after_line.get() else 0.0,
-                screenshot_timing_setting=self.screenshot_timing.get(),
-                use_screenshot_selector=self.use_screenshot_selector.get(),
+                enabled=self.screenshot_enabled_value.get(),
+                width=self.screenshot_width_value.get(),
+                height=self.screenshot_height_value.get(),
+                quality=self.screenshot_quality_value.get(),
+                extension=self.screenshot_extension_value.get(),
+                custom_ffmpeg_settings=self.screenshot_custom_ffmpeg_settings_value.get(),
+                screenshot_hotkey_updates_anki=self.screenshot_hotkey_update_anki_value.get(),
+                seconds_after_line=float(self.seconds_after_line_value.get()) if self.seconds_after_line_value.get() else 0.0,
+                screenshot_timing_setting=self.screenshot_timing_value.get(),
+                use_screenshot_selector=self.use_screenshot_selector_value.get(),
             ),
             audio=Audio(
-                enabled=self.audio_enabled.get(),
-                extension=self.audio_extension.get(),
-                beginning_offset=float(self.beginning_offset.get()),
-                end_offset=float(self.end_offset.get()),
-                ffmpeg_reencode_options=self.audio_ffmpeg_reencode_options.get(),
-                external_tool=self.external_tool.get(),
-                anki_media_collection=self.anki_media_collection.get(),
-                external_tool_enabled=self.external_tool_enabled.get(),
-                pre_vad_end_offset=float(self.pre_vad_audio_offset.get()),
+                enabled=self.audio_enabled_value.get(),
+                extension=self.audio_extension_value.get(),
+                beginning_offset=float(self.beginning_offset_value.get()),
+                end_offset=float(self.end_offset_value.get()),
+                ffmpeg_reencode_options=self.audio_ffmpeg_reencode_options_value.get(),
+                external_tool=self.external_tool_value.get(),
+                anki_media_collection=self.anki_media_collection_value.get(),
+                external_tool_enabled=self.external_tool_enabled_value.get(),
+                pre_vad_end_offset=float(self.pre_vad_audio_offset_value.get()),
             ),
             obs=OBS(
-                enabled=self.obs_enabled.get(),
-                open_obs=self.open_obs.get(),
-                close_obs=self.close_obs.get(),
-                host=self.obs_host.get(),
-                port=int(self.obs_port.get()),
-                password=self.obs_password.get(),
-                get_game_from_scene=self.get_game_from_scene_name.get(),
-                minimum_replay_size=int(self.minimum_replay_size.get())
+                enabled=self.obs_enabled_value.get(),
+                open_obs=self.obs_open_obs_value.get(),
+                close_obs=self.obs_close_obs_value.get(),
+                host=self.obs_host_value.get(),
+                port=int(self.obs_port_value.get()),
+                password=self.obs_password_value.get(),
+                get_game_from_scene=self.obs_get_game_from_scene_name_value.get(),
+                minimum_replay_size=int(self.obs_minimum_replay_size_value.get())
             ),
             hotkeys=Hotkeys(
-                reset_line=self.reset_line_hotkey.get(),
-                take_screenshot=self.take_screenshot_hotkey.get(),
-                play_latest_audio=self.play_latest_audio_hotkey.get()
+                reset_line=self.reset_line_hotkey_value.get(),
+                take_screenshot=self.take_screenshot_hotkey_value.get(),
+                play_latest_audio=self.play_latest_audio_hotkey_value.get()
             ),
             vad=VAD(
-                whisper_model=self.whisper_model.get(),
-                do_vad_postprocessing=self.do_vad_postprocessing.get(),
-                selected_vad_model=self.selected_vad_model.get(),
-                backup_vad_model=self.backup_vad_model.get(),
-                trim_beginning=self.vad_trim_beginning.get(),
-                beginning_offset=float(self.vad_beginning_offset.get()),
-                add_audio_on_no_results=self.add_audio_on_no_results.get(),
-                language=self.language.get(),
-                cut_and_splice_segments=self.cut_and_splice_segments.get(),
-                splice_padding=float(self.splice_padding.get()) if self.splice_padding.get() else 0.0,
+                whisper_model=self.whisper_model_value.get(),
+                do_vad_postprocessing=self.do_vad_postprocessing_value.get(),
+                selected_vad_model=self.selected_vad_model_value.get(),
+                backup_vad_model=self.backup_vad_model_value.get(),
+                trim_beginning=self.vad_trim_beginning_value.get(),
+                beginning_offset=float(self.vad_beginning_offset_value.get()),
+                add_audio_on_no_results=self.add_audio_on_no_results_value.get(),
+                language=self.language_value.get(),
+                cut_and_splice_segments=self.cut_and_splice_segments_value.get(),
+                splice_padding=float(self.splice_padding_value.get()) if self.splice_padding_value.get() else 0.0,
             ),
             advanced=Advanced(
-                audio_player_path=self.audio_player_path.get(),
-                video_player_path=self.video_player_path.get(),
-                multi_line_line_break=self.multi_line_line_break.get(),
-                multi_line_sentence_storage_field=self.multi_line_sentence_storage_field.get(),
-                ocr_websocket_port=int(self.ocr_websocket_port.get()),
-                texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port.get()),
-                plaintext_websocket_port=int(self.plaintext_websocket_export_port.get()),
+                audio_player_path=self.audio_player_path_value.get(),
+                video_player_path=self.video_player_path_value.get(),
+                multi_line_line_break=self.multi_line_line_break_value.get(),
+                multi_line_sentence_storage_field=self.multi_line_sentence_storage_field_value.get(),
+                ocr_websocket_port=int(self.ocr_websocket_port_value.get()),
+                texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port_value.get()),
+                plaintext_websocket_port=int(self.plaintext_websocket_export_port_value.get()),
             ),
             ai=Ai(
-                enabled=self.ai_enabled.get(),
-                provider=self.ai_provider.get(),
-                gemini_model=self.gemini_model.get(),
-                groq_model=self.groq_model.get(),
-                gemini_api_key=self.gemini_api_key.get(),
-                api_key=self.gemini_api_key.get(),
-                groq_api_key=self.groq_api_key.get(),
-                local_model=self.local_ai_model.get(),
-                anki_field=self.ai_anki_field.get(),
-                use_canned_translation_prompt=self.use_canned_translation_prompt.get(),
-                use_canned_context_prompt=self.use_canned_context_prompt.get(),
-                custom_prompt=self.custom_prompt.get("1.0", tk.END),
-                dialogue_context_length=int(self.ai_dialogue_context_length.get()),
+                enabled=self.ai_enabled_value.get(),
+                provider=self.ai_provider_value.get(),
+                gemini_model=self.gemini_model_value.get(),
+                groq_model=self.groq_model_value.get(),
+                gemini_api_key=self.gemini_api_key_value.get(),
+                api_key=self.gemini_api_key_value.get(),
+                groq_api_key=self.groq_api_key_value.get(),
+                local_model=self.local_ai_model_value.get(),
+                anki_field=self.ai_anki_field_value.get(),
+                use_canned_translation_prompt=self.use_canned_translation_prompt_value.get(),
+                use_canned_context_prompt=self.use_canned_context_prompt_value.get(),
+                custom_prompt=self.custom_prompt.get("1.0", tk.END).strip(),
+                dialogue_context_length=int(self.ai_dialogue_context_length_value.get()),
             ),
             wip=WIP(
-                overlay_websocket_port=int(self.overlay_websocket_port.get()),
-                overlay_websocket_send=self.overlay_websocket_send.get(),
-                monitor_to_capture=self.monitor_to_capture.current()
+                overlay_websocket_port=int(self.overlay_websocket_port_value.get()),
+                overlay_websocket_send=self.overlay_websocket_send_value.get(),
+                monitor_to_capture=self.monitor_to_capture.current() if self.monitors else 0
             )
         )
 
@@ -422,7 +588,7 @@ class ConfigApp:
         custom_display_name = ffmpeg_preset_i18n.get('custom', 'Custom')
 
         if self.ffmpeg_audio_preset_options.get() == custom_display_name:
-            config.audio.custom_encode_settings = self.audio_ffmpeg_reencode_options.get()
+            config.audio.custom_encode_settings = self.audio_ffmpeg_reencode_options_value.get()
 
         dialog_i18n = self.i18n.get('dialogs', {}).get('config_error', {})
         error_title = dialog_i18n.get('title', 'Configuration Error')
@@ -438,14 +604,14 @@ class ConfigApp:
 
         current_profile = self.profile_combobox.get()
         prev_config = self.master_config.get_config()
-        self.master_config.switch_to_default_if_not_found = self.switch_to_default_if_not_found.get()
+        self.master_config.switch_to_default_if_not_found = self.switch_to_default_if_not_found_value.get()
         if profile_change:
             self.master_config.current_profile = current_profile
         else:
             self.master_config.current_profile = current_profile
             self.master_config.set_config_for_profile(current_profile, config)
             
-        self.master_config.locale = Locale[self.locale.get()].value
+        self.master_config.locale = Locale[self.locale_value.get()].value
 
 
         config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
@@ -488,6 +654,7 @@ class ConfigApp:
             for frame in self.notebook.winfo_children():
                 frame.destroy()
 
+            self.required_settings_frame = None
             self.general_tab = None
             self.paths_tab = None
             self.anki_tab = None
@@ -501,6 +668,7 @@ class ConfigApp:
             self.advanced_tab = None
             self.wip_tab = None
 
+            self.create_vars()
             self.create_tabs()
 
     def increment_row(self):
@@ -524,8 +692,7 @@ class ConfigApp:
                              foreground="dark orange", font=("Helvetica", 10, "bold"),
                              tooltip=ws_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.websocket_enabled = tk.BooleanVar(value=self.settings.general.use_websocket)
-        ttk.Checkbutton(self.general_tab, variable=self.websocket_enabled, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(self.general_tab, variable=self.websocket_enabled_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -533,8 +700,7 @@ class ConfigApp:
         HoverInfoLabelWidget(self.general_tab, text=clip_i18n.get('label', 'Clipboard Enabled:'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"),
                              tooltip=clip_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        self.clipboard_enabled = tk.BooleanVar(value=self.settings.general.use_clipboard)
-        ttk.Checkbutton(self.general_tab, variable=self.clipboard_enabled, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(self.general_tab, variable=self.clipboard_enabled_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -543,8 +709,7 @@ class ConfigApp:
                              foreground="red", font=("Helvetica", 10, "bold"),
                              tooltip=both_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.use_both_clipboard_and_websocket = tk.BooleanVar(value=self.settings.general.use_both_clipboard_and_websocket)
-        ttk.Checkbutton(self.general_tab, variable=self.use_both_clipboard_and_websocket, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(self.general_tab, variable=self.use_both_clipboard_and_websocket_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
         
@@ -553,55 +718,35 @@ class ConfigApp:
                              foreground="red", font=("Helvetica", 10, "bold"),
                              tooltip=merge_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.merge_matching_sequential_text = tk.BooleanVar(value=self.settings.general.merge_matching_sequential_text)
-        ttk.Checkbutton(self.general_tab, variable=self.merge_matching_sequential_text, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(self.general_tab, variable=self.merge_matching_sequential_text_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
-        self.current_row += 1
-        
-        HoverInfoLabelWidget(self.general_tab, text="Merge Matching Sequential Text:",
-                             foreground="red", font=("Helvetica", 10, "bold"),
-                             tooltip="Enable to merge matching sequential text into a single entry. Designed for Luna's Speech Recognition feature. Very niche.",
-                             row=self.current_row, column=0)
-        
-        self.merge_matching_sequential_text = tk.BooleanVar(
-            value=self.settings.general.merge_matching_sequential_text)
-        ttk.Checkbutton(self.general_tab, variable=self.merge_matching_sequential_text,
-                        bootstyle="round-toggle").grid(
-            row=self.current_row, column=1,
-            sticky='W', pady=2)
         self.current_row += 1
 
         uri_i18n = general_i18n.get('websocket_uri', {})
         HoverInfoLabelWidget(self.general_tab, text=uri_i18n.get('label', 'Websocket URI(s):'),
                              tooltip=uri_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.websocket_uri = ttk.Entry(self.general_tab, width=50)
-        self.websocket_uri.insert(0, self.settings.general.websocket_uri)
-        self.websocket_uri.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(self.general_tab, width=50, textvariable=self.websocket_uri_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         regex_i18n = general_i18n.get('texthook_regex', {})
         HoverInfoLabelWidget(self.general_tab, text=regex_i18n.get('label', 'TextHook Replacement Regex:'),
                              tooltip=regex_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.texthook_replacement_regex = ttk.Entry(self.general_tab)
-        self.texthook_replacement_regex.insert(0, self.settings.general.texthook_replacement_regex)
-        self.texthook_replacement_regex.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(self.general_tab, textvariable=self.texthook_replacement_regex_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         open_config_i18n = general_i18n.get('open_config_on_startup', {})
         HoverInfoLabelWidget(self.general_tab, text=open_config_i18n.get('label', 'Open Config on Startup:'),
                              tooltip=open_config_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        self.open_config_on_startup = tk.BooleanVar(value=self.settings.general.open_config_on_startup)
-        ttk.Checkbutton(self.general_tab, variable=self.open_config_on_startup, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(self.general_tab, variable=self.open_config_on_startup_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
         open_texthooker_i18n = general_i18n.get('open_texthooker_on_startup', {})
         HoverInfoLabelWidget(self.general_tab, text=open_texthooker_i18n.get('label', 'Open GSM Texthooker on Startup:'),
                              tooltip=open_texthooker_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        self.open_multimine_on_startup = tk.BooleanVar(value=self.settings.general.open_multimine_on_startup)
-        ttk.Checkbutton(self.general_tab, variable=self.open_multimine_on_startup, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(self.general_tab, variable=self.open_multimine_on_startup_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -609,28 +754,23 @@ class ConfigApp:
         HoverInfoLabelWidget(self.general_tab, text=port_i18n.get('label', 'GSM Texthooker Port:'),
                              tooltip=port_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.texthooker_port = ttk.Entry(self.general_tab)
-        self.texthooker_port.insert(0, str(self.settings.general.texthooker_port))
-        self.texthooker_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(self.general_tab, textvariable=self.texthooker_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
         
-        locale_i18n = general_i18n.get('locale', {})
-        HoverInfoLabelWidget(self.general_tab, text=locale_i18n.get('label', 'Locale:'),
-                             tooltip=locale_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        self.locale = ttk.Combobox(self.general_tab, values=[Locale.English.name, Locale.日本語.name, Locale.中文.name], state="readonly")
-        self.locale.set(self.master_config.locale.name)
-        self.locale.grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        self.locale.bind("<<ComboboxSelected>>", lambda e: self.change_locale())
-        self.current_row += 1
+        # locale_i18n = general_i18n.get('locale', {})
+        # HoverInfoLabelWidget(self.general_tab, text=locale_i18n.get('label', 'Locale:'),
+        #                      tooltip=locale_i18n.get('tooltip', '...'),
+        #                      row=self.current_row, column=0)
+        # locale_combobox = ttk.Combobox(self.general_tab, textvariable=self.locale_value, values=[Locale.English.name, Locale.日本語.name, Locale.中文.name], state="readonly")
+        # locale_combobox.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        # locale_combobox.bind("<<ComboboxSelected>>", lambda e: self.change_locale())
+        # self.current_row += 1
         
         lang_i18n = general_i18n.get('native_language', {})
         HoverInfoLabelWidget(self.general_tab, text=lang_i18n.get('label', 'Native Language:'),
                              tooltip=lang_i18n.get('tooltip', '...'),
                                 row=self.current_row, column=0)
-        self.native_language = ttk.Combobox(self.general_tab, values=CommonLanguages.get_all_names_pretty(), state="readonly")
-        self.native_language.set(CommonLanguages.from_code(self.settings.general.native_language).name.replace('_', ' ').title())
-        self.native_language.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(self.general_tab, textvariable=self.native_language_value, values=CommonLanguages.get_all_names_pretty(), state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         legend_i18n = general_i18n.get('legend', {})
@@ -664,6 +804,178 @@ class ConfigApp:
         return self.general_tab
 
     @new_tab
+    def create_required_settings_tab(self):
+        if self.required_settings_frame is None:
+            self.required_settings_frame = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.required_settings_frame, text=self.i18n.get('tabs', {}).get('key_settings', {}).get('title', 'Key Settings'))
+        else:
+            for widget in self.required_settings_frame.winfo_children():
+                widget.destroy()
+        required_settings_frame = self.required_settings_frame
+                
+        simple_i18n = self.i18n.get('tabs', {}).get('simple', {})
+
+        # key_settings_i18n = simple_i18n.get('key_settings', {})
+        # HoverInfoLabelWidget(required_settings_frame, text=key_settings_i18n.get('label', 'Key Settings'),
+        #                      tooltip=key_settings_i18n.get('tooltip', "These settings are important..."),
+        #                      row=self.current_row, column=0, columnspan=4, font=("Helvetica", 12, "bold"))
+        # self.current_row += 1
+
+        # --- General Settings ---
+        general_i18n = self.i18n.get('tabs', {}).get('general', {})
+        input_frame = ttk.Frame(required_settings_frame)
+        input_frame.grid(row=self.current_row, column=0, columnspan=4, sticky='W', pady=2)
+        
+        ws_i18n = general_i18n.get('websocket_enabled', {})
+        HoverInfoLabelWidget(input_frame, text=ws_i18n.get('label', '...'),
+                             tooltip=ws_i18n.get('tooltip', '...'), row=0, column=0)
+        ttk.Checkbutton(input_frame, variable=self.websocket_enabled_value, bootstyle="round-toggle").grid(row=0, column=1, sticky='W', pady=2)
+        
+        clip_i18n = general_i18n.get('clipboard_enabled', {})
+        HoverInfoLabelWidget(input_frame, text=clip_i18n.get('label', '...'),
+                             tooltip=clip_i18n.get('tooltip', '...'), row=0, column=2, padx=5)
+        ttk.Checkbutton(input_frame, variable=self.clipboard_enabled_value, bootstyle="round-toggle").grid(row=0, column=3, sticky='W', pady=2)
+        self.current_row += 1
+
+        uri_i18n = general_i18n.get('websocket_uri', {})
+        HoverInfoLabelWidget(required_settings_frame, text=uri_i18n.get('label', '...'),
+                             tooltip=uri_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        ttk.Entry(required_settings_frame, width=50, textvariable=self.websocket_uri_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
+        self.current_row += 1
+
+        locale_i18n = general_i18n.get('locale', {})
+        HoverInfoLabelWidget(required_settings_frame, text=locale_i18n.get('label', '...'),
+                             tooltip=locale_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        locale_combobox_simple = ttk.Combobox(required_settings_frame, textvariable=self.locale_value, values=[Locale.English.name, Locale.日本語.name, Locale.中文.name], state="readonly")
+        locale_combobox_simple.grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
+        locale_combobox_simple.bind("<<ComboboxSelected>>", lambda e: self.change_locale())
+        self.current_row += 1
+
+        # --- Paths Settings ---
+        paths_i18n = self.i18n.get('tabs', {}).get('paths', {})
+        browse_text = self.i18n.get('buttons', {}).get('browse', 'Browse')
+        watch_i18n = paths_i18n.get('folder_to_watch', {})
+        HoverInfoLabelWidget(required_settings_frame, text=watch_i18n.get('label', '...'),
+                             tooltip=watch_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        folder_watch_entry = ttk.Entry(required_settings_frame, width=50, textvariable=self.folder_to_watch_value)
+        folder_watch_entry.grid(row=self.current_row, column=1, columnspan=2, sticky='EW', pady=2)
+        ttk.Button(required_settings_frame, text=browse_text, command=lambda: self.browse_folder(folder_watch_entry),
+                   bootstyle="outline").grid(row=self.current_row, column=3, padx=5, pady=2)
+        self.current_row += 1
+
+        # --- Anki Settings ---
+        anki_i18n = self.i18n.get('tabs', {}).get('anki', {})
+        sentence_i18n = anki_i18n.get('sentence_field', {})
+        HoverInfoLabelWidget(required_settings_frame, text=sentence_i18n.get('label', '...'),
+                             tooltip=sentence_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        ttk.Entry(required_settings_frame, textvariable=self.sentence_field_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
+        self.current_row += 1
+
+        audio_i18n = anki_i18n.get('sentence_audio_field', {})
+        HoverInfoLabelWidget(required_settings_frame, text=audio_i18n.get('label', '...'),
+                             tooltip=audio_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        ttk.Entry(required_settings_frame, textvariable=self.sentence_audio_field_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
+        self.current_row += 1
+
+        pic_i18n = anki_i18n.get('picture_field', {})
+        HoverInfoLabelWidget(required_settings_frame, text=pic_i18n.get('label', '...'),
+                             tooltip=pic_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        ttk.Entry(required_settings_frame, textvariable=self.picture_field_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
+        self.current_row += 1
+
+        word_i18n = anki_i18n.get('word_field', {})
+        HoverInfoLabelWidget(required_settings_frame, text=word_i18n.get('label', '...'),
+                             tooltip=word_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        ttk.Entry(required_settings_frame, textvariable=self.word_field_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
+        self.current_row += 1
+
+        # --- Audio Settings ---
+        audio_tab_i18n = self.i18n.get('tabs', {}).get('audio', {})
+        begin_offset_i18n = audio_tab_i18n.get('beginning_offset', {})
+        HoverInfoLabelWidget(required_settings_frame, text=begin_offset_i18n.get('label', '...'),
+                             tooltip=begin_offset_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        ttk.Entry(required_settings_frame, textvariable=self.beginning_offset_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
+        self.current_row += 1
+        
+        # Vad end offset
+
+        vad_i18n = self.i18n.get('tabs', {}).get('vad', {})
+        vad_end_offset_i18n = vad_i18n.get('audio_end_offset', {})
+        HoverInfoLabelWidget(required_settings_frame, text=vad_end_offset_i18n.get('label', '...'),
+                             tooltip=vad_end_offset_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        ttk.Entry(required_settings_frame, textvariable=self.end_offset_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
+        self.current_row += 1
+
+        # --- Features Settings ---
+        features_i18n = self.i18n.get('tabs', {}).get('features', {})
+        # action_frame = ttk.Frame(required_settings_frame)
+        # action_frame.grid(row=self.current_row, column=0, columnspan=4, sticky='W', pady=2)
+        
+        # Feature Toggles, Anki, OBS, Audio, VAD, AI, WIP
+        feature_frame = ttk.Frame(required_settings_frame)
+        feature_frame.grid(row=self.current_row, column=0, columnspan=5, sticky='W', pady=2)
+
+        # anki_enabled_i18n = simple_i18n.get('anki_enabled', {})
+        # HoverInfoLabelWidget(feature_frame, text=anki_enabled_i18n.get('label', '...'),
+        #                      tooltip=anki_enabled_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        # ttk.Checkbutton(feature_frame, variable=self.update_anki_value, bootstyle="round-toggle").grid(
+        #     row=self.current_row, column=1, sticky='W', pady=2)
+         
+        open_edit_i18n = features_i18n.get('open_anki_edit', {})
+        HoverInfoLabelWidget(feature_frame, text=open_edit_i18n.get('label', '...'),
+                             tooltip=open_edit_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        ttk.Checkbutton(feature_frame, variable=self.open_anki_edit_value, bootstyle="round-toggle").grid(
+            row=self.current_row, column=1, sticky='W', pady=2)
+
+        open_browser_i18n = features_i18n.get('open_anki_browser', {})
+        HoverInfoLabelWidget(feature_frame, text=open_browser_i18n.get('label', '...'),
+                             tooltip=open_browser_i18n.get('tooltip', '...'), row=self.current_row, column=2, padx=5)
+        ttk.Checkbutton(feature_frame, variable=self.open_anki_browser_value, bootstyle="round-toggle").grid(
+            row=self.current_row, column=3, sticky='W', pady=2)
+        self.current_row += 1
+        
+        # obs_enabled_i18n = simple_i18n.get('obs_enabled', {})
+        # HoverInfoLabelWidget(feature_frame, text=obs_enabled_i18n.get('label', '...'),
+        #                      tooltip=obs_enabled_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        # ttk.Checkbutton(feature_frame, variable=self.obs_enabled_value, bootstyle="round-toggle").grid(
+        #     row=self.current_row, column=1, sticky='W', pady=2)
+        # self.current_row += 1
+        
+        # screenshot_i18n = simple_i18n.get('screenshot_enabled', {})
+        # HoverInfoLabelWidget(feature_frame, text=screenshot_i18n.get('label', '...'),
+        #                      tooltip=screenshot_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        # ttk.Checkbutton(feature_frame, variable=self.screenshot_enabled_value, bootstyle="round-toggle").grid(
+        #     row=self.current_row, column=1, sticky='W', pady=2)
+        # self.current_row += 1
+
+        # audio_i18n = self.i18n.get('tabs', {}).get('audio', {})
+        # audio_enabled_i18n = simple_i18n.get('audio_enabled', {})
+        # HoverInfoLabelWidget(feature_frame, text=audio_enabled_i18n.get('label', '...'),
+        #                      tooltip=audio_enabled_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        # ttk.Checkbutton(feature_frame, variable=self.audio_enabled_value, bootstyle="round-toggle").grid(
+        #     row=self.current_row, column=1, sticky='W', pady=2)
+        # self.current_row += 1
+
+        # vad_i18n = self.i18n.get('tabs', {}).get('vad', {})
+        # vad_enabled_i18n = simple_i18n.get('vad_enabled', {})
+        # HoverInfoLabelWidget(feature_frame, text=vad_enabled_i18n.get('label', '...'),
+        #                      tooltip=vad_enabled_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        # ttk.Checkbutton(feature_frame, variable=self.do_vad_postprocessing_value, bootstyle="round-toggle").grid(
+        #     row=self.current_row, column=1, sticky='W', pady=2)
+        # self.current_row += 1
+
+        # ai_i18n = self.i18n.get('tabs', {}).get('ai', {})
+        # ai_enabled_i18n = simple_i18n.get('ai_enabled', {})
+        # HoverInfoLabelWidget(feature_frame, text=ai_enabled_i18n.get('label', '...'),
+        #                      tooltip=ai_enabled_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        # ttk.Checkbutton(feature_frame, variable=self.ai_enabled_value, bootstyle="round-toggle").grid(
+        #     row=self.current_row, column=1, sticky='W', pady=2)
+
+        required_settings_frame.grid_columnconfigure(1, weight=1)
+
+        return required_settings_frame
+
+    @new_tab
     def create_vad_tab(self):
         if self.vad_tab is None:
             vad_i18n = self.i18n.get('tabs', {}).get('vad', {})
@@ -680,8 +992,7 @@ class ConfigApp:
         HoverInfoLabelWidget(vad_frame, text=postproc_i18n.get('label', '...'),
                              tooltip=postproc_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.do_vad_postprocessing = tk.BooleanVar(value=self.settings.vad.do_vad_postprocessing)
-        ttk.Checkbutton(vad_frame, variable=self.do_vad_postprocessing, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(vad_frame, variable=self.do_vad_postprocessing_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -689,42 +1000,33 @@ class ConfigApp:
         HoverInfoLabelWidget(vad_frame, text=lang_i18n.get('label', '...'),
                              tooltip=lang_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.language = ttk.Combobox(vad_frame, values=AVAILABLE_LANGUAGES, state="readonly")
-        self.language.set(self.settings.vad.language)
-        self.language.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(vad_frame, textvariable=self.language_value, values=AVAILABLE_LANGUAGES, state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         whisper_i18n = vad_i18n.get('whisper_model', {})
         HoverInfoLabelWidget(vad_frame, text=whisper_i18n.get('label', '...'), tooltip=whisper_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.whisper_model = ttk.Combobox(vad_frame, values=[WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM,
-                                                             WHSIPER_LARGE, WHISPER_TURBO], state="readonly")
-        self.whisper_model.set(self.settings.vad.whisper_model)
-        self.whisper_model.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(vad_frame, textvariable=self.whisper_model_value, values=[WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM,
+                                                             WHSIPER_LARGE, WHISPER_TURBO], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         selected_model_i18n = vad_i18n.get('selected_model', {})
         HoverInfoLabelWidget(vad_frame, text=selected_model_i18n.get('label', '...'), tooltip=selected_model_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.selected_vad_model = ttk.Combobox(vad_frame, values=[SILERO, WHISPER], state="readonly")
-        self.selected_vad_model.set(self.settings.vad.selected_vad_model)
-        self.selected_vad_model.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(vad_frame, textvariable=self.selected_vad_model_value, values=[SILERO, WHISPER], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         backup_model_i18n = vad_i18n.get('backup_model', {})
         HoverInfoLabelWidget(vad_frame, text=backup_model_i18n.get('label', '...'),
                              tooltip=backup_model_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.backup_vad_model = ttk.Combobox(vad_frame, values=[OFF, SILERO, WHISPER], state="readonly")
-        self.backup_vad_model.set(self.settings.vad.backup_vad_model)
-        self.backup_vad_model.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(vad_frame, textvariable=self.backup_vad_model_value, values=[OFF, SILERO, WHISPER], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         no_results_i18n = vad_i18n.get('add_on_no_results', {})
         HoverInfoLabelWidget(vad_frame, text=no_results_i18n.get('label', '...'),
                              tooltip=no_results_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        self.add_audio_on_no_results = tk.BooleanVar(value=self.settings.vad.add_audio_on_no_results)
-        ttk.Checkbutton(vad_frame, variable=self.add_audio_on_no_results, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(vad_frame, variable=self.add_audio_on_no_results_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -732,43 +1034,35 @@ class ConfigApp:
         HoverInfoLabelWidget(vad_frame, text=end_offset_i18n.get('label', '...'),
                              tooltip=end_offset_i18n.get('tooltip', '...'), foreground="dark orange",
                              font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.end_offset = ttk.Entry(vad_frame)
-        self.end_offset.insert(0, str(self.settings.audio.end_offset))
-        self.end_offset.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(vad_frame, textvariable=self.end_offset_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         trim_begin_i18n = vad_i18n.get('trim_beginning', {})
         HoverInfoLabelWidget(vad_frame, text=trim_begin_i18n.get('label', '...'),
                              tooltip=trim_begin_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.vad_trim_beginning = tk.BooleanVar(value=self.settings.vad.trim_beginning)
-        ttk.Checkbutton(vad_frame, variable=self.vad_trim_beginning, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(vad_frame, variable=self.vad_trim_beginning_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
 
         begin_offset_i18n = vad_i18n.get('beginning_offset', {})
         HoverInfoLabelWidget(vad_frame, text=begin_offset_i18n.get('label', '...'),
                              tooltip=begin_offset_i18n.get('tooltip', '...'),
                              row=self.current_row, column=2)
-        self.vad_beginning_offset = ttk.Entry(vad_frame)
-        self.vad_beginning_offset.insert(0, str(self.settings.vad.beginning_offset))
-        self.vad_beginning_offset.grid(row=self.current_row, column=3, sticky='EW', pady=2)
+        ttk.Entry(vad_frame, textvariable=self.vad_beginning_offset_value).grid(row=self.current_row, column=3, sticky='EW', pady=2)
         self.current_row += 1
 
         splice_i18n = vad_i18n.get('cut_and_splice', {})
         HoverInfoLabelWidget(vad_frame, text=splice_i18n.get('label', '...'),
                              tooltip=splice_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.cut_and_splice_segments = tk.BooleanVar(value=self.settings.vad.cut_and_splice_segments)
-        ttk.Checkbutton(vad_frame, variable=self.cut_and_splice_segments, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(vad_frame, variable=self.cut_and_splice_segments_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         
         padding_i18n = vad_i18n.get('splice_padding', {})
         HoverInfoLabelWidget(vad_frame, text=padding_i18n.get('label', '...'),
                              tooltip=padding_i18n.get('tooltip', '...'),
                              row=self.current_row, column=2)
-        self.splice_padding = ttk.Entry(vad_frame)
-        self.splice_padding.insert(0, str(self.settings.vad.splice_padding))
-        self.splice_padding.grid(row=self.current_row, column=3, sticky='EW', pady=2)
+        ttk.Entry(vad_frame, textvariable=self.splice_padding_value).grid(row=self.current_row, column=3, sticky='EW', pady=2)
         self.current_row += 1
 
         self.add_reset_button(vad_frame, "vad", self.current_row, 0, self.create_vad_tab)
@@ -795,20 +1089,18 @@ class ConfigApp:
         watch_i18n = paths_i18n.get('folder_to_watch', {})
         HoverInfoLabelWidget(paths_frame, text=watch_i18n.get('label', '...'), tooltip=watch_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.folder_to_watch = ttk.Entry(paths_frame, width=50)
-        self.folder_to_watch.insert(0, self.settings.paths.folder_to_watch)
-        self.folder_to_watch.grid(row=self.current_row, column=1, sticky='W', pady=2)
-        ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(self.folder_to_watch),
+        folder_watch_entry = ttk.Entry(paths_frame, width=50, textvariable=self.folder_to_watch_value)
+        folder_watch_entry.grid(row=self.current_row, column=1, sticky='W', pady=2)
+        ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(folder_watch_entry),
                    bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
         self.current_row += 1
 
         audio_dest_i18n = paths_i18n.get('audio_destination', {})
         HoverInfoLabelWidget(paths_frame, text=audio_dest_i18n.get('label', '...'), tooltip=audio_dest_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.audio_destination = ttk.Entry(paths_frame, width=50)
-        self.audio_destination.insert(0, self.settings.paths.audio_destination)
-        self.audio_destination.grid(row=self.current_row, column=1, sticky='W', pady=2)
-        ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(self.audio_destination),
+        audio_dest_entry = ttk.Entry(paths_frame, width=50, textvariable=self.audio_destination_value)
+        audio_dest_entry.grid(row=self.current_row, column=1, sticky='W', pady=2)
+        ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(audio_dest_entry),
                    bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
         self.current_row += 1
 
@@ -816,34 +1108,30 @@ class ConfigApp:
         HoverInfoLabelWidget(paths_frame, text=ss_dest_i18n.get('label', '...'),
                              tooltip=ss_dest_i18n.get('tooltip', '...'), foreground="dark orange",
                              font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.screenshot_destination = ttk.Entry(paths_frame, width=50)
-        self.screenshot_destination.insert(0, self.settings.paths.screenshot_destination)
-        self.screenshot_destination.grid(row=self.current_row, column=1, sticky='W', pady=2)
-        ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(self.screenshot_destination),
+        ss_dest_entry = ttk.Entry(paths_frame, width=50, textvariable=self.screenshot_destination_value)
+        ss_dest_entry.grid(row=self.current_row, column=1, sticky='W', pady=2)
+        ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(ss_dest_entry),
                    bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
         self.current_row += 1
 
         rm_vid_i18n = paths_i18n.get('remove_video', {})
         HoverInfoLabelWidget(paths_frame, text=rm_vid_i18n.get('label', '...'), tooltip=rm_vid_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.remove_video = tk.BooleanVar(value=self.settings.paths.remove_video)
-        ttk.Checkbutton(paths_frame, variable=self.remove_video, bootstyle="round-toggle").grid(row=self.current_row,
+        ttk.Checkbutton(paths_frame, variable=self.remove_video_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                                 column=1, sticky='W', pady=2)
         self.current_row += 1
 
         rm_audio_i18n = paths_i18n.get('remove_audio', {})
         HoverInfoLabelWidget(paths_frame, text=rm_audio_i18n.get('label', '...'), tooltip=rm_audio_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.remove_audio = tk.BooleanVar(value=self.settings.paths.remove_audio)
-        ttk.Checkbutton(paths_frame, variable=self.remove_audio, bootstyle="round-toggle").grid(row=self.current_row,
+        ttk.Checkbutton(paths_frame, variable=self.remove_audio_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                                 column=1, sticky='W', pady=2)
         self.current_row += 1
 
         rm_ss_i18n = paths_i18n.get('remove_screenshot', {})
         HoverInfoLabelWidget(paths_frame, text=rm_ss_i18n.get('label', '...'), tooltip=rm_ss_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.remove_screenshot = tk.BooleanVar(value=self.settings.paths.remove_screenshot)
-        ttk.Checkbutton(paths_frame, variable=self.remove_screenshot, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(paths_frame, variable=self.remove_screenshot_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -857,12 +1145,14 @@ class ConfigApp:
     def browse_file(self, entry_widget):
         file_selected = filedialog.askopenfilename()
         if file_selected:
+            # The entry widget's textvariable will be updated automatically
             entry_widget.delete(0, tk.END)
             entry_widget.insert(0, file_selected)
 
     def browse_folder(self, entry_widget):
         folder_selected = filedialog.askdirectory()
         if folder_selected:
+            # The entry widget's textvariable will be updated automatically
             entry_widget.delete(0, tk.END)
             entry_widget.insert(0, folder_selected)
 
@@ -882,93 +1172,73 @@ class ConfigApp:
         update_i18n = anki_i18n.get('update_anki', {})
         HoverInfoLabelWidget(anki_frame, text=update_i18n.get('label', '...'), tooltip=update_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.update_anki = tk.BooleanVar(value=self.settings.anki.update_anki)
-        ttk.Checkbutton(anki_frame, variable=self.update_anki, bootstyle="round-toggle").grid(row=self.current_row,
+        ttk.Checkbutton(anki_frame, variable=self.update_anki_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                               column=1, sticky='W', pady=2)
         self.current_row += 1
 
         url_i18n = anki_i18n.get('url', {})
         HoverInfoLabelWidget(anki_frame, text=url_i18n.get('label', '...'), tooltip=url_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.anki_url = ttk.Entry(anki_frame, width=50)
-        self.anki_url.insert(0, self.settings.anki.url)
-        self.anki_url.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(anki_frame, width=50, textvariable=self.anki_url_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         sentence_i18n = anki_i18n.get('sentence_field', {})
         HoverInfoLabelWidget(anki_frame, text=sentence_i18n.get('label', '...'), tooltip=sentence_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.sentence_field = ttk.Entry(anki_frame)
-        self.sentence_field.insert(0, self.settings.anki.sentence_field)
-        self.sentence_field.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(anki_frame, textvariable=self.sentence_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         audio_i18n = anki_i18n.get('sentence_audio_field', {})
         HoverInfoLabelWidget(anki_frame, text=audio_i18n.get('label', '...'),
                              tooltip=audio_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.sentence_audio_field = ttk.Entry(anki_frame)
-        self.sentence_audio_field.insert(0, self.settings.anki.sentence_audio_field)
-        self.sentence_audio_field.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(anki_frame, textvariable=self.sentence_audio_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         pic_i18n = anki_i18n.get('picture_field', {})
         HoverInfoLabelWidget(anki_frame, text=pic_i18n.get('label', '...'), tooltip=pic_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.picture_field = ttk.Entry(anki_frame)
-        self.picture_field.insert(0, self.settings.anki.picture_field)
-        self.picture_field.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(anki_frame, textvariable=self.picture_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         word_i18n = anki_i18n.get('word_field', {})
         HoverInfoLabelWidget(anki_frame, text=word_i18n.get('label', '...'), tooltip=word_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.word_field = ttk.Entry(anki_frame)
-        self.word_field.insert(0, self.settings.anki.word_field)
-        self.word_field.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(anki_frame, textvariable=self.word_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         prev_sent_i18n = anki_i18n.get('previous_sentence_field', {})
         HoverInfoLabelWidget(anki_frame, text=prev_sent_i18n.get('label', '...'),
                              tooltip=prev_sent_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.previous_sentence_field = ttk.Entry(anki_frame)
-        self.previous_sentence_field.insert(0, self.settings.anki.previous_sentence_field)
-        self.previous_sentence_field.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(anki_frame, textvariable=self.previous_sentence_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         prev_img_i18n = anki_i18n.get('previous_image_field', {})
         HoverInfoLabelWidget(anki_frame, text=prev_img_i18n.get('label', '...'),
                              tooltip=prev_img_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.previous_image_field = ttk.Entry(anki_frame)
-        self.previous_image_field.insert(0, self.settings.anki.previous_image_field)
-        self.previous_image_field.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(anki_frame, textvariable=self.previous_image_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         tags_i18n = anki_i18n.get('custom_tags', {})
         HoverInfoLabelWidget(anki_frame, text=tags_i18n.get('label', '...'), tooltip=tags_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.custom_tags = ttk.Entry(anki_frame, width=50)
-        self.custom_tags.insert(0, ', '.join(self.settings.anki.custom_tags))
-        self.custom_tags.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(anki_frame, width=50, textvariable=self.custom_tags_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         tags_check_i18n = anki_i18n.get('tags_to_check', {})
         HoverInfoLabelWidget(anki_frame, text=tags_check_i18n.get('label', '...'),
                              tooltip=tags_check_i18n.get('tooltip', '...'),
                              foreground="green", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.tags_to_check = ttk.Entry(anki_frame, width=50)
-        self.tags_to_check.insert(0, ', '.join(self.settings.anki.tags_to_check))
-        self.tags_to_check.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(anki_frame, width=50, textvariable=self.tags_to_check_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         game_tag_i18n = anki_i18n.get('add_game_tag', {})
         HoverInfoLabelWidget(anki_frame, text=game_tag_i18n.get('label', '...'),
                              tooltip=game_tag_i18n.get('tooltip', '...'), foreground="green",
                              font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.add_game_tag = tk.BooleanVar(value=self.settings.anki.add_game_tag)
-        ttk.Checkbutton(anki_frame, variable=self.add_game_tag, bootstyle="round-toggle").grid(row=self.current_row,
+        ttk.Checkbutton(anki_frame, variable=self.add_game_tag_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                                column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -977,24 +1247,20 @@ class ConfigApp:
                              foreground="green", font=("Helvetica", 10, "bold"),
                              tooltip=parent_tag_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.parent_tag = ttk.Entry(anki_frame, width=50)
-        self.parent_tag.insert(0, self.settings.anki.parent_tag)
-        self.parent_tag.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(anki_frame, width=50, textvariable=self.parent_tag_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         ow_audio_i18n = anki_i18n.get('overwrite_audio', {})
         HoverInfoLabelWidget(anki_frame, text=ow_audio_i18n.get('label', '...'), tooltip=ow_audio_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.overwrite_audio = tk.BooleanVar(value=self.settings.anki.overwrite_audio)
-        ttk.Checkbutton(anki_frame, variable=self.overwrite_audio, bootstyle="round-toggle").grid(row=self.current_row,
+        ttk.Checkbutton(anki_frame, variable=self.overwrite_audio_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                                   column=1, sticky='W', pady=2)
         self.current_row += 1
 
         ow_pic_i18n = anki_i18n.get('overwrite_picture', {})
         HoverInfoLabelWidget(anki_frame, text=ow_pic_i18n.get('label', '...'),
                              tooltip=ow_pic_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        self.overwrite_picture = tk.BooleanVar(value=self.settings.anki.overwrite_picture)
-        ttk.Checkbutton(anki_frame, variable=self.overwrite_picture, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(anki_frame, variable=self.overwrite_picture_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -1002,8 +1268,7 @@ class ConfigApp:
         HoverInfoLabelWidget(anki_frame, text=multi_ow_i18n.get('label', '...'),
                              tooltip=multi_ow_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.multi_overwrites_sentence = tk.BooleanVar(value=self.settings.anki.multi_overwrites_sentence)
-        ttk.Checkbutton(anki_frame, variable=self.multi_overwrites_sentence, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(anki_frame, variable=self.multi_overwrites_sentence_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -1038,24 +1303,21 @@ class ConfigApp:
         notify_i18n = features_i18n.get('notify_on_update', {})
         HoverInfoLabelWidget(features_frame, text=notify_i18n.get('label', '...'), tooltip=notify_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.notify_on_update = tk.BooleanVar(value=self.settings.features.notify_on_update)
-        ttk.Checkbutton(features_frame, variable=self.notify_on_update, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(features_frame, variable=self.notify_on_update_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
         open_edit_i18n = features_i18n.get('open_anki_edit', {})
         HoverInfoLabelWidget(features_frame, text=open_edit_i18n.get('label', '...'),
                              tooltip=open_edit_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        self.open_anki_edit = tk.BooleanVar(value=self.settings.features.open_anki_edit)
-        ttk.Checkbutton(features_frame, variable=self.open_anki_edit, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(features_frame, variable=self.open_anki_edit_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
         open_browser_i18n = features_i18n.get('open_anki_browser', {})
         HoverInfoLabelWidget(features_frame, text=open_browser_i18n.get('label', '...'),
                              tooltip=open_browser_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        self.open_anki_browser = tk.BooleanVar(value=self.settings.features.open_anki_in_browser)
-        ttk.Checkbutton(features_frame, variable=self.open_anki_browser, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(features_frame, variable=self.open_anki_browser_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -1063,24 +1325,20 @@ class ConfigApp:
         HoverInfoLabelWidget(features_frame, text=query_i18n.get('label', '...'),
                              tooltip=query_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.browser_query = ttk.Entry(features_frame, width=50)
-        self.browser_query.insert(0, self.settings.features.browser_query)
-        self.browser_query.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(features_frame, width=50, textvariable=self.browser_query_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         backfill_i18n = features_i18n.get('backfill_audio', {})
         HoverInfoLabelWidget(features_frame, text=backfill_i18n.get('label', '...'), tooltip=backfill_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.backfill_audio = tk.BooleanVar(value=self.settings.features.backfill_audio)
-        ttk.Checkbutton(features_frame, variable=self.backfill_audio, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(features_frame, variable=self.backfill_audio_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
         full_auto_i18n = features_i18n.get('full_auto', {})
         HoverInfoLabelWidget(features_frame, text=full_auto_i18n.get('label', '...'), tooltip=full_auto_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.full_auto = tk.BooleanVar(value=self.settings.features.full_auto)
-        ttk.Checkbutton(features_frame, variable=self.full_auto, bootstyle="round-toggle").grid(row=self.current_row,
+        ttk.Checkbutton(features_frame, variable=self.full_auto_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                                 column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -1107,94 +1365,75 @@ class ConfigApp:
         enabled_i18n = ss_i18n.get('enabled', {})
         HoverInfoLabelWidget(screenshot_frame, text=enabled_i18n.get('label', '...'), tooltip=enabled_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.screenshot_enabled = tk.BooleanVar(value=self.settings.screenshot.enabled)
-        ttk.Checkbutton(screenshot_frame, variable=self.screenshot_enabled, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(screenshot_frame, variable=self.screenshot_enabled_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
         width_i18n = ss_i18n.get('width', {})
         HoverInfoLabelWidget(screenshot_frame, text=width_i18n.get('label', '...'), tooltip=width_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.screenshot_width = ttk.Entry(screenshot_frame)
-        self.screenshot_width.insert(0, str(self.settings.screenshot.width))
-        self.screenshot_width.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(screenshot_frame, textvariable=self.screenshot_width_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         height_i18n = ss_i18n.get('height', {})
         HoverInfoLabelWidget(screenshot_frame, text=height_i18n.get('label', '...'), tooltip=height_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.screenshot_height = ttk.Entry(screenshot_frame)
-        self.screenshot_height.insert(0, str(self.settings.screenshot.height))
-        self.screenshot_height.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(screenshot_frame, textvariable=self.screenshot_height_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         quality_i18n = ss_i18n.get('quality', {})
         HoverInfoLabelWidget(screenshot_frame, text=quality_i18n.get('label', '...'), tooltip=quality_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.screenshot_quality = ttk.Entry(screenshot_frame)
-        self.screenshot_quality.insert(0, str(self.settings.screenshot.quality))
-        self.screenshot_quality.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(screenshot_frame, textvariable=self.screenshot_quality_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         ext_i18n = ss_i18n.get('extension', {})
         HoverInfoLabelWidget(screenshot_frame, text=ext_i18n.get('label', '...'), tooltip=ext_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.screenshot_extension = ttk.Combobox(screenshot_frame, values=['webp', 'avif', 'png', 'jpeg'],
-                                                 state="readonly")
-        self.screenshot_extension.set(self.settings.screenshot.extension)
-        self.screenshot_extension.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(screenshot_frame, textvariable=self.screenshot_extension_value, values=['webp', 'avif', 'png', 'jpeg'],
+                                                 state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         ffmpeg_i18n = ss_i18n.get('ffmpeg_options', {})
         HoverInfoLabelWidget(screenshot_frame, text=ffmpeg_i18n.get('label', '...'),
                              tooltip=ffmpeg_i18n.get('tooltip', '...'), foreground="red",
                              font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.screenshot_custom_ffmpeg_settings = ttk.Entry(screenshot_frame, width=50)
-        self.screenshot_custom_ffmpeg_settings.insert(0, self.settings.screenshot.custom_ffmpeg_settings)
-        self.screenshot_custom_ffmpeg_settings.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(screenshot_frame, width=50, textvariable=self.screenshot_custom_ffmpeg_settings_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         timing_i18n = ss_i18n.get('timing', {})
         HoverInfoLabelWidget(screenshot_frame, text=timing_i18n.get('label', '...'),
                              tooltip=timing_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.screenshot_timing = ttk.Combobox(screenshot_frame, values=['beginning', 'middle', 'end'], state="readonly")
-        self.screenshot_timing.set(self.settings.screenshot.screenshot_timing_setting)
-        self.screenshot_timing.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(screenshot_frame, textvariable=self.screenshot_timing_value, values=['beginning', 'middle', 'end'], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         offset_i18n = ss_i18n.get('offset', {})
         HoverInfoLabelWidget(screenshot_frame, text=offset_i18n.get('label', '...'),
                              tooltip=offset_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.seconds_after_line = ttk.Entry(screenshot_frame)
-        self.seconds_after_line.insert(0, str(self.settings.screenshot.seconds_after_line))
-        self.seconds_after_line.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(screenshot_frame, textvariable=self.seconds_after_line_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         selector_i18n = ss_i18n.get('use_selector', {})
         HoverInfoLabelWidget(screenshot_frame, text=selector_i18n.get('label', '...'),
                              tooltip=selector_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.use_screenshot_selector = tk.BooleanVar(value=self.settings.screenshot.use_screenshot_selector)
-        ttk.Checkbutton(screenshot_frame, variable=self.use_screenshot_selector, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(screenshot_frame, variable=self.use_screenshot_selector_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
         hotkey_i18n = ss_i18n.get('hotkey', {})
         HoverInfoLabelWidget(screenshot_frame, text=hotkey_i18n.get('label', '...'), tooltip=hotkey_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.take_screenshot_hotkey = ttk.Entry(screenshot_frame)
-        self.take_screenshot_hotkey.insert(0, self.settings.hotkeys.take_screenshot)
-        self.take_screenshot_hotkey.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(screenshot_frame, textvariable=self.take_screenshot_hotkey_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         hotkey_update_i18n = ss_i18n.get('hotkey_updates_anki', {})
         HoverInfoLabelWidget(screenshot_frame, text=hotkey_update_i18n.get('label', '...'),
                              tooltip=hotkey_update_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.screenshot_hotkey_update_anki = tk.BooleanVar(value=self.settings.screenshot.screenshot_hotkey_updates_anki)
-        ttk.Checkbutton(screenshot_frame, variable=self.screenshot_hotkey_update_anki, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(screenshot_frame, variable=self.screenshot_hotkey_update_anki_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -1208,11 +1447,9 @@ class ConfigApp:
     def update_audio_ffmpeg_settings(self, event):
         selected_option = self.ffmpeg_audio_preset_options.get()
         if selected_option in self.ffmpeg_audio_preset_options_map:
-            self.audio_ffmpeg_reencode_options.delete(0, tk.END)
-            self.audio_ffmpeg_reencode_options.insert(0, self.ffmpeg_audio_preset_options_map[selected_option])
+            self.audio_ffmpeg_reencode_options_value.set(self.ffmpeg_audio_preset_options_map[selected_option])
         else:
-            self.audio_ffmpeg_reencode_options.delete(0, tk.END)
-            self.audio_ffmpeg_reencode_options.insert(0, "")
+            self.audio_ffmpeg_reencode_options_value.set("")
 
     @new_tab
     def create_audio_tab(self):
@@ -1230,26 +1467,21 @@ class ConfigApp:
         enabled_i18n = audio_i18n.get('enabled', {})
         HoverInfoLabelWidget(audio_frame, text=enabled_i18n.get('label', '...'), tooltip=enabled_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.audio_enabled = tk.BooleanVar(value=self.settings.audio.enabled)
-        ttk.Checkbutton(audio_frame, variable=self.audio_enabled, bootstyle="round-toggle").grid(row=self.current_row,
+        ttk.Checkbutton(audio_frame, variable=self.audio_enabled_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                                  column=1, sticky='W', pady=2)
         self.current_row += 1
 
         ext_i18n = audio_i18n.get('extension', {})
         HoverInfoLabelWidget(audio_frame, text=ext_i18n.get('label', '...'), tooltip=ext_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.audio_extension = ttk.Combobox(audio_frame, values=['opus', 'mp3', 'ogg', 'aac', 'm4a'], state="readonly")
-        self.audio_extension.set(self.settings.audio.extension)
-        self.audio_extension.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(audio_frame, textvariable=self.audio_extension_value, values=['opus', 'mp3', 'ogg', 'aac', 'm4a'], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         begin_offset_i18n = audio_i18n.get('beginning_offset', {})
         HoverInfoLabelWidget(audio_frame, text=begin_offset_i18n.get('label', '...'),
                              tooltip=begin_offset_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.beginning_offset = ttk.Entry(audio_frame)
-        self.beginning_offset.insert(0, str(self.settings.audio.beginning_offset))
-        self.beginning_offset.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(audio_frame, textvariable=self.beginning_offset_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
 
         ttk.Button(audio_frame, text=audio_i18n.get('find_offset_button', 'Find Offset (WIP)'), command=self.call_audio_offset_selector,
                    bootstyle="info").grid(row=self.current_row, column=2, sticky='EW', pady=2, padx=5)
@@ -1259,9 +1491,7 @@ class ConfigApp:
         HoverInfoLabelWidget(audio_frame, text=end_offset_i18n.get('label', '...'),
                              tooltip=end_offset_i18n.get('tooltip', '...'),
                              foreground="red", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.pre_vad_audio_offset = ttk.Entry(audio_frame)
-        self.pre_vad_audio_offset.insert(0, str(self.settings.audio.pre_vad_end_offset))
-        self.pre_vad_audio_offset.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(audio_frame, textvariable=self.pre_vad_audio_offset_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         ffmpeg_preset_i18n = audio_i18n.get('ffmpeg_preset', {})
@@ -1289,33 +1519,28 @@ class ConfigApp:
         HoverInfoLabelWidget(audio_frame, text=ffmpeg_options_i18n.get('label', '...'),
                              tooltip=ffmpeg_options_i18n.get('tooltip', '...'), foreground="red",
                              font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.audio_ffmpeg_reencode_options = ttk.Entry(audio_frame, width=50)
-        self.audio_ffmpeg_reencode_options.insert(0, self.settings.audio.ffmpeg_reencode_options)
-        self.audio_ffmpeg_reencode_options.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(audio_frame, width=50, textvariable=self.audio_ffmpeg_reencode_options_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         anki_media_i18n = audio_i18n.get('anki_media_collection', {})
         HoverInfoLabelWidget(audio_frame, text=anki_media_i18n.get('label', '...'),
                              tooltip=anki_media_i18n.get('tooltip', '...'),
                              foreground="green", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.anki_media_collection = ttk.Entry(audio_frame)
-        self.anki_media_collection.insert(0, self.settings.audio.anki_media_collection)
-        self.anki_media_collection.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.anki_media_collection_entry = ttk.Entry(audio_frame, textvariable=self.anki_media_collection_value)
+        self.anki_media_collection_entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         ext_tool_i18n = audio_i18n.get('external_tool', {})
         HoverInfoLabelWidget(audio_frame, text=ext_tool_i18n.get('label', '...'),
                              tooltip=ext_tool_i18n.get('tooltip', '...'),
                              foreground="green", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.external_tool = ttk.Entry(audio_frame)
-        self.external_tool.insert(0, self.settings.audio.external_tool)
-        self.external_tool.grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        self.external_tool_enabled = tk.BooleanVar(value=self.settings.audio.external_tool_enabled)
+        self.external_tool_entry = ttk.Entry(audio_frame, textvariable=self.external_tool_value)
+        self.external_tool_entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         
         ext_tool_enabled_i18n = audio_i18n.get('external_tool_enabled', {})
         HoverInfoLabelWidget(audio_frame, text=ext_tool_enabled_i18n.get('label', '...'), tooltip=ext_tool_enabled_i18n.get('tooltip', '...'),
                              row=self.current_row, column=2, foreground="green", font=("Helvetica", 10, "bold"))
-        ttk.Checkbutton(audio_frame, variable=self.external_tool_enabled, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(audio_frame, variable=self.external_tool_enabled_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=3, sticky='W', padx=10, pady=5)
         self.current_row += 1
 
@@ -1385,56 +1610,46 @@ class ConfigApp:
         enabled_i18n = obs_i18n.get('enabled', {})
         HoverInfoLabelWidget(obs_frame, text=enabled_i18n.get('label', '...'), tooltip=enabled_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.obs_enabled = tk.BooleanVar(value=self.settings.obs.enabled)
-        ttk.Checkbutton(obs_frame, variable=self.obs_enabled, bootstyle="round-toggle").grid(row=self.current_row,
+        ttk.Checkbutton(obs_frame, variable=self.obs_enabled_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                              column=1, sticky='W', pady=2)
         self.current_row += 1
 
         open_i18n = obs_i18n.get('open_obs', {})
         HoverInfoLabelWidget(obs_frame, text=open_i18n.get('label', '...'), tooltip=open_i18n.get('tooltip', '...'), row=self.current_row,
                              column=0)
-        self.open_obs = tk.BooleanVar(value=self.settings.obs.open_obs)
-        ttk.Checkbutton(obs_frame, variable=self.open_obs, bootstyle="round-toggle").grid(row=self.current_row,
+        ttk.Checkbutton(obs_frame, variable=self.obs_open_obs_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                           column=1, sticky='W', pady=2)
         self.current_row += 1
 
         close_i18n = obs_i18n.get('close_obs', {})
         HoverInfoLabelWidget(obs_frame, text=close_i18n.get('label', '...'), tooltip=close_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.close_obs = tk.BooleanVar(value=self.settings.obs.close_obs)
-        ttk.Checkbutton(obs_frame, variable=self.close_obs, bootstyle="round-toggle").grid(row=self.current_row,
+        ttk.Checkbutton(obs_frame, variable=self.obs_close_obs_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                            column=1, sticky='W', pady=2)
         self.current_row += 1
 
         host_i18n = obs_i18n.get('host', {})
         HoverInfoLabelWidget(obs_frame, text=host_i18n.get('label', '...'), tooltip=host_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.obs_host = ttk.Entry(obs_frame)
-        self.obs_host.insert(0, self.settings.obs.host)
-        self.obs_host.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(obs_frame, textvariable=self.obs_host_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         port_i18n = obs_i18n.get('port', {})
         HoverInfoLabelWidget(obs_frame, text=port_i18n.get('label', '...'), tooltip=port_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.obs_port = ttk.Entry(obs_frame)
-        self.obs_port.insert(0, str(self.settings.obs.port))
-        self.obs_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(obs_frame, textvariable=self.obs_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         pass_i18n = obs_i18n.get('password', {})
         HoverInfoLabelWidget(obs_frame, text=pass_i18n.get('label', '...'), tooltip=pass_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.obs_password = ttk.Entry(obs_frame, show="*")
-        self.obs_password.insert(0, self.settings.obs.password)
-        self.obs_password.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(obs_frame, show="*", textvariable=self.obs_password_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         game_scene_i18n = obs_i18n.get('game_from_scene', {})
         HoverInfoLabelWidget(obs_frame, text=game_scene_i18n.get('label', '...'), tooltip=game_scene_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.get_game_from_scene_name = tk.BooleanVar(value=self.settings.obs.get_game_from_scene)
-        ttk.Checkbutton(obs_frame, variable=self.get_game_from_scene_name, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(obs_frame, variable=self.obs_get_game_from_scene_name_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -1442,9 +1657,7 @@ class ConfigApp:
         HoverInfoLabelWidget(obs_frame, text=min_size_i18n.get('label', '...'),
                              tooltip=min_size_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.minimum_replay_size = ttk.Entry(obs_frame)
-        self.minimum_replay_size.insert(0, str(self.settings.obs.minimum_replay_size))
-        self.minimum_replay_size.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(obs_frame, textvariable=self.obs_minimum_replay_size_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         self.add_reset_button(obs_frame, "obs", self.current_row, 0, self.create_obs_tab)
@@ -1507,8 +1720,7 @@ class ConfigApp:
         HoverInfoLabelWidget(profiles_frame, text=switch_i18n.get('label', '...'),
                              tooltip=switch_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.switch_to_default_if_not_found = tk.BooleanVar(value=self.master_config.switch_to_default_if_not_found)
-        ttk.Checkbutton(profiles_frame, variable=self.switch_to_default_if_not_found, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(profiles_frame, variable=self.switch_to_default_if_not_found_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -1557,10 +1769,9 @@ class ConfigApp:
         HoverInfoLabelWidget(advanced_frame, text=audio_player_i18n.get('label', '...'),
                              tooltip=audio_player_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.audio_player_path = ttk.Entry(advanced_frame, width=50)
-        self.audio_player_path.insert(0, self.settings.advanced.audio_player_path)
-        self.audio_player_path.grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        ttk.Button(advanced_frame, text=browse_text, command=lambda: self.browse_file(self.audio_player_path),
+        audio_player_entry = ttk.Entry(advanced_frame, width=50, textvariable=self.audio_player_path_value)
+        audio_player_entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Button(advanced_frame, text=browse_text, command=lambda: self.browse_file(audio_player_entry),
                    bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
         self.current_row += 1
 
@@ -1568,81 +1779,64 @@ class ConfigApp:
         HoverInfoLabelWidget(advanced_frame, text=video_player_i18n.get('label', '...'),
                              tooltip=video_player_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.video_player_path = ttk.Entry(advanced_frame, width=50)
-        self.video_player_path.insert(0, self.settings.advanced.video_player_path)
-        self.video_player_path.grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        ttk.Button(advanced_frame, text=browse_text, command=lambda: self.browse_file(self.video_player_path),
+        video_player_entry = ttk.Entry(advanced_frame, width=50, textvariable=self.video_player_path_value)
+        video_player_entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Button(advanced_frame, text=browse_text, command=lambda: self.browse_file(video_player_entry),
                    bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
         self.current_row += 1
 
         play_hotkey_i18n = advanced_i18n.get('play_latest_hotkey', {})
         HoverInfoLabelWidget(advanced_frame, text=play_hotkey_i18n.get('label', '...'),
                              tooltip=play_hotkey_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        self.play_latest_audio_hotkey = ttk.Entry(advanced_frame)
-        self.play_latest_audio_hotkey.insert(0, self.settings.hotkeys.play_latest_audio)
-        self.play_latest_audio_hotkey.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(advanced_frame, textvariable=self.play_latest_audio_hotkey_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         linebreak_i18n = advanced_i18n.get('multiline_linebreak', {})
         HoverInfoLabelWidget(advanced_frame, text=linebreak_i18n.get('label', '...'),
                              tooltip=linebreak_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.multi_line_line_break = ttk.Entry(advanced_frame)
-        self.multi_line_line_break.insert(0, self.settings.advanced.multi_line_line_break)
-        self.multi_line_line_break.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(advanced_frame, textvariable=self.multi_line_line_break_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         storage_field_i18n = advanced_i18n.get('multiline_storage_field', {})
         HoverInfoLabelWidget(advanced_frame, text=storage_field_i18n.get('label', '...'),
                              tooltip=storage_field_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.multi_line_sentence_storage_field = ttk.Entry(advanced_frame)
-        self.multi_line_sentence_storage_field.insert(0, self.settings.advanced.multi_line_sentence_storage_field)
-        self.multi_line_sentence_storage_field.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(advanced_frame, textvariable=self.multi_line_sentence_storage_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         ocr_port_i18n = advanced_i18n.get('ocr_port', {})
         HoverInfoLabelWidget(advanced_frame, text=ocr_port_i18n.get('label', '...'),
                              tooltip=ocr_port_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.ocr_websocket_port = ttk.Entry(advanced_frame)
-        self.ocr_websocket_port.insert(0, str(self.settings.advanced.ocr_websocket_port))
-        self.ocr_websocket_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(advanced_frame, textvariable=self.ocr_websocket_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         comm_port_i18n = advanced_i18n.get('texthooker_comm_port', {})
         HoverInfoLabelWidget(advanced_frame, text=comm_port_i18n.get('label', '...'),
                              tooltip=comm_port_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.texthooker_communication_websocket_port = ttk.Entry(advanced_frame)
-        self.texthooker_communication_websocket_port.insert(0, str(self.settings.advanced.texthooker_communication_websocket_port))
-        self.texthooker_communication_websocket_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(advanced_frame, textvariable=self.texthooker_communication_websocket_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         export_port_i18n = advanced_i18n.get('plaintext_export_port', {})
         HoverInfoLabelWidget(advanced_frame, text=export_port_i18n.get('label', '...'),
                              tooltip=export_port_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.plaintext_websocket_export_port = ttk.Entry(advanced_frame)
-        self.plaintext_websocket_export_port.insert(0, str(self.settings.advanced.plaintext_websocket_port))
-        self.plaintext_websocket_export_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(advanced_frame, textvariable=self.plaintext_websocket_export_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         reset_hotkey_i18n = advanced_i18n.get('reset_line_hotkey', {})
         HoverInfoLabelWidget(advanced_frame, text=reset_hotkey_i18n.get('label', '...'),
                              tooltip=reset_hotkey_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        self.reset_line_hotkey = ttk.Entry(advanced_frame)
-        self.reset_line_hotkey.insert(0, self.settings.hotkeys.reset_line)
-        self.reset_line_hotkey.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(advanced_frame, textvariable=self.reset_line_hotkey_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         polling_i18n = advanced_i18n.get('polling_rate', {})
         HoverInfoLabelWidget(advanced_frame, text=polling_i18n.get('label', '...'),
                              tooltip=polling_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.polling_rate = ttk.Entry(advanced_frame)
-        self.polling_rate.insert(0, str(self.settings.anki.polling_rate))
-        self.polling_rate.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(advanced_frame, textvariable=self.polling_rate_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
         
         current_ver_i18n = advanced_i18n.get('current_version', {})
@@ -1682,94 +1876,72 @@ class ConfigApp:
         enabled_i18n = ai_i18n.get('enabled', {})
         HoverInfoLabelWidget(ai_frame, text=enabled_i18n.get('label', '...'), tooltip=enabled_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.ai_enabled = tk.BooleanVar(value=self.settings.ai.enabled)
-        ttk.Checkbutton(ai_frame, variable=self.ai_enabled, bootstyle="round-toggle").grid(row=self.current_row,
+        ttk.Checkbutton(ai_frame, variable=self.ai_enabled_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                            column=1, sticky='W', pady=2)
         self.current_row += 1
 
         provider_i18n = ai_i18n.get('provider', {})
         HoverInfoLabelWidget(ai_frame, text=provider_i18n.get('label', '...'), tooltip=provider_i18n.get('tooltip', '...'), row=self.current_row,
                              column=0)
-        self.ai_provider = ttk.Combobox(ai_frame, values=[AI_GEMINI, AI_GROQ, AI_LOCAL], state="readonly")
-        self.ai_provider.set(self.settings.ai.provider)
-        self.ai_provider.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(ai_frame, textvariable=self.ai_provider_value, values=[AI_GEMINI, AI_GROQ, AI_LOCAL], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         gemini_model_i18n = ai_i18n.get('gemini_model', {})
         HoverInfoLabelWidget(ai_frame, text=gemini_model_i18n.get('label', '...'), tooltip=gemini_model_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.gemini_model = ttk.Combobox(ai_frame, values=['gemma-3n-e4b-it', 'gemini-2.5-flash-lite', 'gemini-2.5-flash','gemini-2.0-flash', 'gemini-2.0-flash-lite'], state="readonly")
-        try:
-            self.gemini_model.set(self.settings.ai.gemini_model)
-        except Exception:
-            self.gemini_model.set('gemini-2.5-flash')
-        self.gemini_model.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(ai_frame, textvariable=self.gemini_model_value, values=['gemma-3n-e4b-it', 'gemini-2.5-flash-lite', 'gemini-2.5-flash','gemini-2.0-flash', 'gemini-2.0-flash-lite'], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         gemini_key_i18n = ai_i18n.get('gemini_api_key', {})
         HoverInfoLabelWidget(ai_frame, text=gemini_key_i18n.get('label', '...'),
                              tooltip=gemini_key_i18n.get('tooltip', '...'),
                              foreground="green", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.gemini_api_key = ttk.Entry(ai_frame, show="*")
-        self.gemini_api_key.insert(0, self.settings.ai.gemini_api_key)
-        self.gemini_api_key.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(ai_frame, show="*", textvariable=self.gemini_api_key_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         groq_model_i18n = ai_i18n.get('groq_model', {})
         HoverInfoLabelWidget(ai_frame, text=groq_model_i18n.get('label', '...'), tooltip=groq_model_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.groq_model = ttk.Combobox(ai_frame, values=['meta-llama/llama-4-maverick-17b-128e-instruct',
+        ttk.Combobox(ai_frame, textvariable=self.groq_model_value, values=['meta-llama/llama-4-maverick-17b-128e-instruct',
                                                          'meta-llama/llama-4-scout-17b-16e-instruct',
-                                                         'llama-3.1-8b-instant'], state="readonly")
-        self.groq_model.set(self.settings.ai.groq_model)
-        self.groq_model.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+                                                         'llama-3.1-8b-instant'], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         groq_key_i18n = ai_i18n.get('groq_api_key', {})
         HoverInfoLabelWidget(ai_frame, text=groq_key_i18n.get('label', '...'), tooltip=groq_key_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.groq_api_key = ttk.Entry(ai_frame, show="*")
-        self.groq_api_key.insert(0, self.settings.ai.groq_api_key)
-        self.groq_api_key.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(ai_frame, show="*", textvariable=self.groq_api_key_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         local_model_i18n = ai_i18n.get('local_model', {})
         HoverInfoLabelWidget(ai_frame, text=local_model_i18n.get('label', '...'), tooltip=local_model_i18n.get('tooltip', '...'),
                              foreground="red", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.local_ai_model = ttk.Combobox(ai_frame, values=[OFF, 'facebook/nllb-200-distilled-600M', 'facebook/nllb-200-1.3B', 'facebook/nllb-200-3.3B'])
-        self.local_ai_model.set(self.settings.ai.local_model)
-        self.local_ai_model.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(ai_frame, textvariable=self.local_ai_model_value, values=[OFF, 'facebook/nllb-200-distilled-600M', 'facebook/nllb-200-1.3B', 'facebook/nllb-200-3.3B']).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         anki_field_i18n = ai_i18n.get('anki_field', {})
         HoverInfoLabelWidget(ai_frame, text=anki_field_i18n.get('label', '...'), tooltip=anki_field_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        self.ai_anki_field = ttk.Entry(ai_frame)
-        self.ai_anki_field.insert(0, self.settings.ai.anki_field)
-        self.ai_anki_field.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(ai_frame, textvariable=self.ai_anki_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         context_i18n = ai_i18n.get('context_length', {})
         HoverInfoLabelWidget(ai_frame, text=context_i18n.get('label', '...'), tooltip=context_i18n.get('tooltip', '...'),
                              foreground="red", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        self.ai_dialogue_context_length = ttk.Entry(ai_frame)
-        self.ai_dialogue_context_length.insert(0, str(self.settings.ai.dialogue_context_length))
-        self.ai_dialogue_context_length.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Entry(ai_frame, textvariable=self.ai_dialogue_context_length_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         canned_trans_i18n = ai_i18n.get('use_canned_translation', {})
         HoverInfoLabelWidget(ai_frame, text=canned_trans_i18n.get('label', '...'),
                              tooltip=canned_trans_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        self.use_canned_translation_prompt = tk.BooleanVar(value=self.settings.ai.use_canned_translation_prompt)
-        ttk.Checkbutton(ai_frame, variable=self.use_canned_translation_prompt, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(ai_frame, variable=self.use_canned_translation_prompt_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
         canned_context_i18n = ai_i18n.get('use_canned_context', {})
         HoverInfoLabelWidget(ai_frame, text=canned_context_i18n.get('label', '...'),
                              tooltip=canned_context_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        self.use_canned_context_prompt = tk.BooleanVar(value=self.settings.ai.use_canned_context_prompt)
-        ttk.Checkbutton(ai_frame, variable=self.use_canned_context_prompt, bootstyle="round-toggle").grid(
+        ttk.Checkbutton(ai_frame, variable=self.use_canned_context_prompt_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -1817,17 +1989,14 @@ class ConfigApp:
             HoverInfoLabelWidget(wip_frame, text=overlay_port_i18n.get('label', '...'),
                                 tooltip=overlay_port_i18n.get('tooltip', '...'),
                                 row=self.current_row, column=0)
-            self.overlay_websocket_port = ttk.Entry(wip_frame)
-            self.overlay_websocket_port.insert(0, str(self.settings.wip.overlay_websocket_port))
-            self.overlay_websocket_port.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+            ttk.Entry(wip_frame, textvariable=self.overlay_websocket_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
             self.current_row += 1
 
             overlay_send_i18n = wip_i18n.get('overlay_send', {})
             HoverInfoLabelWidget(wip_frame, text=overlay_send_i18n.get('label', '...'),
                                 tooltip=overlay_send_i18n.get('tooltip', '...'),
                                 row=self.current_row, column=0)
-            self.overlay_websocket_send = tk.BooleanVar(value=self.settings.wip.overlay_websocket_send)
-            ttk.Checkbutton(wip_frame, variable=self.overlay_websocket_send, bootstyle="round-toggle").grid(
+            ttk.Checkbutton(wip_frame, variable=self.overlay_websocket_send_value, bootstyle="round-toggle").grid(
                 row=self.current_row, column=1, sticky='W', pady=2)
             self.current_row += 1
 
@@ -1838,7 +2007,12 @@ class ConfigApp:
             self.monitor_to_capture = ttk.Combobox(wip_frame, values=self.monitors, state="readonly")
             
             if self.monitors:
-                self.monitor_to_capture.current(self.settings.wip.monitor_to_capture)
+                # Ensure the index is valid
+                monitor_index = self.settings.wip.monitor_to_capture
+                if 0 <= monitor_index < len(self.monitors):
+                    self.monitor_to_capture.current(monitor_index)
+                else:
+                    self.monitor_to_capture.current(0)
             else:
                 self.monitor_to_capture.set(monitor_i18n.get('not_detected', "OwOCR Not Detected"))
             self.monitor_to_capture.grid(row=self.current_row, column=1, sticky='EW', pady=2)
@@ -1914,14 +2088,12 @@ class ConfigApp:
                                       dialog_i18n.get('message', 'Would you like to download...?'),
                                       parent=self.window, icon='question')
         if confirm:
-            self.external_tool.delete(0, tk.END)
-            self.external_tool.insert(0, dialog_i18n.get('downloading_message', 'Downloading...'))
+            self.external_tool_value.set(dialog_i18n.get('downloading_message', 'Downloading...'))
             exe_path = download_ocenaudio_if_needed()
             messagebox.showinfo(dialog_i18n.get('success_title', 'Download Complete'),
                                 dialog_i18n.get('success_message', 'Downloaded to {path}').format(path=exe_path),
                                 parent=self.window)
-            self.external_tool.delete(0, tk.END)
-            self.external_tool.insert(0, exe_path)
+            self.external_tool_value.set(exe_path)
             self.save_settings()
 
     def set_default_anki_media_collection(self):
@@ -1931,9 +2103,8 @@ class ConfigApp:
                                       parent=self.window, icon='question')
         if confirm:
             default_path = get_default_anki_media_collection_path()
-            if default_path != self.settings.audio.anki_media_collection:
-                self.anki_media_collection.delete(0, tk.END)
-                self.anki_media_collection.insert(0, default_path)
+            if default_path != self.anki_media_collection_value.get():
+                self.anki_media_collection_value.set(default_path)
                 self.save_settings()
 
 
