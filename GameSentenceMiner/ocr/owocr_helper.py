@@ -53,6 +53,7 @@ def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
     """Loads and updates screen capture areas from the corresponding JSON file."""
     ocr_config_dir = get_ocr_config_path()
     obs.connect_to_obs_sync(retry=0)
+    obs.update_current_game()
     if use_window_for_config and window:
         scene = sanitize_filename(window)
     else:
@@ -161,7 +162,7 @@ class WebsocketServerThread(threading.Thread):
     async def send_text(self, text, line_time: datetime):
         if text:
             return asyncio.run_coroutine_threadsafe(
-                self.send_text_coroutine(json.dumps({"sentence": text, "time": line_time.isoformat()})), self.loop)
+                self.send_text_coroutine(json.dumps({"sentence": text, "time": line_time.isoformat(), "process_path": obs.get_current_game()})), self.loop)
 
     def stop_server(self):
         self.loop.call_soon_threadsafe(self._stop_event.set)
@@ -291,6 +292,38 @@ def reset_callback_vars():
     previous_text_list = []
     last_ocr2_result = ""
     run.set_last_image(None)
+    
+# class TwoPassOCRHandler:
+#     def __init__(self, ocr1, ocr2):
+#         self.ocr1 = ocr1
+#         self.ocr2 = ocr2
+#         self.second_ocr_queue = queue.Queue()
+#         self.previous_text = None
+#         self.previous_orig_text = ""
+#         self.previous_img = None
+#         self.text_stable_start_time = None
+#         self.last_oneocr_time = None
+#         self.force_stable = False
+#         self.previous_ocr1_result = ""
+#         self.last_sent_result = ""
+#         self.previous_text_list = []
+        
+#     def check_first_ocr(self, text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None):
+#         if not twopassocr or not ocr2:
+#             return text_callback(text, orig_text, time, img=img, came_from_ss=came_from_ss, filtering=filtering, crop_coords=crop_coords)
+        
+#         text_callback(text, orig_text, time, img=img, came_from_ss=came_from_ss, filtering=filtering, crop_coords=crop_coords)
+        
+#     def set_ocr_ocr1(self, ocr1):
+#         self.ocr1 = ocr1
+#     def set_ocr_ocr2(self, ocr2):
+#         self.ocr2 = ocr2
+
+#     def get_ocr_ocr1(self):
+#         return self.ocr1
+
+#     def get_ocr_ocr2(self):
+#         return self.ocr2
 
 def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None):
     global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, previous_text_list, last_sent_result
@@ -304,7 +337,6 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
         run.set_last_image(img)
 
     line_start_time = time if time else datetime.now()
-
 
     if manual or not get_ocr_two_pass_ocr():
         if compare_ocr_results(last_sent_result, text, 80):
