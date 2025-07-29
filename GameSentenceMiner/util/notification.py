@@ -138,3 +138,10 @@ def send_error_no_anki_update():
         message=f"Anki Card not updated, Check Console for Reason!",
         timeout=5  # Notification disappears after 5 seconds
     )
+    
+def send_error_notification(message):
+    send_notification(
+        title="Error",
+        message=message,
+        timeout=5  # Notification disappears after 5 seconds
+    )

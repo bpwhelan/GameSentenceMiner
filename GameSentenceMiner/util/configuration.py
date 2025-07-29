@@ -689,7 +689,7 @@ class Config:
     configs: Dict[str, ProfileConfig] = field(default_factory=dict)
     current_profile: str = DEFAULT_CONFIG
     switch_to_default_if_not_found: bool = True
-    locale: Locale = Locale.English
+    locale: Locale = Locale.English.value
 
     @classmethod
     def new(cls):
