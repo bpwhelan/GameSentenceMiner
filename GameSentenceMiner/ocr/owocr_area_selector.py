@@ -105,7 +105,7 @@ class ScreenSelector:
         
     def scale_down_width_height(self, width, height):
         if width == 0 or height == 0:
-            return self.width, self.height
+            return width, height
         aspect_ratio = width / height
         if aspect_ratio > 2.66:
             # Ultra-wide (32:9) - use 1920x540
@@ -131,7 +131,7 @@ class ScreenSelector:
         else:
             # Default/fallback - use original resolution
             print(f"Unrecognized aspect ratio {aspect_ratio}. Using original resolution.")
-            return self.width, self.height
+            return width, height
 
     def _find_target_window(self):
         try:
