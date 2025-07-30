@@ -129,8 +129,9 @@ class ScreenSelector:
             # 3:2 - use 1080x720
             return 1080, 720
         else:
-            # Default/fallback - use 1280x720
-            return 1280, 720
+            # Default/fallback - use original resolution
+            print(f"Unrecognized aspect ratio {aspect_ratio}. Using original resolution.")
+            return self.width, self.height
 
     def _find_target_window(self):
         try:
