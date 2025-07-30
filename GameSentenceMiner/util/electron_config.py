@@ -231,6 +231,9 @@ def get_ocr_keep_newline():
 def get_ocr_use_obs_as_source():
     return electron_store.data.OCR.useObsAsSource
 
+def get_furigana_filter_sensitivity() -> int:
+    return electron_store.data.OCR.furigana_filter_sensitivity
+    
 def has_ocr_config_changed() -> bool:
     global electron_store
     if not os.path.exists(electron_store.config_path):
