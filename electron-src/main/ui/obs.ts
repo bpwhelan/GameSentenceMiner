@@ -24,9 +24,15 @@ export interface ObsScene {
     id: string;
 }
 
-const pythonConfig = new Store();
+export let pythonConfig: Store | null = null;
+try {
+    pythonConfig = new Store();
+} catch (error) {
+    console.error("Failed to load pythonConfig store, using empty config.", error);
+    // pythonConfig = new Store({defaults: {}});
+}
 
-let obsConfig: ObsConfig = pythonConfig.get('configs.Default.obs') as ObsConfig || {
+let obsConfig: ObsConfig = pythonConfig?.get('configs.Default.obs') as ObsConfig || {
     host: 'localhost',
     port: 7274,
     password: ''
@@ -87,7 +93,7 @@ export async function getOBSConnection(): Promise<void> {
                 resolve();
             } catch (error) {
                 try {
-                    obsConfig = pythonConfig.get('configs.Default.obs') as ObsConfig || {
+                    obsConfig = pythonConfig?.get('configs.Default.obs') as ObsConfig || {
                         host: 'localhost',
                         port: 7274,
                         password: ''
