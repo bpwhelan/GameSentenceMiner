@@ -376,8 +376,8 @@ vad_processor = VADSystem()
 # Test cases for all VADProcessors
 def test_vad_processors():
     logger.setLevel(logging.DEBUG)
-    test_audio = r"C:\Users\Beangate\GSM\Electron App\test\tmptnl4a93q_untrimmed.opus"
-    output_dir = r"C:\Users\Beangate\GSM\Electron App\test\output"
+    test_audio = r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\tmpso7v0265.opus"
+    output_dir = r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\output"
     os.makedirs(output_dir, exist_ok=True)
     processors = [
         (WhisperVADProcessor(), "after_splice_whisper.opus"),
@@ -396,12 +396,20 @@ def test_vad_processors():
 
     get_config().vad.cut_and_splice_segments = False
     get_config().vad.trim_beginning = True
+    get_config().vad.add_audio_on_no_results = True
     for processor, out_name in processors:
         logger.info("Testing Trim Audio with " + processor.vad_system_name)
         out_path = os.path.join(output_dir, out_name.replace("after_splice_", "after_trim_"))
         if os.path.exists(out_path):
             os.remove(out_path)
-        processor.process_audio(test_audio, out_path, None)
+        result = processor.process_audio(test_audio, out_path, None)
+        print(result)
+        
+    vad_system = VADSystem()
+    vad_system.init()
+    
+    result = vad_system.trim_audio_with_vad(test_audio, os.path.join(output_dir, "after_vad.opus"), None)
+    print(result)
 
 
 if __name__ == "__main__":
