@@ -175,7 +175,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 anki.update_anki_card(
                     last_note, note, audio_path=final_audio_output, video_path=video_path,
                     tango=tango,
-                    should_update_audio=vad_result.success,
+                    should_update_audio=vad_result.output_audio,
                     ss_time=ss_timing,
                     game_line=mined_line,
                     selected_lines=selected_lines
@@ -618,6 +618,29 @@ async def run_test_code():
         if boxes:
             await texthooking_page.send_word_coordinates_to_overlay(boxes)
         await asyncio.sleep(2)
+        
+        
+async def check_if_script_is_running():
+    """Check if the script is already running and kill it if so."""
+    if os.path.exists(os.path.join(get_app_directory(), "current_pid.txt")):
+        with open(os.path.join(get_app_directory(), "current_pid.txt"), "r") as f:
+            pid = int(f.read().strip())
+            if psutil.pid_exists(pid) and 'python' in psutil.Process(pid).name().lower():
+                logger.info(f"Script is already running with PID: {pid}")
+                psutil.Process(pid).terminate()  # Attempt to terminate the existing process
+                logger.info("Sent SIGTERM to the existing process.")
+                notification.send_error_notification(
+                    "Script was already running. Terminating the existing process.")
+                return True
+    return False
+    
+    
+async def log_current_pid():
+    """Log the current process ID."""
+    current_pid = os.getpid()
+    logger.info(f"Current process ID: {current_pid}")
+    with open(os.path.join(get_app_directory(), "current_pid.txt"), "w") as f:
+        f.write(str(current_pid))
 
 
 async def async_main(reloading=False):
@@ -638,6 +661,9 @@ async def async_main(reloading=False):
         run_new_thread(post_init2)
         run_new_thread(run_text_hooker_page)
         run_new_thread(async_loop)
+        
+        # await check_if_script_is_running()
+        # await log_current_pid()
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGTERM, handle_exit())  # Handle `kill` commands
