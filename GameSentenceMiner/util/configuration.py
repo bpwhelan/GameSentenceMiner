@@ -865,7 +865,7 @@ def load_config():
 
     if os.path.exists('config.json') and not os.path.exists(config_path):
         shutil.copy('config.json', config_path)
-
+        
     if os.path.exists(config_path):
         try:
             with open(config_path, 'r') as file:
@@ -880,20 +880,21 @@ def load_config():
                     config = ProfileConfig.from_dict(config_file)
                     new_config = Config(configs = {DEFAULT_CONFIG : config}, current_profile=DEFAULT_CONFIG)
 
-                    with open(config_path, 'w') as file:
-                        json.dump(new_config.to_dict(), file, indent=4)
+                    config.save()
                     return new_config
         except json.JSONDecodeError as e:
-            logger.error(f"Error parsing config.json: {e}")
-            return None
+            logger.error(f"Error parsing config.json, saving backup and returning new config: {e}")
+            shutil.copy(config_path, config_path + '.bak')
+            config = Config.new()
+            config.save()
+            return config
     elif os.path.exists('config.toml'):
         config = ProfileConfig().load_from_toml('config.toml')
         new_config = Config({DEFAULT_CONFIG: config}, current_profile=DEFAULT_CONFIG)
         return new_config
     else:
         config = Config.new()
-        with open(config_path, 'w') as file:
-            json.dump(config.to_dict(), file, indent=4)
+        config.save()
         return config
 
 

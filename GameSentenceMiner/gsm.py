@@ -9,6 +9,18 @@ import warnings
 os.environ.pop('TCL_LIBRARY', None)
 
 
+def handle_error_in_initialization(e):
+    """Handle errors that occur during initialization."""
+    logger.exception(e, exc_info=True)
+    logger.info(
+        "An error occurred during initialization, Maybe try updating GSM from the menu or if running manually, try installing `pip install --update GameSentenceMiner`")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Exiting due to initialization error.")
+        sys.exit(1)
+
 try:
     import os.path
     import signal
@@ -45,11 +57,7 @@ try:
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
-    logger.info(
-        "Something bad happened during import/initialization, closing in 5 seconds")
-    logger.exception(e)
-    time.sleep(5)
-    sys.exit(1)
+    handle_error_in_initialization(e)
 
 if is_windows():
     import win32api
@@ -688,11 +696,7 @@ async def async_main(reloading=False):
         except Exception as e:
             logger.error(f"Error stopping observer: {e}")
     except Exception as e:
-        logger.error(f"An error occurred during initialization: {e}", exc_info=True)
-        notification.send_error_notification(
-            "An error occurred during initialization. Check the log for details.")
-        asyncio.sleep(5)
-        raise e
+        handle_error_in_initialization(e)
 
 
 def main():
@@ -701,10 +705,8 @@ def main():
     try:
         asyncio.run(async_main())
     except Exception as e:
-        logger.exception(e, exc_info=True)
-        logger.info(
-            "An error occurred during initialization, closing in 5 seconds")
-        time.sleep(5)
+        handle_error_in_initialization(e)
+
 
 
 if __name__ == "__main__":
@@ -712,7 +714,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(async_main())
     except Exception as e:
-        logger.exception(e, exc_info=True)
-        logger.info(
-            "An error occurred during initialization, closing in 5 seconds")
-        time.sleep(5)
+        handle_error_in_initialization(e)
