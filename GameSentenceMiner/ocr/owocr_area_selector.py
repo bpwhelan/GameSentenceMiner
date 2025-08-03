@@ -34,7 +34,7 @@ class ScreenSelector:
     def __init__(self, result, window_name, use_window_as_config, use_obs_screenshot=False):
         if not selector_available:
             raise RuntimeError("tkinter is not available.")
-        if not window_name:
+        if not window_name and not use_obs_screenshot:
             raise ValueError("A target window name is required for configuration.")
 
         obs.connect_to_obs_sync()
@@ -185,7 +185,7 @@ class ScreenSelector:
                     monitor_index = rect_data["monitor"]['index']
                     target_monitor = next((m for m in self.monitors if m['index'] == monitor_index), None)
                     if target_monitor:
-                        self.rectangles.append((target_monitor, abs_coords, rect_data["is_excluded"]))
+                        self.rectangles.append((target_monitor, abs_coords, rect_data["is_excluded"], rect_data.get("is_secondary", False)))
                         loaded_count += 1
                 except (KeyError, ValueError, TypeError) as e:
                     print(f"Skipping malformed rectangle data: {rect_data}, Error: {e}")
@@ -204,7 +204,7 @@ class ScreenSelector:
         print(f"Saving rectangles to: {config_path} relative to window: {win_geom}")
 
         serializable_rects = []
-        for monitor_dict, abs_coords, is_excluded in self.rectangles:
+        for monitor_dict, abs_coords, is_excluded, is_secondary in self.rectangles:
             x_abs, y_abs, w_abs, h_abs = abs_coords
 
             # Convert absolute pixel coordinates to percentages
@@ -217,7 +217,8 @@ class ScreenSelector:
             serializable_rects.append({
                 "monitor": {'index': monitor_dict['index']},
                 "coordinates": coords_to_save,
-                "is_excluded": is_excluded
+                "is_excluded": is_excluded,
+                "is_secondary": is_secondary
             })
 
         save_data = {
@@ -254,13 +255,14 @@ class ScreenSelector:
 
     def redo_last_rect(self, event=None):
         if not self.redo_stack: return
-        monitor, abs_coords, is_excluded, old_rect_id = self.redo_stack.pop()
+        monitor, abs_coords, is_excluded, is_secondary, old_rect_id = self.redo_stack.pop()
         canvas = event.widget.winfo_toplevel().winfo_children()[0]
         x_abs, y_abs, w_abs, h_abs = abs_coords
         canvas_x, canvas_y = x_abs - self.bounding_box['left'], y_abs - self.bounding_box['top']
+        outline_color = 'purple' if is_secondary else ('orange' if is_excluded else 'green')
         new_rect_id = canvas.create_rectangle(canvas_x, canvas_y, canvas_x + w_abs, canvas_y + h_abs,
-                                              outline='orange' if is_excluded else 'green', width=2)
-        self.rectangles.append((monitor, abs_coords, is_excluded))
+                                              outline=outline_color, width=2)
+        self.rectangles.append((monitor, abs_coords, is_excluded, is_secondary))
         self.drawn_rect_ids.append(new_rect_id)
         print("Redo: Restored rectangle.")
 
@@ -291,6 +293,7 @@ class ScreenSelector:
             "How to Use:\n"
             "• Left Click + Drag: Create a capture area (green).\n"
             "• Shift + Left Click + Drag: Create an exclusion area (orange).\n"
+            "• Ctrl + Left Click + Drag: Create a secondary (menu) area (purple).\n"
             "• Right-Click on a box: Delete it."
         )
         tk.Label(main_frame, text=instructions_text, justify=tk.LEFT, anchor="w").pack(pady=(0, 10), fill=tk.X)
@@ -426,17 +429,25 @@ class ScreenSelector:
         # --- END MODIFICATION ---
 
         # Draw existing rectangles (which were converted to absolute pixels on load)
-        for _, abs_coords, is_excluded in self.rectangles:
+        for _, abs_coords, is_excluded, is_secondary in self.rectangles:
             x_abs, y_abs, w_abs, h_abs = abs_coords
             canvas_x = x_abs - self.bounding_box['left']
             canvas_y = y_abs - self.bounding_box['top']
+            outline_color = 'purple' if is_secondary else ('orange' if is_excluded else 'green')
             rect_id = self.canvas.create_rectangle(canvas_x, canvas_y, canvas_x + w_abs, canvas_y + h_abs,
-                                              outline='orange' if is_excluded else 'green', width=2)
+                                              outline=outline_color, width=2)
             self.drawn_rect_ids.append(rect_id)
 
         def on_click(event):
             self.start_x, self.start_y = event.x, event.y
-            outline = 'purple' if bool(event.state & 0x0001) else 'red'
+            ctrl_held = bool(event.state & 0x0004)
+            shift_held = bool(event.state & 0x0001)
+            if ctrl_held:
+                outline = 'purple'
+            elif shift_held:
+                outline = 'orange'
+            else:
+                outline = 'green'
             self.current_rect_id = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y,
                                                            outline=outline, width=2)
 
@@ -451,8 +462,12 @@ class ScreenSelector:
             w, h = int(abs(coords[2] - coords[0])), int(abs(coords[3] - coords[1]))
 
             if w >= MIN_RECT_WIDTH and h >= MIN_RECT_HEIGHT:
-                is_excl = bool(event.state & 0x0001)
-                self.canvas.itemconfig(self.current_rect_id, outline='orange' if is_excl else 'green')
+                ctrl_held = bool(event.state & 0x0004)
+                shift_held = bool(event.state & 0x0001)
+                is_excl = shift_held
+                is_secondary = ctrl_held
+                outline_color = 'purple' if is_secondary else ('orange' if is_excl else 'green')
+                self.canvas.itemconfig(self.current_rect_id, outline=outline_color)
 
                 center_x, center_y = x_abs + w / 2, y_abs + h / 2
                 target_mon = self.monitors[0]
@@ -462,7 +477,7 @@ class ScreenSelector:
                         target_mon = mon
                         break
 
-                self.rectangles.append((target_mon, (x_abs, y_abs, w, h), is_excl))
+                self.rectangles.append((target_mon, (x_abs, y_abs, w, h), is_excl, is_secondary))
                 self.drawn_rect_ids.append(self.current_rect_id)
                 self.redo_stack.clear()
             else:
@@ -472,7 +487,7 @@ class ScreenSelector:
         def on_right_click(event):
             # Iterate through our rectangles in reverse to find the topmost one.
             for i in range(len(self.rectangles) - 1, -1, -1):
-                _monitor, abs_coords, _is_excluded = self.rectangles[i]
+                _monitor, abs_coords, _is_excluded, _is_secondary = self.rectangles[i]
                 x_abs, y_abs, w_abs, h_abs = abs_coords
                 canvas_x1 = x_abs - self.bounding_box['left']
                 canvas_y1 = y_abs - self.bounding_box['top']
@@ -540,7 +555,7 @@ def run_screen_selector(result_dict, window_name, use_window_as_config, use_obs_
 
 def get_screen_selection(window_name, use_window_as_config=False, use_obs_screenshot=False):
     if not selector_available: return None
-    if not window_name:
+    if not window_name and not use_obs_screenshot:
         print("Error: A target window name must be provided.", file=sys.stderr)
         return None
 
@@ -567,7 +582,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Screen Selector Arguments")
     parser.add_argument("window_title", nargs="?", default="", help="Target window title")
-    parser.add_argument("--obs_ocr", action="store_true", help="Use OBS screenshot")
+    parser.add_argument("--obs_ocr", action="store_true", default=True, help="Use OBS screenshot")
     parser.add_argument("--use_window_for_config", action="store_true", help="Use window for config")
     args = parser.parse_args()
 

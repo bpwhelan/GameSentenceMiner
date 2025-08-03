@@ -33,6 +33,7 @@ class Rectangle:
     monitor: Monitor
     coordinates: List[Union[float, int]]
     is_excluded: bool
+    is_secondary: bool = False
 
 @dataclass_json
 @dataclass
@@ -41,7 +42,8 @@ class WindowGeometry:
     top: int
     width: int
     height: int
-
+    
+    
 @dataclass_json
 @dataclass
 class OCRConfig:

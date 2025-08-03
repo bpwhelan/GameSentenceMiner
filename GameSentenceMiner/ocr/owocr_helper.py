@@ -52,7 +52,6 @@ logger.addHandler(console_handler)
 def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
     """Loads and updates screen capture areas from the corresponding JSON file."""
     ocr_config_dir = get_ocr_config_path()
-    obs.connect_to_obs_sync(retry=0)
     obs.update_current_game()
     if use_window_for_config and window:
         scene = sanitize_filename(window)
@@ -202,7 +201,7 @@ def do_second_ocr(ocr1_text, time, img, filtering, pre_crop_image=None, ignore_f
     try:
         orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, filtering, None,
                                                         engine=get_ocr_ocr2(), furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
-
+        
         if compare_ocr_results(last_sent_result, text, threshold=80):
             if text:
                 logger.info("Seems like Text we already sent, not doing anything.")
@@ -447,6 +446,17 @@ def run_oneocr(ocr_config: OCRConfig, rectangles, config_check_thread):
 
 def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
     import keyboard
+
+    def ocr_secondary_rectangles():
+        logger.info("Running secondary OCR rectangles...")
+        ocr_config = get_ocr_config()
+        img = obs.get_screenshot_PIL(compression=80, img_format="jpg")
+        ocr_config.scale_to_custom_size(img.width, img.height)
+        img = run.apply_ocr_config_to_image(img, ocr_config, is_secondary=True)
+        do_second_ocr("", datetime.now(), img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
+        
+    if not manual:
+        keyboard.add_hotkey(get_ocr_manual_ocr_hotkey().lower(), ocr_secondary_rectangles)
     secret_ss_hotkey = "F14"
     filtering = TextFiltering(lang=get_ocr_language())
     cropper = ScreenCropper()
@@ -544,6 +554,8 @@ if __name__ == "__main__":
         use_window_for_config = args.use_window_for_config
         keep_newline = args.keep_newline
         obs_ocr = args.obs_ocr
+        
+        obs.connect_to_obs_sync(retry=0)
     
         # Start config change checker thread
         config_check_thread = ConfigChangeCheckThread()
