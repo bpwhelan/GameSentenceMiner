@@ -368,7 +368,7 @@ class Paths:
     folder_to_watch: str = expanduser("~/Videos/GSM")
     output_folder: str = expanduser("~/Videos/GSM/Output")
     copy_temp_files_to_output_folder: bool = False
-    open_output_folder_on_card_creation: bool = True
+    open_output_folder_on_card_creation: bool = False
     copy_trimmed_replay_to_output_folder: bool = False
     remove_video: bool = True
     remove_audio: bool = False
