@@ -366,16 +366,19 @@ class General:
 @dataclass
 class Paths:
     folder_to_watch: str = expanduser("~/Videos/GSM")
-    audio_destination: str = expanduser("~/Videos/GSM/Audio/")
-    screenshot_destination: str = expanduser("~/Videos/GSM/SS/")
+    output_folder: str = expanduser("~/Videos/GSM/Output")
+    copy_temp_files_to_output_folder: bool = False
+    open_output_folder_on_card_creation: bool = True
+    copy_trimmed_replay_to_output_folder: bool = False
     remove_video: bool = True
     remove_audio: bool = False
     remove_screenshot: bool = False
 
     def __post_init__(self):
-        self.folder_to_watch = os.path.normpath(self.folder_to_watch)
-        self.audio_destination = os.path.normpath(self.audio_destination)
-        self.screenshot_destination = os.path.normpath(self.screenshot_destination)
+        if self.folder_to_watch:
+            self.folder_to_watch = os.path.normpath(self.folder_to_watch)
+        if self.output_folder:
+            self.output_folder = os.path.normpath(self.output_folder)
 
 @dataclass_json
 @dataclass
@@ -469,7 +472,6 @@ class Audio:
 @dataclass_json
 @dataclass
 class OBS:
-    enabled: bool = True
     open_obs: bool = True
     close_obs: bool = True
     host: str = "127.0.0.1"
@@ -609,10 +611,6 @@ class ProfileConfig:
             config_data = toml.load(f)
 
         self.paths.folder_to_watch = expanduser(config_data['paths'].get('folder_to_watch', self.paths.folder_to_watch))
-        self.paths.audio_destination = expanduser(
-            config_data['paths'].get('audio_destination', self.paths.audio_destination))
-        self.paths.screenshot_destination = expanduser(config_data['paths'].get('screenshot_destination',
-                                                                                self.paths.screenshot_destination))
 
         self.anki.url = config_data['anki'].get('url', self.anki.url)
         self.anki.sentence_field = config_data['anki'].get('sentence_field', self.anki.sentence_field)
@@ -650,7 +648,6 @@ class ProfileConfig:
                                                                      self.vad.do_vad_postprocessing)
         self.vad.trim_beginning = config_data['audio'].get('vosk_trim_beginning', self.vad.trim_beginning)
 
-        self.obs.enabled = config_data['obs'].get('enabled', self.obs.enabled)
         self.obs.host = config_data['obs'].get('host', self.obs.host)
         self.obs.port = config_data['obs'].get('port', self.obs.port)
         self.obs.password = config_data['obs'].get('password', self.obs.password)
@@ -689,12 +686,19 @@ class Config:
     configs: Dict[str, ProfileConfig] = field(default_factory=dict)
     current_profile: str = DEFAULT_CONFIG
     switch_to_default_if_not_found: bool = True
-    locale: Locale = Locale.English.value
+    locale: str = Locale.English.value
 
     @classmethod
     def new(cls):
         instance = cls(configs={DEFAULT_CONFIG: ProfileConfig()}, current_profile=DEFAULT_CONFIG)
         return instance
+    
+    def get_locale(self) -> Locale:
+        try:
+            return Locale.from_any(self.locale)
+        except KeyError:
+            logger.warning(f"Locale '{self.locale}' not found. Defaulting to English.")
+            return Locale.English
 
     @classmethod
     def load(cls):

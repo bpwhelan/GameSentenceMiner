@@ -487,6 +487,12 @@ if get_config().advanced.plaintext_websocket_port:
 overlay_server_thread = WebsocketServerThread(read=False, get_ws_port_func=lambda : get_config().get_field_value('wip', 'overlay_websocket_port'))
 overlay_server_thread.start()
 
+websocket_server_threads = [
+    websocket_server_thread,
+    plaintext_websocket_server_thread,
+    overlay_server_thread
+]
+
 async def texthooker_page_coro():
     global websocket_server_thread, plaintext_websocket_server_thread, overlay_server_thread
     # Run the WebSocket server in the asyncio event loop

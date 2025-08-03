@@ -27,6 +27,14 @@ def make_unique_file_name(path):
     current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
     return str(path.parent / f"{path.stem}_{current_time}{path.suffix}")
 
+def make_unique(text):
+    """
+    Generate a unique string by appending a timestamp to the input text.
+    This is useful for creating unique filenames or identifiers.
+    """
+    current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
+    return f"{text}_{current_time}"
+
 def sanitize_filename(filename):
         return re.sub(r'[ <>:"/\\|?*\x00-\x1F]', '', filename)
 

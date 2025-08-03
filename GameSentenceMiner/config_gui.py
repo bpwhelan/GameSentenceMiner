@@ -143,7 +143,7 @@ class ConfigApp:
         self.current_row = 0
 
         self.master_config: Config = configuration.load_config()
-        self.i18n = load_localization(self.master_config.locale)
+        self.i18n = load_localization(self.master_config.get_locale())
         
         self.window.title(self.i18n.get('app', {}).get('title', 'GameSentenceMiner Configuration'))
 
@@ -212,7 +212,7 @@ class ConfigApp:
     
     def change_locale(self):
         """Change the locale of the application."""
-        if self.locale_value.get() == self.master_config.locale.name:
+        if self.locale_value.get() == self.master_config.get_locale().name:
             return
         self.i18n = load_localization(Locale[self.locale_value.get()])
         self.save_settings()
@@ -245,7 +245,6 @@ class ConfigApp:
         self.native_language_value = tk.StringVar(value=CommonLanguages.from_code(self.settings.general.native_language).name.replace('_', ' ').title())
 
         # OBS Settings
-        self.obs_enabled_value = tk.BooleanVar(value=self.settings.obs.enabled)
         self.obs_websocket_port_value = tk.StringVar(value=str(self.settings.obs.port))
         self.obs_host_value = tk.StringVar(value=self.settings.obs.host)
         self.obs_port_value = tk.StringVar(value=str(self.settings.obs.port))
@@ -257,8 +256,10 @@ class ConfigApp:
         
         # Paths Settings
         self.folder_to_watch_value = tk.StringVar(value=self.settings.paths.folder_to_watch)
-        self.audio_destination_value = tk.StringVar(value=self.settings.paths.audio_destination)
-        self.screenshot_destination_value = tk.StringVar(value=self.settings.paths.screenshot_destination)
+        self.output_folder_value = tk.StringVar(value=self.settings.paths.output_folder)
+        self.copy_temp_files_to_output_folder_value = tk.BooleanVar(value=self.settings.paths.copy_temp_files_to_output_folder)
+        self.open_output_folder_on_card_creation_value = tk.BooleanVar(value=self.settings.paths.open_output_folder_on_card_creation)
+        self.copy_trimmed_replay_to_output_folder_value = tk.BooleanVar(value=self.settings.paths.copy_trimmed_replay_to_output_folder)
         self.remove_video_value = tk.BooleanVar(value=self.settings.paths.remove_video)
         self.remove_audio_value = tk.BooleanVar(value=self.settings.paths.remove_audio)
         self.remove_screenshot_value = tk.BooleanVar(value=self.settings.paths.remove_screenshot)
@@ -357,7 +358,7 @@ class ConfigApp:
         
         # Master Config Settings
         self.switch_to_default_if_not_found_value = tk.BooleanVar(value=self.master_config.switch_to_default_if_not_found)
-        self.locale_value = tk.StringVar(value=self.master_config.locale.name)
+        self.locale_value = tk.StringVar(value=self.master_config.get_locale().name)
         
 
     def create_tabs(self):
@@ -469,11 +470,11 @@ class ConfigApp:
             ),
             paths=Paths(
                 folder_to_watch=self.folder_to_watch_value.get(),
-                audio_destination=self.audio_destination_value.get(),
-                screenshot_destination=self.screenshot_destination_value.get(),
+                output_folder=self.output_folder_value.get(),
+                open_output_folder_on_card_creation=self.open_output_folder_on_card_creation_value.get(),
                 remove_video=self.remove_video_value.get(),
-                remove_audio=self.remove_audio_value.get(),
-                remove_screenshot=self.remove_screenshot_value.get()
+                copy_temp_files_to_output_folder=self.copy_temp_files_to_output_folder_value.get(),
+                copy_trimmed_replay_to_output_folder=self.copy_trimmed_replay_to_output_folder_value.get()
             ),
             anki=Anki(
                 update_anki=self.update_anki_value.get(),
@@ -525,7 +526,6 @@ class ConfigApp:
                 pre_vad_end_offset=float(self.pre_vad_audio_offset_value.get()),
             ),
             obs=OBS(
-                enabled=self.obs_enabled_value.get(),
                 open_obs=self.obs_open_obs_value.get(),
                 close_obs=self.obs_close_obs_value.get(),
                 host=self.obs_host_value.get(),
@@ -593,15 +593,6 @@ class ConfigApp:
         dialog_i18n = self.i18n.get('dialogs', {}).get('config_error', {})
         error_title = dialog_i18n.get('title', 'Configuration Error')
 
-        if config.features.backfill_audio and config.features.full_auto:
-            messagebox.showerror(error_title,
-                                 dialog_i18n.get('full_auto_and_backfill', 'Cannot have Full Auto and Backfill...'))
-            return
-
-        if not config.general.use_websocket and not config.general.use_clipboard:
-            messagebox.showerror(error_title, dialog_i18n.get('no_input_method', 'Cannot have both...'))
-            return
-
         current_profile = self.profile_combobox.get()
         prev_config = self.master_config.get_config()
         self.master_config.switch_to_default_if_not_found = self.switch_to_default_if_not_found_value.get()
@@ -625,8 +616,7 @@ class ConfigApp:
         if sync_changes:
             self.master_config.sync_changed_fields(prev_config)
 
-        with open(get_config_path(), 'w') as file:
-            file.write(self.master_config.to_json(indent=4))
+        self.master_config.save()
 
         logger.info("Settings saved successfully!")
 
@@ -934,13 +924,6 @@ class ConfigApp:
             row=self.current_row, column=3, sticky='W', pady=2)
         self.current_row += 1
         
-        # obs_enabled_i18n = simple_i18n.get('obs_enabled', {})
-        # HoverInfoLabelWidget(feature_frame, text=obs_enabled_i18n.get('label', '...'),
-        #                      tooltip=obs_enabled_i18n.get('tooltip', '...'), row=self.current_row, column=0)
-        # ttk.Checkbutton(feature_frame, variable=self.obs_enabled_value, bootstyle="round-toggle").grid(
-        #     row=self.current_row, column=1, sticky='W', pady=2)
-        # self.current_row += 1
-        
         # screenshot_i18n = simple_i18n.get('screenshot_enabled', {})
         # HoverInfoLabelWidget(feature_frame, text=screenshot_i18n.get('label', '...'),
         #                      tooltip=screenshot_i18n.get('tooltip', '...'), row=self.current_row, column=0)
@@ -1094,46 +1077,61 @@ class ConfigApp:
         ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(folder_watch_entry),
                    bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
         self.current_row += 1
+        
+        # Combine "Copy temp files to output folder" and "Output folder" on one row
+        copy_to_output_i18n = paths_i18n.get('copy_temp_files_to_output_folder', {})
+        combined_i18n = paths_i18n.get('output_folder', {})
+        
+        # Output folder and "Copy temp files to output folder" on one row
+        HoverInfoLabelWidget(paths_frame, text=combined_i18n.get('label', '...'),
+                     tooltip=combined_i18n.get('tooltip', '...'), foreground="dark orange",
+                     font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
+        output_folder_entry = ttk.Entry(paths_frame, width=30, textvariable=self.output_folder_value)
+        output_folder_entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(output_folder_entry),
+               bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
 
-        audio_dest_i18n = paths_i18n.get('audio_destination', {})
-        HoverInfoLabelWidget(paths_frame, text=audio_dest_i18n.get('label', '...'), tooltip=audio_dest_i18n.get('tooltip', '...'),
-                             foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        audio_dest_entry = ttk.Entry(paths_frame, width=50, textvariable=self.audio_destination_value)
-        audio_dest_entry.grid(row=self.current_row, column=1, sticky='W', pady=2)
-        ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(audio_dest_entry),
-                   bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
+        HoverInfoLabelWidget(paths_frame, text=copy_to_output_i18n.get('label', '...'),
+                     tooltip=copy_to_output_i18n.get('tooltip', '...'), row=self.current_row, column=3)
+        ttk.Checkbutton(paths_frame, variable=self.copy_temp_files_to_output_folder_value, bootstyle="round-toggle").grid(
+            row=self.current_row, column=4, sticky='W', pady=2)
         self.current_row += 1
-
-        ss_dest_i18n = paths_i18n.get('screenshot_destination', {})
-        HoverInfoLabelWidget(paths_frame, text=ss_dest_i18n.get('label', '...'),
-                             tooltip=ss_dest_i18n.get('tooltip', '...'), foreground="dark orange",
-                             font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        ss_dest_entry = ttk.Entry(paths_frame, width=50, textvariable=self.screenshot_destination_value)
-        ss_dest_entry.grid(row=self.current_row, column=1, sticky='W', pady=2)
-        ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(ss_dest_entry),
-                   bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
-        self.current_row += 1
-
-        rm_vid_i18n = paths_i18n.get('remove_video', {})
-        HoverInfoLabelWidget(paths_frame, text=rm_vid_i18n.get('label', '...'), tooltip=rm_vid_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Checkbutton(paths_frame, variable=self.remove_video_value, bootstyle="round-toggle").grid(row=self.current_row,
-                                                                                                column=1, sticky='W', pady=2)
-        self.current_row += 1
-
-        rm_audio_i18n = paths_i18n.get('remove_audio', {})
-        HoverInfoLabelWidget(paths_frame, text=rm_audio_i18n.get('label', '...'), tooltip=rm_audio_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Checkbutton(paths_frame, variable=self.remove_audio_value, bootstyle="round-toggle").grid(row=self.current_row,
-                                                                                                column=1, sticky='W', pady=2)
-        self.current_row += 1
-
-        rm_ss_i18n = paths_i18n.get('remove_screenshot', {})
-        HoverInfoLabelWidget(paths_frame, text=rm_ss_i18n.get('label', '...'), tooltip=rm_ss_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Checkbutton(paths_frame, variable=self.remove_screenshot_value, bootstyle="round-toggle").grid(
+        
+        
+        copy_to_output_i18n = paths_i18n.get('copy_trimmed_replay_to_output_folder', {})
+        HoverInfoLabelWidget(paths_frame, text=copy_to_output_i18n.get('label', '...'),
+                             tooltip=copy_to_output_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        ttk.Checkbutton(paths_frame, variable=self.copy_trimmed_replay_to_output_folder_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
+
+        open_output_folder_i18n = paths_i18n.get('open_output_folder_on_card_creation', {})
+        HoverInfoLabelWidget(paths_frame, text=open_output_folder_i18n.get('label', '...'),
+                             tooltip=open_output_folder_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        ttk.Checkbutton(paths_frame, variable=self.open_output_folder_on_card_creation_value, bootstyle="round-toggle").grid(row=self.current_row,
+                                                                                                column=1, sticky='W', pady=2)
+        self.current_row += 1
+        
+        rm_video_i18n = paths_i18n.get('remove_video', {})
+        HoverInfoLabelWidget(paths_frame, text=rm_video_i18n.get('label', '...'), tooltip=rm_video_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Checkbutton(paths_frame, variable=self.remove_video_value, bootstyle="round-toggle").grid(row=self.current_row,
+                                                                                         column=1, sticky='W', pady=2)
+        self.current_row += 1
+
+        # rm_audio_i18n = paths_i18n.get('remove_audio', {})
+        # HoverInfoLabelWidget(paths_frame, text=rm_audio_i18n.get('label', '...'), tooltip=rm_audio_i18n.get('tooltip', '...'),
+        #                      row=self.current_row, column=0)
+        # ttk.Checkbutton(paths_frame, variable=self.remove_audio_value, bootstyle="round-toggle").grid(row=self.current_row,
+        #                                                                                         column=1, sticky='W', pady=2)
+        # self.current_row += 1
+
+        # rm_ss_i18n = paths_i18n.get('remove_screenshot', {})
+        # HoverInfoLabelWidget(paths_frame, text=rm_ss_i18n.get('label', '...'), tooltip=rm_ss_i18n.get('tooltip', '...'),
+        #                      row=self.current_row, column=0)
+        # ttk.Checkbutton(paths_frame, variable=self.remove_screenshot_value, bootstyle="round-toggle").grid(
+        #     row=self.current_row, column=1, sticky='W', pady=2)
+        # self.current_row += 1
 
         self.add_reset_button(paths_frame, "paths", self.current_row, 0, self.create_paths_tab)
 
@@ -1333,13 +1331,6 @@ class ConfigApp:
                              row=self.current_row, column=0)
         ttk.Checkbutton(features_frame, variable=self.backfill_audio_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
-        self.current_row += 1
-
-        full_auto_i18n = features_i18n.get('full_auto', {})
-        HoverInfoLabelWidget(features_frame, text=full_auto_i18n.get('label', '...'), tooltip=full_auto_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Checkbutton(features_frame, variable=self.full_auto_value, bootstyle="round-toggle").grid(row=self.current_row,
-                                                                                                column=1, sticky='W', pady=2)
         self.current_row += 1
 
         self.add_reset_button(features_frame, "features", self.current_row, 0, self.create_features_tab)
@@ -1606,13 +1597,6 @@ class ConfigApp:
 
         obs_frame = self.obs_tab
         obs_i18n = self.i18n.get('tabs', {}).get('obs', {})
-
-        enabled_i18n = obs_i18n.get('enabled', {})
-        HoverInfoLabelWidget(obs_frame, text=enabled_i18n.get('label', '...'), tooltip=enabled_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Checkbutton(obs_frame, variable=self.obs_enabled_value, bootstyle="round-toggle").grid(row=self.current_row,
-                                                                                             column=1, sticky='W', pady=2)
-        self.current_row += 1
 
         open_i18n = obs_i18n.get('open_obs', {})
         HoverInfoLabelWidget(obs_frame, text=open_i18n.get('label', '...'), tooltip=open_i18n.get('tooltip', '...'), row=self.current_row,

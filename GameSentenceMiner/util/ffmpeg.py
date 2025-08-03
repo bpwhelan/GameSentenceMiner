@@ -82,7 +82,7 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
         else:
             logger.error("Frame extractor script failed to run or returned no output, defaulting")
     output_image = make_unique_file_name(os.path.join(
-        get_config().paths.screenshot_destination, f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
+        get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
     # FFmpeg command to extract the last frame of the video
     ffmpeg_command = ffmpeg_base_command_list + [
         "-ss", f"{screenshot_timing}",
@@ -114,7 +114,7 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
     except Exception as e:
         logger.error(f"Error running FFmpeg command: {e}. Defaulting to standard PNG.")
         output_image = make_unique_file_name(os.path.join(
-            get_config().paths.screenshot_destination,
+            get_temporary_directory(),
             f"{obs.get_current_game(sanitize=True)}.png"))
         ffmpeg_command = ffmpeg_base_command_list + [
             "-ss", f"{screenshot_timing}",  # Default to 1 second
@@ -192,7 +192,7 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_resu
 
 def process_image(image_file):
     output_image = make_unique_file_name(
-        os.path.join(get_config().paths.screenshot_destination, f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
+        os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
 
     # FFmpeg command to process the input image
     ffmpeg_command = ffmpeg_base_command_list + [
@@ -222,7 +222,7 @@ def process_image(image_file):
                 break
     except Exception as e:
         logger.error(f"Error re-encoding screenshot: {e}. Defaulting to standard PNG.")
-        output_image = make_unique_file_name(os.path.join(get_config().paths.screenshot_destination, f"{obs.get_current_game(sanitize=True)}.png"))
+        output_image = make_unique_file_name(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.png")
         shutil.move(image_file, output_image)
 
     logger.info(f"Processed image saved to: {output_image}")
@@ -334,9 +334,10 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
         logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds with end time {end_trim_time}")
     else:
         logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds")
-
+        
+    
     logger.debug(f"Audio trimmed and saved to {trimmed_audio}")
-    return trimmed_audio
+    return trimmed_audio, start_trim_time, end_trim_time
 
 def get_video_timings(video_path, game_line, anki_card_creation_time=None):
     if anki_card_creation_time:
@@ -500,6 +501,58 @@ def combine_audio_files(audio_files, output_file):
     logger.debug("Combining audio files with command: " + " ".join(command))
 
     subprocess.run(command)
+    
+    
+def trim_replay_for_gameline(video_path, start_time, end_time, accurate=False):
+    """
+    Trims the video replay based on the start and end times.
+
+    Offers two modes:
+    1. Fast (default): Uses stream copy. Very fast, no quality loss, but may not be
+       frame-accurate (cut starts at the keyframe before start_time).
+    2. Accurate: Re-encodes the video. Slower, but provides frame-perfect cuts.
+
+    :param video_path: Path to the video file.
+    :param start_time: Start time in seconds.
+    :param end_time: End time in seconds.
+    :param accurate: If True, re-encodes for frame-perfect trimming. Defaults to False.
+    :return: Path to the trimmed video file.
+    """
+    output_name = f"trimmed_{Path(video_path).stem}.mp4"
+    trimmed_video = make_unique_file_name(
+        os.path.join(configuration.get_temporary_directory(), output_name))
+    
+    # We use input seeking for accuracy, as it's faster when re-encoding.
+    # We place -ss before -i for fast seeking.
+    command = ffmpeg_base_command_list + [
+        "-ss", str(start_time),
+        "-i", video_path,
+    ]
+    
+    # The duration is now more reliable to calculate
+    duration = end_time - start_time
+    if duration > 0:
+        command.extend(["-t", str(duration)])
+
+    if accurate:
+        # Re-encode. Slower but frame-accurate.
+        # You can specify encoding parameters here if needed, e.g., -crf 23
+        command.extend(["-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac"])
+        log_msg = f"Accurately trimming video (re-encoding) {video_path}"
+    else:
+        # Stream copy. Fast but not frame-accurate.
+        command.extend(["-c:v", "copy", "-c:a", "copy"])
+        log_msg = f"Fast trimming video (stream copy) {video_path}"
+
+    command.append(trimmed_video)
+
+    video_length = get_video_duration(video_path)
+    logger.info(f"{log_msg} of length {video_length} from {start_time} to {end_time} seconds.")
+    logger.debug(" ".join(command))
+    
+    subprocess.run(command)
+    
+    return trimmed_video
 
 
 def is_video_big_enough(file_path, min_size_kb=250):

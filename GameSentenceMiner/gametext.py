@@ -149,10 +149,9 @@ async def handle_new_text_event(current_clipboard, line_time=None):
     global current_line, current_line_time, current_line_after_regex, timer, current_sequence_start_time, last_raw_clipboard
     obs.update_current_game()
     current_line = current_clipboard
-    logger.info(f"Current Line: {current_line} last raw clipboard: {last_raw_clipboard}")
     # Only apply this logic if merging is enabled
     if get_config().general.merge_matching_sequential_text:
-        logger.info(f"Handling new text event: {current_line}")
+        logger.info(f"Current Line: {current_line} last raw clipboard: {last_raw_clipboard}")
         # If no timer is active, this is the start of a new sequence
         if not timer:
             logger.info("Starting a new sequence of text lines.")

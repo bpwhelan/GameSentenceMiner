@@ -116,28 +116,36 @@
         "paths": {
           "title": "Paths",
           "folder_to_watch": {
-            "label": "Folder to Watch:",
-            "tooltip": "Path where the OBS Replays will be saved."
+            "label": "OBS Replay Path:",
+            "tooltip": "Path where the OBS Replays will be saved. This should be configured for you."
           },
-          "audio_destination": {
-            "label": "Audio Destination:",
-            "tooltip": "Path where the cut Audio will be saved."
+          "output_folder": {
+            "label": "Output Mirror Folder:",
+            "tooltip": "Path where all exported files (screenshots, audio, etc.) will be saved in addition to Anki. Useful for accessing files outside of Anki. (Optional)"
           },
-          "screenshot_destination": {
-            "label": "Screenshot Destination:",
-            "tooltip": "Path where the Screenshot will be saved."
+          "copy_temp_files_to_output_folder": {
+            "label": "Enabled:",
+            "tooltip": "Whether to copy temporary files to the output folder."
+          },
+          "open_output_folder_on_card_creation": {
+            "label": "Open Output Folder on Card Creation:",
+            "tooltip": "Open the output folder when a card is created. Useful for quick access to files."
+          },
+          "copy_trimmed_replay_to_output_folder": {
+            "label": "Copy Trimmed Replay to Output Folder:",
+            "tooltip": "Copy a loosely trimmed replay to the output folder."
           },
           "remove_video": {
-            "label": "Remove Video:",
-            "tooltip": "Remove video from the output."
+            "label": "Remove Replay:",
+            "tooltip": "Remove replay from the OBS output folder."
           },
           "remove_audio": {
-            "label": "Remove Audio:",
-            "tooltip": "Remove audio from the output."
+            "label": "Remove Audio from Folder:",
+            "tooltip": "Remove audio from the output. This does not affect Anki, only the audio destination folder."
           },
           "remove_screenshot": {
-            "label": "Remove Screenshot:",
-            "tooltip": "Remove screenshots after processing."
+            "label": "Remove Screenshot from Folder:",
+            "tooltip": "Remove screenshots from the screenshot destination folder. This does not affect Anki, only the screenshot destination folder."
           }
         },
         "anki": {

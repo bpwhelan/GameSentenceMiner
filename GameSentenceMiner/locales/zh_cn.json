@@ -119,13 +119,21 @@
             "label": "监视文件夹:",
             "tooltip": "OBS 录像回放的保存路径。"
           },
-          "audio_destination": {
-            "label": "音频保存位置:",
-            "tooltip": "剪切后音频的保存路径。"
+          "output_folder": {
+            "label": "输出文件夹:",
+            "tooltip": "截图和音频文件以及其他相关文件的保存路径。如果不使用 Anki，这将非常有用。 (可选)"
           },
-          "screenshot_destination": {
-            "label": "截图保存位置:",
-            "tooltip": "截图的保存路径。"
+          "copy_temp_files_to_output_folder": {
+            "label": "启用:",
+            "tooltip": "将临时文件（如截图和音频）复制到输出文件夹。"
+          },
+          "open_output_folder_on_card_creation": {
+            "label": "卡片创建时打开输出文件夹:",
+            "tooltip": "在创建卡片时打开输出文件夹。便于快速访问文件。"
+          },
+          "copy_trimmed_replay_to_output_folder": {
+            "label": "复制修剪后的回放到输出文件夹:",
+            "tooltip": "将修剪后的回放复制到输出文件夹。便于快速访问修剪后的回放。"
           },
           "remove_video": {
             "label": "删除视频:",

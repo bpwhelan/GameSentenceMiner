@@ -118,13 +118,21 @@
             "label": "監視フォルダ:",
             "tooltip": "OBSリプレイが保存されるパス。"
           },
-          "audio_destination": {
-            "label": "音声保存先:",
-            "tooltip": "切り出した音声の保存先パス。"
+          "output_folder": {
+            "label": "アウトプットフォルダ:",
+            "tooltip": "スクリーンショットと音声ファイル、その他関連ファイルの保存先パス。Ankiを使用しない場合に便利です。 (オプション)"
           },
-          "screenshot_destination": {
-            "label": "画像保存先:",
-            "tooltip": "スクリーンショットの保存先パス。"
+          "open_output_folder_on_card_creation": {
+            "label": "カード作成時にアウトプットフォルダを開く:",
+            "tooltip": "カードが作成されたときにアウトプットフォルダを開きます。ファイルへの迅速なアクセスに便利です。"
+          },
+          "copy_temp_files_to_output_folder": {
+            "label": "有効:",
+            "tooltip": "一時的なファイルをアウトプットフォルダにコピーします。Anki以外のツールでの使用に便利です。"
+          },
+          "copy_trimmed_replay_to_output_folder": {
+            "label": "トリミングされたリプレイをアウトプットフォルダにコピー:",
+            "tooltip": "トリミングされたリプレイをアウトプットフォルダにコピーします。トリミングされたリプレイへの迅速なアクセスに便利です。"
           },
           "remove_video": {
             "label": "動画を削除:",

@@ -139,9 +139,6 @@ def get_obs_websocket_config_values():
 
 async def connect_to_obs(retry=5):
     global client, obs_connection_manager, event_client, connecting
-    if not get_config().obs.enabled:
-        return
-
     if is_windows():
         get_obs_websocket_config_values()
 
@@ -181,9 +178,6 @@ async def connect_to_obs(retry=5):
 
 def connect_to_obs_sync(retry=2):
     global client, obs_connection_manager, event_client
-    if not get_config().obs.enabled or client:
-        return
-
     if is_windows():
         get_obs_websocket_config_values()
 
