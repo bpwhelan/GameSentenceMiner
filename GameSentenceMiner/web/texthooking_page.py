@@ -52,6 +52,7 @@ class EventItem:
             'history': self.history,
         }
 
+
 class EventManager:
     events: list[EventItem]
     events_dict: dict[str, EventItem] = {}
@@ -87,7 +88,8 @@ class EventManager:
             event_id, line_id, text, timestamp = row
             timestamp = datetime.datetime.fromisoformat(timestamp)
             line = GameLine(line_id, text, timestamp, None, None, 0)
-            event = EventItem(line, event_id, text, timestamp, False, timestamp < initial_time)
+            event = EventItem(line, event_id, text, timestamp,
+                              False, timestamp < initial_time)
             self.events.append(event)
             self.ids.append(event_id)
             self.events_dict[event_id] = event
@@ -99,7 +101,8 @@ class EventManager:
         self.events = new_events
 
     def add_gameline(self, line: GameLine):
-        new_event = EventItem(line, line.id, line.text, line.time, False, False)
+        new_event = EventItem(line, line.id, line.text,
+                              line.time, False, False)
         self.events_dict[line.id] = new_event
         self.ids.append(line.id)
         self.events.append(new_event)
@@ -130,12 +133,16 @@ class EventManager:
             self.conn.close()
 
     def clear_history(self):
-        self.cursor.execute("DELETE FROM events WHERE time < ?", (initial_time.isoformat(),))
+        self.cursor.execute("DELETE FROM events WHERE time < ?",
+                            (initial_time.isoformat(),))
         logger.info(f"Cleared history before {initial_time.isoformat()}")
         self.conn.commit()
         # Clear the in-memory events as well
-        event_manager.events = [event for event in event_manager if not event.history]
-        event_manager.events_dict = {event.id: event for event in event_manager.events}
+        event_manager.events = [
+            event for event in event_manager if not event.history]
+        event_manager.events_dict = {
+            event.id: event for event in event_manager.events}
+
 
 class EventProcessor(threading.Thread):
     def __init__(self, event_queue, db_path):
@@ -173,6 +180,7 @@ class EventProcessor(threading.Thread):
         if self.conn:
             self.conn.close()
 
+
 event_manager = EventManager()
 event_queue = queue.Queue()
 
@@ -185,6 +193,8 @@ server_start_time = datetime.datetime.now().timestamp()
 app = flask.Flask(__name__)
 
 # Load data from the JSON file
+
+
 def load_data_from_file():
     if os.path.exists(TEXT_REPLACEMENTS_FILE):
         with open(TEXT_REPLACEMENTS_FILE, 'r', encoding='utf-8') as file:
@@ -192,9 +202,12 @@ def load_data_from_file():
     return {"enabled": True, "args": {"replacements": {}}}
 
 # Save data to the JSON file
+
+
 def save_data_to_file(data):
     with open(TEXT_REPLACEMENTS_FILE, 'w', encoding='utf-8') as file:
         json.dump(data, file, indent=4, ensure_ascii=False)
+
 
 @app.route('/load-data', methods=['GET'])
 def load_data():
@@ -203,6 +216,7 @@ def load_data():
         return jsonify(data), 200
     except Exception as e:
         return jsonify({"error": f"Failed to load data: {str(e)}"}), 500
+
 
 @app.route('/save-data', methods=['POST'])
 def save_data():
@@ -217,39 +231,48 @@ def save_data():
     except Exception as e:
         return jsonify({"error": f"Failed to save data: {str(e)}"}), 500
 
+
 def inject_server_start_time(html_content, timestamp):
     placeholder = '<script>'
     replacement = f'<script>const serverStartTime = {timestamp};'
     return html_content.replace(placeholder, replacement)
+
 
 @app.route('/favicon.ico')
 def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static'),
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
+
 @app.route('/<path:filename>')
 def serve_static(filename):
     return send_from_directory('pages', filename)
+
 
 @app.route('/')
 def index():
     return send_from_directory('templates', 'index.html')
 
+
 @app.route('/texthooker')
 def texthooker():
     return send_from_directory('templates', 'index.html')
+
 
 @app.route('/textreplacements')
 def textreplacements():
     return flask.render_template('text_replacements.html')
 
+
 @app.route('/data', methods=['GET'])
 def get_data():
     return jsonify([event.to_dict() for event in event_manager])
 
+
 @app.route('/get_ids', methods=['GET'])
 def get_ids():
     return jsonify(event_manager.get_ids())
+
 
 @app.route('/clear_history', methods=['POST'])
 def clear_history():
@@ -268,8 +291,8 @@ async def add_event_to_texthooker(line: GameLine):
     })
     if get_config().advanced.plaintext_websocket_port:
         await plaintext_websocket_server_thread.send_text(line.text)
-        
-        
+
+
 async def send_word_coordinates_to_overlay(boxes):
     if boxes and len(boxes) > 0 and overlay_server_thread:
         await overlay_server_thread.send_text(boxes)
@@ -286,6 +309,7 @@ def update_event():
     event_manager.get(event_id).checked = not event.checked
     return jsonify({'message': 'Event updated successfully'}), 200
 
+
 @app.route('/get-screenshot', methods=['Post'])
 def get_screenshot():
     """Endpoint to get a screenshot of the current game screen."""
@@ -294,11 +318,12 @@ def get_screenshot():
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
     gsm_state.line_for_screenshot = get_line_by_id(event_id)
-    if gsm_state.previous_line_for_screenshot and gsm_state.line_for_screenshot.id == gsm_state.previous_line_for_screenshot.id or gsm_state.previous_line_for_audio:
+    if gsm_state.previous_line_for_screenshot and gsm_state.line_for_screenshot == gsm_state.previous_line_for_screenshot or gsm_state.previous_line_for_audio and gsm_state.line_for_screenshot == gsm_state.previous_line_for_audio:
         handle_texthooker_button(gsm_state.previous_replay)
     else:
         obs.save_replay_buffer()
     return jsonify({}), 200
+
 
 @app.route('/play-audio', methods=['POST'])
 def play_audio():
@@ -307,12 +332,15 @@ def play_audio():
     event_id = data.get('id')
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
+    print(f"Playing audio for event ID: {event_id}")
     gsm_state.line_for_audio = get_line_by_id(event_id)
-    if gsm_state.previous_line_for_audio and gsm_state.line_for_audio == gsm_state.previous_line_for_audio or gsm_state.previous_line_for_screenshot:
+    print(f"gsm_state.line_for_audio: {gsm_state.line_for_audio}")
+    if gsm_state.previous_line_for_audio and gsm_state.line_for_audio == gsm_state.previous_line_for_audio or gsm_state.previous_line_for_screenshot and gsm_state.line_for_audio == gsm_state.previous_line_for_screenshot:
         handle_texthooker_button(gsm_state.previous_replay)
     else:
         obs.save_replay_buffer()
     return jsonify({}), 200
+
 
 @app.route("/translate-line", methods=['POST'])
 def translate_line():
@@ -362,8 +390,10 @@ def get_status():
 def get_selected_lines():
     return [item.line for item in event_manager if item.checked]
 
+
 def are_lines_selected():
     return any(item.checked for item in event_manager)
+
 
 def reset_checked_lines():
     async def send_reset_message():
@@ -373,8 +403,10 @@ def reset_checked_lines():
     event_manager.reset_checked_lines()
     asyncio.run(send_reset_message())
 
+
 def open_texthooker():
     webbrowser.open(url + '/texthooker')
+
 
 def start_web_server():
     logger.debug("Starting web server...")
@@ -386,7 +418,8 @@ def start_web_server():
     if get_config().general.open_multimine_on_startup:
         open_texthooker()
 
-    app.run(host='0.0.0.0', port=port, debug=False) # debug=True provides helpful error messages during development
+    # debug=True provides helpful error messages during development
+    app.run(host='0.0.0.0', port=port, debug=False)
 
 
 websocket_queue = queue.Queue()
@@ -445,7 +478,7 @@ class WebsocketServerThread(threading.Thread):
                 text = json.dumps(text)
             return asyncio.run_coroutine_threadsafe(
                 self.send_text_coroutine(text), self.loop)
-            
+
     def has_clients(self):
         return len(self.clients) > 0
 
@@ -467,24 +500,30 @@ class WebsocketServerThread(threading.Thread):
                         await stop_event.wait()
                     return
                 except Exception as e:
-                    logger.warning(f"WebSocket server encountered an error: {e}. Retrying...")
+                    logger.warning(
+                        f"WebSocket server encountered an error: {e}. Retrying...")
                     await asyncio.sleep(1)
 
         asyncio.run(main())
+
 
 def handle_exit_signal(loop):
     logger.info("Received exit signal. Shutting down...")
     for task in asyncio.all_tasks(loop):
         task.cancel()
-        
-websocket_server_thread = WebsocketServerThread(read=True, get_ws_port_func=lambda : get_config().get_field_value('advanced', 'texthooker_communication_websocket_port'))
+
+
+websocket_server_thread = WebsocketServerThread(read=True, get_ws_port_func=lambda: get_config(
+).get_field_value('advanced', 'texthooker_communication_websocket_port'))
 websocket_server_thread.start()
 
 if get_config().advanced.plaintext_websocket_port:
-    plaintext_websocket_server_thread = WebsocketServerThread(read=False, get_ws_port_func=lambda : get_config().get_field_value('advanced', 'plaintext_websocket_port'))
+    plaintext_websocket_server_thread = WebsocketServerThread(
+        read=False, get_ws_port_func=lambda: get_config().get_field_value('advanced', 'plaintext_websocket_port'))
     plaintext_websocket_server_thread.start()
-    
-overlay_server_thread = WebsocketServerThread(read=False, get_ws_port_func=lambda : get_config().get_field_value('wip', 'overlay_websocket_port'))
+
+overlay_server_thread = WebsocketServerThread(
+    read=False, get_ws_port_func=lambda: get_config().get_field_value('wip', 'overlay_websocket_port'))
 overlay_server_thread.start()
 
 websocket_server_threads = [
@@ -492,6 +531,7 @@ websocket_server_threads = [
     plaintext_websocket_server_thread,
     overlay_server_thread
 ]
+
 
 async def texthooker_page_coro():
     global websocket_server_thread, plaintext_websocket_server_thread, overlay_server_thread
@@ -502,11 +542,13 @@ async def texthooker_page_coro():
 
     # Keep the main asyncio event loop running (for the WebSocket server)
 
+
 def run_text_hooker_page():
     try:
         asyncio.run(texthooker_page_coro())
     except KeyboardInterrupt:
         logger.info("Shutting down due to KeyboardInterrupt.")
+
 
 if __name__ == '__main__':
     asyncio.run(texthooker_page_coro())

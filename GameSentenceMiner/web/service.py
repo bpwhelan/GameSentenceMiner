@@ -11,7 +11,12 @@ from GameSentenceMiner.util.ffmpeg import get_video_timings
 from GameSentenceMiner.util.text_log import GameLine
 
 
-def handle_texthooker_button(video_path='', get_audio_from_video=None):
+def set_get_audio_from_video_callback(func):
+    global get_audio_from_video
+    get_audio_from_video = func
+
+
+def handle_texthooker_button(video_path=''):
     try:
         if gsm_state.line_for_audio:
             line: GameLine = gsm_state.line_for_audio

@@ -53,7 +53,7 @@ try:
     from GameSentenceMiner.util.text_log import GameLine, get_text_event, get_mined_line, get_all_lines, game_log
     from GameSentenceMiner.util import *
     from GameSentenceMiner.web import texthooking_page
-    from GameSentenceMiner.web.service import handle_texthooker_button
+    from GameSentenceMiner.web.service import handle_texthooker_button, set_get_audio_from_video_callback
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
@@ -91,10 +91,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
         selected_lines = []
         anki_card_creation_time = None
         mined_line = None
-        gsm_state.previous_replay = video_path
         if gsm_state.line_for_audio or gsm_state.line_for_screenshot:
-            handle_texthooker_button(
-                video_path, get_audio_from_video=VideoToAudioHandler.get_audio)
+            handle_texthooker_button(video_path)
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:
@@ -201,16 +199,14 @@ class VideoToAudioHandler(FileSystemEventHandler):
             logger.debug(
                 f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
             notification.send_error_no_anki_update()
-        finally:
-            if get_config().paths.remove_video and video_path and not skip_delete:
-                try:
-                    if os.path.exists(video_path):
-                        logger.debug(f"Removing video: {video_path}")
-                        os.remove(video_path)
-                except Exception as e:
-                    logger.error(
-                        f"Error removing video file {video_path}: {e}", exc_info=True)
-            pass
+        if get_config().paths.remove_video and video_path and not skip_delete:
+            try:
+                if os.path.exists(video_path):
+                    logger.debug(f"Removing video: {video_path}")
+                    os.remove(video_path)
+            except Exception as e:
+                logger.error(
+                    f"Error removing video file {video_path}: {e}", exc_info=True)
 
     @staticmethod
     def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None):
@@ -525,6 +521,7 @@ def handle_exit():
 def initialize(reloading=False):
     global obs_process
     if not reloading:
+        get_temporary_directory(delete=True)
         if is_windows():
             download_obs_if_needed()
             download_ffmpeg_if_needed()
@@ -538,6 +535,7 @@ def initialize(reloading=False):
         # gametext.start_text_monitor()
         os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
         os.makedirs(get_config().paths.output_folder, exist_ok=True)
+        set_get_audio_from_video_callback(VideoToAudioHandler.get_audio)
     initial_checks()
     register_websocket_message_handler(handle_websocket_message)
     # if get_config().vad.do_vad_postprocessing:

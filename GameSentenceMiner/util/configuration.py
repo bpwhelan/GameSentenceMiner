@@ -843,7 +843,7 @@ def get_log_path():
 
 temp_directory = ''
 
-def get_temporary_directory(delete=True):
+def get_temporary_directory(delete=False):
     global temp_directory
     if not temp_directory:
         temp_directory = os.path.join(get_app_directory(), 'temp')

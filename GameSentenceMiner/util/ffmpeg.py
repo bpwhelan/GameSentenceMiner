@@ -117,7 +117,7 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
             get_temporary_directory(),
             f"{obs.get_current_game(sanitize=True)}.png"))
         ffmpeg_command = ffmpeg_base_command_list + [
-            "-ss", f"{screenshot_timing}",  # Default to 1 second
+            "-ss", f"{screenshot_timing}",
             "-i", video_file,
             "-vframes", "1",
             output_image
@@ -222,7 +222,7 @@ def process_image(image_file):
                 break
     except Exception as e:
         logger.error(f"Error re-encoding screenshot: {e}. Defaulting to standard PNG.")
-        output_image = make_unique_file_name(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.png")
+        output_image = make_unique_file_name(os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.png"))
         shutil.move(image_file, output_image)
 
     logger.info(f"Processed image saved to: {output_image}")
@@ -303,21 +303,21 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
                                                 suffix=f".{get_config().audio.extension}").name
     start_trim_time, total_seconds, total_seconds_after_offset, file_length = get_video_timings(video_path, game_line, anki_card_creation_time)
     end_trim_time = 0
+    end_trim_seconds = 0
 
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
         "-ss", str(start_trim_time)]
     if next_line and next_line > game_line.time:
-        end_total_seconds = total_seconds + (next_line - game_line.time).total_seconds() + get_config().audio.pre_vad_end_offset
-        end_trim_time = f"{end_total_seconds:.3f}"
+        end_trim_seconds = total_seconds + (next_line - game_line.time).total_seconds() + get_config().audio.pre_vad_end_offset
+        end_trim_time = f"{end_trim_seconds:.3f}"
         ffmpeg_command.extend(['-to', end_trim_time])
         logger.debug(
             f"Looks Like this is mining from History, or Multiple Lines were selected Trimming end of audio to {end_trim_time} seconds")
     elif get_config().audio.pre_vad_end_offset and get_config().audio.pre_vad_end_offset < 0:
-        end_total_seconds = file_length + get_config().audio.pre_vad_end_offset
-        end_trim_time = f"{end_total_seconds:.3f}"
-        ffmpeg_command.extend(['-to', end_trim_time])
-        logger.debug(f"Trimming end of audio to {end_trim_time} seconds due to pre-vad end offset")
+        end_trim_seconds = file_length + get_config().audio.pre_vad_end_offset
+        ffmpeg_command.extend(['-to', str(end_trim_seconds)])
+        logger.debug(f"Trimming end of audio to {end_trim_seconds} seconds due to pre-vad end offset")
 
     ffmpeg_command.extend([
         "-c", "copy",  # Using copy to avoid re-encoding, adjust if needed
@@ -326,18 +326,18 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
 
     logger.debug(" ".join(ffmpeg_command))
     subprocess.run(ffmpeg_command)
-    gsm_state.previous_trim_args = (untrimmed_audio, start_trim_time, end_trim_time)
+    gsm_state.previous_trim_args = (untrimmed_audio, start_trim_time, end_trim_seconds)
 
     logger.debug(f"{total_seconds_after_offset} trimmed off of beginning")
 
-    if end_trim_time:
-        logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds with end time {end_trim_time}")
+    if end_trim_seconds:
+        logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds with end time {end_trim_seconds} seconds")
     else:
         logger.info(f"Audio Extracted and trimmed to {start_trim_time} seconds")
         
     
     logger.debug(f"Audio trimmed and saved to {trimmed_audio}")
-    return trimmed_audio, start_trim_time, end_trim_time
+    return trimmed_audio, start_trim_time, end_trim_seconds
 
 def get_video_timings(video_path, game_line, anki_card_creation_time=None):
     if anki_card_creation_time:
