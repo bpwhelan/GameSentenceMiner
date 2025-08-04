@@ -91,6 +91,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
         selected_lines = []
         anki_card_creation_time = None
         mined_line = None
+        start_time = 0
+        end_time = 0
         if gsm_state.line_for_audio or gsm_state.line_for_screenshot:
             handle_texthooker_button(video_path)
             return
