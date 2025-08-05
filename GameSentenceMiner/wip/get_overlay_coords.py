@@ -315,7 +315,7 @@ async def get_full_screenshot() -> Image.Image | None:
             else:
                 monitors = [monitors[0]]
             monitor = monitors[get_config().wip.monitor_to_capture]
-            img = get_screenshot_PIL(compression=90, img_format='jpg')
+            img = get_screenshot_PIL(compression=90, img_format='jpg', width=monitor['width'] // 2, height=monitor['height'] // 2)
             # Put the image over a transparent background without stretching
             new_img = Image.new("RGBA", (monitor['width'], monitor['height']), (0, 0, 0, 0))
             # Calculate coordinates to center img horizontally and vertically
@@ -356,34 +356,49 @@ async def get_full_screenshot() -> Image.Image | None:
         return None
     
 async def do_work(sentence_to_check=None):
+    from math import floor
     # connect_to_obs_sync(5)
     logger.info("in find_box")
     # await asyncio.sleep(.5)
     logger.info("after_initial_sleep")
+    start_time = time.time()
     full_screenshot_image, monitor_width, monitor_height = await get_full_screenshot()
     
-    oneocr_results = oneocr(full_screenshot_image)
-    crop_coords = oneocr_results[2]
-    logger.info("Cropping full screenshot with coordinates: %s", crop_coords)
-    cropped_image = full_screenshot_image.crop(crop_coords)
+    oneocr_results = oneocr(full_screenshot_image, multiple_crop_coords=True)
+    crop_coords_list = oneocr_results[2]
+    logger.info("Cropping full screenshot with coordinates: %s", crop_coords_list)
+    cropped_images = []
+    img = Image.new("RGBA", (monitor_width, monitor_height), (0, 0, 0, 0))
+    for crop_coords in crop_coords_list:
+        cropped_image = full_screenshot_image.crop(crop_coords)
+        cropped_images.append(cropped_image)
+        # Paste the cropped image onto the transparent background
+        img.paste(cropped_image, (floor(crop_coords[0]), floor(crop_coords[1])))
+    
+    # img.show()
+    
     # Convert 1/4
     if os.path.exists("C:\\Users\\Beangate\\GSM\\temp"):
-        cropped_image.save("C:\\Users\\Beangate\\GSM\\temp\\full_screenshot.png")
+        img.save("C:\\Users\\Beangate\\GSM\\temp\\full_screenshot.png")
+    logger.info(f"Time taken to get cropped image for lens: {time.time() - start_time:.2f} seconds")
+    
     # full_screenshot_image.show()
-    if cropped_image:
+    if img:
+        start_time = time.time()
         logger.info("Full screenshot captured successfully. Now performing OCR...")
         # ocr_results = oneocr(full_screenshot_image, return_coords=True)
-        google_ocr_results = lens(cropped_image, return_coords=True)[2]
+        google_ocr_results = lens(img, return_coords=True)[2]
         
         ret = extract_text_with_pixel_boxes(
             api_response=google_ocr_results, 
             original_width=monitor_width, 
             original_height=monitor_height,
-            crop_x=crop_coords[0],
-            crop_y=crop_coords[1],
-            crop_width=crop_coords[2] - crop_coords[0],
-            crop_height=crop_coords[3] - crop_coords[1]
+            crop_x=0,
+            crop_y=0,
+            crop_width=img.width,
+            crop_height=img.height
         )
+        logger.info(f"Time taken for Lens OCR: {time.time() - start_time:.2f} seconds")
 
         # boxes_of_text = google_ocr_results[2]
         # logger.info(f"Boxes of text found: {boxes_of_text}")

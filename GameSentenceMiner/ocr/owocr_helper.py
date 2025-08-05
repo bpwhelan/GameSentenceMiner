@@ -22,7 +22,7 @@ from GameSentenceMiner.util.electron_config import *
 from GameSentenceMiner.ocr.ss_picker import ScreenCropper
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory
-from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness, get_window, get_ocr_config_path
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window, get_ocr_config_path
 from GameSentenceMiner.owocr.owocr import screen_coordinate_picker, run
 from GameSentenceMiner.util.gsm_utils import sanitize_filename, do_text_replacements, OCR_REPLACEMENTS_FILE
 import threading
@@ -252,7 +252,8 @@ class ConfigChangeCheckThread(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
         self.last_changes = None
-        self.callbacks = []
+        self.config_callbacks = []
+        self.area_callbacks = []
 
     def run(self):
         global ocr_config
@@ -265,20 +266,32 @@ class ConfigChangeCheckThread(threading.Thread):
                 # Only run this block after a change has occurred and then the section is stable (no change)
                 if self.last_changes is not None and not section_changed:
                     logger.info(f"Detected config changes: {self.last_changes}")
-                    for cb in self.callbacks:
+                    for cb in self.config_callbacks:
                         cb(self.last_changes)
                     if hasattr(run, 'handle_config_change'):
                         run.handle_config_change()
                     if any(c in self.last_changes for c in ('ocr1', 'ocr2', 'language', 'furigana_filter_sensitivity')):
                         reset_callback_vars()
                     self.last_changes = None
+                ocr_config_changed = has_config_changed(ocr_config)
+                if ocr_config_changed:
+                    logger.info("OCR config has changed, reloading...")
+                    ocr_config = get_ocr_config(use_window_for_config=True, window=obs.get_current_game())
+                    for cb in self.area_callbacks:
+                        cb(ocr_config)
+                    if hasattr(run, 'handle_area_config_changes'):
+                        run.handle_area_config_changes(ocr_config)
+                    reset_callback_vars()
             except Exception as e:
                 logger.debug(f"ConfigChangeCheckThread error: {e}")
             time.sleep(0.25)  # Lowered to 0.25s for more responsiveness
 
-    def add_callback(self, callback):
-        self.callbacks.append(callback)
-        
+    def add_config_callback(self, callback):
+        self.config_callbacks.append(callback)
+
+    def add_area_callback(self, callback):
+        self.area_callbacks.append(callback)
+    
 def reset_callback_vars():
     global previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, previous_text_list, last_ocr2_result
     previous_text = None

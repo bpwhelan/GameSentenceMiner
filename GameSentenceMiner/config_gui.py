@@ -1873,7 +1873,7 @@ class ConfigApp:
         gemini_model_i18n = ai_i18n.get('gemini_model', {})
         HoverInfoLabelWidget(ai_frame, text=gemini_model_i18n.get('label', '...'), tooltip=gemini_model_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        ttk.Combobox(ai_frame, textvariable=self.gemini_model_value, values=['gemma-3n-e4b-it', 'gemini-2.5-flash-lite', 'gemini-2.5-flash','gemini-2.0-flash', 'gemini-2.0-flash-lite'], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(ai_frame, textvariable=self.gemini_model_value, values=['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemma-3-27b-it', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         gemini_key_i18n = ai_i18n.get('gemini_api_key', {})

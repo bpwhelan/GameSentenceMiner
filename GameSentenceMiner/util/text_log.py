@@ -4,9 +4,12 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from typing import Optional
 
+import rapidfuzz
+
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 from GameSentenceMiner.util.configuration import logger, get_config, gsm_state
 from GameSentenceMiner.util.model import AnkiCard
+import re
 
 initial_time = datetime.now()
 
@@ -107,20 +110,26 @@ class GameText:
 
 game_log = GameText()
 
-
-def similar(a, b):
-    return SequenceMatcher(None, a, b).ratio()
+def strip_whitespace_and_punctuation(text: str) -> str:
+    """
+    Strips whitespace and punctuation from the given text.
+    """
+    # Remove all whitespace and specified punctuation using regex
+    # Includes Japanese and common punctuation
+    return re.sub(r'[\s　、。「」【】《》., ]', '', text).strip()
 
 
 def lines_match(texthooker_sentence, anki_sentence):
-    texthooker_sentence = texthooker_sentence.replace("\n", "").replace("\r", "").replace(' ', '').strip()
-    anki_sentence = anki_sentence.replace("\n", "").replace("\r", "").replace(' ', '').strip()
-    similarity = similar(texthooker_sentence, anki_sentence)
+    # Replace newlines, spaces, other whitespace characters, AND japanese punctuation
+    texthooker_sentence = strip_whitespace_and_punctuation(texthooker_sentence)
+    anki_sentence = strip_whitespace_and_punctuation(anki_sentence)
+    similarity = rapidfuzz.fuzz.ratio(texthooker_sentence, anki_sentence)
+    logger.debug(f"Comparing sentences: '{texthooker_sentence}' and '{anki_sentence}' - Similarity: {similarity}")
     if texthooker_sentence in anki_sentence:
         logger.debug(f"One contains the other: {texthooker_sentence} in {anki_sentence} - Similarity: {similarity}")
     elif anki_sentence in texthooker_sentence:
         logger.debug(f"One contains the other: {anki_sentence} in {texthooker_sentence} - Similarity: {similarity}")
-    return (anki_sentence in texthooker_sentence) or (texthooker_sentence in anki_sentence and similarity > 0.8)
+    return (anki_sentence in texthooker_sentence) or (texthooker_sentence in anki_sentence and similarity > 80)
 
 
 def get_text_event(last_note) -> GameLine:

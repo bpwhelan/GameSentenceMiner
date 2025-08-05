@@ -135,6 +135,7 @@
                                         value="pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128">
                                         CUDA
                                     </option>
+                                    <option value="pip install openai">Local LLM OCR (EXTRA SETUP REQUIRED)</option>
                                 </select>
                                 <button id="install-selected-dep" class="secondary">Install</button>
                                 <div class="tooltip">❓
@@ -206,6 +207,7 @@
                                     <option value="gvision">Google Vision</option>
                                     <option value="azure">Azure Image Analysis</option>
                                     <option value="ocrspace">OCRSpace</option>
+                                    <option value="local_llm_ocr">Local LLM OCR</option>
                                 </select>
                             </div>
                             <div id="ocr2-select-group" class="input-group">
@@ -232,6 +234,7 @@
                                     <option value="gvision">Google Vision</option>
                                     <option value="azure">Azure Image Analysis</option>
                                     <option value="ocrspace">OCRSpace</option>
+                                    <option value="local_llm_ocr">Local LLM OCR</option>
                                 </select>
                             </div>
                             <div id="language-select-group" class="input-group">
@@ -366,6 +369,13 @@
                                     Maintain Line Breaks in Output:
                                 </label>
                                 <input type="checkbox" id="keep-newline">
+                            </div>
+                            <div id="select_areas_button_2" class="input-group" style="display:none;">
+                                <button id="select-areas-button">Change Area Config</button>
+                                <div class="tooltip">❓
+                                    <span class="tooltiptext">Select areas to OCR. This will open a window to select
+                                        areas.</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -526,6 +536,7 @@
                     "Azure Image Analysis": { ansi: "\x1b[96m",   html: "color: #00FFFF;" },
                     "OCRSpace":    { ansi: "\x1b[93m",   html: "color: #FFFF00;" },
                     "Qwen2-VL":    { ansi: "\x1b[90m",   html: "color: #808080;" },
+                    "Local LLM OCR": { ansi: "\x1b[95m", html: "color: #D6A4FF;" },
                 };
 
                 function getEngineColor(engine, ansi = true) {
@@ -615,7 +626,10 @@
                     // closeOCRConsole();
                 });
 
+                processes_using_console = 0;
+
                 function openOCRConsole() {
+                    processes_using_console++;
                     // toggleCollapsibleSectionById('settings-header', false);
                     // toggleCollapsibleSectionById('setup-header', false);
                     // toggleCollapsibleSectionById('config-header', false);
@@ -634,13 +648,17 @@
                     document.getElementById('manual-ocr-hotkey-group').style.display = 'none';
                     document.getElementById('area-select-ocr-hotkey-group').style.display = 'none';
                     // Add (Options Hidden) to settings header to first child span
-                    document.getElementById('settings-header').firstChild.innerText += ' (Some Options Hidden)';
+                    document.getElementById('settings-header').firstChild.innerText = 'OCR Settings (Some Options Hidden)';
                     // Hide clipboard screenshot option
                     document.getElementById('ocr-screenshots-group').style.display = 'none';
+                    // Show Select Areas button
+                    document.getElementById('select_areas_button_2').style.display = 'block';
                     setInterval(() => ocrFitAddon.fit(), 500);
                 }
 
                 function closeOCRConsole() {
+                    processes_using_console--;
+                    if (processes_using_console > 0) return;
                     stopScanningAnimation();
                     ['settings-header', 'setup-header', 'config-header'].forEach(id => {
                         toggleCollapsibleSectionById(id, true)
@@ -662,6 +680,7 @@
                     // Show clipboard screenshot option
                     document.getElementById('ocr-screenshots-group').style.display = 'flex';
                     document.getElementById('ocr-status-label').innerText = "";
+                    document.getElementById('select_areas_button_2').style.display = 'none';
                 }
 
                 const installRecommendedBtn = document.getElementById('install-recommended-btn');
@@ -723,13 +742,17 @@
                     const selectedDep = document.getElementById('dependency-select-removal').value;
                     ipcRenderer.send('ocr.uninstall-selected-dep', selectedDep);
                 });
-                document.getElementById('run-screen-selector').addEventListener('click', async () => {
-                    openOCRConsole();
-                    const windowName = document.getElementById('windowSelect').value.trim();
-                    console.log('Screen selector start:', new Date().toISOString());
-                    await ipcRenderer.send('ocr.run-screen-selector', windowName);
-                    console.log('Screen selector end:', new Date().toISOString());
+
+                ['run-screen-selector', 'select_areas_button_2'].forEach(id => {
+                    document.getElementById(id).addEventListener('click', async () => {
+                        openOCRConsole();
+                        const windowName = document.getElementById('windowSelect').value.trim();
+                        console.log('Screen selector start:', new Date().toISOString());
+                        await ipcRenderer.send('ocr.run-screen-selector', windowName);
+                        console.log('Screen selector end:', new Date().toISOString());
+                    });
                 });
+
                 document.getElementById('open-config-json').addEventListener('click', () => ipcRenderer.invoke('ocr.open-config-json'));
                 document.getElementById('open-config-folder').addEventListener('click', () => ipcRenderer.invoke('ocr.open-config-folder'));
                 document.getElementById('start-ocr').addEventListener('click', () => {

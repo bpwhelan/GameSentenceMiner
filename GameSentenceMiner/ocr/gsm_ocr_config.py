@@ -9,6 +9,7 @@ from dataclasses_json import dataclass_json
 from typing import List, Optional, Union
 
 from GameSentenceMiner.util.configuration import logger, get_app_directory
+from GameSentenceMiner.util.electron_config import get_ocr_use_window_for_config
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 
@@ -92,6 +93,13 @@ class OCRConfig:
                     floor(rectangle.coordinates[2] * width),
                     floor(rectangle.coordinates[3] * height),
                 ]
+                
+def has_config_changed(current_config: OCRConfig) -> bool:
+    new_config = get_scene_ocr_config(use_window_as_config=get_ocr_use_window_for_config(), window=current_config.window)
+    if new_config.rectangles != current_config.rectangles:
+        logger.info("OCR config has changed.")
+        return True
+    return False
 
 
 def get_window(title):
