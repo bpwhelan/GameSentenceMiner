@@ -63,7 +63,7 @@ jobs:
         working-directory: ./GSM_Overlay
         run: |
           npm install
-          npm install --save-dev electron electron-forge
+          npm install --save-dev electron electron-forge electron-prebuilt-compile
           npm run package
 
       - name: Install dependencies
