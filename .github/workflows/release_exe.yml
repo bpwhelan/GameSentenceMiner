@@ -56,6 +56,15 @@ jobs:
           }
         continue-on-error: true
 
+      - name: Build Overlay
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          cd GSM_Overlay
+          npm install
+          npm install --save-dev electron electron-forge
+          npm run package
+          cd ..
+
       - name: Install dependencies
         if: steps.version_check.outputs.should_build == 'true'
         run: |
