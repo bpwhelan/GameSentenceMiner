@@ -63,14 +63,12 @@ jobs:
         working-directory: ./GSM_Overlay
         run: |
           npm install
-          npm install --save-dev electron electron-forge electron-prebuilt-compile@8.2.0
           npm run package
 
       - name: Install dependencies
         if: steps.version_check.outputs.should_build == 'true'
         run: |
           npm install
-          npm install --save-dev electron electron-builder
 
       - name: Build Electron app
         if: steps.version_check.outputs.should_build == 'true'
