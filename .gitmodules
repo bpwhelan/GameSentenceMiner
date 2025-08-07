@@ -4,9 +4,3 @@
 [submodule "GameSentenceMiner/owocr"]
 	path = GameSentenceMiner/owocr
 	url = https://github.com/bpwhelan/owocr.git
-[submodule "transparent-texthooker-overlay"]
-	path = transparent-texthooker-overlay
-	url = https://github.com/bpwhelan/transparent-texthooker-overlay
-[submodule "GSM_Overlay"]
-	path = GSM_Overlay
-	url = https://github.com/bpwhelan/GSM_Overlay
