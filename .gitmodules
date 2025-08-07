@@ -4,3 +4,6 @@
 [submodule "GameSentenceMiner/owocr"]
 	path = GameSentenceMiner/owocr
 	url = https://github.com/bpwhelan/owocr.git
+[submodule "GSM_Overlay"]
+	path = GSM_Overlay
+	url = https://github.com/bpwhelan/GSM_Overlay
