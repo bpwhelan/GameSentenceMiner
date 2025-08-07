@@ -510,6 +510,18 @@
             "label": "Local AI Model:",
             "tooltip": "Local AI Model to Use, Only very basic Translation is supported atm. May require some other setup, but idk."
           },
+          "openai_model": {
+            "label": "OpenAI Model:",
+            "tooltip": "Select the OpenAI model to use."
+          },
+          "openai_apikey": {
+            "label": "OpenAI API Key:",
+            "tooltip": "API key for OpenAI provider."
+          },
+          "openai_url": {
+            "label": "OpenAI API URL:",
+            "tooltip": "Custom URL for OpenAI API. Leave blank to use the default."
+          },
           "anki_field": {
             "label": "Anki Field:",
             "tooltip": "Field in Anki for AI-generated content."
@@ -531,23 +543,21 @@
             "tooltip": "Custom prompt for AI processing."
           }
         },
+        "overlay": {
+          "websocket_port": {
+            "label": "Overlay WebSocket Port:",
+            "tooltip": "Port for the overlay WebSocket communication. Used for experimental overlay features."
+          },
+          "overlay_monitor": {
+            "label": "Monitor to Capture:",
+            "tooltip": "Select the monitor to capture (1-based index).",
+            "not_detected": "OwOCR Not Detected"
+          }
+        },
         "wip": {
           "title": "WIP",
           "warning_experimental": "Warning: These features are experimental and may not work as expected.",
           "warning_overlay_deps": "Overlay requires OwOCR dependencies to be installed, and requires an external app to be running.",
-          "overlay_port": {
-            "label": "Overlay WebSocket Port:",
-            "tooltip": "Port for the overlay WebSocket communication. Used for experimental overlay features."
-          },
-          "overlay_send": {
-            "label": "Overlay WebSocket Send:",
-            "tooltip": "Enable to send overlay data via WebSocket. Experimental feature."
-          },
-          "monitor_capture": {
-            "label": "Monitor to Capture:",
-            "tooltip": "Select the monitor to capture (1-based index).",
-            "not_detected": "OwOCR Not Detected"
-          },
           "error_setup": "Error setting up WIP tab"
         }
       },

@@ -94,7 +94,7 @@ export function registerSettingsIPC() {
             window_transparency_process.kill();
         }
         console.log(`Starting Window Transparency Tool with hotkey: ${hotkey} and target: ${getWindowTransparencyTarget()}`);
-        window_transparency_process = spawn(getPythonPath(), ['-m', 'GameSentenceMiner.util.window_transparency', '--hotkey', hotkey, '--window', getWindowTransparencyTarget()]);
+        window_transparency_process = spawn(getPythonPath(), ['-m', 'GameSentenceMiner.tools.window_transparency', '--hotkey', hotkey, '--window', getWindowTransparencyTarget()]);
         window_transparency_process.stdout.on('data', (data: any) => {
             console.log(`Window Transparency Tool: ${data}`);
         });

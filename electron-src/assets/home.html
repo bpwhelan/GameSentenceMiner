@@ -31,7 +31,12 @@
     </div>
 </div>
 <div class="card">
-    <button id="openGSMSettingsBtn">Open GSM Settings</button>
+    <div class="grid-container">
+        <div class="grid-container">
+            <button id="openGSMSettingsBtn">Open GSM Settings</button>
+            <button id="runOverlayBtn">Run Overlay (WIP)</button>
+        </div>
+    </div>
 </div>
 <div class="card">
     <h2>Status:</h2>
@@ -81,6 +86,7 @@
     const {ipcRenderer} = require('electron');
     const removeSceneBtn = document.getElementById('removeSceneBtn');
     const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
+    const runOverlayBtn = document.getElementById('runOverlayBtn');
 
     function openExternalLink(url) {
         ipcRenderer.invoke('open-external-link', url);
@@ -98,6 +104,11 @@
     openGSMSettingsBtn.addEventListener('click', async () => {
         console.log("Opening GSM Settings");
         await ipcRenderer.invoke('settings.openGSMSettings');
+    });
+
+    runOverlayBtn.addEventListener('click', async () => {
+        console.log("Running Overlay");
+        await ipcRenderer.invoke('runOverlay');
     });
 
     function getScenes() {

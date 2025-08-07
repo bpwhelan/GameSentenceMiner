@@ -15,6 +15,10 @@ from enum import Enum
 import toml
 from dataclasses_json import dataclass_json
 
+from importlib import metadata
+
+import requests
+
 
 OFF = 'OFF'
 # VOSK = 'VOSK'
@@ -34,7 +38,7 @@ WHISPER_TURBO = 'turbo'
 
 AI_GEMINI = 'Gemini'
 AI_GROQ = 'Groq'
-AI_LOCAL = 'Local'
+AI_OPENAI = 'OpenAI'
 
 INFO = 'INFO'
 DEBUG = 'DEBUG'
@@ -51,12 +55,14 @@ supported_formats = {
     'm4a': 'aac',
 }
 
+
 def is_linux():
     return platform == 'linux'
 
 
 def is_windows():
     return platform == 'win32'
+
 
 class Locale(Enum):
     English = 'en_us'
@@ -86,7 +92,7 @@ class Locale(Enum):
             return cls.from_any(item)
         except KeyError:
             raise
-        
+
 
 # Patch Enum's __getitem__ for this class
 Locale.__getitem__ = classmethod(Locale.__getitem__)
@@ -111,12 +117,11 @@ class Language(Enum):
     FINNISH = "fi"
     DANISH = "da"
     NORWEGIAN = "no"
-    
-    
-    
+
 
 AVAILABLE_LANGUAGES = [lang.value for lang in Language]
 AVAILABLE_LANGUAGES_DICT = {lang.value: lang for lang in Language}
+
 
 class CommonLanguages(str, Enum):
     """
@@ -281,9 +286,9 @@ class CommonLanguages(str, Enum):
     YORUBA = 'yo'
     YUE_CHINESE = 'yue'
     ZULU = 'zu'
-    
 
     # Helper methods
+
     @classmethod
     def get_all_codes(cls) -> list[str]:
         """Returns a list of all language codes (e.g., ['en', 'zh', 'hi'])."""
@@ -293,7 +298,7 @@ class CommonLanguages(str, Enum):
     def get_all_names(cls) -> list[str]:
         """Returns a list of all language names (e.g., ['ENGLISH', 'MANDARIN_CHINESE'])."""
         return [lang.name for lang in cls]
-    
+
     @classmethod
     def get_all_names_pretty(cls) -> list[str]:
         """Returns a list of all language names formatted for display (e.g., ['English', 'Mandarin Chinese'])."""
@@ -308,7 +313,7 @@ class CommonLanguages(str, Enum):
         Example: [('en', 'English'), ('zh', 'Mandarin Chinese')]
         """
         return [(lang.value, lang.name.replace('_', ' ').title()) for lang in cls]
-    
+
     # Method to lookup language by it's name
     @classmethod
     def from_name(cls, name: str) -> 'CommonLanguages':
@@ -320,7 +325,7 @@ class CommonLanguages(str, Enum):
             return cls[name.upper()]
         except KeyError:
             raise ValueError(f"Language '{name}' not found in CommonLanguages")
-        
+
     # Method to lookup language by its code
     @classmethod
     def from_code(cls, code: str) -> 'CommonLanguages':
@@ -331,8 +336,9 @@ class CommonLanguages(str, Enum):
         for lang in cls:
             if lang.value == code:
                 return lang
-        raise ValueError(f"Language code '{code}' not found in CommonLanguages")
-    
+        raise ValueError(
+            f"Language code '{code}' not found in CommonLanguages")
+
     @classmethod
     def name_from_code(cls, code: str) -> str:
         """
@@ -340,6 +346,44 @@ class CommonLanguages(str, Enum):
         Raises ValueError if not found.
         """
         return cls.from_code(code).name
+
+
+PACKAGE_NAME = "GameSentenceMiner"
+
+
+def get_current_version():
+    try:
+        version = metadata.version(PACKAGE_NAME)
+        return version
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def get_latest_version():
+    try:
+        response = requests.get(f"https://pypi.org/pypi/{PACKAGE_NAME}/json")
+        latest_version = response.json()["info"]["version"]
+        return latest_version
+    except Exception as e:
+        logger.error(f"Error fetching latest version: {e}")
+        return None
+
+
+def check_for_updates(force=False):
+    try:
+        installed_version = get_current_version()
+        latest_version = get_latest_version()
+
+        if installed_version != latest_version or force:
+            logger.info(
+                f"Update available: {installed_version} -> {latest_version}")
+            return True, latest_version
+        else:
+            logger.info("You are already using the latest version.")
+            return False, latest_version
+    except Exception as e:
+        logger.error(f"Error checking for updates: {e}")
+
 
 @dataclass_json
 @dataclass
@@ -380,6 +424,7 @@ class Paths:
         if self.output_folder:
             self.output_folder = os.path.normpath(self.output_folder)
 
+
 @dataclass_json
 @dataclass
 class Anki:
@@ -391,7 +436,8 @@ class Anki:
     word_field: str = 'Expression'
     previous_sentence_field: str = ''
     previous_image_field: str = ''
-    custom_tags: List[str] = None  # Initialize to None and set it in __post_init__
+    # Initialize to None and set it in __post_init__
+    custom_tags: List[str] = None
     tags_to_check: List[str] = None
     add_game_tag: bool = True
     polling_rate: int = 200
@@ -444,7 +490,6 @@ class Screenshot:
             self.screenshot_timing_setting = 'end'
 
 
-
 @dataclass_json
 @dataclass
 class Audio:
@@ -461,12 +506,13 @@ class Audio:
     custom_encode_settings: str = ''
 
     def __post_init__(self):
-        self.ffmpeg_reencode_options_to_use = self.ffmpeg_reencode_options.replace("{format}", self.extension).replace("{encoder}", supported_formats.get(self.extension, ''))
+        self.ffmpeg_reencode_options_to_use = self.ffmpeg_reencode_options.replace(
+            "{format}", self.extension).replace("{encoder}", supported_formats.get(self.extension, ''))
         if self.anki_media_collection:
-            self.anki_media_collection = os.path.normpath(self.anki_media_collection)
+            self.anki_media_collection = os.path.normpath(
+                self.anki_media_collection)
         if self.external_tool:
             self.external_tool = os.path.normpath(self.external_tool)
-
 
 
 @dataclass_json
@@ -542,11 +588,13 @@ class Ai:
     anki_field: str = ''
     provider: str = AI_GEMINI
     gemini_model: str = 'gemini-2.5-flash-lite'
-    local_model: str = OFF
     groq_model: str = 'meta-llama/llama-4-scout-17b-16e-instruct'
-    api_key: str = '' # Deprecated
     gemini_api_key: str = ''
+    api_key: str = ''  # Legacy support, will be moved to gemini_api_key if provider is gemini
     groq_api_key: str = ''
+    open_ai_url: str = ''
+    open_ai_model: str = ''
+    open_ai_api_key: str = ''
     use_canned_translation_prompt: bool = True
     use_canned_context_prompt: bool = False
     custom_prompt: str = ''
@@ -559,24 +607,31 @@ class Ai:
                 self.provider = AI_GEMINI
             if self.provider == 'groq':
                 self.provider = AI_GROQ
-                
+        if self.gemini_model in ['RECOMMENDED', 'OTHER']:
+            self.gemini_model = 'gemini-2.5-flash-lite'
+        if self.groq_model in ['RECOMMENDED', 'OTHER']:
+            self.groq_model = 'meta-llama/llama-4-scout-17b-16e-instruct'
+
         # Change Legacy Model Name
         if self.gemini_model == 'gemini-2.5-flash-lite-preview-06-17':
             self.gemini_model = 'gemini-2.5-flash-lite'
-                
-                
-# Experimental Features section, will change often
+
+
 @dataclass_json
 @dataclass
-class WIP:
-    overlay_websocket_port: int = 55499
-    overlay_websocket_send: bool = False
+class Overlay:
+    websocket_port: int = 55499
     monitor_to_capture: int = 0
-    
+
     def __post_init__(self):
         if self.monitor_to_capture == -1:
             self.monitor_to_capture = 0  # Default to the first monitor if not set
-                    
+
+
+@dataclass_json
+@dataclass
+class WIP:
+    pass
 
 
 @dataclass_json
@@ -595,68 +650,96 @@ class ProfileConfig:
     vad: VAD = field(default_factory=VAD)
     advanced: Advanced = field(default_factory=Advanced)
     ai: Ai = field(default_factory=Ai)
+    overlay: Overlay = field(default_factory=Overlay)
     wip: WIP = field(default_factory=WIP)
-    
-    
+
     def get_field_value(self, section: str, field_name: str):
         section_obj = getattr(self, section, None)
         if section_obj and hasattr(section_obj, field_name):
             return getattr(section_obj, field_name)
         else:
-            raise ValueError(f"Field '{field_name}' not found in section '{section}' of ProfileConfig.")
+            raise ValueError(
+                f"Field '{field_name}' not found in section '{section}' of ProfileConfig.")
 
     # This is just for legacy support
     def load_from_toml(self, file_path: str):
         with open(file_path, 'r') as f:
             config_data = toml.load(f)
 
-        self.paths.folder_to_watch = expanduser(config_data['paths'].get('folder_to_watch', self.paths.folder_to_watch))
+        self.paths.folder_to_watch = expanduser(config_data['paths'].get(
+            'folder_to_watch', self.paths.folder_to_watch))
 
         self.anki.url = config_data['anki'].get('url', self.anki.url)
-        self.anki.sentence_field = config_data['anki'].get('sentence_field', self.anki.sentence_field)
-        self.anki.sentence_audio_field = config_data['anki'].get('sentence_audio_field', self.anki.sentence_audio_field)
-        self.anki.word_field = config_data['anki'].get('word_field', self.anki.word_field)
-        self.anki.picture_field = config_data['anki'].get('picture_field', self.anki.picture_field)
-        self.anki.custom_tags = config_data['anki'].get('custom_tags', self.anki.custom_tags)
-        self.anki.add_game_tag = config_data['anki'].get('add_game_tag', self.anki.add_game_tag)
-        self.anki.polling_rate = config_data['anki'].get('polling_rate', self.anki.polling_rate)
-        self.anki.overwrite_audio = config_data['anki_overwrites'].get('overwrite_audio', self.anki.overwrite_audio)
+        self.anki.sentence_field = config_data['anki'].get(
+            'sentence_field', self.anki.sentence_field)
+        self.anki.sentence_audio_field = config_data['anki'].get(
+            'sentence_audio_field', self.anki.sentence_audio_field)
+        self.anki.word_field = config_data['anki'].get(
+            'word_field', self.anki.word_field)
+        self.anki.picture_field = config_data['anki'].get(
+            'picture_field', self.anki.picture_field)
+        self.anki.custom_tags = config_data['anki'].get(
+            'custom_tags', self.anki.custom_tags)
+        self.anki.add_game_tag = config_data['anki'].get(
+            'add_game_tag', self.anki.add_game_tag)
+        self.anki.polling_rate = config_data['anki'].get(
+            'polling_rate', self.anki.polling_rate)
+        self.anki.overwrite_audio = config_data['anki_overwrites'].get(
+            'overwrite_audio', self.anki.overwrite_audio)
         self.anki.overwrite_picture = config_data['anki_overwrites'].get('overwrite_picture',
                                                                          self.anki.overwrite_picture)
 
-        self.features.full_auto = config_data['features'].get('do_vosk_postprocessing', self.features.full_auto)
-        self.features.notify_on_update = config_data['features'].get('notify_on_update', self.features.notify_on_update)
-        self.features.open_anki_edit = config_data['features'].get('open_anki_edit', self.features.open_anki_edit)
-        self.features.backfill_audio = config_data['features'].get('backfill_audio', self.features.backfill_audio)
+        self.features.full_auto = config_data['features'].get(
+            'do_vosk_postprocessing', self.features.full_auto)
+        self.features.notify_on_update = config_data['features'].get(
+            'notify_on_update', self.features.notify_on_update)
+        self.features.open_anki_edit = config_data['features'].get(
+            'open_anki_edit', self.features.open_anki_edit)
+        self.features.backfill_audio = config_data['features'].get(
+            'backfill_audio', self.features.backfill_audio)
 
-        self.screenshot.width = config_data['screenshot'].get('width', self.screenshot.width)
-        self.screenshot.height = config_data['screenshot'].get('height', self.screenshot.height)
-        self.screenshot.quality = config_data['screenshot'].get('quality', self.screenshot.quality)
-        self.screenshot.extension = config_data['screenshot'].get('extension', self.screenshot.extension)
+        self.screenshot.width = config_data['screenshot'].get(
+            'width', self.screenshot.width)
+        self.screenshot.height = config_data['screenshot'].get(
+            'height', self.screenshot.height)
+        self.screenshot.quality = config_data['screenshot'].get(
+            'quality', self.screenshot.quality)
+        self.screenshot.extension = config_data['screenshot'].get(
+            'extension', self.screenshot.extension)
         self.screenshot.custom_ffmpeg_settings = config_data['screenshot'].get('custom_ffmpeg_settings',
                                                                                self.screenshot.custom_ffmpeg_settings)
 
-        self.audio.extension = config_data['audio'].get('extension', self.audio.extension)
-        self.audio.beginning_offset = config_data['audio'].get('beginning_offset', self.audio.beginning_offset)
-        self.audio.end_offset = config_data['audio'].get('end_offset', self.audio.end_offset)
+        self.audio.extension = config_data['audio'].get(
+            'extension', self.audio.extension)
+        self.audio.beginning_offset = config_data['audio'].get(
+            'beginning_offset', self.audio.beginning_offset)
+        self.audio.end_offset = config_data['audio'].get(
+            'end_offset', self.audio.end_offset)
         self.audio.ffmpeg_reencode_options = config_data['audio'].get('ffmpeg_reencode_options',
                                                                       self.audio.ffmpeg_reencode_options)
 
-        self.vad.whisper_model = config_data['vosk'].get('whisper_model', self.vad.whisper_model)
+        self.vad.whisper_model = config_data['vosk'].get(
+            'whisper_model', self.vad.whisper_model)
         self.vad.vosk_url = config_data['vosk'].get('url', self.vad.vosk_url)
         self.vad.do_vad_postprocessing = config_data['features'].get('do_vosk_postprocessing',
                                                                      self.vad.do_vad_postprocessing)
-        self.vad.trim_beginning = config_data['audio'].get('vosk_trim_beginning', self.vad.trim_beginning)
+        self.vad.trim_beginning = config_data['audio'].get(
+            'vosk_trim_beginning', self.vad.trim_beginning)
 
         self.obs.host = config_data['obs'].get('host', self.obs.host)
         self.obs.port = config_data['obs'].get('port', self.obs.port)
-        self.obs.password = config_data['obs'].get('password', self.obs.password)
+        self.obs.password = config_data['obs'].get(
+            'password', self.obs.password)
 
-        self.general.use_websocket = config_data['websocket'].get('enabled', self.general.use_websocket)
-        self.general.websocket_uri = config_data['websocket'].get('uri', self.general.websocket_uri)
+        self.general.use_websocket = config_data['websocket'].get(
+            'enabled', self.general.use_websocket)
+        self.general.websocket_uri = config_data['websocket'].get(
+            'uri', self.general.websocket_uri)
 
-        self.hotkeys.reset_line = config_data['hotkeys'].get('reset_line', self.hotkeys.reset_line)
-        self.hotkeys.take_screenshot = config_data['hotkeys'].get('take_screenshot', self.hotkeys.take_screenshot)
+        self.hotkeys.reset_line = config_data['hotkeys'].get(
+            'reset_line', self.hotkeys.reset_line)
+        self.hotkeys.take_screenshot = config_data['hotkeys'].get(
+            'take_screenshot', self.hotkeys.take_screenshot)
 
         with open(get_config_path(), 'w') as f:
             f.write(self.to_json(indent=4))
@@ -690,14 +773,16 @@ class Config:
 
     @classmethod
     def new(cls):
-        instance = cls(configs={DEFAULT_CONFIG: ProfileConfig()}, current_profile=DEFAULT_CONFIG)
+        instance = cls(
+            configs={DEFAULT_CONFIG: ProfileConfig()}, current_profile=DEFAULT_CONFIG)
         return instance
-    
+
     def get_locale(self) -> Locale:
         try:
             return Locale.from_any(self.locale)
         except KeyError:
-            logger.warning(f"Locale '{self.locale}' not found. Defaulting to English.")
+            logger.warning(
+                f"Locale '{self.locale}' not found. Defaulting to English.")
             return Locale.English
 
     @classmethod
@@ -717,7 +802,8 @@ class Config:
 
     def get_config(self) -> ProfileConfig:
         if self.current_profile not in self.configs:
-            logger.warning(f"Profile '{self.current_profile}' not found. Switching to default profile.")
+            logger.warning(
+                f"Profile '{self.current_profile}' not found. Switching to default profile.")
             self.current_profile = DEFAULT_CONFIG
         return self.configs[self.current_profile]
 
@@ -741,49 +827,74 @@ class Config:
             if dataclasses.is_dataclass(getattr(current_config, section, None)):
                 for field_name in getattr(current_config, section, None).to_dict():
                     config_section = getattr(current_config, section, None)
-                    previous_config_section = getattr(previous_config, section, None)
+                    previous_config_section = getattr(
+                        previous_config, section, None)
                     current_value = getattr(config_section, field_name, None)
-                    previous_value = getattr(previous_config_section, field_name, None)
+                    previous_value = getattr(
+                        previous_config_section, field_name, None)
                     if str(current_value).strip() != str(previous_value).strip():
-                        logger.info(f"Syncing changed field '{field_name}' from '{previous_value}' to '{current_value}'")
+                        logger.info(
+                            f"Syncing changed field '{field_name}' from '{previous_value}' to '{current_value}'")
                         for profile in self.configs.values():
                             if profile != current_config:
-                                profile_section = getattr(profile, section, None)
+                                profile_section = getattr(
+                                    profile, section, None)
                                 if profile_section:
-                                    setattr(profile_section, field_name, current_value)
-                                    logger.info(f"Updated '{field_name}' in profile '{profile.name}'")
+                                    setattr(profile_section,
+                                            field_name, current_value)
+                                    logger.info(
+                                        f"Updated '{field_name}' in profile '{profile.name}'")
 
         return self
 
     def sync_shared_fields(self):
         config = self.get_config()
         for profile in self.configs.values():
-            self.sync_shared_field(config.hotkeys, profile.hotkeys, "reset_line")
-            self.sync_shared_field(config.hotkeys, profile.hotkeys, "take_screenshot")
-            self.sync_shared_field(config.hotkeys, profile.hotkeys, "open_utility")
-            self.sync_shared_field(config.hotkeys, profile.hotkeys, "play_latest_audio")
+            self.sync_shared_field(
+                config.hotkeys, profile.hotkeys, "reset_line")
+            self.sync_shared_field(
+                config.hotkeys, profile.hotkeys, "take_screenshot")
+            self.sync_shared_field(
+                config.hotkeys, profile.hotkeys, "open_utility")
+            self.sync_shared_field(
+                config.hotkeys, profile.hotkeys, "play_latest_audio")
             self.sync_shared_field(config.anki, profile.anki, "url")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field")
-            self.sync_shared_field(config.anki, profile.anki, "sentence_audio_field")
+            self.sync_shared_field(
+                config.anki, profile.anki, "sentence_audio_field")
             self.sync_shared_field(config.anki, profile.anki, "picture_field")
             self.sync_shared_field(config.anki, profile.anki, "word_field")
-            self.sync_shared_field(config.anki, profile.anki, "previous_sentence_field")
-            self.sync_shared_field(config.anki, profile.anki, "previous_image_field")
+            self.sync_shared_field(
+                config.anki, profile.anki, "previous_sentence_field")
+            self.sync_shared_field(
+                config.anki, profile.anki, "previous_image_field")
             self.sync_shared_field(config.anki, profile.anki, "tags_to_check")
             self.sync_shared_field(config.anki, profile.anki, "add_game_tag")
             self.sync_shared_field(config.anki, profile.anki, "polling_rate")
-            self.sync_shared_field(config.anki, profile.anki, "overwrite_audio")
-            self.sync_shared_field(config.anki, profile.anki, "overwrite_picture")
-            self.sync_shared_field(config.anki, profile.anki, "multi_overwrites_sentence")
-            self.sync_shared_field(config.general, profile.general, "open_config_on_startup")
-            self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
-            self.sync_shared_field(config.general, profile.general, "websocket_uri")
-            self.sync_shared_field(config.general, profile.general, "texthooker_port")
-            self.sync_shared_field(config.audio, profile.audio, "external_tool")
-            self.sync_shared_field(config.audio, profile.audio, "anki_media_collection")
-            self.sync_shared_field(config.audio, profile.audio, "external_tool_enabled")
-            self.sync_shared_field(config.audio, profile.audio, "custom_encode_settings")
-            self.sync_shared_field(config.screenshot, profile.screenshot, "custom_ffmpeg_settings")
+            self.sync_shared_field(
+                config.anki, profile.anki, "overwrite_audio")
+            self.sync_shared_field(
+                config.anki, profile.anki, "overwrite_picture")
+            self.sync_shared_field(
+                config.anki, profile.anki, "multi_overwrites_sentence")
+            self.sync_shared_field(
+                config.general, profile.general, "open_config_on_startup")
+            self.sync_shared_field(
+                config.general, profile.general, "open_multimine_on_startup")
+            self.sync_shared_field(
+                config.general, profile.general, "websocket_uri")
+            self.sync_shared_field(
+                config.general, profile.general, "texthooker_port")
+            self.sync_shared_field(
+                config.audio, profile.audio, "external_tool")
+            self.sync_shared_field(
+                config.audio, profile.audio, "anki_media_collection")
+            self.sync_shared_field(
+                config.audio, profile.audio, "external_tool_enabled")
+            self.sync_shared_field(
+                config.audio, profile.audio, "custom_encode_settings")
+            self.sync_shared_field(
+                config.screenshot, profile.screenshot, "custom_ffmpeg_settings")
             self.sync_shared_field(config, profile, "advanced")
             self.sync_shared_field(config, profile, "paths")
             self.sync_shared_field(config, profile, "obs")
@@ -796,7 +907,6 @@ class Config:
 
         return self
 
-
     def sync_shared_field(self, config, config2, field_name):
         try:
             config_value = getattr(config, field_name, None)
@@ -804,15 +914,18 @@ class Config:
 
             if config_value != config2_value:  # Check if values are different.
                 if config_value is not None:
-                    logging.info(f"Syncing shared field '{field_name}' to other profile.")
+                    logging.info(
+                        f"Syncing shared field '{field_name}' to other profile.")
                     setattr(config2, field_name, config_value)
                 elif config2_value is not None:
-                    logging.info(f"Syncing shared field '{field_name}' to current profile.")
+                    logging.info(
+                        f"Syncing shared field '{field_name}' to current profile.")
                     setattr(config, field_name, config2_value)
         except AttributeError as e:
             logging.error(f"AttributeError during sync of '{field_name}': {e}")
         except Exception as e:
-            logging.error(f"An unexpected error occurred during sync of '{field_name}': {e}")
+            logging.error(
+                f"An unexpected error occurred during sync of '{field_name}': {e}")
 
 
 def get_default_anki_path():
@@ -823,8 +936,10 @@ def get_default_anki_path():
     config_dir = os.path.join(base_dir, 'Anki2')
     return config_dir
 
+
 def get_default_anki_media_collection_path():
     return os.path.join(get_default_anki_path(), 'User 1', 'collection.media')
+
 
 def get_app_directory():
     if platform == 'win32':  # Windows
@@ -832,7 +947,8 @@ def get_app_directory():
     else:  # macOS and Linux
         appdata_dir = os.path.expanduser('~/.config')
     config_dir = os.path.join(appdata_dir, 'GameSentenceMiner')
-    os.makedirs(config_dir, exist_ok=True)  # Create the directory if it doesn't exist
+    # Create the directory if it doesn't exist
+    os.makedirs(config_dir, exist_ok=True)
     return config_dir
 
 
@@ -841,7 +957,9 @@ def get_log_path():
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return path
 
+
 temp_directory = ''
+
 
 def get_temporary_directory(delete=False):
     global temp_directory
@@ -860,6 +978,7 @@ def get_temporary_directory(delete=False):
                     logger.error(f"Failed to delete {file_path}. Reason: {e}")
     return temp_directory
 
+
 def get_config_path():
     return os.path.join(get_app_directory(), 'config.json')
 
@@ -869,7 +988,7 @@ def load_config():
 
     if os.path.exists('config.json') and not os.path.exists(config_path):
         shutil.copy('config.json', config_path)
-        
+
     if os.path.exists(config_path):
         try:
             with open(config_path, 'r') as file:
@@ -882,19 +1001,22 @@ def load_config():
                         config_file = json.load(file)
 
                     config = ProfileConfig.from_dict(config_file)
-                    new_config = Config(configs = {DEFAULT_CONFIG : config}, current_profile=DEFAULT_CONFIG)
+                    new_config = Config(
+                        configs={DEFAULT_CONFIG: config}, current_profile=DEFAULT_CONFIG)
 
                     config.save()
                     return new_config
         except json.JSONDecodeError as e:
-            logger.error(f"Error parsing config.json, saving backup and returning new config: {e}")
+            logger.error(
+                f"Error parsing config.json, saving backup and returning new config: {e}")
             shutil.copy(config_path, config_path + '.bak')
             config = Config.new()
             config.save()
             return config
     elif os.path.exists('config.toml'):
         config = ProfileConfig().load_from_toml('config.toml')
-        new_config = Config({DEFAULT_CONFIG: config}, current_profile=DEFAULT_CONFIG)
+        new_config = Config({DEFAULT_CONFIG: config},
+                            current_profile=DEFAULT_CONFIG)
         return new_config
     else:
         config = Config.new()
@@ -912,7 +1034,8 @@ def get_config():
         config = config_instance.get_config()
 
         if config.features.backfill_audio and config.features.full_auto:
-            logger.warning("Backfill audio is enabled, but full auto is also enabled. Disabling backfill...")
+            logger.warning(
+                "Backfill audio is enabled, but full auto is also enabled. Disabling backfill...")
             config.features.backfill_audio = False
 
     # print(config_instance.get_config())
@@ -925,20 +1048,26 @@ def reload_config():
     config = config_instance.get_config()
 
     if config.features.backfill_audio and config.features.full_auto:
-        logger.warning("Backfill is enabled, but full auto is also enabled. Disabling backfill...")
+        logger.warning(
+            "Backfill is enabled, but full auto is also enabled. Disabling backfill...")
         config.features.backfill_audio = False
+
 
 def get_master_config():
     return config_instance
+
 
 def save_full_config(config):
     with open(get_config_path(), 'w') as file:
         json.dump(config.to_dict(), file, indent=4)
 
+
 def save_current_config(config):
     global config_instance
-    config_instance.set_config_for_profile(config_instance.current_profile, config)
+    config_instance.set_config_for_profile(
+        config_instance.current_profile, config)
     save_full_config(config_instance)
+
 
 def switch_profile_and_save(profile_name):
     global config_instance
@@ -951,8 +1080,10 @@ sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
 logger = logging.getLogger("GameSentenceMiner")
-logger.setLevel(logging.DEBUG)  # Set the base level to DEBUG so that all messages are captured
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Set the base level to DEBUG so that all messages are captured
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Create console handler with level INFO
 console_handler = logging.StreamHandler(sys.stdout)
@@ -965,12 +1096,14 @@ logger.addHandler(console_handler)
 file_path = get_log_path()
 try:
     if os.path.exists(file_path) and os.path.getsize(file_path) > 1 * 1024 * 1024 and os.access(file_path, os.W_OK):
-        old_log_path = os.path.join(os.path.dirname(file_path), "gamesentenceminer_old.log")
+        old_log_path = os.path.join(os.path.dirname(
+            file_path), "gamesentenceminer_old.log")
         if os.path.exists(old_log_path):
             os.remove(old_log_path)
         shutil.move(file_path, old_log_path)
 except Exception as e:
-    logger.info("Couldn't rotate log, probably because the file is being written to by another process. NOT AN ERROR")
+    logger.info(
+        "Couldn't rotate log, probably because the file is being written to by another process. NOT AN ERROR")
 
 file_handler = logging.FileHandler(file_path, encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)
@@ -978,6 +1111,7 @@ file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
 DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
+
 
 class GsmAppState:
     def __init__(self):
@@ -995,6 +1129,7 @@ class GsmAppState:
         self.keep_running = True
         self.current_game = ''
         self.videos_to_remove = set()
+
 
 @dataclass_json
 @dataclass
@@ -1037,13 +1172,14 @@ def is_running_from_source():
     # Check for .git directory at the project root
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = current_dir
-    while project_root != os.path.dirname(project_root): # Avoid infinite loop
+    while project_root != os.path.dirname(project_root):  # Avoid infinite loop
         if os.path.isdir(os.path.join(project_root, '.git')):
             return True
         if os.path.isfile(os.path.join(project_root, 'pyproject.toml')):
             return True
         project_root = os.path.dirname(project_root)
     return False
+
 
 gsm_status = GsmStatus()
 anki_results = {}

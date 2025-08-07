@@ -59,6 +59,18 @@ export function getGSMBaseDir(): string {
         : process.resourcesPath
 }
 
+export function getResourcesDir(): string {
+    return isDev
+        ? path.join(__dirname, "../../") // Development path
+        : path.join(process.resourcesPath, "resources"); // Production (ASAR-safe)
+}
+
+export function getOverlayPath(): string {
+    return isDev
+        ? path.join(__dirname, "../../GSM_Overlay/out/overlay-win32-x64") // Development path
+        : path.join(process.resourcesPath, "GSM_Overlay"); // Production (ASAR-safe)
+}
+
 export function sanitizeFilename(filename: string): string {
     return filename.replace(/[ <>:"/\\|?*\x00-\x1F]/g, '');
 }

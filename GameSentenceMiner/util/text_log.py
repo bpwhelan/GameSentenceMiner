@@ -129,7 +129,7 @@ def lines_match(texthooker_sentence, anki_sentence):
         logger.debug(f"One contains the other: {texthooker_sentence} in {anki_sentence} - Similarity: {similarity}")
     elif anki_sentence in texthooker_sentence:
         logger.debug(f"One contains the other: {anki_sentence} in {texthooker_sentence} - Similarity: {similarity}")
-    return (anki_sentence in texthooker_sentence) or (texthooker_sentence in anki_sentence and similarity > 80)
+    return (anki_sentence in texthooker_sentence) or (texthooker_sentence in anki_sentence) or (similarity >= 80)
 
 
 def get_text_event(last_note) -> GameLine:

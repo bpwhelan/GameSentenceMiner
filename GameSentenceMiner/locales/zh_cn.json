@@ -531,23 +531,21 @@
             "tooltip": "用于 AI 处理的自定义提示。"
           }
         },
+        "overlay": {
+          "websocket_port": {
+            "label": "覆盖层 WebSocket 端口:",
+            "tooltip": "用于实验性覆盖层功能的覆盖层 WebSocket 通信端口。"
+          },
+          "overlay_monitor": {
+            "label": "捕获的显示器:",
+            "tooltip": "选择要捕获的显示器（从1开始的索引）。",
+            "not_detected": "未检测到 OwOCR"
+          }
+        },
         "wip": {
           "title": "WIP",
           "warning_experimental": "警告：这些功能是实验性的，可能无法按预期工作。",
           "warning_overlay_deps": "覆盖层需要安装 OwOCR 依赖项，并需要运行一个外部应用程序。",
-          "overlay_port": {
-            "label": "覆盖层 WebSocket 端口:",
-            "tooltip": "用于实验性覆盖层功能的覆盖层 WebSocket 通信端口。"
-          },
-          "overlay_send": {
-            "label": "覆盖层 WebSocket 发送:",
-            "tooltip": "启用通过 WebSocket 发送覆盖层数据。实验性功能。"
-          },
-          "monitor_capture": {
-            "label": "捕获的显示器:",
-            "tooltip": "选择要捕获的显示器（从1开始的索引）。",
-            "not_detected": "未检测到 OwOCR"
-          },
           "error_setup": "设置 WIP 选项卡时出错"
         }
       },

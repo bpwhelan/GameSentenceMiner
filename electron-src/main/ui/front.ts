@@ -1,19 +1,20 @@
-import {ipcMain} from 'electron';
+import { ipcMain } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import {BASE_DIR} from "../util.js";
+import { BASE_DIR, getOverlayPath, getResourcesDir, isDev } from '../util.js';
 import {
     getFrontPageState,
     getSteamGames,
     getVNs,
     getYuzuRomsPath,
     LaunchableGame,
-    HookableGameType, OCRGame,
-    setFrontPageState
-} from "../store.js";
-import {getConfiguredYuzuGames, getYuzuGames} from "./yuzu.js";
-import {getOBSConnection, getOBSScenes} from "./obs.js";
-import {getSceneOCRConfig} from "./ocr.js";
+    HookableGameType,
+    OCRGame,
+    setFrontPageState,
+} from '../store.js';
+import { getConfiguredYuzuGames, getYuzuGames } from './yuzu.js';
+import { getOBSConnection, getOBSScenes } from './obs.js';
+import { getSceneOCRConfig } from './ocr.js';
 
 const OCR_CONFIG_DIR = path.join(BASE_DIR, 'ocr_config');
 
@@ -30,25 +31,45 @@ export function registerFrontPageIPC() {
         }
     });
 
-
-// Get the saved front page state
+    // Get the saved front page state
     ipcMain.handle('front.getSavedState', async () => {
         try {
             const state = getFrontPageState(); // Use the store method to retrieve the state
             const vns = getVNs();
             const steamGames = getSteamGames();
-            const yuzuGames = getConfiguredYuzuGames()
+            const yuzuGames = getConfiguredYuzuGames();
             // Combine the games into a single array for hookable games
 
             state.launchableGames = [
-                {name: "Game", id: "0", type: HookableGameType.None, isHeader: true, scene: undefined},
-                ...steamGames.map(game => ({name: game.name, id: String(game.id), type: HookableGameType.Steam, scene: game.scene})),
+                {
+                    name: 'Game',
+                    id: '0',
+                    type: HookableGameType.None,
+                    isHeader: true,
+                    scene: undefined,
+                },
+                ...steamGames.map((game) => ({
+                    name: game.name,
+                    id: String(game.id),
+                    type: HookableGameType.Steam,
+                    scene: game.scene,
+                })),
                 // {name: "Misc/VN", id: "0", type: HookableGameType.None, isHeader: true, scene: undefined},
                 // ...vns.map(vn => ({name: vn.path, id: vn.path, type: HookableGameType.VN, scene: vn.scene})),
-                {name: "Yuzu", id: "0", type: HookableGameType.None, isHeader: true, scene: undefined},
-                ...yuzuGames.map(game => ({name: game.name, id: game.id, type: HookableGameType.Yuzu, scene: game.scene}))
+                {
+                    name: 'Yuzu',
+                    id: '0',
+                    type: HookableGameType.None,
+                    isHeader: true,
+                    scene: undefined,
+                },
+                ...yuzuGames.map((game) => ({
+                    name: game.name,
+                    id: game.id,
+                    type: HookableGameType.Yuzu,
+                    scene: game.scene,
+                })),
             ];
-
 
             return state || null;
         } catch (error) {
@@ -57,7 +78,7 @@ export function registerFrontPageIPC() {
         }
     });
 
-// Get all OCR configs
+    // Get all OCR configs
     ipcMain.handle('front.getAllOCRConfigs', async () => {
         return await getAllOCRConfigs();
     });
@@ -66,19 +87,48 @@ export function registerFrontPageIPC() {
         const { shell } = await import('electron');
         await shell.openExternal(url);
     });
-}
 
+    let overlayProcess: any = null;
+
+    ipcMain.handle('runOverlay', async () => {
+        if (overlayProcess && overlayProcess.exitCode === null) {
+            console.log('Overlay is already running.');
+            return;
+        }
+        // if (isDev) {
+        //     const { spawn } = await import('child_process');
+        //     console.log(path.join(getResourcesDir(), 'GSM_Overlay'))
+        //     const overlayDir = path.join(getResourcesDir(), 'GSM_Overlay');
+        //     if (!fs.existsSync(overlayDir)) {
+        //         console.error('Overlay directory does not exist:', overlayDir);
+        //         return;
+        //     }
+        //     overlayProcess = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'start'], { detached: false, stdio: ['ignore', 'ignore', 'ignore'], cwd: overlayDir });
+        // } else {
+        const overlayPath = path.join(getOverlayPath(), 'overlay.exe');
+        if (fs.existsSync(overlayPath)) {
+            const { spawn } = await import('child_process');
+            overlayProcess = spawn(overlayPath, [], { detached: false, stdio: 'ignore' });
+            console.log('Overlay launched successfully.');
+        } else {
+            console.error('Overlay executable not found at:', overlayPath);
+        }
+        // }
+    });
+}
 
 async function getAllOCRConfigs(): Promise<OCRGame[]> {
     // try {
     await getOBSConnection();
     const scenes = await getOBSScenes();
-    return scenes.filter(scene => fs.existsSync(getSceneOCRConfig(scene))).map(scene => {
-        return {
-            scene: scene,
-            configPath: getSceneOCRConfig(scene)
-        } as OCRGame;
-    })
+    return scenes
+        .filter((scene) => fs.existsSync(getSceneOCRConfig(scene)))
+        .map((scene) => {
+            return {
+                scene: scene,
+                configPath: getSceneOCRConfig(scene),
+            } as OCRGame;
+        });
     //     const files = await fs.promises.readdir(OCR_CONFIG_DIR);
     //
     //     const configs = await Promise.all(

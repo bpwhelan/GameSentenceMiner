@@ -111,10 +111,16 @@ class SceneListResponse:
 
 @dataclass_json
 @dataclass
+class AnkiField:
+    value: str
+    order: int
+
+@dataclass_json
+@dataclass
 class AnkiCard:
     noteId: int
     tags: list[str]
-    fields: dict[str, dict[str, str]]
+    fields: dict[str, AnkiField]
     cards: list[int]
     alternatives = {
         "word_field": ["Front", "Word", "TargetWord", "Expression"],
@@ -125,7 +131,7 @@ class AnkiCard:
 
     def get_field(self, field_name: str) -> str:
         if self.has_field(field_name):
-            return self.fields[field_name]['value']
+            return self.fields[field_name].value
         else:
             raise ValueError(f"Field '{field_name}' not found in AnkiCard. Please make sure your Anki Field Settings in GSM Match your fields in your Anki Note!")
 

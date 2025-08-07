@@ -505,6 +505,18 @@
             "label": "Groq APIキー:",
             "tooltip": "Groq AIプロバイダーのAPIキー。"
           },
+          "openai_model": {
+            "label": "OpenAIモデル:",
+            "tooltip": "使用するOpenAIモデルを選択。"
+          },
+          "openai_apikey": {
+            "label": "OpenAI APIキー:",
+            "tooltip": "OpenAIプロバイダーのAPIキー。"
+          },
+          "openai_url": {
+            "label": "OpenAI API URL:",
+            "tooltip": "OpenAI APIのカスタムURL。デフォルトを使用するには空白のままにします。"
+          },
           "local_model": {
             "label": "ローカルAIモデル:",
             "tooltip": "使用するローカルAIモデル。基本的な翻訳のみ対応。"
@@ -530,23 +542,21 @@
             "tooltip": "AI処理用のカスタムプロンプト。"
           }
         },
+        "overlay": {
+          "websocket_port": {
+            "label": "オーバーレイWebSocketポート:",
+            "tooltip": "実験的なオーバーレイ機能用のWebSocketポート。"
+          },
+          "overlay_monitor": {
+            "label": "キャプチャ対象モニター:",
+            "tooltip": "キャプチャするモニターを選択（1から始まるインデックス）。",
+            "not_detected": "OwOCRが検出されません"
+          }
+        },
         "wip": {
           "title": "WIP",
           "warning_experimental": "警告：これらの機能は実験的なものであり、期待通りに動作しない可能性があります。",
           "warning_overlay_deps": "オーバーレイ機能にはOwOCRの依存関係と外部アプリの実行が必要です。",
-          "overlay_port": {
-            "label": "オーバーレイWebSocketポート:",
-            "tooltip": "実験的なオーバーレイ機能用のWebSocketポート。"
-          },
-          "overlay_send": {
-            "label": "オーバーレイWebSocket送信:",
-            "tooltip": "WebSocketでオーバーレイデータを送信します（実験的）。"
-          },
-          "monitor_capture": {
-            "label": "キャプチャ対象モニター:",
-            "tooltip": "キャプチャするモニターを選択（1から始まるインデックス）。",
-            "not_detected": "OwOCRが検出されません"
-          },
           "error_setup": "WIPタブの設定中にエラーが発生しました"
         }
       },

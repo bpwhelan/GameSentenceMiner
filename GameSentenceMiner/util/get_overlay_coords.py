@@ -1,0 +1,324 @@
+import asyncio
+import io
+import base64
+import math
+import os
+import time
+from PIL import Image
+from typing import Dict, Any, List, Tuple
+
+# Local application imports
+from GameSentenceMiner.util.configuration import get_config
+from GameSentenceMiner.util.electron_config import get_ocr_language
+from GameSentenceMiner.obs import get_screenshot_PIL, logger
+from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
+
+# Conditionally import OCR engines
+try:
+    from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, OneOCR, get_regex
+except ImportError:
+    GoogleLens, OneOCR, get_regex = None, None, None
+
+# Conditionally import screenshot library
+try:
+    import mss
+except ImportError:
+    mss = None
+
+class OverlayProcessor:
+    """
+    Handles the entire overlay process from screen capture to text extraction.
+
+    This class encapsulates the logic for taking screenshots, identifying text
+    regions, performing OCR, and processing the results into a structured format
+    with pixel coordinates.
+    """
+
+    def __init__(self):
+        """Initializes the OCR engines and configuration."""
+        self.config = get_config()
+        self.oneocr = None
+        self.lens = None
+        self.regex = None
+
+        if self.config.overlay.websocket_port and all([GoogleLens, OneOCR, get_regex]):
+            logger.info("Initializing OCR engines...")
+            self.oneocr = OneOCR(lang=get_ocr_language())
+            self.lens = GoogleLens(lang=get_ocr_language())
+            self.ocr_language = get_ocr_language()
+            self.regex = get_regex(self.ocr_language)
+            logger.info("OCR engines initialized.")
+        else:
+            logger.warning("OCR dependencies not found or websocket port not configured. OCR functionality will be disabled.")
+            
+        if not mss:
+            logger.warning("MSS library not found. Screenshot functionality may be limited.")
+            
+    async def find_box_and_send_to_overlay(self, sentence_to_check: str = None):
+        """
+        Sends the detected text boxes to the overlay via WebSocket.
+        """
+        boxes = await self.find_box_for_sentence(sentence_to_check)
+        logger.info(f"Sending {len(boxes)} boxes to overlay.")
+        await send_word_coordinates_to_overlay(boxes)
+
+    async def find_box_for_sentence(self, sentence_to_check: str = None) -> List[Dict[str, Any]]:
+        """
+        Public method to perform OCR and find text boxes for a given sentence.
+        
+        This is a wrapper around the main work-horse method, providing
+        error handling.
+        """
+        try:
+            return await self._do_work(sentence_to_check)
+        except Exception as e:
+            logger.error(f"Error during OCR processing: {e}", exc_info=True)
+            return []
+
+    def _get_full_screenshot(self) -> Tuple[Image.Image | None, int, int]:
+        """Captures a screenshot of the configured monitor."""
+        if not mss:
+            raise RuntimeError("MSS screenshot library is not installed.")
+        
+        with mss.mss() as sct:
+            monitors = sct.monitors
+            # Index 0 is the 'all monitors' virtual screen, so we skip it.
+            monitor_list = monitors[1:] if len(monitors) > 1 else [monitors[0]]
+            
+            monitor_index = self.config.overlay.monitor_to_capture
+            if monitor_index >= len(monitor_list):
+                logger.error(f"Monitor index {monitor_index} is out of bounds. Found {len(monitor_list)} monitors.")
+                return None, 0, 0
+                
+            monitor = monitor_list[monitor_index]
+            sct_img = sct.grab(monitor)
+            img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+            
+            return img, monitor['width'], monitor['height']
+
+    def _create_composite_image(
+        self, 
+        full_screenshot: Image.Image,
+        crop_coords_list: List[Tuple[int, int, int, int]],
+        monitor_width: int,
+        monitor_height: int
+    ) -> Image.Image:
+        """
+        Creates a new image by pasting cropped text regions onto a transparent background.
+        This isolates text for more accurate secondary OCR.
+        """
+        if not crop_coords_list:
+            return full_screenshot
+
+        # Create a transparent canvas
+        composite_img = Image.new("RGBA", (monitor_width, monitor_height), (0, 0, 0, 0))
+
+        for crop_coords in crop_coords_list:
+            cropped_image = full_screenshot.crop(crop_coords)
+            # Paste the cropped image onto the canvas at its original location
+            paste_x = math.floor(crop_coords[0])
+            paste_y = math.floor(crop_coords[1])
+            composite_img.paste(cropped_image, (paste_x, paste_y))
+        
+        return composite_img
+
+    async def _do_work(self, sentence_to_check: str = None) -> Tuple[List[Dict[str, Any]], int]:
+        """The main OCR workflow."""
+        if not self.oneocr or not self.lens:
+            raise RuntimeError("OCR engines are not initialized. Cannot perform OCR.")
+
+        # 1. Get screenshot
+        full_screenshot, monitor_width, monitor_height = self._get_full_screenshot()
+        if not full_screenshot:
+            logger.warning("Failed to get a screenshot.")
+            return []
+
+        # 2. Use OneOCR to find general text areas (fast)
+        _, _, _, crop_coords_list = self.oneocr(
+            full_screenshot,
+            return_coords=True,
+            multiple_crop_coords=True,
+            return_one_box=False,
+            furigana_filter_sensitivity=0
+        )
+
+        # 3. Create a composite image with only the detected text regions
+        composite_image = self._create_composite_image(
+            full_screenshot, 
+            crop_coords_list, 
+            monitor_width, 
+            monitor_height
+        )
+        
+        # 4. Use Google Lens on the cleaner composite image for higher accuracy
+        res, text, coords = self.lens(
+            composite_image,
+            return_coords=True,
+            furigana_filter_sensitivity=0
+        )
+        
+        if not res or not coords:
+            return []
+        
+        # 5. Process the high-accuracy results into the desired format
+        extracted_data = self._extract_text_with_pixel_boxes(
+            api_response=coords,
+            original_width=monitor_width,
+            original_height=monitor_height,
+            crop_x=0,
+            crop_y=0,
+            crop_width=composite_image.width,
+            crop_height=composite_image.height
+        )
+        
+        return extracted_data
+
+    def _extract_text_with_pixel_boxes(
+        self,
+        api_response: Dict[str, Any],
+        original_width: int,
+        original_height: int,
+        crop_x: int,
+        crop_y: int,
+        crop_width: int,
+        crop_height: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Parses Google Lens API response and converts normalized coordinates
+        to absolute pixel coordinates.
+        """
+        results = []
+        try:
+            paragraphs = api_response["objects_response"]["text"]["text_layout"]["paragraphs"]
+        except (KeyError, TypeError):
+            return []  # Return empty if the expected structure isn't present
+
+        for para in paragraphs:
+            for line in para.get("lines", []):
+                line_text_parts = []
+                word_list = []
+
+                for word in line.get("words", []):
+                    word_text = word.get("plain_text", "")
+                    line_text_parts.append(word_text)
+                    
+                    word_box = self._convert_box_to_pixels_v2(
+                        word["geometry"]["bounding_box"],
+                        crop_x, crop_y, crop_width, crop_height
+                    )
+                    
+                    word_list.append({
+                        "text": word_text,
+                        "bounding_rect": word_box
+                    })
+                
+                if not line_text_parts:
+                    continue
+                
+                full_line_text = "".join(line_text_parts)
+                line_box = self._convert_box_to_pixels_v2(
+                    line["geometry"]["bounding_box"],
+                    crop_x, crop_y, crop_width, crop_height
+                )
+
+                results.append({
+                    "text": full_line_text,
+                    "bounding_rect": line_box,
+                    "words": word_list
+                })
+        return results
+
+    def _convert_box_to_pixels_v2(
+        self,
+        bbox_data: Dict[str, float],
+        crop_x: int,
+        crop_y: int,
+        crop_width: int,
+        crop_height: int
+    ) -> Dict[str, float]:
+        """
+        Simplified conversion: scales normalized bbox to pixel coordinates within
+        the cropped region, then offsets by the crop position. Ignores rotation.
+        """
+        cx, cy = bbox_data['center_x'], bbox_data['center_y']
+        w, h = bbox_data['width'], bbox_data['height']
+
+        # Scale normalized coordinates to pixel coordinates relative to the crop area
+        box_width_px = w * crop_width
+        box_height_px = h * crop_height
+        
+        # Calculate center within the cropped area and then add the crop offset
+        center_x_px = (cx * crop_width) + crop_x
+        center_y_px = (cy * crop_height) + crop_y
+
+        # Calculate corners (unrotated)
+        half_w_px, half_h_px = box_width_px / 2, box_height_px / 2
+        return {
+            "x1": center_x_px - half_w_px, "y1": center_y_px - half_h_px,
+            "x2": center_x_px + half_w_px, "y2": center_y_px - half_h_px,
+            "x3": center_x_px + half_w_px, "y3": center_y_px + half_h_px,
+            "x4": center_x_px - half_w_px, "y4": center_y_px + half_h_px,
+        }
+
+async def main_test_screenshot():
+    """
+    A test function to demonstrate screenshot and image composition.
+    This is preserved from your original __main__ block.
+    """
+    processor = OverlayProcessor()
+    
+    # Use the class method to get the screenshot
+    img, monitor_width, monitor_height = processor._get_full_screenshot()
+    if not img:
+        logger.error("Could not get screenshot for test.")
+        return
+        
+    img.show()
+    
+    # Create a transparent image with the same size as the monitor
+    new_img = Image.new("RGBA", (monitor_width, monitor_height), (0, 0, 0, 0))
+    
+    # Calculate coordinates to center the captured image (if it's not full-screen)
+    left = (monitor_width - img.width) // 2
+    top = (monitor_height - img.height) // 2
+    
+    print(f"Image size: {img.size}, Monitor size: {monitor_width}x{monitor_height}")
+    print(f"Pasting at: Left={left}, Top={top}")
+    
+    new_img.paste(img, (left, top))
+    new_img.show()
+
+async def main_run_ocr():
+    """
+    Main function to demonstrate running the full OCR process.
+    """
+    processor = OverlayProcessor()
+    results, _ = await processor.find_box_for_sentence()
+    if results:
+        import json
+        print("OCR process completed successfully.")
+        # print(json.dumps(results, indent=2, ensure_ascii=False))
+        # Find first result with some text
+        for result in results:
+            if result.get("text"):
+                print(f"Found line: '{result['text']}'")
+                print(f"  - Line BBox: {result['bounding_rect']}")
+                if result.get("words"):
+                    print(f"  - First word: '{result['words'][0]['text']}' BBox: {result['words'][0]['bounding_rect']}")
+                break
+    else:
+        print("OCR process did not find any text.")
+
+
+if __name__ == '__main__':
+    try:
+        # To run the screenshot test:
+        # asyncio.run(main_test_screenshot())
+        
+        # To run the full OCR process:
+        asyncio.run(main_run_ocr())
+
+    except KeyboardInterrupt:
+        logger.info("Script terminated by user.")
+    except Exception as e:
+        logger.error(f"An error occurred in the main execution block: {e}", exc_info=True)

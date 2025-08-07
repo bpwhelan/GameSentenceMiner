@@ -116,6 +116,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 if get_config().features.backfill_audio:
                     last_note = anki.get_cards_by_sentence(
                         gametext.current_line_after_regex)
+                    
+            note, last_note = anki.get_initial_card_info(last_note, selected_lines)
+            tango = last_note.get_field(
+                get_config().anki.word_field) if last_note else ''
 
             # Get Info of line mined
             line_cutoff = None
@@ -145,9 +149,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
             if last_note:
                 logger.debug(last_note.to_json())
-            note = anki.get_initial_card_info(last_note, selected_lines)
-            tango = last_note.get_field(
-                get_config().anki.word_field) if last_note else ''
 
             if get_config().anki.sentence_audio_field and get_config().audio.enabled:
                 logger.debug("Attempting to get audio from video")
@@ -633,7 +634,7 @@ async def register_scene_switcher_callback():
 
 
 async def run_test_code():
-    if get_config().wip.overlay_websocket_port and get_config().wip.overlay_websocket_send:
+    if get_config().overlay.websocket_port:
         boxes = await gametext.find_box_for_sentence("ちぇっ少しなの？")
         if boxes:
             await texthooking_page.send_word_coordinates_to_overlay(boxes)

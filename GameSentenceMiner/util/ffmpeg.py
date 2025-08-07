@@ -39,16 +39,11 @@ def call_frame_extractor(video_path, timestamp):
         str: The path of the selected image, or None on error.
     """
     try:
-        # Get the directory of the current script
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        # Construct the path to the frame extractor script
-        script_path = os.path.join(current_dir, "ss_selector.py")  # Replace with the actual script name if different
-
-        logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.util.ss_selector", video_path, str(timestamp)]))
+        logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp)]))
 
         # Run the script using subprocess.run()
         result = subprocess.run(
-            [sys.executable, "-m", "GameSentenceMiner.util.ss_selector", video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting],  # Use sys.executable
+            [sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting],  # Use sys.executable
             capture_output=True,
             text=True,  # Get output as text
             check=False  # Raise an exception for non-zero exit codes
@@ -64,9 +59,6 @@ def call_frame_extractor(video_path, timestamp):
     except subprocess.CalledProcessError as e:
         logger.error(f"Error calling script: {e}")
         logger.error(f"Script output (stderr): {e.stderr.strip()}")
-        return None
-    except FileNotFoundError:
-        logger.error(f"Error: Script not found at {script_path}.  Make sure the script name is correct.")
         return None
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")

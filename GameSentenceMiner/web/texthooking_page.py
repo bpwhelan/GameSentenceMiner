@@ -523,7 +523,7 @@ if get_config().advanced.plaintext_websocket_port:
     plaintext_websocket_server_thread.start()
 
 overlay_server_thread = WebsocketServerThread(
-    read=False, get_ws_port_func=lambda: get_config().get_field_value('wip', 'overlay_websocket_port'))
+    read=False, get_ws_port_func=lambda: get_config().get_field_value('overlay', 'websocket_port'))
 overlay_server_thread.start()
 
 websocket_server_threads = [

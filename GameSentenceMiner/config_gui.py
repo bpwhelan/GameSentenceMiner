@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 import subprocess
 import time
@@ -12,12 +13,18 @@ from GameSentenceMiner import obs
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.db import AIModelsTable
 from GameSentenceMiner.util.downloader.download_tools import download_ocenaudio_if_needed
-from GameSentenceMiner.util.package import get_current_version, get_latest_version
-
+    
 settings_saved = False
 on_save = []
 exit_func = None
+RECOMMENDED_GROQ_MODELS = ['meta-llama/llama-4-maverick-17b-128e-instruct',
+                        'meta-llama/llama-4-scout-17b-16e-instruct',
+                        'llama-3.1-8b-instant', 
+                        'qwen/qwen3-32b',
+                        'openai/gpt-oss-120b']
+RECOMMENDED_GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemma-3-27b-it"]
 
 
 # It's assumed that a file named 'en_us.json' exists in the same directory
@@ -167,6 +174,7 @@ class ConfigApp:
         self.profiles_tab = None
         self.ai_tab = None
         self.advanced_tab = None
+        self.overlay_tab = None
         self.wip_tab = None
         self.monitors = []
         
@@ -346,15 +354,17 @@ class ConfigApp:
         self.groq_model_value = tk.StringVar(value=self.settings.ai.groq_model)
         self.gemini_api_key_value = tk.StringVar(value=self.settings.ai.gemini_api_key)
         self.groq_api_key_value = tk.StringVar(value=self.settings.ai.groq_api_key)
-        self.local_ai_model_value = tk.StringVar(value=self.settings.ai.local_model)
+        self.open_ai_api_key_value = tk.StringVar(value=self.settings.ai.open_ai_api_key)
+        self.open_ai_model_value = tk.StringVar(value=self.settings.ai.open_ai_model)
+        self.open_ai_url_value = tk.StringVar(value=self.settings.ai.open_ai_url)
         self.ai_anki_field_value = tk.StringVar(value=self.settings.ai.anki_field)
         self.use_canned_translation_prompt_value = tk.BooleanVar(value=self.settings.ai.use_canned_translation_prompt)
         self.use_canned_context_prompt_value = tk.BooleanVar(value=self.settings.ai.use_canned_context_prompt)
         self.ai_dialogue_context_length_value = tk.StringVar(value=str(self.settings.ai.dialogue_context_length))
         
         # WIP Settings
-        self.overlay_websocket_port_value = tk.StringVar(value=str(self.settings.wip.overlay_websocket_port))
-        self.overlay_websocket_send_value = tk.BooleanVar(value=self.settings.wip.overlay_websocket_send)
+        self.overlay_websocket_port_value = tk.StringVar(value=str(self.settings.overlay.websocket_port))
+        self.overlay_websocket_send_value = tk.BooleanVar(value=self.settings.overlay.monitor_to_capture)
         
         # Master Config Settings
         self.switch_to_default_if_not_found_value = tk.BooleanVar(value=self.master_config.switch_to_default_if_not_found)
@@ -374,7 +384,8 @@ class ConfigApp:
         self.create_profiles_tab()
         self.create_ai_tab()
         self.create_advanced_tab()
-        self.create_wip_tab()
+        self.create_overlay_tab()
+        # self.create_wip_tab()
 
     def add_reset_button(self, frame, category, row, column=0, recreate_tab=None):
         """
@@ -568,18 +579,24 @@ class ConfigApp:
                 gemini_api_key=self.gemini_api_key_value.get(),
                 api_key=self.gemini_api_key_value.get(),
                 groq_api_key=self.groq_api_key_value.get(),
-                local_model=self.local_ai_model_value.get(),
                 anki_field=self.ai_anki_field_value.get(),
+                open_ai_api_key=self.open_ai_api_key_value.get(),
+                open_ai_model=self.open_ai_model_value.get(),
+                open_ai_url=self.open_ai_url_value.get(),
                 use_canned_translation_prompt=self.use_canned_translation_prompt_value.get(),
                 use_canned_context_prompt=self.use_canned_context_prompt_value.get(),
                 custom_prompt=self.custom_prompt.get("1.0", tk.END).strip(),
                 dialogue_context_length=int(self.ai_dialogue_context_length_value.get()),
             ),
-            wip=WIP(
-                overlay_websocket_port=int(self.overlay_websocket_port_value.get()),
-                overlay_websocket_send=self.overlay_websocket_send_value.get(),
-                monitor_to_capture=self.monitor_to_capture.current() if self.monitors else 0
+            overlay=Overlay(
+                websocket_port=int(self.overlay_websocket_port_value.get()),
+                monitor_to_capture=self.overlay_monitor.current() if self.monitors else 0
             )
+            # wip=WIP(
+            #     overlay_websocket_port=int(self.overlay_websocket_port_value.get()),
+            #     overlay_websocket_send=self.overlay_websocket_send_value.get(),
+            #     monitor_to_capture=self.monitor_to_capture.current() if self.monitors else 0
+            # )
         )
 
         # Find the display name for "Custom" to check against
@@ -1552,14 +1569,12 @@ class ConfigApp:
     def call_audio_offset_selector(self):
         try:
             path, beginning_offset, end_offset = gsm_state.previous_trim_args
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            script_path = os.path.join(current_dir, "audio_offset_selector.py")
 
-            logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.util.audio_offset_selector",
+            logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.tools.audio_offset_selector",
                                   "--path", path, "--beginning_offset", str(beginning_offset), "--end_offset", str(end_offset)]))
 
             result = subprocess.run(
-                [sys.executable, "-m", "GameSentenceMiner.util.audio_offset_selector",
+                [sys.executable, "-m", "GameSentenceMiner.tools.audio_offset_selector",
                  "--path", path, "--beginning_offset", str(beginning_offset), "--end_offset", str(end_offset)],
                 capture_output=True, text=True, check=False
             )
@@ -1577,9 +1592,6 @@ class ConfigApp:
 
         except subprocess.CalledProcessError as e:
             logger.error(f"Error calling script: {e}\nStderr: {e.stderr.strip()}")
-            return None
-        except FileNotFoundError:
-            logger.error(f"Error: Script not found at {script_path}.")
             return None
         except Exception as e:
             logger.error(f"An unexpected error occurred: {e}")
@@ -1867,13 +1879,15 @@ class ConfigApp:
         provider_i18n = ai_i18n.get('provider', {})
         HoverInfoLabelWidget(ai_frame, text=provider_i18n.get('label', '...'), tooltip=provider_i18n.get('tooltip', '...'), row=self.current_row,
                              column=0)
-        ttk.Combobox(ai_frame, textvariable=self.ai_provider_value, values=[AI_GEMINI, AI_GROQ, AI_LOCAL], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Combobox(ai_frame, textvariable=self.ai_provider_value, values=[AI_GEMINI, AI_GROQ, AI_OPENAI], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         gemini_model_i18n = ai_i18n.get('gemini_model', {})
         HoverInfoLabelWidget(ai_frame, text=gemini_model_i18n.get('label', '...'), tooltip=gemini_model_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        ttk.Combobox(ai_frame, textvariable=self.gemini_model_value, values=['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemma-3-27b-it', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
+
+        self.gemini_model_combobox = ttk.Combobox(ai_frame, textvariable=self.gemini_model_value, values=RECOMMENDED_GEMINI_MODELS, state="readonly")
+        self.gemini_model_combobox.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         gemini_key_i18n = ai_i18n.get('gemini_api_key', {})
@@ -1886,21 +1900,42 @@ class ConfigApp:
         groq_model_i18n = ai_i18n.get('groq_model', {})
         HoverInfoLabelWidget(ai_frame, text=groq_model_i18n.get('label', '...'), tooltip=groq_model_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        ttk.Combobox(ai_frame, textvariable=self.groq_model_value, values=['meta-llama/llama-4-maverick-17b-128e-instruct',
-                                                         'meta-llama/llama-4-scout-17b-16e-instruct',
-                                                         'llama-3.1-8b-instant'], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.groq_models_combobox = ttk.Combobox(ai_frame, textvariable=self.groq_model_value, values=RECOMMENDED_GROQ_MODELS, state="readonly")
+        self.groq_models_combobox.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
-
+        
+        self.get_online_models()
+        
         groq_key_i18n = ai_i18n.get('groq_api_key', {})
         HoverInfoLabelWidget(ai_frame, text=groq_key_i18n.get('label', '...'), tooltip=groq_key_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
-        ttk.Entry(ai_frame, show="*", textvariable=self.groq_api_key_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        groq_apikey_entry = ttk.Entry(ai_frame, show="*", textvariable=self.groq_api_key_value)
+        groq_apikey_entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        groq_apikey_entry.bind("<FocusOut>", lambda e, row=self.current_row: self.get_online_models())
+        groq_apikey_entry.bind("<Return>", lambda e, row=self.current_row: self.get_online_models())
         self.current_row += 1
+        
+        
+        
+        openai_url_i18n = ai_i18n.get('openai_url', {})
+        HoverInfoLabelWidget(ai_frame, text=openai_url_i18n.get('label', '...'), tooltip=openai_url_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        entry = ttk.Entry(ai_frame, textvariable=self.open_ai_url_value)
+        entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+        
+        entry.bind("<FocusOut>", lambda e, row=self.current_row: self.update_models_element(ai_frame, row))
+        entry.bind("<Return>", lambda e, row=self.current_row: self.update_models_element(ai_frame, row))
 
-        local_model_i18n = ai_i18n.get('local_model', {})
-        HoverInfoLabelWidget(ai_frame, text=local_model_i18n.get('label', '...'), tooltip=local_model_i18n.get('tooltip', '...'),
-                             foreground="red", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
-        ttk.Combobox(ai_frame, textvariable=self.local_ai_model_value, values=[OFF, 'facebook/nllb-200-distilled-600M', 'facebook/nllb-200-1.3B', 'facebook/nllb-200-3.3B']).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.openai_model_options = []
+        self.update_models_element(ai_frame, self.current_row)
+        self.current_row += 1
+            
+        
+        openai_key_i18n = ai_i18n.get('openai_apikey', {})
+        HoverInfoLabelWidget(ai_frame, text=openai_key_i18n.get('label', '...'), tooltip=openai_key_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Entry(ai_frame, show="*", textvariable=self.open_ai_api_key_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         anki_field_i18n = ai_i18n.get('anki_field', {})
@@ -1946,6 +1981,137 @@ class ConfigApp:
 
         return ai_frame
     
+    
+    def get_online_models(self):
+        ai_models = AIModelsTable.one()
+
+        def get_models_thread():
+            groq_models = get_groq_models()
+            gemini_models = get_gemini_models()
+            AIModelsTable.update_models(gemini_models, groq_models)
+
+        def get_groq_models():
+            list_of_groq_models = ["RECOMMENDED"] + RECOMMENDED_GROQ_MODELS + ['OTHER']
+            try:
+                from groq import Groq
+                client = Groq(api_key=self.settings.ai.groq_api_key)
+                models = client.models.list()
+                for m in models.data:
+                    if not m.active:
+                        continue
+                    name = m.id
+                    if name not in list_of_groq_models and not any(x in name for x in ["guard", "tts", "whisper"]):
+                        list_of_groq_models.append(name)
+            except Exception as e:
+                print(f"Error occurred while fetching Groq models: {e}")
+                list_of_groq_models = RECOMMENDED_GROQ_MODELS
+            with open(os.path.join(get_app_directory(), "ai_last_groq_models"), "w") as f:
+                f.write("\n".join(list_of_groq_models))
+            self.groq_models_combobox['values'] = list_of_groq_models
+            return list_of_groq_models
+            
+        def get_gemini_models():
+            full_list_of_models = ["RECOMMENDED"] + RECOMMENDED_GEMINI_MODELS + ["OTHER"]
+            try:
+                from google import genai
+                    
+                client = genai.Client()
+                for m in client.models.list():
+                    name = m.name.replace("models/", "")
+                    for action in m.supported_actions:
+                        if action == "generateContent":
+                            if "1.5" not in name:
+                                if "2.0" in name and any(x in name for x in ["exp", "preview", "001"]):
+                                    continue
+                                if name not in full_list_of_models:
+                                    full_list_of_models.append(name)
+            except Exception as e:
+                print(f"Error occurred while fetching models: {e}")
+                full_list_of_models = RECOMMENDED_GEMINI_MODELS
+            self.gemini_model_combobox['values'] = full_list_of_models
+            return full_list_of_models
+        
+        if ai_models and ai_models.gemini_models and ai_models.groq_models:
+            if time.time() - ai_models.last_updated > 3600 * 6:
+                print("AI models are outdated, fetching new ones.")
+                threading.Thread(target=get_models_thread, daemon=True).start()
+            self.gemini_model_combobox['values'] = ai_models.gemini_models
+            self.groq_models_combobox['values'] = ai_models.groq_models
+        else:
+            print("No AI models found, fetching new ones.")
+            threading.Thread(target=get_models_thread, daemon=True).start()
+    
+    def update_models_element(self, frame, row):
+        if hasattr(self, 'last_url') and self.last_url == self.open_ai_url_value.get().strip():
+            print("OpenAI URL unchanged, skipping model update.")
+            return
+        self.last_url = self.open_ai_url_value.get().strip()
+        if self.open_ai_url_value.get().strip() != "" and any(c in self.open_ai_url_value.get() for c in ["localhost", "127.0.0.1"]):
+            import openai
+            # get models from openai compatible url
+            client = openai.Client(api_key=self.settings.ai.open_ai_api_key, base_url=self.open_ai_url_value.get().strip())
+            try:
+                models = client.models.list()
+                if models:
+                    self.openai_model_options = [model.id for model in models.data]
+                else:
+                    self.openai_model_options = []
+            except Exception as e:
+                self.openai_model_options = []
+        for widget in frame.grid_slaves(row=row, column=0):
+            widget.destroy()
+                
+        ai_i18n = self.i18n.get('tabs', {}).get('ai', {})
+        openai_model_i18n = ai_i18n.get('openai_model', {})
+        HoverInfoLabelWidget(frame, text=openai_model_i18n.get('label', '...'), tooltip=openai_model_i18n.get('tooltip', '...'),
+                                row=row, column=0)
+        if not self.openai_model_options:
+            self.openai_model_combobox = ttk.Entry(frame, textvariable=self.open_ai_model_value)
+            self.openai_model_combobox.grid(row=row, column=1, sticky='EW', pady=2)
+        else:
+            self.openai_model_combobox = ttk.Combobox(frame, textvariable=self.open_ai_model_value,
+                                                     values=self.openai_model_options, state="readonly")
+            self.openai_model_combobox.grid(row=row, column=1, sticky='EW', pady=2)
+    
+    
+    # Settings for Official Overlay
+    @new_tab
+    def create_overlay_tab(self):
+        if self.overlay_tab is None:
+            overlay_i18n = self.i18n.get('tabs', {}).get('overlay', {})
+            self.overlay_tab = ttk.Frame(self.notebook, padding=15)
+            self.notebook.add(self.overlay_tab, text=overlay_i18n.get('title', 'Overlay'))
+        else:
+            for widget in self.overlay_tab.winfo_children():
+                widget.destroy()
+                
+        overlay_frame = self.overlay_tab
+        overlay_i18n = self.i18n.get('tabs', {}).get('overlay', {})
+        websocket_port_i18n = overlay_i18n.get('websocket_port', {})
+        HoverInfoLabelWidget(overlay_frame, text=websocket_port_i18n.get('label', '...'),
+                             tooltip=websocket_port_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Entry(overlay_frame, textvariable=self.overlay_websocket_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+        
+        overlay_monitor_i18n = overlay_i18n.get('overlay_monitor', {})
+        HoverInfoLabelWidget(overlay_frame, text=overlay_monitor_i18n.get('label', '...'),
+                             tooltip=overlay_monitor_i18n.get('tooltip', '...'),
+                                row=self.current_row, column=0)
+        self.overlay_monitor = ttk.Combobox(overlay_frame, values=self.monitors, state="readonly")
+        self.overlay_monitor.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+        
+        if self.monitors:
+            # Ensure the index is valid
+            monitor_index = self.settings.overlay.monitor_to_capture
+            if 0 <= monitor_index < len(self.monitors):
+                self.overlay_monitor.current(monitor_index)
+            else:
+                self.overlay_monitor.current(0)
+        
+        self.add_reset_button(overlay_frame, "overlay", self.current_row, 0, self.create_overlay_tab)
+
     @new_tab
     def create_wip_tab(self):
         if self.wip_tab is None:
@@ -1992,7 +2158,7 @@ class ConfigApp:
             
             if self.monitors:
                 # Ensure the index is valid
-                monitor_index = self.settings.wip.monitor_to_capture
+                monitor_index = self.settings.overlay.monitor_to_capture
                 if 0 <= monitor_index < len(self.monitors):
                     self.monitor_to_capture.current(monitor_index)
                 else:

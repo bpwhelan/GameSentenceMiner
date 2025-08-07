@@ -11,6 +11,7 @@ from requests import post
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
+from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.gsm_utils import make_unique, sanitize_filename, wait_for_stable_file, remove_html_and_cloze_tags, combine_dialogue, \
     run_new_thread, open_audio_in_external
 from GameSentenceMiner.util import ffmpeg, notification
@@ -69,10 +70,19 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
     prev_screenshot_html = f"<img src=\"{prev_screenshot_in_anki}\">"
     
     
+    # Vars for DB update
+    new_audio_path = ''
+    new_screenshot_path = ''
+    new_prev_screenshot_path = ''
+    new_video_path = ''
+    translation = ''
+    anki_audio_path = ''
+    anki_screenshot_path = ''
     # Move files to output folder if configured
     if get_config().paths.output_folder and get_config().paths.copy_temp_files_to_output_folder:
         word_path = os.path.join(get_config().paths.output_folder, sanitize_filename(tango))
         os.makedirs(word_path, exist_ok=True)
+        
         if audio_path:
             audio_filename = Path(audio_path).name
             new_audio_path = os.path.join(word_path, audio_filename)
@@ -94,6 +104,10 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
             new_video_path = os.path.join(word_path, Path(trimmed_video).name)
             if os.path.exists(trimmed_video):
                 shutil.copy(trimmed_video, new_video_path)
+                
+    if get_config().audio.anki_media_collection:
+        anki_audio_path = os.path.join(get_config().audio.anki_media_collection, audio_in_anki)
+        anki_screenshot_path = os.path.join(get_config().audio.anki_media_collection, screenshot_in_anki)
 
         # Open to word_path if configured
         if get_config().paths.open_output_folder_on_card_creation:
@@ -146,7 +160,8 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
     if tags:
         tag_string = " ".join(tags)
         invoke("addTags", tags=tag_string, notes=[last_note.noteId])
-
+        
+    # Update GameLine in DB
 
     logger.info(f"Adding {game_line.id} to Anki Results Dict...")
     if not reuse_audio:
@@ -160,6 +175,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         )
 
     run_new_thread(lambda: check_and_update_note(last_note, note, tags))
+    GameLinesTable.update(line_id=game_line.id, screenshot_path=new_screenshot_path, audio_path=new_audio_path, replay_path=new_video_path, audio_in_anki=anki_audio_path, screenshot_in_anki=anki_screenshot_path, translation=translation)
 
 def check_and_update_note(last_note, note, tags=[]):
     selected_notes = invoke("guiSelectedNotes")
@@ -196,18 +212,43 @@ def add_image_to_card(last_note: AnkiCard, image_path):
     run_new_thread(lambda: check_and_update_note(last_note, note))
 
     logger.info(f"UPDATED IMAGE FOR ANKI CARD {last_note.noteId}")
+    
+    
+    
+# Go through every field in the note and fix whitespace issues
+# the issues being, a ton of new lines randomly, nothing else
+def fix_overlay_whitespace(last_note: AnkiCard, note, lines=None):
+    for field in last_note.fields:
+        if not last_note.fields[field]:
+            continue
+        text = last_note.get_field(field)
+        # Count occurrences of excessive whitespace patterns using regex
+        whitespace_patterns = [
+            r'(\r?\n){3,}',      # 3 or more consecutive newlines
+            r'(\r){3,}',         # 3 or more consecutive carriage returns
+            r'(\n\r\n){2,}',     # 2 or more consecutive \n\r\n
+            r'(\r\n\r){2,}',     # 2 or more consecutive \r\n\r
+            r'(<br>\s*){3,}'     # 3 or more consecutive <br>
+        ]
+        for pattern in whitespace_patterns:
+            if re.search(pattern, text):
+                fixed_text = re.sub(pattern, '', text)
+                note['fields'][field] = fixed_text
+                last_note.fields[field].value = fixed_text
+                break
+    return note, last_note
 
 
 def get_initial_card_info(last_note: AnkiCard, selected_lines):
     note = {'id': last_note.noteId, 'fields': {}}
     if not last_note:
-        return note
+        return note, last_note
+    note, last_note = fix_overlay_whitespace(last_note, note, selected_lines)
     game_line = get_text_event(last_note)
     sentences = []
     sentences_text = ''
     
-    # TODO: REMOVE THIS, I DON'T THINK IT'S NEEDED
-    if get_config().wip.overlay_websocket_send:
+    if get_config().overlay.websocket_port and texthooking_page.overlay_server_thread.has_clients():
         sentence_in_anki = last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
         if lines_match(game_line.text, remove_html_and_cloze_tags(sentence_in_anki)):
             logger.info("Found matching line in Anki, Preserving HTML and fix spacing!")
@@ -274,7 +315,7 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines):
             note['fields'][get_config().anki.previous_sentence_field] = selected_lines[0].prev.text
         else:
             note['fields'][get_config().anki.previous_sentence_field] = game_line.prev.text
-    return note
+    return note, last_note
 
 
 def store_media_file(path):
@@ -404,7 +445,8 @@ def update_card_from_same_sentence(last_card, lines, game_line):
         time.sleep(0.5)
     anki_result = anki_results[game_line.id]
     if anki_result.success:
-        update_anki_card(last_card, note=get_initial_card_info(last_card, lines),
+        note, last_card = get_initial_card_info(last_card, lines)
+        update_anki_card(last_card, note=note,
                          game_line=get_mined_line(last_card, lines), reuse_audio=True)
     else:
         logger.error(f"Anki update failed for card {last_card.noteId}")

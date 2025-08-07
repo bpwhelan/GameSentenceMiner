@@ -1,6 +1,7 @@
 import logging
 import textwrap
 import time
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
@@ -28,7 +29,7 @@ Translate ONLY the single line of game dialogue specified below into natural-sou
 **Output Requirements:**
 - Provide only the single, best {get_config().general.get_native_language_name()} translation.
 - Use expletives if they are natural for the context and enhance the translation's impact, but do not over-exaggerate.
-- Preserve or add HTML tags (e.g., `<i>`, `<b>`) if appropriate for emphasis.
+- Preserve all HTML tags present in the original text on their corresponding words in the translation.
 - Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line.
 
 **Line to Translate:**
@@ -45,7 +46,7 @@ Current Sentence:
 class AIType(Enum):
     GEMINI = "Gemini"
     GROQ = "Groq"
-    LOCAL = "Local"
+    OPENAI = "OpenAI"
 
 @dataclass
 class AIConfig:
@@ -65,9 +66,9 @@ class GroqAiConfig(AIConfig):
         super().__init__(api_key=api_key, model=model, api_url=None, type=AIType.GROQ)
 
 @dataclass
-class LocalAIConfig(AIConfig):
-    def __init__(self, model: str = "facebook/nllb-200-distilled-600M"):
-        super().__init__(api_key="", model=model, api_url=None, type=AIType.LOCAL)
+class OpenAIAIConfig(AIConfig):
+    def __init__(self, api_key: str, model: str = "openai/gpt-oss-20b", api_url: Optional[str] = None):
+        super().__init__(api_key=api_key, model=model, api_url=api_url, type=AIType.OPENAI)
 
 
 class AIManager(ABC):
@@ -123,124 +124,62 @@ class AIManager(ABC):
         return full_prompt
 
 
-class LocalAIManager(AIManager):
-    def __init__(self, model, logger: Optional[logging.Logger] = None):
-        super().__init__(LocalAIConfig(model=model), logger)
+class OpenAIManager(AIManager):
+    def __init__(self, model, api_url, api_key, logger: Optional[logging.Logger] = None):
+        super().__init__(OpenAIAIConfig(api_key=api_key, model=model, api_url=api_url), logger)
         try:
-            import torch
-            from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM, pipeline
-
-            self.transformers_available = True
-        except (ImportError, OSError):
-            self.transformers_available = False
-        self.model_name = self.ai_config.model
-        if MANUAL_MODEL_OVERRIDE:
-            self.model_name = MANUAL_MODEL_OVERRIDE
-            self.logger.warning(f"MANUAL MODEL OVERRIDE ENABLED! Using model: {self.model_name}")
-        self.model = None
-        self.pipe = None
-        self.tokenizer = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.is_encoder_decoder = False
-        self.is_nllb = "nllb" in self.model_name.lower()
-
-        if not self.transformers_available:
-            self.logger.error("Local AI dependencies not found. Please run: pip install torch transformers sentencepiece")
-            return
-
-        if not self.model_name:
-            self.logger.error("No local model name provided in configuration.")
-            return
-
-        try:
-            self.logger.info(f"Loading local model: {self.model_name}")
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-
-            # Try to load as a Causal LM first. If it fails, assume it's a Seq2Seq model.
-            # This is a heuristic to fix the original code's bug of using Seq2Seq for all models.
-            try:
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name,
-                    torch_dtype=torch.bfloat16,
+            import openai
+            self.client = openai.OpenAI(
+                    base_url=api_url,
+                    api_key=api_key
                 )
-                # self.pipe = pipeline(
-                #     "text-generation",
-                #     model=self.model_name,
-                #     torch_dtype=torch.bfloat16,
-                #     device=self.device
-                # )
-                # print(self.pipe("Translate this sentence to English: お前は何をしている！？", return_full_text=False))
-                self.is_encoder_decoder = False
-                self.logger.info(f"Loaded {self.model_name} as a CausalLM.")
-            except (ValueError, TypeError, OSError, KeyError) as e:
-                print(e)
-                self.model = AutoModelForSeq2SeqLM.from_pretrained(
-                    self.model_name,
-                    torch_dtype=torch.bfloat16,
-                )
-                self.is_encoder_decoder = True
-                self.logger.info(f"Loaded {self.model_name} as a Seq2SeqLM.")
-            if self.device == "cuda":
-                self.model.to(self.device)
-
-
-            self.logger.info(f"Local model '{self.model_name}' loaded on {self.device}.")
+            self.model_name = model
+            if MANUAL_MODEL_OVERRIDE:
+                self.model_name = MANUAL_MODEL_OVERRIDE
+                self.logger.warning(f"MANUAL MODEL OVERRIDE ENABLED! Using model: {self.model_name}")
+            self.logger.debug(f"OpenAIManager initialized with model: {self.model_name}")
         except Exception as e:
-            self.logger.error(f"Failed to load local model '{self.model_name}': {e}", exc_info=True)
-            self.model = None
-            self.tokenizer = None
-
-        # if self.is_nllb:
-        #     self.tokenizer = NllbTokenizer().from_pretrained(self.model_name)
-
+            self.logger.error(f"Failed to initialize OpenAI API: {e}")
+            self.openai = None
+            self.model_name = None
+    
     def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str) -> str:
-        return super()._build_prompt(lines, sentence, current_line, game_title)
-
+        prompt = super()._build_prompt(lines, sentence, current_line, game_title)
+        return prompt
+    
     def process(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "") -> str:
-        if (not self.model or not self.tokenizer) and not self.pipe:
-            return "Processing failed: Local AI model not initialized."
+        if self.client is None:
+            return "Processing failed: OpenAI client not initialized."
 
-        text_to_process = self._build_prompt(lines, sentence, current_line, game_title)
-        self.logger.debug(f"Generated prompt for local model:\n{text_to_process}")
+        if not lines or not current_line:
+            self.logger.warning(f"Invalid input for process: lines={len(lines)}, current_line={current_line.index}")
+            return "Invalid input."
 
         try:
-            if self.is_encoder_decoder:
-                if self.is_nllb:
-                    # NLLB-specific handling for translation
-                    self.tokenizer.src_lang = "jpn_Jpan"
-                    inputs = self.tokenizer(current_line.text, return_tensors="pt").to(self.device)
-                    generated_tokens = self.model.generate(
-                        **inputs,
-                        forced_bos_token_id=self.tokenizer.convert_tokens_to_ids("eng_Latn"),
-                        max_new_tokens=256
-                    )
-                    result = self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
-                else:
-                    # Generic Seq2Seq
-                    inputs = self.tokenizer(text_to_process, return_tensors="pt").to(self.device)
-                    outputs = self.model.generate(**inputs, max_new_tokens=256)
-                    result = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-            else:
-                # Causal LM with chat template
-                messages = [
-                    # {"role": "system", "content": "You are a helpful assistant that accurately translates Japanese game dialogue into natural, context-aware English."},
-                    {"role": "user", "content": text_to_process}
-                ]
-                tokenized_chat = self.tokenizer.apply_chat_template(
-                    messages, tokenize=True, add_generation_prompt=True, return_tensors="pt"
-                ).to(self.device)
-                outputs = self.model.generate(tokenized_chat, max_new_tokens=256)
-                result = self.tokenizer.decode(outputs[0][tokenized_chat.shape[-1]:], skip_special_tokens=True)
-                # result = self.pipe(messages, max_new_tokens=50)
-                print(result)
-                # result = result[0]['generated_text']
-                result = result.strip()
-
-            result = result.strip()
-            self.logger.debug(f"Received response from local model:\n{result}")
-            return result
+            prompt = self._build_prompt(lines, sentence, current_line, game_title)
+            self.logger.debug(f"Generated prompt:\n{prompt}")
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that translates game dialogue. Provide output in the form of json with a single key 'output'."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=4096,
+                top_p=1,
+                n=1,
+                stop=None,
+            )
+            if response.choices and response.choices[0].message.content:
+                text_output = response.choices[0].message.content.strip()
+                # get the json at the end of the message
+                if "{" in text_output and "}" in text_output:
+                    json_output = text_output[text_output.find("{"):text_output.rfind("}")+1]
+                    text_output = json.loads(json_output)['output']
+            self.logger.debug(f"Received response:\n{text_output}")
+            return text_output
         except Exception as e:
-            self.logger.error(f"Local model processing failed: {e}", exc_info=True)
+            self.logger.error(f"OpenAI processing failed: {e}")
             return f"Processing failed: {e}"
 
 
@@ -341,9 +280,9 @@ class GroqAI(AIManager):
             completion = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=.5,
+                temperature=0,
                 max_completion_tokens=1024,
-                top_p=1,
+                top_p=.9,
                 stream=False,
                 stop=None,
             )
@@ -361,7 +300,7 @@ current_ai_config: Ai | None = None
 def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "", force_refresh: bool = False) -> str:
     global ai_manager, current_ai_config
     try:
-        is_local_provider = get_config().ai.provider == AIType.LOCAL.value
+        is_local_provider = get_config().ai.provider == AIType.OPENAI.value
         if not is_local_provider and not is_connected():
             logger.error("No internet connection. Unable to proceed with AI prompt.")
             return ""
@@ -380,12 +319,12 @@ def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: Gam
                     logger.info(f"Reusing existing Groq AI Manager for model: {get_config().ai.groq_model}")
                 else:
                     ai_manager = GroqAI(model=get_config().ai.groq_model, api_key=get_config().ai.groq_api_key, logger=logger)
-            elif provider == AIType.LOCAL.value:
-                if get_config().ai.local_model in ai_managers:
-                    ai_manager = ai_managers[get_config().ai.local_model]
-                    logger.info(f"Reusing existing Local AI Manager for model: {get_config().ai.local_model}")
+            elif provider == AIType.OPENAI.value:
+                if get_config().ai.open_ai_model in ai_managers:
+                    ai_manager = ai_managers[get_config().ai.open_ai_model]
+                    logger.info(f"Reusing existing OpenAI AI Manager for model: {get_config().ai.open_ai_model}")
                 else:
-                    ai_manager = LocalAIManager(model=get_config().ai.local_model, logger=logger)
+                    ai_manager = OpenAIManager(model=get_config().ai.open_ai_model, api_key=get_config().ai.open_ai_api_key, api_url=get_config().ai.open_ai_url, logger=logger)
             else:
                 ai_manager = None
             if ai_manager:
@@ -410,7 +349,7 @@ def ai_config_changed(config, current):
         return True
     if config.provider == AIType.GROQ.value and (config.groq_api_key != current.groq_api_key or config.groq_model != current.groq_model):
         return True
-    if config.provider == AIType.LOCAL.value and config.gemini_model != current.gemini_model:
+    if config.provider == AIType.OPENAI.value and config.gemini_model != current.gemini_model:
         return True
     if config.custom_prompt != current.custom_prompt:
         return True
@@ -422,11 +361,11 @@ def ai_config_changed(config, current):
 
 
 if __name__ == '__main__':
-    # logger.setLevel(logging.DEBUG)
-    # console_handler = logging.StreamHandler()
-    # console_handler.setLevel(logging.DEBUG)
-    # logger.addHandler(console_handler)
-    # logging.basicConfig(level=logging.DEBUG)
+    logger.setLevel(logging.DEBUG)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+    logger.addHandler(console_handler)
+    logging.basicConfig(level=logging.DEBUG)
     lines = [
         # Sexual/Explicit Japanese words and phrases
         GameLine(index=0, text="ねぇ、あたしのおっぱい、揉んでみない？", id=None, time=None, prev=None, next=None),
@@ -474,11 +413,14 @@ if __name__ == '__main__':
     current_line = lines[6]
     game_title = "Corrupted Reality"
 
-    get_config().ai.provider = "Local"
+    get_config().ai.provider = AIType.OPENAI.value
     models = [
+        # 'openai/gpt-oss-20b',
+        # 'meta-llama-3.1-8b-instruct',
+        'google/gemma-3n-e4b',
         # 'google/gemma-2-2b-it',
         # 'google/gemma-2b-it',
-        'facebook/nllb-200-distilled-600M',
+        # 'facebook/nllb-200-distilled-600M',
               # 'meta-llama/Llama-3.2-1B-Instruct',
               # 'facebook/nllb-200-1.3B'
     ]
@@ -492,9 +434,12 @@ if __name__ == '__main__':
     #     results.append({"model": model,"response": result, "time": time.time() - start_time, "iteration": 1})
 
     # Second Time after Already Loaded
-    for i in range(1, 500):
+    
+    get_config().ai.open_ai_url = "http://127.0.0.1:1234/v1"
+    get_config().ai.open_ai_api_key = "lm-studio"
+    for i in range(1, 10):
         for model in models:
-            get_config().ai.local_model = model
+            get_config().ai.open_ai_model = model
             start_time = time.time()
             result = get_ai_prompt_result(lines, sentence, current_line, game_title, True)
             print(result)
