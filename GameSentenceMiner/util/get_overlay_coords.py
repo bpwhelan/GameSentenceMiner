@@ -15,9 +15,16 @@ from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_over
 
 # Conditionally import OCR engines
 try:
-    from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, OneOCR, get_regex
-except ImportError:
+    if os.path.exists(os.path.expanduser('~/.config/oneocr/oneocr.dll')):
+        from GameSentenceMiner.owocr.owocr.ocr import OneOCR
+    else:
+        OneOCR = None
+    from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, get_regex
+except ImportError as import_err:
     GoogleLens, OneOCR, get_regex = None, None, None
+except Exception as e:
+    GoogleLens, OneOCR, get_regex = None, None, None
+    logger.error(f"Error importing OCR engines: {e}", exc_info=True)
 
 # Conditionally import screenshot library
 try:
@@ -40,19 +47,28 @@ class OverlayProcessor:
         self.oneocr = None
         self.lens = None
         self.regex = None
+        self.ready = False
 
-        if self.config.overlay.websocket_port and all([GoogleLens, OneOCR, get_regex]):
-            logger.info("Initializing OCR engines...")
-            self.oneocr = OneOCR(lang=get_ocr_language())
-            self.lens = GoogleLens(lang=get_ocr_language())
-            self.ocr_language = get_ocr_language()
-            self.regex = get_regex(self.ocr_language)
-            logger.info("OCR engines initialized.")
-        else:
-            logger.warning("OCR dependencies not found or websocket port not configured. OCR functionality will be disabled.")
-            
-        if not mss:
-            logger.warning("MSS library not found. Screenshot functionality may be limited.")
+        try:
+            if self.config.overlay.websocket_port and all([GoogleLens, get_regex]):
+                logger.info("Initializing OCR engines...")
+                if OneOCR:
+                    self.oneocr = OneOCR(lang=get_ocr_language())
+                self.lens = GoogleLens(lang=get_ocr_language())
+                self.ocr_language = get_ocr_language()
+                self.regex = get_regex(self.ocr_language)
+                logger.info("OCR engines initialized.")
+                self.ready = True
+            else:
+                logger.warning("OCR dependencies not found or websocket port not configured. OCR functionality will be disabled.")
+                
+            if not mss:
+                logger.warning("MSS library not found. Screenshot functionality may be limited.")
+        except Exception as e:
+            logger.error(f"Error initializing OCR engines for overlay, try installing owocr in OCR tab of GSM: {e}", exc_info=True)
+            self.oneocr = None
+            self.lens = None
+            self.regex = None
             
     async def find_box_and_send_to_overlay(self, sentence_to_check: str = None):
         """
@@ -124,8 +140,9 @@ class OverlayProcessor:
 
     async def _do_work(self, sentence_to_check: str = None) -> Tuple[List[Dict[str, Any]], int]:
         """The main OCR workflow."""
-        if not self.oneocr or not self.lens:
-            raise RuntimeError("OCR engines are not initialized. Cannot perform OCR.")
+        if not self.lens:
+            logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
+            return []
 
         # 1. Get screenshot
         full_screenshot, monitor_width, monitor_height = self._get_full_screenshot()

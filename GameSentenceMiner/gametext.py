@@ -7,12 +7,14 @@ import websockets
 from websockets import InvalidStatus
 from rapidfuzz import fuzz
 
+
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
 from GameSentenceMiner.util.configuration import *
 from GameSentenceMiner.util.text_log import *
 from GameSentenceMiner import obs
-from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, send_word_coordinates_to_overlay, overlay_server_thread
+from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, overlay_server_thread
+
 from GameSentenceMiner.util.get_overlay_coords import OverlayProcessor
 
 
@@ -29,8 +31,7 @@ last_clipboard = ''
 
 reconnecting = False
 websocket_connected = {}
-
-overlay_processor = OverlayProcessor()
+overlay_processor = None
 
 async def monitor_clipboard():
     global current_line, last_clipboard
@@ -179,6 +180,7 @@ async def handle_new_text_event(current_clipboard, line_time=None):
 
                 
 async def add_line_to_text_log(line, line_time=None):
+    global overlay_processor
     if get_config().general.texthook_replacement_regex:
         current_line_after_regex = re.sub(get_config().general.texthook_replacement_regex, '', line)
     else:
@@ -191,7 +193,10 @@ async def add_line_to_text_log(line, line_time=None):
     if len(get_text_log().values) > 0:
         await add_event_to_texthooker(get_text_log()[-1])
     if get_config().overlay.websocket_port and overlay_server_thread.has_clients():
-        await overlay_processor.find_box_and_send_to_overlay(current_line_after_regex)
+        if not overlay_processor:
+            overlay_processor = OverlayProcessor()
+        if overlay_processor.ready:
+            await overlay_processor.find_box_and_send_to_overlay(current_line_after_regex)
     GameLinesTable.add_line(get_text_log()[-1])
 
 
