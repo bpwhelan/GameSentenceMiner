@@ -8,7 +8,8 @@ from PIL import Image
 from typing import Dict, Any, List, Tuple
 
 # Local application imports
-from GameSentenceMiner.util.configuration import get_config
+from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
+from GameSentenceMiner.util.configuration import get_config, is_windows
 from GameSentenceMiner.util.electron_config import get_ocr_language
 from GameSentenceMiner.obs import get_screenshot_PIL, logger
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
@@ -61,6 +62,9 @@ class OverlayProcessor:
                 self.ready = True
             else:
                 logger.warning("OCR dependencies not found or websocket port not configured. OCR functionality will be disabled.")
+            
+            if is_windows:
+                set_dpi_awareness()
                 
             if not mss:
                 logger.warning("MSS library not found. Screenshot functionality may be limited.")
