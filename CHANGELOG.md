@@ -1,3 +1,43 @@
+## 1.10.0 / 2.14.0
+
+A ton of changes here, I tested to the best of my ability, so hopefully it should all be good.
+
+# Overlay 
+
+I still consider the overlay WIP, but it is now packaged in with GSM and can be run in GSM in the "Home" Tab. In case you haven't seen, the Overlay is Yomininja-like overlay that will provide on-screen lookups when you hover the text in game.
+
+I will be writing up some docs and recording some videos around this, but to get started, it's just `Open Overlay (WIP)` in the `Home` Tab -> Setup Yomitan in the Overlay -> Get On-screen lookups.
+
+There are two hotkeys in the overlay that may be useful, but are hard-coded for the moment.
+- **Alt+Shift+H**: This Hides the "main box" in the overlay, allowing you to just use the on-screen lookups.
+- **Alt+Shift+J**: This attempts to minimize the overlay, in case it's causing issues with being able to click in game and whatnot, it will however be maximized on the next line of text that comes into GSM.
+
+<img width="1266" height="993" alt="image" src="https://github.com/user-attachments/assets/559055b0-ce6c-4fd5-af91-06571e193751" />
+
+<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/23d89a42-ab14-4092-a824-68ef0d84fc45" />
+
+
+# OpenAI-Compatible AI Prompting
+
+With this, you should be able to use almost any provider for Ai, including locally run OpenAI-Compatible APIs (LM-Studio Recommended).
+
+<img width="852" height="756" alt="image" src="https://github.com/user-attachments/assets/ad9f6190-ae41-4a34-bae7-3fba959b8051" />
+
+## Automatically get Models from Gemini and Groq
+
+GSM will now attempt to pull all available models from Gemini and Groq instead of hard-coding. Some Recommended models are still hard-coded.
+
+<img width="852" height="756" alt="image" src="https://github.com/user-attachments/assets/8b47fe5b-63af-4a68-8a09-a8b9a474fb64" />
+
+# Simplified OCR Setup
+
+OCR using OBS as source is now the DEFAULT, and is now opt-out instead of opt-in. You can find the opt-out feature in the `Extra & Debug Tools` Section, but I do not recommend it, and am unlikely to make as many improvements to.
+
+<img width="1266" height="993" alt="image" src="https://github.com/user-attachments/assets/cfc9755d-7e7e-450e-afa7-76638a9fd934" />
+
+
+LOTS OF CHANGES FROM THE PREVIOUS LOG, TOO MUCH TO UPDATE HERE.
+
 ## 2.5.0
 
 ### New
