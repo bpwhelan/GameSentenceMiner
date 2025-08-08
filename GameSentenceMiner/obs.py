@@ -461,11 +461,12 @@ if __name__ == '__main__':
     from mss import mss
     logging.basicConfig(level=logging.INFO)
     # main()
-    connect_to_obs_sync()
-    
-    while True:
-        print(get_active_source())
-        time.sleep(3)
+    # connect_to_obs_sync()
+    # img = get_screenshot_PIL(source_name="Display Capture 2", compression=75, img_format='png', width=1280, height=720)
+    # img.show()
+    # while True:
+    #     print(get_active_source())
+    #     time.sleep(3)
     # i = 100
     # for i in range(1, 100):
     #     print(f"Getting screenshot {i}")

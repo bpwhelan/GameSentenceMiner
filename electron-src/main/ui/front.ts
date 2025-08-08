@@ -105,7 +105,7 @@ export function registerFrontPageIPC() {
         //     }
         //     overlayProcess = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'start'], { detached: false, stdio: ['ignore', 'ignore', 'ignore'], cwd: overlayDir });
         // } else {
-        const overlayPath = path.join(getOverlayPath(), 'overlay.exe');
+        const overlayPath = path.join(getOverlayPath(), 'gsm_overlay.exe');
         if (fs.existsSync(overlayPath)) {
             const { spawn } = await import('child_process');
             overlayProcess = spawn(overlayPath, [], { detached: false, stdio: 'ignore' });

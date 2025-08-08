@@ -112,7 +112,7 @@
         <div id="ocr-tab-container" class="tab-container">
             <div id="ocr-grid-container" class="grid-container">
                 <div id='setup-card' class="card">
-                    <h2 id="setup-header" class="collapsible-header">Setup <span class="arrow-icon">▲</span></h2>
+                    <h2 id="setup-header" class="collapsible-header">1. Installation <span class="arrow-icon">▲</span></h2>
                     <div id="setup-collapsible-content" class="collapsible-content" style="display: block;">
                         <div class="form-group">
                             <button id="install-recommended-btn">Install OwOCR</button>
@@ -149,17 +149,21 @@
                 </div>
 
                 <div id='config-card' class="card">
-                    <h2 id="config-header" class="collapsible-header">Configuration <span class="arrow-icon">▲</span>
+                    <h2 id="config-header" class="collapsible-header">2. Select Source <span class="arrow-icon">▲</span>
                     </h2>
                     <div id="config-collapsible-content" class="collapsible-content" style="display: block;">
                         <div class="form-group">
                             <div id="scene-select-group" class="input-group">
-                                <label for="sceneSelect">Game (OBS Scene):</label>
+                                <label for="sceneSelect" class="tooltip-indicator">Game (OBS Scene):
+                                    <span class="tooltiptext tooltiptext-right">Select the OBS Scene to Capture for OCR. You can make a new Scene in the "Home" Tab</span>
+                                </label>
                                 <select id="sceneSelect"></select>
                                 <button id="refreshScenesBtn" class="secondary">↻</button>
                             </div>
                             <div id="window-select-group" class="input-group">
-                                <label for="windowSelect">Window:</label>
+                                <label for="windowSelect" class="tooltip-indicator">Window:
+                                    <span class="tooltiptext tooltiptext-right">Select the OBS window for the game</span>
+                                </label>
                                 <select id="windowSelect"></select>
                                 <button id="refreshWindowsBtn" class="secondary">↻</button>
                                 <input type="checkbox" id="use-window-for-config">
@@ -178,7 +182,7 @@
             </div>
 
             <div class="card" id="ocr-settings-card">
-                <h2 id="settings-header" class="collapsible-header"><span>OCR Settings</span> <span
+                <h2 id="settings-header" class="collapsible-header"><span>3. OCR Settings</span> <span
                         class="arrow-icon">▲</span></h2>
                 <div id="ocr-settings-collapsible-content" class="collapsible-content" style="display: block;">
                     <div id="ocr-settings-grid-container" class="grid-container">
@@ -273,15 +277,6 @@
                                 </label>
                                 <input type="checkbox" id="optimize-second-scan" checked>
                             </div>
-                            <div id="use-obs-as-source-group" class="input-group">
-                                <label for="use-obs-as-source" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                    <span class="tooltiptext">If enabled, will use the OBS as the source for OCR instead
-                                        of the selected window. This is different from targeting the OBS Preview. Also
-                                        probably less performant. LINUX COMPAT TOO</span>
-                                    Use OBS Game Capture as Image Source:
-                                </label>
-                                <input type="checkbox" id="use-obs-as-source">
-                            </div>
                             <div id="furigana-filter-group" class="input-group">
                                 <label id="furigana-filter-label" for="furigana-filter-sensitivity"
                                     class="tooltip-indicator tooltip-bottom tooltip-right">
@@ -330,11 +325,11 @@
                             </div>
                             <div id="manual-ocr-hotkey-group" class="input-group">
                                 <label for="manual-ocr-hotkey"
-                                    class="tooltip-indicator tooltip-bottom tooltip-right">Manual OCR Hotkey:
+                                    class="tooltip-indicator tooltip-bottom tooltip-right">Manual/Menu OCR Hotkey:
                                     <span class="tooltiptext">
                                         Hotkey to manually OCR the selected area. This will run the OCR on the selected
                                         area and return the result. <strong>Note:</strong> This uses the OCR Option 2,
-                                        and is only used for "Manual OCR".</span>
+                                        and is also used to OCR Menus (Ctrl+Click in Area Selector)</span>
                                 </label>
                                 <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G">
                             </div>
@@ -350,7 +345,7 @@
                                 <label for="ocr-screenshots" class="tooltip-indicator tooltip-bottom tooltip-right">OCR
                                     Clipboard Screenshots:
                                     <span class="tooltiptext">If enabled, OCR will also process screenshots taken from
-                                        the clipboard. THIS MAY BE REMOVED IN THE FUTURE</span>
+                                        the clipboard.</span>
                                 </label>
                                 <input type="checkbox" id="ocr-screenshots">
                             </div>
@@ -364,8 +359,8 @@
                             </div>
                             <div id="keep-newline-group" class="input-group">
                                 <label for="keep-newline" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                    <span class="tooltiptext">If enabled, OCR will keep newlines in the output text (for
-                                        better readability).</span>
+                                    <span class="tooltiptext">If enabled, OCR will attempt to keep newlines in the output text (for
+                                        better readability) NOT GUARANTEED.</span>
                                     Maintain Line Breaks in Output:
                                 </label>
                                 <input type="checkbox" id="keep-newline">
@@ -423,6 +418,7 @@
                             <button id="open-ocr-page-btn" class="secondary">Open OCR Error Fixes Page</button>
                             <button id="open-config-json" class="secondary">Open Config File</button>
                             <button id="open-config-folder" class="secondary">Open OCR Config Folder</button>
+                            <button id="open-temp-folder" class="secondary">Open Temp Folder (To see OCR'd Image Samples)</button>
                         </div>
                         <div class="form-group">
                             <div id="dependency-removal-group" class="input-group">
@@ -441,6 +437,18 @@
                                     <option value="ocrspace">OCRSpace</option>
                                 </select>
                                 <button id="uninstall-selected-dep" class="danger">Uninstall</button>
+                            </div>
+                            <div id="use-obs-as-source-group" class="input-group">
+                                <label for="use-obs-as-source" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                    Use OBS as Source:
+                                    <span class="tooltiptext">Disable this to use native python functions to capture
+                                        the screen. This may be more performant, but also much less reliable.
+                                        <br><br>
+                                        If you have issues with OBS capturing, try disabling this.
+                                        <br><br>
+                                        LINUX COMPAT TOO</span>
+                                </label>
+                                <input type="checkbox" id="use-obs-as-source">
                             </div>
                             <div id="uninstall-status"></div>
                         </div>
@@ -643,7 +651,7 @@
                     document.getElementById('start-ocr-controls').style.display = 'none';
                     document.getElementById('stop-ocr-controls').style.display = 'flex';
                     // Hide OBS source group
-                    document.getElementById('use-obs-as-source-group').style.display = 'none';
+                    // document.getElementById('use-obs-as-source-group').style.display = 'none';
                     //Hide Hotkey config groups
                     document.getElementById('manual-ocr-hotkey-group').style.display = 'none';
                     document.getElementById('area-select-ocr-hotkey-group').style.display = 'none';
@@ -670,13 +678,13 @@
                     document.getElementById('ocr-log-card').style.display = 'none';
                     document.getElementById('start-ocr-controls').style.display = 'flex';
                     document.getElementById('stop-ocr-controls').style.display = 'none';
-                    document.getElementById('use-obs-as-source-group').style.display = 'flex';
+                    // document.getElementById('use-obs-as-source-group').style.display = 'flex';
                     //Show Hotkey config
                     document.getElementById('manual-ocr-hotkey-group').style.display = 'flex';
                     document.getElementById('area-select-ocr-hotkey-group').style.display = 'flex';
                     //Show two pass
                     document.getElementById('two-pass-ocr-group').style.display = 'flex';
-                    document.getElementById('settings-header').firstChild.innerText = 'OCR Settings';
+                    document.getElementById('settings-header').firstChild.innerText = '3. OCR Settings';
                     // Show clipboard screenshot option
                     document.getElementById('ocr-screenshots-group').style.display = 'flex';
                     document.getElementById('ocr-status-label').innerText = "";
@@ -795,8 +803,20 @@
                 });
                 document.getElementById('refreshScenesBtn').addEventListener('click', refreshScenesAndWindows);
 
-                ['two-pass-ocr', 'windowSelect', 'ocr1-input', 'ocr2-input', 'ocr-scan-rate', 'require-open-window', 'languageSelect', 'ocr-screenshots', 'use-obs-as-source', 'optimize-second-scan'].forEach(id => {
+                ['two-pass-ocr', 'windowSelect', 'ocr1-input', 'ocr2-input', 'ocr-scan-rate', 'require-open-window', 'languageSelect', 'ocr-screenshots', 'optimize-second-scan'].forEach(id => {
                     document.getElementById(id).addEventListener('change', saveOCRConfig);
+                });
+
+                document.getElementById('use-obs-as-source').addEventListener('change', (event) => {
+                    ocr_settings.useObsAsSourcev2 = event.target.checked;
+                    if (!ocr_settings.useObsAsSourcev2) {
+                        document.getElementById('window-select-group').style.display = 'flex';
+                        document.getElementById('require-open-window-group').style.display = 'flex';
+                    } else {
+                        document.getElementById('window-select-group').style.display = 'none';
+                        document.getElementById('require-open-window-group').style.display = 'none';
+                    }
+                    saveOCRConfig();
                 });
 
                 document.getElementById('keep-newline').addEventListener('change', saveOCRConfig);
@@ -886,7 +906,7 @@
                         useWindowForConfig: useWindowForConfigCheckbox.checked,
                         lastWindowSelected: windowSelect.value.trim(),
                         keep_newline: document.getElementById('keep-newline').checked,
-                        useObsAsSource: document.getElementById('use-obs-as-source').checked,
+                        useObsAsSourcev2: document.getElementById('use-obs-as-source').checked,
                     };
                     await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
                 }
@@ -906,7 +926,14 @@
                         document.getElementById('keep-newline').checked = ocr_settings.keep_newline || false;
                         sendToClipboardCheckbox.checked = ocr_settings.sendToClipboard;
                         useWindowForConfigCheckbox.checked = ocr_settings.useWindowForConfig;
-                        document.getElementById('use-obs-as-source').checked = ocr_settings.useObsAsSource || false;
+                        document.getElementById('use-obs-as-source').checked = ocr_settings.useObsAsSourcev2 || false;
+                        if (!ocr_settings.useObsAsSourcev2) {
+                            document.getElementById('window-select-group').style.display = 'flex';
+                            document.getElementById('require-open-window-group').style.display = 'flex';
+                        } else {
+                            document.getElementById('window-select-group').style.display = 'none';
+                            document.getElementById('require-open-window-group').style.display = 'none';
+                        }
                         windowSelect.value = ocr_settings.lastWindowSelected;
 
                         const sensitivity = ocr_settings.furigana_filter_sensitivity || 0;

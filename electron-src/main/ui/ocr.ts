@@ -36,7 +36,7 @@ async function runScreenSelector(windowTitle: string) {
         if (ocr_config.useWindowForConfig) {
             args.push('--use_window_for_config');
         }
-        if (ocr_config.useObsAsSource) {
+        if (ocr_config.useObsAsSourcev2) {
             args.push('--obs_ocr');
         }
 
@@ -218,7 +218,7 @@ export async function startOCR() {
         if (ocr_config.optimize_second_scan) command.push("--optimize_second_scan");
         if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
         if (ocr_config.keep_newline) command.push("--keep_newline");
-        if (ocr_config.useObsAsSource) command.push('--obs_ocr')
+        if (ocr_config.useObsAsSourcev2) command.push('--obs_ocr')
 
         runOCR(command);
     }
@@ -354,7 +354,7 @@ export function registerOCRUtilsIPC() {
             if (ocr_config.manualOcrHotkey) command.push("--manual_ocr_hotkey", `${ocr_config.manualOcrHotkey}`);
             if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
             if (ocr_config.keep_newline) command.push("--keep_newline");
-            if (ocr_config.useObsAsSource) command.push("--obs_ocr");
+            if (ocr_config.useObsAsSourcev2) command.push("--obs_ocr");
             runOCR(command);
         }
     });
@@ -421,7 +421,7 @@ export function registerOCRUtilsIPC() {
         setUseWindowForConfig(config.useWindowForConfig);
         setLastWindowSelected(config.lastWindowSelected);
         setKeepNewline(config.keep_newline);
-        setUseObsAsSource(config.useObsAsSource);
+        setUseObsAsSource(config.useObsAsSourcev2);
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     })
 

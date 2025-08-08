@@ -132,33 +132,40 @@ class OverlayProcessor:
         if not full_screenshot:
             logger.warning("Failed to get a screenshot.")
             return []
+        if self.oneocr:
+            # 2. Use OneOCR to find general text areas (fast)
+            _, _, oneocr_results, crop_coords_list = self.oneocr(
+                full_screenshot,
+                return_coords=True,
+                multiple_crop_coords=True,
+                return_one_box=False,
+                furigana_filter_sensitivity=None # Disable furigana filtering
+            )
 
-        # 2. Use OneOCR to find general text areas (fast)
-        _, _, _, crop_coords_list = self.oneocr(
-            full_screenshot,
-            return_coords=True,
-            multiple_crop_coords=True,
-            return_one_box=False,
-            furigana_filter_sensitivity=0
-        )
-
-        # 3. Create a composite image with only the detected text regions
-        composite_image = self._create_composite_image(
-            full_screenshot, 
-            crop_coords_list, 
-            monitor_width, 
-            monitor_height
-        )
+            # 3. Create a composite image with only the detected text regions
+            composite_image = self._create_composite_image(
+                full_screenshot, 
+                crop_coords_list, 
+                monitor_width, 
+                monitor_height
+            )
+        else:
+            composite_image = full_screenshot
         
         # 4. Use Google Lens on the cleaner composite image for higher accuracy
-        res, text, coords = self.lens(
+        res = self.lens(
             composite_image,
             return_coords=True,
-            furigana_filter_sensitivity=0
+            furigana_filter_sensitivity=None # Disable furigana filtering
         )
         
+        if len(res) != 3:
+            return oneocr_results
+        
+        _, _, coords = res
+
         if not res or not coords:
-            return []
+            return oneocr_results
         
         # 5. Process the high-accuracy results into the desired format
         extracted_data = self._extract_text_with_pixel_boxes(
