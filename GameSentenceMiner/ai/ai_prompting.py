@@ -29,7 +29,8 @@ Translate ONLY the single line of game dialogue specified below into natural-sou
 **Output Requirements:**
 - Provide only the single, best {get_config().general.get_native_language_name()} translation.
 - Use expletives if they are natural for the context and enhance the translation's impact, but do not over-exaggerate.
-- Preserve all HTML tags present in the original text on their corresponding words in the translation.
+- Carryover all HTML tags present in the original text to HTML tags surrounding their corresponding words in the translation. DO NOT CONVERT TO MARKDOWN.
+- Maintain New Line Characters.
 - Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line.
 
 **Line to Translate:**
@@ -166,7 +167,7 @@ class OpenAIManager(AIManager):
                 ],
                 temperature=0.3,
                 max_tokens=4096,
-                top_p=1,
+                top_p=0.9,
                 n=1,
                 stop=None,
             )
@@ -196,7 +197,7 @@ class GeminiAI(AIManager):
             self.generation_config = types.GenerateContentConfig(
                 temperature=0.5,
                 max_output_tokens=1024,
-                top_p=1,
+                top_p=0.9,
                 stop_sequences=None,
                 safety_settings=[
                     types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
@@ -297,7 +298,7 @@ ai_managers: dict[str, AIManager] = {}
 ai_manager: AIManager | None = None
 current_ai_config: Ai | None = None
 
-def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "", force_refresh: bool = False) -> str:
+def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "", force_refresh: bool = False, start_index = -1, end_index = -1) -> str:
     global ai_manager, current_ai_config
     try:
         is_local_provider = get_config().ai.provider == AIType.OPENAI.value

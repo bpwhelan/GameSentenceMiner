@@ -368,6 +368,23 @@ class ScreenSelector:
         # Lower the rectangle so it's behind the text
         canvas.tag_lower(self.instructions_rect, self.instructions_overlay)
         
+        # Add hover effect: make rectangle transparent on mouse over
+        def on_motion(event):
+            # Check if mouse is over the rectangle
+            x, y = event.x, event.y
+            rect_bbox = canvas.bbox(self.instructions_rect)
+            if rect_bbox and rect_bbox[0] <= x <= rect_bbox[2] and rect_bbox[1] <= y <= y <= rect_bbox[3]:
+                # Set fill to more transparent using denser stipple
+                canvas.itemconfigure(self.instructions_rect, fill='#2B2B2B', stipple='gray12')
+                # Make text more transparent by changing its color to a lighter gray
+                canvas.itemconfigure(self.instructions_overlay, fill='#CCCCCC')
+            else:
+                # Restore solid fill and opaque text
+                canvas.itemconfigure(self.instructions_rect, fill='#2B2B2B', stipple='')
+                canvas.itemconfigure(self.instructions_overlay, fill='white')
+
+        canvas.bind('<Motion>', on_motion)
+        
 
     def toggle_instructions(self, event=None):
         canvas = event.widget.winfo_toplevel().winfo_children()[0]
