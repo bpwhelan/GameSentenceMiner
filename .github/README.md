@@ -1,4 +1,4 @@
-# GameSentenceMiner (GSM)
+# GSM - An Immersion toolkit for Games.
 
 ### English | [日本語](../docs/ja/README.md) | [简体中文](../docs/zh/README.md).
 
