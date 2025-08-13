@@ -95,7 +95,7 @@ class OCRConfig:
                 ]
                 
 def has_config_changed(current_config: OCRConfig) -> bool:
-    new_config = get_scene_ocr_config(use_window_as_config=get_ocr_use_window_for_config(), window=current_config.window)
+    new_config = get_scene_ocr_config(use_window_as_config=get_ocr_use_window_for_config(), window=current_config.window, refresh=True)
     if new_config.rectangles != current_config.rectangles:
         logger.info("OCR config has changed.")
         return True
@@ -139,8 +139,13 @@ def set_dpi_awareness():
     import ctypes
     per_monitor_awareness = 2
     ctypes.windll.shcore.SetProcessDpiAwareness(per_monitor_awareness)
+    
+scene_ocr_config = None
 
-def get_scene_ocr_config(use_window_as_config=False, window=""):
+def get_scene_ocr_config(use_window_as_config=False, window="", refresh=False) -> OCRConfig | None:
+    global scene_ocr_config
+    if scene_ocr_config and not refresh:
+        return scene_ocr_config
     path = get_scene_ocr_config_path(use_window_as_config, window)
     if not os.path.exists(path):
         return None
@@ -148,6 +153,7 @@ def get_scene_ocr_config(use_window_as_config=False, window=""):
         from json import load
         data = load(f)
         ocr_config = OCRConfig.from_dict(data)
+        scene_ocr_config = ocr_config
         return ocr_config
 
 def get_scene_ocr_config_path(use_window_as_config=False, window=""):

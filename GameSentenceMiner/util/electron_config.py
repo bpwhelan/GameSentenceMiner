@@ -58,7 +58,7 @@ class OCRConfig:
     useWindowForConfig: bool = False
     lastWindowSelected: str = ""
     keep_newline: bool = False
-    useObsAsSource: bool = False
+    useObsAsOCRSource: bool = True
 
     def has_changed(self, other: 'OCRConfig') -> bool:
         return self.to_dict() != other.to_dict()
@@ -229,7 +229,7 @@ def get_ocr_keep_newline():
     return electron_store.data.OCR.keep_newline
 
 def get_ocr_use_obs_as_source():
-    return electron_store.data.OCR.useObsAsSource
+    return electron_store.data.OCR.useObsAsOCRSource
 
 def get_furigana_filter_sensitivity() -> int:
     return electron_store.data.OCR.furigana_filter_sensitivity

@@ -1,4 +1,5 @@
 import asyncio
+from ctypes.util import test
 import datetime
 import json
 import os
@@ -354,6 +355,35 @@ def translate_line():
     line_to_translate.set_TL(translation)
     return jsonify({'TL': translation}), 200
 
+@app.route('/translate-multiple', methods=['POST'])
+def translate_multiple():
+    data = request.get_json()
+    event_ids = data.get('ids', [])
+    if not event_ids:
+        return jsonify({'error': 'Missing ids'}), 400
+
+    lines = [get_line_by_id(event_id) for event_id in event_ids if get_line_by_id(event_id) is not None]
+
+    text = "\n".join(line.text for line in lines)
+    
+    translate_multiple_lines_prompt = f"""
+**Professional Game Localization Task**
+Translate the following lines of game dialogue into natural-sounding, context-aware {get_config().general.get_native_language_name()}:
+
+**Output Requirements**
+- Maintain the original tone and style of the dialogue.
+- Ensure that the translation is contextually appropriate for the game.
+- Pay attention to character names and any specific terminology used in the game.
+- Maintain Formatting and newline structure of the given lines. It should be very human readable as a dialogue.
+- Do not include any notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated lines.
+
+**Lines to Translate:**
+"""
+
+    translation = get_ai_prompt_result(get_all_lines(), text,
+                                        lines[0], get_current_game(), custom_prompt=translate_multiple_lines_prompt)
+
+    return translation, 200
 
 @app.route('/get_status', methods=['GET'])
 def get_status():

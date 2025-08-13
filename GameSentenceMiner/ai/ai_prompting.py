@@ -24,13 +24,13 @@ TRANSLATION_PROMPT = f"""
 **Professional Game Localization Task**
 
 **Task Directive:**
-Translate ONLY the single line of game dialogue specified below into natural-sounding, context-aware {get_config().general.get_native_language_name()}. The translation must preserve the original tone and intent of the character.
+Translate ONLY the provided line of game dialogue specified below into natural-sounding, context-aware {get_config().general.get_native_language_name()}. The translation must preserve the original tone and intent of the source.
 
 **Output Requirements:**
 - Provide only the single, best {get_config().general.get_native_language_name()} translation.
 - Use expletives if they are natural for the context and enhance the translation's impact, but do not over-exaggerate.
 - Carryover all HTML tags present in the original text to HTML tags surrounding their corresponding words in the translation. DO NOT CONVERT TO MARKDOWN.
-- Maintain New Line Characters.
+- If there are no HTML tags present in the original text, do not add any in the translation whatsoever.
 - Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line.
 
 **Line to Translate:**
@@ -78,11 +78,11 @@ class AIManager(ABC):
         self.logger = logger
 
     @abstractmethod
-    def process(self, lines: List[GameLine], sentence: str, current_line_index: int, game_title: str = "") -> str:
+    def process(self, lines: List[GameLine], sentence: str, current_line_index: int, game_title: str = "", custom_prompt=None) -> str:
         pass
 
     @abstractmethod
-    def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str) -> str:
+    def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str, custom_prompt=None) -> str:
         if get_config().ai.dialogue_context_length != 0:
             if get_config().ai.dialogue_context_length == -1:
                 start_index = 0
@@ -105,8 +105,9 @@ class AIManager(ABC):
             """
         else:
             dialogue_context = "No dialogue context available."
-
-        if get_config().ai.use_canned_translation_prompt:
+        if custom_prompt:
+            prompt_to_use = custom_prompt
+        elif get_config().ai.use_canned_translation_prompt:
             prompt_to_use = TRANSLATION_PROMPT
         elif get_config().ai.use_canned_context_prompt:
             prompt_to_use = CONTEXT_PROMPT
@@ -122,7 +123,7 @@ class AIManager(ABC):
 
             {sentence}
         """)
-        return full_prompt
+        return textwrap.dedent(full_prompt)
 
 
 class OpenAIManager(AIManager):
@@ -144,11 +145,11 @@ class OpenAIManager(AIManager):
             self.openai = None
             self.model_name = None
     
-    def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str) -> str:
-        prompt = super()._build_prompt(lines, sentence, current_line, game_title)
+    def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str, custom_prompt=None) -> str:
+        prompt = super()._build_prompt(lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
         return prompt
-    
-    def process(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "") -> str:
+
+    def process(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "", custom_prompt=None) -> str:
         if self.client is None:
             return "Processing failed: OpenAI client not initialized."
 
@@ -157,7 +158,7 @@ class OpenAIManager(AIManager):
             return "Invalid input."
 
         try:
-            prompt = self._build_prompt(lines, sentence, current_line, game_title)
+            prompt = self._build_prompt(lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
             self.logger.debug(f"Generated prompt:\n{prompt}")
             response = self.client.chat.completions.create(
                 model=self.model_name,
@@ -215,11 +216,11 @@ class GeminiAI(AIManager):
             self.logger.error(f"Failed to initialize Gemini API: {e}")
             self.model_name = None
 
-    def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str) -> str:
-        prompt = super()._build_prompt(lines, sentence, current_line, game_title)
+    def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str, custom_prompt=None) -> str:
+        prompt = super()._build_prompt(lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
         return prompt
 
-    def process(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "") -> str:
+    def process(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "", custom_prompt=None) -> str:
         if self.model_name is None:
             return "Processing failed: AI model not initialized."
 
@@ -228,7 +229,7 @@ class GeminiAI(AIManager):
             return "Invalid input."
 
         try:
-            prompt = self._build_prompt(lines, sentence, current_line, game_title)
+            prompt = self._build_prompt(lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
             contents = [
                 types.Content(
                     role="user",
@@ -263,11 +264,11 @@ class GroqAI(AIManager):
             self.logger.error(f"Failed to initialize Groq client: {e}")
             self.client = None
 
-    def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str) -> str:
-        prompt = super()._build_prompt(lines, sentence, current_line, game_title)
+    def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str, custom_prompt=None) -> str:
+        prompt = super()._build_prompt(lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
         return prompt
 
-    def process(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "") -> str:
+    def process(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "", custom_prompt=None) -> str:
         if self.client is None:
             return "Processing failed: Groq client not initialized."
 
@@ -276,7 +277,7 @@ class GroqAI(AIManager):
             return "Invalid input."
 
         try:
-            prompt = self._build_prompt(lines, sentence, current_line, game_title)
+            prompt = self._build_prompt(lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
             self.logger.debug(f"Generated prompt:\n{prompt}")
             completion = self.client.chat.completions.create(
                 model=self.model_name,
@@ -298,7 +299,7 @@ ai_managers: dict[str, AIManager] = {}
 ai_manager: AIManager | None = None
 current_ai_config: Ai | None = None
 
-def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "", force_refresh: bool = False, start_index = -1, end_index = -1) -> str:
+def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "", force_refresh: bool = False, custom_prompt=None) -> str:
     global ai_manager, current_ai_config
     try:
         is_local_provider = get_config().ai.provider == AIType.OPENAI.value
@@ -335,7 +336,7 @@ def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: Gam
         if not ai_manager:
             logger.error("AI is enabled but the AI Manager did not initialize. Check your AI Config IN GSM.")
             return ""
-        return ai_manager.process(lines, sentence, current_line, game_title)
+        return ai_manager.process(lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
     except Exception as e:
         logger.error("Error caught while trying to get AI prompt result. Check logs for more details.")
         logger.debug(e, exc_info=True)

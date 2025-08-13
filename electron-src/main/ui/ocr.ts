@@ -1,33 +1,42 @@
-import {exec, spawn} from 'child_process';
-import {dialog, ipcMain, BrowserWindow, screen } from 'electron';
+import { exec, spawn } from 'child_process';
+import { dialog, ipcMain, BrowserWindow, screen, IpcMainEvent } from 'electron';
 import {
     getAutoUpdateElectron,
     getAutoUpdateGSMApp,
     getOCRConfig,
     getPythonPath,
-    getStartConsoleMinimized, setAreaSelectOcrHotkey, setFuriganaFilterSensitivity, setManualOcrHotkey,
+    getStartConsoleMinimized,
+    setAreaSelectOcrHotkey,
+    setFuriganaFilterSensitivity,
+    setManualOcrHotkey,
     setOCR1,
     setOCR2,
     setOCRConfig,
     setOCRLanguage,
     setOCRScanRate,
-    setRequiresOpenWindow, setSendToClipboard,
+    setRequiresOpenWindow,
+    setSendToClipboard,
     setShouldOCRScreenshots,
-    setTwoPassOCR, setOptimizeSecondScan,
-    setWindowName, setUseWindowForConfig, setLastWindowSelected, setKeepNewline, setUseObsAsSource
-} from "../store.js";
-import {isQuitting, mainWindow} from "../main.js";
-import {getCurrentScene, ObsScene} from "./obs.js";
-import {BASE_DIR, getAssetsDir, getPlatform, isWindows, sanitizeFilename} from "../util.js";
-import path, {resolve} from "path";
-import * as fs from "node:fs";
-import {windowManager, Window} from 'node-window-manager'; // Import the library
+    setTwoPassOCR,
+    setOptimizeSecondScan,
+    setWindowName,
+    setUseWindowForConfig,
+    setLastWindowSelected,
+    setKeepNewline,
+    setUseObsAsSource,
+} from '../store.js';
+import { isQuitting, mainWindow } from '../main.js';
+import { getCurrentScene, ObsScene } from './obs.js';
+import { BASE_DIR, getAssetsDir, getPlatform, isWindows, sanitizeFilename } from '../util.js';
+import path, { resolve } from 'path';
+import * as fs from 'node:fs';
+import { windowManager, Window } from 'node-window-manager'; // Import the library
 
 let ocrProcess: any = null;
 
 async function runScreenSelector(windowTitle: string) {
-    if (windowTitle === "") {
-        windowTitle = "OBS";
+    if (windowTitle === '') {
+        windowTitle = 'OBS';
     }
     const ocr_config = getOCRConfig();
     await new Promise((resolve, reject) => {
@@ -36,7 +45,7 @@ async function runScreenSelector(windowTitle: string) {
         if (ocr_config.useWindowForConfig) {
             args.push('--use_window_for_config');
         }
-        if (ocr_config.useObsAsSourcev2) {
+        if (ocr_config.useObsAsOCRSource) {
             args.push('--obs_ocr');
         }
 
@@ -67,7 +76,10 @@ async function runScreenSelector(windowTitle: string) {
             reject(err);
         });
     });
-    mainWindow?.webContents.send('terminal-output', `Running screen area selector in background...`);
+    mainWindow?.webContents.send(
+        'terminal-output',
+        `Running screen area selector in background...`
+    );
 }
 
 /**
@@ -185,7 +197,7 @@ export async function startOCR() {
     }
     if (!ocrProcess) {
         const ocr_config = getOCRConfig();
-        const config = await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig)
+        const config = await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig);
         console.log(config);
         if (!config) {
             const response = await dialog.showMessageBox(mainWindow!, {
@@ -193,32 +205,44 @@ export async function startOCR() {
                 buttons: ['Yes', 'No'],
                 defaultId: 1,
                 title: 'No OCR Found',
-                message: `No OCR found for scene, run area selector on currently selected window: ${ocr_config.window_name}? ("No" will ocr the entire window)`
+                message: `No OCR found for scene, run area selector on currently selected window: ${ocr_config.window_name}? ("No" will ocr the entire window)`,
             });
 
-            if (response.response === 0) { // 'Yes' button
-                await runScreenSelector(ocr_config.window_name)
+            if (response.response === 0) {
+                // 'Yes' button
+                await runScreenSelector(ocr_config.window_name);
             } else {
                 // Do nothing, just run OCR on the entire window
             }
         }
         const command = [
-            `${getPythonPath()}`, `-m`, `GameSentenceMiner.ocr.owocr_helper`,
-            `--language`, `${ocr_config.language}`,
-            `--ocr1`, `${ocr_config.ocr1}`,
-            `--ocr2`, `${ocr_config.ocr2}`,
-            `--twopassocr`, `${ocr_config.twoPassOCR ? 1 : 0}`,
+            `${getPythonPath()}`,
+            `-m`,
+            `GameSentenceMiner.ocr.owocr_helper`,
+            `--language`,
+            `${ocr_config.language}`,
+            `--ocr1`,
+            `${ocr_config.ocr1}`,
+            `--ocr2`,
+            `${ocr_config.ocr2}`,
+            `--twopassocr`,
+            `${ocr_config.twoPassOCR ? 1 : 0}`,
         ];
 
-        if (ocr_config.ocr_screenshots) command.push("--clipboard");
-        if (ocr_config.sendToClipboard) command.push("--clipboard-output")
-        if (ocr_config.window_name) command.push("--window", `${ocr_config.window_name}`);
-        if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
-        if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
-        if (ocr_config.optimize_second_scan) command.push("--optimize_second_scan");
-        if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
-        if (ocr_config.keep_newline) command.push("--keep_newline");
-        if (ocr_config.useObsAsSourcev2) command.push('--obs_ocr')
+        if (ocr_config.ocr_screenshots) command.push('--clipboard');
+        if (ocr_config.sendToClipboard) command.push('--clipboard-output');
+        if (ocr_config.window_name) command.push('--window', `${ocr_config.window_name}`);
+        if (ocr_config.furigana_filter_sensitivity > 0)
+            command.push(
+                '--furigana_filter_sensitivity',
+                `${ocr_config.furigana_filter_sensitivity}`
+            );
+        if (ocr_config.areaSelectOcrHotkey)
+            command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey}`);
+        if (ocr_config.optimize_second_scan) command.push('--optimize_second_scan');
+        if (ocr_config.useWindowForConfig) command.push('--use_window_for_config');
+        if (ocr_config.keep_newline) command.push('--keep_newline');
+        if (ocr_config.useObsAsOCRSource) command.push('--obs_ocr');
 
         runOCR(command);
     }
@@ -229,35 +253,66 @@ export function registerOCRUtilsIPC() {
         const pythonPath = getPythonPath();
         mainWindow?.webContents.send('ocr-log', `Downloading OneOCR files...`);
         const dependencies = [
-            "jaconv",
-            "loguru",
-            "numpy==2.2.6",
-            "Pillow>=10.0.0",
-            "pyperclipfix",
-            "pynput<=1.7.8",
-            "websockets>=14.0",
-            "desktop-notifier>=6.1.0",
-            "mss",
-            "pysbd",
-            "langid",
-            "psutil",
-            "requests",
+            'jaconv',
+            'loguru',
+            'numpy==2.2.6',
+            'Pillow>=10.0.0',
+            'pyperclipfix',
+            'pynput<=1.7.8',
+            'websockets>=14.0',
+            'desktop-notifier>=6.1.0',
+            'mss',
+            'pysbd',
+            'langid',
+            'psutil',
+            'requests',
             "pywin32;platform_system=='Windows'",
-            "pyobjc;platform_system=='Darwin'"
+            "pyobjc;platform_system=='Darwin'",
         ];
         const promises: Promise<void>[] = [];
         if (isWindows()) {
-            await runCommandAndLog([pythonPath, '-m', 'GameSentenceMiner.util.downloader.oneocr_dl']);
-            await runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'oneocr']);
+            await runCommandAndLog([
+                pythonPath,
+                '-m',
+                'GameSentenceMiner.util.downloader.oneocr_dl',
+            ]);
+            await runCommandAndLog([
+                pythonPath,
+                '-m',
+                'pip',
+                'install',
+                '--upgrade',
+                '--no-warn-script-location',
+                'oneocr',
+            ]);
         }
-        await runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', ...dependencies]);
+        await runCommandAndLog([
+            pythonPath,
+            '-m',
+            'pip',
+            'install',
+            '--upgrade',
+            '--no-warn-script-location',
+            ...dependencies,
+        ]);
         mainWindow?.webContents.send('ocr-log', `Installing recommended dependencies...`);
-        await runCommandAndLog([pythonPath, '-m', 'pip', 'install', '--upgrade', '--no-warn-script-location', 'betterproto==2.0.0b7']);
+        await runCommandAndLog([
+            pythonPath,
+            '-m',
+            'pip',
+            'install',
+            '--upgrade',
+            '--no-warn-script-location',
+            'betterproto==2.0.0b7',
+        ]);
 
         // Wait for all promises to settle before closing the console
         await Promise.allSettled(promises);
         // Wrap the message in ASCII green text (using ANSI escape codes)
-        mainWindow?.webContents.send('ocr-log', `\x1b[32mAll recommended dependencies installed successfully.\x1b[0m`);
+        mainWindow?.webContents.send(
+            'ocr-log',
+            `\x1b[32mAll recommended dependencies installed successfully.\x1b[0m`
+        );
         mainWindow?.webContents.send('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
         // setTimeout(() => mainWindow?.webContents.send('ocr-log', 'COMMAND_FINISHED'), 5000);
     });
@@ -265,14 +320,23 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.install-selected-dep', async (_, dependency: string) => {
         const pythonPath = getPythonPath();
         let command: string[];
-        if (dependency.includes("pip")) {
-            command = [pythonPath, '-m', ...dependency.split(' '), '--upgrade', '--no-warn-script-location'];
+        if (dependency.includes('pip')) {
+            command = [
+                pythonPath,
+                '-m',
+                ...dependency.split(' '),
+                '--upgrade',
+                '--no-warn-script-location',
+            ];
         } else {
             command = [pythonPath, '-m', dependency];
         }
         mainWindow?.webContents.send('ocr-log', `Installing ${dependency} dependencies...`);
         await runCommandAndLog(command);
-        mainWindow?.webContents.send('ocr-log', `\x1b[32mInstalled ${dependency} successfully.\x1b[0m`);
+        mainWindow?.webContents.send(
+            'ocr-log',
+            `\x1b[32mInstalled ${dependency} successfully.\x1b[0m`
+        );
         mainWindow?.webContents.send('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
     });
 
@@ -282,15 +346,22 @@ export function registerOCRUtilsIPC() {
             buttons: ['Yes', 'No'],
             defaultId: 1,
             title: 'Confirm Uninstall',
-            message: `Are you sure you want to uninstall the dependency: ${dependency}?`
+            message: `Are you sure you want to uninstall the dependency: ${dependency}?`,
         });
 
-        if (response.response === 0) { // 'Yes' button
+        if (response.response === 0) {
+            // 'Yes' button
             const command = [getPythonPath(), '-m', 'pip', 'uninstall', '-y', dependency];
             mainWindow?.webContents.send('ocr-log', `Uninstalling ${dependency} dependencies...`);
             await runCommandAndLog(command);
-            mainWindow?.webContents.send('ocr-log', `\x1b[32mUninstalled ${dependency} successfully.\x1b[0m`);
-            mainWindow?.webContents.send('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
+            mainWindow?.webContents.send(
+                'ocr-log',
+                `\x1b[32mUninstalled ${dependency} successfully.\x1b[0m`
+            );
+            mainWindow?.webContents.send(
+                'ocr-log',
+                `\x1b[32mYou can now close this console.\x1b[0m`
+            );
         } else {
             mainWindow?.webContents.send('ocr-log', `Uninstall canceled for ${dependency}.`);
         }
@@ -340,21 +411,33 @@ export function registerOCRUtilsIPC() {
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
             const command = [
-                `${getPythonPath()}`, `-m`, `GameSentenceMiner.ocr.owocr_helper`,
-                `--language`, `${ocr_config.language}`,
-                `--ocr1`, `${ocr_config.ocr2}`,
-                `--ocr2`, `${ocr_config.ocr2}`,
-                `--window`, `${ocr_config.window_name}`,
-                `--manual`
+                `${getPythonPath()}`,
+                `-m`,
+                `GameSentenceMiner.ocr.owocr_helper`,
+                `--language`,
+                `${ocr_config.language}`,
+                `--ocr1`,
+                `${ocr_config.ocr2}`,
+                `--ocr2`,
+                `${ocr_config.ocr2}`,
+                `--window`,
+                `${ocr_config.window_name}`,
+                `--manual`,
             ];
-            if (ocr_config.ocr_screenshots) command.push("--clipboard");
-            if (ocr_config.sendToClipboard) command.push("--clipboard-output")
-            if (ocr_config.furigana_filter_sensitivity > 0) command.push("--furigana_filter_sensitivity", `${ocr_config.furigana_filter_sensitivity}`);
-            if (ocr_config.areaSelectOcrHotkey) command.push("--area_select_ocr_hotkey", `${ocr_config.areaSelectOcrHotkey}`);
-            if (ocr_config.manualOcrHotkey) command.push("--manual_ocr_hotkey", `${ocr_config.manualOcrHotkey}`);
-            if (ocr_config.useWindowForConfig) command.push("--use_window_for_config");
-            if (ocr_config.keep_newline) command.push("--keep_newline");
-            if (ocr_config.useObsAsSourcev2) command.push("--obs_ocr");
+            if (ocr_config.ocr_screenshots) command.push('--clipboard');
+            if (ocr_config.sendToClipboard) command.push('--clipboard-output');
+            if (ocr_config.furigana_filter_sensitivity > 0)
+                command.push(
+                    '--furigana_filter_sensitivity',
+                    `${ocr_config.furigana_filter_sensitivity}`
+                );
+            if (ocr_config.areaSelectOcrHotkey)
+                command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey}`);
+            if (ocr_config.manualOcrHotkey)
+                command.push('--manual_ocr_hotkey', `${ocr_config.manualOcrHotkey}`);
+            if (ocr_config.useWindowForConfig) command.push('--use_window_for_config');
+            if (ocr_config.keep_newline) command.push('--keep_newline');
+            if (ocr_config.useObsAsOCRSource) command.push('--obs_ocr');
             runOCR(command);
         }
     });
@@ -368,7 +451,7 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.on('ocr.stdin', (_, data) => {
         if (ocrProcess) {
-            console.log("Sending to OCR stdin:", data);
+            console.log('Sending to OCR stdin:', data);
             ocrProcess.stdin.write(data);
         }
     });
@@ -421,9 +504,9 @@ export function registerOCRUtilsIPC() {
         setUseWindowForConfig(config.useWindowForConfig);
         setLastWindowSelected(config.lastWindowSelected);
         setKeepNewline(config.keep_newline);
-        setUseObsAsSource(config.useObsAsSourcev2);
+        setUseObsAsSource(config.useObsAsOCRSource);
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
-    })
+    });
 
     ipcMain.handle('ocr.getActiveOCRConfig', async () => {
         return await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig);
@@ -432,10 +515,10 @@ export function registerOCRUtilsIPC() {
     ipcMain.handle('ocr.getActiveOCRConfigWindowName', async () => {
         const config = getOCRConfig();
         const ocrConfig = await getActiveOCRCOnfig(config.useWindowForConfig);
-        return ocrConfig ? ocrConfig.window : "";
+        return ocrConfig ? ocrConfig.window : '';
     });
 
-    ipcMain.handle("ocr.get-ocr-config", () => {
+    ipcMain.handle('ocr.get-ocr-config', () => {
         const ocr_config = getOCRConfig();
         return ocr_config;
         // return {
@@ -448,7 +531,7 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.handle('ocr.getWindows', async (): Promise<string[]> => {
         const windowsList: LibraryWindowInfo[] = getWindowsListWithLibrary();
-        return windowsList.map(window => window.title).sort((a, b) => a.localeCompare(b));
+        return windowsList.map((window) => window.title).sort((a, b) => a.localeCompare(b));
     });
 
     ipcMain.on('run-furigana-window', async (_, args: { char: string; fontSize: number }) => {
@@ -500,13 +583,14 @@ function createFuriganaWindow(): BrowserWindow {
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
-        }
+        },
     });
 
     furiganaWindow.loadFile(path.join(getAssetsDir(), 'furigana.html'));
 
     furiganaWindow.webContents.on('did-finish-load', () => {
-        if (furiganaWindow) { // Check if window still exists before setting
+        if (furiganaWindow) {
+            // Check if window still exists before setting
             // furiganaWindow.setIgnoreMouseEvents(true);
         }
     });
@@ -537,13 +621,14 @@ function getWindowsListWithLibrary(): LibraryWindowInfo[] {
     const windows = windowManager.getWindows();
     const uniqueTitles = new Set<string>();
     return windows
-        .filter(win => win.isVisible() && win.getTitle()?.length > 0) // Example filter
-        .map(win => ({ // Map to your desired structure
+        .filter((win) => win.isVisible() && win.getTitle()?.length > 0) // Example filter
+        .map((win) => ({
+            // Map to your desired structure
             title: win.getTitle(),
             path: win.path,
             // Add other properties as needed: win.getBounds(), win.processId etc.
         }))
-        .filter(win => {
+        .filter((win) => {
             if (uniqueTitles.has(win.title)) {
                 return false;
             }
@@ -551,7 +636,6 @@ function getWindowsListWithLibrary(): LibraryWindowInfo[] {
             return true;
         });
 }
-
 
 export async function getActiveOCRCOnfig(useWindow: boolean) {
     const sceneConfigPath = await getActiveOCRConfigPath(useWindow);
@@ -563,7 +647,10 @@ export async function getActiveOCRCOnfig(useWindow: boolean) {
         const fileContent = await fs.promises.readFile(sceneConfigPath, 'utf-8');
         return JSON.parse(fileContent);
     } catch (error: any) {
-        console.error(`Error reading or parsing OCR config file at ${sceneConfigPath}:`, error.message);
+        console.error(
+            `Error reading or parsing OCR config file at ${sceneConfigPath}:`,
+            error.message
+        );
         return null;
     }
 }

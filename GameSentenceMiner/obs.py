@@ -12,6 +12,8 @@ import obsws_python as obs
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.configuration import *
 from GameSentenceMiner.util.gsm_utils import sanitize_filename, make_unique_file_name
+import tkinter as tk
+from tkinter import messagebox
 
 client: obs.ReqClient = None
 event_client: obs.EventClient = None
@@ -26,10 +28,13 @@ class OBSConnectionManager(threading.Thread):
         super().__init__()
         self.daemon = True
         self.running = True
+        self.check_connection_interval = 1
+        self.said_no_to_replay_buffer = False
+        self.counter = 0
 
     def run(self):
         while self.running:
-            time.sleep(1)
+            time.sleep(self.check_connection_interval)
             try:
                 if not connecting:
                     client.get_version()
@@ -37,9 +42,39 @@ class OBSConnectionManager(threading.Thread):
                 logger.info(f"OBS WebSocket not connected. Attempting to reconnect... {e}")
                 gsm_status.obs_connected = False
                 asyncio.run(connect_to_obs())
+            if self.counter % 5 == 0:
+                replay_buffer_status = get_replay_buffer_status()
+                if replay_buffer_status and self.said_no_to_replay_buffer:
+                    self.said_no_to_replay_buffer = False
+                    self.counter = 0
+                if gsm_status.obs_connected and not replay_buffer_status and not self.said_no_to_replay_buffer:
+                    self.check_output()
+            self.counter += 1
 
     def stop(self):
         self.running = False
+    
+    def check_output(self):
+        img = get_screenshot_PIL(compression=100, img_format='jpg', width=1280, height=720)
+        extrema = img.getextrema()
+        if isinstance(extrema[0], tuple):
+            is_empty = all(e[0] == e[1] for e in extrema)
+        else:
+            is_empty = extrema[0] == extrema[1]
+        if is_empty:
+            logger.info("Image is totally empty (all pixels the same), sleeping.")
+        else:
+            root = tk.Tk()
+            root.attributes('-topmost', True)
+            root.withdraw()
+            root.deiconify()
+            result = messagebox.askyesno("GSM - Replay Buffer", "The replay buffer is not running, but there seems to be output in OBS. Do you want to start it? (If you click 'No', you won't be asked until you either restart GSM or start/stop replay buffer manually.)")
+            root.destroy()
+            if not result:
+                self.said_no_to_replay_buffer = True
+                self.counter = 0
+                return
+            start_replay_buffer()
 
 def get_obs_path():
     return os.path.join(configuration.get_app_directory(), 'obs-studio/bin/64bit/obs64.exe')
@@ -248,9 +283,9 @@ def toggle_replay_buffer():
 
 def start_replay_buffer():
     try:
-        status = get_replay_buffer_status()
-        if status:
-            client.start_replay_buffer()
+        response = client.start_replay_buffer()
+        if response and response.ok:
+            logger.info("Replay buffer started.")
     except Exception as e:
         logger.error(f"Error starting replay buffer: {e}")
 
@@ -263,7 +298,9 @@ def get_replay_buffer_status():
 
 def stop_replay_buffer():
     try:
-        client.stop_replay_buffer()
+        response = client.stop_replay_buffer()
+        if response and response.ok:
+            logger.info("Replay buffer stopped.")
     except Exception as e:
         logger.warning(f"Error stopping replay buffer: {e}")
 

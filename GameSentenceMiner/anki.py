@@ -134,14 +134,11 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
 
     if note and 'fields' in note and get_config().ai.enabled:
         sentence_field = note['fields'].get(get_config().anki.sentence_field, {})
-        if not selected_lines and game_line.TL:
-            logger.info("Using TL from texthooker for AI Prompt Result")
-            translation = game_line.TL
-        else:
-            sentence_to_translate = sentence_field if sentence_field else last_note.get_field(
-                get_config().anki.sentence_field)
-            translation = get_ai_prompt_result(get_all_lines(), sentence_to_translate,
-                                     game_line, get_current_game())
+        sentence_to_translate = sentence_field if sentence_field else last_note.get_field(
+            get_config().anki.sentence_field)
+        translation = get_ai_prompt_result(get_all_lines(), sentence_to_translate,
+                                    game_line, get_current_game())
+        game_line.TL = translation
         logger.info(f"AI prompt Result: {translation}")
         note['fields'][get_config().ai.anki_field] = translation
 
@@ -502,3 +499,6 @@ def start_monitoring_anki():
     obs_thread.daemon = True
     obs_thread.start()
 
+
+if __name__ == "__main__":
+    print(invoke("getIntervals", cards=["1754694986036"]))

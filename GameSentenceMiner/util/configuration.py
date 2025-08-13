@@ -488,6 +488,10 @@ class Screenshot:
             self.screenshot_timing_setting = 'middle'
         if not self.screenshot_timing_setting and not self.use_beginning_of_line_as_screenshot and not self.use_new_screenshot_logic:
             self.screenshot_timing_setting = 'end'
+        if self.width and self.height == 0:
+            self.height = -1
+        if self.width == 0 and self.height:
+            self.width = -1
 
 
 @dataclass_json
@@ -508,6 +512,8 @@ class Audio:
     def __post_init__(self):
         self.ffmpeg_reencode_options_to_use = self.ffmpeg_reencode_options.replace(
             "{format}", self.extension).replace("{encoder}", supported_formats.get(self.extension, ''))
+        if not self.anki_media_collection:
+            self.anki_media_collection = get_default_anki_media_collection_path()
         if self.anki_media_collection:
             self.anki_media_collection = os.path.normpath(
                 self.anki_media_collection)

@@ -110,6 +110,30 @@ class HoverInfoLabelWidget:
         if self.tooltip:
             self.tooltip.destroy()
             self.tooltip = None
+            
+class HoverInfoEntryWidget:
+    def __init__(self, parent, text, row, column, padx=5, pady=2, textvariable=None):
+        self.entry = ttk.Entry(parent, textvariable=textvariable)
+        self.entry.grid(row=row, column=column, padx=padx, pady=pady)
+        self.entry.bind("<Enter>", lambda e: self.show_info_box(text))
+        self.entry.bind("<Leave>", lambda e: self.hide_info_box())
+        self.tooltip = None
+
+    def show_info_box(self, text):
+        x, y, _, _ = self.entry.bbox("insert")
+        x += self.entry.winfo_rootx() + 25
+        y += self.entry.winfo_rooty() + 20
+        self.tooltip = tk.Toplevel(self.entry)
+        self.tooltip.wm_overrideredirect(True)
+        self.tooltip.wm_geometry(f"+{x}+{y}")
+        label = ttk.Label(self.tooltip, text=text, relief="solid", borderwidth=1,
+                          font=("tahoma", "12", "normal"))
+        label.pack(ipadx=1)
+
+    def hide_info_box(self):
+        if self.tooltip:
+            self.tooltip.destroy()
+            self.tooltip = None
 
 
 class ResetToDefaultButton(ttk.Button):
@@ -673,7 +697,8 @@ class ConfigApp:
             self.profiles_tab = None
             self.ai_tab = None
             self.advanced_tab = None
-            self.wip_tab = None
+            self.overlay_tab = None
+            # self.wip_tab = None
 
             self.create_vars()
             self.create_tabs()
@@ -830,6 +855,7 @@ class ConfigApp:
 
         # --- General Settings ---
         general_i18n = self.i18n.get('tabs', {}).get('general', {})
+        
         input_frame = ttk.Frame(required_settings_frame)
         input_frame.grid(row=self.current_row, column=0, columnspan=4, sticky='W', pady=2)
         
@@ -854,7 +880,7 @@ class ConfigApp:
         HoverInfoLabelWidget(required_settings_frame, text=locale_i18n.get('label', '...'),
                              tooltip=locale_i18n.get('tooltip', '...'), row=self.current_row, column=0)
         locale_combobox_simple = ttk.Combobox(required_settings_frame, textvariable=self.locale_value, values=[Locale.English.name, Locale.日本語.name, Locale.中文.name], state="readonly")
-        locale_combobox_simple.grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
+        locale_combobox_simple.grid(row=self.current_row, column=1, columnspan=2, sticky='EW', pady=2)
         locale_combobox_simple.bind("<<ComboboxSelected>>", lambda e: self.change_locale())
         self.current_row += 1
 
@@ -878,9 +904,9 @@ class ConfigApp:
         ttk.Entry(required_settings_frame, textvariable=self.sentence_field_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
         self.current_row += 1
 
-        audio_i18n = anki_i18n.get('sentence_audio_field', {})
-        HoverInfoLabelWidget(required_settings_frame, text=audio_i18n.get('label', '...'),
-                             tooltip=audio_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        sentence_audio_i18n = anki_i18n.get('sentence_audio_field', {})
+        HoverInfoLabelWidget(required_settings_frame, text=sentence_audio_i18n.get('label', '...'),
+                             tooltip=sentence_audio_i18n.get('tooltip', '...'), row=self.current_row, column=0)
         ttk.Entry(required_settings_frame, textvariable=self.sentence_audio_field_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
         self.current_row += 1
 
@@ -912,6 +938,45 @@ class ConfigApp:
                              tooltip=vad_end_offset_i18n.get('tooltip', '...'), row=self.current_row, column=0)
         ttk.Entry(required_settings_frame, textvariable=self.end_offset_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
         self.current_row += 1
+        
+        splice_i18n = vad_i18n.get('cut_and_splice', {})
+        HoverInfoLabelWidget(required_settings_frame, text=splice_i18n.get('label', '...'),
+                             tooltip=splice_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Checkbutton(required_settings_frame, variable=self.cut_and_splice_segments_value, bootstyle="round-toggle").grid(
+            row=self.current_row, column=1, sticky='W', pady=2)
+        
+        padding_i18n = vad_i18n.get('splice_padding', {})
+        HoverInfoEntryWidget(required_settings_frame, text=padding_i18n.get('tooltip', '...'),
+                                              row=self.current_row, column=2, textvariable=self.splice_padding_value)
+
+        self.current_row += 1
+        
+        # Ocen Audio
+
+        ext_tool_i18n = audio_tab_i18n.get('external_tool', {})
+        HoverInfoLabelWidget(required_settings_frame, text=ext_tool_i18n.get('label', '...'),
+                             tooltip=ext_tool_i18n.get('tooltip', '...'),
+                             foreground="green", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
+        self.external_tool_entry = ttk.Entry(required_settings_frame, textvariable=self.external_tool_value)
+        self.external_tool_entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        
+        ttk.Button(required_settings_frame, text=audio_tab_i18n.get('install_ocenaudio_button', 'Install Ocenaudio'), command=self.download_and_install_ocen,
+            bootstyle="info").grid(row=self.current_row, column=2, pady=5)
+        self.current_row += 1
+        
+        # ext_tool_enabled_i18n = audio_tab_i18n.get('external_tool_enabled', {})
+        # ttk.Checkbutton(required_settings_frame, variable=self.external_tool_enabled_value, bootstyle="round-toggle").grid(
+        #     row=self.current_row, column=3, sticky='W', padx=10, pady=5)
+        # self.current_row += 1
+
+        # Anki Media Collection
+
+        # anki_media_collection_i18n = audio_tab_i18n.get('anki_media_collection', {})
+        # HoverInfoLabelWidget(required_settings_frame, text=anki_media_collection_i18n.get('label', '...'),
+        #                      tooltip=anki_media_collection_i18n.get('tooltip', '...'), row=self.current_row, column=0)
+        # ttk.Entry(required_settings_frame, textvariable=self.anki_media_collection_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
+        # self.current_row += 1
 
         # --- Features Settings ---
         features_i18n = self.i18n.get('tabs', {}).get('features', {})
@@ -1554,9 +1619,9 @@ class ConfigApp:
 
         ttk.Button(audio_frame, text=audio_i18n.get('install_ocenaudio_button', 'Install Ocenaudio'), command=self.download_and_install_ocen,
                    bootstyle="info").grid(row=self.current_row, column=0, pady=5)
-        ttk.Button(audio_frame, text=audio_i18n.get('get_anki_media_button', 'Get Anki Media Collection'),
-                   command=self.set_default_anki_media_collection, bootstyle="info").grid(row=self.current_row,
-                                                                                          column=1, pady=5)
+        # ttk.Button(audio_frame, text=audio_i18n.get('get_anki_media_button', 'Get Anki Media Collection'),
+        #            command=self.set_default_anki_media_collection, bootstyle="info").grid(row=self.current_row,
+        #                                                                                   column=1, pady=5)
         self.current_row += 1
 
         self.add_reset_button(audio_frame, "audio", self.current_row, 0, self.create_audio_tab)
@@ -2125,48 +2190,24 @@ class ConfigApp:
         wip_frame = self.wip_tab
         wip_i18n = self.i18n.get('tabs', {}).get('wip', {})
         try:
-            ttk.Label(wip_frame, text=wip_i18n.get('warning_experimental', '...'),
-                    foreground="red", font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2,
-                                                                        sticky='W', pady=5)
-            self.current_row += 1
+            pass
+            # from GameSentenceMiner.util.controller import ControllerInput, ControllerInputManager
+            # HoverInfoLabelWidget(wip_frame, text=wip_i18n.get('note', 'This tab is a work in progress...'),
+            #                      tooltip=wip_i18n.get('tooltip', '...'), foreground="blue", font=("Helvetica", 10, "bold"),
+            #                      row=self.current_row, column=0, columnspan=2)
+            # self.current_row += 1
+
+            # # Controller OCR Input
+            # controller_ocr_input_i18n = wip_i18n.get('controller_ocr_input', {})
+            # HoverInfoLabelWidget(wip_frame, text=controller_ocr_input_i18n.get('label', 'Controller OCR Input:'), tooltip=controller_ocr_input_i18n.get('tooltip', '...'),
+            #                      row=self.current_row, column=0)
+            # self.controller_ocr_input_value = tk.StringVar(value=getattr(self.settings.wip, 'controller_ocr_input', ''))
+            # self.controller_hotkey_entry = ttk.Entry(wip_frame, textvariable=self.controller_ocr_input_value, width=50)
+            # self.controller_hotkey_entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
             
-            ttk.Label(wip_frame, text=wip_i18n.get('warning_overlay_deps', '...'),
-                    foreground="red", font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2,
-                                                                        sticky='W', pady=5)
-            self.current_row += 1
-
-            overlay_port_i18n = wip_i18n.get('overlay_port', {})
-            HoverInfoLabelWidget(wip_frame, text=overlay_port_i18n.get('label', '...'),
-                                tooltip=overlay_port_i18n.get('tooltip', '...'),
-                                row=self.current_row, column=0)
-            ttk.Entry(wip_frame, textvariable=self.overlay_websocket_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
-            self.current_row += 1
-
-            overlay_send_i18n = wip_i18n.get('overlay_send', {})
-            HoverInfoLabelWidget(wip_frame, text=overlay_send_i18n.get('label', '...'),
-                                tooltip=overlay_send_i18n.get('tooltip', '...'),
-                                row=self.current_row, column=0)
-            ttk.Checkbutton(wip_frame, variable=self.overlay_websocket_send_value, bootstyle="round-toggle").grid(
-                row=self.current_row, column=1, sticky='W', pady=2)
-            self.current_row += 1
-
-            monitor_i18n = wip_i18n.get('monitor_capture', {})
-            HoverInfoLabelWidget(wip_frame, text=monitor_i18n.get('label', '...'),
-                                tooltip=monitor_i18n.get('tooltip', '...'),
-                                row=self.current_row, column=0)
-            self.monitor_to_capture = ttk.Combobox(wip_frame, values=self.monitors, state="readonly")
-            
-            if self.monitors:
-                # Ensure the index is valid
-                monitor_index = self.settings.overlay.monitor_to_capture
-                if 0 <= monitor_index < len(self.monitors):
-                    self.monitor_to_capture.current(monitor_index)
-                else:
-                    self.monitor_to_capture.current(0)
-            else:
-                self.monitor_to_capture.set(monitor_i18n.get('not_detected', "OwOCR Not Detected"))
-            self.monitor_to_capture.grid(row=self.current_row, column=1, sticky='EW', pady=2)
-            self.current_row += 1
+            # listen_for_input_button = ttk.Button(wip_frame, text="Listen for Input", command=lambda: self.listen_for_controller_input())
+            # listen_for_input_button.grid(row=self.current_row, column=2, sticky='EW', pady=2)
+            # self.current_row += 1
 
         except Exception as e:
             logger.error(f"Error setting up wip tab to capture: {e}")
@@ -2178,6 +2219,27 @@ class ConfigApp:
         for row in range(self.current_row): wip_frame.grid_rowconfigure(row, minsize=30)
 
         return wip_frame
+    
+    # def listen_for_controller_input(self):
+    #     from GameSentenceMiner.util.controller import ControllerInput, ControllerInputManager
+    #     def listen_for_controller_thread():
+    #         controller = ControllerInputManager()
+    #         controller.start()
+    #         start_time = time.time()
+    #         while time.time() - start_time < 10:
+    #             try:
+    #                 event = controller.event_queue.get(timeout=1)
+    #                 input = ''
+    #                 for key in event:
+    #                     input += key.readable_name + '+'
+    #                 input = input[:-1]  # Remove trailing '+'
+    #                 self.controller_hotkey_entry.delete(0, tk.END)
+    #                 self.controller_hotkey_entry.insert(0, input)
+    #             except Exception:
+    #                 continue
+    #         controller.stop()
+    #     listen_thread = threading.Thread(target=listen_for_controller_thread)
+    #     listen_thread.start()
 
     def on_profile_change(self, event):
         self.save_settings(profile_change=True)

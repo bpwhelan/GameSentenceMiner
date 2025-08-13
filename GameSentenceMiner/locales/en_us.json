@@ -250,7 +250,7 @@
             "tooltip": "Beginning offset after VAD Trim, Only active if \"Trim Beginning\" is ON. Negative values = more time at the beginning"
           },
           "cut_and_splice": {
-            "label": "Cut and Splice Segments:",
+            "label": "Cut and Splice Voice Segments:",
             "tooltip": "Cut Detected Voice Segments and Paste them back together. More Padding = More Space between voicelines."
           },
           "splice_padding": {

@@ -809,8 +809,8 @@
                 });
 
                 document.getElementById('use-obs-as-source').addEventListener('change', (event) => {
-                    ocr_settings.useObsAsSourcev2 = event.target.checked;
-                    if (!ocr_settings.useObsAsSourcev2) {
+                    ocr_settings.useObsAsOCRSource = event.target.checked;
+                    if (!ocr_settings.useObsAsOCRSource) {
                         document.getElementById('window-select-group').style.display = 'flex';
                         document.getElementById('require-open-window-group').style.display = 'flex';
                     } else {
@@ -907,7 +907,7 @@
                         useWindowForConfig: useWindowForConfigCheckbox.checked,
                         lastWindowSelected: windowSelect.value.trim(),
                         keep_newline: document.getElementById('keep-newline').checked,
-                        useObsAsSourcev2: document.getElementById('use-obs-as-source').checked,
+                        useObsAsOCRSource: document.getElementById('use-obs-as-source').checked,
                     };
                     await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
                 }
@@ -924,11 +924,12 @@
                         document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate || 0.5;
                         document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
                         document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots;
-                        document.getElementById('keep-newline').checked = ocr_settings.keep_newline || false;
+                        document.getElementById('keep-newline').checked = ocr_settings.keep_newline;
                         sendToClipboardCheckbox.checked = ocr_settings.sendToClipboard;
                         useWindowForConfigCheckbox.checked = ocr_settings.useWindowForConfig;
-                        document.getElementById('use-obs-as-source').checked = ocr_settings.useObsAsSourcev2 || false;
-                        if (!ocr_settings.useObsAsSourcev2) {
+                        let useObsAsOCRSource = ocr_settings.useObsAsOCRSource !== false;
+                        document.getElementById('use-obs-as-source').checked = useObsAsOCRSource;
+                        if (!useObsAsOCRSource) {
                             document.getElementById('window-select-group').style.display = 'flex';
                             document.getElementById('require-open-window-group').style.display = 'flex';
                         } else {
