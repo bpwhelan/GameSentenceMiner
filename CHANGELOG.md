@@ -1,3 +1,25 @@
+# 1.10.4 / 2.14.5
+
+## OCR
+
+- Force "use obs for ocr" setting ON. You can turn it off in the debug section, but I am considering it UNSUPPORTED at this time.
+- Will now check for stability in the image instead of exact sameness, this should help with really tiny changes in the image forcing another OCR to happen.
+- Fixed LLM OCR attempting to initialize when it's not setup or configured.
+- There is now a gradual rest to OCR if it keeps getting the same exact text over and over again, or notices that the image hasn't changed. This starts to kick in after 10 seconds, and will increase the sleep time .005 with each scan. The max this can go is .5 seconds, so if your ocr scan rate is .5 or higher, this does NOT affect you.
+
+## Overlay
+
+- Now will let you click out of the overlay more reliably.
+
+## GSM
+
+- Added some more Key settings, including OcenAudio, and Audio Splicing.
+- Will now check the replay buffer every 5 seconds and attempt to warn you about it if there is image being captured, but replay buffer is not on.
+
+## Texthooker
+
+- Added a little convenience option on the very bottom left, you can enter a number there, hit `Enter` and it will send the last X amount of lines to be translated, and then it will be printed out in the texthooker page. This is quick and dirty, but should rarely be used.
+
 # 1.10.0 / 2.14.0
 
 A ton of changes here, I tested to the best of my ability, so hopefully it should all be good.
