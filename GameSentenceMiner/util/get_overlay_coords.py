@@ -134,10 +134,24 @@ class OverlayProcessor:
         composite_img = Image.new("RGBA", (monitor_width, monitor_height), (0, 0, 0, 0))
 
         for crop_coords in crop_coords_list:
-            cropped_image = full_screenshot.crop(crop_coords)
+            # Ensure crop coordinates are within image bounds
+            x1, y1, x2, y2 = crop_coords
+            x1 = max(0, min(x1, full_screenshot.width))
+            y1 = max(0, min(y1, full_screenshot.height))
+            x2 = max(x1, min(x2, full_screenshot.width))
+            y2 = max(y1, min(y2, full_screenshot.height))
+            
+            # Skip if the coordinates result in an invalid box
+            if x1 >= x2 or y1 >= y2:
+                continue
+            try:
+                cropped_image = full_screenshot.crop((x1, y1, x2, y2))
+            except ValueError:
+                logger.warning("Error cropping image, using original image")
+                return full_screenshot
             # Paste the cropped image onto the canvas at its original location
-            paste_x = math.floor(crop_coords[0])
-            paste_y = math.floor(crop_coords[1])
+            paste_x = math.floor(x1)
+            paste_y = math.floor(y1)
             composite_img.paste(cropped_image, (paste_x, paste_y))
         
         return composite_img

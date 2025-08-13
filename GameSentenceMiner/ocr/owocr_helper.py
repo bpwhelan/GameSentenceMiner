@@ -378,8 +378,16 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
             previous_orig_text = orig_text_string
             previous_ocr1_result = previous_text
             if crop_coords and get_ocr_optimize_second_scan():
+                x1, y1, x2, y2 = crop_coords
+                x1 = max(0, min(x1, img.width))
+                y1 = max(0, min(y1, img.height))
+                x2 = max(x1, min(x2, img.width))
+                y2 = max(y1, min(y2, img.height))
                 previous_img_local.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
-                previous_img_local = previous_img_local.crop(crop_coords)
+                try:
+                    previous_img_local = previous_img_local.crop((x1, y1, x2, y2))
+                except ValueError:
+                    logger.warning("Error cropping image, using original image")
             second_ocr_queue.put((previous_text, stable_time, previous_img_local, filtering, pre_crop_image))
             # threading.Thread(target=do_second_ocr, args=(previous_text, stable_time, previous_img_local, filtering), daemon=True).start()
             previous_img = None

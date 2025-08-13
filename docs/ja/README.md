@@ -1,6 +1,6 @@
 # GameSentenceMiner (GSM)
 
-### [English](../../.github/README.md) | 日本語 | [简体中文](../zh/README.md)
+### [English](../../README.md) | 日本語 | [简体中文](../zh/README.md)
 
 ゲームを使った言語学習を支援するために設計されたアプリケーションです。ゲーム版の「[asbplayer](https://github.com/killergerbah/asbplayer)」を目指しています。
 
