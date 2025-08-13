@@ -62,7 +62,7 @@ class OBSConnectionManager(threading.Thread):
         else:
             is_empty = extrema[0] == extrema[1]
         if is_empty:
-            logger.info("Image is totally empty (all pixels the same), sleeping.")
+            return
         else:
             root = tk.Tk()
             root.attributes('-topmost', True)

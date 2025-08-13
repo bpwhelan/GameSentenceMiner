@@ -17,7 +17,6 @@ from dataclasses_json import dataclass_json
 
 from importlib import metadata
 
-import requests
 
 
 OFF = 'OFF'
@@ -361,6 +360,7 @@ def get_current_version():
 
 def get_latest_version():
     try:
+        import requests
         response = requests.get(f"https://pypi.org/pypi/{PACKAGE_NAME}/json")
         latest_version = response.json()["info"]["version"]
         return latest_version
