@@ -415,6 +415,10 @@
           "min_replay_size": {
             "label": "Minimum Replay Size (KB):",
             "tooltip": "Minimum Replay Size for OBS Replays in KB. If Replay is Under this, Audio/Screenshot Will not be grabbed."
+          },
+          "turn_off_output_check": {
+            "label": "Turn Off Output Check:",
+            "tooltip": "Disable the video output Replay Buffer Check."
           }
         },
         "profiles": {

@@ -3,7 +3,7 @@ from plyer import notification
 from GameSentenceMiner.util.configuration import logger, is_windows
 
 if is_windows():
-    from win10toast import ToastNotifier
+    from GameSentenceMiner.util.win10toast import ToastNotifier
 
 if is_windows():
     class MyToastNotifier(ToastNotifier):
@@ -145,3 +145,13 @@ def send_error_notification(message):
         message=message,
         timeout=5  # Notification disappears after 5 seconds
     )
+
+
+if __name__ == "__main__":
+    send_note_updated("TestTango")
+    send_screenshot_updated("TestTango")
+    send_screenshot_saved("C:/Screenshots/test.png")
+    send_audio_generated_notification("C:/Audio/test.mp3")
+    send_check_obs_notification("Replay buffer not active")
+    send_error_no_anki_update()
+    send_error_notification("Custom error message for testing")

@@ -24,13 +24,14 @@ logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 connecting = False
 
 class OBSConnectionManager(threading.Thread):
-    def __init__(self):
+    def __init__(self, check_output=True):
         super().__init__()
         self.daemon = True
         self.running = True
         self.check_connection_interval = 1
         self.said_no_to_replay_buffer = False
         self.counter = 0
+        self.check_output = check_output
 
     def run(self):
         while self.running:
@@ -42,13 +43,16 @@ class OBSConnectionManager(threading.Thread):
                 logger.info(f"OBS WebSocket not connected. Attempting to reconnect... {e}")
                 gsm_status.obs_connected = False
                 asyncio.run(connect_to_obs())
-            if self.counter % 5 == 0:
+            if self.counter % 5 == 0 and not get_config().obs.turn_off_output_check and self.check_output:
                 replay_buffer_status = get_replay_buffer_status()
                 if replay_buffer_status and self.said_no_to_replay_buffer:
                     self.said_no_to_replay_buffer = False
                     self.counter = 0
                 if gsm_status.obs_connected and not replay_buffer_status and not self.said_no_to_replay_buffer:
-                    self.check_output()
+                    try:
+                        self.check_output()
+                    except Exception as e:
+                        pass
             self.counter += 1
 
     def stop(self):
@@ -172,7 +176,7 @@ def get_obs_websocket_config_values():
         full_config.save()
         reload_config()
 
-async def connect_to_obs(retry=5):
+async def connect_to_obs(retry=5, check_output=True):
     global client, obs_connection_manager, event_client, connecting
     if is_windows():
         get_obs_websocket_config_values()
@@ -195,7 +199,7 @@ async def connect_to_obs(retry=5):
             gsm_status.obs_connected = True
             logger.info("Connected to OBS WebSocket.")
             if not obs_connection_manager:
-                obs_connection_manager = OBSConnectionManager()
+                obs_connection_manager = OBSConnectionManager(check_output=check_output)
                 obs_connection_manager.start()
             update_current_game()
             break  # Exit the loop once connected
@@ -211,7 +215,7 @@ async def connect_to_obs(retry=5):
             retry -= 1
     connecting = False
 
-def connect_to_obs_sync(retry=2):
+def connect_to_obs_sync(retry=2, check_output=True):
     global client, obs_connection_manager, event_client
     if is_windows():
         get_obs_websocket_config_values()
@@ -231,7 +235,7 @@ def connect_to_obs_sync(retry=2):
                 timeout=1,
             )
             if not obs_connection_manager:
-                obs_connection_manager = OBSConnectionManager()
+                obs_connection_manager = OBSConnectionManager(check_output=check_output)
                 obs_connection_manager.start()
             update_current_game()
             logger.info("Connected to OBS WebSocket.")
@@ -293,7 +297,7 @@ def get_replay_buffer_status():
     try:
         return client.get_replay_buffer_status().output_active
     except Exception as e:
-        logger.warning(f"Error getting replay buffer status: {e}")
+        logger.debug(f"Error getting replay buffer status: {e}")
         return None
 
 def stop_replay_buffer():

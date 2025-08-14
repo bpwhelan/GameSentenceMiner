@@ -212,6 +212,7 @@ class ConfigApp:
 
         self.create_vars()
         self.create_tabs()
+        self.get_online_models()
         self.notebook.bind("<<NotebookTabChanged>>", self.on_profiles_tab_selected)
 
         button_frame = ttk.Frame(self.window)
@@ -285,6 +286,7 @@ class ConfigApp:
         self.obs_close_obs_value = tk.BooleanVar(value=self.settings.obs.close_obs)
         self.obs_get_game_from_scene_name_value = tk.BooleanVar(value=self.settings.obs.get_game_from_scene)
         self.obs_minimum_replay_size_value = tk.StringVar(value=str(self.settings.obs.minimum_replay_size))
+        self.obs_turn_off_output_check_value = tk.BooleanVar(value=self.settings.obs.turn_off_output_check)
         
         # Paths Settings
         self.folder_to_watch_value = tk.StringVar(value=self.settings.paths.folder_to_watch)
@@ -567,7 +569,8 @@ class ConfigApp:
                 port=int(self.obs_port_value.get()),
                 password=self.obs_password_value.get(),
                 get_game_from_scene=self.obs_get_game_from_scene_name_value.get(),
-                minimum_replay_size=int(self.obs_minimum_replay_size_value.get())
+                minimum_replay_size=int(self.obs_minimum_replay_size_value.get()),
+                turn_off_output_check=self.obs_turn_off_output_check_value.get()
             ),
             hotkeys=Hotkeys(
                 reset_line=self.reset_line_hotkey_value.get(),
@@ -1721,6 +1724,14 @@ class ConfigApp:
         ttk.Entry(obs_frame, textvariable=self.obs_minimum_replay_size_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
+        turn_off_output_check_i18n = obs_i18n.get('turn_off_output_check', {})
+        HoverInfoLabelWidget(obs_frame, text=turn_off_output_check_i18n.get('label', '...'),
+                             tooltip=turn_off_output_check_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Checkbutton(obs_frame, variable=self.obs_turn_off_output_check_value, bootstyle="round-toggle").grid(
+            row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+
         self.add_reset_button(obs_frame, "obs", self.current_row, 0, self.create_obs_tab)
 
         for col in range(3): obs_frame.grid_columnconfigure(col, weight=0)
@@ -1968,9 +1979,7 @@ class ConfigApp:
         self.groq_models_combobox = ttk.Combobox(ai_frame, textvariable=self.groq_model_value, values=RECOMMENDED_GROQ_MODELS, state="readonly")
         self.groq_models_combobox.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
-        
-        self.get_online_models()
-        
+                
         groq_key_i18n = ai_i18n.get('groq_api_key', {})
         HoverInfoLabelWidget(ai_frame, text=groq_key_i18n.get('label', '...'), tooltip=groq_key_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
@@ -1979,8 +1988,6 @@ class ConfigApp:
         groq_apikey_entry.bind("<FocusOut>", lambda e, row=self.current_row: self.get_online_models())
         groq_apikey_entry.bind("<Return>", lambda e, row=self.current_row: self.get_online_models())
         self.current_row += 1
-        
-        
         
         openai_url_i18n = ai_i18n.get('openai_url', {})
         HoverInfoLabelWidget(ai_frame, text=openai_url_i18n.get('label', '...'), tooltip=openai_url_i18n.get('tooltip', '...'),
@@ -1994,6 +2001,7 @@ class ConfigApp:
 
         self.openai_model_options = []
         self.update_models_element(ai_frame, self.current_row)
+        # threading.Thread(target=self.update_models_element, args=(ai_frame, self.current_row)).start()
         self.current_row += 1
             
         
@@ -2050,7 +2058,7 @@ class ConfigApp:
     def get_online_models(self):
         ai_models = AIModelsTable.one()
 
-        def get_models_thread():
+        def get_models():
             groq_models = get_groq_models()
             gemini_models = get_gemini_models()
             AIModelsTable.update_models(gemini_models, groq_models)
@@ -2099,12 +2107,13 @@ class ConfigApp:
         if ai_models and ai_models.gemini_models and ai_models.groq_models:
             if time.time() - ai_models.last_updated > 3600 * 6:
                 print("AI models are outdated, fetching new ones.")
-                threading.Thread(target=get_models_thread, daemon=True).start()
+                threading.Thread(target=get_models, daemon=True).start()
             self.gemini_model_combobox['values'] = ai_models.gemini_models
             self.groq_models_combobox['values'] = ai_models.groq_models
         else:
             print("No AI models found, fetching new ones.")
-            threading.Thread(target=get_models_thread, daemon=True).start()
+            threading.Thread(target=get_models, daemon=True).start()
+            # get_models()
     
     def update_models_element(self, frame, row):
         if hasattr(self, 'last_url') and self.last_url == self.open_ai_url_value.get().strip():
@@ -2114,7 +2123,7 @@ class ConfigApp:
         if self.open_ai_url_value.get().strip() != "" and any(c in self.open_ai_url_value.get() for c in ["localhost", "127.0.0.1"]):
             import openai
             # get models from openai compatible url
-            client = openai.Client(api_key=self.settings.ai.open_ai_api_key, base_url=self.open_ai_url_value.get().strip())
+            client = openai.Client(api_key=self.settings.ai.open_ai_api_key, base_url=self.open_ai_url_value.get().strip(), timeout=1)
             try:
                 models = client.models.list()
                 if models:

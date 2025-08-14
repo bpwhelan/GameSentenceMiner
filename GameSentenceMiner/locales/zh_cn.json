@@ -415,6 +415,10 @@
           "min_replay_size": {
             "label": "最小回放大小 (KB):",
             "tooltip": "OBS 录像回放的最小大小（KB）。如果回放小于此大小，将不抓取音频/截图。"
+          },
+          "turn_off_output_check": {
+            "label": "关闭输出检查:",
+            "tooltip": "禁用视频输出的回放缓冲区检查。"
           }
         },
         "profiles": {

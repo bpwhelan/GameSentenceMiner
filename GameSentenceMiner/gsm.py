@@ -34,27 +34,85 @@ try:
     from watchdog.observers import Observer
     import psutil
 
-    from GameSentenceMiner.util.model import VADResult
-    from GameSentenceMiner.vad import vad_processor
-    from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
-    from GameSentenceMiner.util.communication.send import send_restart_signal
-    from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
-    from GameSentenceMiner import anki
-    from GameSentenceMiner import config_gui
-    from GameSentenceMiner.util import configuration, notification, ffmpeg
-    from GameSentenceMiner import gametext
-    from GameSentenceMiner import obs
-    from GameSentenceMiner.util.communication import Message
-    from GameSentenceMiner.util.communication.websocket import connect_websocket, register_websocket_message_handler, \
-        FunctionName
+    start_time = time.time()
     from GameSentenceMiner.util.configuration import *
+    logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner.util.model import VADResult
+    logger.debug(f"[Import] VADResult model: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner.vad import vad_processor
+    logger.debug(f"[Import] vad_processor: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
+    logger.debug(f"[Import] download_tools (download_obs_if_needed, download_ffmpeg_if_needed): {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner.util.communication.send import send_restart_signal
+    logger.debug(f"[Import] send_restart_signal: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
+    logger.debug(f"[Import] gsm_utils (wait_for_stable_file, make_unique_file_name, run_new_thread): {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner import anki
+    logger.debug(f"[Import] anki: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner import config_gui
+    logger.debug(f"[Import] config_gui: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner.util import configuration, notification, ffmpeg
+    logger.debug(f"[Import] util (configuration, notification, ffmpeg): {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner import gametext
+    logger.debug(f"[Import] gametext: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner import obs
+    logger.debug(f"[Import] obs: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner.util.communication import Message
+    logger.debug(f"[Import] Message: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
+    from GameSentenceMiner.util.communication.websocket import connect_websocket, register_websocket_message_handler, FunctionName
+    logger.debug(f"[Import] websocket (connect_websocket, register_websocket_message_handler, FunctionName): {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
     from GameSentenceMiner.util.ffmpeg import get_audio_and_trim, get_video_timings, get_ffmpeg_path
+    logger.debug(f"[Import] util.ffmpeg (get_audio_and_trim, get_video_timings, get_ffmpeg_path): {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
     from GameSentenceMiner.obs import check_obs_folder_is_correct
+    logger.debug(f"[Import] obs.check_obs_folder_is_correct: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
     from GameSentenceMiner.util.text_log import GameLine, get_text_event, get_mined_line, get_all_lines, game_log
+    logger.debug(f"[Import] util.text_log (GameLine, get_text_event, get_mined_line, get_all_lines, game_log): {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
     from GameSentenceMiner.util import *
+    logger.debug(f"[Import] util *: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
     from GameSentenceMiner.web import texthooking_page
+    logger.debug(f"[Import] web.texthooking_page: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
     from GameSentenceMiner.web.service import handle_texthooker_button, set_get_audio_from_video_callback
+    logger.debug(f"[Import] web.service (handle_texthooker_button, set_get_audio_from_video_callback): {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
+    logger.debug(f"[Import] web.texthooking_page.run_text_hooker_page: {time.time() - start_time:.3f}s")
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
     handle_error_in_initialization(e)
@@ -583,7 +641,7 @@ def handle_websocket_message(message: Message):
                 f"unknown message from electron websocket: {message.to_json()}")
 
 
-def post_init2():
+def initialize_text_monitor():
     asyncio.run(gametext.start_text_monitor())
 
 
@@ -668,8 +726,8 @@ async def async_main(reloading=False):
     try:
         global root, settings_window
         initialize(reloading)
-        logger.info("Script started.")
         root = ttk.Window(themename='darkly')
+        start_time = time.time()
         settings_window = config_gui.ConfigApp(root)
         initialize_async()
         observer = Observer()
@@ -678,10 +736,12 @@ async def async_main(reloading=False):
         observer.start()
         if is_windows():
             register_hotkeys()
-
-        run_new_thread(post_init2)
+            
+        run_new_thread(initialize_text_monitor)
         run_new_thread(run_text_hooker_page)
-        run_new_thread(async_loop)
+        run_new_thread(async_loop).join()
+        
+        logger.info("Initialization complete. Happy Mining! がんばれ！")
         
         # await check_if_script_is_running()
         # await log_current_pid()

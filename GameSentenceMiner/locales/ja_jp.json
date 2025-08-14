@@ -414,6 +414,10 @@
           "min_replay_size": {
             "label": "最小リプレイサイズ (KB):",
             "tooltip": "このサイズ未満のリプレイは処理しません。"
+          },
+          "turn_off_output_check": {
+            "label": "出力チェックを無効化:",
+            "tooltip": "動画出力のリプレイバッファチェックを無効化します。"
           }
         },
         "profiles": {
