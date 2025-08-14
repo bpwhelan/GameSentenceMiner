@@ -504,7 +504,7 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
         logger.error(f"Error setting up screenshot hotkey with keyboard, Attempting Backup: {e}")
         logger.debug(e)
         pynput_hotkey = ss_hotkey.replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
-        secondary_ss_hotkey = secondary_ss_hotkey.replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
+        secondary_ss_hotkey = get_ocr_manual_ocr_hotkey().lower().replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
         try:
             from pynput import keyboard as pynput_keyboard
             listener = pynput_keyboard.GlobalHotKeys({
