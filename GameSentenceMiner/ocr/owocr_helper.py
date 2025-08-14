@@ -476,7 +476,6 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
         img = run.apply_ocr_config_to_image(img, ocr_config, is_secondary=True)
         do_second_ocr("", datetime.now(), img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
         
-    secret_ss_hotkey = "F14"
     filtering = TextFiltering(lang=get_ocr_language())
     cropper = ScreenCropper()
     def capture():
@@ -492,32 +491,25 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
             do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
     hotkey_reg = None
     secondary_hotkey_reg = None
-    secret_hotkey_reg = None
     try:
         hotkey_reg = keyboard.add_hotkey(ss_hotkey, capture)
         if not manual:
             secondary_hotkey_reg = keyboard.add_hotkey(get_ocr_manual_ocr_hotkey().lower(), ocr_secondary_rectangles)
-        if "f13" in ss_hotkey.lower():
-            secret_hotkey_reg = keyboard.add_hotkey(secret_ss_hotkey, capture_main_monitor)
         print(f"Press {ss_hotkey} to take a screenshot.")
     except Exception as e:
         if hotkey_reg:
             keyboard.remove_hotkey(hotkey_reg)
         if secondary_hotkey_reg:
             keyboard.remove_hotkey(secondary_hotkey_reg)
-        if secret_hotkey_reg:
-            keyboard.remove_hotkey(secret_hotkey_reg)
         logger.error(f"Error setting up screenshot hotkey with keyboard, Attempting Backup: {e}")
         logger.debug(e)
         pynput_hotkey = ss_hotkey.replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
-        secret_ss_hotkey = secret_hotkey_reg.replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
-        secondary_ss_hotkey = secondary_hotkey_reg.replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
+        secondary_ss_hotkey = secondary_ss_hotkey.replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
         try:
             from pynput import keyboard as pynput_keyboard
             listener = pynput_keyboard.GlobalHotKeys({
                 pynput_hotkey: capture,
                 secondary_ss_hotkey: ocr_secondary_rectangles,
-                secret_ss_hotkey: capture_main_monitor
             })
             listener.start()
             print(f"Press {pynput_hotkey} to take a screenshot.")
