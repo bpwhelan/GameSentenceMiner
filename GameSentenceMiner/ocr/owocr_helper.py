@@ -491,6 +491,8 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
             img_bytes = mss.tools.to_png(img.rgb, img.size)
             do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
     hotkey_reg = None
+    secondary_hotkey_reg = None
+    secret_hotkey_reg = None
     try:
         hotkey_reg = keyboard.add_hotkey(ss_hotkey, capture)
         if not manual:
