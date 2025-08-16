@@ -1,325 +1,338 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OBS Controller</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-<div class="card">
-    <h2>Game Capture (Required)</h2>
-    <div class="input-group">
-        <label for="sceneSelect">Game:</label>
-        <select id="sceneSelect"></select>
-        <button id="refreshScenesBtn">&#x21bb;</button>
-        <button id="removeSceneBtn" class="danger">Remove Game</button>
-    </div>
-    <div class="input-group">
-        <label for="windowSelect">Setup New Game:</label>
-        <select id="windowSelect"></select>
-        <button id="refreshWindowsBtn">&#x21bb;</button>
-        <button id="createNewSceneBtn" style="width: 300px">New Window Capture</button>
-        <button id="createNewSceneGameBtn" style="width: 300px">New Game Capture</button>
-        <span class="tooltip tooltip-left">❓
-        <span class="tooltiptext">
-            Window Capture works for most applications
-            <br>
-            Game Capture is recommended for fullscreen games.
-        </span>
-    </span>
-    </div>
-</div>
-<div class="card">
-    <div class="grid-container">
-        <div class="grid-container">
-            <button id="openGSMSettingsBtn">Open GSM Settings</button>
-            <button id="runOverlayBtn">Run Overlay (WIP)</button>
+    <div class="card">
+        <h2>Game Capture (Required)</h2>
+        <div class="input-group">
+            <label for="sceneSelect">Game:</label>
+            <select id="sceneSelect"></select>
+            <button id="refreshScenesBtn">&#x21bb;</button>
+            <button id="removeSceneBtn" class="danger">Remove Game</button>
+        </div>
+        <div class="input-group">
+            <label for="windowSelect">Setup New Game:</label>
+            <select id="windowSelect"></select>
+            <button id="refreshWindowsBtn">&#x21bb;</button>
+            <button id="createNewSceneBtn" style="width: 300px">New Window Capture</button>
+            <button id="createNewSceneGameBtn" style="width: 300px">New Game Capture</button>
+            <span class="tooltip tooltip-left">❓
+                <span class="tooltiptext">
+                    Window Capture works for most applications
+                    <br>
+                    Game Capture is recommended for fullscreen games.
+                </span>
+            </span>
         </div>
     </div>
-</div>
-<div class="card">
-    <h2>Status:</h2>
-    <div class="grid-container">
-        <button class="status-button card" id="gsm-status" title="GSM Status: Indicates whether the GSM Python app is running.">
-            <span class="icon">⛏</span> <span>GSM</span> <span></span>
-        </button>
-        <button class="status-button card" id="clipboard-status"
-                title="Clipboard Status: Indicates whether the clipboard is being monitored.">
-            <span class="icon">📋</span> <span>Clipboard</span> <span></span>
-        </button>
-        <span id="websocket_container" class="grid-container">
-            </span>
-        <button class="status-button card" id="obs-status" title="OBS Status: Indicates whether OBS is running.">
-            <span class="icon">📹</span> <span>OBS</span> <span></span>
-        </button>
-        <button class="status-button card" id="anki-status" title="Anki Status: Indicates whether Anki is connected.">
-            <span class="icon">📘</span> <span>Anki</span> <span></span>
-        </button>
+    <div class="card">
+        <div class="grid-container">
+            <div class="grid-container">
+                <button id="openGSMSettingsBtn">Open GSM Settings</button>
+                <button id="runOverlayBtn">Run Overlay (WIP)</button>
+            </div>
+        </div>
     </div>
-</div>
-<div class="card">
-    <h2>Support GSM Development</h2>
-    <p style="margin-bottom: 15px; color: #afacac; font-size: 14px; text-align: center;">
-        GSM will always be free, but a lot of work goes into maintaining and improving it. If you've found this project helpful in any way, please consider supporting continued development:
-    </p>
-    <div class="donation-links" style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
-        <a href="#" onclick="openExternalLink('https://github.com/sponsors/bpwhelan')" class="donation-link" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #24292e; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#1a1e22'" onmouseout="this.style.backgroundColor='#24292e'">
-            <span style="font-size: 16px;">💖</span>
-            <span>GitHub Sponsors</span>
-        </a>
-        <a href="#" onclick="openExternalLink('https://ko-fi.com/beangate')" class="donation-link" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #ff5722; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#e64a19'" onmouseout="this.style.backgroundColor='#ff5722'">
-            <span style="font-size: 16px;">☕</span>
-            <span>Ko-fi</span>
-        </a>
-        <!-- <a href="#" onclick="openExternalLink('https://www.patreon.com/GameSentenceMiner')" class="donation-link" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #f96854; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#e5452f'" onmouseout="this.style.backgroundColor='#f96854'">
+    <div class="card">
+        <h2>Status:</h2>
+        <div class="grid-container">
+            <button class="status-button card" id="gsm-status"
+                title="GSM Status: Indicates whether the GSM Python app is running.">
+                <span class="icon">⛏</span> <span>GSM</span> <span></span>
+            </button>
+            <button class="status-button card" id="clipboard-status"
+                title="Clipboard Status: Indicates whether the clipboard is being monitored.">
+                <span class="icon">📋</span> <span>Clipboard</span> <span></span>
+            </button>
+            <span id="websocket_container" class="grid-container">
+            </span>
+            <button class="status-button card" id="obs-status" title="OBS Status: Indicates whether OBS is running.">
+                <span class="icon">📹</span> <span>OBS</span> <span></span>
+            </button>
+            <button class="status-button card" id="anki-status"
+                title="Anki Status: Indicates whether Anki is connected.">
+                <span class="icon">📘</span> <span>Anki</span> <span></span>
+            </button>
+        </div>
+    </div>
+    <div class="card">
+        <h2>Support GSM Development</h2>
+        <p style="margin-bottom: 15px; color: #afacac; font-size: 14px; text-align: center;">
+            GSM will always be free, but a lot of work goes into maintaining and improving it. If you've found this
+            project helpful in any way, please consider supporting continued development:
+        </p>
+        <div class="donation-links" style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+            <a href="#" onclick="openExternalLink('https://github.com/sponsors/bpwhelan')" class="donation-link"
+                style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #24292e; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;"
+                onmouseover="this.style.backgroundColor='#1a1e22'" onmouseout="this.style.backgroundColor='#24292e'">
+                <span style="font-size: 16px;">💖</span>
+                <span>GitHub Sponsors</span>
+            </a>
+            <a href="#" onclick="openExternalLink('https://ko-fi.com/beangate')" class="donation-link"
+                style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #ff5722; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;"
+                onmouseover="this.style.backgroundColor='#e64a19'" onmouseout="this.style.backgroundColor='#ff5722'">
+                <span style="font-size: 16px;">☕</span>
+                <span>Ko-fi</span>
+            </a>
+            <!-- <a href="#" onclick="openExternalLink('https://www.patreon.com/GameSentenceMiner')" class="donation-link" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #f96854; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#e5452f'" onmouseout="this.style.backgroundColor='#f96854'">
             <span style="font-size: 16px;">🎯</span>
             <span>Patreon</span>
         </a> -->
-        <a href="#" onclick="openExternalLink('https://github.com/bpwhelan/GameSentenceMiner')" class="donation-link" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #4078c0; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#365e9d'" onmouseout="this.style.backgroundColor='#4078c0'">
-            <span style="font-size: 16px;">⭐</span>
-            <span>Star on GitHub (Free)</span>
-        </a>
+            <a href="#" onclick="openExternalLink('https://github.com/bpwhelan/GameSentenceMiner')"
+                class="donation-link"
+                style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #4078c0; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;"
+                onmouseover="this.style.backgroundColor='#365e9d'" onmouseout="this.style.backgroundColor='#4078c0'">
+                <span style="font-size: 16px;">⭐</span>
+                <span>Star on GitHub (Free)</span>
+            </a>
+        </div>
     </div>
-</div>
-<script>
-    const {ipcRenderer} = require('electron');
-    const removeSceneBtn = document.getElementById('removeSceneBtn');
-    const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
-    const runOverlayBtn = document.getElementById('runOverlayBtn');
+    <script>
+        const { ipcRenderer } = require('electron');
+        const removeSceneBtn = document.getElementById('removeSceneBtn');
+        const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
+        const runOverlayBtn = document.getElementById('runOverlayBtn');
 
-    function openExternalLink(url) {
-        ipcRenderer.invoke('open-external-link', url);
-    }
-
-    document.getElementById('sceneSelect').addEventListener('change', (event) => {
-        ipcRenderer.invoke('obs.switchScene.id', event.target.value);
-        if (event.target.value === "GSM HELPER") {
-            removeSceneBtn.disabled = true;
-        } else {
-            removeSceneBtn.disabled = false;
+        function openExternalLink(url) {
+            ipcRenderer.invoke('open-external-link', url);
         }
-    });
 
-    openGSMSettingsBtn.addEventListener('click', async () => {
-        console.log("Opening GSM Settings");
-        await ipcRenderer.invoke('settings.openGSMSettings');
-    });
+        document.getElementById('sceneSelect').addEventListener('change', (event) => {
+            ipcRenderer.invoke('obs.switchScene.id', event.target.value);
+            if (event.target.value === "GSM HELPER") {
+                removeSceneBtn.disabled = true;
+            } else {
+                removeSceneBtn.disabled = false;
+            }
+        });
 
-    runOverlayBtn.addEventListener('click', async () => {
-        console.log("Running Overlay");
-        await ipcRenderer.invoke('runOverlay');
-    });
+        openGSMSettingsBtn.addEventListener('click', async () => {
+            console.log("Opening GSM Settings");
+            await ipcRenderer.invoke('settings.openGSMSettings');
+        });
 
-    function getScenes() {
-        document.getElementById('sceneSelect').innerHTML = '';
-        ipcRenderer.invoke('obs.getScenes').then(scenes => {
-            const sceneSelect = document.getElementById('sceneSelect');
-            scenes.forEach(scene => {
-                const option = document.createElement('option');
-                option.value = scene.id;
-                option.textContent = scene.name;
-                sceneSelect.appendChild(option);
-            });
+        runOverlayBtn.addEventListener('click', async () => {
+            console.log("Running Overlay");
+            await ipcRenderer.invoke('runOverlay');
+        });
 
-            ipcRenderer.invoke('obs.getActiveScene').then(scene => {
-                if (scene && !scenes.some(scene2 => scene2.id === scene.id)) {
+        function getScenes() {
+            document.getElementById('sceneSelect').innerHTML = '';
+            ipcRenderer.invoke('obs.getScenes').then(scenes => {
+                const sceneSelect = document.getElementById('sceneSelect');
+                scenes.forEach(scene => {
                     const option = document.createElement('option');
                     option.value = scene.id;
                     option.textContent = scene.name;
                     sceneSelect.appendChild(option);
+                });
+
+                ipcRenderer.invoke('obs.getActiveScene').then(scene => {
+                    if (scene && !scenes.some(scene2 => scene2.id === scene.id)) {
+                        const option = document.createElement('option');
+                        option.value = scene.id;
+                        option.textContent = scene.name;
+                        sceneSelect.appendChild(option);
+                    }
+                    sceneSelect.value = scene.id; // Set the selected value
+                });
+            });
+        }
+
+        function getWindows() {
+            const windowSelect = document.getElementById('windowSelect');
+            windowSelect.innerHTML = '<option>Loading...</option>'; // Set "Loading..." message
+            ipcRenderer.invoke('obs.getWindows').then(windows => {
+                windowSelect.innerHTML = '';
+                windows.forEach(window => {
+                    const option = document.createElement('option');
+                    option.value = window.value;
+                    option.textContent = window.title;
+                    windowSelect.appendChild(option);
+                });
+            });
+        }
+
+        document.getElementById('refreshScenesBtn').addEventListener('click', () => {
+            getScenes();
+        });
+
+        removeSceneBtn.addEventListener('click', () => {
+            ipcRenderer.invoke('obs.removeScene', document.getElementById('sceneSelect').value);
+            getScenes();
+        });
+
+        document.getElementById('windowSelect').addEventListener('change', (event) => {
+            const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
+            const windowData = {
+                title: selectedWindow.textContent,
+                path: selectedWindow.value
+            };
+        });
+
+        document.getElementById('refreshWindowsBtn').addEventListener('click', () => {
+            getWindows();
+        });
+
+        document.getElementById('createNewSceneBtn').addEventListener('click', () => {
+            const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
+            console.log(selectedWindow)
+            const windowData = {
+                title: selectedWindow.textContent,
+                value: selectedWindow.value,
+                sceneName: selectedWindow.textContent,
+            };
+            console.log(windowData)
+            ipcRenderer.invoke('obs.createScene', windowData);
+        })
+
+        document.getElementById('createNewSceneGameBtn').addEventListener('click', () => {
+            const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
+            console.log(selectedWindow)
+            const windowData = {
+                title: selectedWindow.textContent,
+                value: selectedWindow.value,
+                sceneName: selectedWindow.textContent,
+            };
+            console.log(windowData)
+            ipcRenderer.invoke('obs.createScene.Game', windowData);
+        })
+
+        const gsmStatusButton = document.getElementById('gsm-status');
+        const websocketContainer = document.getElementById('websocket_container');
+        const obsStatus = document.getElementById('obs-status');
+        const ankiStatus = document.getElementById('anki-status');
+        const clipboardStatus = document.getElementById('clipboard-status');
+        let ws_showing = {};
+
+
+        setInterval(() => {
+            ipcRenderer.invoke('get_gsm_status').then(gsmStatus => {
+                if (gsmStatus === null) {
+                    gsmStatusButton.classList.toggle('red', true);
+                    gsmStatusButton.classList.toggle('green', false);
+                    gsmStatusButton.querySelector('span:last-child').textContent = "Installing/Initializing";
+                    return;
                 }
-                sceneSelect.value = scene.id; // Set the selected value
-            });
-        });
-    }
+                const ready = gsmStatus.ready;
+                const status = gsmStatus.status;
+                const websockets_connected = gsmStatus.websockets_connected;
+                const obs_connected = gsmStatus.obs_connected;
+                const anki_connected = gsmStatus.anki_connected;
+                const last_line_received = gsmStatus.last_line_received;
+                const words_being_processed = gsmStatus.words_being_processed;
+                const clipboard_enabled = gsmStatus.clipboard_enabled;
+                const anyWebsocketsConnected = websockets_connected.length > 0;
 
-    function getWindows() {
-        const windowSelect = document.getElementById('windowSelect');
-        windowSelect.innerHTML = '<option>Loading...</option>'; // Set "Loading..." message
-        ipcRenderer.invoke('obs.getWindows').then(windows => {
-            windowSelect.innerHTML = '';
-            windows.forEach(window => {
-                const option = document.createElement('option');
-                option.value = window.value;
-                option.textContent = window.title;
-                windowSelect.appendChild(option);
-            });
-        });
-    }
+                // Update GSM status
+                gsmStatusButton.classList.toggle('green', ready);
+                gsmStatusButton.classList.toggle('red', !ready);
+                gsmStatusButton.querySelector('span:last-child').textContent = ready ? `${status}` : 'GSM is not running';
+                if (words_being_processed.length > 0) {
+                    gsmStatusButton.querySelector('span:last-child').textContent = `Processing: ${words_being_processed}`;
+                }
+                const timeDifference = Math.floor((Date.now() - new Date(last_line_received).getTime()) / 1000);
+                let relativeTime = '';
+                if (!last_line_received) {
+                    relativeTime = 'Not received yet';
+                } else if (isNaN(timeDifference)) {
+                    relativeTime = 'Not received yet';
+                } else if (timeDifference < 60) {
+                    relativeTime = `${timeDifference} seconds ago`;
+                } else if (timeDifference < 3600) {
+                    relativeTime = `${Math.floor(timeDifference / 60)} minutes ago`;
+                } else if (timeDifference < 86400) {
+                    relativeTime = `${Math.floor(timeDifference / 3600)} hours ago`;
+                } else {
+                    relativeTime = `${Math.floor(timeDifference / 86400)} days ago`;
+                }
 
-    document.getElementById('refreshScenesBtn').addEventListener('click', () => {
-        getScenes();
-    });
+                gsmStatusButton.setAttribute('title', ready ? `Status: ${status}\nWebSockets: ${websockets_connected.length > 0 ? websockets_connected.join(', ') : 'None'}\nOBS: ${obs_connected ? 'Started' : 'Stopped'}\nAnki: ${anki_connected ? 'Connected' : 'Disconnected'}\nLast Line Received: ${relativeTime}` : 'GSM is stopped.');
 
-    removeSceneBtn.addEventListener('click', () => {
-        ipcRenderer.invoke('obs.removeScene', document.getElementById('sceneSelect').value);
-        getScenes();
-    });
+                // Update Clipboard status
+                clipboardStatus.classList.toggle('green', clipboard_enabled);
+                clipboardStatus.classList.toggle('red', !clipboard_enabled);
+                clipboardStatus.classList.toggle('neutral', !clipboard_enabled && anyWebsocketsConnected);
+                clipboardStatus.querySelector('span:last-child').textContent = clipboard_enabled ? 'Enabled' : 'Disabled';
+                clipboardStatus.setAttribute('title', clipboard_enabled ? 'Clipboard monitoring is enabled.' : 'Clipboard monitoring is disabled.');
 
-    document.getElementById('windowSelect').addEventListener('change', (event) => {
-        const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
-        const windowData = {
-            title: selectedWindow.textContent,
-            path: selectedWindow.value
-        };
-    });
+                // Update WebSocket status buttons
+                websockets_connected.forEach(ws => {
+                    if (!ws_showing[ws]) {
+                        const wsButton = document.createElement('button');
+                        wsButton.className = 'status-button card'; // Add card class for styling
+                        wsButton.id = `ws-${ws.replace(/[^a-zA-Z0-9]/g, '-')}`; // Create a valid ID
+                        wsButton.innerHTML = `<span class="icon">🔗</span> <span>${ws}</span> <span></span>`; // Use link icon for WebSocket
+                        websocketContainer.appendChild(wsButton);
+                        ws_showing[ws] = wsButton;
+                    }
+                    const currentWsButton = ws_showing[ws];
+                    currentWsButton.classList.toggle('green', true); // WebSockets listed are always connected
+                    currentWsButton.classList.toggle('red', false);
+                    currentWsButton.querySelector('span:last-child').textContent = 'Connected';
+                    currentWsButton.setAttribute('title', `${ws} is connected.`);
+                });
 
-    document.getElementById('refreshWindowsBtn').addEventListener('click', () => {
-        getWindows();
-    });
+                // Remove buttons for disconnected WebSockets
+                Object.keys(ws_showing).forEach(ws => {
+                    if (!websockets_connected.includes(ws)) {
+                        websocketContainer.removeChild(ws_showing[ws]);
+                        delete ws_showing[ws];
+                    }
+                });
 
-    document.getElementById('createNewSceneBtn').addEventListener('click', () => {
-        const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
-        console.log(selectedWindow)
-        const windowData = {
-            title: selectedWindow.textContent,
-            value: selectedWindow.value,
-            sceneName: selectedWindow.textContent,
-        };
-        console.log(windowData)
-        ipcRenderer.invoke('obs.createScene', windowData);
-    })
-
-    document.getElementById('createNewSceneGameBtn').addEventListener('click', () => {
-        const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
-        console.log(selectedWindow)
-        const windowData = {
-            title: selectedWindow.textContent,
-            value: selectedWindow.value,
-            sceneName: selectedWindow.textContent,
-        };
-        console.log(windowData)
-        ipcRenderer.invoke('obs.createScene.Game', windowData);
-    })
-
-    const gsmStatusButton = document.getElementById('gsm-status');
-    const websocketContainer = document.getElementById('websocket_container');
-    const obsStatus = document.getElementById('obs-status');
-    const ankiStatus = document.getElementById('anki-status');
-    const clipboardStatus = document.getElementById('clipboard-status');
-    let ws_showing = {};
+                // Update OBS status
+                obsStatus.classList.toggle('green', obs_connected);
+                obsStatus.classList.toggle('red', !obs_connected);
+                obsStatus.querySelector('span:last-child').textContent = obs_connected ? 'Connected' : 'Disconnected';
+                obsStatus.setAttribute('title', obs_connected ? 'OBS is connected.' : 'OBS is disconnected.');
 
 
-    setInterval(() => {
-        ipcRenderer.invoke('get_gsm_status').then(gsmStatus => {
-            if (gsmStatus === null) {
+                // Update Anki status
+                ankiStatus.classList.toggle('green', anki_connected);
+                ankiStatus.classList.toggle('red', !anki_connected);
+                ankiStatus.querySelector('span:last-child').textContent = anki_connected ? 'Connected' : 'Disconnected';
+                ankiStatus.setAttribute('title', anki_connected ? 'Anki is connected.' : 'Anki is disconnected.');
+
+            }).catch(error => {
+                console.error('Error fetching GSM status:', error);
+                // Optionally, set all statuses to error/red if communication with backend fails
                 gsmStatusButton.classList.toggle('red', true);
                 gsmStatusButton.classList.toggle('green', false);
-                gsmStatusButton.querySelector('span:last-child').textContent = "Installing/Initializing";
-                return;
-            }
-            const ready = gsmStatus.ready;
-            const status = gsmStatus.status;
-            const websockets_connected = gsmStatus.websockets_connected;
-            const obs_connected = gsmStatus.obs_connected;
-            const anki_connected = gsmStatus.anki_connected;
-            const last_line_received = gsmStatus.last_line_received;
-            const words_being_processed = gsmStatus.words_being_processed;
-            const clipboard_enabled = gsmStatus.clipboard_enabled;
-            const anyWebsocketsConnected = websockets_connected.length > 0;
+                gsmStatusButton.querySelector('span:last-child').textContent = "Error";
+                gsmStatusButton.setAttribute('title', 'Error communicating with GSM backend.');
 
-            // Update GSM status
-            gsmStatusButton.classList.toggle('green', ready);
-            gsmStatusButton.classList.toggle('red', !ready);
-            gsmStatusButton.querySelector('span:last-child').textContent = ready ? `${status}` : 'GSM is not running';
-            if (words_being_processed.length > 0) {
-                gsmStatusButton.querySelector('span:last-child').textContent = `Processing: ${words_being_processed}`;
-            }
-            const timeDifference = Math.floor((Date.now() - new Date(last_line_received).getTime()) / 1000);
-            let relativeTime = '';
-            if (!last_line_received) {
-                relativeTime = 'Not received yet';
-            } else if (isNaN(timeDifference)) {
-                relativeTime = 'Not received yet';
-            } else if (timeDifference < 60) {
-                relativeTime = `${timeDifference} seconds ago`;
-            } else if (timeDifference < 3600) {
-                relativeTime = `${Math.floor(timeDifference / 60)} minutes ago`;
-            } else if (timeDifference < 86400) {
-                relativeTime = `${Math.floor(timeDifference / 3600)} hours ago`;
-            } else {
-                relativeTime = `${Math.floor(timeDifference / 86400)} days ago`;
-            }
+                clipboardStatus.classList.toggle('red', true);
+                clipboardStatus.classList.toggle('green', false);
+                clipboardStatus.querySelector('span:last-child').textContent = "Error";
 
-            gsmStatusButton.setAttribute('title', ready ? `Status: ${status}\nWebSockets: ${websockets_connected.length > 0 ? websockets_connected.join(', ') : 'None'}\nOBS: ${obs_connected ? 'Started' : 'Stopped'}\nAnki: ${anki_connected ? 'Connected' : 'Disconnected'}\nLast Line Received: ${relativeTime}` : 'GSM is stopped.');
+                obsStatus.classList.toggle('red', true);
+                obsStatus.classList.toggle('green', false);
+                obsStatus.querySelector('span:last-child').textContent = "Error";
 
-            // Update Clipboard status
-            clipboardStatus.classList.toggle('green', clipboard_enabled);
-            clipboardStatus.classList.toggle('red', !clipboard_enabled);
-            clipboardStatus.classList.toggle('neutral', !clipboard_enabled && anyWebsocketsConnected);
-            clipboardStatus.querySelector('span:last-child').textContent = clipboard_enabled ? 'Enabled' : 'Disabled';
-            clipboardStatus.setAttribute('title', clipboard_enabled ? 'Clipboard monitoring is enabled.' : 'Clipboard monitoring is disabled.');
+                ankiStatus.classList.toggle('red', true);
+                ankiStatus.classList.toggle('green', false);
+                ankiStatus.querySelector('span:last-child').textContent = "Error";
 
-            // Update WebSocket status buttons
-            websockets_connected.forEach(ws => {
-                if (!ws_showing[ws]) {
-                    const wsButton = document.createElement('button');
-                    wsButton.className = 'status-button card'; // Add card class for styling
-                    wsButton.id = `ws-${ws.replace(/[^a-zA-Z0-9]/g, '-')}`; // Create a valid ID
-                    wsButton.innerHTML = `<span class="icon">🔗</span> <span>${ws}</span> <span></span>`; // Use link icon for WebSocket
-                    websocketContainer.appendChild(wsButton);
-                    ws_showing[ws] = wsButton;
-                }
-                const currentWsButton = ws_showing[ws];
-                currentWsButton.classList.toggle('green', true); // WebSockets listed are always connected
-                currentWsButton.classList.toggle('red', false);
-                currentWsButton.querySelector('span:last-child').textContent = 'Connected';
-                currentWsButton.setAttribute('title', `${ws} is connected.`);
-            });
-
-            // Remove buttons for disconnected WebSockets
-            Object.keys(ws_showing).forEach(ws => {
-                if (!websockets_connected.includes(ws)) {
+                // Clear dynamic websocket buttons
+                Object.keys(ws_showing).forEach(ws => {
                     websocketContainer.removeChild(ws_showing[ws]);
                     delete ws_showing[ws];
-                }
+                });
             });
+        }, 200);
 
-            // Update OBS status
-            obsStatus.classList.toggle('green', obs_connected);
-            obsStatus.classList.toggle('red', !obs_connected);
-            obsStatus.querySelector('span:last-child').textContent = obs_connected ? 'Connected' : 'Disconnected';
-            obsStatus.setAttribute('title', obs_connected ? 'OBS is connected.' : 'OBS is disconnected.');
-
-
-            // Update Anki status
-            ankiStatus.classList.toggle('green', anki_connected);
-            ankiStatus.classList.toggle('red', !anki_connected);
-            ankiStatus.querySelector('span:last-child').textContent = anki_connected ? 'Connected' : 'Disconnected';
-            ankiStatus.setAttribute('title', anki_connected ? 'Anki is connected.' : 'Anki is disconnected.');
-
-        }).catch(error => {
-            console.error('Error fetching GSM status:', error);
-            // Optionally, set all statuses to error/red if communication with backend fails
-            gsmStatusButton.classList.toggle('red', true);
-            gsmStatusButton.classList.toggle('green', false);
-            gsmStatusButton.querySelector('span:last-child').textContent = "Error";
-            gsmStatusButton.setAttribute('title', 'Error communicating with GSM backend.');
-
-            clipboardStatus.classList.toggle('red', true);
-            clipboardStatus.classList.toggle('green', false);
-            clipboardStatus.querySelector('span:last-child').textContent = "Error";
-
-            obsStatus.classList.toggle('red', true);
-            obsStatus.classList.toggle('green', false);
-            obsStatus.querySelector('span:last-child').textContent = "Error";
-
-            ankiStatus.classList.toggle('red', true);
-            ankiStatus.classList.toggle('green', false);
-            ankiStatus.querySelector('span:last-child').textContent = "Error";
-
-            // Clear dynamic websocket buttons
-            Object.keys(ws_showing).forEach(ws => {
-                websocketContainer.removeChild(ws_showing[ws]);
-                delete ws_showing[ws];
-            });
-        });
-    }, 200);
-
-    // Initial calls to populate scenes and windows
-    getWindows();
-    getScenes();
-</script>
+        // Initial calls to populate scenes and windows
+        getWindows();
+        getScenes();
+    </script>
 </body>
+
 </html>

@@ -1,10 +1,10 @@
-import * as path from "path";
-import * as fs from "fs";
-import * as os from "os";
-import {Downloader} from "nodejs-file-downloader";
-import * as tar from "tar";
-import {BASE_DIR, execFileAsync, getPlatform, isArmMac, SupportedPlatform} from "../util.js";
-import {mainWindow} from "../main.js";
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
+import { Downloader } from 'nodejs-file-downloader';
+import * as tar from 'tar';
+import { BASE_DIR, execFileAsync, getPlatform, isArmMac, SupportedPlatform } from '../util.js';
+import { isPackageInstalled, mainWindow } from '../main.js';
 
 interface PythonDownload {
     url: string;
@@ -46,9 +46,7 @@ function isPythonInstalled(): boolean {
         const venvPath = getVenvPath();
         return fs.existsSync(path.join(venvPath, 'bin', 'python'));
     }
-    return fs.existsSync(
-        path.join(BASE_DIR, downloads[getPlatform()].path)
-    );
+    return fs.existsSync(path.join(BASE_DIR, downloads[getPlatform()].path));
 }
 
 /**
@@ -62,18 +60,18 @@ async function downloadFile(url: string, directory: string): Promise<void> {
         const tarPath = path.join(directory, tarName);
 
         const downloader = new Downloader({
-            url,                   // The file URL
+            url, // The file URL
             directory: directory, // The directory to save the file
             fileName: tarName, // You can set the file name explicitly
-            cloneFiles: false,     // Avoids duplicate file creation
+            cloneFiles: false, // Avoids duplicate file creation
         });
 
         const { filePath, downloadStatus } = await downloader.download();
 
-        if (downloadStatus === "COMPLETE") {
+        if (downloadStatus === 'COMPLETE') {
             console.log(`Download complete: ${filePath}`);
         } else {
-            throw new Error("Download failed or incomplete.");
+            throw new Error('Download failed or incomplete.');
         }
     } catch (error) {
         console.error(`Failed to download file: ${error}`);
@@ -82,16 +80,16 @@ async function downloadFile(url: string, directory: string): Promise<void> {
 }
 
 async function extractPython(archivePath: string, extractPath: string): Promise<void> {
-    console.log("Extracting Python...");
+    console.log('Extracting Python...');
 
     // Ensure the extraction directory exists
     fs.mkdirSync(extractPath, { recursive: true });
 
     try {
         await tar.x({ file: archivePath, cwd: extractPath });
-        console.log("Extraction complete.");
+        console.log('Extraction complete.');
     } catch (error) {
-        console.error("Extraction failed:", error);
+        console.error('Extraction failed:', error);
         throw error;
     }
 }
@@ -104,6 +102,8 @@ async function installPython(): Promise<void> {
         return;
     }
 
+    console.log('Python is missing. Downloading...');
+
     if (getPlatform() === 'linux') {
         console.log('Python venv not found. Creating...');
         const venvPath = getVenvPath();
@@ -112,7 +112,8 @@ async function installPython(): Promise<void> {
             await execFileAsync('python3', ['-m', 'venv', venvPath]);
             console.log('Python venv created at', venvPath);
         } catch (e) {
-            const errorMessage = 'Failed to create python venv. Make sure python3 and the "venv" module are installed on your system.';
+            const errorMessage =
+                'Failed to create python venv. Make sure python3 and the "venv" module are installed on your system.';
             console.error(errorMessage, e);
             mainWindow?.webContents.send('notification', {
                 title: 'Error',
@@ -120,31 +121,28 @@ async function installPython(): Promise<void> {
             });
             throw e;
         }
-        return;
-    }
+    } else {
+        if (!fs.existsSync(BASE_DIR)) {
+            fs.mkdirSync(BASE_DIR, { recursive: true });
+        }
+        if (!fs.existsSync(PYTHON_DIR)) {
+            fs.mkdirSync(PYTHON_DIR, { recursive: true });
+        }
 
-    console.log('Python is missing. Downloading...');
+        const pythonDownload = downloads[getPlatform()];
+        const archivePath = path.join(BASE_DIR, 'downloads');
+        const tarPath = path.join(archivePath, 'python.tar.gz');
 
-    if (!fs.existsSync(BASE_DIR)) {
-        fs.mkdirSync(BASE_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(PYTHON_DIR)) {
-        fs.mkdirSync(PYTHON_DIR, { recursive: true });
-    }
-
-    const pythonDownload = downloads[getPlatform()];
-    const archivePath = path.join(BASE_DIR, 'downloads');
-    const tarPath = path.join(archivePath, 'python.tar.gz');
-
-    try {
-        await downloadFile(pythonDownload.url, archivePath);
-        await extractPython(tarPath, BASE_DIR);
-        console.log('Python installation complete.');
-    } catch (error) {
-        console.error('Failed to install Python:', error);
-    } finally {
-        if (fs.existsSync(tarPath)) {
-            fs.unlinkSync(tarPath);
+        try {
+            await downloadFile(pythonDownload.url, archivePath);
+            await extractPython(tarPath, BASE_DIR);
+            console.log('Python installation complete.');
+        } catch (error) {
+            console.error('Failed to install Python:', error);
+        } finally {
+            if (fs.existsSync(tarPath)) {
+                fs.unlinkSync(tarPath);
+            }
         }
     }
 }
@@ -157,7 +155,8 @@ export async function getOrInstallPython(): Promise<string> {
         if (!isPythonInstalled()) {
             mainWindow?.webContents.send('notification', {
                 title: 'Install',
-                message: 'Setting up Python virtual environment. Might take a while... Please check the Console tab for more details.',
+                message:
+                    'Setting up Python virtual environment. Might take a while... Please check the Console tab for more details.',
             });
             console.log('Python venv not found. Creating...');
             await installPython();
@@ -175,7 +174,8 @@ export async function getOrInstallPython(): Promise<string> {
     if (!isPythonInstalled()) {
         mainWindow?.webContents.send('notification', {
             title: 'Install',
-            message: 'Finishing Install. Might take a while... Please check the Console tab for more details.',
+            message:
+                'Finishing Install. Might take a while... Please check the Console tab for more details.',
         });
         console.log('Python not found. Installing...');
         await installPython();

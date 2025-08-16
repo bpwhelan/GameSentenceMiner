@@ -279,30 +279,30 @@ export function registerOCRUtilsIPC() {
             await runCommandAndLog([
                 pythonPath,
                 '-m',
+                'uv',
                 'pip',
                 'install',
                 '--upgrade',
-                '--no-warn-script-location',
                 'oneocr',
             ]);
         }
         await runCommandAndLog([
             pythonPath,
             '-m',
+            'uv',
             'pip',
             'install',
             '--upgrade',
-            '--no-warn-script-location',
             ...dependencies,
         ]);
         mainWindow?.webContents.send('ocr-log', `Installing recommended dependencies...`);
         await runCommandAndLog([
             pythonPath,
             '-m',
+            'uv',
             'pip',
             'install',
             '--upgrade',
-            '--no-warn-script-location',
             'betterproto==2.0.0b7',
         ]);
 
@@ -324,12 +324,13 @@ export function registerOCRUtilsIPC() {
             command = [
                 pythonPath,
                 '-m',
+                'uv',
                 ...dependency.split(' '),
+                'numpy==2.2.6',
                 '--upgrade',
-                '--no-warn-script-location',
             ];
         } else {
-            command = [pythonPath, '-m', dependency];
+            command = [pythonPath, '-m', 'uv',dependency];
         }
         mainWindow?.webContents.send('ocr-log', `Installing ${dependency} dependencies...`);
         await runCommandAndLog(command);
@@ -351,7 +352,7 @@ export function registerOCRUtilsIPC() {
 
         if (response.response === 0) {
             // 'Yes' button
-            const command = [getPythonPath(), '-m', 'pip', 'uninstall', '-y', dependency];
+            const command = [getPythonPath(), '-m', 'uv', 'pip', 'uninstall', '-y', dependency];
             mainWindow?.webContents.send('ocr-log', `Uninstalling ${dependency} dependencies...`);
             await runCommandAndLog(command);
             mainWindow?.webContents.send(

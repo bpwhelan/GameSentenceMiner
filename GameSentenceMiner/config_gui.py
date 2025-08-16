@@ -307,6 +307,7 @@ class ConfigApp:
         self.word_field_value = tk.StringVar(value=self.settings.anki.word_field)
         self.previous_sentence_field_value = tk.StringVar(value=self.settings.anki.previous_sentence_field)
         self.previous_image_field_value = tk.StringVar(value=self.settings.anki.previous_image_field)
+        self.video_field_value = tk.StringVar(value=self.settings.anki.video_field)
         self.custom_tags_value = tk.StringVar(value=', '.join(self.settings.anki.custom_tags))
         self.tags_to_check_value = tk.StringVar(value=', '.join(self.settings.anki.tags_to_check))
         self.add_game_tag_value = tk.BooleanVar(value=self.settings.anki.add_game_tag)
@@ -335,7 +336,8 @@ class ConfigApp:
         self.seconds_after_line_value = tk.StringVar(value=str(self.settings.screenshot.seconds_after_line))
         self.screenshot_timing_value = tk.StringVar(value=self.settings.screenshot.screenshot_timing_setting)
         self.use_screenshot_selector_value = tk.BooleanVar(value=self.settings.screenshot.use_screenshot_selector)
-        
+        self.animated_screenshot_value = tk.BooleanVar(value=self.settings.screenshot.animated)
+
         # Audio Settings
         self.audio_enabled_value = tk.BooleanVar(value=self.settings.audio.enabled)
         self.audio_extension_value = tk.StringVar(value=self.settings.audio.extension)
@@ -522,6 +524,7 @@ class ConfigApp:
                 word_field=self.word_field_value.get(),
                 previous_sentence_field=self.previous_sentence_field_value.get(),
                 previous_image_field=self.previous_image_field_value.get(),
+                video_field=self.video_field_value.get(),
                 custom_tags=[tag.strip() for tag in self.custom_tags_value.get().split(',') if tag.strip()],
                 tags_to_check=[tag.strip().lower() for tag in self.tags_to_check_value.get().split(',') if tag.strip()],
                 add_game_tag=self.add_game_tag_value.get(),
@@ -541,6 +544,7 @@ class ConfigApp:
             ),
             screenshot=Screenshot(
                 enabled=self.screenshot_enabled_value.get(),
+                animated=self.animated_screenshot_value.get(),
                 width=self.screenshot_width_value.get(),
                 height=self.screenshot_height_value.get(),
                 quality=self.screenshot_quality_value.get(),
@@ -1304,6 +1308,13 @@ class ConfigApp:
         ttk.Entry(anki_frame, textvariable=self.previous_image_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
+        video_img_i18n = anki_i18n.get('video_field', {})
+        HoverInfoLabelWidget(anki_frame, text=video_img_i18n.get('label', '...'),
+                             tooltip=video_img_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Entry(anki_frame, textvariable=self.video_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
         tags_i18n = anki_i18n.get('custom_tags', {})
         HoverInfoLabelWidget(anki_frame, text=tags_i18n.get('label', '...'), tooltip=tags_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
@@ -1469,6 +1480,13 @@ class ConfigApp:
         ttk.Combobox(screenshot_frame, textvariable=self.screenshot_extension_value, values=['webp', 'avif', 'png', 'jpeg'],
                                                  state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
+        
+        animated_i18n = ss_i18n.get('animated', {})
+        HoverInfoLabelWidget(screenshot_frame, text=animated_i18n.get('label', '...'), tooltip=animated_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Checkbutton(screenshot_frame, variable=self.animated_screenshot_value, bootstyle="round-toggle").grid(
+            row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
 
         ffmpeg_i18n = ss_i18n.get('ffmpeg_options', {})
         HoverInfoLabelWidget(screenshot_frame, text=ffmpeg_i18n.get('label', '...'),
@@ -1577,10 +1595,10 @@ class ConfigApp:
         preset_options_i18n = ffmpeg_preset_i18n.get('options', {})
         self.ffmpeg_audio_preset_options_map = {
             preset_options_i18n.get('no_reencode', "No Re-encode"): "",
-            preset_options_i18n.get('fade_in', "Simple Fade-in..."): "-c:a {encoder} -f {format} -af \"afade=t=in:d=0.10\"",
-            preset_options_i18n.get('loudness_norm', "Simple loudness..."): "-c:a {encoder} -f {format} -af \"loudnorm=I=-23:TP=-2,afade=t=in:d=0.10\"",
-            preset_options_i18n.get('downmix_norm', "Downmix to mono..."): "-c:a {encoder} -ac 1 -f {format} -af \"loudnorm=I=-23:TP=-2:dual_mono=true,afade=t=in:d=0.10\"",
-            preset_options_i18n.get('downmix_norm_low_bitrate', "Downmix to mono, 30kbps..."): "-c:a {encoder} -b:a 30k -ac 1 -f {format} -af \"loudnorm=I=-23:TP=-2:dual_mono=true,afade=t=in:d=0.10\"",
+            preset_options_i18n.get('fade_in', "Simple Fade-in..."): "-c:a {encoder} -f {format} -af \"afade=t=in:d=0.005\"",
+            preset_options_i18n.get('loudness_norm', "Simple loudness..."): "-c:a {encoder} -f {format} -af \"loudnorm=I=-23:TP=-2,afade=t=in:d=0.005\"",
+            preset_options_i18n.get('downmix_norm', "Downmix to mono..."): "-c:a {encoder} -ac 1 -f {format} -af \"loudnorm=I=-23:TP=-2:dual_mono=true,afade=t=in:d=0.005\"",
+            preset_options_i18n.get('downmix_norm_low_bitrate', "Downmix to mono, 30kbps..."): "-c:a {encoder} -b:a 30k -ac 1 -f {format} -af \"loudnorm=I=-23:TP=-2:dual_mono=true,afade=t=in:d=0.005\"",
             preset_options_i18n.get('custom', "Custom"): get_config().audio.custom_encode_settings,
         }
 
@@ -2107,12 +2125,12 @@ class ConfigApp:
         if ai_models and ai_models.gemini_models and ai_models.groq_models:
             if time.time() - ai_models.last_updated > 3600 * 6:
                 print("AI models are outdated, fetching new ones.")
-                threading.Thread(target=get_models, daemon=True).start()
+                self.window.after(100, get_models)
             self.gemini_model_combobox['values'] = ai_models.gemini_models
             self.groq_models_combobox['values'] = ai_models.groq_models
         else:
             print("No AI models found, fetching new ones.")
-            threading.Thread(target=get_models, daemon=True).start()
+            self.window.after(100, get_models)
             # get_models()
     
     def update_models_element(self, frame, row):

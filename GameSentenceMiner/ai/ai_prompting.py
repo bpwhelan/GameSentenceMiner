@@ -29,7 +29,7 @@ Translate ONLY the provided line of game dialogue specified below into natural-s
 **Output Requirements:**
 - Provide only the single, best {get_config().general.get_native_language_name()} translation.
 - Use expletives if they are natural for the context and enhance the translation's impact, but do not over-exaggerate.
-- Carryover all HTML tags present in the original text to HTML tags surrounding their corresponding words in the translation. DO NOT CONVERT TO MARKDOWN.
+- Carryover all HTML tags present in the original text to HTML tags surrounding their corresponding translated words in the translation. Look for the equivalent word, not the equivalent location. DO NOT CONVERT TO MARKDOWN.
 - If there are no HTML tags present in the original text, do not add any in the translation whatsoever.
 - Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line.
 

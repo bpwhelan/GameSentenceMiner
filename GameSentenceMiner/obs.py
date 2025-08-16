@@ -43,16 +43,21 @@ class OBSConnectionManager(threading.Thread):
                 logger.info(f"OBS WebSocket not connected. Attempting to reconnect... {e}")
                 gsm_status.obs_connected = False
                 asyncio.run(connect_to_obs())
-            if self.counter % 5 == 0 and not get_config().obs.turn_off_output_check and self.check_output:
-                replay_buffer_status = get_replay_buffer_status()
-                if replay_buffer_status and self.said_no_to_replay_buffer:
-                    self.said_no_to_replay_buffer = False
-                    self.counter = 0
-                if gsm_status.obs_connected and not replay_buffer_status and not self.said_no_to_replay_buffer:
-                    try:
-                        self.check_output()
-                    except Exception as e:
-                        pass
+            if self.counter % 5 == 0:
+                try:
+                    set_fit_to_screen_for_scene_items(get_current_scene())
+                    if get_config().obs.turn_off_output_check and self.check_output:
+                        replay_buffer_status = get_replay_buffer_status()
+                        if replay_buffer_status and self.said_no_to_replay_buffer:
+                            self.said_no_to_replay_buffer = False
+                            self.counter = 0
+                        if gsm_status.obs_connected and not replay_buffer_status and not self.said_no_to_replay_buffer:
+                            try:
+                                self.check_output()
+                            except Exception as e:
+                                pass
+                except Exception as e:
+                    logger.error(f"Error when running Extra Utils in OBS Health Check, Keeping ConnectionManager Alive: {e}")
             self.counter += 1
 
     def stop(self):
@@ -463,6 +468,61 @@ def get_current_game(sanitize=False, update=True):
     return gsm_state.current_game
 
 
+
+def set_fit_to_screen_for_scene_items(scene_name: str):
+    """
+    Sets all sources in a given scene to "Fit to Screen" (like Ctrl+F in OBS).
+
+    This function fetches the canvas dimensions, then iterates through all scene
+    items in the specified scene and applies a transform that scales them to
+    fit within the canvas while maintaining aspect ratio and centering them.
+
+    Args:
+        scene_name: The name of the scene to modify.
+    """
+    try:
+        # 1. Get the canvas (base) resolution from OBS video settings
+        video_settings = client.get_video_settings()
+        canvas_width = video_settings.base_width
+        canvas_height = video_settings.base_height
+
+        # 2. Get the list of items in the specified scene
+        scene_items_response = client.get_scene_item_list(scene_name)
+        items = scene_items_response.scene_items if scene_items_response.scene_items else []
+
+        if not items:
+            logger.warning(f"No items found in scene '{scene_name}'.")
+            return
+
+        # 3. Loop through each item and apply the "Fit to Screen" transform
+        for item in items:
+            item_id = item['sceneItemId']
+            source_name = item['sourceName']
+            
+            # This transform object is the equivalent of "Fit to Screen"
+            fit_to_screen_transform = {
+                'boundsType': 'OBS_BOUNDS_SCALE_INNER',
+                'alignment': 5,  # 5 = Center alignment (horizontal and vertical)
+                'boundsWidth': canvas_width,
+                'boundsHeight': canvas_height,
+            }
+
+            try:
+                client.set_scene_item_transform(
+                    scene_name=scene_name,
+                    item_id=item_id,
+                    transform=fit_to_screen_transform
+                )
+            except obs.error.OBSSDKError as e:
+                logger.error(f"Failed to set transform for source '{source_name}': {e}")
+
+    except obs.error.OBSSDKError as e:
+        # This will catch errors like "scene not found"
+        logger.error(f"An OBS error occurred: {e}")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+
+
 def main():
     start_obs()
     connect_to_obs()
@@ -501,6 +561,8 @@ def main():
 if __name__ == '__main__':
     from mss import mss
     logging.basicConfig(level=logging.INFO)
+    connect_to_obs_sync()
+    set_fit_to_screen_for_scene_items(get_current_scene())
     # main()
     # connect_to_obs_sync()
     # img = get_screenshot_PIL(source_name="Display Capture 2", compression=75, img_format='png', width=1280, height=720)

@@ -11,7 +11,7 @@ export const cpuModel = os.cpus()[0]?.model || null;
 export const isArmMac: boolean = isMac && !!cpuModel && /Apple M\d/i.test(cpuModel);
 
 export const APP_NAME = 'GameSentenceMiner';
-export const PACKAGE_NAME = "gamesentenceminer";
+export const PACKAGE_NAME = "git+https://github.com/bpwhelan/GameSentenceMiner.git#main";
 export const execFileAsync = promisify(execFile);
 
 export const isDev = !app.isPackaged;

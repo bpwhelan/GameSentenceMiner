@@ -247,7 +247,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     game_line=mined_line,
                     selected_lines=selected_lines,
                     start_time=start_time,
-                    end_time=end_time
+                    end_time=end_time,
+                    vad_result=vad_result
                 )
             elif get_config().features.notify_on_update and vad_result.success:
                 notification.send_audio_generated_notification(

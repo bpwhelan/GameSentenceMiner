@@ -48,6 +48,7 @@ import { registerSettingsIPC, window_transparency_process } from './ui/settings.
 import { registerOCRUtilsIPC, startOCR } from './ui/ocr.js';
 import * as fs from 'node:fs';
 import { registerFrontPageIPC } from './ui/front.js';
+import { registerPythonIPC } from './ui/python.js';
 import { execFile } from 'node:child_process';
 
 export let mainWindow: BrowserWindow | null = null;
@@ -59,6 +60,7 @@ let restartingGSM: boolean = false;
 let pythonPath: string;
 let pythonUpdating: boolean = false;
 const originalLog = console.log;
+const originalError = console.error;
 
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
@@ -79,6 +81,7 @@ function registerIPC() {
     registerSettingsIPC();
     registerOCRUtilsIPC();
     registerFrontPageIPC();
+    registerPythonIPC();
 }
 
 async function autoUpdate() {
@@ -313,6 +316,14 @@ async function createWindow() {
         originalLog.apply(console, args);
     };
 
+    console.error = function (...args) {
+        const message = args
+            .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : arg))
+            .join(' ');
+        mainWindow?.webContents.send('terminal-error', `${message}\r\n`);
+        originalError.apply(console, args);
+    };
+
     mainWindow.on('close', function (event) {
         if (!isQuitting) {
             event.preventDefault();
@@ -339,21 +350,21 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
         }
         console.log(`Updating GSM Python Application to ${latestVersion}...`);
         try {
-            await runCommand(
-                pythonPath,
-                ['-m', 'pip', 'install', '--upgrade', 'setuptools', 'wheel'],
-                true,
-                true
-            );
+            // await runCommand(
+            //     pythonPath,
+            //     ['-m', 'pip', 'install', '--upgrade', 'setuptools', 'wheel'],
+            //     true,
+            //     true
+            // );
             await runCommand(
                 pythonPath,
                 [
                     '-m',
+                    'uv',
                     'pip',
                     'install',
                     '--upgrade',
-                    '--no-warn-script-location',
-                    getCustomPythonPackage(),
+                    getCustomPythonPackage() !== 'GameSentenceMiner' ? getCustomPythonPackage() : PACKAGE_NAME
                 ],
                 true,
                 true
@@ -367,11 +378,11 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
                 pythonPath,
                 [
                     '-m',
+                    'uv',
                     'pip',
                     'install',
                     '--upgrade',
-                    '--no-warn-script-location',
-                    'GameSentenceMiner',
+                    PACKAGE_NAME,
                 ],
                 true,
                 true
@@ -416,7 +427,7 @@ function showWindow() {
     //     tray.destroy();
 }
 
-async function isPackageInstalled(pythonPath: string, packageName: string): Promise<boolean> {
+export async function isPackageInstalled(pythonPath: string, packageName: string): Promise<boolean> {
     try {
         await runCommand(pythonPath, ['-m', 'pip', 'show', packageName], false, false);
         return true;
@@ -441,14 +452,29 @@ async function startWebSocketServer(): Promise<void> {
  * Ensures GameSentenceMiner is installed before running it.
  */
 async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
-    const isInstalled = await isPackageInstalled(pythonPath, PACKAGE_NAME);
+    const isInstalled = await isPackageInstalled(pythonPath, APP_NAME);
+    const isuvInstalled = await isPackageInstalled(pythonPath, 'uv')
+
+    if (!isuvInstalled) {
+        console.log(`uv is not installed. Installing now...`);
+        try {
+            await execFileAsync(
+                pythonPath,
+                ['-m', 'pip', 'install', '--no-warn-script-location', 'uv']
+            );
+            console.log('uv installation complete.');
+        } catch (err) {
+            console.error('Failed to install uv:', err);
+            process.exit(1);
+        }
+    }
 
     if (!isInstalled) {
         console.log(`${APP_NAME} is not installed. Installing now...`);
         try {
             await runCommand(
                 pythonPath,
-                ['-m', 'pip', 'install', '--no-warn-script-location', PACKAGE_NAME],
+                ['-m', 'uv', 'pip', 'install', PACKAGE_NAME],
                 true,
                 true
             );
@@ -468,7 +494,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
             console.log('Retrying installation of GameSentenceMiner...');
             await runCommand(
                 pythonPath,
-                ['-m', 'pip', 'install', '--no-warn-script-location', '.'],
+                ['-m', 'uv','pip', 'install', '--force-reinstall', '--no-config', PACKAGE_NAME],
                 true,
                 true
             );
@@ -599,10 +625,11 @@ export async function runPipInstall(packageName: string): Promise<void> {
 
     console.log(`Running pip install for package: ${packageName}`);
     try {
-        console.log(`Running command: ${pythonPath} -m pip install --upgrade ${packageName}`);
+        console.log(`Running command: ${pythonPath} -m uv pip install --upgrade ${packageName}`);
         await new Promise<void>((resolve, reject) => {
             const child = execFile(pythonPath, [
                 '-m',
+                'uv',
                 'pip',
                 'install',
                 '--upgrade',
@@ -650,6 +677,8 @@ async function restartGSM(): Promise<void> {
         });
     });
 }
+
+export { closeGSM, restartGSM };
 
 async function stopScripts(): Promise<void> {
     if (window_transparency_process && !window_transparency_process.killed) {

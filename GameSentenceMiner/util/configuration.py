@@ -504,7 +504,7 @@ class Audio:
     beginning_offset: float = -0.5
     end_offset: float = 0.5
     pre_vad_end_offset: float = 0.0
-    ffmpeg_reencode_options: str = '-c:a {encoder} -f {format} -af \"afade=t=in:d=0.10\"' if is_windows() else ''
+    ffmpeg_reencode_options: str = '-c:a {encoder} -f {format} -af \"afade=t=in:d=0.005\"' if is_windows() else ''
     ffmpeg_reencode_options_to_use: str = ''
     external_tool: str = ""
     anki_media_collection: str = ""
@@ -1149,10 +1149,12 @@ class AnkiUpdateResult:
     prev_screenshot_in_anki: str = ''
     sentence_in_anki: str = ''
     multi_line: bool = False
+    video_in_anki: str = ''
+    word_path: str = ''
 
     @staticmethod
     def failure():
-        return AnkiUpdateResult(success=False, audio_in_anki='', screenshot_in_anki='', prev_screenshot_in_anki='', sentence_in_anki='', multi_line=False)
+        return AnkiUpdateResult(success=False, audio_in_anki='', screenshot_in_anki='', prev_screenshot_in_anki='', sentence_in_anki='', multi_line=False, video_in_anki='', word_path='')
 
 
 @dataclass_json

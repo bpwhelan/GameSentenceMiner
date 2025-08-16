@@ -182,6 +182,10 @@
             "label": "上一句截图字段:",
             "tooltip": "Anki 中用于上一句截图的字段。如果为空，则不填充。"
           },
+          "video_field": {
+            "label": "视频字段:",
+            "tooltip": "Anki 中关联视频的字段。这将是VAD修剪语音线的AV1编码视频，如果未找到语音，此字段将为空。"
+          },
           "custom_tags": {
             "label": "添加标签:",
             "tooltip": "Anki 卡片的自定义标签（以逗号分隔）。"
@@ -306,6 +310,10 @@
           "extension": {
             "label": "扩展名:",
             "tooltip": "截图格式的文件扩展名。"
+          },
+          "animated": {
+            "label": "动画:",
+            "tooltip": "启用创建动画截图。将是使用AV1编码的webm文件。启用此选项时，以下所有设置均不适用。"
           },
           "ffmpeg_options": {
             "label": "FFmpeg 重编码选项:",

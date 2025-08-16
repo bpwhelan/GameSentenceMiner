@@ -128,16 +128,6 @@
                     DOING:</label>
                 <input type="text" id="customPythonPackage" placeholder="GameSentenceMiner">
             </div>
-            <div class="input-group">
-                <label for="runPipInstall">Run pip install on custom package:</label>
-                <input type="text" id="runPipInstall" placeholder="e.g. numpy.">
-                <button id="runPipInstallBtn">Run pip install</button>
-                <span class="tooltip tooltip-left">❓
-                    <span class="tooltiptext">
-                        Specify additional Python package to install via pip. Advanced/Debug Feature.
-                    </span>
-                </span>
-            </div>
         </div>
     </div>
 
@@ -159,8 +149,6 @@
         // const autoRunWindowTransparencyToolCheckbox = document.getElementById('autoRunWindowTransparencyTool');
         const pullPreReleasesCheckbox = document.getElementById('pullPreReleases');
         const obsSceneSelector = document.getElementById('obs-ocr-scene-selector');
-        const runPipInstallInput = document.getElementById('runPipInstall');
-        const runPipInstallBtn = document.getElementById('runPipInstallBtn');
 
         const setHotkey = (event, inputElement) => {
             event.preventDefault();
@@ -172,20 +160,6 @@
             inputElement.value = keys.join('+');
             saveSettings();
         };
-
-        runPipInstallBtn.addEventListener('click', async () => {
-            const package = runPipInstallInput.value.trim();
-            if (package) {
-                try {
-                    await ipcRenderer.invoke('settings.runPipInstall', package);
-                    console.log("Pip install command executed successfully.");
-                } catch (error) {
-                    console.error("Failed to run pip install:", error);
-                }
-            } else {
-                console.warn("No packages specified for pip install.");
-            }
-        });
 
         windowTransparencyToolHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, windowTransparencyToolHotkeyInput));
         windowTransparencyTargetInput.addEventListener('change', async () => {

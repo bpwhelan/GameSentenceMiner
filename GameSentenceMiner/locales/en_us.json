@@ -182,6 +182,10 @@
             "label": "Previous VoiceLine SS Field:",
             "tooltip": "Field in Anki for the screenshot of previous line. If Empty, will not populate"
           },
+          "video_field": {
+            "label": "Video Field:",
+            "tooltip": "Field in Anki for associated videos. This will be AV1 encoded video of the VAD Trimmed Voiceline, if no Voice found, this will be empty."
+          },
           "custom_tags": {
             "label": "Add Tags:",
             "tooltip": "Comma-separated custom tags for the Anki cards."
@@ -306,6 +310,10 @@
           "extension": {
             "label": "Extension:",
             "tooltip": "File extension for the screenshot format."
+          },
+          "animated": {
+            "label": "Animated:",
+            "tooltip": "Enable to create an animated screenshot. Will be a webm file encoded with AV1. All settings under this are not applicable with this ON."
           },
           "ffmpeg_options": {
             "label": "FFmpeg Reencode Options:",

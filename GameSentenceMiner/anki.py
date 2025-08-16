@@ -32,7 +32,7 @@ card_queue = []
 
 
 def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='', tango='', reuse_audio=False,
-                     should_update_audio=True, ss_time=0, game_line=None, selected_lines=None, prev_ss_timing=0, start_time=None, end_time=None):
+                     should_update_audio=True, ss_time=0, game_line=None, selected_lines=None, prev_ss_timing=0, start_time=None, end_time=None, vad_result=None):
     update_audio = should_update_audio and (get_config().anki.sentence_audio_field and not
     last_note.get_field(get_config().anki.sentence_audio_field) or get_config().anki.overwrite_audio)
     update_picture = (get_config().anki.picture_field and get_config().screenshot.enabled
@@ -41,14 +41,17 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
     audio_in_anki = ''
     screenshot_in_anki = ''
     prev_screenshot_in_anki = ''
+    video_in_anki = ''
+    video = ''
     screenshot = ''
     prev_screenshot = ''
     if reuse_audio:
         logger.info("Reusing Audio from last note")
-        anki_result = anki_results[game_line.id]
+        anki_result: AnkiUpdateResult = anki_results[game_line.id]
         audio_in_anki = anki_result.audio_in_anki
         screenshot_in_anki = anki_result.screenshot_in_anki
         prev_screenshot_in_anki = anki_result.prev_screenshot_in_anki
+        video_in_anki = anki_result.video_in_anki
     else:
         if update_audio:
             audio_in_anki = store_media_file(audio_path)
@@ -56,9 +59,16 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
                 open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
         if update_picture:
             logger.info("Getting Screenshot...")
-            screenshot = ffmpeg.get_screenshot(video_path, ss_time, try_selector=get_config().screenshot.use_screenshot_selector)
+            if get_config().screenshot.animated:
+                screenshot = ffmpeg.get_anki_compatible_video(video_path, start_time, vad_result.start, vad_result.end, codec='avif', quality=10, fps=12, audio=False)
+            else:
+                screenshot = ffmpeg.get_screenshot(video_path, ss_time, try_selector=get_config().screenshot.use_screenshot_selector)
             wait_for_stable_file(screenshot)
             screenshot_in_anki = store_media_file(screenshot)
+        if get_config().anki.video_field:
+            if vad_result:
+                video = ffmpeg.get_anki_compatible_video(video_path, start_time, vad_result.start, vad_result.end, codec='avif', quality=10, fps=12, audio=True)
+                video_in_anki = store_media_file(video)
         if get_config().anki.previous_image_field and game_line.prev:
             prev_screenshot = ffmpeg.get_screenshot_for_line(video_path, selected_lines[0].prev if selected_lines else game_line.prev, try_selector=get_config().screenshot.use_screenshot_selector)
             wait_for_stable_file(prev_screenshot)
@@ -68,58 +78,6 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
     audio_html = f"[sound:{audio_in_anki}]"
     image_html = f"<img src=\"{screenshot_in_anki}\">"
     prev_screenshot_html = f"<img src=\"{prev_screenshot_in_anki}\">"
-    
-    
-    # Vars for DB update
-    new_audio_path = ''
-    new_screenshot_path = ''
-    new_prev_screenshot_path = ''
-    new_video_path = ''
-    translation = ''
-    anki_audio_path = ''
-    anki_screenshot_path = ''
-    # Move files to output folder if configured
-    if get_config().paths.output_folder and get_config().paths.copy_temp_files_to_output_folder:
-        word_path = os.path.join(get_config().paths.output_folder, sanitize_filename(tango))
-        os.makedirs(word_path, exist_ok=True)
-        
-        if audio_path:
-            audio_filename = Path(audio_path).name
-            new_audio_path = os.path.join(word_path, audio_filename)
-            if os.path.exists(audio_path):
-                shutil.copy(audio_path, new_audio_path)
-        if screenshot:
-            screenshot_filename = Path(screenshot).name
-            new_screenshot_path = os.path.join(word_path, screenshot_filename)
-            if os.path.exists(screenshot):
-                shutil.copy(screenshot, new_screenshot_path)
-        if prev_screenshot:
-            prev_screenshot_filename = Path(prev_screenshot).name
-            new_prev_screenshot_path = os.path.join(word_path, "prev_" + prev_screenshot_filename)
-            if os.path.exists(prev_screenshot):
-                shutil.copy(prev_screenshot, new_prev_screenshot_path)
-                
-        if video_path and get_config().paths.copy_trimmed_replay_to_output_folder:
-            trimmed_video = ffmpeg.trim_replay_for_gameline(video_path, start_time, end_time, accurate=True)
-            new_video_path = os.path.join(word_path, Path(trimmed_video).name)
-            if os.path.exists(trimmed_video):
-                shutil.copy(trimmed_video, new_video_path)
-                
-    if get_config().audio.anki_media_collection:
-        anki_audio_path = os.path.join(get_config().audio.anki_media_collection, audio_in_anki)
-        anki_screenshot_path = os.path.join(get_config().audio.anki_media_collection, screenshot_in_anki)
-
-        # Open to word_path if configured
-        if get_config().paths.open_output_folder_on_card_creation:
-            try:
-                if platform.system() == "Windows":
-                    subprocess.Popen(f'explorer "{word_path}"')
-                elif platform.system() == "Darwin":
-                    subprocess.Popen(["open", word_path])
-                else:
-                    subprocess.Popen(["xdg-open", word_path])
-            except Exception as e:
-                logger.error(f"Error opening output folder: {e}")
 
 
     # note = {'id': last_note.noteId, 'fields': {}}
@@ -129,6 +87,10 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
 
     if update_picture and screenshot_in_anki:
         note['fields'][get_config().anki.picture_field] = image_html
+        
+    if video_in_anki:
+        note['fields'][get_config().anki.video_field] = video_in_anki
+        
     if not get_config().screenshot.enabled:
         logger.info("Skipping Adding Screenshot to Anki, Screenshot is disabled in settings")
 
@@ -158,9 +120,9 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         tag_string = " ".join(tags)
         invoke("addTags", tags=tag_string, notes=[last_note.noteId])
         
-    # Update GameLine in DB
+    run_new_thread(lambda: check_and_update_note(last_note, note, tags))
 
-    logger.info(f"Adding {game_line.id} to Anki Results Dict...")
+    word_path = os.path.join(get_config().paths.output_folder, sanitize_filename(tango)) if get_config().paths.output_folder else ''
     if not reuse_audio:
         anki_results[game_line.id] = AnkiUpdateResult(
             success=True,
@@ -168,10 +130,81 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
             screenshot_in_anki=screenshot_in_anki,
             prev_screenshot_in_anki=prev_screenshot_in_anki,
             sentence_in_anki=game_line.text if game_line else '',
-            multi_line=bool(selected_lines and len(selected_lines) > 1)
+            multi_line=bool(selected_lines and len(selected_lines) > 1),
+            video_in_anki=video_in_anki or '',
+            word_path=word_path
         )
+    # Update GameLine in DB
+    
+    # Vars for DB update
+    new_audio_path = ''
+    new_screenshot_path = ''
+    new_prev_screenshot_path = ''
+    new_video_path = ''
+    translation = ''
+    anki_audio_path = ''
+    anki_screenshot_path = ''
+    # Move files to output folder if configured
+    if get_config().paths.output_folder and reuse_audio:
+        anki_result: AnkiUpdateResult = anki_results[game_line.id]
+        previous_word_path = anki_result.word_path
+        if previous_word_path and os.path.exists(previous_word_path):
+            os.makedirs(word_path, exist_ok=True)
+            # Copy all files from previous_word_path to word_path
+            for item in os.listdir(previous_word_path):
+                s = os.path.join(previous_word_path, item)
+                d = os.path.join(word_path, item)
+                if os.path.isdir(s):
+                    shutil.copytree(s, d, False, None)
+                else:
+                    shutil.copy2(s, d)
+    elif get_config().paths.output_folder and get_config().paths.copy_temp_files_to_output_folder:
+        os.makedirs(word_path, exist_ok=True)
+        if audio_path:
+            audio_filename = Path(audio_path).name
+            new_audio_path = os.path.join(word_path, audio_filename)
+            if os.path.exists(audio_path):
+                shutil.copy(audio_path, new_audio_path)
+        if screenshot:
+            screenshot_filename = Path(screenshot).name
+            new_screenshot_path = os.path.join(word_path, screenshot_filename)
+            if os.path.exists(screenshot):
+                shutil.copy(screenshot, new_screenshot_path)
+        if prev_screenshot:
+            prev_screenshot_filename = Path(prev_screenshot).name
+            new_prev_screenshot_path = os.path.join(word_path, "prev_" + prev_screenshot_filename)
+            if os.path.exists(prev_screenshot):
+                shutil.copy(prev_screenshot, new_prev_screenshot_path)
+                
+        if video_path and get_config().paths.copy_trimmed_replay_to_output_folder:
+            trimmed_video = ffmpeg.trim_replay_for_gameline(video_path, start_time, end_time, accurate=True)
+            new_video_path = os.path.join(word_path, Path(trimmed_video).name)
+            if os.path.exists(trimmed_video):
+                shutil.copy(trimmed_video, new_video_path)
+                
+        if video:
+            new_video_path = os.path.join(word_path, Path(video).name)
+            if os.path.exists(video):
+                shutil.copy(video, new_video_path)
 
-    run_new_thread(lambda: check_and_update_note(last_note, note, tags))
+    if get_config().audio.anki_media_collection:
+        anki_audio_path = os.path.join(get_config().audio.anki_media_collection, audio_in_anki)
+        anki_screenshot_path = os.path.join(get_config().audio.anki_media_collection, screenshot_in_anki)
+
+    # Open to word_path if configured
+    if get_config().paths.open_output_folder_on_card_creation:
+        try:
+            if platform.system() == "Windows":
+                subprocess.Popen(f'explorer "{word_path}"')
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", word_path])
+            else:
+                subprocess.Popen(["xdg-open", word_path])
+        except Exception as e:
+            logger.error(f"Error opening output folder: {e}")
+
+    logger.info(f"Adding {game_line.id} to Anki Results Dict...")
+    
     GameLinesTable.update(line_id=game_line.id, screenshot_path=new_screenshot_path, audio_path=new_audio_path, replay_path=new_video_path, audio_in_anki=anki_audio_path, screenshot_in_anki=anki_screenshot_path, translation=translation)
 
 def check_and_update_note(last_note, note, tags=[]):
@@ -428,6 +461,7 @@ def update_new_card():
         texthooking_page.reset_checked_lines()
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
+        gsm_state.last_mined_line = game_line
         card_queue.append((last_card, datetime.now(), lines))
         texthooking_page.reset_checked_lines()
         try:
@@ -438,13 +472,26 @@ def update_new_card():
             return
 
 def update_card_from_same_sentence(last_card, lines, game_line):
+    time_elapsed = 0
     while game_line.id not in anki_results:
         time.sleep(0.5)
+        time_elapsed += 0.5
+        if time_elapsed > 15:
+            logger.info(f"Timed out waiting for Anki update for card {last_card.noteId}, retrieving new audio")
+            card_queue.append((last_card, datetime.now(), lines))
+            texthooking_page.reset_checked_lines()
+            try:
+                obs.save_replay_buffer()
+            except Exception as e:
+                card_queue.pop(0)
+                logger.error(f"Error saving replay buffer: {e}")
+                return
     anki_result = anki_results[game_line.id]
     if anki_result.success:
         note, last_card = get_initial_card_info(last_card, lines)
+        tango = last_card.get_field(get_config().anki.word_field)
         update_anki_card(last_card, note=note,
-                         game_line=get_mined_line(last_card, lines), reuse_audio=True)
+                         game_line=get_mined_line(last_card, lines), reuse_audio=True, tango=tango)
     else:
         logger.error(f"Anki update failed for card {last_card.noteId}")
         notification.send_error_no_anki_update()

@@ -27,6 +27,148 @@ supported_formats = {
     'm4a': 'aac',
 }
 
+import subprocess
+from pathlib import Path
+import shutil
+
+
+def video_to_anim(
+    input_path: str | Path,
+    output_path: str | Path = None,
+    codec: str = "webp",        # "webp" or "avif" (ignored if audio=True)
+    start: str = None,          # e.g. "00:00:12.5"
+    duration: float = None,     # seconds
+    fps: int = 12,
+    max_width: int = 960, 
+    max_height: int = None,
+    quality: int = 65,          # 0..100, for avif: 0 (lossless) to 63 (worst), for webm: CRF value
+    compression_level: int = 6, # for webp: 0..6 (ignored for audio)
+    preset: str = "picture",    # for webp (ignored for audio)
+    loop: int = 0,              # for webp: 0=infinite (ignored for audio)
+    crop: str = None,           # e.g. "1280:720:0:140"
+    extra_vf: list[str] = None,
+    audio: bool = None          # whether to include audio, outputs WebM with VP9/Opus
+) -> Path:
+    """Convert video to efficient animated WebP/AVIF or WebM with audio using ffmpeg.
+    
+    When audio=True, outputs WebM format with VP9 video codec and Opus audio codec.
+    The codec parameter is ignored when audio=True.
+    """
+    
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("ffmpeg not found on PATH.")
+
+    codec = codec.lower()
+    if codec not in {"webp", "avif"}:
+        raise ValueError("codec must be 'webp' or 'avif'")
+
+    input_path = Path(input_path)
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input not found: {input_path}")
+
+    # Default output path
+    if output_path:
+        output_path = Path(output_path)
+    else:
+        if audio:
+            ext = ".webm"
+        else:
+            ext = ".webp" if codec == "webp" else ".avif"
+        output_path = input_path.with_suffix(ext)
+
+    # Ensure correct extension
+    if audio:
+        correct_ext = ".webm"
+    else:
+        correct_ext = ".webp" if codec == "webp" else ".avif"
+    if output_path.suffix.lower() != correct_ext:
+        output_path = output_path.with_suffix(correct_ext)
+
+    # Build filter chain
+    vf_parts = []
+    if fps:
+        vf_parts.append(f"fps={fps}")
+    if crop:
+        vf_parts.append(f"crop={crop}")
+    if max_width and max_height:
+        vf_parts.append(f"scale='min({max_width},iw)':min({max_height},ih):force_original_aspect_ratio=decrease")
+    elif max_width:
+        vf_parts.append(f"scale={max_width}:-1")
+    elif max_height:
+        vf_parts.append(f"scale=-1:{max_height}")
+    vf_parts.append("pad=ceil(iw/2)*2:ceil(ih/2)*2")  # ensure even dimensions
+    if extra_vf:
+        vf_parts.extend(extra_vf)
+
+    # ffmpeg command base
+    cmd = ffmpeg_base_command_list.copy()
+    if start:
+        cmd += ["-ss", str(start)]
+    cmd += ["-i", str(input_path)]
+    if duration:
+        cmd += ["-t", str(duration)]
+    
+    # Add video filters
+    cmd += ["-vf", ",".join(vf_parts)]
+    
+    # Only add -an (no audio) if we're not including audio
+    if not audio:
+        cmd += ["-an"]
+
+    # Codec-specific settings
+    if audio:
+        # For WebM with audio, use VP9 for video and Opus for audio
+        # For WebM with audio, use AV1 (AVIF) for video and Opus for audio
+        cmd += [
+            "-c:v", "libaom-av1",          # AV1 codec (used for AVIF images, but supported in WebM video)
+            "-crf", str(quality),          # AV1 CRF scale (0 lossless - 63 worst)
+            "-pix_fmt", "yuv420p",         # yuv420p for compatibility
+            "-cpu-used", "6",              # speed/quality trade-off
+            "-c:a", "libopus",             # use opus codec for audio
+            "-b:a", "128k",                # audio bitrate
+            "-f", "webm",                  # output format webm
+        ]
+    elif codec == "webp":
+        cmd += [
+            "-c:v", "libwebp",
+            "-lossless", "0",
+            "-q:v", str(quality),
+            "-compression_level", str(compression_level),
+            "-preset", preset,
+            "-loop", str(loop),
+            "-threads", "0",
+        ]
+    elif codec == "avif":
+        cmd += [
+            "-c:v", "libaom-av1",
+            "-cpu-used", "6",              # speed/quality trade-off
+            "-crf", str(quality),          # AV1 CRF scale (0 lossless - 63 worst)
+            "-pix_fmt", "yuv420p",         # yuv420p for better compatibility
+        ]
+
+    cmd.append(str(output_path))
+
+    subprocess.run(cmd, check=True)
+    return str(output_path)
+
+def video_to_animation_with_start_end(video_path: str | Path, start: float, end: float, **kwargs) -> Path:
+    """Convert video to animation using start and end time strings."""
+    from datetime import datetime, timedelta
+
+    if end < start:
+        raise ValueError("end time must be after start time")
+    duration = end - start
+
+    return video_to_anim(
+        input_path=video_path,
+        start=start,
+        duration=duration,
+        **kwargs
+    )
+
+
+# video_to_anim(r"C:\Users\Beangate\Videos\GSM\Output\ゴシップ\trimmed_GSM 2025-08-14 21-57-08_2025-08-14-21-57-12-654.mp4", codec="avif", quality=30, fps=30)
+
 def call_frame_extractor(video_path, timestamp):
     """
     Calls the video frame extractor script and captures the output.
@@ -63,6 +205,17 @@ def call_frame_extractor(video_path, timestamp):
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return None
+
+# def get_animated_screenshot(video_file, screenshot_timing, vad_start, vad_end):
+#     screenshot_timing = screenshot_timing if screenshot_timing else 1
+#     animated_ss = video_to_animation_with_start_end(video_file, screenshot_timing + vad_start, screenshot_timing + vad_end)
+#     return animated_ss
+
+def get_anki_compatible_video(video_file, screenshot_timing, vad_start, vad_end, **kwargs):
+    screenshot_timing = screenshot_timing if screenshot_timing else 1
+    animated_ss = video_to_animation_with_start_end(video_file, screenshot_timing + vad_start, screenshot_timing + vad_end, **kwargs)
+    return animated_ss
+
 
 def get_screenshot(video_file, screenshot_timing, try_selector=False):
     screenshot_timing = screenshot_timing if screenshot_timing else 1

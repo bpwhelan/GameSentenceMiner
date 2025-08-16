@@ -72,6 +72,21 @@
             width: 100%;
             height: 100%;
         }
+
+        /* Python tab specific grid layout - max 2 columns */
+        #python-grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            max-width: 100%;
+            gap: 15px;
+        }
+
+        /* Ensure Python grid never exceeds 2 columns */
+        @media (min-width: 900px) {
+            #python-grid-container {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
     </style>
     <title></title>
 </head>
@@ -88,6 +103,7 @@
         <!--        <button class="tab-button" data-tab="vn">VN</button>-->
         <!--        <button class="tab-button" data-tab="yuzu" id="yuzu-button" style="display: none;">Yuzu</button>-->
         <button class="tab-button" data-tab="settings">Settings</button>
+        <button class="tab-button" data-tab="python">Python</button>
         <button class="tab-button" data-tab="console">Console</button>
     </div>
     <div id="launcher" class="tab-content">
@@ -108,6 +124,108 @@
     <div id="settings" class="tab-content">
         <iframe src="settings.html"></iframe>
     </div>
+    <div id="python" class="tab-content">
+        <div id="python-tab-container" class="tab-container">
+            <h2>Python Management</h2>
+            <strong>Everything on this tab has the potential to break GSM. Proceed with Caution.</strong>
+            <div id="python-grid-container" class="grid-container">
+                <!-- CUDA Installation Card -->
+                <div class="card">
+                    <h2 class="collapsible-header">CUDA Installation</h2>
+                    <div class="collapsible-content" style="display: block;">
+                        <div class="form-group">
+                            <div class="input-group">
+                                <label for="cuda-version-select">CUDA Version:
+                                </label>
+                                <select id="cuda-version-select">
+                                    <option value="12.6">CUDA 12.6 (Stable)</option>
+                                    <option value="12.8" selected>CUDA 12.8 (Recommended)</option>
+                                    <option value="12.9">CUDA 12.9 (Latest)</option>
+                                </select>
+                                <button id="install-cuda-btn" class="secondary">Install CUDA</button>
+                                <div class="tooltip">❓
+                                    <span class="tooltiptext">Install PyTorch with CUDA support for GPU acceleration. This enables much faster Whisper Processing, and is used for a few OCR options (none recommended).</span>
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <button id="cuda-guide-btn" class="secondary">📖 CUDA Compatibility Guide</button>
+                                <div class="tooltip">❓
+                                    <span class="tooltiptext">
+                                        <strong>Choose your CUDA version:</strong><br>
+                                        • <strong>CUDA 12.6:</strong> Most stable, works with older GPUs<br>
+                                        • <strong>CUDA 12.8:</strong> Recommended for most users (RTX 30/40 series)<br>
+                                        • <strong>CUDA 12.9:</strong> Latest version, best performance for newest GPUs<br><br>
+                                        <strong>Note:</strong> Your GPU driver must support the CUDA version you choose.
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GSM Management Card -->
+                <div class="card">
+                    <h2 class="collapsible-header">GSM Management</h2>
+                    <div class="collapsible-content" style="display: block;">
+                        <div class="form-group">
+                            <div class="input-group">
+                                <button id="repair-gsm-btn" class="danger">🔧 Repair GSM</button>
+                                <div class="tooltip">❓
+                                    <span class="tooltiptext">Complete reinstall of Python and GameSentenceMiner. This will remove all custom packages and restore to default state.</span>
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <button id="clean-cache-btn" class="secondary">🧹 Clean Python Cache</button>
+                                <div class="tooltip">❓
+                                    <span class="tooltiptext">Clear pip cache and temporary files to fix installation issues</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Custom Package Installation Card -->
+                <div class="card">
+                    <h2 class="collapsible-header">Custom Package Installation</h2>
+                    <div class="collapsible-content" style="display: block;">
+                        <div class="form-group">
+                            <div class="input-group">
+                                <label for="custom-package-input" class="tooltip-indicator">Package Name:
+                                    <span class="tooltiptext">Enter the name of the package you want to install (e.g., numpy, requests, etc.) This may break things, and should only be used upon instruction.</span>
+                                </label>
+                                <input type="text" id="custom-package-input" placeholder="e.g., numpy, requests, etc." />
+                                <button id="install-custom-package-btn" class="danger">Install Package</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Python Environment Info Card -->
+                <div class="card">
+                    <h2 class="collapsible-header">Python Environment Info</h2>
+                    <div class="collapsible-content" style="display: block;">
+                        <div class="form-group">
+                            <div id="python-info-container">
+                                <p id="python-version">Python Version: Loading...</p>
+                                <p id="python-path">Python Path: Loading...</p>
+                                <p id="pip-version">Pip Version: Loading...</p>
+                            </div>
+                            <div class="input-group">
+                                <button id="refresh-python-info-btn" class="secondary">🔄 Refresh Info</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Display -->
+            <div class="card" id="python-status-card" style="display: none;">
+                <div class="terminal-container" id="python-status">
+                    <p id="python-status-text">Ready</p>
+                </div>
+            </div>
+        </div>
+    </div>
     <div id="ocr" class="tab-content">
         <div id="ocr-tab-container" class="tab-container">
             <div id="ocr-grid-container" class="grid-container">
@@ -121,9 +239,6 @@
                                 <select id="dependency-select">
                                     <option value="pip install owocr[faster-png]">Faster PNG (Recommended if w11)
                                     </option>
-                                    <option value="pip install owocr[accurate-filtering]">Accurate Filtering (Not
-                                        recommended)
-                                    </option>
                                     <option value="pip install owocr[winocr]">WindowsOCR</option>
                                     <option value="pip install owocr[mangaocr]">MangaOCR</option>
                                     <option value="pip install owocr[easyocr]">EasyOCR</option>
@@ -132,10 +247,9 @@
                                     <option value="pip install owocr[azure]">Azure (apikey required)</option>
                                     <option value="pip install owocr[ocrspace]">OCRSpace (apikey required)</option>
                                     <option
-                                        value="pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128">
+                                        value="pip install torch torchvision torchaudio numpy==2.2.6 --index-url https://download.pytorch.org/whl/cu128">
                                         CUDA
                                     </option>
-                                    <option value="pip install openai">Local LLM OCR (EXTRA SETUP REQUIRED)</option>
                                 </select>
                                 <button id="install-selected-dep" class="secondary">Install</button>
                                 <div class="tooltip">❓
@@ -627,7 +741,19 @@
                 });
 
                 ipcRenderer.on('ocr-started', () => {
-                    openOCRConsole();
+                    openOCRConsole("Stop OCR (Open Settings)", {
+                        hideSetupCard: true,
+                        hideConfigCard: true,
+                        showLogCard: true,
+                        hideStartControls: true,
+                        showStopControls: true,
+                        hideManualHotkey: true,
+                        hideAreaHotkey: true,
+                        hideScreenshotsGroup: true,
+                        showSelectAreasButton: true,
+                        updateSettingsHeader: false,
+                        fitIntervalMs: 500,
+                    });
                 });
 
                 ipcRenderer.on('ocr-stopped', () => {
@@ -636,32 +762,52 @@
 
                 processes_using_console = 0;
 
-                function openOCRConsole() {
+                function openOCRConsole(closeConsoleButtonText, options = {}) {
+                    if (!closeConsoleButtonText) {
+                        closeConsoleButtonText = "Stop OCR (Open Settings)";
+                    }
                     processes_using_console++;
-                    // toggleCollapsibleSectionById('settings-header', false);
-                    // toggleCollapsibleSectionById('setup-header', false);
-                    // toggleCollapsibleSectionById('config-header', false);
-                    // ['settings-header', 'setup-header', 'config-header', 'debug-header'].forEach(id => {
-                    //     toggleCollapsibleSectionById(id, false)
-                    // });
-                    // document.getElementById('ocr-settings-card').style.display = 'none';
-                    document.getElementById('setup-card').style.display = 'none';
-                    document.getElementById('config-card').style.display = 'none';
-                    document.getElementById('ocr-log-card').style.display = 'block';
-                    document.getElementById('start-ocr-controls').style.display = 'none';
-                    document.getElementById('stop-ocr-controls').style.display = 'flex';
-                    // Hide OBS source group
-                    // document.getElementById('use-obs-as-source-group').style.display = 'none';
-                    //Hide Hotkey config groups
-                    document.getElementById('manual-ocr-hotkey-group').style.display = 'none';
-                    document.getElementById('area-select-ocr-hotkey-group').style.display = 'none';
-                    // Add (Options Hidden) to settings header to first child span
-                    document.getElementById('settings-header').firstChild.innerText = 'OCR Settings (Some Options Hidden)';
-                    // Hide clipboard screenshot option
-                    document.getElementById('ocr-screenshots-group').style.display = 'none';
-                    // Show Select Areas button
-                    document.getElementById('select_areas_button_2').style.display = 'block';
-                    setInterval(() => ocrFitAddon.fit(), 500);
+                    // Default options
+                    const {
+                        hideSetupCard = true,
+                        hideConfigCard = true,
+                        hideSettingsCard = false,
+                        showLogCard = true,
+                        hideStartControls = true,
+                        showStopControls = true,
+                        hideManualHotkey = true,
+                        hideAreaHotkey = true,
+                        hideScreenshotsGroup = true,
+                        showSelectAreasButton = true,
+                        updateSettingsHeader = true,
+                        fitIntervalMs = 500,
+                    } = options;
+
+                    if (hideSetupCard)
+                        document.getElementById('setup-card').style.display = 'none';
+                    if (hideConfigCard)
+                        document.getElementById('config-card').style.display = 'none';
+                    if (hideSettingsCard)
+                        document.getElementById('ocr-settings-card').style.display = 'none';
+                    if (showLogCard)
+                        document.getElementById('ocr-log-card').style.display = 'block';
+                    if (hideStartControls)
+                        document.getElementById('start-ocr-controls').style.display = 'none';
+                    if (showStopControls)
+                        document.getElementById('stop-ocr-controls').style.display = 'flex';
+                    document.getElementById('stop-ocr').innerText = closeConsoleButtonText;
+                    if (hideManualHotkey)
+                        document.getElementById('manual-ocr-hotkey-group').style.display = 'none';
+                    if (hideAreaHotkey)
+                        document.getElementById('area-select-ocr-hotkey-group').style.display = 'none';
+                    if (updateSettingsHeader)
+                        document.getElementById('settings-header').firstChild.innerText = 'OCR Settings (Some Options Hidden)';
+                    if (hideScreenshotsGroup)
+                        document.getElementById('ocr-screenshots-group').style.display = 'none';
+                    if (showSelectAreasButton)
+                        document.getElementById('select_areas_button_2').style.display = 'block';
+
+                    setInterval(() => ocrFitAddon.fit(), fitIntervalMs);
                 }
 
                 function closeOCRConsole() {
@@ -678,6 +824,7 @@
                     document.getElementById('ocr-log-card').style.display = 'none';
                     document.getElementById('start-ocr-controls').style.display = 'flex';
                     document.getElementById('stop-ocr-controls').style.display = 'none';
+                    document.getElementById('stop-ocr').innerText = "Stop OCR (Open Settings)";
                     // document.getElementById('use-obs-as-source-group').style.display = 'flex';
                     //Show Hotkey config
                     document.getElementById('manual-ocr-hotkey-group').style.display = 'flex';
@@ -727,7 +874,20 @@
                 });
 
                 installRecommendedBtn.addEventListener('click', () => {
-                    openOCRConsole();
+                    openOCRConsole("Close Console", {
+                        hideSetupCard: false,
+                        hideConfigCard: true,
+                        hideSettingsCard: true,
+                        showLogCard: true,
+                        hideStartControls: true,
+                        showStopControls: true,
+                        hideManualHotkey: false,
+                        hideAreaHotkey: false,
+                        hideScreenshotsGroup: false,
+                        showSelectAreasButton: false,
+                        updateSettingsHeader: false,
+                        fitIntervalMs: 500,
+                    });
                     ipcRenderer.send('ocr.install-recommended-deps');
                 });
 
@@ -744,7 +904,20 @@
                 document.getElementById('refreshWindowsBtn').addEventListener('click', getWindows);
                 document.getElementById('install-selected-dep').addEventListener('click', () => {
                     const selectedDep = document.getElementById('dependency-select').value;
-                    openOCRConsole();
+                    openOCRConsole("Close Console", {
+                        hideSetupCard: false,
+                        hideConfigCard: true,
+                        hideSettingsCard: true,
+                        showLogCard: true,
+                        hideStartControls: true,
+                        showStopControls: true,
+                        hideManualHotkey: false,
+                        hideAreaHotkey: false,
+                        hideScreenshotsGroup: false,
+                        showSelectAreasButton: false,
+                        updateSettingsHeader: false,
+                        fitIntervalMs: 500,
+                    });
                     ipcRenderer.send('ocr.install-selected-dep', selectedDep);
                 });
                 document.getElementById('uninstall-selected-dep').addEventListener('click', () => {
@@ -754,7 +927,24 @@
 
                 ['run-screen-selector', 'select_areas_button_2'].forEach(id => {
                     document.getElementById(id).addEventListener('click', async () => {
-                        openOCRConsole();
+                        if (id === "run-screen-selector")
+                            hideSettingsCard = true;
+                        else
+                            hideSettingsCard = false;
+                        openOCRConsole("Close Console", {
+                        hideSetupCard: true,
+                        hideConfigCard: false,
+                        hideSettingsCard: hideSettingsCard,
+                        showLogCard: true,
+                        hideStartControls: true,
+                        showStopControls: true,
+                        hideManualHotkey: false,
+                        hideAreaHotkey: false,
+                        hideScreenshotsGroup: false,
+                        showSelectAreasButton: false,
+                        updateSettingsHeader: false,
+                        fitIntervalMs: 500,
+                    });
                         const windowName = document.getElementById('windowSelect').value.trim();
                         console.log('Screen selector start:', new Date().toISOString());
                         await ipcRenderer.send('ocr.run-screen-selector', windowName);
@@ -1026,25 +1216,35 @@
             window.addEventListener('resize', () => fitAddon.fit());
 
             ipcRenderer.on('terminal-output', (event, data) => {
-                if (data.includes("ERROR: INFO:") || data.includes("DEBUG:")) {
+                if (data.includes("ERROR: INFO:") || data.includes("DEBUG:" || data.includes("[OCR"))) {
                     return; // THIS IS DEBUG THAT SOMEHOW GETS THROUGH TO STDOUT
+                }
+                if (data.includes("Transcribe:")) {
+                    const transcription = data.split("Transcribe:")[1].trim();
+                    term.write(`\x1b[32mTranscription: ${transcription}\x1b[0m`); // Green text for transcriptions
+                    return
                 }
                 // if (data.includes("GameSentenceMiner - "))
                 //     data = data.split("GameSentenceMiner - ")[1];
                 if (data.includes("- ERROR -")) {
-                    term.write(`\x1b[31m${data}\x1b[0m`); // Red text for errors
+                    term.write(`\x1b[91m${data}\x1b[0m`); // Light red text for errors, no background
                 } else if (data.includes("- WARNING -")) {
-                    term.write(`\x1b[33mWARNING: ${data}\x1b[0m`); // Yellow text for errors
+                    term.write(`\x1b[33mWARNING: ${data}\x1b[0m`); // Yellow text for warnings
                 } else {
                     term.write(data);
                 }
             });
 
             ipcRenderer.on('terminal-error', (event, data) => {
-                if (data.includes("INFO:") || data.includes("DEBUG:") || data.includes("ERROR:")) {
+                if (data.includes("INFO:") || data.includes("DEBUG:") || data.includes("ERROR:") || data.includes("[OCR")) {
                     return; // BAD STDERR, NOT SURE WHY THIS IS HAPPENING
                 }
-                term.write(`\x1b[31mERROR: ${data}\x1b[0m`); // Red text for errors
+                if (data.includes("Transcribe:")) {
+                    const transcription = data.split("Transcribe:")[1].trim();
+                    term.write(`\x1b[32mTranscription: ${transcription}\x1b[0m`); // Green text for transcriptions
+                    return
+                }
+                term.write(`\x1b[91m${data}\x1b[0m`); // Light red text for errors, no background
             });
 
             term.attachCustomKeyEventHandler((arg) => {
@@ -1151,6 +1351,178 @@
 
         loadSettings();
         setInterval(loadSettings, 500);
+
+        // Helper function to switch to console tab
+        function switchToConsoleTab() {
+            // Remove active from all tabs
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            // Activate console tab
+            document.querySelector('[data-tab="console"]').classList.add('active');
+            document.getElementById('console').classList.add('active');
+            
+            // Fit terminal
+            setTimeout(() => {
+                fitAddon.fit();
+            }, 100);
+        }
+
+        // Initialize Python tab functionality
+        function initializePythonTab() {
+            // Load Python info on page load
+            loadPythonInfo();
+
+            // CUDA Installation
+            document.getElementById('install-cuda-btn').addEventListener('click', async () => {
+                const cudaVersion = document.getElementById('cuda-version-select').value;
+                showPythonStatus(`Installing CUDA ${cudaVersion}... This may take several minutes.`);
+                switchToConsoleTab(); // Switch to console to see progress
+                
+                try {
+                    const result = await ipcRenderer.invoke('python.installCudaPackage', cudaVersion);
+                    if (result.success) {
+                        showPythonStatus(`✅ ${result.message}`, 'success');
+                    } else {
+                        showPythonStatus(`❌ ${result.message}`, 'error');
+                    }
+                } catch (error) {
+                    showPythonStatus(`❌ Error installing CUDA: ${error.message}`, 'error');
+                }
+            });
+
+            // CUDA Guide
+            document.getElementById('cuda-guide-btn').addEventListener('click', async () => {
+                await ipcRenderer.invoke('python.openCudaGuide');
+            });
+
+            // Repair GSM
+            document.getElementById('repair-gsm-btn').addEventListener('click', async () => {
+                if (confirm('Are you sure you want to repair GSM? This will remove all custom packages and completely reinstall Python and GSM.')) {
+                    showPythonStatus('🔧 Repairing GSM... This may take several minutes.');
+                    switchToConsoleTab(); // Switch to console to see progress
+                    
+                    try {
+                        const result = await ipcRenderer.invoke('python.repairGSM');
+                        if (result.success) {
+                            showPythonStatus(`✅ ${result.message}`, 'success');
+                            loadPythonInfo(); // Refresh info after repair
+                        } else {
+                            showPythonStatus(`❌ ${result.message}`, 'error');
+                        }
+                    } catch (error) {
+                        showPythonStatus(`❌ Error repairing GSM: ${error.message}`, 'error');
+                    }
+                }
+            });
+
+            // Clean cache
+            document.getElementById('clean-cache-btn').addEventListener('click', async () => {
+                showPythonStatus('🧹 Cleaning Python cache...');
+                
+                try {
+                    const result = await ipcRenderer.invoke('python.cleanCache');
+                    if (result.success) {
+                        showPythonStatus(`✅ ${result.message}`, 'success');
+                    } else {
+                        showPythonStatus(`❌ ${result.message}`, 'error');
+                    }
+                } catch (error) {
+                    showPythonStatus(`❌ Error cleaning cache: ${error.message}`, 'error');
+                }
+            });
+
+            // Install custom package
+            document.getElementById('install-custom-package-btn').addEventListener('click', async () => {
+                const packageName = document.getElementById('custom-package-input').value.trim();
+                if (!packageName) {
+                    alert('Please enter a package name');
+                    return;
+                }
+
+                showPythonStatus(`Installing package: ${packageName}...`);
+                switchToConsoleTab(); // Switch to console to see progress
+                
+                try {
+                    const result = await ipcRenderer.invoke('python.installCustomPackage', packageName);
+                    if (result.success) {
+                        showPythonStatus(`✅ ${result.message}`, 'success');
+                        document.getElementById('custom-package-input').value = ''; // Clear input
+                    } else {
+                        showPythonStatus(`❌ ${result.message}`, 'error');
+                    }
+                } catch (error) {
+                    showPythonStatus(`❌ Error installing package: ${error.message}`, 'error');
+                }
+            });
+
+            // Refresh Python info
+            document.getElementById('refresh-python-info-btn').addEventListener('click', loadPythonInfo);
+
+            // Allow Enter key in package input
+            document.getElementById('custom-package-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('install-custom-package-btn').click();
+                }
+            });
+        }
+
+        async function loadPythonInfo() {
+            try {
+                const info = await ipcRenderer.invoke('python.getPythonInfo');
+                if (info.success) {
+                    document.getElementById('python-version').textContent = `Python Version: ${info.pythonVersion}`;
+                    document.getElementById('python-path').textContent = `Python Path: ${info.pythonPath}`;
+                    document.getElementById('pip-version').textContent = `Pip Version: ${info.pipVersion}`;
+                } else {
+                    document.getElementById('python-version').textContent = 'Python Version: Error loading';
+                    document.getElementById('python-path').textContent = 'Python Path: Error loading';
+                    document.getElementById('pip-version').textContent = 'Pip Version: Error loading';
+                }
+            } catch (error) {
+                console.error('Failed to load Python info:', error);
+            }
+        }
+
+        function showPythonStatus(message, type = 'info') {
+            const statusCard = document.getElementById('python-status-card');
+            const statusText = document.getElementById('python-status-text');
+            
+            statusText.textContent = message;
+            statusCard.style.display = 'block';
+            
+            // Auto-hide success/error messages after 10 seconds
+            if (type === 'success' || type === 'error') {
+                setTimeout(() => {
+                    statusCard.style.display = 'none';
+                }, 10000);
+            }
+        }
+
+        // Initialize Python tab on DOM load
+        initializePythonTab();
+
+        // Setup collapsible sections for Python tab
+        function setupPythonCollapsibleSections() {
+            const pythonHeaders = document.querySelectorAll('#python .collapsible-header');
+            pythonHeaders.forEach(header => {
+                header.addEventListener('click', function() {
+                    const content = this.nextElementSibling;
+                    const arrow = this.querySelector('.arrow-icon');
+                    
+                    if (content.style.display === 'none' || content.style.display === '') {
+                        content.style.display = 'block';
+                        arrow.textContent = '▲';
+                    } else {
+                        content.style.display = 'none';
+                        arrow.textContent = '▼';
+                    }
+                });
+            });
+        }
+
+        // Initialize collapsible sections
+        setupPythonCollapsibleSections();
     </script>
 </body>
 
