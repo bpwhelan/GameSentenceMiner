@@ -1,7 +1,7 @@
 [submodule "texthooker"]
 	path = texthooker
 	url = https://github.com/bpwhelan/gsm-texthooker-ui.git
-	branch = master
+	branch = main
 [submodule "GameSentenceMiner/owocr"]
 	path = GameSentenceMiner/owocr
 	url = https://github.com/bpwhelan/owocr.git
