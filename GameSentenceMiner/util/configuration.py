@@ -436,6 +436,7 @@ class Anki:
     word_field: str = 'Expression'
     previous_sentence_field: str = ''
     previous_image_field: str = ''
+    video_field: str = ''
     # Initialize to None and set it in __post_init__
     custom_tags: List[str] = None
     tags_to_check: List[str] = None
@@ -475,6 +476,7 @@ class Screenshot:
     custom_ffmpeg_settings: str = ''
     custom_ffmpeg_option_selected: str = ''
     screenshot_hotkey_updates_anki: bool = False
+    animated: bool = False
     seconds_after_line: float = 1.0
     use_beginning_of_line_as_screenshot: bool = True
     use_new_screenshot_logic: bool = False
@@ -1197,3 +1199,5 @@ is_beangate = os.path.exists("C:/Users/Beangate")
 
 logger.debug(f"Running in development mode: {is_dev}")
 logger.debug(f"Running on Beangate's PC: {is_beangate}")
+
+logger.info("THE UPDATE WORKED?")
