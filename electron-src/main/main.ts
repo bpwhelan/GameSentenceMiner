@@ -53,7 +53,7 @@ import { execFile } from 'node:child_process';
 
 export let mainWindow: BrowserWindow | null = null;
 let tray: Tray;
-let pyProc: ChildProcessWithoutNullStreams;
+export let pyProc: ChildProcessWithoutNullStreams;
 export let isQuitting = false;
 let isUpdating: boolean = false;
 let restartingGSM: boolean = false;
@@ -347,8 +347,13 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
     if (updateAvailable || force) {
         if (pyProc) {
             await closeGSM();
+
+            await new Promise(resolve => setTimeout(resolve, 3000));
         }
         console.log(`Updating GSM Python Application to ${latestVersion}...`);
+
+        await checkAndInstallUV(pythonPath);
+        
         try {
             // await runCommand(
             //     pythonPath,
@@ -448,13 +453,8 @@ async function startWebSocketServer(): Promise<void> {
     });
 }
 
-/**
- * Ensures GameSentenceMiner is installed before running it.
- */
-async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
-    const isInstalled = await isPackageInstalled(pythonPath, APP_NAME);
-    const isuvInstalled = await isPackageInstalled(pythonPath, 'uv')
-
+export async function checkAndInstallUV(pythonPath: string): Promise<void> {
+    const isuvInstalled = await isPackageInstalled(pythonPath, 'uv');
     if (!isuvInstalled) {
         console.log(`uv is not installed. Installing now...`);
         try {
@@ -468,6 +468,15 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
             process.exit(1);
         }
     }
+}
+
+/**
+ * Ensures GameSentenceMiner is installed before running it.
+ */
+async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
+    const isInstalled = await isPackageInstalled(pythonPath, APP_NAME);
+
+    await checkAndInstallUV(pythonPath);
 
     if (!isInstalled) {
         console.log(`${APP_NAME} is not installed. Installing now...`);
@@ -659,7 +668,9 @@ export async function runPipInstall(packageName: string): Promise<void> {
 }
 
 async function closeGSM(): Promise<void> {
+    if (!pyProc) return;
     restartingGSM = true;
+    stopScripts();
     const messageSent = await webSocketManager.sendQuitMessage();
     if (messageSent) {
         console.log('Quit message sent to GSM.');
@@ -680,7 +691,7 @@ async function restartGSM(): Promise<void> {
 
 export { closeGSM, restartGSM };
 
-async function stopScripts(): Promise<void> {
+export async function stopScripts(): Promise<void> {
     if (window_transparency_process && !window_transparency_process.killed) {
         console.log('Stopping existing Window Transparency Tool process');
         window_transparency_process.stdin.write('exit\n');

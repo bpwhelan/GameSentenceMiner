@@ -14,6 +14,7 @@ const store = new Store<Config>({
 });
 
 enum FunctionName {
+    CONNECTED = "on_connect",
     Quit = "quit",
     Start = "start",
     Stop = "stop",
@@ -49,13 +50,20 @@ class WebSocketManager {
             this.ws = ws; // Set the instance's ws property when a connection is established
 
             ws.on("message", (message) => {
+                const msgStr = message.toString();
+                if (msgStr === "PING") {
+                    // Optionally respond to PING if needed
+                    ws.send("PONG");
+                    return;
+                }
                 try {
-                    const data: Message = JSON.parse(message.toString());
+                    const data: Message = JSON.parse(msgStr);
                     console.debug("Received from Python:", data);
                     this.receiveMessage(data);
                 } catch (error) {
-                    console.error("Invalid JSON received:", message.toString());
+                    console.debug("Invalid JSON received:", msgStr);
                 }
+                ws.send(message); // Acknowledge receipt
             });
 
             ws.on("close", () => {
@@ -152,6 +160,9 @@ class WebSocketManager {
                     break;
                 case FunctionName.Restart:
                     console.log("Restart received");
+                    break;
+                case FunctionName.CONNECTED:
+                    console.log("Connected Message Receieved")
                     break;
             }
         } catch (error) {

@@ -617,29 +617,34 @@ def initialize_async():
 
 
 def handle_websocket_message(message: Message):
-    match FunctionName(message.function):
-        case FunctionName.QUIT:
-            cleanup()
-            sys.exit(0)
-        case FunctionName.QUIT_OBS:
-            close_obs()
-        case FunctionName.START_OBS:
-            obs.start_obs()
-        case FunctionName.OPEN_SETTINGS:
-            open_settings()
-        case FunctionName.OPEN_TEXTHOOKER:
-            texthooking_page.open_texthooker()
-        case FunctionName.OPEN_LOG:
-            open_log()
-        case FunctionName.TOGGLE_REPLAY_BUFFER:
-            play_pause(None, None)
-        case FunctionName.RESTART_OBS:
-            restart_obs()
-        case FunctionName.EXIT:
-            exit_program(None, None)
-        case _:
-            logger.debug(
-                f"unknown message from electron websocket: {message.to_json()}")
+    try:
+        match FunctionName(message.function):
+            case FunctionName.QUIT:
+                cleanup()
+                sys.exit(0)
+            case FunctionName.QUIT_OBS:
+                close_obs()
+            case FunctionName.START_OBS:
+                obs.start_obs()
+            case FunctionName.OPEN_SETTINGS:
+                open_settings()
+            case FunctionName.OPEN_TEXTHOOKER:
+                texthooking_page.open_texthooker()
+            case FunctionName.OPEN_LOG:
+                open_log()
+            case FunctionName.TOGGLE_REPLAY_BUFFER:
+                play_pause(None, None)
+            case FunctionName.RESTART_OBS:
+                restart_obs()
+            case FunctionName.EXIT:
+                exit_program(None, None)
+            case FunctionName.CONNECT:
+                logger.debug("Electron WSS connected")
+            case _:
+                logger.debug(
+                    f"unknown message from electron websocket: {message.to_json()}")
+    except Exception as e:
+        logger.debug(f"Error handling websocket message: {e}")
 
 
 def initialize_text_monitor():

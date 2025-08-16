@@ -4,7 +4,7 @@ import { ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getOrInstallPython, reinstallPython } from '../python/python_downloader.js';
-import { runPipInstall, closeGSM, restartGSM } from '../main.js';
+import { runPipInstall, closeGSM, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
 import { BASE_DIR, execFileAsync, PACKAGE_NAME } from '../util.js';
 
 let consoleProcess: ChildProcess | null = null;
@@ -16,11 +16,16 @@ let consoleProcess: ChildProcess | null = null;
  * @param logLabel Label for console output
  * @param cwd Optional working directory
  */
-export async function pipInstallWithLogging(pythonPath: string, pipArgs: string[], logLabel: string = 'PIP', cwd?: string): Promise<void> {
+export async function pipInstallWithLogging(
+    pythonPath: string,
+    pipArgs: string[],
+    logLabel: string = 'PIP',
+    cwd?: string
+): Promise<void> {
     return new Promise<void>((resolve, reject) => {
         const proc = spawn(pythonPath, ['-m', 'uv', 'pip', ...pipArgs], {
             stdio: ['ignore', 'pipe', 'pipe'],
-            cwd: cwd || BASE_DIR
+            cwd: cwd || BASE_DIR,
         });
         if (proc.stdout) {
             proc.stdout.on('data', (data) => {
@@ -49,18 +54,50 @@ export function registerPythonIPC() {
         try {
             const pythonPath = await getOrInstallPython();
             await closeGSM();
-            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+
+            if (pyProc) {
+                pyProc.kill();
+            }
             console.log(`Installing CUDA ${cudaVersion} package...`);
             let pipArgs: string[] = [];
             switch (cudaVersion) {
                 case '12.6':
-                    pipArgs = ['install', '--upgrade', '--force-reinstall', 'torch', 'torchvision', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cu126'];
+                    pipArgs = [
+                        'install',
+                        '--upgrade',
+                        '--force-reinstall',
+                        'torch',
+                        'torchvision',
+                        'torchaudio',
+                        '--index-url',
+                        'https://download.pytorch.org/whl/cu126',
+                    ];
                     break;
                 case '12.8':
-                    pipArgs = ['install', '--upgrade', '--force-reinstall', 'torch', 'torchvision', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cu128'];
+                    pipArgs = [
+                        'install',
+                        '--upgrade',
+                        '--force-reinstall',
+                        'torch',
+                        'torchvision',
+                        'torchaudio',
+                        '--index-url',
+                        'https://download.pytorch.org/whl/cu128',
+                    ];
                     break;
                 case '12.9':
-                    pipArgs = ['install', '--upgrade', '--force-reinstall', 'torch', 'torchvision', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cu129'];
+                    pipArgs = [
+                        'install',
+                        '--upgrade',
+                        '--force-reinstall',
+                        'torch',
+                        'torchvision',
+                        'torchaudio',
+                        '--index-url',
+                        'https://download.pytorch.org/whl/cu129',
+                    ];
                     break;
                 default:
                     throw new Error(`Unsupported CUDA version: ${cudaVersion}`);
@@ -72,7 +109,12 @@ export function registerPythonIPC() {
             return { success: true, message: `CUDA ${cudaVersion} installed successfully` };
         } catch (error: any) {
             console.error(`Failed to install CUDA ${cudaVersion}:`, error);
-            return { success: false, message: `Failed to install CUDA ${cudaVersion}: ${error?.message || 'Unknown error'}` };
+            return {
+                success: false,
+                message: `Failed to install CUDA ${cudaVersion}: ${
+                    error?.message || 'Unknown error'
+                }`,
+            };
         }
     });
 
@@ -80,11 +122,15 @@ export function registerPythonIPC() {
     ipcMain.handle('python.repairGSM', async () => {
         try {
             console.log('Starting GSM repair - removing Python directory and reinstalling...');
-            
+
             await closeGSM();
 
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+
+            if (pyProc) {
+                pyProc.kill();
+            }
+
             // Remove the entire python directory
             const pythonDir = path.join(BASE_DIR, 'python');
             if (fs.existsSync(pythonDir)) {
@@ -93,27 +139,30 @@ export function registerPythonIPC() {
                     fs.rmSync(pythonDir, { recursive: true, force: true });
                 } catch (err) {
                     console.warn('Initial removal failed, retrying in 2 seconds...');
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
                     fs.rmSync(pythonDir, { recursive: true, force: true });
                 }
                 // Wait a moment to ensure filesystem settles
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise((resolve) => setTimeout(resolve, 1000));
             }
 
             // Reinstall Python
             // await reinstallPython();
-            
+
             // Reinstall GameSentenceMiner package
             const pythonPath = await getOrInstallPython();
+            await checkAndInstallUV(pythonPath);
+
             console.log('Reinstalling GameSentenceMiner package...');
-            
-            consoleProcess = spawn(pythonPath, [
-                '-m', 'uv', 'pip', 'install', '--upgrade', '--force-reinstall',
-                PACKAGE_NAME
-            ], {
-                stdio: 'inherit',
-                cwd: BASE_DIR
-            });
+
+            consoleProcess = spawn(
+                pythonPath,
+                ['-m', 'uv', 'pip', 'install', '--upgrade', '--force-reinstall', PACKAGE_NAME],
+                {
+                    stdio: 'inherit',
+                    cwd: BASE_DIR,
+                }
+            );
 
             await new Promise<void>((resolve, reject) => {
                 consoleProcess!.on('close', (code) => {
@@ -121,7 +170,9 @@ export function registerPythonIPC() {
                         console.log('GameSentenceMiner package reinstalled successfully.');
                         resolve();
                     } else {
-                        reject(new Error(`GameSentenceMiner installation exited with code ${code}`));
+                        reject(
+                            new Error(`GameSentenceMiner installation exited with code ${code}`)
+                        );
                     }
                 });
             });
@@ -130,7 +181,10 @@ export function registerPythonIPC() {
             return { success: true, message: 'GSM repaired successfully' };
         } catch (error: any) {
             console.error('Failed to repair GSM:', error);
-            return { success: false, message: `Failed to repair GSM: ${error?.message || 'Unknown error'}` };
+            return {
+                success: false,
+                message: `Failed to repair GSM: ${error?.message || 'Unknown error'}`,
+            };
         }
     });
 
@@ -139,14 +193,25 @@ export function registerPythonIPC() {
         try {
             const pythonPath = await getOrInstallPython();
             await closeGSM();
-            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            if (pyProc) {
+                pyProc.kill();
+            }
             console.log(`Installing custom package: ${packageName}`);
-            await pipInstallWithLogging(pythonPath, ['install', '--upgrade', packageName], `Custom Package: ${packageName}`);
+            await pipInstallWithLogging(
+                pythonPath,
+                ['install', '--upgrade', packageName],
+                `Custom Package: ${packageName}`
+            );
             await restartGSM();
             return { success: true, message: `Package ${packageName} installed successfully` };
         } catch (error: any) {
             console.error(`Failed to install package ${packageName}:`, error);
-            return { success: false, message: `Failed to install package: ${error?.message || 'Unknown error'}` };
+            return {
+                success: false,
+                message: `Failed to install package: ${error?.message || 'Unknown error'}`,
+            };
         }
     });
 
@@ -154,7 +219,13 @@ export function registerPythonIPC() {
     ipcMain.handle('python.getInstalledPackages', async () => {
         try {
             const pythonPath = await getOrInstallPython();
-            const result = await execFileAsync(pythonPath, ['-m', 'uv', 'pip', 'list', '--format=json']);
+            const result = await execFileAsync(pythonPath, [
+                '-m',
+                'uv',
+                'pip',
+                'list',
+                '--format=json',
+            ]);
             console.log(result);
             return { success: true, packages: JSON.parse(result.stdout) };
         } catch (error) {
@@ -174,12 +245,12 @@ export function registerPythonIPC() {
             const pythonPath = await getOrInstallPython();
             const versionResult = await execFileAsync(pythonPath, ['--version']);
             const pipVersionResult = await execFileAsync(pythonPath, ['-m', 'pip', '--version']);
-            
+
             return {
                 success: true,
                 pythonPath,
                 pythonVersion: versionResult.stdout.trim(),
-                pipVersion: pipVersionResult.stdout.trim()
+                pipVersion: pipVersionResult.stdout.trim(),
             };
         } catch (error) {
             console.error('Failed to get Python info:', error);
@@ -192,14 +263,17 @@ export function registerPythonIPC() {
         try {
             const pythonPath = await getOrInstallPython();
             console.log('Cleaning Python cache...');
-            
+
             // Clean pip cache
             await execFileAsync(pythonPath, ['-m', 'uv', 'cache', 'clean']);
-            
+
             return { success: true, message: 'Python cache cleaned successfully' };
         } catch (error: any) {
             console.error('Failed to clean cache:', error);
-            return { success: false, message: `Failed to clean cache: ${error?.message || 'Unknown error'}` };
+            return {
+                success: false,
+                message: `Failed to clean cache: ${error?.message || 'Unknown error'}`,
+            };
         }
     });
 
@@ -209,14 +283,22 @@ export function registerPythonIPC() {
             const pythonPath = await getOrInstallPython();
             await closeGSM();
 
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+
+            if (pyProc) {
+                pyProc.kill();
+            }
+
             console.log(`Reinstalling package: ${packageName}`);
-            
-            consoleProcess = spawn(pythonPath, [
-                '-m', 'uv', 'pip', 'uninstall', '-y', packageName
-            ], {
-                stdio: 'inherit',
-                cwd: BASE_DIR
-            });
+
+            consoleProcess = spawn(
+                pythonPath,
+                ['-m', 'uv', 'pip', 'uninstall', '-y', packageName],
+                {
+                    stdio: 'inherit',
+                    cwd: BASE_DIR,
+                }
+            );
 
             await new Promise<void>((resolve, reject) => {
                 consoleProcess!.on('close', (code) => {
@@ -231,13 +313,14 @@ export function registerPythonIPC() {
             });
 
             // Reinstall the package
-            consoleProcess = spawn(pythonPath, [
-                '-m', 'uv', 'pip', 'install', '--upgrade', '--force-reinstall',
-                packageName
-            ], {
-                stdio: 'inherit',
-                cwd: BASE_DIR
-            });
+            consoleProcess = spawn(
+                pythonPath,
+                ['-m', 'uv', 'pip', 'install', '--upgrade', '--force-reinstall', packageName],
+                {
+                    stdio: 'inherit',
+                    cwd: BASE_DIR,
+                }
+            );
 
             await new Promise<void>((resolve, reject) => {
                 consoleProcess!.on('close', (code) => {
@@ -254,7 +337,10 @@ export function registerPythonIPC() {
             return { success: true, message: `Package ${packageName} reinstalled successfully` };
         } catch (error: any) {
             console.error(`Failed to reinstall package ${packageName}:`, error);
-            return { success: false, message: `Failed to reinstall package: ${error?.message || 'Unknown error'}` };
+            return {
+                success: false,
+                message: `Failed to reinstall package: ${error?.message || 'Unknown error'}`,
+            };
         }
     });
 

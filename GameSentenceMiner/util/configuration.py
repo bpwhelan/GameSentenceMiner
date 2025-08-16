@@ -1201,5 +1201,3 @@ is_beangate = os.path.exists("C:/Users/Beangate")
 
 logger.debug(f"Running in development mode: {is_dev}")
 logger.debug(f"Running on Beangate's PC: {is_beangate}")
-
-logger.info("THE UPDATE WORKED?")

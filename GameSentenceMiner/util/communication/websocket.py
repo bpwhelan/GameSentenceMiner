@@ -28,6 +28,7 @@ class FunctionName(Enum):
     RESTART_OBS = "restart_obs"
     EXIT = "exit"
     GET_STATUS = "get_status"
+    CONNECT = "on_connect"
 
 
 async def do_websocket_connection(port):
