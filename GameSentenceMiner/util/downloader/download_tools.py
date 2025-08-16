@@ -101,7 +101,7 @@ def download_obs_if_needed():
                 "[SimpleOutput]\n"
                 f"FilePath={os.path.expanduser('~')}/Videos/GSM\n"
                 "RecRB=true\n"
-                "RecRBTime=60\n"
+                "RecRBTime=300\n"
                 "RecRBSize=512\n"
                 "RecRBPrefix=GSM\n"
                 "RecAudioEncoder=opus\n"
