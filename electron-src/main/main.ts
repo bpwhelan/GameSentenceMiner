@@ -348,12 +348,12 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
         if (pyProc) {
             await closeGSM();
 
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            await new Promise((resolve) => setTimeout(resolve, 3000));
         }
         console.log(`Updating GSM Python Application to ${latestVersion}...`);
 
         await checkAndInstallUV(pythonPath);
-        
+
         try {
             // await runCommand(
             //     pythonPath,
@@ -369,7 +369,9 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
                     'pip',
                     'install',
                     '--upgrade',
-                    getCustomPythonPackage() !== 'GameSentenceMiner' ? getCustomPythonPackage() : PACKAGE_NAME
+                    getCustomPythonPackage() !== 'GameSentenceMiner'
+                        ? getCustomPythonPackage()
+                        : PACKAGE_NAME,
                 ],
                 true,
                 true
@@ -381,14 +383,7 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
             );
             await runCommand(
                 pythonPath,
-                [
-                    '-m',
-                    'uv',
-                    'pip',
-                    'install',
-                    '--upgrade',
-                    PACKAGE_NAME,
-                ],
+                ['-m', 'uv', 'pip', 'install', '--upgrade', PACKAGE_NAME],
                 true,
                 true
             );
@@ -432,7 +427,10 @@ function showWindow() {
     //     tray.destroy();
 }
 
-export async function isPackageInstalled(pythonPath: string, packageName: string): Promise<boolean> {
+export async function isPackageInstalled(
+    pythonPath: string,
+    packageName: string
+): Promise<boolean> {
     try {
         await runCommand(pythonPath, ['-m', 'pip', 'show', packageName], false, false);
         return true;
@@ -443,13 +441,16 @@ export async function isPackageInstalled(pythonPath: string, packageName: string
 
 async function startWebSocketServer(): Promise<void> {
     return new Promise((resolve, reject) => {
-        webSocketManager.startServer().then((port) => {
-            console.log(`WebSocket server started on port ${port}`);
-            resolve();
-        }).catch(error => {
-            console.error("Failed to start WebSocket server:", error);
-            reject(error);
-        });
+        webSocketManager
+            .startServer()
+            .then((port) => {
+                console.log(`WebSocket server started on port ${port}`);
+                resolve();
+            })
+            .catch((error) => {
+                console.error('Failed to start WebSocket server:', error);
+                reject(error);
+            });
     });
 }
 
@@ -458,10 +459,13 @@ export async function checkAndInstallUV(pythonPath: string): Promise<void> {
     if (!isuvInstalled) {
         console.log(`uv is not installed. Installing now...`);
         try {
-            await execFileAsync(
-                pythonPath,
-                ['-m', 'pip', 'install', '--no-warn-script-location', 'uv']
-            );
+            await execFileAsync(pythonPath, [
+                '-m',
+                'pip',
+                'install',
+                '--no-warn-script-location',
+                'uv',
+            ]);
             console.log('uv installation complete.');
         } catch (err) {
             console.error('Failed to install uv:', err);
@@ -481,12 +485,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
     if (!isInstalled) {
         console.log(`${APP_NAME} is not installed. Installing now...`);
         try {
-            await runCommand(
-                pythonPath,
-                ['-m', 'uv', 'pip', 'install', PACKAGE_NAME],
-                true,
-                true
-            );
+            await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', PACKAGE_NAME], true, true);
             console.log('Installation complete.');
         } catch (err) {
             console.error('Failed to install package:', err);
@@ -503,7 +502,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
             console.log('Retrying installation of GameSentenceMiner...');
             await runCommand(
                 pythonPath,
-                ['-m', 'uv','pip', 'install', '--force-reinstall', '--no-config', PACKAGE_NAME],
+                ['-m', 'uv', 'pip', 'install', '--force-reinstall', '--no-config', PACKAGE_NAME],
                 true,
                 true
             );
@@ -576,26 +575,25 @@ if (!app.requestSingleInstanceLock()) {
             startWebSocketServer().then(() => {
                 console.log('WebSocket server started successfully.');
             });
-            getOrInstallPython().then(async (pyPath: string) => {
-                pythonPath = pyPath;
-                setPythonPath(pythonPath);
+            const pyPath = await getOrInstallPython();
+            pythonPath = pyPath;
+            setPythonPath(pythonPath);
+            if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
+                await updateGSM(false, true);
                 if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
-                    await updateGSM(false, true);
-                    if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
-                        fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
+                    fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
+                }
+            }
+            try {
+                ensureAndRunGSM(pythonPath).then(async () => {
+                    if (!isUpdating) {
+                        quit();
                     }
-                }
-                try {
-                    ensureAndRunGSM(pythonPath).then(async () => {
-                        if (!isUpdating) {
-                            quit();
-                        }
-                    });
-                } catch (err) {
-                    console.log('Failed to run GSM, attempting repair of python package...', err);
-                    await updateGSM(true, true);
-                }
-            });
+                });
+            } catch (err) {
+                console.log('Failed to run GSM, attempting repair of python package...', err);
+                await updateGSM(true, true);
+            }
 
             checkForUpdates().then(({ updateAvailable, latestVersion }) => {
                 if (updateAvailable) {
