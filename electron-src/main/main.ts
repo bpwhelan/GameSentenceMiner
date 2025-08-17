@@ -369,9 +369,8 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
                     'pip',
                     'install',
                     '--upgrade',
-                    getCustomPythonPackage() !== 'GameSentenceMiner'
-                        ? getCustomPythonPackage()
-                        : PACKAGE_NAME,
+                    '--prerelease=allow',
+                    PACKAGE_NAME
                 ],
                 true,
                 true
@@ -383,7 +382,7 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
             );
             await runCommand(
                 pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--upgrade', PACKAGE_NAME],
+                ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', PACKAGE_NAME],
                 true,
                 true
             );
@@ -485,7 +484,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
     if (!isInstalled) {
         console.log(`${APP_NAME} is not installed. Installing now...`);
         try {
-            await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', PACKAGE_NAME], true, true);
+            await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', '--prerelease=allow', PACKAGE_NAME], true, true);
             console.log('Installation complete.');
         } catch (err) {
             console.error('Failed to install package:', err);
@@ -502,7 +501,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
             console.log('Retrying installation of GameSentenceMiner...');
             await runCommand(
                 pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--force-reinstall', '--no-config', PACKAGE_NAME],
+                ['-m', 'uv', 'pip', 'install', '--force-reinstall', '--no-config', '--prerelease=allow', PACKAGE_NAME],
                 true,
                 true
             );
