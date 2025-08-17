@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.11.2",
+  "version": "1.11.3",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -33,6 +33,10 @@
       {
         "from": "GameSentenceMiner",
         "to": "resources/GameSentenceMiner"
+      },
+      {
+        "from": "pyproject.toml",
+        "to": "resources/pyproject.toml"
       }
     ],
     "win": {

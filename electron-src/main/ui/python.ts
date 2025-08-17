@@ -157,7 +157,7 @@ export function registerPythonIPC() {
 
             consoleProcess = spawn(
                 pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--upgrade', '--force-reinstall', PACKAGE_NAME],
+                ['-m', 'uv', 'pip', 'install', '--upgrade', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
                 {
                     stdio: 'inherit',
                     cwd: BASE_DIR,
