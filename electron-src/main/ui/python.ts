@@ -67,10 +67,8 @@ export function registerPythonIPC() {
                     pipArgs = [
                         'install',
                         '--upgrade',
-                        '--force-reinstall',
                         'torch',
                         'torchvision',
-                        'torchaudio',
                         '--index-url',
                         'https://download.pytorch.org/whl/cu126',
                     ];
@@ -79,10 +77,8 @@ export function registerPythonIPC() {
                     pipArgs = [
                         'install',
                         '--upgrade',
-                        '--force-reinstall',
                         'torch',
                         'torchvision',
-                        'torchaudio',
                         '--index-url',
                         'https://download.pytorch.org/whl/cu128',
                     ];
@@ -91,10 +87,8 @@ export function registerPythonIPC() {
                     pipArgs = [
                         'install',
                         '--upgrade',
-                        '--force-reinstall',
                         'torch',
                         'torchvision',
-                        'torchaudio',
                         '--index-url',
                         'https://download.pytorch.org/whl/cu129',
                     ];
