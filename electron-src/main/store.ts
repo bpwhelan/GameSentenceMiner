@@ -141,7 +141,7 @@ export const store = new Store<StoreConfig>({
         OCR: {
             twoPassOCR: true,
             optimize_second_scan: true,
-            ocr1: "oneOCR",
+            ocr1: "oneocr",
             ocr2: "glens",
             window_name: "",
             language: "ja",

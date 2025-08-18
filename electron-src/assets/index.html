@@ -303,43 +303,37 @@
                         <div class="form-group">
                             <div id="ocr1-select-group" class="input-group">
                                 <label for="ocr1-input" class="tooltip-indicator">
-                                    OCR 1:
+                                    Text Stability:
                                     <span class="tooltiptext tooltiptext-right">
-                                        Select the primary OCR engine
-                                        This will run at the set scan rate, and should preferably be a fast engine if
-                                        using two pass.
-                                        If not using two pass, this will be the only engine used.
+                                        This will run at the set scan rate, and when the text stabilizes, it will trigger the main OCR.
+                                        This should preferably be a fast engine. On Windows, OneOCR is recommended.
                                     </span>
                                 </label>
                                 <select id="ocr1-input">
-                                    <option value="" disabled selected>Select OCR Option 1</option>
-                                    <option value="glens">Google Lens</option>
+                                    <option value="" disabled selected>Select Stability OCR</option>
+                                    <!-- <option value="glens">Google Lens</option> -->
                                     <option value="bing">Bing</option>
                                     <option value="oneocr">OneOCR (Recommended)</option>
-                                    <option value="gemini">Gemini</option>
+                                    <!-- <option value="gemini">Gemini</option> -->
                                     <!-- <option value="qwenv2">Qwen2-VL</option> -->
                                     <option value="easyocr">EasyOCR</option>
                                     <option value="rapidocr">RapidOCR</option>
                                     <option value="mangaocr">MangaOCR</option>
                                     <option value="winrtocr">WindowsOCR</option>
-                                    <option value="gvision">Google Vision</option>
-                                    <option value="azure">Azure Image Analysis</option>
-                                    <option value="ocrspace">OCRSpace</option>
+                                    <!-- <option value="gvision">Google Vision</option> -->
+                                    <!-- <option value="azure">Azure Image Analysis</option> -->
+                                    <!-- <option value="ocrspace">OCRSpace</option> -->
                                     <option value="local_llm_ocr">Local LLM OCR</option>
                                 </select>
                             </div>
                             <div id="ocr2-select-group" class="input-group">
-                                <label for="ocr2-input" class="tooltip-indicator">OCR 2:
+                                <label for="ocr2-input" class="tooltip-indicator">Main OCR:
                                     <span class="tooltiptext tooltiptext-right">
-                                        Select the secondary OCR engine
-                                        This will only run if Two Pass OCR is enabled, and the text does not change by
-                                        the next scan.
-                                        This should preferably be a more accurate engine, as it will run less
-                                        frequently.
+                                        This engine will be used to send the result to clipboard/websocket. This should be an accurate engine. If Two Pass is enabled, it will be triggered after the text has stabilized on screen.
                                     </span>
                                 </label>
                                 <select id="ocr2-input">
-                                    <option value="" disabled selected>Select OCR Option 2</option>
+                                    <option value="" disabled selected>Select Main OCR</option>
                                     <option value="glens">Google Lens (Recommended)</option>
                                     <option value="bing">Bing</option>
                                     <option value="oneocr">OneOCR</option>
@@ -396,19 +390,18 @@
                                     class="tooltip-indicator tooltip-bottom tooltip-right">
                                     Furigana Filter Sensitivity:
                                     <span class="tooltiptext">
-                                        Filters characters smaller than the selected textsize. Very experimental, if you
-                                        notice real text being filtered out, either lower this or disable it.
+                                        Filters characters smaller than the selected text size. Very experimental, if you
+                                        notice real text being filtered out, either lower this or disable by setting to 0.
                                         <br><br>
-                                        <strong>Tip:</strong> Click<span id="dynamic-size-display"
-                                            style="cursor:pointer;">Preview</span> to bring up a box to show what it
+                                        <strong>Tip:</strong> Click<span style="color: blue;"> Preview</span> to bring up a box to show what it
                                         should filter out.
                                         Anything that fits inside of the box should get filtered out.
                                     </span>
                                     <span id="furigana-filter-sensitivity-value">0</span>
-                                    <span id="dynamic-size-display" style="cursor:pointer;">Preview</span>
                                     <input type="range" id="furigana-filter-sensitivity" min="0" max="100" value="0"
                                         step="1">
                                 </label>
+                                <span id="dynamic-size-display" style="cursor:pointer;">Preview</span>
                             </div>
                         </div>
                         <div class="form-group">
@@ -489,11 +482,11 @@
                         </div>
                     </div>
                     <script>
-                        document.getElementById('dynamic-size-display').addEventListener('click', () => {
-                            ipcRenderer.send('run-furigana-window', {
-                                char: "龍",
-                                fontSize: document.getElementById('furigana-filter-sensitivity').value,
-                            });
+                        document.getElementById('dynamic-size-display').addEventListener('click', async () => {
+                            sensitivity = await ipcRenderer.invoke('run-furigana-window');
+                            console.log('Furigana filter sensitivity set to:', sensitivity);
+                            document.getElementById('furigana-filter-sensitivity').value = sensitivity;
+                            document.getElementById('furigana-filter-sensitivity-value').innerText = sensitivity;
                         });
                     </script>
                 </div>
@@ -995,6 +988,18 @@
                 document.getElementById('refreshScenesBtn').addEventListener('click', refreshScenesAndWindows);
 
                 ['two-pass-ocr', 'windowSelect', 'ocr1-input', 'ocr2-input', 'ocr-scan-rate', 'require-open-window', 'languageSelect', 'ocr-screenshots', 'optimize-second-scan'].forEach(id => {
+                    switch (id) {
+                        case 'two-pass-ocr':
+                            document.getElementById('two-pass-ocr').addEventListener('change', (event) => {
+                                if (event.target.checked) {
+                                    document.getElementById('ocr1-select-group').style.display = 'flex';
+                                    document.getElementById('optimize-second-scan-group').style.display = 'flex';
+                                } else {
+                                    document.getElementById('ocr1-select-group').style.display = 'none';
+                                    document.getElementById('optimize-second-scan-group').style.display = 'none';
+                                }
+                            });
+                    }
                     document.getElementById(id).addEventListener('change', saveOCRConfig);
                 });
 

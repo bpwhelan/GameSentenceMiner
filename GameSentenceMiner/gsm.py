@@ -123,8 +123,6 @@ if is_windows():
 procs_to_close = []
 settings_window: config_gui.ConfigApp = None
 obs_paused = False
-icon: Icon
-menu: Menu
 root = None
 warnings.simplefilter("ignore", DeprecationWarning)
 
@@ -401,83 +399,94 @@ def open_log():
     logger.info("Log opened.")
 
 
-def exit_program(passed_icon, item):
-    """Exit the application."""
-    if not passed_icon:
-        passed_icon = icon
-    logger.info("Exiting...")
-    passed_icon.stop()
-    cleanup()
-
-
-def play_pause(icon, item):
-    global obs_paused, menu
-    obs.toggle_replay_buffer()
-    update_icon()
-
-
 def open_multimine(icon, item):
     texthooking_page.open_texthooker()
 
 
-def update_icon(profile=None):
-    global menu, icon
-    # Recreate the menu with the updated button text
-    profile_menu = Menu(
-        *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, switch_profile) for
-          profile in
-          get_master_config().get_all_profile_names()]
-    )
+def exit_program(passed_icon, item):
+        """Exit the application."""
+        if not passed_icon:
+            passed_icon = icon
+        logger.info("Exiting...")
+        passed_icon.stop()
+        cleanup()
 
-    menu = Menu(
-        MenuItem("Open Settings", open_settings, default=True),
-        MenuItem("Open Multi-Mine GUI", open_multimine),
-        MenuItem("Open Log", open_log),
-        MenuItem("Toggle Replay Buffer", play_pause),
-        MenuItem("Restart OBS", restart_obs),
-        MenuItem("Switch Profile", profile_menu),
-        MenuItem("Exit", exit_program)
-    )
+class GSMTray(threading.Thread):
+    def __init__(self):
+        super().__init__()
+        self.daemon = True
+        self.menu = None
+        self.icon = None
 
-    icon.menu = menu
-    icon.update_menu()
+    def run(self):
+        self.run_tray()
 
 
-def switch_profile(icon, item):
-    if "Active:" in item.text:
-        logger.error("You cannot switch to the currently active profile!")
-        return
-    logger.info(f"Switching to profile: {item.text}")
-    prev_config = get_config()
-    get_master_config().current_profile = item.text
-    switch_profile_and_save(item.text)
-    settings_window.reload_settings()
-    update_icon()
-    if get_config().restart_required(prev_config):
-        send_restart_signal()
+    def run_tray(self):
+        self.profile_menu = Menu(
+            *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, self.switch_profile) for
+            profile in
+            get_master_config().get_all_profile_names()]
+        )
 
+        menu = Menu(
+            MenuItem("Open Settings", open_settings, default=True),
+            MenuItem("Open Texthooker", texthooking_page.open_texthooker),
+            MenuItem("Open Log", open_log),
+            MenuItem("Toggle Replay Buffer", self.play_pause),
+            MenuItem("Restart OBS", restart_obs),
+            MenuItem("Switch Profile", self.profile_menu),
+            MenuItem("Exit", exit_program)
+        )
 
-def run_tray():
-    global menu, icon
+        self.icon = Icon("TrayApp", create_image(), "GameSentenceMiner", menu)
+        self.icon.run()
 
-    profile_menu = Menu(
-        *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, switch_profile) for
-          profile in
-          get_master_config().get_all_profile_names()]
-    )
+    def update_icon(self, profile=None):
+        global menu, icon
+        # Recreate the menu with the updated button text
+        profile_menu = Menu(
+            *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, self.switch_profile) for
+            profile in
+            get_master_config().get_all_profile_names()]
+        )
 
-    menu = Menu(
-        MenuItem("Open Settings", open_settings, default=True),
-        MenuItem("Open Texthooker", texthooking_page.open_texthooker),
-        MenuItem("Open Log", open_log),
-        MenuItem("Toggle Replay Buffer", play_pause),
-        MenuItem("Restart OBS", restart_obs),
-        MenuItem("Switch Profile", profile_menu),
-        MenuItem("Exit", exit_program)
-    )
+        menu = Menu(
+            MenuItem("Open Settings", open_settings, default=True),
+            MenuItem("Open Multi-Mine GUI", open_multimine),
+            MenuItem("Open Log", open_log),
+            MenuItem("Toggle Replay Buffer", self.play_pause),
+            MenuItem("Restart OBS", restart_obs),
+            MenuItem("Switch Profile", profile_menu),
+            MenuItem("Exit", exit_program)
+        )
 
-    icon = Icon("TrayApp", create_image(), "GameSentenceMiner", menu)
-    icon.run()
+        self.icon.menu = menu
+        self.icon.update_menu()
+
+    def switch_profile(self, icon, item):
+        if "Active:" in item.text:
+            logger.error("You cannot switch to the currently active profile!")
+            return
+        logger.info(f"Switching to profile: {item.text}")
+        prev_config = get_config()
+        get_master_config().current_profile = item.text
+        switch_profile_and_save(item.text)
+        settings_window.reload_settings()
+        self.update_icon()
+        if get_config().restart_required(prev_config):
+            send_restart_signal()
+
+    def play_pause(self, icon, item):
+        global obs_paused, menu
+        obs.toggle_replay_buffer()
+        self.update_icon()
+
+    def stop(self):
+        if self.icon:
+            self.icon.stop()
+
+gsm_tray = GSMTray()
 
 
 # def close_obs():
@@ -551,8 +560,8 @@ def cleanup():
                 proc.kill()
                 logger.error(f"Error terminating process {proc}: {e}")
 
-        if icon:
-            icon.stop()
+        if gsm_tray:
+            gsm_tray.stop()
 
         for video in gsm_state.videos_to_remove:
             try:
@@ -608,7 +617,7 @@ def initialize(reloading=False):
 
 
 def initialize_async():
-    tasks = [connect_websocket, run_tray]
+    tasks = [connect_websocket]
     threads = []
     tasks.append(anki.start_monitoring_anki)
     for task in tasks:
@@ -633,11 +642,12 @@ def handle_websocket_message(message: Message):
             case FunctionName.OPEN_LOG:
                 open_log()
             case FunctionName.TOGGLE_REPLAY_BUFFER:
-                play_pause(None, None)
+                obs.toggle_replay_buffer()
             case FunctionName.RESTART_OBS:
                 restart_obs()
             case FunctionName.EXIT:
-                exit_program(None, None)
+                cleanup()
+                sys.exit(0)
             case FunctionName.CONNECT:
                 logger.debug("Electron WSS connected")
             case _:
@@ -671,7 +681,7 @@ async def register_scene_switcher_callback():
         all_configured_scenes = [
             config.scenes for config in get_master_config().configs.values()]
         print(all_configured_scenes)
-        matching_configs = [name.strip() for name, config in config_instance.configs.items(
+        matching_configs = [name.strip() for name, config in get_master_config().configs.items(
         ) if scene.strip() in config.scenes]
         switch_to = None
 
@@ -692,7 +702,7 @@ async def register_scene_switcher_callback():
             get_master_config().current_profile = switch_to
             switch_profile_and_save(switch_to)
             settings_window.reload_settings()
-            update_icon()
+            gsm_tray.update_icon()
 
     await obs.register_scene_change_callback(scene_switcher_callback)
 
@@ -763,7 +773,8 @@ async def async_main(reloading=False):
         try:
             if get_config().general.open_config_on_startup:
                 root.after(50, settings_window.show)
-            settings_window.add_save_hook(update_icon)
+            root.after(50, gsm_tray.start)
+            settings_window.add_save_hook(gsm_tray.update_icon)
             settings_window.on_exit = exit_program
             root.mainloop()
         except KeyboardInterrupt:

@@ -1,7 +1,7 @@
 import * as os from 'os';
 import path from "path";
 import {promisify} from "util";
-import {execFile} from "child_process";
+import {execFile, spawn} from "child_process";
 import {app} from "electron";
 import {__dirname} from "./main.js";
 
@@ -82,4 +82,27 @@ export async function isConnected() {
     } catch (err) {
         return false;
     }
+}
+
+export async function runPythonScript(pythonPath: string, args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const process = spawn(pythonPath, args);
+
+        let output = '';
+        process.stdout.on('data', (data) => {
+            output += data.toString();
+        });
+
+        process.stderr.on('data', (data) => {
+            console.error(`[Python STDERR]: ${data}`);
+        });
+
+        process.on('close', (code) => {
+            if (code === 0) {
+                resolve(output);
+            } else {
+                reject(new Error(`Python script exited with code ${code}`));
+            }
+        });
+    });
 }

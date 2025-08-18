@@ -1,16 +1,17 @@
 import asyncio
+import json
 import os.path
 import subprocess
 import threading
 import time
-from pprint import pprint
+import logging
 
 import psutil
 
 import obsws_python as obs
 
 from GameSentenceMiner.util import configuration
-from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.configuration import get_app_directory, get_config, get_master_config, is_windows, save_full_config, reload_config, logger, gsm_status, gsm_state
 from GameSentenceMiner.util.gsm_utils import sanitize_filename, make_unique_file_name
 import tkinter as tk
 from tkinter import messagebox
@@ -54,7 +55,7 @@ class OBSConnectionManager(threading.Thread):
                         if gsm_status.obs_connected and not replay_buffer_status and not self.said_no_to_replay_buffer:
                             try:
                                 self.check_output()
-                            except Exception as e:
+                            except Exception:
                                 pass
                 except Exception as e:
                     logger.error(f"Error when running Extra Utils in OBS Health Check, Keeping ConnectionManager Alive: {e}")
@@ -251,7 +252,6 @@ def connect_to_obs_sync(retry=2, check_output=True):
                 logger.error(f"Failed to connect to OBS WebSocket: {e}")
                 client = None
                 event_client = None
-                connecting = False
                 break
             time.sleep(1)
             retry -= 1
@@ -559,7 +559,6 @@ def main():
     disconnect_from_obs()
 
 if __name__ == '__main__':
-    from mss import mss
     logging.basicConfig(level=logging.INFO)
     connect_to_obs_sync()
     set_fit_to_screen_for_scene_items(get_current_scene())

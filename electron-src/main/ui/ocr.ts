@@ -27,7 +27,7 @@ import {
 } from '../store.js';
 import { isQuitting, mainWindow } from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
-import { BASE_DIR, getAssetsDir, getPlatform, isWindows, sanitizeFilename } from '../util.js';
+import { BASE_DIR, getAssetsDir, getPlatform, isWindows, runPythonScript, sanitizeFilename } from '../util.js';
 import path, { resolve } from 'path';
 import * as fs from 'node:fs';
 import { windowManager, Window } from 'node-window-manager'; // Import the library
@@ -215,6 +215,7 @@ export async function startOCR() {
                 // Do nothing, just run OCR on the entire window
             }
         }
+        const ocr1 = ocr_config.twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
         const command = [
             `${getPythonPath()}`,
             `-m`,
@@ -222,7 +223,7 @@ export async function startOCR() {
             `--language`,
             `${ocr_config.language}`,
             `--ocr1`,
-            `${ocr_config.ocr1}`,
+            `${ocr1}`,
             `--ocr2`,
             `${ocr_config.ocr2}`,
             `--twopassocr`,
@@ -411,6 +412,7 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.start-ocr-ss-only', () => {
         if (!ocrProcess) {
             const ocr_config = getOCRConfig();
+            const ocr1 = ocr_config.twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
             const command = [
                 `${getPythonPath()}`,
                 `-m`,
@@ -418,7 +420,7 @@ export function registerOCRUtilsIPC() {
                 `--language`,
                 `${ocr_config.language}`,
                 `--ocr1`,
-                `${ocr_config.ocr2}`,
+                `${ocr1}`,
                 `--ocr2`,
                 `${ocr_config.ocr2}`,
                 `--window`,
@@ -535,20 +537,16 @@ export function registerOCRUtilsIPC() {
         return windowsList.map((window) => window.title).sort((a, b) => a.localeCompare(b));
     });
 
-    ipcMain.on('run-furigana-window', async (_, args: { char: string; fontSize: number }) => {
-        const { char, fontSize } = args;
-        if (!furiganaWindow) {
-            furiganaWindow = createFuriganaWindow();
-            furiganaWindow.webContents.send('set-furigana-character', char, fontSize);
-        } else {
-            if (furiganaWindow.isVisible()) {
-                furiganaWindow.hide();
-            } else {
-                furiganaWindow.show();
-                furiganaWindow.webContents.send('set-furigana-character', char, fontSize);
-                furiganaWindow.focus();
-            }
-        }
+    ipcMain.handle('run-furigana-window', async (): Promise<number> =>{
+        const pythonPath = getPythonPath();
+        const ocr_config = getOCRConfig();
+        // Run the Python script with the specified sensitivity
+        const result = await runPythonScript(pythonPath, ['-m', 'GameSentenceMiner.tools.furigana_filter_preview', String(ocr_config.furigana_filter_sensitivity)]);
+        const match = result.match(/RESULT:\[(.*?)\]/);
+        const extractedResult = match ? match[1] : null;
+        mainWindow?.webContents.send('furigana-script-result', extractedResult);
+        console.log('Furigana script result:', extractedResult);
+        return Number(extractedResult || ocr_config.furigana_filter_sensitivity);
     });
 
     ipcMain.on('update-furigana-character', (_, char: string, fontSize: number) => {

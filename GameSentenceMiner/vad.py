@@ -173,7 +173,7 @@ class WhisperVADProcessor(VADProcessor):
 
     def _detect_voice_activity(self, input_audio):
         from stable_whisper import WhisperResult
-        # Convert the audio to 16kHz mono WAV
+        # Convert the audio to 16kHz mono WAV, evidence https://discord.com/channels/1286409772383342664/1286518821913362445/1407017127529152533
         temp_wav = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(), suffix='.wav').name
         ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
 
@@ -376,7 +376,7 @@ vad_processor = VADSystem()
 # Test cases for all VADProcessors
 def test_vad_processors():
     logger.setLevel(logging.DEBUG)
-    test_audio = r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-16-42-32-020.opus"
+    test_audio = r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus"
     output_dir = r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\output"
     os.makedirs(output_dir, exist_ok=True)
     processors = [
