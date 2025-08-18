@@ -150,9 +150,9 @@ class SileroVADProcessor(VADProcessor):
 
     def _detect_voice_activity(self, input_audio):
         from silero_vad import read_audio, get_speech_timestamps
-        # temp_wav = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(), suffix='.wav').name
-        # ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
-        wav = read_audio(input_audio)
+        temp_wav = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(), suffix='.wav').name
+        ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
+        wav = read_audio(temp_wav)
         speech_timestamps = get_speech_timestamps(wav, self.vad_model, return_seconds=True, threshold=0.2)
         logger.debug(speech_timestamps)
         return speech_timestamps
@@ -174,14 +174,14 @@ class WhisperVADProcessor(VADProcessor):
     def _detect_voice_activity(self, input_audio):
         from stable_whisper import WhisperResult
         # Convert the audio to 16kHz mono WAV
-        # temp_wav = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(), suffix='.wav').name
-        # ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
+        temp_wav = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(), suffix='.wav').name
+        ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
 
         logger.info('transcribing audio...')
 
         # Transcribe the audio using Whisper
         with warnings.catch_warnings():
-            result: WhisperResult = self.vad_model.transcribe(input_audio, vad=True, language=get_config().vad.language,
+            result: WhisperResult = self.vad_model.transcribe(temp_wav, vad=True, language=get_config().vad.language,
                                                              temperature=0.0)
         voice_activity = []
 
@@ -376,7 +376,7 @@ vad_processor = VADSystem()
 # Test cases for all VADProcessors
 def test_vad_processors():
     logger.setLevel(logging.DEBUG)
-    test_audio = r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\tmpso7v0265.opus"
+    test_audio = r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-16-42-32-020.opus"
     output_dir = r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\output"
     os.makedirs(output_dir, exist_ok=True)
     processors = [
