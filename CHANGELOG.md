@@ -1,3 +1,16 @@
+# 1.11.5 / 2.14.20
+
+- Re-wrote Furigana Filter Preview, should now make a lot more sense, and makes it a lot easier to find the value that you want.
+- Cleaned up some UI surrounding the OCR engines to use, no longer is it "OCR 1" and "OCR 2"
+- Changed Furigana Filter to filter per line dimensions rather than per character dimensions. This should result in a lot more consistent results and less randomness.
+
+# 1.10.4 -> 1.11.4
+
+- Moved over to using uv for pip package management
+- Added Animated Screenshot, and video options
+- More overlay fixes
+- UI cleanup
+
 # 1.10.4 / 2.14.5
 
 ## OCR
