@@ -3,6 +3,8 @@
 - Re-wrote Furigana Filter Preview, should now make a lot more sense, and makes it a lot easier to find the value that you want.
 - Cleaned up some UI surrounding the OCR engines to use, no longer is it "OCR 1" and "OCR 2"
 - Changed Furigana Filter to filter per line dimensions rather than per character dimensions. This should result in a lot more consistent results and less randomness.
+![ee441500-06de-4c12-9981-6118a2ad8090](https://github.com/user-attachments/assets/45a7b45c-e909-45d7-9db6-6b87a4c85e58)
+![yuzu_Yhuu0zlnhF](https://github.com/user-attachments/assets/1030e84e-cff0-468a-bc9c-9e3399060208)
 
 # 1.10.4 -> 1.11.4
 
