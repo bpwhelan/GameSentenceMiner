@@ -6,7 +6,7 @@ An application designed to assist with language learning through games.
 
 Short Demo (Watch this first): https://www.youtube.com/watch?v=FeFBL7py6HY
 
-Installation: https://youtu.be/h5ksXallc-o
+Installation: https://www.youtube.com/watch?v=sVL9omRbGc4
 
 Discord: https://discord.gg/yP8Qse6bb8
 
