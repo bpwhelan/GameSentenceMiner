@@ -1024,7 +1024,10 @@
                             document.getElementById('ocr-config-summary').textContent = 'No active OCR configuration found.';
                             return;
                         }
-                        const windowName = config.window
+                        const furiganaSensitivity = config.furiganaFilterSensitivity;
+                        document.getElementById('furigana-filter-sensitivity').value = Number(furiganaSensitivity) || 0;
+                        document.getElementById('furigana-filter-sensitivity-value').textContent = furiganaSensitivity || 0;
+                        const windowName = config.window;
                         document.getElementById('config-tooltip').innerText = '✓';
                         document.getElementById('ocr-config-summary').innerHTML = `Selected Config: ${config.scene || 'None'}<br> Window: ${windowName || 'None'}<br> Rectangles: ${config.rectangles?.length || 0}`;
                         if (windowName && !windows.some(window => window === windowName)) {
@@ -1130,6 +1133,14 @@
                         } else {
                             document.getElementById('window-select-group').style.display = 'none';
                             document.getElementById('require-open-window-group').style.display = 'none';
+                        }
+
+                        if (ocr_settings.twoPassOCR) {
+                            document.getElementById('ocr1-select-group').style.display = 'flex';
+                            document.getElementById('optimize-second-scan-group').style.display = 'flex';
+                        } else {
+                            document.getElementById('ocr1-select-group').style.display = 'none';
+                            document.getElementById('optimize-second-scan-group').style.display = 'none';
                         }
                         windowSelect.value = ocr_settings.lastWindowSelected;
 

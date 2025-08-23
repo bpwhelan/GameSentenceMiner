@@ -27,7 +27,14 @@ import {
 } from '../store.js';
 import { isQuitting, mainWindow } from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
-import { BASE_DIR, getAssetsDir, getPlatform, isWindows, runPythonScript, sanitizeFilename } from '../util.js';
+import {
+    BASE_DIR,
+    getAssetsDir,
+    getPlatform,
+    isWindows,
+    runPythonScript,
+    sanitizeFilename,
+} from '../util.js';
 import path, { resolve } from 'path';
 import * as fs from 'node:fs';
 import { windowManager, Window } from 'node-window-manager'; // Import the library
@@ -197,7 +204,7 @@ export async function startOCR() {
     }
     if (!ocrProcess) {
         const ocr_config = getOCRConfig();
-        const config = await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig);
+        const config = await getActiveOCRConfig(getOCRConfig().useWindowForConfig);
         console.log(config);
         if (!config) {
             const response = await dialog.showMessageBox(mainWindow!, {
@@ -331,7 +338,7 @@ export function registerOCRUtilsIPC() {
                 '--upgrade',
             ];
         } else {
-            command = [pythonPath, '-m', 'uv',dependency];
+            command = [pythonPath, '-m', 'uv', dependency];
         }
         mainWindow?.webContents.send('ocr-log', `Installing ${dependency} dependencies...`);
         await runCommandAndLog(command);
@@ -508,16 +515,17 @@ export function registerOCRUtilsIPC() {
         setLastWindowSelected(config.lastWindowSelected);
         setKeepNewline(config.keep_newline);
         setUseObsAsSource(config.useObsAsOCRSource);
+        updateFuriganaFilterSensitivity(config.furigana_filter_sensitivity);
         console.log(`OCR config saved: ${JSON.stringify(config)}`);
     });
 
     ipcMain.handle('ocr.getActiveOCRConfig', async () => {
-        return await getActiveOCRCOnfig(getOCRConfig().useWindowForConfig);
+        return await getActiveOCRConfig(getOCRConfig().useWindowForConfig);
     });
 
     ipcMain.handle('ocr.getActiveOCRConfigWindowName', async () => {
         const config = getOCRConfig();
-        const ocrConfig = await getActiveOCRCOnfig(config.useWindowForConfig);
+        const ocrConfig = await getActiveOCRConfig(config.useWindowForConfig);
         return ocrConfig ? ocrConfig.window : '';
     });
 
@@ -537,11 +545,15 @@ export function registerOCRUtilsIPC() {
         return windowsList.map((window) => window.title).sort((a, b) => a.localeCompare(b));
     });
 
-    ipcMain.handle('run-furigana-window', async (): Promise<number> =>{
+    ipcMain.handle('run-furigana-window', async (): Promise<number> => {
         const pythonPath = getPythonPath();
         const ocr_config = getOCRConfig();
         // Run the Python script with the specified sensitivity
-        const result = await runPythonScript(pythonPath, ['-m', 'GameSentenceMiner.tools.furigana_filter_preview', String(ocr_config.furigana_filter_sensitivity)]);
+        const result = await runPythonScript(pythonPath, [
+            '-m',
+            'GameSentenceMiner.tools.furigana_filter_preview',
+            String(ocr_config.furigana_filter_sensitivity),
+        ]);
         const match = result.match(/RESULT:\[(.*?)\]/);
         const extractedResult = match ? match[1] : null;
         mainWindow?.webContents.send('furigana-script-result', extractedResult);
@@ -636,7 +648,26 @@ function getWindowsListWithLibrary(): LibraryWindowInfo[] {
         });
 }
 
-export async function getActiveOCRCOnfig(useWindow: boolean) {
+export async function updateFuriganaFilterSensitivity(sensitivity: number) {
+    sensitivity = Number(sensitivity);
+    const ocrConfig = getOCRConfig();
+    const activeOCR = await getActiveOCRConfig(ocrConfig.useWindowForConfig);
+    if (!activeOCR) {
+        console.warn('No active OCR config found.');
+        return;
+    }
+
+    activeOCR.furiganaFilterSensitivity = sensitivity; // Use provided sensitivity
+    const sceneConfigPath = await getActiveOCRConfigPath(ocrConfig.useWindowForConfig);
+    try {
+        await fs.promises.writeFile(sceneConfigPath, JSON.stringify(activeOCR, null, 4), 'utf-8');
+        console.log(`Furigana filter sensitivity added to OCR config at ${sceneConfigPath}`);
+    } catch (error: any) {
+        console.error(`Error writing OCR config file at ${sceneConfigPath}:`, error.message);
+    }
+}
+
+export async function getActiveOCRConfig(useWindow: boolean) {
     const sceneConfigPath = await getActiveOCRConfigPath(useWindow);
     if (!fs.existsSync(sceneConfigPath)) {
         console.warn(`OCR config file does not exist at ${sceneConfigPath}`);

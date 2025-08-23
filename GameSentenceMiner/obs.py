@@ -483,6 +483,9 @@ def set_fit_to_screen_for_scene_items(scene_name: str):
     try:
         # 1. Get the canvas (base) resolution from OBS video settings
         video_settings = client.get_video_settings()
+        if not hasattr(video_settings, 'base_width') or not hasattr(video_settings, 'base_height'):
+            logger.debug("Video settings do not have base_width or base_height attributes, probably weird websocket error issue? Idk what causes it..")
+            return
         canvas_width = video_settings.base_width
         canvas_height = video_settings.base_height
 
@@ -499,12 +502,23 @@ def set_fit_to_screen_for_scene_items(scene_name: str):
             item_id = item['sceneItemId']
             source_name = item['sourceName']
             
+            scene_item_transform = item.get('sceneItemTransform', {})
+            
+            source_width = scene_item_transform.get('sourceWidth', None)
+            source_height = scene_item_transform.get('sourceHeight', None)
+            
             # This transform object is the equivalent of "Fit to Screen"
             fit_to_screen_transform = {
                 'boundsType': 'OBS_BOUNDS_SCALE_INNER',
                 'alignment': 5,  # 5 = Center alignment (horizontal and vertical)
                 'boundsWidth': canvas_width,
                 'boundsHeight': canvas_height,
+                'positionX': 0,
+                'positionY': 0,
+                'cropLeft': 0 if canvas_width >= source_width else (source_width - canvas_width) // 2,
+                'cropRight': 0 if canvas_width >= source_width else (source_width - canvas_width) // 2,
+                'cropTop': 0 if canvas_height >= source_height else (source_height - canvas_height) // 2,
+                'cropBottom': 0 if canvas_height >= source_height else (source_height - canvas_height) // 2,
             }
 
             try:

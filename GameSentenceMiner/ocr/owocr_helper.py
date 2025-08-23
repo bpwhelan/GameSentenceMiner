@@ -228,7 +228,6 @@ def save_result_image(img, pre_crop_image=None):
 
 async def send_result(text, time):
     if text:
-        text = do_text_replacements(text, OCR_REPLACEMENTS_FILE)
         if get_ocr_send_to_clipboard():
             import pyperclip
             pyperclip.copy(text)

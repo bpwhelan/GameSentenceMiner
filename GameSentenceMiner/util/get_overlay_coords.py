@@ -94,26 +94,59 @@ class OverlayProcessor:
         except Exception as e:
             logger.error(f"Error during OCR processing: {e}", exc_info=True)
             return []
+        
+    @staticmethod
+    def get_monitor_workarea(monitor_index=0):
+        """
+        Return MSS-style dict for monitor area.
+        For primary monitor, excludes taskbar. For others, returns full monitor area.
+        monitor_index: 0 = primary monitor, 1+ = others (as in mss.monitors).
+        """
+        with mss.mss() as sct:
+            monitors = sct.monitors[1:]
+            print(monitors)
+            if is_windows() and monitor_index == 0:
+                from ctypes import wintypes
+                import ctypes
+                # Get work area for primary monitor (ignores taskbar)
+                SPI_GETWORKAREA = 0x0030
+                rect = wintypes.RECT()
+                res = ctypes.windll.user32.SystemParametersInfoW(
+                    SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
+                )
+                if not res:
+                    raise ctypes.WinError()
+                
+                return {
+                    "left": rect.left,
+                    "top": rect.top,
+                    "width": rect.right - rect.left,
+                    "height": rect.bottom - rect.top,
+                }
+            elif is_windows() and monitor_index > 0:
+                # Secondary monitors: just return with a guess of how tall the taskbar is
+                taskbar_height_guess = 48  # A common taskbar height, may vary
+                mon = monitors[monitor_index]
+                return {
+                    "left": mon["left"],
+                    "top": mon["top"],
+                    "width": mon["width"],
+                    "height": mon["height"] - taskbar_height_guess
+                }
+            else:
+                # For non-Windows systems or unspecified monitors, return the monitor area as-is
+                return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
+
 
     def _get_full_screenshot(self) -> Tuple[Image.Image | None, int, int]:
         """Captures a screenshot of the configured monitor."""
         if not mss:
             raise RuntimeError("MSS screenshot library is not installed.")
-        
         with mss.mss() as sct:
-            monitors = sct.monitors
-            # Index 0 is the 'all monitors' virtual screen, so we skip it.
-            monitor_list = monitors[1:] if len(monitors) > 1 else [monitors[0]]
-            
-            monitor_index = self.config.overlay.monitor_to_capture
-            if monitor_index >= len(monitor_list):
-                logger.error(f"Monitor index {monitor_index} is out of bounds. Found {len(monitor_list)} monitors.")
-                return None, 0, 0
-                
-            monitor = monitor_list[monitor_index]
+            monitor = self.get_monitor_workarea(0)  # Get primary monitor work area
             sct_img = sct.grab(monitor)
             img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
-            
+                
             return img, monitor['width'], monitor['height']
 
     def _create_composite_image(
@@ -210,7 +243,8 @@ class OverlayProcessor:
             crop_x=0,
             crop_y=0,
             crop_width=composite_image.width,
-            crop_height=composite_image.height
+            crop_height=composite_image.height,
+            use_percentages=True
         )
         
         return extracted_data
@@ -223,7 +257,8 @@ class OverlayProcessor:
         crop_x: int,
         crop_y: int,
         crop_width: int,
-        crop_height: int
+        crop_height: int,
+        use_percentages: bool
     ) -> List[Dict[str, Any]]:
         """
         Parses Google Lens API response and converts normalized coordinates
@@ -244,9 +279,10 @@ class OverlayProcessor:
                     word_text = word.get("plain_text", "")
                     line_text_parts.append(word_text)
                     
-                    word_box = self._convert_box_to_pixels_v2(
+                    word_box = self._convert_box_to_overlay_coords(
                         word["geometry"]["bounding_box"],
-                        crop_x, crop_y, crop_width, crop_height
+                        crop_x, crop_y, crop_width, crop_height,
+                        use_percentage=use_percentages
                     )
                     
                     word_list.append({
@@ -258,9 +294,9 @@ class OverlayProcessor:
                     continue
                 
                 full_line_text = "".join(line_text_parts)
-                line_box = self._convert_box_to_pixels_v2(
+                line_box = self._convert_box_to_overlay_coords(
                     line["geometry"]["bounding_box"],
-                    crop_x, crop_y, crop_width, crop_height
+                    crop_x, crop_y, crop_width, crop_height, use_percentage=use_percentages
                 )
 
                 results.append({
@@ -270,36 +306,45 @@ class OverlayProcessor:
                 })
         return results
 
-    def _convert_box_to_pixels_v2(
+    def _convert_box_to_overlay_coords(
         self,
         bbox_data: Dict[str, float],
         crop_x: int,
         crop_y: int,
         crop_width: int,
-        crop_height: int
+        crop_height: int,
+        use_percentage: bool
     ) -> Dict[str, float]:
         """
         Simplified conversion: scales normalized bbox to pixel coordinates within
         the cropped region, then offsets by the crop position. Ignores rotation.
+        If use_percentage is True, returns coordinates as percentages of the crop dimensions.
         """
         cx, cy = bbox_data['center_x'], bbox_data['center_y']
         w, h = bbox_data['width'], bbox_data['height']
 
-        # Scale normalized coordinates to pixel coordinates relative to the crop area
-        box_width_px = w * crop_width
-        box_height_px = h * crop_height
-        
-        # Calculate center within the cropped area and then add the crop offset
-        center_x_px = (cx * crop_width) + crop_x
-        center_y_px = (cy * crop_height) + crop_y
+        if use_percentage:
+            # Return coordinates as percentages of the crop dimensions
+            box_width = w
+            box_height = h
+            center_x = cx
+            center_y = cy
+        else:
+            # Scale normalized coordinates to pixel coordinates relative to the crop area
+            box_width = w * crop_width
+            box_height = h * crop_height
+
+            # Calculate center within the cropped area and then add the crop offset
+            center_x = (cx * crop_width) + crop_x
+            center_y = (cy * crop_height) + crop_y
 
         # Calculate corners (unrotated)
-        half_w_px, half_h_px = box_width_px / 2, box_height_px / 2
+        half_w, half_h = box_width / 2, box_height / 2
         return {
-            "x1": center_x_px - half_w_px, "y1": center_y_px - half_h_px,
-            "x2": center_x_px + half_w_px, "y2": center_y_px - half_h_px,
-            "x3": center_x_px + half_w_px, "y3": center_y_px + half_h_px,
-            "x4": center_x_px - half_w_px, "y4": center_y_px + half_h_px,
+            "x1": center_x - half_w, "y1": center_y - half_h,
+            "x2": center_x + half_w, "y2": center_y - half_h,
+            "x3": center_x + half_w, "y3": center_y + half_h,
+            "x4": center_x - half_w, "y4": center_y + half_h,
         }
 
 async def main_test_screenshot():
@@ -334,22 +379,10 @@ async def main_run_ocr():
     """
     Main function to demonstrate running the full OCR process.
     """
-    processor = OverlayProcessor()
-    results, _ = await processor.find_box_for_sentence()
-    if results:
-        import json
-        print("OCR process completed successfully.")
-        # print(json.dumps(results, indent=2, ensure_ascii=False))
-        # Find first result with some text
-        for result in results:
-            if result.get("text"):
-                print(f"Found line: '{result['text']}'")
-                print(f"  - Line BBox: {result['bounding_rect']}")
-                if result.get("words"):
-                    print(f"  - First word: '{result['words'][0]['text']}' BBox: {result['words'][0]['bounding_rect']}")
-                break
-    else:
-        print("OCR process did not find any text.")
+    overlay_processor = OverlayProcessor()
+    while True:
+        await overlay_processor.find_box_and_send_to_overlay('')
+        await asyncio.sleep(10)
 
 
 if __name__ == '__main__':
