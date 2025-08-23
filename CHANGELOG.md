@@ -1,3 +1,50 @@
+# 1.12.0 / 2.15.0
+
+Some Very nice improvements to OCR, and the Overlay
+
+# OCR
+
+## Ignore Auto-OCR Result if ALL Text is in a "menu" area.
+
+In https://discord.com/channels/1286409772383342664/1286409772383342667/1401432690288496721, there was a 3rd OCR area introduced that allows you to OCR any menu text on command. These areas now serve a second purpose.
+
+If ALL Text found in the normal AutoOCR is located in a menu box, that result will be ignored. See photos for details. In the first one, it will not be ignored because there is text in the green area. In the second one, no text would come back, because the only thing that's in the green area is タイトル and that's also in a purple box. This should allow you to set areas in the menu that can be ignored when you pause your game, but not completely cut those areas off from Auto OCR. In the future this may be another "type" of area, but for simplicity, this is how it is for now.
+
+<img width="1280" height="720" alt="python_u4DlHs62tp" src="https://github.com/user-attachments/assets/2aa021cc-af3d-4b68-95b3-d3bb8f3074ef" />
+<img width="1280" height="720" alt="python_j0ha3m3GFT" src="https://github.com/user-attachments/assets/26aa7e22-f950-443f-aea7-a2f48ea1acf9" />
+
+## Furigana Filter PER Game
+
+Furigana Filter should now be tied to the game, rather than a global config. The way I did this is pretty tricky, so I'm not entirely confident it will work 100%.
+
+## Do OCR Replacements first
+
+[Github Issue](<https://github.com/bpwhelan/GameSentenceMiner/issues/136>)
+
+This will simply just do the OCR replacements if you have them (they are kind of hidden in debug, since OCR is pretty good without them) FIRST, before anything else. If you find that some characters mess with stability, you may be able to add replacements, but they should be used sparingly.
+
+# Overlay
+
+## Use Raw Percentages instead of coordinates
+
+This should simply make Overlay viable if you have Windows Scaling enabled.
+
+## Force some useful yomitan features
+
+I can kind of force some settings in yomitan regardless of what you have configured, I will probably do more as time goes by just to make a better overlay experience. Here are a few from this round.
+
+- No scan modifier (Only hover to lookup)
+- Auto-Hide popup, This will eliminate the need to double click, once to hide popup, and once to advance dialogue.
+- TextLayout Awareness turned OFF, the overlay is a very weird layout in terms of HTML, so this is better OFF.
+
+## Less Aggressive Magpie Compat
+
+Turns out I can make the overadjusted area a bit smaller, so I've done so, should interfere less with UI buttons now.
+
+## Open Yomitan Settings Hotkey
+
+- Hardcoded to Alt+Shift+Y
+
 # 1.11.5 / 2.14.20
 
 - Re-wrote Furigana Filter Preview, should now make a lot more sense, and makes it a lot easier to find the value that you want.
