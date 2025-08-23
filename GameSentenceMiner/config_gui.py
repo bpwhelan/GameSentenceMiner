@@ -2193,7 +2193,7 @@ class ConfigApp:
         self.overlay_monitor = ttk.Combobox(overlay_frame, values=self.monitors, state="readonly")
         self.overlay_monitor.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         # disable selection for now, default to value 1
-        self.overlay_monitor.current(1)
+        self.overlay_monitor.current(0)
         self.overlay_monitor.config(state="disabled")
         self.current_row += 1
         
