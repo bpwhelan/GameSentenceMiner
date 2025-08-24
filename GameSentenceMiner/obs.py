@@ -506,9 +506,16 @@ def set_fit_to_screen_for_scene_items(scene_name: str):
             
             source_width = scene_item_transform.get('sourceWidth', None)
             source_height = scene_item_transform.get('sourceHeight', None)
-            
+
             aspect_ratio_different = False
-            if source_width and source_height:
+            already_cropped = any([
+                scene_item_transform.get('cropLeft', 0) != 0,
+                scene_item_transform.get('cropRight', 0) != 0,
+                scene_item_transform.get('cropTop', 0) != 0,
+                scene_item_transform.get('cropBottom', 0) != 0,
+            ])
+            
+            if source_width and source_height and not already_cropped:
                 source_aspect_ratio = source_width / source_height
                 canvas_aspect_ratio = canvas_width / canvas_height
                 # Check if aspect ratio is different and if it's a standard aspect ratio
@@ -541,11 +548,15 @@ def set_fit_to_screen_for_scene_items(scene_name: str):
                 'boundsHeight': canvas_height,
                 'positionX': 0,
                 'positionY': 0,
-                'cropLeft': 0 if not aspect_ratio_different or canvas_width > source_width else (source_width - canvas_width) // 2,
-                'cropRight': 0 if not aspect_ratio_different or canvas_width > source_width else (source_width - canvas_width) // 2,
-                'cropTop': 0 if not aspect_ratio_different or canvas_height > source_height else (source_height - canvas_height) // 2,
-                'cropBottom': 0 if not aspect_ratio_different or canvas_height > source_height else (source_height - canvas_height) // 2,
             }
+            
+            if not already_cropped:
+                fit_to_screen_transform.update({
+                    'cropLeft': 0 if not aspect_ratio_different or canvas_width > source_width else (source_width - canvas_width) // 2,
+                    'cropRight': 0 if not aspect_ratio_different or canvas_width > source_width else (source_width - canvas_width) // 2,
+                    'cropTop': 0 if not aspect_ratio_different or canvas_height > source_height else (source_height - canvas_height) // 2,
+                    'cropBottom': 0 if not aspect_ratio_different or canvas_height > source_height else (source_height - canvas_height) // 2,
+                })
 
             try:
                 client.set_scene_item_transform(
