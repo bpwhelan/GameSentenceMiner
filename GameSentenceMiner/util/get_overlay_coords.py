@@ -104,7 +104,6 @@ class OverlayProcessor:
         """
         with mss.mss() as sct:
             monitors = sct.monitors[1:]
-            print(monitors)
             if is_windows() and monitor_index == 0:
                 from ctypes import wintypes
                 import ctypes

@@ -260,6 +260,10 @@
           "splice_padding": {
             "label": "Padding:",
             "tooltip": "Cut Detected Voice Segments and Paste them back together. More Padding = More Space between voicelines."
+          },
+          "use_cpu_for_inference": {
+            "label": "Force CPU:",
+            "tooltip": "Even if CUDA is installed, use CPU for Whisper"
           }
         },
         "features": {

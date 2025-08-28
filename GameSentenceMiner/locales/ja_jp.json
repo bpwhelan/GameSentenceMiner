@@ -259,6 +259,10 @@
           "splice_padding": {
             "label": "パディング:",
             "tooltip": "結合する音声セグメント間の間隔（秒）。"
+          },
+          "use_cpu_for_inference": {
+            "label": "CPU強制使用:",
+            "tooltip": "CUDAがインストールされていてもWhisperでCPUを使用します"
           }
         },
         "features": {

@@ -260,6 +260,10 @@
           "splice_padding": {
             "label": "填充:",
             "tooltip": "剪切检测到的语音片段并将其重新拼接。更多填充 = 语音间距更大。"
+          },
+          "use_cpu_for_inference": {
+            "label": "强制使用 CPU:",
+            "tooltip": "即使已安装 CUDA，也强制使用 CPU 运行 Whisper"
           }
         },
         "features": {

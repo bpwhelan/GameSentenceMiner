@@ -379,6 +379,7 @@ class ConfigApp:
         self.ai_enabled_value = tk.BooleanVar(value=self.settings.ai.enabled)
         self.ai_provider_value = tk.StringVar(value=self.settings.ai.provider)
         self.gemini_model_value = tk.StringVar(value=self.settings.ai.gemini_model)
+        self.use_cpu_for_inference_value = tk.BooleanVar(value=self.settings.vad.use_cpu_for_inference)
         self.groq_model_value = tk.StringVar(value=self.settings.ai.groq_model)
         self.gemini_api_key_value = tk.StringVar(value=self.settings.ai.gemini_api_key)
         self.groq_api_key_value = tk.StringVar(value=self.settings.ai.groq_api_key)
@@ -592,6 +593,7 @@ class ConfigApp:
                 language=self.language_value.get(),
                 cut_and_splice_segments=self.cut_and_splice_segments_value.get(),
                 splice_padding=float(self.splice_padding_value.get()) if self.splice_padding_value.get() else 0.0,
+                use_cpu_for_inference=self.use_cpu_for_inference_value.get(),
             ),
             advanced=Advanced(
                 audio_player_path=self.audio_player_path_value.get(),
@@ -1137,12 +1139,11 @@ class ConfigApp:
         ttk.Entry(vad_frame, textvariable=self.splice_padding_value).grid(row=self.current_row, column=3, sticky='EW', pady=2)
         self.current_row += 1
 
-        self.add_reset_button(vad_frame, "vad", self.current_row, 0, self.create_vad_tab)
-
-        for col in range(5): vad_frame.grid_columnconfigure(col, weight=0)
-        for row in range(self.current_row): vad_frame.grid_rowconfigure(row, minsize=30)
-
-        return vad_frame
+        # Force CPU for Whisper
+        use_cpu_i18n = vad_i18n.get('use_cpu_for_inference', {})
+        HoverInfoLabelWidget(vad_frame, text=use_cpu_i18n.get('label', 'Force CPU'), tooltip=use_cpu_i18n.get('tooltip', 'Even if CUDA is installed, use CPU for Whisper'), row=self.current_row, column=0)
+        ttk.Checkbutton(vad_frame, variable=self.use_cpu_for_inference_value, bootstyle="round-toggle").grid(row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
 
     @new_tab
     def create_paths_tab(self):
@@ -1224,8 +1225,10 @@ class ConfigApp:
 
         self.add_reset_button(paths_frame, "paths", self.current_row, 0, self.create_paths_tab)
 
-        for col in range(3): paths_frame.grid_columnconfigure(col, weight=0)
-        for row in range(self.current_row): paths_frame.grid_rowconfigure(row, minsize=30)
+        for col in range(3):
+            paths_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            paths_frame.grid_rowconfigure(row, minsize=30)
 
         return paths_frame
 
@@ -1368,8 +1371,10 @@ class ConfigApp:
 
         self.add_reset_button(anki_frame, "anki", self.current_row, 0, self.create_anki_tab)
 
-        for col in range(2): anki_frame.grid_columnconfigure(col, weight=0)
-        for row in range(self.current_row): anki_frame.grid_rowconfigure(row, minsize=30)
+        for col in range(2):
+            anki_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            anki_frame.grid_rowconfigure(row, minsize=30)
 
         return anki_frame
 
@@ -1431,8 +1436,10 @@ class ConfigApp:
 
         self.add_reset_button(features_frame, "features", self.current_row, 0, self.create_features_tab)
 
-        for col in range(3): features_frame.grid_columnconfigure(col, weight=0)
-        for row in range(self.current_row): features_frame.grid_rowconfigure(row, minsize=30)
+        for col in range(3):
+            features_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            features_frame.grid_rowconfigure(row, minsize=30)
 
         return features_frame
 
@@ -1533,8 +1540,10 @@ class ConfigApp:
 
         self.add_reset_button(screenshot_frame, "screenshot", self.current_row, 0, self.create_screenshot_tab)
 
-        for col in range(3): screenshot_frame.grid_columnconfigure(col, weight=0)
-        for row in range(self.current_row): screenshot_frame.grid_rowconfigure(row, minsize=30)
+        for col in range(3):
+            screenshot_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            screenshot_frame.grid_rowconfigure(row, minsize=30)
 
         return screenshot_frame
 
@@ -1647,8 +1656,10 @@ class ConfigApp:
 
         self.add_reset_button(audio_frame, "audio", self.current_row, 0, self.create_audio_tab)
 
-        for col in range(5): audio_frame.grid_columnconfigure(col, weight=0)
-        for row in range(self.current_row): audio_frame.grid_rowconfigure(row, minsize=30)
+        for col in range(5):
+            audio_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            audio_frame.grid_rowconfigure(row, minsize=30)
 
         return audio_frame
 
@@ -1752,8 +1763,10 @@ class ConfigApp:
 
         self.add_reset_button(obs_frame, "obs", self.current_row, 0, self.create_obs_tab)
 
-        for col in range(3): obs_frame.grid_columnconfigure(col, weight=0)
-        for row in range(self.current_row): obs_frame.grid_rowconfigure(row, minsize=30)
+        for col in range(3):
+            obs_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            obs_frame.grid_rowconfigure(row, minsize=30)
 
         return obs_frame
 
@@ -1814,8 +1827,10 @@ class ConfigApp:
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
-        for col in range(4): profiles_frame.grid_columnconfigure(col, weight=0)
-        for row in range(self.current_row): profiles_frame.grid_rowconfigure(row, minsize=30)
+        for col in range(4):
+            profiles_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            profiles_frame.grid_rowconfigure(row, minsize=30)
 
         return profiles_frame
 
@@ -1945,8 +1960,10 @@ class ConfigApp:
 
         self.add_reset_button(advanced_frame, "advanced", self.current_row, 0, self.create_advanced_tab)
 
-        for col in range(4): advanced_frame.grid_columnconfigure(col, weight=0)
-        for row in range(self.current_row): advanced_frame.grid_rowconfigure(row, minsize=30)
+        for col in range(4):
+            advanced_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            advanced_frame.grid_rowconfigure(row, minsize=30)
 
         return advanced_frame
 
@@ -1996,6 +2013,12 @@ class ConfigApp:
                              row=self.current_row, column=0)
         self.groq_models_combobox = ttk.Combobox(ai_frame, textvariable=self.groq_model_value, values=RECOMMENDED_GROQ_MODELS, state="readonly")
         self.groq_models_combobox.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
+        # Force CPU for Whisper
+        use_cpu_i18n = ai_i18n.get('use_cpu_for_inference', {})
+        HoverInfoLabelWidget(ai_frame, text=use_cpu_i18n.get('label', 'Force CPU'), tooltip=use_cpu_i18n.get('tooltip', 'Even if CUDA is installed, use CPU for Whisper'), row=self.current_row, column=0)
+        ttk.Checkbutton(ai_frame, variable=self.use_cpu_for_inference_value, bootstyle="round-toggle").grid(row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
                 
         groq_key_i18n = ai_i18n.get('groq_api_key', {})
@@ -2067,8 +2090,10 @@ class ConfigApp:
 
         self.add_reset_button(ai_frame, "ai", self.current_row, 0, self.create_ai_tab)
 
-        for col in range(3): ai_frame.grid_columnconfigure(col, weight=0)
-        for row in range(self.current_row): ai_frame.grid_rowconfigure(row, minsize=30)
+        for col in range(3):
+            ai_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            ai_frame.grid_rowconfigure(row, minsize=30)
 
         return ai_frame
     
@@ -2245,8 +2270,10 @@ class ConfigApp:
 
         self.add_reset_button(wip_frame, "wip", self.current_row, 0, self.create_wip_tab)
 
-        for col in range(2): wip_frame.grid_columnconfigure(col, weight=0)
-        for row in range(self.current_row): wip_frame.grid_rowconfigure(row, minsize=30)
+        for col in range(2):
+            wip_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            wip_frame.grid_rowconfigure(row, minsize=30)
 
         return wip_frame
     

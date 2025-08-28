@@ -577,7 +577,7 @@ if __name__ == "__main__":
         keep_newline = args.keep_newline
         obs_ocr = args.obs_ocr
         
-        obs.connect_to_obs_sync(retry=0, check_output=False)
+        obs.connect_to_obs_sync(check_output=False)
     
         # Start config change checker thread
         config_check_thread = ConfigChangeCheckThread()
