@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.12.0",
+  "version": "1.12.1",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -44,7 +44,6 @@
       "icon": "icon.ico",
       "sign": false,
       "artifactName": "${productName}-Setup-${version}.${ext}",
-      "requestedExecutionLevel": "requireAdministrator",
       "extraFiles": [
         {
           "from": "GSM_Overlay/out",
