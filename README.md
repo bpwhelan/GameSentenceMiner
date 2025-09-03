@@ -1,6 +1,6 @@
 # GSM - An Immersion toolkit for Games.
 
-### English | [日本語](../docs/ja/README.md) | [简体中文](../docs/zh/README.md).
+### English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md).
 
 An application designed to assist with language learning through games.
 
