@@ -67,6 +67,37 @@
             margin: 0 2px;
             border-radius: 2px;
         }
+        .streak-stats {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-bottom: 20px;
+        }
+        .streak-item {
+            text-align: center;
+        }
+        .streak-number {
+            font-size: 3em;
+            font-weight: bold;
+            color: #ff6b35;
+            margin-bottom: 5px;
+        }
+        .streak-label {
+            font-size: 1.1em;
+            color: #6c757d;
+        }
+        .streak-flame {
+            text-align: center;
+            font-size: 4em;
+            margin-top: 10px;
+        }
+        .streak-flame.active {
+            animation: flicker 1.5s infinite alternate;
+        }
+        @keyframes flicker {
+            0% { transform: scale(1) rotate(-2deg); }
+            100% { transform: scale(1.1) rotate(2deg); }
+        }
     </style>
 </head>
 <body>
@@ -97,6 +128,33 @@
     <div class="chart-container">
         <h2>Reading Speed by Game (Chronological Order)</h2>
         <canvas id="readingSpeedChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h2>Daily Reading Streak</h2>
+        <div id="streakContainer">
+            <div class="streak-stats">
+                <div class="streak-item">
+                    <div class="streak-number" id="currentStreak">0</div>
+                    <div class="streak-label">Current Streak</div>
+                </div>
+                <div class="streak-item">
+                    <div class="streak-number" id="longestStreak">0</div>
+                    <div class="streak-label">Longest Streak</div>
+                </div>
+            </div>
+            <div class="streak-flame" id="streakFlame">🔥</div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <h2>Mining Efficiency Over Time</h2>
+        <canvas id="miningEfficiencyChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h2>Most Common Characters</h2>
+        <canvas id="characterFrequencyChart"></canvas>
     </div>
 </div>
 
@@ -242,6 +300,112 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // Function to display streak data
+    function displayStreakData(streakData) {
+        document.getElementById('currentStreak').textContent = streakData.currentStreak;
+        document.getElementById('longestStreak').textContent = streakData.longestStreak;
+        
+        const flame = document.getElementById('streakFlame');
+        if (streakData.currentStreak > 0) {
+            flame.classList.add('active');
+        } else {
+            flame.classList.remove('active');
+        }
+    }
+
+    // Function to create mining efficiency chart
+    function createMiningEfficiencyChart(efficiencyData) {
+        const ctx = document.getElementById('miningEfficiencyChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: efficiencyData.labels,
+                datasets: [{
+                    label: 'Mining Efficiency (%)',
+                    data: efficiencyData.efficiency,
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: 'Mining Efficiency (Mined Lines / Total Lines)'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        title: {
+                            display: true,
+                            text: 'Efficiency (%)'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Function to create character frequency chart
+    function createCharacterFrequencyChart(charData) {
+        const ctx = document.getElementById('characterFrequencyChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: charData.characters,
+                datasets: [{
+                    label: 'Frequency',
+                    data: charData.frequencies,
+                    backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: 'Most Frequently Encountered Characters'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Frequency Count'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Characters'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     // Fetch data from our API endpoint
     fetch('/api/stats')
         .then(response => response.json())
@@ -283,6 +447,21 @@ document.addEventListener('DOMContentLoaded', function () {
             // Create reading speed chart if data exists
             if (data.readingSpeedData) {
                 createReadingSpeedChart(data.readingSpeedData);
+            }
+
+            // Create streak display if data exists
+            if (data.streakData) {
+                displayStreakData(data.streakData);
+            }
+
+            // Create mining efficiency chart if data exists
+            if (data.miningEfficiencyData) {
+                createMiningEfficiencyChart(data.miningEfficiencyData);
+            }
+
+            // Create character frequency chart if data exists
+            if (data.characterFrequencyData) {
+                createCharacterFrequencyChart(data.characterFrequencyData);
             }
         })
         .catch(error => console.error('Error fetching chart data:', error));

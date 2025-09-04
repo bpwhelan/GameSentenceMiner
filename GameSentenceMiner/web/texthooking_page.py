@@ -424,6 +424,156 @@ def stats():
     return render_template('stats.html')
 
 
+def calculate_streak_data(all_lines):
+    """Calculate current and longest reading streaks."""
+    if not all_lines:
+        return {"currentStreak": 0, "longestStreak": 0}
+    
+    # Get unique days with activity
+    active_days = set()
+    for line in all_lines:
+        day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
+        active_days.add(day_str)
+    
+    sorted_days = sorted(active_days)
+    
+    # Calculate streaks
+    current_streak = 0
+    longest_streak = 0
+    
+    today = datetime.date.today()
+    yesterday = today - datetime.timedelta(days=1)
+    
+    # Check if today or yesterday had activity for current streak
+    if today.strftime('%Y-%m-%d') in active_days:
+        current_streak_start = today
+    elif yesterday.strftime('%Y-%m-%d') in active_days:
+        current_streak_start = yesterday
+    else:
+        return {"currentStreak": 0, "longestStreak": calculate_longest_streak(sorted_days)}
+    
+    # Calculate current streak backwards from start date
+    check_date = current_streak_start
+    while check_date.strftime('%Y-%m-%d') in active_days:
+        current_streak += 1
+        check_date -= datetime.timedelta(days=1)
+    
+    longest_streak = max(current_streak, calculate_longest_streak(sorted_days))
+    
+    return {
+        "currentStreak": current_streak,
+        "longestStreak": longest_streak
+    }
+
+def calculate_longest_streak(sorted_days):
+    """Helper to calculate the longest streak from sorted day list."""
+    if not sorted_days:
+        return 0
+    
+    longest = 1
+    current = 1
+    
+    for i in range(1, len(sorted_days)):
+        prev_date = datetime.datetime.strptime(sorted_days[i-1], '%Y-%m-%d').date()
+        curr_date = datetime.datetime.strptime(sorted_days[i], '%Y-%m-%d').date()
+        
+        if (curr_date - prev_date).days == 1:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 1
+    
+    return longest
+
+def calculate_mining_efficiency(daily_data, sorted_days):
+    """Calculate mining efficiency (mined lines / total lines) over time."""
+    labels = []
+    efficiency = []
+    
+    cumulative_lines = 0
+    cumulative_mined = 0
+    
+    for day in sorted_days:
+        day_lines = sum(game_data['lines'] for game_data in daily_data[day].values())
+        day_mined = sum(game_data['mined'] for game_data in daily_data[day].values())
+        
+        cumulative_lines += day_lines
+        cumulative_mined += day_mined
+        
+        if cumulative_lines > 0:
+            eff = (cumulative_mined / cumulative_lines) * 100
+            labels.append(day)
+            efficiency.append(round(eff, 2))
+    
+    return {
+        "labels": labels,
+        "efficiency": efficiency
+    }
+
+def calculate_character_frequency(all_lines):
+    """Calculate frequency of individual characters across all lines."""
+    char_count = defaultdict(int)
+    
+    for line in all_lines:
+        if line.line_text:
+            for char in line.line_text:
+                # Skip whitespace and basic punctuation
+                if char.strip() and char not in ' \n\t.,!?;:()[]{}""''':
+                    char_count[char] += 1
+    
+    # Get top 20 most frequent characters
+    sorted_chars = sorted(char_count.items(), key=lambda x: x[1], reverse=True)[:20]
+    
+    return {
+        "characters": [char for char, count in sorted_chars],
+        "frequencies": [count for char, count in sorted_chars]
+    }
+
+def calculate_heatmap_data(all_lines):
+    """Calculate heatmap data for reading activity."""
+    heatmap_data = defaultdict(lambda: defaultdict(int))
+    
+    for line in all_lines:
+        date_obj = datetime.date.fromtimestamp(float(line.timestamp))
+        year = str(date_obj.year)
+        date_str = date_obj.strftime('%Y-%m-%d')
+        char_count = len(line.line_text) if line.line_text else 0
+        heatmap_data[year][date_str] += char_count
+    
+    return dict(heatmap_data)
+
+def calculate_reading_speed_data(all_lines):
+    """Calculate reading speed data by game."""
+    game_data = defaultdict(lambda: {'chars': 0, 'time_span': 0, 'first_time': None, 'last_time': None})
+    
+    for line in all_lines:
+        game = line.game_name or "Unknown Game"
+        timestamp = float(line.timestamp)
+        char_count = len(line.line_text) if line.line_text else 0
+        
+        game_data[game]['chars'] += char_count
+        
+        if game_data[game]['first_time'] is None:
+            game_data[game]['first_time'] = timestamp
+        game_data[game]['last_time'] = timestamp
+    
+    # Calculate speeds and sort by first appearance
+    speed_data = []
+    for game, data in game_data.items():
+        if data['first_time'] and data['last_time'] and data['chars'] > 0:
+            time_span_minutes = (data['last_time'] - data['first_time']) / 60
+            if time_span_minutes > 0:
+                speed = data['chars'] / time_span_minutes
+                speed_data.append((game, speed, data['first_time']))
+    
+    # Sort by first appearance time
+    speed_data.sort(key=lambda x: x[2])
+    
+    return {
+        "labels": [item[0] for item in speed_data],
+        "speeds": [round(item[1], 2) for item in speed_data]
+    }
+
 @app.route('/api/stats')
 def api_stats():
     """
@@ -505,9 +655,21 @@ def api_stats():
             "hidden": True # Hide by default
         })
 
+    # 5. Calculate additional chart data
+    streak_data = calculate_streak_data(all_lines)
+    mining_efficiency_data = calculate_mining_efficiency(daily_data, sorted_days)
+    character_frequency_data = calculate_character_frequency(all_lines)
+    heatmap_data = calculate_heatmap_data(all_lines)
+    reading_speed_data = calculate_reading_speed_data(all_lines)
+
     return jsonify({
         "labels": sorted_days,
-        "datasets": datasets
+        "datasets": datasets,
+        "streakData": streak_data,
+        "miningEfficiencyData": mining_efficiency_data,
+        "characterFrequencyData": character_frequency_data,
+        "heatmapData": heatmap_data,
+        "readingSpeedData": reading_speed_data
     })
 
 
