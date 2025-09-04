@@ -30,6 +30,43 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.08);
             margin-bottom: 30px;
         }
+        .heatmap-year {
+            margin-bottom: 30px;
+        }
+        .heatmap-year h3 {
+            margin-bottom: 10px;
+            color: #495057;
+        }
+        .heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(53, 12px);
+            gap: 2px;
+            max-width: 700px;
+        }
+        .heatmap-cell {
+            width: 12px;
+            height: 12px;
+            background-color: #ebedf0;
+            border-radius: 2px;
+            position: relative;
+        }
+        .heatmap-cell.level-1 { background-color: #c6e48b; }
+        .heatmap-cell.level-2 { background-color: #7bc96f; }
+        .heatmap-cell.level-3 { background-color: #239a3b; }
+        .heatmap-cell.level-4 { background-color: #196127; }
+        .heatmap-legend {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #586069;
+        }
+        .heatmap-legend-item {
+            width: 12px;
+            height: 12px;
+            margin: 0 2px;
+            border-radius: 2px;
+        }
     </style>
 </head>
 <body>
@@ -50,6 +87,16 @@
     <div class="chart-container">
         <h2>Mined Lines Over Time</h2>
         <canvas id="minedChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h2>Reading Activity Heatmap</h2>
+        <div id="heatmapContainer"></div>
+    </div>
+
+    <div class="chart-container">
+        <h2>Reading Speed by Game (Chronological Order)</h2>
+        <canvas id="readingSpeedChart"></canvas>
     </div>
 </div>
 
@@ -95,6 +142,106 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // Function to create heatmap
+    function createHeatmap(heatmapData) {
+        const container = document.getElementById('heatmapContainer');
+        
+        Object.keys(heatmapData).sort().forEach(year => {
+            const yearData = heatmapData[year];
+            const yearDiv = document.createElement('div');
+            yearDiv.className = 'heatmap-year';
+            
+            const yearTitle = document.createElement('h3');
+            yearTitle.textContent = year;
+            yearDiv.appendChild(yearTitle);
+            
+            const gridDiv = document.createElement('div');
+            gridDiv.className = 'heatmap-grid';
+            
+            // Create 365 cells for the year
+            for (let day = 0; day < 365; day++) {
+                const cell = document.createElement('div');
+                cell.className = 'heatmap-cell';
+                
+                const date = new Date(parseInt(year), 0, day + 1);
+                const dateStr = date.toISOString().split('T')[0];
+                
+                if (yearData[dateStr]) {
+                    const level = Math.min(4, Math.ceil(yearData[dateStr] / 1000)); // 1000 chars per level
+                    cell.classList.add(`level-${level}`);
+                    cell.title = `${dateStr}: ${yearData[dateStr]} characters`;
+                } else {
+                    cell.title = `${dateStr}: 0 characters`;
+                }
+                
+                gridDiv.appendChild(cell);
+            }
+            
+            yearDiv.appendChild(gridDiv);
+            
+            // Add legend
+            const legend = document.createElement('div');
+            legend.className = 'heatmap-legend';
+            legend.innerHTML = `
+                <span>Less</span>
+                <div class="heatmap-legend-item" style="background-color: #ebedf0;"></div>
+                <div class="heatmap-legend-item level-1"></div>
+                <div class="heatmap-legend-item level-2"></div>
+                <div class="heatmap-legend-item level-3"></div>
+                <div class="heatmap-legend-item level-4"></div>
+                <span>More</span>
+            `;
+            yearDiv.appendChild(legend);
+            
+            container.appendChild(yearDiv);
+        });
+    }
+
+    // Function to create reading speed chart
+    function createReadingSpeedChart(speedData) {
+        const ctx = document.getElementById('readingSpeedChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: speedData.labels,
+                datasets: [{
+                    label: 'Reading Speed (chars/min)',
+                    data: speedData.speeds,
+                    backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: 'Reading Speed by Game (Chronological Order)'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Characters per Minute'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Games (Chronological Order)'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     // Fetch data from our API endpoint
     fetch('/api/stats')
         .then(response => response.json())
@@ -127,6 +274,16 @@ document.addEventListener('DOMContentLoaded', function () {
             createChart('linesChart', linesData, 'Cumulative Lines Received');
             createChart('charsChart', charsData, 'Cumulative Characters Read');
             createChart('minedChart', minedData, 'Cumulative Mined Lines (with audio/screenshot)');
+
+            // Create heatmap if data exists
+            if (data.heatmapData) {
+                createHeatmap(data.heatmapData);
+            }
+
+            // Create reading speed chart if data exists
+            if (data.readingSpeedData) {
+                createReadingSpeedChart(data.readingSpeedData);
+            }
         })
         .catch(error => console.error('Error fetching chart data:', error));
 });
