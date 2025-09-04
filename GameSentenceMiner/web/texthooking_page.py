@@ -1,4 +1,5 @@
 import asyncio
+from collections import defaultdict
 from ctypes.util import test
 import datetime
 import json
@@ -13,9 +14,10 @@ import websockets
 
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.obs import get_current_game
+from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
 from GameSentenceMiner.util.text_log import GameLine, get_line_by_id, initial_time, get_all_lines
-from flask import request, jsonify, send_from_directory
+from flask import render_template, request, jsonify, send_from_directory
 import webbrowser
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.configuration import logger, get_config, DB_PATH, gsm_state, gsm_status
@@ -388,6 +390,125 @@ Translate the following lines of game dialogue into natural-sounding, context-aw
 @app.route('/get_status', methods=['GET'])
 def get_status():
     return jsonify(gsm_status.to_dict()), 200
+
+@app.template_filter('datetimeformat')
+def datetimeformat(value, format='%Y-%m-%d %H:%M:%S'):
+    """Formats a timestamp into a human-readable string."""
+    if value is None:
+        return ""
+    return datetime.datetime.fromtimestamp(float(value)).strftime(format)
+
+# @app.route('/stats')
+# def show_gamelines():
+#     """
+#     Fetches game line data from the database and displays it.
+#     """
+#     # 1. Get all unique game names that have lines
+#     game_names = GameLinesTable.get_all_games_with_lines()
+
+#     # 2. Create a dictionary to hold the data, structured by game
+#     #    e.g., {'The Legend of Zelda': [line1, line2], 'Elden Ring': [line3]}
+#     game_data = {}
+#     for name in sorted(game_names):
+#         lines_for_game = GameLinesTable.get_all_lines_for_scene(name)
+#         # Sort lines by timestamp for chronological order
+#         game_data[name] = sorted(lines_for_game, key=lambda line: line.timestamp)
+
+#     # 3. Render the HTML template, passing the structured data to it
+#     return render_template('stats.html', game_data=game_data)
+
+
+@app.route('/stats')
+def stats():
+    """Renders the stats page."""
+    return render_template('stats.html')
+
+
+@app.route('/api/stats')
+def api_stats():
+    """
+    Provides aggregated, cumulative stats for charting.
+    """
+    # 1. Fetch all lines and sort them chronologically
+    all_lines = sorted(GameLinesTable.all(), key=lambda line: line.timestamp)
+    
+    if not all_lines:
+        return jsonify({"labels": [], "datasets": []})
+
+    # 2. Process data into daily totals for each game
+    # Structure: daily_data[date_str][game_name] = {'lines': N, 'chars': N, 'mined': N}
+    daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0, 'mined': 0}))
+
+    for line in all_lines:
+        day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
+        game = line.game_name or "Unknown Game"
+        
+        daily_data[day_str][game]['lines'] += 1
+        daily_data[day_str][game]['chars'] += len(line.line_text) if line.line_text else 0
+        if line.audio_path or line.screenshot_path:
+            daily_data[day_str][game]['mined'] += 1
+
+    # 3. Create cumulative datasets for Chart.js
+    sorted_days = sorted(daily_data.keys())
+    game_names = GameLinesTable.get_all_games_with_lines()
+    
+    # Keep track of the running total for each metric for each game
+    cumulative_totals = defaultdict(lambda: {'lines': 0, 'chars': 0, 'mined': 0})
+    
+    # Structure for final data: final_data[game_name][metric] = [day1_val, day2_val, ...]
+    final_data = defaultdict(lambda: defaultdict(list))
+
+    for day in sorted_days:
+        for game in game_names:
+            # Add the day's total to the cumulative total
+            cumulative_totals[game]['lines'] += daily_data[day][game]['lines']
+            cumulative_totals[game]['chars'] += daily_data[day][game]['chars']
+            cumulative_totals[game]['mined'] += daily_data[day][game]['mined']
+            
+            # Append the new cumulative total to the list for that day
+            final_data[game]['lines'].append(cumulative_totals[game]['lines'])
+            final_data[game]['chars'].append(cumulative_totals[game]['chars'])
+            final_data[game]['mined'].append(cumulative_totals[game]['mined'])
+    
+    # 4. Format into Chart.js dataset structure
+    datasets = []
+    # A simple color palette for the chart lines
+    colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22']
+    
+    for i, game in enumerate(game_names):
+        color = colors[i % len(colors)]
+        
+        datasets.append({
+            "label": f"{game} - Lines Received",
+            "data": final_data[game]['lines'],
+            "borderColor": color,
+            "backgroundColor": f"{color}33", # Semi-transparent for fill
+            "fill": False,
+            "tension": 0.1
+        })
+        datasets.append({
+            "label": f"{game} - Characters Read",
+            "data": final_data[game]['chars'],
+            "borderColor": color,
+            "backgroundColor": f"{color}33",
+            "fill": False,
+            "tension": 0.1,
+            "hidden": True # Hide by default to not clutter the chart
+        })
+        datasets.append({
+            "label": f"{game} - Lines Mined",
+            "data": final_data[game]['mined'],
+            "borderColor": color,
+            "backgroundColor": f"{color}33",
+            "fill": False,
+            "tension": 0.1,
+            "hidden": True # Hide by default
+        })
+
+    return jsonify({
+        "labels": sorted_days,
+        "datasets": datasets
+    })
 
 
 # async def main():

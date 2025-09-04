@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSM Dashboard</title>
+    <!-- Include Chart.js from a CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f8f9fa;
+            color: #212529;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+        h1 {
+            text-align: center;
+            color: #343a40;
+        }
+        .chart-container {
+            position: relative;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Game Sentence Miner - Statistics</h1>
+
+    <div class="chart-container">
+        <h2>Lines Received Over Time</h2>
+        <canvas id="linesChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h2>Characters Read Over Time</h2>
+        <canvas id="charsChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h2>Mined Lines Over Time</h2>
+        <canvas id="minedChart"></canvas>
+    </div>
+</div>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // Helper function to create a chart to avoid repeating code
+    function createChart(canvasId, datasets, chartTitle) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: datasets.labels,
+                datasets: datasets.datasets
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: chartTitle
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Cumulative Count'
+                        }
+                    },
+                    x: {
+                         title: {
+                            display: true,
+                            text: 'Date'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Fetch data from our API endpoint
+    fetch('/api/stats')
+        .then(response => response.json())
+        .then(data => {
+            if (!data.labels || data.labels.length === 0) {
+                console.log("No data to display.");
+                return;
+            }
+
+            // Filter datasets for each chart
+            const linesData = {
+                labels: data.labels,
+                datasets: data.datasets.filter(d => d.label.includes('Lines Received'))
+            };
+
+            const charsData = {
+                labels: data.labels,
+                datasets: data.datasets.filter(d => d.label.includes('Characters Read'))
+            };
+            
+            const minedData = {
+                labels: data.labels,
+                datasets: data.datasets.filter(d => d.label.includes('Lines Mined'))
+            };
+
+            // Remove the 'hidden' property so they appear on their own charts
+            [...charsData.datasets, ...minedData.datasets].forEach(d => delete d.hidden);
+
+            // Create the charts
+            createChart('linesChart', linesData, 'Cumulative Lines Received');
+            createChart('charsChart', charsData, 'Cumulative Characters Read');
+            createChart('minedChart', minedData, 'Cumulative Mined Lines (with audio/screenshot)');
+        })
+        .catch(error => console.error('Error fetching chart data:', error));
+});
+</script>
+
+</body>
+</html>
