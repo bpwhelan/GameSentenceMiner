@@ -338,25 +338,37 @@ def register_database_api_routes(app):
             if regex_pattern and use_regex:
                 # Use regex matching
                 try:
+                    # Ensure regex_pattern is a string
+                    if not isinstance(regex_pattern, str):
+                        return jsonify({'error': 'Regex pattern must be a string'}), 400
+                        
                     flags = 0 if case_sensitive else re.IGNORECASE
                     pattern = re.compile(regex_pattern, flags)
                     
                     for line in all_lines:
-                        if line.line_text and pattern.search(line.line_text):
+                        if line.line_text and isinstance(line.line_text, str) and pattern.search(line.line_text):
                             matches.append(line.line_text)
                             
                 except re.error as e:
                     return jsonify({'error': f'Invalid regex pattern: {str(e)}'}), 400
                     
             elif exact_text:
-                # Use exact text matching
-                text_lines = exact_text if isinstance(exact_text, list) else [exact_text]
+                # Use exact text matching - ensure exact_text is properly handled
+                if isinstance(exact_text, list):
+                    text_lines = exact_text
+                elif isinstance(exact_text, str):
+                    text_lines = [exact_text]
+                else:
+                    return jsonify({'error': 'exact_text must be a string or list of strings'}), 400
                 
                 for line in all_lines:
-                    if line.line_text:
+                    if line.line_text and isinstance(line.line_text, str):
                         line_text = line.line_text if case_sensitive else line.line_text.lower()
                         
                         for target_text in text_lines:
+                            # Ensure target_text is a string
+                            if not isinstance(target_text, str):
+                                continue
                             compare_text = target_text if case_sensitive else target_text.lower()
                             if compare_text in line_text:
                                 matches.append(line.line_text)
@@ -410,25 +422,37 @@ def register_database_api_routes(app):
             if regex_pattern and use_regex:
                 # Use regex matching
                 try:
+                    # Ensure regex_pattern is a string
+                    if not isinstance(regex_pattern, str):
+                        return jsonify({'error': 'Regex pattern must be a string'}), 400
+                        
                     flags = 0 if case_sensitive else re.IGNORECASE
                     pattern = re.compile(regex_pattern, flags)
                     
                     for line in all_lines:
-                        if line.line_text and pattern.search(line.line_text):
+                        if line.line_text and isinstance(line.line_text, str) and pattern.search(line.line_text):
                             lines_to_delete.append(line.id)
                             
                 except re.error as e:
                     return jsonify({'error': f'Invalid regex pattern: {str(e)}'}), 400
                     
             elif exact_text:
-                # Use exact text matching
-                text_lines = exact_text if isinstance(exact_text, list) else [exact_text]
+                # Use exact text matching - ensure exact_text is properly handled
+                if isinstance(exact_text, list):
+                    text_lines = exact_text
+                elif isinstance(exact_text, str):
+                    text_lines = [exact_text]
+                else:
+                    return jsonify({'error': 'exact_text must be a string or list of strings'}), 400
                 
                 for line in all_lines:
-                    if line.line_text:
+                    if line.line_text and isinstance(line.line_text, str):
                         line_text = line.line_text if case_sensitive else line.line_text.lower()
                         
                         for target_text in text_lines:
+                            # Ensure target_text is a string
+                            if not isinstance(target_text, str):
+                                continue
                             compare_text = target_text if case_sensitive else target_text.lower()
                             if compare_text in line_text:
                                 lines_to_delete.append(line.id)
