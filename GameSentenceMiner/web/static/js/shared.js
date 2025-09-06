@@ -1,5 +1,143 @@
 // Shared JavaScript functionality across all pages
 
+// Modal Management Functions
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.classList.add('show');
+        modal.style.display = 'flex';
+    }
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.classList.remove('show');
+        modal.style.display = 'none';
+    }
+}
+
+// Initialize modal close functionality (backdrop clicks and ESC key)
+function initializeModalHandlers() {
+    // Close modals when clicking outside (backdrop)
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal(modal.id);
+            }
+        });
+    });
+    
+    // Close modals on ESC key press
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const openModals = document.querySelectorAll('.modal.show');
+            openModals.forEach(modal => {
+                closeModal(modal.id);
+            });
+        }
+    });
+}
+
+// API Helper Functions
+async function fetchWithErrorHandling(url, options = {}) {
+    try {
+        const response = await fetch(url, options);
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        return { success: true, data, status: response.status };
+    } catch (error) {
+        console.error(`API Error (${url}):`, error);
+        return { success: false, error: error.message, status: 0 };
+    }
+}
+
+async function loadGamesList() {
+    const result = await fetchWithErrorHandling('/api/games-list');
+    if (result.success) {
+        return result.data.games || [];
+    }
+    return [];
+}
+
+// UI Helper Functions
+function showElement(element) {
+    if (element) {
+        element.style.display = '';
+    }
+}
+
+function hideElement(element) {
+    if (element) {
+        element.style.display = 'none';
+    }
+}
+
+function showElementFlex(element) {
+    if (element) {
+        element.style.display = 'flex';
+    }
+}
+
+function showElementBlock(element) {
+    if (element) {
+        element.style.display = 'block';
+    }
+}
+
+function toggleElement(element, show) {
+    if (element) {
+        element.style.display = show ? '' : 'none';
+    }
+}
+
+function showLoadingState(container) {
+    if (container) {
+        container.innerHTML = `
+            <div class="loading-indicator">
+                <div class="spinner"></div>
+                <span>Loading...</span>
+            </div>
+        `;
+    }
+}
+
+function showErrorState(container, message) {
+    if (container) {
+        container.innerHTML = `
+            <div class="error-message">
+                <strong>Error:</strong> ${escapeHtml(message)}
+            </div>
+        `;
+    }
+}
+
+// Form Validation Helpers
+function validateRequired(value, fieldName) {
+    if (!value || value.trim() === '') {
+        throw new Error(`${fieldName} is required`);
+    }
+    return value.trim();
+}
+
+function validateNumber(value, fieldName, min = null, max = null) {
+    const num = Number(value);
+    if (isNaN(num)) {
+        throw new Error(`${fieldName} must be a valid number`);
+    }
+    if (min !== null && num < min) {
+        throw new Error(`${fieldName} must be at least ${min}`);
+    }
+    if (max !== null && num > max) {
+        throw new Error(`${fieldName} must be at most ${max}`);
+    }
+    return num;
+}
+
 // Dark mode toggle functionality
 function initializeThemeToggle() {
     const themeToggle = document.getElementById('themeToggle');
@@ -356,6 +494,9 @@ function escapeRegex(string) {
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize theme toggle
     initializeThemeToggle();
+    
+    // Initialize modal handlers
+    initializeModalHandlers();
     
     // Initialize settings manager if settings toggle exists
     if (document.getElementById('settingsToggle')) {

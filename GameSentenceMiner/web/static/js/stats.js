@@ -1,414 +1,47 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GSM Dashboard</title>
-    <!-- Include Chart.js from a CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
-    <!-- Include shared theme styles -->
-    {% include 'components/theme-styles.html' %}
-    
-    <!-- Include shared CSS -->
-    <link rel="stylesheet" href="/static/css/shared.css">
-    
-    <!-- Include stats-specific CSS -->
-    <link rel="stylesheet" href="/static/css/stats.css">
-</head>
-<body>
 
-<div class="container">
-    <h1>Game Sentence Miner - Statistics</h1>
-    
-    <!-- Include shared navigation -->
-    {% include 'components/navigation.html' %}
+// Statistics Page JavaScript
 
-    <!-- Dashboard Statistics Sections -->
-    <div class="dashboard-container">
-        <!-- Current Game Statistics Panel -->
-        <div class="dashboard-card current-game" id="currentGameCard">
-            <div class="dashboard-card-header">
-                <div>
-                    <h3 class="dashboard-card-title">
-                        <span class="dashboard-card-icon">🎮</span>
-                        Current Game Statistics
-                    </h3>
-                    <p class="dashboard-card-subtitle" id="currentGameName">Loading...</p>
-                </div>
-                <div class="dashboard-streak-indicator" id="currentGameStreak" style="display: none;">
-                    <span id="currentStreakValue">0</span> day streak
-                </div>
-            </div>
-            
-            <div class="dashboard-stats-grid" id="currentGameStats">
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read in this game">
-                    <span class="dashboard-stat-value" id="currentTotalChars">-</span>
-                    <span class="dashboard-stat-label">Characters</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total time spent reading this game">
-                    <span class="dashboard-stat-value" id="currentTotalTime">-</span>
-                    <span class="dashboard-stat-label">Time Spent</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Average reading speed for this game">
-                    <span class="dashboard-stat-value" id="currentReadingSpeed">-</span>
-                    <span class="dashboard-stat-label">Chars/Hour</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Number of reading sessions for this game">
-                    <span class="dashboard-stat-value" id="currentSessions">-</span>
-                    <span class="dashboard-stat-label">Sessions</span>
-                </div>
-            </div>
-            
-            <div class="dashboard-progress-section">
-                <div class="dashboard-progress-title">Recent Progress</div>
-                <div class="dashboard-progress-items">
-                    <div class="dashboard-progress-item">
-                        <div class="dashboard-progress-value positive" id="currentMonthlyChars">-</div>
-                        <div class="dashboard-progress-label">Monthly Characters</div>
-                    </div>
-                    <div class="dashboard-progress-item">
-                        <div class="dashboard-progress-value neutral" id="currentFirstDate">-</div>
-                        <div class="dashboard-progress-label">Started</div>
-                    </div>
-                    <div class="dashboard-progress-item">
-                        <div class="dashboard-progress-value neutral" id="currentLastDate">-</div>
-                        <div class="dashboard-progress-label">Last Activity</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+document.addEventListener('DOMContentLoaded', function () {
+    // Helper function to create a chart to avoid repeating code
+    function createChart(canvasId, datasets, chartTitle) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: datasets.labels,
+                datasets: datasets.datasets
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: chartTitle
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Cumulative Count'
+                        }
+                    },
+                    x: {
+                         title: {
+                            display: true,
+                            text: 'Date'
+                        }
+                    }
+                }
+            }
+        });
+    }
 
-        <!-- All Games Historical Overview -->
-        <div class="dashboard-card all-games" id="allGamesCard">
-            <div class="dashboard-card-header">
-                <div>
-                    <h3 class="dashboard-card-title">
-                        <span class="dashboard-card-icon">📚</span>
-                        All Games Overview
-                    </h3>
-                    <p class="dashboard-card-subtitle" id="totalGamesCount">Loading...</p>
-                </div>
-                <div class="dashboard-streak-indicator" id="allGamesStreak" style="display: none;">
-                    <span id="allStreakValue">0</span> day streak
-                </div>
-            </div>
-            
-            <div class="dashboard-stats-grid" id="allGamesStats">
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read across all games">
-                    <span class="dashboard-stat-value" id="allTotalChars">-</span>
-                    <span class="dashboard-stat-label">Characters</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total time spent reading across all games">
-                    <span class="dashboard-stat-value" id="allTotalTime">-</span>
-                    <span class="dashboard-stat-label">Time Spent</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Overall average reading speed">
-                    <span class="dashboard-stat-value" id="allReadingSpeed">-</span>
-                    <span class="dashboard-stat-label">Chars/Hour</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total number of reading sessions">
-                    <span class="dashboard-stat-value" id="allSessions">-</span>
-                    <span class="dashboard-stat-label">Sessions</span>
-                </div>
-            </div>
-            
-            <div class="dashboard-progress-section">
-                <div class="dashboard-progress-title">Overall Progress</div>
-                <div class="dashboard-progress-items">
-                    <div class="dashboard-progress-item">
-                        <div class="dashboard-progress-value positive" id="allMonthlyChars">-</div>
-                        <div class="dashboard-progress-label">Monthly Characters</div>
-                    </div>
-                    <div class="dashboard-progress-item">
-                        <div class="dashboard-progress-value neutral" id="allUniqueGames">-</div>
-                        <div class="dashboard-progress-label">Games Played</div>
-                    </div>
-                    <div class="dashboard-progress-item">
-                        <div class="dashboard-progress-value neutral" id="allTotalSentences">-</div>
-                        <div class="dashboard-progress-label">Total Sentences</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Loading/Error states for dashboard -->
-    <div class="dashboard-loading" id="dashboardLoading" style="display: none;">
-        <div class="spinner"></div>
-        <span>Loading dashboard statistics...</span>
-    </div>
-
-    <div class="dashboard-error" id="dashboardError" style="display: none;">
-        <div class="dashboard-error-icon">⚠️</div>
-        <div class="dashboard-error-message">Failed to load dashboard statistics</div>
-        <button class="dashboard-retry-btn" data-action="loadDashboardData">Retry</button>
-    </div>
-
-    <div class="chart-container">
-        <h2>Lines Received Over Time</h2>
-        <canvas id="linesChart"></canvas>
-    </div>
-
-    <div class="chart-container">
-        <h2>Characters Read Over Time</h2>
-        <canvas id="charsChart"></canvas>
-    </div>
-
-    <div class="chart-container">
-        <h2>Reading Activity Heatmap</h2>
-        <div id="heatmapContainer"></div>
-    </div>
-
-
-    <div class="chart-container">
-        <h2>Reading Chars Quantity</h2>
-        <canvas id="readingCharsChart"></canvas>
-    </div>
-
-    <div class="chart-container">
-        <h2>Reading Time Quantity</h2>
-        <canvas id="readingTimeChart"></canvas>
-    </div>
-
-    <div class="chart-container">
-        <h2>Reading Speed Improvement</h2>
-        <canvas id="readingSpeedPerGameChart"></canvas>
-    </div>
-
-    <div class="chart-container">
-        <h2>Kanji Grid</h2>
-        <div id="kanjiGridContainer">
-            <div id="kanjiCounter" class="kanji-counter">
-                Unique Kanji Seen: <span id="kanjiCount">0</span>
-            </div>
-            <div id="kanjiGrid" class="kanji-grid"></div>
-            <div class="kanji-legend">
-                <span>Rarely Seen</span>
-                <div class="kanji-legend-item" style="background-color: #ebedf0;" title="No encounters"></div>
-                <div class="kanji-legend-item" style="background-color: #e6342e;" title="Seen once"></div>
-                <div class="kanji-legend-item" style="background-color: #e6dc2e;" title="Occasionally seen"></div>
-                <div class="kanji-legend-item" style="background-color: #3be62f;" title="Frequently seen"></div>
-                <div class="kanji-legend-item" style="background-color: #2ee6e0;" title="Most frequently seen"></div>
-                <span>Frequently Seen</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Delete Game Entry Section -->
-    <div class="chart-container">
-        <h2>Delete Game Entries</h2>
-        <div id="deleteGameSection">
-            <!-- Control Buttons -->
-            <div class="delete-controls">
-                <button id="selectAllBtn" class="control-btn">Select All</button>
-                <button id="selectNoneBtn" class="control-btn">Select None</button>
-                <button id="deleteSelectedBtn" class="delete-btn" disabled>Delete Selected Games</button>
-            </div>
-            
-            <!-- Loading Indicator -->
-            <div id="loadingIndicator" class="loading-indicator" style="display: none;">
-                <div class="spinner"></div>
-                <span>Loading games...</span>
-            </div>
-            
-            <!-- Games Table Container -->
-            <div id="gamesTableContainer" class="table-container">
-                <table id="gamesTable" class="games-table">
-                    <thead>
-                        <tr>
-                            <th class="checkbox-col">
-                                <input type="checkbox" id="headerCheckbox" title="Select/Deselect All">
-                            </th>
-                            <th>Game Name</th>
-                            <th>Sentences</th>
-                            <th>Characters</th>
-                            <th>Date Range</th>
-                            <th>First Entry</th>
-                            <th>Last Entry</th>
-                        </tr>
-                    </thead>
-                    <tbody id="gamesTableBody">
-                        <!-- Game rows will be populated by JavaScript -->
-                    </tbody>
-                </table>
-                
-                <!-- No Games Message -->
-                <div id="noGamesMessage" class="no-games-message" style="display: none;">
-                    <p>No games found in the database.</p>
-                </div>
-                
-                <!-- Error Message -->
-                <div id="errorMessage" class="error-message" style="display: none;">
-                    <p id="errorText">Failed to load games. Please try again.</p>
-                    <button id="retryBtn" class="retry-btn">Retry</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Confirmation Modal -->
-    <div id="confirmationModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Confirm Deletion</h3>
-                <span class="close-btn" id="closeModal">&times;</span>
-            </div>
-            <div class="modal-body">
-                <p class="warning-text">You are about to permanently delete the following games and all their associated sentences:</p>
-                <div id="selectedGamesList" class="selected-games-list">
-                    <!-- Selected games will be listed here -->
-                </div>
-                <div class="deletion-summary">
-                    <p><strong>Total Games:</strong> <span id="totalGamesCount">0</span></p>
-                    <p><strong>Total Sentences:</strong> <span id="totalSentencesCount">0</span></p>
-                    <p><strong>Total Characters:</strong> <span id="totalCharactersCount">0</span></p>
-                </div>
-                <p class="final-warning">This action cannot be undone. Are you sure you want to proceed?</p>
-            </div>
-            <div class="modal-footer">
-                <button id="cancelDeleteBtn" class="cancel-btn">Cancel</button>
-                <button id="confirmDeleteBtn" class="confirm-delete-btn">Yes, Delete Games</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Deletion Progress Modal -->
-    <div id="progressModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Deleting Games</h3>
-            </div>
-            <div class="modal-body">
-                <div class="progress-container">
-                    <div class="spinner large"></div>
-                    <p id="progressText">Deleting games, please wait...</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Success/Result Modal -->
-    <div id="resultModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="resultTitle">Deletion Complete</h3>
-                <span class="close-btn" id="closeResultModal">&times;</span>
-            </div>
-            <div class="modal-body">
-                <div id="resultContent">
-                    <!-- Result details will be populated by JavaScript -->
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button id="okBtn" class="ok-btn">OK</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Settings Modal -->
-    <div id="settingsModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Statistics Settings</h3>
-                <span class="close-btn" id="closeSettingsModal">&times;</span>
-            </div>
-            <div class="modal-body">
-                <p style="color: var(--text-secondary); margin-bottom: 20px;">
-                    Configure how reading time and sessions are calculated for your statistics.
-                </p>
-                
-                <form id="settingsForm">
-                    <div style="margin-bottom: 20px;">
-                        <label for="afkTimer" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                            AFK Timer (seconds)
-                        </label>
-                        <input
-                            type="number"
-                            id="afkTimer"
-                            name="afk_timer_seconds"
-                            min="30"
-                            max="600"
-                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                            placeholder="120"
-                        >
-                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                            Maximum time between activities that still counts as active reading (30-600 seconds)
-                        </small>
-                    </div>
-                    
-                    <div style="margin-bottom: 20px;">
-                        <label for="sessionGap" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                            Session Gap (seconds)
-                        </label>
-                        <input
-                            type="number"
-                            id="sessionGap"
-                            name="session_gap_seconds"
-                            min="300"
-                            max="7200"
-                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                            placeholder="3600"
-                        >
-                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                            Time gap that triggers a new reading session (5 minutes to 2 hours)
-                        </small>
-                    </div>
-
-                    <div style="margin-bottom: 20px;">
-                        <label for="heatmapYear" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                            Heatmap Display Year
-                        </label>
-                        <select
-                            id="heatmapYear"
-                            name="heatmap_year"
-                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                        >
-                            <option value="all">All Years</option>
-                        </select>
-                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                            Select which year to display in the reading activity heatmap
-                        </small>
-                    </div>
-
-                    <div style="margin-bottom: 20px;">
-                        <label for="streakRequirement" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                            Streak Requirement (hours)
-                        </label>
-                        <input
-                            type="number"
-                            id="streakRequirement"
-                            name="streak_requirement_hours"
-                            min="0.01"
-                            max="24"
-                            step="0.01"
-                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                            placeholder="1.0"
-                        >
-                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                            Minimum hours of reading activity required to maintain streak (0.01-24 hours)
-                        </small>
-                    </div>
-                </form>
-                
-                <div id="settingsError" style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;"></div>
-                <div id="settingsSuccess" style="display: none; background: var(--success-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;"></div>
-            </div>
-            <div class="modal-footer">
-                <button id="cancelSettingsBtn" class="cancel-btn">Cancel</button>
-                <button id="saveSettingsBtn" class="confirm-delete-btn">Save Settings</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-
-<!-- Include shared JavaScript -->
-<script src="/static/js/shared.js"></script>
-<script src="/static/js/stats.js"></script>
-
-</body>
-</html>
+    // Helper function to get week number of year (GitHub style - week starts on Sunday)
     function getWeekOfYear(date) {
         const yearStart = new Date(date.getFullYear(), 0, 1);
         const dayOfYear = Math.floor((date - yearStart) / (24 * 60 * 60 * 1000)) + 1;
@@ -920,9 +553,6 @@
         return `Speed: ${charsPerHour.toLocaleString()} chars/hour`;
     }
 
-
-
-
     // Function to create kanji grid
     function createKanjiGrid(kanjiData) {
         const container = document.getElementById('kanjiGrid');
@@ -1199,29 +829,27 @@
     }
 
     // Add click animations for dashboard stat items
-    document.addEventListener('DOMContentLoaded', function() {
-        const statItems = document.querySelectorAll('.dashboard-stat-item');
-        statItems.forEach(item => {
-            item.addEventListener('click', function() {
-                // Add click animation
-                this.style.transform = 'scale(0.95)';
-                setTimeout(() => {
-                    this.style.transform = '';
-                }, 150);
-            });
+    const statItems = document.querySelectorAll('.dashboard-stat-item');
+    statItems.forEach(item => {
+        item.addEventListener('click', function() {
+            // Add click animation
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.transform = '';
+            }, 150);
         });
+    });
 
-        // Add accessibility improvements
-        statItems.forEach(item => {
-            item.setAttribute('tabindex', '0');
-            item.setAttribute('role', 'button');
-            
-            item.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    this.click();
-                }
-            });
+    // Add accessibility improvements
+    statItems.forEach(item => {
+        item.setAttribute('tabindex', '0');
+        item.setAttribute('role', 'button');
+        
+        item.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                this.click();
+            }
         });
     });
 
@@ -1337,7 +965,7 @@
                     <td class="checkbox-cell">
                         <input type="checkbox" class="game-checkbox" data-game="${game.name}">
                     </td>
-                    <td><strong>${this.escapeHtml(game.name)}</strong></td>
+                    <td><strong>${escapeHtml(game.name)}</strong></td>
                     <td>${game.sentence_count.toLocaleString()}</td>
                     <td>${game.total_characters.toLocaleString()}</td>
                     <td>${game.date_range}</td>
@@ -1452,7 +1080,7 @@
                 gameItem.className = 'game-item';
                 gameItem.innerHTML = `
                     <div>
-                        <div class="game-name">${this.escapeHtml(game.name)}</div>
+                        <div class="game-name">${escapeHtml(game.name)}</div>
                         <div class="game-stats">${game.date_range}</div>
                     </div>
                     <div class="game-stats">
@@ -1533,7 +1161,7 @@
                     <div style="margin-top: 15px;">
                         <strong>Failed games:</strong>
                         <ul style="margin: 10px 0; padding-left: 20px;">
-                            ${result.failed_games.map(game => `<li>${this.escapeHtml(game)}</li>`).join('')}
+                            ${result.failed_games.map(game => `<li>${escapeHtml(game)}</li>`).join('')}
                         </ul>
                     </div>
                 `;
@@ -1544,7 +1172,7 @@
                 content = `
                     <div class="error-result">
                         <p>❌ Failed to delete games</p>
-                        <p><strong>Error:</strong> ${this.escapeHtml(result.error || 'Unknown error occurred')}</p>
+                        <p><strong>Error:</strong> ${escapeHtml(result.error || 'Unknown error occurred')}</p>
                     </div>
                 `;
             }
@@ -1577,17 +1205,17 @@
         showLoading(show) {
             this.isLoading = show;
             if (show) {
-                this.showElement(this.loadingIndicator);
-                this.hideElement(this.gamesTableBody.parentElement);
+                showElement(this.loadingIndicator);
+                hideElement(this.gamesTableBody.parentElement);
             } else {
-                this.hideElement(this.loadingIndicator);
-                this.showElement(this.gamesTableBody.parentElement);
+                hideElement(this.loadingIndicator);
+                showElement(this.gamesTableBody.parentElement);
             }
         }
         
         showError(message) {
             document.getElementById('errorText').textContent = message;
-            this.showElement(this.errorMessage);
+            showElement(this.errorMessage);
         }
         
         showElement(element) {
@@ -1597,219 +1225,8 @@
         hideElement(element) {
             element.style.display = 'none';
         }
-        
-        escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
     }
     
     // Initialize the deletion manager
     new GameDeletionManager();
-
-
-    // Settings Modal Functionality
-    class SettingsManager {
-        constructor() {
-            this.initializeElements();
-            this.attachEventListeners();
-        }
-        
-        initializeElements() {
-            this.settingsToggle = document.getElementById('settingsToggle');
-            this.settingsModal = document.getElementById('settingsModal');
-            this.closeSettingsModal = document.getElementById('closeSettingsModal');
-            this.cancelSettingsBtn = document.getElementById('cancelSettingsBtn');
-            this.saveSettingsBtn = document.getElementById('saveSettingsBtn');
-            this.afkTimerInput = document.getElementById('afkTimer');
-            this.sessionGapInput = document.getElementById('sessionGap');
-            this.heatmapYearSelect = document.getElementById('heatmapYear');
-            this.settingsError = document.getElementById('settingsError');
-            this.settingsSuccess = document.getElementById('settingsSuccess');
-        }
-        
-        attachEventListeners() {
-            this.settingsToggle.addEventListener('click', () => this.openModal());
-            this.closeSettingsModal.addEventListener('click', () => this.closeModal());
-            this.cancelSettingsBtn.addEventListener('click', () => this.closeModal());
-            this.saveSettingsBtn.addEventListener('click', () => this.saveSettings());
-            
-            // Close modal when clicking outside
-            this.settingsModal.addEventListener('click', (e) => {
-                if (e.target === this.settingsModal) {
-                    this.closeModal();
-                }
-            });
-            
-            // Clear messages when user starts typing
-            [this.afkTimerInput, this.sessionGapInput, this.heatmapYearSelect].forEach(input => {
-                input.addEventListener('input', () => this.clearMessages());
-            });
-            
-            // Handle year selection change
-            this.heatmapYearSelect.addEventListener('change', (e) => {
-                const selectedYear = e.target.value;
-                localStorage.setItem('selectedHeatmapYear', selectedYear);
-                this.refreshHeatmapData(selectedYear);
-            });
-        }
-        
-        async openModal() {
-            try {
-                await this.loadCurrentSettings();
-                await this.loadAvailableYears();
-                this.showModal();
-            } catch (error) {
-                console.error('Error opening settings modal:', error);
-                this.showError('Failed to load current settings');
-            }
-        }
-        
-        closeModal() {
-            this.hideModal();
-            this.clearMessages();
-        }
-        
-        showModal() {
-            this.settingsModal.classList.add('show');
-            this.settingsModal.style.display = 'flex';
-        }
-        
-        hideModal() {
-            this.settingsModal.classList.remove('show');
-            this.settingsModal.style.display = 'none';
-        }
-        
-        async loadCurrentSettings() {
-            const response = await fetch('/api/settings');
-            if (!response.ok) {
-                throw new Error('Failed to fetch settings');
-            }
-            
-            const settings = await response.json();
-            this.afkTimerInput.value = settings.afk_timer_seconds;
-            this.sessionGapInput.value = settings.session_gap_seconds;
-            
-            // Load saved year preference
-            const savedYear = localStorage.getItem('selectedHeatmapYear') || 'all';
-            this.heatmapYearSelect.value = savedYear;
-        }
-        
-        async loadAvailableYears() {
-            try {
-                const response = await fetch('/api/stats');
-                if (!response.ok) throw new Error('Failed to fetch stats');
-                
-                const data = await response.json();
-                const availableYears = Object.keys(data.heatmapData || {}).sort().reverse();
-                
-                // Clear existing options except "All Years"
-                this.heatmapYearSelect.innerHTML = '<option value="all">All Years</option>';
-                
-                // Add available years
-                availableYears.forEach(year => {
-                    const option = document.createElement('option');
-                    option.value = year;
-                    option.textContent = year;
-                    this.heatmapYearSelect.appendChild(option);
-                });
-                
-                // Restore saved selection
-                const savedYear = localStorage.getItem('selectedHeatmapYear') || 'all';
-                this.heatmapYearSelect.value = savedYear;
-                
-            } catch (error) {
-                console.error('Error loading available years:', error);
-            }
-        }
-        
-        async refreshHeatmapData(selectedYear) {
-            try {
-                await loadStatsData(selectedYear);
-            } catch (error) {
-                console.error('Error refreshing heatmap data:', error);
-            }
-        }
-        
-        async saveSettings() {
-            try {
-                this.clearMessages();
-                
-                const afkTimer = parseInt(this.afkTimerInput.value);
-                const sessionGap = parseInt(this.sessionGapInput.value);
-                
-                // Client-side validation
-                if (isNaN(afkTimer) || afkTimer < 30 || afkTimer > 600) {
-                    this.showError('AFK timer must be between 30 and 600 seconds');
-                    return;
-                }
-                
-                if (isNaN(sessionGap) || sessionGap < 300 || sessionGap > 7200) {
-                    this.showError('Session gap must be between 300 and 7200 seconds');
-                    return;
-                }
-                
-                // Show loading state
-                this.saveSettingsBtn.disabled = true;
-                this.saveSettingsBtn.textContent = 'Saving...';
-                
-                const response = await fetch('/api/settings', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        afk_timer_seconds: afkTimer,
-                        session_gap_seconds: sessionGap
-                    })
-                });
-                
-                const result = await response.json();
-                
-                if (!response.ok) {
-                    throw new Error(result.error || 'Failed to save settings');
-                }
-                
-                this.showSuccess('Settings saved successfully! Changes will apply to new calculations.');
-                
-                // Auto-close modal after 2 seconds
-                setTimeout(() => {
-                    this.closeModal();
-                }, 2000);
-                
-            } catch (error) {
-                console.error('Error saving settings:', error);
-                this.showError(error.message || 'Failed to save settings');
-            } finally {
-                // Reset button state
-                this.saveSettingsBtn.disabled = false;
-                this.saveSettingsBtn.textContent = 'Save Settings';
-            }
-        }
-        
-        showError(message) {
-            this.settingsError.textContent = message;
-            this.settingsError.style.display = 'block';
-            this.settingsSuccess.style.display = 'none';
-        }
-        
-        showSuccess(message) {
-            this.settingsSuccess.textContent = message;
-            this.settingsSuccess.style.display = 'block';
-            this.settingsError.style.display = 'none';
-        }
-        
-        clearMessages() {
-            this.settingsError.style.display = 'none';
-            this.settingsSuccess.style.display = 'none';
-        }
-    }
-    
-    // Initialize settings manager
-    new SettingsManager();
 });
-</script>
-
-</body>
-</html>

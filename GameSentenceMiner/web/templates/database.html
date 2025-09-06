@@ -9,358 +9,8 @@
     <!-- Include shared theme styles -->
     {% include 'components/theme-styles.html' %}
     
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            margin: 0;
-            padding: 20px;
-            transition: background-color 0.3s ease, color 0.3s ease;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: auto;
-        }
-
-        h1 {
-            text-align: center;
-            color: var(--text-secondary);
-            margin-bottom: 30px;
-        }
-
-        .management-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 30px;
-            margin-bottom: 40px;
-        }
-
-        .management-card {
-            background: var(--bg-secondary);
-            border-radius: 12px;
-            box-shadow: 0 4px 16px var(--shadow-color);
-            border: 1px solid var(--border-color);
-            padding: 24px;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .management-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 24px var(--shadow-color);
-        }
-
-        .management-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            border-radius: 12px 12px 0 0;
-        }
-
-        .management-card.games::before {
-            background: linear-gradient(90deg, var(--danger-color), #ff8a80);
-        }
-
-
-        .management-card.text-lines::before {
-            background: linear-gradient(90deg, var(--warning-color), #ffb74d);
-        }
-
-        .management-card.deduplication::before {
-            background: linear-gradient(90deg, var(--success-color), #a5d6a7);
-        }
-
-        .card-header {
-            display: flex;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .card-icon {
-            font-size: 32px;
-            margin-right: 15px;
-        }
-
-        .card-title {
-            font-size: 24px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin: 0;
-        }
-
-        .card-description {
-            color: var(--text-secondary);
-            margin-bottom: 20px;
-            line-height: 1.5;
-        }
-
-        .card-actions {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .action-btn {
-            padding: 12px 20px;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-        }
-
-        .action-btn.primary {
-            background-color: var(--accent-color);
-            color: white;
-        }
-
-        .action-btn.primary:hover {
-            background-color: #0056b3;
-            transform: translateY(-1px);
-        }
-
-        .action-btn.danger {
-            background-color: var(--danger-color);
-            color: white;
-        }
-
-        .action-btn.danger:hover {
-            background-color: #c82333;
-            transform: translateY(-1px);
-        }
-
-        .action-btn.warning {
-            background-color: var(--warning-color);
-            color: #333;
-        }
-
-        .action-btn.warning:hover {
-            background-color: #e0a800;
-            transform: translateY(-1px);
-        }
-
-        .action-btn.success {
-            background-color: var(--success-color);
-            color: white;
-        }
-
-        .action-btn.success:hover {
-            background-color: #218838;
-            transform: translateY(-1px);
-        }
-
-        .stats-row {
-            display: flex;
-            justify-content: space-between;
-            margin: 10px 0;
-            padding: 8px 0;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .stats-row:last-child {
-            border-bottom: none;
-        }
-
-        .stats-label {
-            color: var(--text-secondary);
-            font-weight: 500;
-        }
-
-        .stats-value {
-            color: var(--text-primary);
-            font-weight: 600;
-        }
-
-        /* Modal Styles */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.7);
-            justify-content: center;
-            align-items: center;
-        }
-
-        .modal.show {
-            display: flex;
-        }
-
-        .modal-content {
-            background-color: var(--bg-secondary);
-            border-radius: 8px;
-            box-shadow: 0 4px 20px var(--shadow-color);
-            max-width: 600px;
-            width: 90%;
-            max-height: 80vh;
-            overflow-y: auto;
-            color: var(--text-primary);
-            border: 1px solid var(--border-color);
-        }
-
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 20px;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .modal-header h3 {
-            margin: 0;
-            color: var(--text-primary);
-        }
-
-        .close-btn {
-            background: none;
-            border: none;
-            font-size: 24px;
-            color: var(--text-tertiary);
-            cursor: pointer;
-            transition: color 0.3s ease;
-        }
-
-        .close-btn:hover {
-            color: var(--text-primary);
-        }
-
-        .modal-body {
-            padding: 20px;
-        }
-
-        .modal-footer {
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-            padding: 20px;
-            border-top: 1px solid var(--border-color);
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .form-input, .form-textarea {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid var(--border-color);
-            border-radius: 5px;
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            font-size: 14px;
-            box-sizing: border-box;
-        }
-
-        .form-textarea {
-            resize: vertical;
-            min-height: 100px;
-        }
-
-        .form-input:focus, .form-textarea:focus {
-            outline: none;
-            border-color: var(--accent-color);
-            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
-        }
-
-        .checkbox-container {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 10px;
-        }
-
-        .checkbox-input {
-            width: 16px;
-            height: 16px;
-        }
-
-        .checkbox-label {
-            color: var(--text-primary);
-            font-size: 14px;
-        }
-
-        .warning-text {
-            color: var(--warning-color);
-            font-weight: 600;
-            margin-bottom: 15px;
-        }
-
-        .error-text {
-            color: var(--danger-color);
-            font-weight: 600;
-            margin-bottom: 15px;
-        }
-
-        .success-text {
-            color: var(--success-color);
-            font-weight: 600;
-            margin-bottom: 15px;
-        }
-
-        .loading-indicator {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 40px;
-            color: var(--text-tertiary);
-        }
-
-        .spinner {
-            border: 3px solid var(--border-color);
-            border-top: 3px solid var(--success-color);
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-            margin-right: 10px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        @media (max-width: 768px) {
-            .management-grid {
-                grid-template-columns: 1fr;
-                gap: 20px;
-            }
-
-            .card-actions {
-                gap: 8px;
-            }
-
-            .action-btn {
-                padding: 10px 16px;
-                font-size: 13px;
-            }
-
-            .modal-content {
-                width: 95%;
-                margin: 10px;
-            }
-        }
-    </style>
+    <!-- Include shared CSS -->
+    <link rel="stylesheet" href="/static/css/shared.css">
 </head>
 <body>
 
@@ -389,7 +39,7 @@
                 <span class="stats-value" id="totalSentencesCount">Loading...</span>
             </div>
             <div class="card-actions">
-                <button class="action-btn danger" onclick="openGameDeletionModal()">
+                <button class="action-btn danger" data-action="openGameDeletionModal">
                     Delete Games
                 </button>
             </div>
@@ -410,7 +60,7 @@
                 <span class="stats-value" id="lastCleanupDate">Never</span>
             </div>
             <div class="card-actions">
-                <button class="action-btn warning" onclick="openTextLinesModal()">
+                <button class="action-btn warning" data-action="openTextLinesModal">
                     Delete Text Lines
                 </button>
             </div>
@@ -430,7 +80,7 @@
                 <span class="stats-value" id="duplicatesCount">Calculating...</span>
             </div>
             <div class="card-actions">
-                <button class="action-btn success" onclick="openDeduplicationModal()">
+                <button class="action-btn success" data-action="openDeduplicationModal">
                     Remove Duplicates
                 </button>
             </div>
@@ -443,7 +93,7 @@
     <div class="modal-content" style="max-width: 800px;">
         <div class="modal-header">
             <h3>Delete Games</h3>
-            <span class="close-btn" onclick="closeModal('gamesDeletionModal')">&times;</span>
+            <span class="close-btn" data-action="closeModal" data-modal="gamesDeletionModal">&times;</span>
         </div>
         <div class="modal-body">
             <p class="warning-text">Select games to delete. This will permanently remove all associated sentences and data.</p>
@@ -455,8 +105,8 @@
             
             <div id="gamesContent" style="display: none;">
                 <div style="margin-bottom: 20px;">
-                    <button class="action-btn primary" onclick="selectAllGames()">Select All</button>
-                    <button class="action-btn primary" onclick="selectNoGames()">Select None</button>
+                    <button class="action-btn primary" data-action="selectAllGames">Select All</button>
+                    <button class="action-btn primary" data-action="selectNoGames">Select None</button>
                 </div>
                 <div id="gamesList" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 5px; padding: 10px;">
                     <!-- Games will be populated here -->
@@ -464,8 +114,8 @@
             </div>
         </div>
         <div class="modal-footer">
-            <button class="action-btn" onclick="closeModal('gamesDeletionModal')">Cancel</button>
-            <button class="action-btn danger" id="deleteSelectedGamesBtn" onclick="deleteSelectedGames()" disabled>Delete Selected</button>
+            <button class="action-btn" data-action="closeModal" data-modal="gamesDeletionModal">Cancel</button>
+            <button class="action-btn danger" id="deleteSelectedGamesBtn" data-action="deleteSelectedGames" disabled>Delete Selected</button>
         </div>
     </div>
 </div>
@@ -476,14 +126,14 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3>Delete Text Lines</h3>
-            <span class="close-btn" onclick="closeModal('textLinesModal')">&times;</span>
+            <span class="close-btn" data-action="closeModal" data-modal="textLinesModal">&times;</span>
         </div>
         <div class="modal-body">
             <p class="warning-text">Remove specific lines of text from all games using preset patterns or custom regex. This operation cannot be undone.</p>
             
             <div class="form-group">
                 <label class="form-label">Preset Patterns:</label>
-                <select id="presetPatterns" class="form-input" onchange="applyPresetPattern()">
+                <select id="presetPatterns" class="form-input">
                     <option value="">Select a preset pattern...</option>
                     <option value="lines_over_50">Lines over 50 characters</option>
                     <option value="lines_over_100">Lines over 100 characters</option>
@@ -542,9 +192,9 @@
             <div id="textLinesSuccess" class="success-text" style="display: none;"></div>
         </div>
         <div class="modal-footer">
-            <button class="action-btn" onclick="closeModal('textLinesModal')">Cancel</button>
-            <button class="action-btn primary" onclick="previewTextDeletion()">Preview</button>
-            <button class="action-btn warning" id="executeDeleteBtn" onclick="deleteTextLines()" disabled>Delete Lines</button>
+            <button class="action-btn" data-action="closeModal" data-modal="textLinesModal">Cancel</button>
+            <button class="action-btn primary" data-action="previewTextDeletion">Preview</button>
+            <button class="action-btn warning" id="executeDeleteBtn" data-action="deleteTextLines" disabled>Delete Lines</button>
         </div>
     </div>
 </div>
@@ -554,7 +204,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3>Remove Duplicate Sentences</h3>
-            <span class="close-btn" onclick="closeModal('deduplicationModal')">&times;</span>
+            <span class="close-btn" data-action="closeModal" data-modal="deduplicationModal">&times;</span>
         </div>
         <div class="modal-body">
             <p class="warning-text">Remove duplicate sentences from selected games, keeping only the first occurrence of each unique sentence within a specified time window.</p>
@@ -612,516 +262,16 @@
             <div id="deduplicationSuccess" class="success-text" style="display: none;"></div>
         </div>
         <div class="modal-footer">
-            <button class="action-btn" onclick="closeModal('deduplicationModal')">Cancel</button>
-            <button class="action-btn primary" onclick="scanForDuplicates()">Scan for Duplicates</button>
-            <button class="action-btn success" id="removeDuplicatesBtn" onclick="removeDuplicates()" disabled>Remove Duplicates</button>
+            <button class="action-btn" data-action="closeModal" data-modal="deduplicationModal">Cancel</button>
+            <button class="action-btn primary" data-action="scanForDuplicates">Scan for Duplicates</button>
+            <button class="action-btn success" id="removeDuplicatesBtn" data-action="removeDuplicates" disabled>Remove Duplicates</button>
         </div>
     </div>
 </div>
 
 <!-- Include shared JavaScript -->
 <script src="/static/js/shared.js"></script>
-
-<script>
-// Database Management JavaScript
-class DatabaseManager {
-    constructor() {
-        this.selectedGames = new Set();
-        this.initializePage();
-    }
-    
-    async initializePage() {
-        await this.loadDashboardStats();
-    }
-    
-    async loadDashboardStats() {
-        try {
-            const response = await fetch('/api/games-list');
-            const data = await response.json();
-            
-            if (response.ok && data.games) {
-                const totalGames = data.games.length;
-                const totalSentences = data.games.reduce((sum, game) => sum + game.sentence_count, 0);
-                
-                document.getElementById('totalGamesCount').textContent = totalGames.toLocaleString();
-                document.getElementById('totalSentencesCount').textContent = totalSentences.toLocaleString();
-            }
-        } catch (error) {
-            console.error('Error loading dashboard stats:', error);
-            document.getElementById('totalGamesCount').textContent = 'Error';
-            document.getElementById('totalSentencesCount').textContent = 'Error';
-        }
-    }
-    
-}
-
-// Modal Management Functions
-function openModal(modalId) {
-    const modal = document.getElementById(modalId);
-    modal.classList.add('show');
-    modal.style.display = 'flex';
-}
-
-function closeModal(modalId) {
-    const modal = document.getElementById(modalId);
-    modal.classList.remove('show');
-    modal.style.display = 'none';
-}
-
-// Games Management Functions
-async function openGameDeletionModal() {
-    openModal('gamesDeletionModal');
-    await loadGamesForDeletion();
-}
-
-async function loadGamesForDeletion() {
-    const loadingIndicator = document.getElementById('gamesLoadingIndicator');
-    const content = document.getElementById('gamesContent');
-    const gamesList = document.getElementById('gamesList');
-    
-    loadingIndicator.style.display = 'flex';
-    content.style.display = 'none';
-    
-    try {
-        const response = await fetch('/api/games-list');
-        const data = await response.json();
-        
-        if (response.ok && data.games) {
-            gamesList.innerHTML = '';
-            
-            data.games.forEach(game => {
-                const gameItem = document.createElement('div');
-                gameItem.className = 'checkbox-container';
-                gameItem.innerHTML = `
-                    <input type="checkbox" class="checkbox-input game-checkbox" data-game="${escapeHtml(game.name)}" onchange="updateGameSelection()">
-                    <label class="checkbox-label">
-                        <strong>${escapeHtml(game.name)}</strong><br>
-                        <small style="color: var(--text-tertiary);">
-                            ${game.sentence_count} sentences, ${game.total_characters.toLocaleString()} characters
-                        </small>
-                    </label>
-                `;
-                gamesList.appendChild(gameItem);
-            });
-            
-            content.style.display = 'block';
-        }
-    } catch (error) {
-        console.error('Error loading games:', error);
-        gamesList.innerHTML = '<p class="error-text">Failed to load games</p>';
-        content.style.display = 'block';
-    } finally {
-        loadingIndicator.style.display = 'none';
-    }
-}
-
-function selectAllGames() {
-    document.querySelectorAll('.game-checkbox').forEach(cb => {
-        cb.checked = true;
-    });
-    updateGameSelection();
-}
-
-function selectNoGames() {
-    document.querySelectorAll('.game-checkbox').forEach(cb => {
-        cb.checked = false;
-    });
-    updateGameSelection();
-}
-
-function updateGameSelection() {
-    const selectedCheckboxes = document.querySelectorAll('.game-checkbox:checked');
-    const deleteBtn = document.getElementById('deleteSelectedGamesBtn');
-    
-    deleteBtn.disabled = selectedCheckboxes.length === 0;
-    deleteBtn.textContent = selectedCheckboxes.length > 0 
-        ? `Delete Selected (${selectedCheckboxes.length})` 
-        : 'Delete Selected';
-}
-
-async function deleteSelectedGames() {
-    const selectedCheckboxes = document.querySelectorAll('.game-checkbox:checked');
-    const gameNames = Array.from(selectedCheckboxes).map(cb => cb.dataset.game);
-    
-    if (gameNames.length === 0) return;
-    
-    if (!confirm(`Are you sure you want to delete ${gameNames.length} game(s)? This action cannot be undone.`)) {
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/delete-games', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ game_names: gameNames })
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            alert(`Successfully deleted ${result.successful_games.length} games!`);
-            closeModal('gamesDeletionModal');
-            await databaseManager.loadDashboardStats();
-        } else {
-            alert(`Error: ${result.error}`);
-        }
-    } catch (error) {
-        console.error('Error deleting games:', error);
-        alert('Failed to delete games');
-    }
-}
-
-
-// Text Lines Functions
-function openTextLinesModal() {
-    openModal('textLinesModal');
-    // Reset the modal state
-    document.getElementById('presetPatterns').value = '';
-    document.getElementById('customRegex').value = '';
-    document.getElementById('textToDelete').value = '';
-    document.getElementById('previewDeleteResults').style.display = 'none';
-    document.getElementById('executeDeleteBtn').disabled = true;
-}
-
-// Preset pattern definitions
-const presetPatterns = {
-    'lines_over_50': '.{51,}',
-    'lines_over_100': '.{101,}',
-    'non_japanese': '^[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]*$',
-    'ascii_only': '^[\x00-\x7F]*$',
-    'empty_lines': '^\s*$',
-    'numbers_only': '^\d+$',
-    'single_char': '^.{1}$',
-    'repeated_chars': '(.)\\1{2,}'
-};
-
-function applyPresetPattern() {
-    const selectedPattern = document.getElementById('presetPatterns').value;
-    const customRegexInput = document.getElementById('customRegex');
-    const useRegexCheckbox = document.getElementById('useRegexDelete');
-    
-    if (selectedPattern && presetPatterns[selectedPattern]) {
-        customRegexInput.value = presetPatterns[selectedPattern];
-        useRegexCheckbox.checked = true;
-        // Clear preview when pattern changes
-        document.getElementById('previewDeleteResults').style.display = 'none';
-        document.getElementById('executeDeleteBtn').disabled = true;
-    }
-}
-
-async function previewTextDeletion() {
-    const customRegex = document.getElementById('customRegex').value;
-    const textToDelete = document.getElementById('textToDelete').value;
-    const caseSensitive = document.getElementById('caseSensitiveDelete').checked;
-    const useRegex = document.getElementById('useRegexDelete').checked;
-    const errorDiv = document.getElementById('textLinesError');
-    const previewDiv = document.getElementById('previewDeleteResults');
-    
-    errorDiv.style.display = 'none';
-    previewDiv.style.display = 'none';
-    
-    // Validate input
-    if (!customRegex.trim() && !textToDelete.trim()) {
-        errorDiv.textContent = 'Please enter either a regex pattern or exact text to delete';
-        errorDiv.style.display = 'block';
-        return;
-    }
-    
-    try {
-        // Prepare request data
-        const requestData = {
-            regex_pattern: customRegex.trim() || null,
-            exact_text: textToDelete.trim() ? textToDelete.split('\n').filter(line => line.trim()) : null,
-            case_sensitive: caseSensitive,
-            use_regex: useRegex,
-            preview_only: true
-        };
-        
-        const response = await fetch('/api/preview-text-deletion', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            // Show preview results
-            document.getElementById('previewDeleteCount').textContent = result.count.toLocaleString();
-            
-            const samplesDiv = document.getElementById('previewDeleteSamples');
-            if (result.samples && result.samples.length > 0) {
-                samplesDiv.innerHTML = '<strong>Sample matches:</strong><br>' +
-                    result.samples.slice(0, 5).map(sample =>
-                        `<div style="font-size: 12px; color: var(--text-tertiary); margin: 5px 0; padding: 5px; background: var(--bg-secondary); border-radius: 3px;">${escapeHtml(sample)}</div>`
-                    ).join('');
-            } else {
-                samplesDiv.innerHTML = '<em>No matches found</em>';
-            }
-            
-            previewDiv.style.display = 'block';
-            document.getElementById('executeDeleteBtn').disabled = result.count === 0;
-        } else {
-            errorDiv.textContent = result.error || 'Failed to preview deletion';
-            errorDiv.style.display = 'block';
-        }
-    } catch (error) {
-        console.error('Error previewing text deletion:', error);
-        // For now, show a placeholder since backend isn't implemented yet
-        errorDiv.textContent = 'Preview feature ready - backend endpoint needed';
-        errorDiv.style.display = 'block';
-    }
-}
-
-async function deleteTextLines() {
-    const customRegex = document.getElementById('customRegex').value;
-    const textToDelete = document.getElementById('textToDelete').value;
-    const caseSensitive = document.getElementById('caseSensitiveDelete').checked;
-    const useRegex = document.getElementById('useRegexDelete').checked;
-    const errorDiv = document.getElementById('textLinesError');
-    const successDiv = document.getElementById('textLinesSuccess');
-    
-    errorDiv.style.display = 'none';
-    successDiv.style.display = 'none';
-    
-    if (!customRegex.trim() && !textToDelete.trim()) {
-        errorDiv.textContent = 'Please enter either a regex pattern or exact text to delete';
-        errorDiv.style.display = 'block';
-        return;
-    }
-    
-    if (!confirm('This will permanently delete the selected text lines. Continue?')) {
-        return;
-    }
-    
-    try {
-        const requestData = {
-            regex_pattern: customRegex.trim() || null,
-            exact_text: textToDelete.trim() ? textToDelete.split('\n').filter(line => line.trim()) : null,
-            case_sensitive: caseSensitive,
-            use_regex: useRegex,
-            preview_only: false
-        };
-        
-        const response = await fetch('/api/delete-text-lines', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            successDiv.textContent = `Successfully deleted ${result.deleted_count} text lines!`;
-            successDiv.style.display = 'block';
-            // Refresh dashboard stats
-            await databaseManager.loadDashboardStats();
-        } else {
-            errorDiv.textContent = result.error || 'Failed to delete text lines';
-            errorDiv.style.display = 'block';
-        }
-    } catch (error) {
-        console.error('Error deleting text lines:', error);
-        // Placeholder for development
-        successDiv.textContent = 'Text line deletion feature ready - backend endpoint needed';
-        successDiv.style.display = 'block';
-    }
-}
-
-// Deduplication Functions
-async function openDeduplicationModal() {
-    openModal('deduplicationModal');
-    await loadGamesForDeduplication();
-    // Reset modal state
-    document.getElementById('timeWindow').value = '5';
-    document.getElementById('deduplicationStats').style.display = 'none';
-    document.getElementById('removeDuplicatesBtn').disabled = true;
-}
-
-async function loadGamesForDeduplication() {
-    try {
-        const response = await fetch('/api/games-list');
-        const data = await response.json();
-        
-        if (response.ok && data.games) {
-            const gameSelect = document.getElementById('gameSelection');
-            // Keep "All Games" option and add individual games
-            gameSelect.innerHTML = '<option value="all">All Games</option>';
-            
-            data.games.forEach(game => {
-                const option = document.createElement('option');
-                option.value = game.name;
-                option.textContent = `${game.name} (${game.sentence_count} sentences)`;
-                gameSelect.appendChild(option);
-            });
-        }
-    } catch (error) {
-        console.error('Error loading games for deduplication:', error);
-    }
-}
-
-async function scanForDuplicates() {
-    const selectedGames = Array.from(document.getElementById('gameSelection').selectedOptions).map(option => option.value);
-    const timeWindow = parseInt(document.getElementById('timeWindow').value);
-    const caseSensitive = document.getElementById('caseSensitiveDedup').checked;
-    const statsDiv = document.getElementById('deduplicationStats');
-    const errorDiv = document.getElementById('deduplicationError');
-    const successDiv = document.getElementById('deduplicationSuccess');
-    const removeBtn = document.getElementById('removeDuplicatesBtn');
-    
-    errorDiv.style.display = 'none';
-    successDiv.style.display = 'none';
-    statsDiv.style.display = 'none';
-    removeBtn.disabled = true;
-    
-    // Validate input
-    if (selectedGames.length === 0) {
-        errorDiv.textContent = 'Please select at least one game';
-        errorDiv.style.display = 'block';
-        return;
-    }
-    
-    if (isNaN(timeWindow) || timeWindow < 1 || timeWindow > 1440) {
-        errorDiv.textContent = 'Time window must be between 1 and 1440 minutes';
-        errorDiv.style.display = 'block';
-        return;
-    }
-    
-    try {
-        const requestData = {
-            games: selectedGames,
-            time_window_minutes: timeWindow,
-            case_sensitive: caseSensitive,
-            preview_only: true
-        };
-        
-        const response = await fetch('/api/preview-deduplication', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            document.getElementById('duplicatesFoundCount').textContent = result.duplicates_count.toLocaleString();
-            document.getElementById('gamesAffectedCount').textContent = result.games_affected.toString();
-            document.getElementById('spaceToFree').textContent = `${result.duplicates_count} sentences`;
-            
-            // Show sample duplicates
-            const samplesDiv = document.getElementById('duplicatesSampleList');
-            if (result.samples && result.samples.length > 0) {
-                samplesDiv.innerHTML = '<strong>Sample duplicates:</strong><br>' +
-                    result.samples.slice(0, 3).map(sample =>
-                        `<div style="font-size: 12px; color: var(--text-tertiary); margin: 5px 0; padding: 5px; background: var(--bg-secondary); border-radius: 3px;">${escapeHtml(sample.text)} (${sample.occurrences} times)</div>`
-                    ).join('');
-            } else {
-                samplesDiv.innerHTML = '<em>No duplicates found</em>';
-            }
-            
-            statsDiv.style.display = 'block';
-            removeBtn.disabled = result.duplicates_count === 0;
-            
-            if (result.duplicates_count > 0) {
-                successDiv.textContent = `Found ${result.duplicates_count} duplicate sentences ready for removal.`;
-                successDiv.style.display = 'block';
-            } else {
-                successDiv.textContent = 'No duplicates found in the selected games within the specified time window.';
-                successDiv.style.display = 'block';
-            }
-        } else {
-            errorDiv.textContent = result.error || 'Failed to scan for duplicates';
-            errorDiv.style.display = 'block';
-        }
-    } catch (error) {
-        console.error('Error scanning for duplicates:', error);
-        // Placeholder for development
-        const duplicatesFound = Math.floor(Math.random() * 50) + 5;
-        document.getElementById('duplicatesFoundCount').textContent = duplicatesFound.toLocaleString();
-        document.getElementById('gamesAffectedCount').textContent = Math.min(selectedGames.length, 3).toString();
-        document.getElementById('spaceToFree').textContent = `${duplicatesFound} sentences`;
-        
-        statsDiv.style.display = 'block';
-        removeBtn.disabled = false;
-        successDiv.textContent = `Preview feature ready - found ${duplicatesFound} potential duplicates (backend endpoint needed)`;
-        successDiv.style.display = 'block';
-    }
-}
-
-async function removeDuplicates() {
-    const selectedGames = Array.from(document.getElementById('gameSelection').selectedOptions).map(option => option.value);
-    const timeWindow = parseInt(document.getElementById('timeWindow').value);
-    const caseSensitive = document.getElementById('caseSensitiveDedup').checked;
-    const preserveNewest = document.getElementById('preserveNewest').checked;
-    
-    if (!confirm('This will permanently remove duplicate sentences. Continue?')) {
-        return;
-    }
-    
-    try {
-        const requestData = {
-            games: selectedGames,
-            time_window_minutes: timeWindow,
-            case_sensitive: caseSensitive,
-            preserve_newest: preserveNewest,
-            preview_only: false
-        };
-        
-        const response = await fetch('/api/deduplicate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            const successDiv = document.getElementById('deduplicationSuccess');
-            successDiv.textContent = `Successfully removed ${result.deleted_count} duplicate sentences!`;
-            successDiv.style.display = 'block';
-            document.getElementById('removeDuplicatesBtn').disabled = true;
-            // Refresh dashboard stats
-            await databaseManager.loadDashboardStats();
-        } else {
-            const errorDiv = document.getElementById('deduplicationError');
-            errorDiv.textContent = result.error || 'Failed to remove duplicates';
-            errorDiv.style.display = 'block';
-        }
-    } catch (error) {
-        console.error('Error removing duplicates:', error);
-        // Placeholder for development
-        const successDiv = document.getElementById('deduplicationSuccess');
-        successDiv.textContent = 'Deduplication feature ready - backend endpoint needed';
-        successDiv.style.display = 'block';
-        document.getElementById('removeDuplicatesBtn').disabled = true;
-    }
-}
-
-// Utility function
-function escapeHtml(unsafe) {
-    return unsafe
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-// Initialize page when DOM loads
-let databaseManager;
-document.addEventListener('DOMContentLoaded', function() {
-    databaseManager = new DatabaseManager();
-    
-    // Close modals when clicking outside
-    document.querySelectorAll('.modal').forEach(modal => {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                closeModal(modal.id);
-            }
-        });
-    });
-});
-</script>
+<script src="/static/js/database.js"></script>
 
 </body>
 </html>
