@@ -1,4 +1,5 @@
 // Database Management JavaScript
+// Dependencies: shared.js (provides utility functions like escapeHtml, openModal, closeModal)
 
 // Database Management Class
 class DatabaseManager {

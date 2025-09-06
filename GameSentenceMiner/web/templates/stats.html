@@ -195,117 +195,6 @@
         </div>
     </div>
 
-    <!-- Delete Game Entry Section -->
-    <div class="chart-container">
-        <h2>Delete Game Entries</h2>
-        <div id="deleteGameSection">
-            <!-- Control Buttons -->
-            <div class="delete-controls">
-                <button id="selectAllBtn" class="control-btn">Select All</button>
-                <button id="selectNoneBtn" class="control-btn">Select None</button>
-                <button id="deleteSelectedBtn" class="delete-btn" disabled>Delete Selected Games</button>
-            </div>
-            
-            <!-- Loading Indicator -->
-            <div id="loadingIndicator" class="loading-indicator" style="display: none;">
-                <div class="spinner"></div>
-                <span>Loading games...</span>
-            </div>
-            
-            <!-- Games Table Container -->
-            <div id="gamesTableContainer" class="table-container">
-                <table id="gamesTable" class="games-table">
-                    <thead>
-                        <tr>
-                            <th class="checkbox-col">
-                                <input type="checkbox" id="headerCheckbox" title="Select/Deselect All">
-                            </th>
-                            <th>Game Name</th>
-                            <th>Sentences</th>
-                            <th>Characters</th>
-                            <th>Date Range</th>
-                            <th>First Entry</th>
-                            <th>Last Entry</th>
-                        </tr>
-                    </thead>
-                    <tbody id="gamesTableBody">
-                        <!-- Game rows will be populated by JavaScript -->
-                    </tbody>
-                </table>
-                
-                <!-- No Games Message -->
-                <div id="noGamesMessage" class="no-games-message" style="display: none;">
-                    <p>No games found in the database.</p>
-                </div>
-                
-                <!-- Error Message -->
-                <div id="errorMessage" class="error-message" style="display: none;">
-                    <p id="errorText">Failed to load games. Please try again.</p>
-                    <button id="retryBtn" class="retry-btn">Retry</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Confirmation Modal -->
-    <div id="confirmationModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Confirm Deletion</h3>
-                <span class="close-btn" id="closeModal">&times;</span>
-            </div>
-            <div class="modal-body">
-                <p class="warning-text">You are about to permanently delete the following games and all their associated sentences:</p>
-                <div id="selectedGamesList" class="selected-games-list">
-                    <!-- Selected games will be listed here -->
-                </div>
-                <div class="deletion-summary">
-                    <p><strong>Total Games:</strong> <span id="totalGamesCount">0</span></p>
-                    <p><strong>Total Sentences:</strong> <span id="totalSentencesCount">0</span></p>
-                    <p><strong>Total Characters:</strong> <span id="totalCharactersCount">0</span></p>
-                </div>
-                <p class="final-warning">This action cannot be undone. Are you sure you want to proceed?</p>
-            </div>
-            <div class="modal-footer">
-                <button id="cancelDeleteBtn" class="cancel-btn">Cancel</button>
-                <button id="confirmDeleteBtn" class="confirm-delete-btn">Yes, Delete Games</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Deletion Progress Modal -->
-    <div id="progressModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Deleting Games</h3>
-            </div>
-            <div class="modal-body">
-                <div class="progress-container">
-                    <div class="spinner large"></div>
-                    <p id="progressText">Deleting games, please wait...</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Success/Result Modal -->
-    <div id="resultModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="resultTitle">Deletion Complete</h3>
-                <span class="close-btn" id="closeResultModal">&times;</span>
-            </div>
-            <div class="modal-body">
-                <div id="resultContent">
-                    <!-- Result details will be populated by JavaScript -->
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button id="okBtn" class="ok-btn">OK</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Settings Modal -->
     <div id="settingsModal" class="modal">
         <div class="modal-content">
@@ -403,7 +292,7 @@
 </div>
 
 
-<!-- Include shared JavaScript -->
+<!-- Include shared JavaScript first (required dependency for stats.js) -->
 <script src="/static/js/shared.js"></script>
 <script src="/static/js/stats.js"></script>
 

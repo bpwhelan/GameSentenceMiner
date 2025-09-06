@@ -1,5 +1,6 @@
 
 // Statistics Page JavaScript
+// Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
 document.addEventListener('DOMContentLoaded', function () {
     // Helper function to create a chart to avoid repeating code
@@ -926,8 +927,8 @@ document.addEventListener('DOMContentLoaded', function () {
         
         async loadGames() {
             this.showLoading(true);
-            this.hideElement(this.errorMessage);
-            this.hideElement(this.noGamesMessage);
+            hideElement(this.errorMessage);
+            hideElement(this.noGamesMessage);
             
             try {
                 const response = await fetch('/api/games-list');
@@ -943,7 +944,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 this.updateDeleteButton();
                 
                 if (this.games.length === 0) {
-                    this.showElement(this.noGamesMessage);
+                    showElement(this.noGamesMessage);
                 }
                 
             } catch (error) {
@@ -1216,14 +1217,6 @@ document.addEventListener('DOMContentLoaded', function () {
         showError(message) {
             document.getElementById('errorText').textContent = message;
             showElement(this.errorMessage);
-        }
-        
-        showElement(element) {
-            element.style.display = '';
-        }
-        
-        hideElement(element) {
-            element.style.display = 'none';
         }
     }
     

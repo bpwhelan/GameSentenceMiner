@@ -503,6 +503,3 @@ document.addEventListener('DOMContentLoaded', function() {
         new SettingsManager();
     }
 });
-
-// Export for module use in ES6 environments
-export { initializeThemeToggle, SettingsManager, formatLargeNumber, escapeHtml, escapeRegex };

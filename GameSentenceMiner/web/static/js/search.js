@@ -1,4 +1,5 @@
 // Search Page JavaScript
+// Dependencies: shared.js (provides utility functions like escapeHtml, escapeRegex)
 
 class SentenceSearchApp {
     constructor() {
