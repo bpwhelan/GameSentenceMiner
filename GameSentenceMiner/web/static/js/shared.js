@@ -504,13 +504,5 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Export for module use if needed
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = {
-        initializeThemeToggle,
-        SettingsManager,
-        formatLargeNumber,
-        escapeHtml,
-        escapeRegex
-    };
-}
+// Export for module use in ES6 environments
+export { initializeThemeToggle, SettingsManager, formatLargeNumber, escapeHtml, escapeRegex };
