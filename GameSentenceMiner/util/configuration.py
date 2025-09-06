@@ -585,6 +585,9 @@ class Advanced:
     multi_line_sentence_storage_field: str = ''
     ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 55001
+    afk_timer_seconds: int = 120
+    session_gap_seconds: int = 3600
+    streak_requirement_hours: float = 1.0
 
     def __post_init__(self):
         if self.plaintext_websocket_port == -1:

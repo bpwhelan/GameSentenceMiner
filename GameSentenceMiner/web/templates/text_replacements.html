@@ -6,9 +6,158 @@
     <title>Text Error Fixes (Electron)</title>
     <link rel="stylesheet" href="/static/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Light theme colors */
+            --bg-primary: #f8f9fa;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #e9ecef;
+            --text-primary: #212529;
+            --text-secondary: #495057;
+            --text-tertiary: #6c757d;
+            --border-color: #dee2e6;
+            --shadow-color: rgba(0, 0, 0, 0.08);
+            --accent-color: #007bff;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+            --danger-color: #dc3545;
+            --info-color: #17a2b8;
+        }
+
+        [data-theme="dark"] {
+            /* Dark theme colors */
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2d2d2d;
+            --bg-tertiary: #3a3a3a;
+            --text-primary: #e1e1e1;
+            --text-secondary: #b8b8b8;
+            --text-tertiary: #8a8a8a;
+            --border-color: #404040;
+            --shadow-color: rgba(0, 0, 0, 0.3);
+            --accent-color: #4dabf7;
+            --success-color: #51cf66;
+            --warning-color: #ffd43b;
+            --danger-color: #ff6b6b;
+            --info-color: #22b8cf;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                /* Auto dark mode colors */
+                --bg-primary: #1a1a1a;
+                --bg-secondary: #2d2d2d;
+                --bg-tertiary: #3a3a3a;
+                --text-primary: #e1e1e1;
+                --text-secondary: #b8b8b8;
+                --text-tertiary: #8a8a8a;
+                --border-color: #404040;
+                --shadow-color: rgba(0, 0, 0, 0.3);
+                --accent-color: #4dabf7;
+                --success-color: #51cf66;
+                --warning-color: #ffd43b;
+                --danger-color: #ff6b6b;
+                --info-color: #22b8cf;
+            }
+        }
+
+        .nav-link {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+            text-decoration: none;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+            border: 1px solid var(--border-color);
+        }
+
+        .nav-link:hover {
+            background-color: var(--accent-color);
+            color: var(--bg-secondary);
+            transform: translateY(-1px);
+        }
+
+        .theme-toggle {
+            background: var(--bg-tertiary);
+            border: 2px solid var(--border-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: var(--text-primary);
+            font-size: 18px;
+            margin-left: 15px;
+        }
+
+        .theme-toggle:hover {
+            background: var(--bg-primary);
+            transform: scale(1.1);
+        }
+
+        .theme-toggle:active {
+            transform: scale(0.95);
+        }
+        
+        @media (max-width: 768px) {
+            .navigation {
+                padding: 10px;
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .navigation > div {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .navigation .nav-link {
+                display: block !important;
+                text-align: center;
+                width: 100%;
+            }
+            
+            .theme-toggle {
+                margin-left: 0;
+                align-self: center;
+            }
+        }
+    </style>
 </head>
 <body> <div class="container">
     <h1>Text Error Fixes</h1>
+    
+    <div class="navigation" style="display: flex; justify-content: center; align-items: center; margin-bottom: 30px; padding: 15px; background: var(--bg-secondary); border-radius: 8px; box-shadow: 0 2px 8px var(--shadow-color); border: 1px solid var(--border-color);">
+        <div style="display: flex; gap: 15px;">
+            <a href="/" class="nav-link">Home</a>
+            <a href="/stats" class="nav-link">Statistics</a>
+            <a href="/search" class="nav-link">Search</a>
+            <a href="/database" class="nav-link">Database Management</a>
+        </div>
+        <button class="theme-toggle" id="themeToggle" title="Toggle dark mode">
+            <span id="themeIcon">🌙</span>
+        </button>
+    </div>
+
+    <!-- Explanation Section -->
+    <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px var(--shadow-color); margin-bottom: 30px; border: 1px solid var(--border-color);">
+        <h2 style="color: var(--text-secondary); margin-bottom: 15px;">What are Text Replacements?</h2>
+        <p style="color: var(--text-primary); line-height: 1.6; margin-bottom: 10px;">
+            Text replacements help you automatically fix common errors and clean up text captured from games. This is especially useful for:
+        </p>
+        <ul style="color: var(--text-primary); line-height: 1.6; margin-left: 20px; margin-bottom: 15px;">
+            <li><strong>OCR Error Correction:</strong> Fix text recognition mistakes from screenshots</li>
+            <li><strong>Text Standardization:</strong> Replace inconsistent character names or terms</li>
+            <li><strong>Regex Pattern Support:</strong> Use "re:" prefix for advanced pattern matching (e.g., "re:.{3,}" for sequences)</li>
+            <li><strong>Game-Specific Fixes:</strong> Handle unique formatting issues from different games</li>
+        </ul>
+        <p style="color: var(--text-tertiary); font-size: 14px; margin: 0;">
+            <strong>Pro Tip:</strong> Replacements are applied in the order they appear. Use regex patterns for complex transformations.
+        </p>
+    </div>
 
     <div class="control"> <button id="add-new-btn" class="button-blue">Add New Entry</button> <div class="search-container"> <input type="text" id="search-input" placeholder="Search key or value..." class="inputField"> <button id="search-button" class="button-green">Search</button> </div>
         <button id="go-back-btn" class="button-gray">Go Back</button>
@@ -232,6 +381,68 @@
     });
 
     loadData();
+
+    // Dark mode toggle functionality
+    function initializeThemeToggle() {
+        const themeToggle = document.getElementById('themeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+        const documentElement = document.documentElement;
+        
+        // Check for saved theme preference or default to browser preference
+        function getPreferredTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme) {
+                return savedTheme;
+            }
+            
+            // Check browser preference
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                return 'dark';
+            }
+            
+            return 'light';
+        }
+        
+        // Apply theme
+        function applyTheme(theme) {
+            if (theme === 'dark') {
+                documentElement.setAttribute('data-theme', 'dark');
+                themeIcon.textContent = '☀️';
+                themeToggle.title = 'Switch to light mode';
+            } else {
+                documentElement.setAttribute('data-theme', 'light');
+                themeIcon.textContent = '🌙';
+                themeToggle.title = 'Switch to dark mode';
+            }
+        }
+        
+        // Initialize theme
+        const currentTheme = getPreferredTheme();
+        applyTheme(currentTheme);
+        
+        // Toggle theme on button click
+        themeToggle.addEventListener('click', () => {
+            const currentTheme = documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            applyTheme(newTheme);
+            localStorage.setItem('theme', newTheme);
+        });
+        
+        // Listen for browser theme changes
+        if (window.matchMedia) {
+            const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+            mediaQuery.addEventListener('change', (e) => {
+                // Only auto-switch if user hasn't manually set a preference
+                if (!localStorage.getItem('theme')) {
+                    applyTheme(e.matches ? 'dark' : 'light');
+                }
+            });
+        }
+    }
+
+    // Initialize theme toggle
+    initializeThemeToggle();
 
 </script>
 </body>

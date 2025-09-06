@@ -1,203 +1,52 @@
 import asyncio
-from collections import defaultdict
-from ctypes.util import test
 import datetime
 import json
 import os
-import queue
-import sqlite3
 import threading
-from dataclasses import dataclass
 
 import flask
-import websockets
+import webbrowser
 
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.obs import get_current_game
-from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
-from GameSentenceMiner.util.text_log import GameLine, get_line_by_id, initial_time, get_all_lines
+from GameSentenceMiner.util.text_log import get_line_by_id, get_all_lines
 from flask import render_template, request, jsonify, send_from_directory
-import webbrowser
 from GameSentenceMiner import obs
-from GameSentenceMiner.util.configuration import logger, get_config, DB_PATH, gsm_state, gsm_status
+from GameSentenceMiner.util.configuration import logger, get_config, gsm_state, gsm_status
 from GameSentenceMiner.web.service import handle_texthooker_button
 
+# Import from new modules
+from GameSentenceMiner.web.events import (
+    EventItem, EventManager, EventProcessor, event_manager, event_queue, event_processor
+)
+from GameSentenceMiner.web.stats import (
+    is_kanji, interpolate_color, get_gradient_color, calculate_kanji_frequency,
+    calculate_heatmap_data, calculate_total_chars_per_game, calculate_reading_time_per_game,
+    calculate_reading_speed_per_game, generate_game_colors, format_large_number,
+    calculate_actual_reading_time, calculate_daily_reading_time, calculate_time_based_streak,
+    format_time_human_readable, calculate_current_game_stats, calculate_all_games_stats
+)
+from GameSentenceMiner.web.websockets import (
+    WebsocketServerThread, websocket_queue, paused, websocket_server_thread,
+    plaintext_websocket_server_thread, overlay_server_thread, websocket_server_threads,
+    handle_exit_signal
+)
+from GameSentenceMiner.web.database_api import register_database_api_routes
+
+# Global configuration
 port = get_config().general.texthooker_port
 url = f"http://localhost:{port}"
 websocket_port = 55001
-
-
-@dataclass
-class EventItem:
-    line: 'GameLine'
-    id: str
-    text: str
-    time: datetime.datetime
-    checked: bool = False
-    history: bool = False
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'text': self.text,
-            'time': self.time,
-            'checked': self.checked,
-            'history': self.history,
-        }
-
-    def to_serializable(self):
-        return {
-            'id': self.id,
-            'text': self.text,
-            'time': self.time.isoformat(),
-            'checked': self.checked,
-            'history': self.history,
-        }
-
-
-class EventManager:
-    events: list[EventItem]
-    events_dict: dict[str, EventItem] = {}
-
-    def __init__(self):
-        self.events = []
-        self.ids = []
-        self.events_dict = {}
-        self._connect()
-        self._create_table()
-        self._load_events_from_db()
-        # self.close_connection()
-
-    def _connect(self):
-        self.conn = sqlite3.connect(DB_PATH)
-        self.cursor = self.conn.cursor()
-
-    def _create_table(self):
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS events (
-                event_id TEXT PRIMARY KEY,
-                line_id TEXT,
-                text TEXT,
-                time TEXT
-            )
-        """)
-        self.conn.commit()
-
-    def _load_events_from_db(self):
-        self.cursor.execute("SELECT * FROM events")
-        rows = self.cursor.fetchall()
-        for row in rows:
-            event_id, line_id, text, timestamp = row
-            timestamp = datetime.datetime.fromisoformat(timestamp)
-            line = GameLine(line_id, text, timestamp, None, None, 0)
-            event = EventItem(line, event_id, text, timestamp,
-                              False, timestamp < initial_time)
-            self.events.append(event)
-            self.ids.append(event_id)
-            self.events_dict[event_id] = event
-
-    def __iter__(self):
-        return iter(self.events)
-
-    def replace_events(self, new_events: list[EventItem]):
-        self.events = new_events
-
-    def add_gameline(self, line: GameLine):
-        new_event = EventItem(line, line.id, line.text,
-                              line.time, False, False)
-        self.events_dict[line.id] = new_event
-        self.ids.append(line.id)
-        self.events.append(new_event)
-        # self.store_to_db(new_event)
-        # event_queue.put(new_event)
-        return new_event
-
-    def reset_checked_lines(self):
-        for event in self.events:
-            event.checked = False
-
-    def get_events(self):
-        return self.events
-
-    def add_event(self, event):
-        self.events.append(event)
-        self.ids.append(event.id)
-        event_queue.put(event)
-
-    def get(self, event_id):
-        return self.events_dict.get(event_id)
-
-    def get_ids(self):
-        return self.ids
-
-    def close_connection(self):
-        if self.conn:
-            self.conn.close()
-
-    def clear_history(self):
-        self.cursor.execute("DELETE FROM events WHERE time < ?",
-                            (initial_time.isoformat(),))
-        logger.info(f"Cleared history before {initial_time.isoformat()}")
-        self.conn.commit()
-        # Clear the in-memory events as well
-        event_manager.events = [
-            event for event in event_manager if not event.history]
-        event_manager.events_dict = {
-            event.id: event for event in event_manager.events}
-
-
-class EventProcessor(threading.Thread):
-    def __init__(self, event_queue, db_path):
-        super().__init__()
-        self.event_queue = event_queue
-        self.db_path = db_path
-        self.conn = None
-        self.cursor = None
-        self.daemon = True
-
-    def _connect(self):
-        self.conn = sqlite3.connect(self.db_path)
-        self.cursor = self.conn.cursor()
-
-    def run(self):
-        self._connect()
-        while True:
-            try:
-                event = self.event_queue.get()
-                if event is None:  # Exit signal
-                    break
-                self._store_to_db(event)
-            except Exception as e:
-                logger.error(f"Error processing event: {e}")
-        self._close_connection()
-
-    def _store_to_db(self, event):
-        self.cursor.execute("""
-            INSERT INTO events (event_id, line_id, text, time)
-            VALUES (?, ?, ?, ?)
-        """, (event.id, event.line.id, event.text, event.time.isoformat()))
-        self.conn.commit()
-
-    def _close_connection(self):
-        if self.conn:
-            self.conn.close()
-
-
-event_manager = EventManager()
-event_queue = queue.Queue()
-
-# Initialize the EventProcessor with the queue and event manager
-event_processor = EventProcessor(event_queue, DB_PATH)
-event_processor.start()
 
 server_start_time = datetime.datetime.now().timestamp()
 
 app = flask.Flask(__name__)
 
+# Register database API routes
+register_database_api_routes(app)
+
 # Load data from the JSON file
-
-
 def load_data_from_file():
     if os.path.exists(TEXT_REPLACEMENTS_FILE):
         with open(TEXT_REPLACEMENTS_FILE, 'r', encoding='utf-8') as file:
@@ -205,8 +54,6 @@ def load_data_from_file():
     return {"enabled": True, "args": {"replacements": {}}}
 
 # Save data to the JSON file
-
-
 def save_data_to_file(data):
     with open(TEXT_REPLACEMENTS_FILE, 'w', encoding='utf-8') as file:
         json.dump(data, file, indent=4, ensure_ascii=False)
@@ -264,7 +111,12 @@ def texthooker():
 
 @app.route('/textreplacements')
 def textreplacements():
-    return flask.render_template('text_replacements.html')
+    # Redirect to new database management page
+    return flask.redirect('/database')
+
+@app.route('/database')
+def database():
+    return flask.render_template('database.html')
 
 
 @app.route('/data', methods=['GET'])
@@ -285,7 +137,7 @@ def clear_history():
     return jsonify({'message': 'History cleared successfully'}), 200
 
 
-async def add_event_to_texthooker(line: GameLine):
+async def add_event_to_texthooker(line):
     new_event = event_manager.add_gameline(line)
     await websocket_server_thread.send_text({
         'event': 'text_received',
@@ -398,25 +250,6 @@ def datetimeformat(value, format='%Y-%m-%d %H:%M:%S'):
         return ""
     return datetime.datetime.fromtimestamp(float(value)).strftime(format)
 
-# @app.route('/stats')
-# def show_gamelines():
-#     """
-#     Fetches game line data from the database and displays it.
-#     """
-#     # 1. Get all unique game names that have lines
-#     game_names = GameLinesTable.get_all_games_with_lines()
-
-#     # 2. Create a dictionary to hold the data, structured by game
-#     #    e.g., {'The Legend of Zelda': [line1, line2], 'Elden Ring': [line3]}
-#     game_data = {}
-#     for name in sorted(game_names):
-#         lines_for_game = GameLinesTable.get_all_lines_for_scene(name)
-#         # Sort lines by timestamp for chronological order
-#         game_data[name] = sorted(lines_for_game, key=lambda line: line.timestamp)
-
-#     # 3. Render the HTML template, passing the structured data to it
-#     return render_template('stats.html', game_data=game_data)
-
 
 @app.route('/stats')
 def stats():
@@ -424,280 +257,10 @@ def stats():
     return render_template('stats.html')
 
 
-def calculate_streak_data(all_lines):
-    """Calculate current and longest reading streaks."""
-    if not all_lines:
-        return {"currentStreak": 0, "longestStreak": 0}
-    
-    # Get unique days with activity
-    active_days = set()
-    for line in all_lines:
-        day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
-        active_days.add(day_str)
-    
-    sorted_days = sorted(active_days)
-    
-    # Calculate streaks
-    current_streak = 0
-    longest_streak = 0
-    
-    today = datetime.date.today()
-    yesterday = today - datetime.timedelta(days=1)
-    
-    # Check if today or yesterday had activity for current streak
-    if today.strftime('%Y-%m-%d') in active_days:
-        current_streak_start = today
-    elif yesterday.strftime('%Y-%m-%d') in active_days:
-        current_streak_start = yesterday
-    else:
-        return {"currentStreak": 0, "longestStreak": calculate_longest_streak(sorted_days)}
-    
-    # Calculate current streak backwards from start date
-    check_date = current_streak_start
-    while check_date.strftime('%Y-%m-%d') in active_days:
-        current_streak += 1
-        check_date -= datetime.timedelta(days=1)
-    
-    longest_streak = max(current_streak, calculate_longest_streak(sorted_days))
-    
-    return {
-        "currentStreak": current_streak,
-        "longestStreak": longest_streak
-    }
-
-def calculate_longest_streak(sorted_days):
-    """Helper to calculate the longest streak from sorted day list."""
-    if not sorted_days:
-        return 0
-    
-    longest = 1
-    current = 1
-    
-    for i in range(1, len(sorted_days)):
-        prev_date = datetime.datetime.strptime(sorted_days[i-1], '%Y-%m-%d').date()
-        curr_date = datetime.datetime.strptime(sorted_days[i], '%Y-%m-%d').date()
-        
-        if (curr_date - prev_date).days == 1:
-            current += 1
-            longest = max(longest, current)
-        else:
-            current = 1
-    
-    return longest
-
-def calculate_mining_efficiency(daily_data, sorted_days):
-    """Calculate mining efficiency (mined lines / total lines) over time."""
-    labels = []
-    efficiency = []
-    
-    cumulative_lines = 0
-    cumulative_mined = 0
-    
-    for day in sorted_days:
-        day_lines = sum(game_data['lines'] for game_data in daily_data[day].values())
-        day_mined = sum(game_data['mined'] for game_data in daily_data[day].values())
-        
-        cumulative_lines += day_lines
-        cumulative_mined += day_mined
-        
-        if cumulative_lines > 0:
-            eff = (cumulative_mined / cumulative_lines) * 100
-            labels.append(day)
-            efficiency.append(round(eff, 2))
-    
-    return {
-        "labels": labels,
-        "efficiency": efficiency
-    }
-
-def calculate_character_frequency(all_lines):
-    """Calculate frequency of individual characters across all lines."""
-    char_count = defaultdict(int)
-    
-    for line in all_lines:
-        if line.line_text:
-            for char in line.line_text:
-                # Skip whitespace and basic punctuation
-                if char.strip() and char not in ' \n\t.,!?;:()[]{}""''':
-                    char_count[char] += 1
-    
-    # Get top 20 most frequent characters
-    sorted_chars = sorted(char_count.items(), key=lambda x: x[1], reverse=True)[:20]
-    
-    return {
-        "characters": [char for char, count in sorted_chars],
-        "frequencies": [count for char, count in sorted_chars]
-    }
-
-def calculate_heatmap_data(all_lines):
-    """Calculate heatmap data for reading activity."""
-    heatmap_data = defaultdict(lambda: defaultdict(int))
-    
-    for line in all_lines:
-        date_obj = datetime.date.fromtimestamp(float(line.timestamp))
-        year = str(date_obj.year)
-        date_str = date_obj.strftime('%Y-%m-%d')
-        char_count = len(line.line_text) if line.line_text else 0
-        heatmap_data[year][date_str] += char_count
-    
-    return dict(heatmap_data)
-
-def calculate_reading_speed_data(all_lines):
-    """Calculate reading speed data by game."""
-    game_data = defaultdict(lambda: {'chars': 0, 'time_span': 0, 'first_time': None, 'last_time': None})
-    
-    for line in all_lines:
-        game = line.game_name or "Unknown Game"
-        timestamp = float(line.timestamp)
-        char_count = len(line.line_text) if line.line_text else 0
-        
-        game_data[game]['chars'] += char_count
-        
-        if game_data[game]['first_time'] is None:
-            game_data[game]['first_time'] = timestamp
-        game_data[game]['last_time'] = timestamp
-    
-    # Calculate speeds and sort by first appearance
-    speed_data = []
-    for game, data in game_data.items():
-        if data['first_time'] and data['last_time'] and data['chars'] > 0:
-            time_span_minutes = (data['last_time'] - data['first_time']) / 60
-            if time_span_minutes > 0:
-                speed = data['chars'] / time_span_minutes
-                speed_data.append((game, speed, data['first_time']))
-    
-    # Sort by first appearance time
-    speed_data.sort(key=lambda x: x[2])
-    
-    return {
-        "labels": [item[0] for item in speed_data],
-        "speeds": [round(item[1], 2) for item in speed_data]
-    }
-
-@app.route('/api/stats')
-def api_stats():
-    """
-    Provides aggregated, cumulative stats for charting.
-    """
-    # 1. Fetch all lines and sort them chronologically
-    all_lines = sorted(GameLinesTable.all(), key=lambda line: line.timestamp)
-    
-    if not all_lines:
-        return jsonify({"labels": [], "datasets": []})
-
-    # 2. Process data into daily totals for each game
-    # Structure: daily_data[date_str][game_name] = {'lines': N, 'chars': N, 'mined': N}
-    daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0, 'mined': 0}))
-
-    for line in all_lines:
-        day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
-        game = line.game_name or "Unknown Game"
-        
-        daily_data[day_str][game]['lines'] += 1
-        daily_data[day_str][game]['chars'] += len(line.line_text) if line.line_text else 0
-        if line.audio_path or line.screenshot_path:
-            daily_data[day_str][game]['mined'] += 1
-
-    # 3. Create cumulative datasets for Chart.js
-    sorted_days = sorted(daily_data.keys())
-    game_names = GameLinesTable.get_all_games_with_lines()
-    
-    # Keep track of the running total for each metric for each game
-    cumulative_totals = defaultdict(lambda: {'lines': 0, 'chars': 0, 'mined': 0})
-    
-    # Structure for final data: final_data[game_name][metric] = [day1_val, day2_val, ...]
-    final_data = defaultdict(lambda: defaultdict(list))
-
-    for day in sorted_days:
-        for game in game_names:
-            # Add the day's total to the cumulative total
-            cumulative_totals[game]['lines'] += daily_data[day][game]['lines']
-            cumulative_totals[game]['chars'] += daily_data[day][game]['chars']
-            cumulative_totals[game]['mined'] += daily_data[day][game]['mined']
-            
-            # Append the new cumulative total to the list for that day
-            final_data[game]['lines'].append(cumulative_totals[game]['lines'])
-            final_data[game]['chars'].append(cumulative_totals[game]['chars'])
-            final_data[game]['mined'].append(cumulative_totals[game]['mined'])
-    
-    # 4. Format into Chart.js dataset structure
-    datasets = []
-    # A simple color palette for the chart lines
-    colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22']
-    
-    for i, game in enumerate(game_names):
-        color = colors[i % len(colors)]
-        
-        datasets.append({
-            "label": f"{game} - Lines Received",
-            "data": final_data[game]['lines'],
-            "borderColor": color,
-            "backgroundColor": f"{color}33", # Semi-transparent for fill
-            "fill": False,
-            "tension": 0.1
-        })
-        datasets.append({
-            "label": f"{game} - Characters Read",
-            "data": final_data[game]['chars'],
-            "borderColor": color,
-            "backgroundColor": f"{color}33",
-            "fill": False,
-            "tension": 0.1,
-            "hidden": True # Hide by default to not clutter the chart
-        })
-        datasets.append({
-            "label": f"{game} - Lines Mined",
-            "data": final_data[game]['mined'],
-            "borderColor": color,
-            "backgroundColor": f"{color}33",
-            "fill": False,
-            "tension": 0.1,
-            "hidden": True # Hide by default
-        })
-
-    # 5. Calculate additional chart data
-    streak_data = calculate_streak_data(all_lines)
-    mining_efficiency_data = calculate_mining_efficiency(daily_data, sorted_days)
-    character_frequency_data = calculate_character_frequency(all_lines)
-    heatmap_data = calculate_heatmap_data(all_lines)
-    reading_speed_data = calculate_reading_speed_data(all_lines)
-
-    return jsonify({
-        "labels": sorted_days,
-        "datasets": datasets,
-        "streakData": streak_data,
-        "miningEfficiencyData": mining_efficiency_data,
-        "characterFrequencyData": character_frequency_data,
-        "heatmapData": heatmap_data,
-        "readingSpeedData": reading_speed_data
-    })
-
-
-# async def main():
-#     async with websockets.serve(websocket_handler, "localhost", 8765): # Choose a port for WebSocket
-#         print("WebSocket server started on ws://localhost:8765/ws (adjust as needed)")
-#         await asyncio.Future()  # Keep the server running
-
-# @app.route('/store-events', methods=['POST'])
-# def store_events():
-#     data = request.get_json()
-#     events_data = data.get('events', [])
-#
-#     if not isinstance(events_data, list):
-#         return jsonify({'error': 'Invalid data format. Expected an array of events.'}), 400
-#
-#     for event_data in events_data:
-#         if not all(k in event_data for k in ('id', 'text', 'time', 'checked')):
-#              return jsonify({'error': 'Invalid event structure. Missing keys.'}), 400
-#         if not (isinstance(event_data['id'], (int, float)) and
-#                 isinstance(event_data['text'], str) and
-#                 isinstance(event_data['time'], str) and
-#                 isinstance(event_data['checked'], bool)):
-#             return jsonify({'error': 'Invalid event structure. Incorrect data types.'}), 400
-#
-#     event_manager.replace_events([EventItem(item['id'], item['text'], item['time'], item.get(['timestamp'], 0), item['checked']) for item in data])
-#
-#     return jsonify({'message': 'Events successfully stored on server.', 'receivedEvents': data}), 200
+@app.route('/search')
+def search():
+    """Renders the search page."""
+    return render_template('search.html')
 
 
 def get_selected_lines():
@@ -733,117 +296,6 @@ def start_web_server():
 
     # debug=True provides helpful error messages during development
     app.run(host='0.0.0.0', port=port, debug=False)
-
-
-websocket_queue = queue.Queue()
-paused = False
-
-
-class WebsocketServerThread(threading.Thread):
-    def __init__(self, read, get_ws_port_func):
-        super().__init__(daemon=True)
-        self._loop = None
-        self.read = read
-        self.clients = set()
-        self._event = threading.Event()
-        self.get_ws_port_func = get_ws_port_func
-        self.backedup_text = []
-
-    @property
-    def loop(self):
-        self._event.wait()
-        return self._loop
-
-    async def send_text_coroutine(self, message):
-        if not self.clients:
-            self.backedup_text.append(message)
-            return
-        for client in self.clients:
-            await client.send(message)
-
-    async def server_handler(self, websocket):
-        self.clients.add(websocket)
-        try:
-            if self.backedup_text:
-                for message in self.backedup_text:
-                    await websocket.send(message)
-                self.backedup_text.clear()
-            async for message in websocket:
-                if self.read and not paused:
-                    websocket_queue.put(message)
-                    try:
-                        await websocket.send('True')
-                    except websockets.exceptions.ConnectionClosedOK:
-                        pass
-                else:
-                    try:
-                        await websocket.send('False')
-                    except websockets.exceptions.ConnectionClosedOK:
-                        pass
-        except websockets.exceptions.ConnectionClosedError:
-            pass
-        finally:
-            self.clients.remove(websocket)
-
-    async def send_text(self, text):
-        if text:
-            if isinstance(text, dict) or isinstance(text, list):
-                text = json.dumps(text)
-            return asyncio.run_coroutine_threadsafe(
-                self.send_text_coroutine(text), self.loop)
-
-    def has_clients(self):
-        return len(self.clients) > 0
-
-    def stop_server(self):
-        self.loop.call_soon_threadsafe(self._stop_event.set)
-
-    def run(self):
-        async def main():
-            self._loop = asyncio.get_running_loop()
-            self._stop_event = stop_event = asyncio.Event()
-            self._event.set()
-            while True:
-                try:
-                    self.server = start_server = websockets.serve(self.server_handler,
-                                                                  "0.0.0.0",
-                                                                  self.get_ws_port_func(),
-                                                                  max_size=1000000000)
-                    async with start_server:
-                        await stop_event.wait()
-                    return
-                except Exception as e:
-                    logger.warning(
-                        f"WebSocket server encountered an error: {e}. Retrying...")
-                    await asyncio.sleep(1)
-
-        asyncio.run(main())
-
-
-def handle_exit_signal(loop):
-    logger.info("Received exit signal. Shutting down...")
-    for task in asyncio.all_tasks(loop):
-        task.cancel()
-
-
-websocket_server_thread = WebsocketServerThread(read=True, get_ws_port_func=lambda: get_config(
-).get_field_value('advanced', 'texthooker_communication_websocket_port'))
-websocket_server_thread.start()
-
-if get_config().advanced.plaintext_websocket_port:
-    plaintext_websocket_server_thread = WebsocketServerThread(
-        read=False, get_ws_port_func=lambda: get_config().get_field_value('advanced', 'plaintext_websocket_port'))
-    plaintext_websocket_server_thread.start()
-
-overlay_server_thread = WebsocketServerThread(
-    read=False, get_ws_port_func=lambda: get_config().get_field_value('overlay', 'websocket_port'))
-overlay_server_thread.start()
-
-websocket_server_threads = [
-    websocket_server_thread,
-    plaintext_websocket_server_thread,
-    overlay_server_thread
-]
 
 
 async def texthooker_page_coro():
