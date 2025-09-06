@@ -111,8 +111,15 @@ def texthooker():
 
 @app.route('/textreplacements')
 def textreplacements():
-    # Redirect to new database management page
-    return flask.redirect('/database')
+    # Serve the text replacements data as JSON for compatibility
+    try:
+        if not os.path.exists(TEXT_REPLACEMENTS_FILE):
+            return jsonify({"error": "Text replacements file not found."}), 404
+        with open(TEXT_REPLACEMENTS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": f"Failed to load text replacements: {str(e)}"}), 500
 
 @app.route('/database')
 def database():
