@@ -48,7 +48,7 @@ def get_gradient_color(frequency, max_frequency):
     if max_frequency == 0:
         return "#ebedf0"  # Default color for no encounters
     
-    # Special case: kanji with 500+ encounters should always get cyan color
+    # kanji with 500+ encounters should always get cyan color cause i think u should know them
     if frequency > 500:
         return "#2ee6e0"
     
