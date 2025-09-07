@@ -185,9 +185,10 @@ function initializeThemeToggle() {
     themeToggle.addEventListener('click', () => {
         const currentTheme = documentElement.getAttribute('data-theme');
         const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        
+
         applyTheme(newTheme);
         localStorage.setItem('theme', newTheme);
+        location.reload();
     });
     
     // Listen for browser theme changes

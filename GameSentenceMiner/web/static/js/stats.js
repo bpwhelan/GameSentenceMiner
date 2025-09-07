@@ -1,3 +1,44 @@
+// Helper function to detect the current theme based on the app's theme system
+function getCurrentTheme() {
+    const dataTheme = document.documentElement.getAttribute('data-theme');
+    if (dataTheme === 'dark' || dataTheme === 'light') {
+        return dataTheme;
+    }
+    
+    // Fallback to system preference if no manual theme is set
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark';
+    }
+    return 'light';
+}
+
+// Helper function to get theme-appropriate text color
+function getThemeTextColor() {
+    return getCurrentTheme() === 'dark' ? '#fff' : '#222';
+}
+
+// Ensure Chart.js uses white font in dark mode and black in light mode for all chart text
+if (window.Chart) {
+    function setChartFontColor() {
+        Chart.defaults.color = getThemeTextColor();
+    }
+    setChartFontColor();
+    
+    // Listen for theme changes from both manual toggle and system preference
+    if (window.matchMedia) {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', setChartFontColor);
+    }
+    
+    // Listen for manual theme changes via MutationObserver on data-theme attribute
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.type === 'attributes' && mutation.attributeName === 'data-theme') {
+                setChartFontColor();
+            }
+        });
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+}
 
 // Statistics Page JavaScript
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
@@ -17,10 +58,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 plugins: {
                     legend: {
                         position: 'top',
+                        labels: {
+                            color: getThemeTextColor()
+                        }
                     },
                     title: {
                         display: true,
-                        text: chartTitle
+                        text: chartTitle,
+                        color: getThemeTextColor()
                     }
                 },
                 scales: {
@@ -28,13 +73,21 @@ document.addEventListener('DOMContentLoaded', function () {
                         beginAtZero: true,
                         title: {
                             display: true,
-                            text: 'Cumulative Count'
+                            text: 'Cumulative Count',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
                         }
                     },
                     x: {
                          title: {
                             display: true,
-                            text: 'Date'
+                            text: 'Date',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
                         }
                     }
                 }
@@ -428,6 +481,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     legend: {
                         position: 'right',
                         labels: {
+                            color: getThemeTextColor(),
                             generateLabels: function(chart) {
                                 // Create custom legend items for each game
                                 return chartData.labels.map((gameName, index) => ({
@@ -436,7 +490,8 @@ document.addEventListener('DOMContentLoaded', function () {
                                     strokeStyle: colors[index],
                                     lineWidth: 2,
                                     hidden: hiddenBars[index],
-                                    index: index
+                                    index: index,
+                                    fontColor: getThemeTextColor()
                                 }));
                             }
                         },
@@ -460,7 +515,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     },
                     title: {
                         display: true,
-                        text: chartTitle
+                        text: chartTitle,
+                        color: getThemeTextColor()
                     },
                     tooltip: {
                         callbacks: {
@@ -487,12 +543,19 @@ document.addEventListener('DOMContentLoaded', function () {
                         beginAtZero: true,
                         title: {
                             display: true,
-                            text: yAxisLabel
+                            text: yAxisLabel,
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
                         }
                     },
                     x: {
                         title: {
                             display: false // Remove unhelpful "Game Titles" label
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
                         }
                     }
                 }
@@ -530,6 +593,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     legend: {
                         position: 'right',
                         labels: {
+                            color: getThemeTextColor(),
                             generateLabels: function(chart) {
                                 // Create custom legend items for each game
                                 return chartData.labels.map((gameName, index) => ({
@@ -538,7 +602,8 @@ document.addEventListener('DOMContentLoaded', function () {
                                     strokeStyle: colors[index],
                                     lineWidth: 2,
                                     hidden: hiddenBars[index],
-                                    index: index
+                                    index: index,
+                                    fontColor: getThemeTextColor()
                                 }));
                             }
                         },
@@ -562,7 +627,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     },
                     title: {
                         display: true,
-                        text: chartTitle
+                        text: chartTitle,
+                        color: getThemeTextColor()
                     },
                     tooltip: {
                         callbacks: {
@@ -589,12 +655,19 @@ document.addEventListener('DOMContentLoaded', function () {
                         beginAtZero: true,
                         title: {
                             display: true,
-                            text: yAxisLabel
+                            text: yAxisLabel,
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
                         }
                     },
                     x: {
                         title: {
                             display: false // Remove unhelpful axis labels
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
                         }
                     }
                 }
@@ -763,10 +836,78 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Dashboard functionality
     function loadDashboardData(data = null) {
+        function updateTodayOverview(allLinesData) {
+            // Get today's date string (YYYY-MM-DD)
+            const today = new Date();
+            const todayStr = today.toISOString().split('T')[0];
+            document.getElementById('todayDate').textContent = todayStr;
+
+            // Filter lines for today
+            const todayLines = (allLinesData || []).filter(line => {
+                if (!line.timestamp) return false;
+                const lineDate = new Date(parseFloat(line.timestamp) * 1000).toISOString().split('T')[0];
+                return lineDate === todayStr;
+            });
+
+            // Calculate total characters read today (only valid numbers)
+            const totalChars = todayLines.reduce((sum, line) => {
+                const chars = Number(line.characters);
+                return sum + (isNaN(chars) ? 0 : chars);
+            }, 0);
+
+            // Calculate sessions (count unique session ids if available, else fallback to lines count)
+            let sessions = 0;
+            if (todayLines.length > 0 && todayLines[0].session_id !== undefined) {
+                const sessionSet = new Set(todayLines.map(l => l.session_id));
+                sessions = sessionSet.size;
+            } else {
+                sessions = todayLines.length > 0 ? 1 : 0;
+            }
+
+            // Calculate total reading time (reuse AFK logic from calculateHeatmapStreaks)
+            let totalSeconds = 0;
+            const timestamps = todayLines
+                .map(l => parseFloat(l.timestamp))
+                .filter(ts => !isNaN(ts))
+                .sort((a, b) => a - b);
+            const afkTimerSeconds = 120;
+            if (timestamps.length >= 2) {
+                for (let i = 1; i < timestamps.length; i++) {
+                    const gap = timestamps[i] - timestamps[i-1];
+                    totalSeconds += Math.min(gap, afkTimerSeconds);
+                }
+            } else if (timestamps.length === 1) {
+                totalSeconds = 1;
+            }
+            let totalHours = totalSeconds / 3600;
+
+            // Calculate chars/hour
+            let charsPerHour = '-';
+            if (totalChars > 0) {
+                // Avoid division by zero, set minimum time to 1 minute if activity exists
+                if (totalHours <= 0) totalHours = 1/60;
+                charsPerHour = Math.round(totalChars / totalHours).toLocaleString();
+            }
+
+            // Format hours for display
+            let hoursDisplay = '-';
+            if (totalHours > 0) {
+                const h = Math.floor(totalHours);
+                const m = Math.round((totalHours - h) * 60);
+                hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
+            }
+
+            document.getElementById('todayTotalHours').textContent = hoursDisplay;
+            document.getElementById('todayTotalChars').textContent = totalChars.toLocaleString();
+            document.getElementById('todaySessions').textContent = sessions;
+            document.getElementById('todayCharsPerHour').textContent = charsPerHour;
+        }
+
         if (data && data.currentGameStats && data.allGamesStats) {
             // Use existing data if available
             updateCurrentGameDashboard(data.currentGameStats);
             updateAllGamesDashboard(data.allGamesStats);
+            if (data.allLinesData) updateTodayOverview(data.allLinesData);
             hideDashboardLoading();
         } else {
             // Fetch fresh data
@@ -777,6 +918,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (data.currentGameStats && data.allGamesStats) {
                         updateCurrentGameDashboard(data.currentGameStats);
                         updateAllGamesDashboard(data.allGamesStats);
+                        if (data.allLinesData) updateTodayOverview(data.allLinesData);
                     } else {
                         showDashboardError();
                     }
@@ -971,20 +1113,25 @@ document.addEventListener('DOMContentLoaded', function () {
         
         attachEventListeners() {
             // Control buttons
-            this.selectAllBtn.addEventListener('click', () => this.selectAll());
-            this.selectNoneBtn.addEventListener('click', () => this.selectNone());
-            this.deleteSelectedBtn.addEventListener('click', () => this.showConfirmation());
-            this.headerCheckbox.addEventListener('change', (e) => this.toggleAll(e.target.checked));
+            if (this.selectAllBtn) this.selectAllBtn.addEventListener('click', () => this.selectAll());
+            if (this.selectNoneBtn) this.selectNoneBtn.addEventListener('click', () => this.selectNone());
+            if (this.deleteSelectedBtn) this.deleteSelectedBtn.addEventListener('click', () => this.showConfirmation());
+            if (this.headerCheckbox) this.headerCheckbox.addEventListener('change', (e) => this.toggleAll(e.target.checked));
             
             // Modal controls
-            document.getElementById('closeModal').addEventListener('click', () => this.hideModal('confirmationModal'));
-            document.getElementById('cancelDeleteBtn').addEventListener('click', () => this.hideModal('confirmationModal'));
-            document.getElementById('confirmDeleteBtn').addEventListener('click', () => this.performDeletion());
-            document.getElementById('closeResultModal').addEventListener('click', () => this.hideModal('resultModal'));
-            document.getElementById('okBtn').addEventListener('click', () => this.hideModal('resultModal'));
+            const closeModalBtn = document.getElementById('closeModal');
+            if (closeModalBtn) closeModalBtn.addEventListener('click', () => this.hideModal('confirmationModal'));
+            const cancelDeleteBtn = document.getElementById('cancelDeleteBtn');
+            if (cancelDeleteBtn) cancelDeleteBtn.addEventListener('click', () => this.hideModal('confirmationModal'));
+            const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+            if (confirmDeleteBtn) confirmDeleteBtn.addEventListener('click', () => this.performDeletion());
+            const closeResultModalBtn = document.getElementById('closeResultModal');
+            if (closeResultModalBtn) closeResultModalBtn.addEventListener('click', () => this.hideModal('resultModal'));
+            const okBtn = document.getElementById('okBtn');
+            if (okBtn) okBtn.addEventListener('click', () => this.hideModal('resultModal'));
             
             // Retry button
-            this.retryBtn.addEventListener('click', () => this.loadGames());
+            if (this.retryBtn) this.retryBtn.addEventListener('click', () => this.loadGames());
             
             // Close modals when clicking outside
             [this.confirmationModal, this.progressModal, this.resultModal].forEach(modal => {
@@ -1292,5 +1439,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     
     // Initialize the deletion manager
-    new GameDeletionManager();
+    if (document.getElementById('gamesTableBody')) {
+        new GameDeletionManager();
+    }
 });

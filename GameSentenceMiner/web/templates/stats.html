@@ -145,6 +145,36 @@
         <button class="dashboard-retry-btn" data-action="loadDashboardData">Retry</button>
     </div>
 
+
+    <!-- Today's Overview Card -->
+    <div class="dashboard-card today-overview" id="todayOverviewCard" style="margin-bottom: 24px;">
+        <div class="dashboard-card-header">
+            <h3 class="dashboard-card-title">
+                <span class="dashboard-card-icon">📅</span>
+                Today's Overview
+            </h3>
+            <p class="dashboard-card-subtitle" id="todayDate">Loading...</p>
+        </div>
+        <div class="dashboard-stats-grid" id="todayStats">
+            <div class="dashboard-stat-item tooltip" data-tooltip="Total hours spent reading today">
+                <span class="dashboard-stat-value" id="todayTotalHours">-</span>
+                <span class="dashboard-stat-label">Hours Spent</span>
+            </div>
+            <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read today">
+                <span class="dashboard-stat-value" id="todayTotalChars">-</span>
+                <span class="dashboard-stat-label">Characters</span>
+            </div>
+            <div class="dashboard-stat-item tooltip" data-tooltip="Number of reading sessions today">
+                <span class="dashboard-stat-value" id="todaySessions">-</span>
+                <span class="dashboard-stat-label">Sessions</span>
+            </div>
+            <div class="dashboard-stat-item tooltip" data-tooltip="Average reading speed today">
+                <span class="dashboard-stat-value" id="todayCharsPerHour">-</span>
+                <span class="dashboard-stat-label">Chars/Hour</span>
+            </div>
+        </div>
+    </div>
+
     <div class="chart-container">
         <h2>Lines Received Over Time</h2>
         <canvas id="linesChart"></canvas>

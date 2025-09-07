@@ -765,7 +765,8 @@ def register_database_api_routes(app):
         for line in all_lines:
             all_lines_data.append({
                 'timestamp': float(line.timestamp),
-                'game_name': line.game_name or 'Unknown Game'
+                'game_name': line.game_name or 'Unknown Game',
+                'characters': len(line.line_text) if line.line_text else 0
             })
 
         return jsonify({
