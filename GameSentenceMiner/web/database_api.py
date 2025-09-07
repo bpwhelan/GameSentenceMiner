@@ -760,6 +760,14 @@ def register_database_api_routes(app):
         current_game_stats = calculate_current_game_stats(all_lines)
         all_games_stats = calculate_all_games_stats(all_lines)
 
+        # 7. Prepare allLinesData for frontend calculations (needed for average daily time)
+        all_lines_data = []
+        for line in all_lines:
+            all_lines_data.append({
+                'timestamp': float(line.timestamp),
+                'game_name': line.game_name or 'Unknown Game'
+            })
+
         return jsonify({
             "labels": sorted_days,
             "datasets": datasets,
@@ -769,5 +777,6 @@ def register_database_api_routes(app):
             "readingTimePerGame": reading_time_data,
             "readingSpeedPerGame": reading_speed_per_game_data,
             "currentGameStats": current_game_stats,
-            "allGamesStats": all_games_stats
+            "allGamesStats": all_games_stats,
+            "allLinesData": all_lines_data
         })

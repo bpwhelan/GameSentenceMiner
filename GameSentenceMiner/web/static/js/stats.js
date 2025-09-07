@@ -66,8 +66,8 @@ document.addEventListener('DOMContentLoaded', function () {
         return firstSunday;
     }
     
-    // Function to calculate heatmap streaks
-    function calculateHeatmapStreaks(grid, yearData) {
+    // Function to calculate heatmap streaks and average daily time
+    function calculateHeatmapStreaks(grid, yearData, allLinesForYear = []) {
         const dates = [];
         
         // Collect all dates in chronological order
@@ -123,7 +123,59 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
         
-        return { longestStreak, currentStreak };
+        // Calculate average daily time for this year
+        let avgDailyTime = "-";
+        if (allLinesForYear && allLinesForYear.length > 0) {
+            // Group timestamps by day for this year
+            const dailyTimestamps = {};
+            for (const line of allLinesForYear) {
+                const dateStr = new Date(parseFloat(line.timestamp) * 1000).toISOString().split('T')[0];
+                if (!dailyTimestamps[dateStr]) {
+                    dailyTimestamps[dateStr] = [];
+                }
+                dailyTimestamps[dateStr].push(parseFloat(line.timestamp));
+            }
+            
+            // Calculate reading time for each day with activity
+            let totalHours = 0;
+            let activeDays = 0;
+            const afkTimerSeconds = 120; // Default AFK timer - should be fetched from settings
+            
+            for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
+                if (timestamps.length >= 2) {
+                    timestamps.sort((a, b) => a - b);
+                    let dayReadingTime = 0;
+                    
+                    for (let i = 1; i < timestamps.length; i++) {
+                        const gap = timestamps[i] - timestamps[i-1];
+                        dayReadingTime += Math.min(gap, afkTimerSeconds);
+                    }
+                    
+                    if (dayReadingTime > 0) {
+                        totalHours += dayReadingTime / 3600;
+                        activeDays++;
+                    }
+                } else if (timestamps.length === 1) {
+                    // Single timestamp - count as minimal activity (1 second)
+                    totalHours += 1 / 3600;
+                    activeDays++;
+                }
+            }
+            
+            if (activeDays > 0) {
+                const avgHours = totalHours / activeDays;
+                if (avgHours < 1) {
+                    const minutes = Math.round(avgHours * 60);
+                    avgDailyTime = `${minutes}m`;
+                } else {
+                    const hours = Math.floor(avgHours);
+                    const minutes = Math.round((avgHours - hours) * 60);
+                    avgDailyTime = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+                }
+            }
+        }
+        
+        return { longestStreak, currentStreak, avgDailyTime };
     }
 
     // Function to create GitHub-style heatmap
@@ -268,8 +320,14 @@ document.addEventListener('DOMContentLoaded', function () {
             containerWrapper.appendChild(gridContainer);
             mainWrapper.appendChild(containerWrapper);
             
-            // Calculate and display streaks
-            const streaks = calculateHeatmapStreaks(grid, yearData);
+            // Calculate and display streaks with average daily time
+            const yearLines = window.allLinesData ? window.allLinesData.filter(line => {
+                if (!line.timestamp) return false;
+                const lineYear = new Date(parseFloat(line.timestamp) * 1000).getFullYear();
+                return lineYear === parseInt(year);
+            }) : [];
+            
+            const streaks = calculateHeatmapStreaks(grid, yearData, yearLines);
             const streaksDiv = document.createElement('div');
             streaksDiv.className = 'heatmap-streaks';
             streaksDiv.innerHTML = `
@@ -280,6 +338,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 <div class="heatmap-streak-item">
                     <div class="heatmap-streak-number">${streaks.currentStreak}</div>
                     <div class="heatmap-streak-label">Current Streak</div>
+                </div>
+                <div class="heatmap-streak-item">
+                    <div class="heatmap-streak-number">${streaks.avgDailyTime}</div>
+                    <div class="heatmap-streak-label">Avg Daily Time</div>
                 </div>
             `;
             mainWrapper.appendChild(streaksDiv);
@@ -614,6 +676,14 @@ document.addEventListener('DOMContentLoaded', function () {
         return fetch(url)
             .then(response => response.json())
             .then(data => {
+                // Store all lines data globally for heatmap calculations
+                if (data.allLinesData && Array.isArray(data.allLinesData)) {
+                    window.allLinesData = data.allLinesData;
+                } else {
+                    // If not provided by API, we'll work without it
+                    window.allLinesData = [];
+                }
+                
                 if (!data.labels || data.labels.length === 0) {
                     console.log("No data to display.");
                     return data;
@@ -784,6 +854,7 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             streakElement.style.display = 'none';
         }
+
 
         // Show the card
         document.getElementById('allGamesCard').style.display = 'block';

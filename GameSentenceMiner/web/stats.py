@@ -480,6 +480,37 @@ def calculate_current_game_stats(all_lines):
         'daily_activity': dict(daily_activity)
     }
 
+def calculate_average_daily_reading_time(all_lines):
+    """
+    Calculate average reading time per day based only on days with reading activity.
+    
+    Args:
+        all_lines: List of game lines
+    
+    Returns:
+        float: Average reading time in hours per active day, 0 if no active days
+    """
+    if not all_lines:
+        return 0.0
+    
+    # Calculate daily reading time using existing function
+    daily_reading_time = calculate_daily_reading_time(all_lines)
+    
+    if not daily_reading_time:
+        return 0.0
+    
+    # Count only days with reading activity > 0
+    active_days = [day_hours for day_hours in daily_reading_time.values() if day_hours > 0]
+    
+    if not active_days:
+        return 0.0
+    
+    # Calculate average: total hours / number of active days
+    total_hours = sum(active_days)
+    average_hours = total_hours / len(active_days)
+    
+    return average_hours
+
 def calculate_all_games_stats(all_lines):
     """Calculate aggregate statistics for all games combined."""
     if not all_lines:
@@ -524,6 +555,9 @@ def calculate_all_games_stats(all_lines):
     # Calculate reading streak using time-based requirements
     current_streak = calculate_time_based_streak(all_lines)
     
+    # Calculate average daily reading time
+    avg_daily_time_hours = calculate_average_daily_reading_time(all_lines)
+    
     # Count unique games
     unique_games = len(set(line.game_name or "Unknown Game" for line in all_lines))
     
@@ -540,6 +574,8 @@ def calculate_all_games_stats(all_lines):
         'monthly_characters': monthly_chars,
         'monthly_characters_formatted': format_large_number(monthly_chars),
         'current_streak': current_streak,
+        'avg_daily_time_hours': avg_daily_time_hours,
+        'avg_daily_time_formatted': format_time_human_readable(avg_daily_time_hours),
         'first_date': datetime.date.fromtimestamp(min_timestamp).strftime('%Y-%m-%d'),
         'last_date': datetime.date.fromtimestamp(max_timestamp).strftime('%Y-%m-%d'),
         'daily_activity': dict(daily_activity)
