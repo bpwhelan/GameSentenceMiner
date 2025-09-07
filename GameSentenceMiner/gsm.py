@@ -663,10 +663,10 @@ def initialize_text_monitor():
 
 def async_loop():
     async def loop():
-        await obs.connect_to_obs()
+        logger.info("Post-Initialization started.")
+        await obs.connect_to_obs(connections=3, check_output=True)
         await register_scene_switcher_callback()
         await check_obs_folder_is_correct()
-        logger.info("Post-Initialization started.")
         vad_processor.init()
         # if is_beangate:
         # await run_test_code()

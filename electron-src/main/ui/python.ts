@@ -23,7 +23,7 @@ export async function pipInstallWithLogging(
     cwd?: string
 ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-        const proc = spawn(pythonPath, ['-m', 'uv', 'pip', ...pipArgs], {
+        const proc = spawn(pythonPath, ['-m', 'uv', 'pip', '--no-progress', ...pipArgs], {
             stdio: ['ignore', 'pipe', 'pipe'],
             cwd: cwd || BASE_DIR,
         });
@@ -112,6 +112,29 @@ export function registerPythonIPC() {
         }
     });
 
+    ipcMain.handle('python.installWhisperX', async () => {
+        try {
+            const pythonPath = await getOrInstallPython();
+            await closeGSM();
+
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            if (pyProc) {
+                pyProc.kill();
+            }
+            console.log('Installing WhisperX package...');
+            await pipInstallWithLogging(pythonPath, ['install', 'git+https://github.com/m-bain/whisperX@0e7153bc2ed94faf99ff016e5055e052f730fca5'], 'WHISPERX');
+            // python -m pytorch_lightning.utilities.upgrade_checkpoint C:\Users\Beangate\AppData\Roaming\GameSentenceMiner\python\Lib\site-packages\whisperx\assets\pytorch_model.bin
+            await restartGSM();
+            return { success: true, message: 'WhisperX installed successfully' };
+        } catch (error: any) {
+            console.error('Failed to install WhisperX:', error);
+            return {
+                success: false,
+                message: `Failed to install WhisperX: ${error?.message || 'Unknown error'}`,
+            };
+        }
+    });
+
     // Repair GSM - Complete reinstall
     ipcMain.handle('python.repairGSM', async () => {
         try {
@@ -151,7 +174,7 @@ export function registerPythonIPC() {
 
             consoleProcess = spawn(
                 pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--upgrade', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
+                ['-m', 'uv', '--no-progress', 'pip', 'install', '--upgrade', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
                 {
                     stdio: 'inherit',
                     cwd: BASE_DIR,
@@ -216,6 +239,7 @@ export function registerPythonIPC() {
             const result = await execFileAsync(pythonPath, [
                 '-m',
                 'uv',
+                '--no-progress',
                 'pip',
                 'list',
                 '--format=json',

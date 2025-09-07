@@ -1,4 +1,5 @@
 import asyncio
+from copy import copy
 import io
 import json
 import logging
@@ -376,18 +377,19 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
                 return
             previous_orig_text = orig_text_string
             previous_ocr1_result = previous_text
-            if crop_coords and get_ocr_optimize_second_scan():
-                x1, y1, x2, y2 = crop_coords
-                x1 = max(0, min(x1, img.width))
-                y1 = max(0, min(y1, img.height))
-                x2 = max(x1, min(x2, img.width))
-                y2 = max(y1, min(y2, img.height))
-                previous_img_local.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
-                try:
-                    previous_img_local = previous_img_local.crop((x1, y1, x2, y2))
-                except ValueError:
-                    logger.warning("Error cropping image, using original image")
-            second_ocr_queue.put((previous_text, stable_time, previous_img_local, filtering, pre_crop_image))
+            ocr2_image = get_ocr2_image(crop_coords, og_image=previous_img_local, ocr2_engine=get_ocr_ocr2())
+            # if crop_coords and get_ocr_optimize_second_scan():
+            #     x1, y1, x2, y2 = crop_coords
+            #     x1 = max(0, min(x1, img.width))
+            #     y1 = max(0, min(y1, img.height))
+            #     x2 = max(x1, min(x2, img.width))
+            #     y2 = max(y1, min(y2, img.height))
+            #     previous_img_local.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
+            #     try:
+            #         previous_img_local = previous_img_local.crop((x1, y1, x2, y2))
+            #     except ValueError:
+            #         logger.warning("Error cropping image, using original image")
+            second_ocr_queue.put((previous_text, stable_time, ocr2_image, filtering, pre_crop_image))
             # threading.Thread(target=do_second_ocr, args=(previous_text, stable_time, previous_img_local, filtering), daemon=True).start()
             previous_img = None
             previous_text = None
@@ -411,6 +413,69 @@ done = False
 
 # Create a queue for tasks
 second_ocr_queue = queue.Queue()
+
+def get_ocr2_image(crop_coords, og_image, ocr2_engine=None):
+    """
+    Returns the image to use for the second OCR pass, cropping and scaling as needed.
+    Logic is unchanged, but code is refactored for clarity and maintainability.
+    """
+    def return_original_image():
+        logger.info("Returning original image for OCR2 (no cropping or optimization).")
+        if not crop_coords or not get_ocr_optimize_second_scan():
+            return og_image
+        x1, y1, x2, y2 = crop_coords
+        x1 = max(0, min(x1, og_image.width))
+        y1 = max(0, min(y1, og_image.height))
+        x2 = max(x1, min(x2, og_image.width))
+        y2 = max(y1, min(y2, og_image.height))
+        og_image.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
+        return og_image.crop((x1, y1, x2, y2))
+    
+    LOCAL_OCR_ENGINES = ['easyocr', 'oneocr', 'rapidocr', 'mangaocr', 'winrtocr']
+    local_ocr = ocr2_engine in LOCAL_OCR_ENGINES
+    ocr_config_local = copy(ocr_config)
+
+    # Non-local OCR: just crop the original image if needed
+    if not local_ocr:
+        return return_original_image()
+
+    # Local OCR: get fresh screenshot and apply config/cropping
+    obs_width = getattr(run.obs_screenshot_thread, 'width', None)
+    obs_height = getattr(run.obs_screenshot_thread, 'height', None)
+    if not obs_width or not obs_height:
+        return return_original_image()
+    logger.debug(f"Getting OCR2 image with OBS dimensions: {obs_width}x{obs_height}")
+
+    img = obs.get_screenshot_PIL(compression=100, img_format="jpg")
+    ocr_config_local.scale_to_custom_size(img.width, img.height)
+
+    # If no crop or optimization, just apply config and return
+    if not crop_coords or not get_ocr_optimize_second_scan():
+        img = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=True)
+        return img
+
+    # Calculate scaling ratios
+    width_ratio = img.width / obs_width if obs_width else 1
+    height_ratio = img.height / obs_height if obs_height else 1
+    logger.debug(f"Cropping OCR2 image with crop coordinates: {crop_coords} and ratios: {width_ratio}, {height_ratio}")
+
+    # Scale crop_coords
+    x1 = int(crop_coords[0] * width_ratio)
+    y1 = int(crop_coords[1] * height_ratio)
+    x2 = int(crop_coords[2] * width_ratio)
+    y2 = int(crop_coords[3] * height_ratio)
+    logger.debug(f"Scaled crop coordinates: {(x1, y1, x2, y2)}")
+
+    # Clamp coordinates to image bounds
+    x1 = max(0, min(x1, img.width))
+    y1 = max(0, min(y1, img.height))
+    x2 = max(x1, min(x2, img.width))
+    y2 = max(y1, min(y2, img.height))
+
+    img = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False)
+    
+    
+    return img.crop((x1, y1, x2, y2))
 
 def process_task_queue():
     while True:
@@ -456,7 +521,7 @@ def run_oneocr(ocr_config: OCRConfig, rectangles, config_check_thread):
                 gsm_ocr_config=ocr_config,
                 screen_capture_areas=screen_areas,
                 furigana_filter_sensitivity=furigana_filter_sensitivity,
-                screen_capture_combo=manual_ocr_hotkey if manual_ocr_hotkey and manual else None,
+                screen_capture_combo=manual_ocr_hotkey.upper() if manual_ocr_hotkey and manual else None,
                 config_check_thread=config_check_thread)
     except Exception as e:
         logger.exception(f"Error running OneOCR: {e}")
@@ -530,7 +595,7 @@ def set_force_stable_hotkey():
 
 if __name__ == "__main__":
     try:
-        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline, obs_ocr
+        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline, obs_ocr, manual
         import sys
 
         import argparse

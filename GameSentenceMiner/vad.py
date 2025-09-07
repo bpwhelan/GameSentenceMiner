@@ -139,7 +139,7 @@ class VADProcessor(ABC):
             self.extract_audio_and_combine_segments(input_audio, voice_activity, output_audio, padding=get_config().vad.splice_padding)
         else:
             ffmpeg.trim_audio(input_audio, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, output_audio, trim_beginning=get_config().vad.trim_beginning, fade_in_duration=0.05, fade_out_duration=0)
-        return VADResult(True, start_time + get_config().vad.beginning_offset, end_time + get_config().audio.end_offset, self.vad_system_name, voice_activity, output_audio)
+        return VADResult(True, max(0, start_time + get_config().vad.beginning_offset), max(0, end_time + get_config().audio.end_offset), self.vad_system_name, voice_activity, output_audio)
 
 class SileroVADProcessor(VADProcessor):
     def __init__(self):
@@ -165,10 +165,12 @@ class WhisperVADProcessor(VADProcessor):
 
     def load_whisper_model(self):
         import stable_whisper as whisper
+        import torch
         if not self.vad_model:
+            self.device = "cpu" if get_config().vad.use_cpu_for_inference else "cuda" if torch.cuda.is_available() else "cpu"
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                self.vad_model = whisper.load_model(get_config().vad.whisper_model, device="cpu" if get_config().vad.use_cpu_for_inference else None)
+                self.vad_model = whisper.load_faster_whisper(get_config().vad.whisper_model, device=self.device)
             logger.info(f"Whisper model '{get_config().vad.whisper_model}' loaded.")
         return self.vad_model
 
@@ -187,7 +189,7 @@ class WhisperVADProcessor(VADProcessor):
                                                              temperature=0.0)
         voice_activity = []
 
-        logger.debug(result.to_dict())
+        logger.debug(json.dumps(result.to_dict(), indent=2))
 
         # Process the segments to extract tokens, timestamps, and confidence
         for i, segment in enumerate(result.segments):

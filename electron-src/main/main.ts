@@ -366,6 +366,7 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
                 [
                     '-m',
                     'uv',
+                    '--no-progress',
                     'pip',
                     'install',
                     '--upgrade',

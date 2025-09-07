@@ -288,6 +288,7 @@ export function registerOCRUtilsIPC() {
                 pythonPath,
                 '-m',
                 'uv',
+                '--no-progress',
                 'pip',
                 'install',
                 '--upgrade',
@@ -298,6 +299,7 @@ export function registerOCRUtilsIPC() {
             pythonPath,
             '-m',
             'uv',
+            '--no-progress',
             'pip',
             'install',
             '--upgrade',
@@ -308,6 +310,7 @@ export function registerOCRUtilsIPC() {
             pythonPath,
             '-m',
             'uv',
+            '--no-progress',
             'pip',
             'install',
             '--upgrade',
@@ -333,12 +336,13 @@ export function registerOCRUtilsIPC() {
                 pythonPath,
                 '-m',
                 'uv',
+                '--no-progress',
                 ...dependency.split(' '),
                 'numpy==2.2.6',
                 '--upgrade',
             ];
         } else {
-            command = [pythonPath, '-m', 'uv', dependency];
+            command = [pythonPath, '-m', 'uv', '--no-progress', dependency];
         }
         mainWindow?.webContents.send('ocr-log', `Installing ${dependency} dependencies...`);
         await runCommandAndLog(command);
@@ -360,7 +364,7 @@ export function registerOCRUtilsIPC() {
 
         if (response.response === 0) {
             // 'Yes' button
-            const command = [getPythonPath(), '-m', 'uv', 'pip', 'uninstall', '-y', dependency];
+            const command = [getPythonPath(), '-m', 'uv', '--no-progress', 'pip', 'uninstall', dependency];
             mainWindow?.webContents.send('ocr-log', `Uninstalling ${dependency} dependencies...`);
             await runCommandAndLog(command);
             mainWindow?.webContents.send(
@@ -427,7 +431,7 @@ export function registerOCRUtilsIPC() {
                 `--language`,
                 `${ocr_config.language}`,
                 `--ocr1`,
-                `${ocr1}`,
+                `${ocr_config.ocr2}`,
                 `--ocr2`,
                 `${ocr_config.ocr2}`,
                 `--window`,
