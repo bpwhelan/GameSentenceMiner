@@ -1,3 +1,34 @@
+# 09/08/2025 GSM Game Stats
+
+I am pleased to announce that there is now a Stats page in GSM! **Massive** thanks to @autumn12345 for taking this idea much higher than I imagined it would go.
+
+## How to Access
+
+You can access the new stats page by default at localhost:55000/stats or on whatever port you have the texthooker page configured to use.
+
+## How is there already data in there?
+
+GSM a month ago or so started to keep a database of lines received from games (completely local, GSM does NOT touch the internet except for downloading tools/whisper, as well as AI prompts), and now you can see all that data visualized!
+
+I did have the crazy idea of a "download gamescript" button that would roll up all the lines and spit it out to a csv/txt/etc. that may be added somewhere in here in the future.
+
+## What all is available?
+
+I'm not going to go much into detail since it would be much easier for you to see for yourself, but just a short list:
+
+- Metrics on how many characters per game you've read, how fast you read, streaks, encountered kanji, etc.
+- Search tab to search through all the lines from the various games you've played with GSM open.
+- Database management tab to clear up games that you've dropped, duplicate lines, extra long lines, etc.
+
+## Is this data being sent anywhere else?
+
+Absolutely not. Never.
+<img width="1139" height="694" alt="msedge_E9LkFpmrcI" src="https://github.com/user-attachments/assets/e34a0fc4-0dc8-4cb8-a45b-da2f7af127fd" />
+<img width="1115" height="1113" alt="msedge_ezr3kiahZ5" src="https://github.com/user-attachments/assets/0ea41add-33c0-4124-bcb2-867488630f23" />
+<img width="1207" height="934" alt="msedge_9VFd9KL2dO" src="https://github.com/user-attachments/assets/bb4d8f4d-7b19-40ed-ab7a-4da7a09ffbff" />
+<img width="1198" height="889" alt="msedge_9ecjqG9EMJ" src="https://github.com/user-attachments/assets/673a490e-3bd2-40d3-89ac-3ce69726942b" />
+<img width="1114" height="1088" alt="msedge_RcXZAHqVKE" src="https://github.com/user-attachments/assets/75488aa0-3c5f-4759-b86e-9f078f46d5ae" />
+
 # 1.12.0 / 2.15.0
 
 Some Very nice improvements to OCR, and the Overlay
