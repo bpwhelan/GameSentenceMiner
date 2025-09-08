@@ -135,68 +135,7 @@
     border-radius: 2px;
 }
 
-/* Kanji Grid Styles */
-.kanji-counter {
-    text-align: center;
-    font-size: 18px;
-    font-weight: bold;
-    color: #495057;
-    margin-bottom: 20px;
-}
-
-.kanji-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
-    gap: 3px;
-    margin-bottom: 20px;
-    max-width: 100%;
-}
-
-.kanji-cell {
-    width: 30px;
-    height: 30px;
-    background-color: #ebedf0;
-    border-radius: 3px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    font-weight: bold;
-    color: #333;
-    cursor: pointer;
-    position: relative;
-    transition: all 0.2s ease;
-    font-family: "Noto Sans CJK JP", "Hiragino Sans", "Yu Gothic", "Meiryo", "Takao", "IPAexGothic", "IPAPGothic", "VL PGothic", "Koruri", sans-serif;
-    line-height: 1;
-    text-align: center;
-}
-
-.kanji-cell:hover {
-    transform: scale(1.1);
-    z-index: 10;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-}
-
-.kanji-cell.level-1 { background-color: #c6e48b; }
-.kanji-cell.level-2 { background-color: #7bc96f; }
-.kanji-cell.level-3 { background-color: #239a3b; color: white; }
-.kanji-cell.level-4 { background-color: #196127; color: white; }
-
-.kanji-legend {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 10px;
-    font-size: 12px;
-    color: #586069;
-}
-
-.kanji-legend-item {
-    width: 12px;
-    height: 12px;
-    margin: 0 2px;
-    border-radius: 2px;
-}
+/* Kanji Grid Styles - Moved to shared kanji-grid.css */
 
 /* Delete Game Entry Section Styles */
 .delete-controls {

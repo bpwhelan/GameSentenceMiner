@@ -689,57 +689,17 @@ document.addEventListener('DOMContentLoaded', function () {
         return `Speed: ${charsPerHour.toLocaleString()} chars/hour`;
     }
 
-    // Function to create kanji grid
-    function createKanjiGrid(kanjiData) {
-        const container = document.getElementById('kanjiGrid');
-        const counterElement = document.getElementById('kanjiCount');
-        
-        if (!kanjiData || !kanjiData.kanji_data) {
-            container.innerHTML = '<p>No kanji data available</p>';
-            return;
-        }
-        
-        // Update counter
-        counterElement.textContent = kanjiData.unique_count;
-        
-        // Clear existing grid
-        container.innerHTML = '';
-        
-        // Create kanji cells with gradient colors
-        kanjiData.kanji_data.forEach(item => {
-            const cell = document.createElement('div');
-            cell.className = 'kanji-cell';
-            cell.textContent = item.kanji;
-            
-            // Apply gradient color directly from backend
-            if (item.color) {
-                cell.style.backgroundColor = item.color;
-                // Determine text color based on background brightness
-                const brightness = getColorBrightness(item.color);
-                cell.style.color = brightness > 128 ? '#333' : '#fff';
-            } else {
-                // Fallback for items without color
-                cell.style.backgroundColor = '#ebedf0';
-                cell.style.color = '#333';
-            }
-            
-            // Add tooltip
-            cell.title = `${item.kanji}: ${item.frequency} encounters`;
-            
-            container.appendChild(cell);
-        });
-    }
+    // Initialize Kanji Grid Renderer (using shared component)
+    const kanjiGridRenderer = new KanjiGridRenderer({
+        containerSelector: '#kanjiGrid',
+        counterSelector: '#kanjiCount',
+        colorMode: 'backend',
+        emptyMessage: 'No kanji data available'
+    });
     
-    // Helper function to calculate color brightness
-    function getColorBrightness(hexColor) {
-        // Convert hex to RGB
-        const hex = hexColor.replace('#', '');
-        const r = parseInt(hex.slice(0, 2), 16);
-        const g = parseInt(hex.slice(2, 4), 16);
-        const b = parseInt(hex.slice(4, 6), 16);
-        
-        // Calculate brightness using standard formula
-        return (r * 299 + g * 587 + b * 114) / 1000;
+    // Function to create kanji grid (now using shared renderer)
+    function createKanjiGrid(kanjiData) {
+        kanjiGridRenderer.render(kanjiData);
     }
 
     // Function to load stats data with optional year filter
