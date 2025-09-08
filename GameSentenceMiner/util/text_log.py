@@ -119,7 +119,7 @@ def strip_whitespace_and_punctuation(text: str) -> str:
     return re.sub(r'[\s　、。「」【】《》., ]', '', text).strip()
 
 
-def lines_match(texthooker_sentence, anki_sentence):
+def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> bool:
     # Replace newlines, spaces, other whitespace characters, AND japanese punctuation
     texthooker_sentence = strip_whitespace_and_punctuation(texthooker_sentence)
     anki_sentence = strip_whitespace_and_punctuation(anki_sentence)
@@ -129,7 +129,7 @@ def lines_match(texthooker_sentence, anki_sentence):
         logger.debug(f"One contains the other: {texthooker_sentence} in {anki_sentence} - Similarity: {similarity}")
     elif anki_sentence in texthooker_sentence:
         logger.debug(f"One contains the other: {anki_sentence} in {texthooker_sentence} - Similarity: {similarity}")
-    return (anki_sentence in texthooker_sentence) or (texthooker_sentence in anki_sentence) or (similarity >= 80)
+    return (anki_sentence in texthooker_sentence) or (texthooker_sentence in anki_sentence) or (similarity >= similarity_threshold)
 
 
 def get_text_event(last_note) -> GameLine:

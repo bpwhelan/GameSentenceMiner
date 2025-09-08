@@ -83,7 +83,7 @@ class OCRConfig:
                 ]
 
     def scale_to_custom_size(self, width, height):
-        self.rectangles = self.pre_scale_rectangles.copy()
+        self.rectangles = deepcopy(self.pre_scale_rectangles)
         if self.coordinate_system and self.coordinate_system == "percentage":
             for rectangle in self.rectangles:
                 rectangle.coordinates = [

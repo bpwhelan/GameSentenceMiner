@@ -424,13 +424,14 @@ def get_ocr2_image(crop_coords, og_image, ocr2_engine=None):
         if not crop_coords or not get_ocr_optimize_second_scan():
             return og_image
         x1, y1, x2, y2 = crop_coords
-        x1 = max(0, min(x1, og_image.width))
-        y1 = max(0, min(y1, og_image.height))
-        x2 = max(x1, min(x2, og_image.width))
-        y2 = max(y1, min(y2, og_image.height))
+        x1 = min(max(0, x1), img.width)
+        y1 = min(max(0, y1), img.height)
+        x2 = min(max(0, x2), img.width)
+        y2 = min(max(0, y2), img.height)
         og_image.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
         return og_image.crop((x1, y1, x2, y2))
     
+    # TODO Get rid of this check, and just always convert to full res
     LOCAL_OCR_ENGINES = ['easyocr', 'oneocr', 'rapidocr', 'mangaocr', 'winrtocr']
     local_ocr = ocr2_engine in LOCAL_OCR_ENGINES
     ocr_config_local = copy(ocr_config)
@@ -444,10 +445,17 @@ def get_ocr2_image(crop_coords, og_image, ocr2_engine=None):
     obs_height = getattr(run.obs_screenshot_thread, 'height', None)
     if not obs_width or not obs_height:
         return return_original_image()
+    
     logger.debug(f"Getting OCR2 image with OBS dimensions: {obs_width}x{obs_height}")
 
     img = obs.get_screenshot_PIL(compression=100, img_format="jpg")
+    
     ocr_config_local.scale_to_custom_size(img.width, img.height)
+    
+    # If img.width and height is the same as obs, no need to scale coords, tolerance of .1%
+    if abs(img.width - obs_width) <= 0.1 * obs_width and abs(img.height - obs_height) <= 0.1 * obs_height:
+        logger.info("Image size matches OBS size, no need to scale coordinates.")
+        return return_original_image()
 
     # If no crop or optimization, just apply config and return
     if not crop_coords or not get_ocr_optimize_second_scan():
@@ -464,18 +472,19 @@ def get_ocr2_image(crop_coords, og_image, ocr2_engine=None):
     y1 = int(crop_coords[1] * height_ratio)
     x2 = int(crop_coords[2] * width_ratio)
     y2 = int(crop_coords[3] * height_ratio)
-    logger.debug(f"Scaled crop coordinates: {(x1, y1, x2, y2)}")
 
     # Clamp coordinates to image bounds
-    x1 = max(0, min(x1, img.width))
-    y1 = max(0, min(y1, img.height))
-    x2 = max(x1, min(x2, img.width))
-    y2 = max(y1, min(y2, img.height))
-
+    x1 = min(max(0, x1), img.width)
+    y1 = min(max(0, y1), img.height)
+    x2 = min(max(0, x2), img.width)
+    y2 = min(max(0, y2), img.height)
+    
+    logger.debug(f"Scaled crop coordinates: {(x1, y1, x2, y2)}")
+    
     img = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False)
     
-    
-    return img.crop((x1, y1, x2, y2))
+    ret = img.crop((x1, y1, x2, y2))
+    return ret
 
 def process_task_queue():
     while True:
