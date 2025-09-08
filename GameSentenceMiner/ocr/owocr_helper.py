@@ -414,7 +414,7 @@ done = False
 # Create a queue for tasks
 second_ocr_queue = queue.Queue()
 
-def get_ocr2_image(crop_coords, og_image, ocr2_engine=None):
+def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None):
     """
     Returns the image to use for the second OCR pass, cropping and scaling as needed.
     Logic is unchanged, but code is refactored for clarity and maintainability.
@@ -424,10 +424,10 @@ def get_ocr2_image(crop_coords, og_image, ocr2_engine=None):
         if not crop_coords or not get_ocr_optimize_second_scan():
             return og_image
         x1, y1, x2, y2 = crop_coords
-        x1 = min(max(0, x1), img.width)
-        y1 = min(max(0, y1), img.height)
-        x2 = min(max(0, x2), img.width)
-        y2 = min(max(0, y2), img.height)
+        x1 = min(max(0, x1), og_image.width)
+        y1 = min(max(0, y1), og_image.height)
+        x2 = min(max(0, x2), og_image.width)
+        y2 = min(max(0, y2), og_image.height)
         og_image.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
         return og_image.crop((x1, y1, x2, y2))
     
