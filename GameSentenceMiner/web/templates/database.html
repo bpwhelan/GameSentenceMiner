@@ -1,0 +1,277 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSM Database Management</title>
+    
+    <!-- Include shared theme styles -->
+    {% include 'components/theme-styles.html' %}
+    
+    <!-- Include shared CSS -->
+    <link rel="stylesheet" href="/static/css/shared.css">
+</head>
+<body>
+
+<div class="container">
+    <h1>Game Sentence Miner - Database Management</h1>
+    
+    <!-- Include shared navigation -->
+    {% include 'components/navigation.html' %}
+
+    <div class="management-grid">
+        <!-- Games Management Card -->
+        <div class="management-card games">
+            <div class="card-header">
+                <div class="card-icon">🗑️</div>
+                <h2 class="card-title">Games Management</h2>
+            </div>
+            <p class="card-description">
+                Manage your game data by viewing statistics and selectively deleting games and their associated sentences.
+            </p>
+            <div class="stats-row">
+                <span class="stats-label">Total Games:</span>
+                <span class="stats-value" id="totalGamesCount">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Total Sentences:</span>
+                <span class="stats-value" id="totalSentencesCount">Loading...</span>
+            </div>
+            <div class="card-actions">
+                <button class="action-btn danger" data-action="openGameDeletionModal">
+                    Manage Games
+                </button>
+            </div>
+        </div>
+
+
+        <!-- Text Lines Management Card -->
+        <div class="management-card text-lines">
+            <div class="card-header">
+                <div class="card-icon">📄</div>
+                <h2 class="card-title">Manage Text Lines</h2>
+            </div>
+            <p class="card-description">
+                Manage specific lines of text based on content matching.
+            </p>
+            <div class="stats-row">
+                <span class="stats-label">Last Cleanup:</span>
+                <span class="stats-value" id="lastCleanupDate">Never</span>
+            </div>
+            <div class="card-actions">
+                <button class="action-btn warning" data-action="openTextLinesModal">
+                    Manage Text Lines
+                </button>
+            </div>
+        </div>
+
+        <!-- Deduplication Card -->
+        <div class="management-card deduplication">
+            <div class="card-header">
+                <div class="card-icon">🔄</div>
+                <h2 class="card-title">Data Deduplication</h2>
+            </div>
+            <p class="card-description">
+                Manage duplicate sentences to improve data quality and reduce storage usage.
+            </p>
+            <div class="stats-row">
+                <span class="stats-label">Potential Duplicates:</span>
+                <span class="stats-value" id="duplicatesCount">Calculating...</span>
+            </div>
+            <div class="card-actions">
+                <button class="action-btn success" data-action="openDeduplicationModal">
+                    Manage Duplicates
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Games Deletion Modal (moved from stats.html) -->
+<div id="gamesDeletionModal" class="modal">
+    <div class="modal-content" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3>Delete Games</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="gamesDeletionModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p class="warning-text">Select games to delete. This will permanently remove all associated sentences and data.</p>
+            
+            <div id="gamesLoadingIndicator" class="loading-indicator">
+                <div class="spinner"></div>
+                <span>Loading games...</span>
+            </div>
+            
+            <div id="gamesContent" style="display: none;">
+                <div style="margin-bottom: 20px;">
+                    <button class="action-btn primary" data-action="selectAllGames">Select All</button>
+                    <button class="action-btn primary" data-action="selectNoGames">Select None</button>
+                </div>
+                <div id="gamesList" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 5px; padding: 10px;">
+                    <!-- Games will be populated here -->
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="gamesDeletionModal">Cancel</button>
+            <button class="action-btn danger" id="deleteSelectedGamesBtn" data-action="deleteSelectedGames" disabled>Delete Selected</button>
+        </div>
+    </div>
+</div>
+
+
+<!-- Text Lines Deletion Modal -->
+<div id="textLinesModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Delete Text Lines</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="textLinesModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p class="warning-text">Remove specific lines of text from all games using preset patterns or custom regex. This operation cannot be undone.</p>
+            
+            <div class="form-group">
+                <label class="form-label">Preset Patterns:</label>
+                <select id="presetPatterns" class="form-input">
+                    <option value="">Select a preset pattern...</option>
+                    <option value="lines_over_50">Lines over 50 characters</option>
+                    <option value="lines_over_100">Lines over 100 characters</option>
+                    <option value="non_japanese">Non-Japanese text</option>
+                    <option value="ascii_only">ASCII-only lines</option>
+                    <option value="empty_lines">Empty or whitespace-only lines</option>
+                    <option value="numbers_only">Lines with numbers only</option>
+                    <option value="single_char">Single character lines</option>
+                    <option value="repeated_chars">Lines with repeated characters (3+ times)</option>
+                </select>
+                <small style="color: var(--text-tertiary); font-size: 12px;">
+                    Select a common pattern or create a custom regex below.
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Custom Regex Pattern:</label>
+                <input type="text" id="customRegex" class="form-input" placeholder="Enter custom regex pattern (e.g., ^.{0,10}$ for lines 10 chars or less)">
+                <small style="color: var(--text-tertiary); font-size: 12px;">
+                    Use regex syntax. Leave empty to use exact text matching below.
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Exact Text to Delete:</label>
+                <textarea id="textToDelete" class="form-textarea" rows="4" placeholder="Enter exact text lines to delete, one per line..."></textarea>
+                <small style="color: var(--text-tertiary); font-size: 12px;">
+                    Each line will be treated as an exact match. Only used if no regex pattern is provided.
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <div class="checkbox-container">
+                    <input type="checkbox" id="caseSensitiveDelete" class="checkbox-input">
+                    <label for="caseSensitiveDelete" class="checkbox-label">Case sensitive matching</label>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <div class="checkbox-container">
+                    <input type="checkbox" id="useRegexDelete" class="checkbox-input">
+                    <label for="useRegexDelete" class="checkbox-label">Treat custom pattern as regex</label>
+                </div>
+            </div>
+            
+            <div id="previewDeleteResults" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h4 style="margin: 0 0 10px 0; color: var(--text-primary);">Preview Results</h4>
+                <div class="stats-row">
+                    <span class="stats-label">Lines to be deleted:</span>
+                    <span class="stats-value" id="previewDeleteCount">0</span>
+                </div>
+                <div id="previewDeleteSamples" style="max-height: 100px; overflow-y: auto; margin-top: 10px;"></div>
+            </div>
+            
+            <div id="textLinesError" class="error-text" style="display: none;"></div>
+            <div id="textLinesSuccess" class="success-text" style="display: none;"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="textLinesModal">Cancel</button>
+            <button class="action-btn primary" data-action="previewTextDeletion">Preview</button>
+            <button class="action-btn warning" id="executeDeleteBtn" data-action="deleteTextLines" disabled>Delete Lines</button>
+        </div>
+    </div>
+</div>
+
+<!-- Deduplication Modal -->
+<div id="deduplicationModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Remove Duplicate Sentences</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="deduplicationModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p class="warning-text">Remove duplicate sentences from selected games, keeping only the first occurrence of each unique sentence within a specified time window.</p>
+            
+            <div class="form-group">
+                <label class="form-label">Select Games:</label>
+                <select id="gameSelection" class="form-input" multiple style="height: 120px;">
+                    <option value="all">All Games</option>
+                </select>
+                <small style="color: var(--text-tertiary); font-size: 12px;">
+                    Hold Ctrl/Cmd to select multiple games. Select "All Games" to process all games at once.
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Time Window (minutes):</label>
+                <input type="number" id="timeWindow" class="form-input" min="1" max="1440" value="5" placeholder="5">
+                <small style="color: var(--text-tertiary); font-size: 12px;">
+                    Only remove duplicates that appear within this many minutes of each other (1-1440 minutes).
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <div class="checkbox-container">
+                    <input type="checkbox" id="caseSensitiveDedup" class="checkbox-input">
+                    <label for="caseSensitiveDedup" class="checkbox-label">Case sensitive comparison</label>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <div class="checkbox-container">
+                    <input type="checkbox" id="preserveNewest" class="checkbox-input">
+                    <label for="preserveNewest" class="checkbox-label">Keep newest occurrence instead of oldest</label>
+                </div>
+            </div>
+            
+            <div id="deduplicationStats" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h4 style="margin: 0 0 10px 0; color: var(--text-primary);">Scan Results</h4>
+                <div class="stats-row">
+                    <span class="stats-label">Duplicates Found:</span>
+                    <span class="stats-value" id="duplicatesFoundCount">0</span>
+                </div>
+                <div class="stats-row">
+                    <span class="stats-label">Games Affected:</span>
+                    <span class="stats-value" id="gamesAffectedCount">0</span>
+                </div>
+                <div class="stats-row">
+                    <span class="stats-label">Space to be Freed:</span>
+                    <span class="stats-value" id="spaceToFree">0 sentences</span>
+                </div>
+                <div id="duplicatesSampleList" style="max-height: 100px; overflow-y: auto; margin-top: 10px;"></div>
+            </div>
+            
+            <div id="deduplicationError" class="error-text" style="display: none;"></div>
+            <div id="deduplicationSuccess" class="success-text" style="display: none;"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="deduplicationModal">Cancel</button>
+            <button class="action-btn primary" data-action="scanForDuplicates">Scan for Duplicates</button>
+            <button class="action-btn success" id="removeDuplicatesBtn" data-action="removeDuplicates" disabled>Remove Duplicates</button>
+        </div>
+    </div>
+</div>
+
+<!-- Include shared JavaScript first (required dependency for database.js) -->
+<script src="/static/js/shared.js"></script>
+<script src="/static/js/database.js"></script>
+
+</body>
+</html>

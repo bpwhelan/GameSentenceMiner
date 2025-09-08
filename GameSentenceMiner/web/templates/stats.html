@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSM Dashboard</title>
+    <!-- Include Chart.js from a CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Include shared theme styles -->
+    {% include 'components/theme-styles.html' %}
+    
+    <!-- Include shared CSS -->
+    <link rel="stylesheet" href="/static/css/shared.css">
+    
+    <!-- Include stats-specific CSS -->
+    <link rel="stylesheet" href="/static/css/stats.css">
+</head>
+<body>
+
+<div class="container">
+    <h1>Game Sentence Miner - Statistics</h1>
+    
+    <!-- Include shared navigation -->
+    {% include 'components/navigation.html' %}
+
+    <!-- Dashboard Statistics Sections -->
+    <div class="dashboard-container">
+        <!-- Current Game Statistics Panel -->
+        <div class="dashboard-card current-game" id="currentGameCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">🎮</span>
+                        Current Game Statistics
+                    </h3>
+                    <p class="dashboard-card-subtitle" id="currentGameName">Loading...</p>
+                </div>
+                <div class="dashboard-streak-indicator" id="currentGameStreak" style="display: none;">
+                    <span id="currentStreakValue">0</span> day streak
+                </div>
+            </div>
+            
+            <div class="dashboard-stats-grid" id="currentGameStats">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read in this game">
+                    <span class="dashboard-stat-value" id="currentTotalChars">-</span>
+                    <span class="dashboard-stat-label">Characters</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total time spent reading this game">
+                    <span class="dashboard-stat-value" id="currentTotalTime">-</span>
+                    <span class="dashboard-stat-label">Time Spent</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Average reading speed for this game">
+                    <span class="dashboard-stat-value" id="currentReadingSpeed">-</span>
+                    <span class="dashboard-stat-label">Chars/Hour</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Number of reading sessions for this game">
+                    <span class="dashboard-stat-value" id="currentSessions">-</span>
+                    <span class="dashboard-stat-label">Sessions</span>
+                </div>
+            </div>
+            
+            <div class="dashboard-progress-section">
+                <div class="dashboard-progress-title">Recent Progress</div>
+                <div class="dashboard-progress-items">
+                    <div class="dashboard-progress-item">
+                        <div class="dashboard-progress-value positive" id="currentMonthlyChars">-</div>
+                        <div class="dashboard-progress-label">Monthly Characters</div>
+                    </div>
+                    <div class="dashboard-progress-item">
+                        <div class="dashboard-progress-value neutral" id="currentFirstDate">-</div>
+                        <div class="dashboard-progress-label">Started</div>
+                    </div>
+                    <div class="dashboard-progress-item">
+                        <div class="dashboard-progress-value neutral" id="currentLastDate">-</div>
+                        <div class="dashboard-progress-label">Last Activity</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- All Games Historical Overview -->
+        <div class="dashboard-card all-games" id="allGamesCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">📚</span>
+                        All Games Overview
+                    </h3>
+                    <p class="dashboard-card-subtitle" id="totalGamesCount">Loading...</p>
+                </div>
+                <div class="dashboard-streak-indicator" id="allGamesStreak" style="display: none;">
+                    <span id="allStreakValue">0</span> day streak
+                </div>
+            </div>
+            
+            <div class="dashboard-stats-grid" id="allGamesStats">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read across all games">
+                    <span class="dashboard-stat-value" id="allTotalChars">-</span>
+                    <span class="dashboard-stat-label">Characters</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total time spent reading across all games">
+                    <span class="dashboard-stat-value" id="allTotalTime">-</span>
+                    <span class="dashboard-stat-label">Time Spent</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Overall average reading speed">
+                    <span class="dashboard-stat-value" id="allReadingSpeed">-</span>
+                    <span class="dashboard-stat-label">Chars/Hour</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total number of reading sessions">
+                    <span class="dashboard-stat-value" id="allSessions">-</span>
+                    <span class="dashboard-stat-label">Sessions</span>
+                </div>
+            </div>
+            
+            <div class="dashboard-progress-section">
+                <div class="dashboard-progress-title">Overall Progress</div>
+                <div class="dashboard-progress-items">
+                    <div class="dashboard-progress-item">
+                        <div class="dashboard-progress-value positive" id="allMonthlyChars">-</div>
+                        <div class="dashboard-progress-label">Monthly Characters</div>
+                    </div>
+                    <div class="dashboard-progress-item">
+                        <div class="dashboard-progress-value neutral" id="allUniqueGames">-</div>
+                        <div class="dashboard-progress-label">Games Played</div>
+                    </div>
+                    <div class="dashboard-progress-item">
+                        <div class="dashboard-progress-value neutral" id="allTotalSentences">-</div>
+                        <div class="dashboard-progress-label">Total Sentences</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading/Error states for dashboard -->
+    <div class="dashboard-loading" id="dashboardLoading" style="display: none;">
+        <div class="spinner"></div>
+        <span>Loading dashboard statistics...</span>
+    </div>
+
+    <div class="dashboard-error" id="dashboardError" style="display: none;">
+        <div class="dashboard-error-icon">⚠️</div>
+        <div class="dashboard-error-message">Failed to load dashboard statistics</div>
+        <button class="dashboard-retry-btn" data-action="loadDashboardData">Retry</button>
+    </div>
+
+
+    <!-- Today's Overview Card -->
+    <div class="dashboard-card today-overview" id="todayOverviewCard" style="margin-bottom: 24px;">
+        <div class="dashboard-card-header">
+            <h3 class="dashboard-card-title">
+                <span class="dashboard-card-icon">📅</span>
+                Today's Overview
+            </h3>
+            <p class="dashboard-card-subtitle" id="todayDate">Loading...</p>
+        </div>
+        <div class="dashboard-stats-grid" id="todayStats">
+            <div class="dashboard-stat-item tooltip" data-tooltip="Total hours spent reading today">
+                <span class="dashboard-stat-value" id="todayTotalHours">-</span>
+                <span class="dashboard-stat-label">Hours Spent</span>
+            </div>
+            <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read today">
+                <span class="dashboard-stat-value" id="todayTotalChars">-</span>
+                <span class="dashboard-stat-label">Characters</span>
+            </div>
+            <div class="dashboard-stat-item tooltip" data-tooltip="Number of reading sessions today">
+                <span class="dashboard-stat-value" id="todaySessions">-</span>
+                <span class="dashboard-stat-label">Sessions</span>
+            </div>
+            <div class="dashboard-stat-item tooltip" data-tooltip="Average reading speed today">
+                <span class="dashboard-stat-value" id="todayCharsPerHour">-</span>
+                <span class="dashboard-stat-label">Chars/Hour</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <h2>Lines Received Over Time</h2>
+        <canvas id="linesChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h2>Characters Read Over Time</h2>
+        <canvas id="charsChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h2>Reading Activity Heatmap</h2>
+        <div id="heatmapContainer"></div>
+    </div>
+
+
+    <div class="chart-container">
+        <h2>Reading Chars Quantity</h2>
+        <canvas id="readingCharsChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h2>Reading Time Quantity</h2>
+        <canvas id="readingTimeChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h2>Reading Speed Improvement</h2>
+        <canvas id="readingSpeedPerGameChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h2>Kanji Grid</h2>
+        <div id="kanjiGridContainer">
+            <div id="kanjiCounter" class="kanji-counter">
+                Unique Kanji Seen: <span id="kanjiCount">0</span>
+            </div>
+            <div id="kanjiGrid" class="kanji-grid"></div>
+            <div class="kanji-legend">
+                <span>Rarely Seen</span>
+                <div class="kanji-legend-item" style="background-color: #ebedf0;" title="No encounters"></div>
+                <div class="kanji-legend-item" style="background-color: #e6342e;" title="Seen once"></div>
+                <div class="kanji-legend-item" style="background-color: #e6dc2e;" title="Occasionally seen"></div>
+                <div class="kanji-legend-item" style="background-color: #3be62f;" title="Frequently seen"></div>
+                <div class="kanji-legend-item" style="background-color: #2ee6e0;" title="Most frequently seen"></div>
+                <span>Frequently Seen</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Statistics Settings</h3>
+                <span class="close-btn" id="closeSettingsModal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                    Configure how reading time and sessions are calculated for your statistics.
+                </p>
+                
+                <form id="settingsForm">
+                    <div style="margin-bottom: 20px;">
+                        <label for="afkTimer" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            AFK Timer (seconds)
+                        </label>
+                        <input
+                            type="number"
+                            id="afkTimer"
+                            name="afk_timer_seconds"
+                            min="30"
+                            max="600"
+                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            placeholder="120"
+                        >
+                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Maximum time between activities that still counts as active reading (30-600 seconds)
+                        </small>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label for="sessionGap" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Session Gap (seconds)
+                        </label>
+                        <input
+                            type="number"
+                            id="sessionGap"
+                            name="session_gap_seconds"
+                            min="300"
+                            max="7200"
+                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            placeholder="3600"
+                        >
+                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Time gap that triggers a new reading session (5 minutes to 2 hours)
+                        </small>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="heatmapYear" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Heatmap Display Year
+                        </label>
+                        <select
+                            id="heatmapYear"
+                            name="heatmap_year"
+                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                        >
+                            <option value="all">All Years</option>
+                        </select>
+                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Select which year to display in the reading activity heatmap
+                        </small>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="streakRequirement" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Streak Requirement (hours)
+                        </label>
+                        <input
+                            type="number"
+                            id="streakRequirement"
+                            name="streak_requirement_hours"
+                            min="0.01"
+                            max="24"
+                            step="0.01"
+                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            placeholder="1.0"
+                        >
+                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Minimum hours of reading activity required to maintain streak (0.01-24 hours)
+                        </small>
+                    </div>
+                </form>
+                
+                <div id="settingsError" style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;"></div>
+                <div id="settingsSuccess" style="display: none; background: var(--success-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelSettingsBtn" class="cancel-btn">Cancel</button>
+                <button id="saveSettingsBtn" class="confirm-delete-btn">Save Settings</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Include shared JavaScript first (required dependency for stats.js) -->
+<script src="/static/js/shared.js"></script>
+<script src="/static/js/stats.js"></script>
+
+</body>
+</html>

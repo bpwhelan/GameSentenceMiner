@@ -1,0 +1,14 @@
+/* Search Page Specific Styles */
+
+/* Search-specific responsive styles */
+@media (max-width: 768px) {
+    .navigation {
+        padding: 10px;
+    }
+    
+    .nav-link {
+        display: block;
+        margin: 5px 0;
+        text-align: center;
+    }
+}

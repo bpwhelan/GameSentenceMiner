@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSM Search</title>
+    
+    <!-- Include shared theme styles -->
+    {% include 'components/theme-styles.html' %}
+    
+    <!-- Include shared CSS -->
+    <link rel="stylesheet" href="/static/css/shared.css">
+    
+    <!-- Include search-specific CSS -->
+    <link rel="stylesheet" href="/static/css/search.css">
+</head>
+<body>
+
+<div class="container">
+    <h1>Game Sentence Miner - Search</h1>
+    
+    <!-- Include shared navigation -->
+    {% include 'components/navigation.html' %}
+
+    <div class="search-container">
+        <div class="search-header">
+            <h2>Search Your Collected Sentences</h2>
+            <p class="search-description">Find sentences from your gaming sessions with real-time search and filtering</p>
+        </div>
+        
+        <div class="search-input-container">
+            <input 
+                type="text" 
+                id="searchInput" 
+                class="search-input" 
+                placeholder="Search for sentences, words, or phrases..."
+                autocomplete="off"
+            />
+        </div>
+        
+        <div class="search-filters">
+            <div class="filter-group">
+                <label class="filter-label">Game:</label>
+                <select id="gameFilter" class="filter-select">
+                    <option value="">All Games</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label class="filter-label">Sort by:</label>
+                <select id="sortFilter" class="filter-select">
+                    <option value="relevance">Relevance</option>
+                    <option value="date_desc">Newest First</option>
+                    <option value="date_asc">Oldest First</option>
+                    <option value="game_name">Game Name</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="search-stats">
+            <span id="searchStats">Ready to search</span>
+            <span id="searchTime"></span>
+        </div>
+    </div>
+    
+    <div class="results-container">
+        <div id="emptyState" class="empty-state">
+            <div class="empty-state-icon">🔍</div>
+            <h3>Search Your Gaming Journey</h3>
+            <p>Enter a word or phrase above to find sentences from your collected gaming sessions.<br>
+            You can search across all games or filter by specific titles.</p>
+        </div>
+        
+        <div id="loadingIndicator" class="loading-indicator" style="display: none;">
+            <div class="spinner"></div>
+            <span>Searching...</span>
+        </div>
+        
+        <div id="noResults" class="no-results" style="display: none;">
+            <div class="no-results-icon">📭</div>
+            <h3>No Results Found</h3>
+            <p>Try adjusting your search terms or filters</p>
+        </div>
+        
+        <div id="errorMessage" class="error-message" style="display: none;">
+            <strong>Search Error:</strong> <span id="errorText"></span>
+        </div>
+        
+        <div id="searchResults"></div>
+        
+        <div id="pagination" class="pagination" style="display: none;">
+            <button id="prevPage" class="page-btn">« Previous</button>
+            <span id="pageInfo"></span>
+            <button id="nextPage" class="page-btn">Next »</button>
+        </div>
+    </div>
+</div>
+
+<!-- Include shared JavaScript first (required dependency for search.js) -->
+<script src="/static/js/shared.js"></script>
+<script src="/static/js/search.js"></script>
+
+</body>
+</html>
