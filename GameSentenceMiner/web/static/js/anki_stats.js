@@ -50,7 +50,15 @@ document.addEventListener('DOMContentLoaded', function () {
         
         if (ankiTotalKanji) ankiTotalKanji.textContent = data.anki_kanji_count;
         if (gsmTotalKanji) gsmTotalKanji.textContent = data.gsm_kanji_count;
-        if (ankiCoverage) ankiCoverage.textContent = data.coverage_percent + '%';
+        if (ankiCoverage) {
+            const gsmCount = Number(data.gsm_kanji_count);
+            const missingCount = Array.isArray(data.missing_kanji) ? data.missing_kanji.length : 0;
+            let percent = 0;
+            if (gsmCount > 0) {
+                percent = ((gsmCount - missingCount) / gsmCount) * 100;
+            }
+            ankiCoverage.textContent = percent.toFixed(1) + '%';
+        }
         renderKanjiGrid(data.missing_kanji);
     }
 
