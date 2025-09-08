@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.15.11"
+version = "2.15.12"
 description = "A tool for mining sentences from games. Update: Overlay?"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -70,5 +70,5 @@ gamesentenceminer = "GameSentenceMiner.gsm:main"
 packages = { find = { include = ["GameSentenceMiner*"] } }
 
 [tool.setuptools.package-data]
-"GameSentenceMiner.web" = ["static/*", "templates/*"]
+"GameSentenceMiner.web" = ["static/*", "static/css/*", "static/js/*", "templates/*", "templates/components/*"]
 "GameSentenceMiner" = ["assets/*", "locales/*"]
