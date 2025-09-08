@@ -855,13 +855,35 @@ document.addEventListener('DOMContentLoaded', function () {
                 return sum + (isNaN(chars) ? 0 : chars);
             }, 0);
 
-            // Calculate sessions (count unique session ids if available, else fallback to lines count)
+            // Calculate sessions (count gaps > session threshold as new sessions)
             let sessions = 0;
+            const sessionGapDefault = 3600; // 1 hour in seconds
+            // Try to get session gap from settings modal if available
+            let sessionGap = sessionGapDefault;
+            const sessionGapInput = document.getElementById('sessionGap');
+            if (sessionGapInput && sessionGapInput.value) {
+                const parsed = parseInt(sessionGapInput.value, 10);
+                if (!isNaN(parsed) && parsed > 0) sessionGap = parsed;
+            }
             if (todayLines.length > 0 && todayLines[0].session_id !== undefined) {
                 const sessionSet = new Set(todayLines.map(l => l.session_id));
                 sessions = sessionSet.size;
             } else {
-                sessions = todayLines.length > 0 ? 1 : 0;
+                // Use timestamp gap logic
+                const timestamps = todayLines
+                    .map(l => parseFloat(l.timestamp))
+                    .filter(ts => !isNaN(ts))
+                    .sort((a, b) => a - b);
+                if (timestamps.length > 0) {
+                    sessions = 1;
+                    for (let i = 1; i < timestamps.length; i++) {
+                        if (timestamps[i] - timestamps[i - 1] > sessionGap) {
+                            sessions += 1;
+                        }
+                    }
+                } else {
+                    sessions = 0;
+                }
             }
 
             // Calculate total reading time (reuse AFK logic from calculateHeatmapStreaks)
