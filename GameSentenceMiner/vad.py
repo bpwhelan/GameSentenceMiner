@@ -206,7 +206,7 @@ class WhisperVADProcessor(VADProcessor):
                 logger.debug(f"Skipping segment with high no_speech_prob: {segment.no_speech_prob} for segment {segment.text} at {segment.start}-{segment.end}")
                 continue
             
-            unique_words = set(word['text'] for word in segment.words)
+            unique_words = set(word.word for word in segment.words)
             if len(unique_words) <= 1 and len(segment.words) > 1:
                 logger.debug(f"Skipping segment with low unique words: {unique_words} for segment {segment.text} at {segment.start}-{segment.end}")
                 continue
