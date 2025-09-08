@@ -189,9 +189,10 @@ class WhisperVADProcessor(VADProcessor):
                                                              temperature=0.0)
         voice_activity = []
 
-        logger.debug(json.dumps(result.to_dict(), indent=2))
+        logger.debug(json.dumps(result.to_dict()))
 
         # Process the segments to extract tokens, timestamps, and confidence
+        previous_segment = None
         for i, segment in enumerate(result.segments):
             if len(segment.text) <= 2 and ((i > 1 and segment.start - result.segments[i - 1].end > 1.0) or (i < len(result.segments) - 1 and result.segments[i + 1].start - segment.end > 1.0)):
                 if segment.text in ['えー', 'ん']:
@@ -204,7 +205,15 @@ class WhisperVADProcessor(VADProcessor):
             if segment.no_speech_prob and segment.no_speech_prob > 0.6:
                 logger.debug(f"Skipping segment with high no_speech_prob: {segment.no_speech_prob} for segment {segment.text} at {segment.start}-{segment.end}")
                 continue
-
+            
+            unique_words = set(word['text'] for word in segment.words)
+            if len(unique_words) <= 1 and len(segment.words) > 1:
+                logger.debug(f"Skipping segment with low unique words: {unique_words} for segment {segment.text} at {segment.start}-{segment.end}")
+                continue
+                
+            if previous_segment and segment.start - previous_segment.end > 5 and segment.no_speech_prob > .3:
+                logger.debug(f"Skipping segment after long pause with high no_speech_prob after: {segment.no_speech_prob} for segment {segment.text} at {segment.start}-{segment.end}")
+                continue
 
             logger.debug(segment.to_dict())
             voice_activity.append({
@@ -225,15 +234,7 @@ class WhisperVADProcessor(VADProcessor):
             #             'confidence': word.probability
             #         })
 
-        # Analyze the detected words to decide whether to use the audio
-        should_use = False
-        unique_words = set(word['text'] for word in voice_activity)
-        if len(unique_words) > 1 or not all(item in ['えー', 'ん'] for item in unique_words):
-            should_use = True
-
-        if not should_use:
-            return None
-
+            previous_segment = segment
         # Return the detected voice activity and the total duration
         return voice_activity
 
