@@ -263,6 +263,52 @@ def stats():
     """Renders the stats page."""
     return render_template('stats.html')
 
+@app.route('/api/anki-stats')
+def api_anki_stats():
+    """
+    API endpoint to provide Anki vs GSM kanji stats for the frontend.
+    Returns:
+        {
+            "missing_kanji": [ { "kanji": "漢", "frequency": 42 }, ... ],
+            "anki_kanji_count": 123,
+            "gsm_kanji_count": 456,
+            "coverage_percent": 27.0
+        }
+    """
+    print("DEBUG: api_anki_stats() function called - returning JSON data")
+    from GameSentenceMiner.anki import get_all_anki_first_field_kanji
+    from GameSentenceMiner.web.stats import calculate_kanji_frequency, is_kanji
+    from GameSentenceMiner.util.db import GameLinesTable
+
+    # Get all GSM lines and calculate kanji frequency
+    all_lines = GameLinesTable.all()
+    gsm_kanji_stats = calculate_kanji_frequency(all_lines)
+    gsm_kanji_list = gsm_kanji_stats.get("kanji_data", [])
+    gsm_kanji_set = set([k["kanji"] for k in gsm_kanji_list])
+
+    # Get all kanji in Anki (first field only)
+    anki_kanji_set = get_all_anki_first_field_kanji()
+
+    # Find missing kanji (in GSM but not in Anki)
+    missing_kanji = [
+        {"kanji": k["kanji"], "frequency": k["frequency"]}
+        for k in gsm_kanji_list if k["kanji"] not in anki_kanji_set
+    ]
+
+    # Sort missing kanji by frequency descending
+    missing_kanji.sort(key=lambda x: x["frequency"], reverse=True)
+
+    # Coverage stats
+    anki_kanji_count = len(anki_kanji_set)
+    gsm_kanji_count = len(gsm_kanji_set)
+    coverage_percent = (anki_kanji_count / gsm_kanji_count * 100) if gsm_kanji_count else 0.0
+
+    return jsonify({
+        "missing_kanji": missing_kanji,
+        "anki_kanji_count": anki_kanji_count,
+        "gsm_kanji_count": gsm_kanji_count,
+        "coverage_percent": round(coverage_percent, 1)
+    })
 
 @app.route('/search')
 def search():
