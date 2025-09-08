@@ -565,8 +565,9 @@ def get_all_anki_first_field_kanji():
             notes_info = invoke("notesInfo", notes=batch_ids)
             for note in notes_info:
                 fields = note.get("fields", {})
-                if fields:
-                    first_field_value = next(iter(fields.values()))["value"]
+                first_field = next(iter(fields.values()), None)
+                if first_field and "value" in first_field:
+                    first_field_value = first_field["value"]
                     for char in first_field_value:
                         if is_kanji(char):
                             kanji_set.add(char)
