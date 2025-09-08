@@ -546,5 +546,36 @@ def start_monitoring_anki():
     obs_thread.start()
 
 
+# --- Anki Stats Kanji Extraction Utilities ---
+
+def get_all_anki_first_field_kanji():
+    """
+    Fetch all notes from Anki and extract unique kanji from the first field of each note.
+    Returns a set of kanji characters.
+    """
+    from GameSentenceMiner.web.stats import is_kanji
+    try:
+        note_ids = invoke("findNotes", query="")
+        if not note_ids:
+            return set()
+        kanji_set = set()
+        batch_size = 1000
+        for i in range(0, len(note_ids), batch_size):
+            batch_ids = note_ids[i:i+batch_size]
+            notes_info = invoke("notesInfo", notes=batch_ids)
+            for note in notes_info:
+                fields = note.get("fields", {})
+                first_field = next(iter(fields.values()), None)
+                if first_field and "value" in first_field:
+                    first_field_value = first_field["value"]
+                    for char in first_field_value:
+                        if is_kanji(char):
+                            kanji_set.add(char)
+        return kanji_set
+    except Exception as e:
+        logger.error(f"Failed to fetch kanji from Anki: {e}")
+        return set()
+
+
 if __name__ == "__main__":
     print(invoke("getIntervals", cards=["1754694986036"]))

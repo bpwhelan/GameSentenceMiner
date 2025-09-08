@@ -19,9 +19,26 @@ class SentenceSearchApp {
         this.searchTimeout = null;
         this.currentQuery = '';
         this.totalResults = 0;
-        
+
+        // Move initialization logic to async method
+        this.initialize();
+    }
+
+    async initialize() {
+        // Check for ?q= parameter and pre-fill input
+        const urlParams = new URLSearchParams(window.location.search);
+        const qParam = urlParams.get('q');
+        if (qParam) {
+            this.searchInput.value = qParam;
+        }
+
         this.initializeEventListeners();
-        this.loadGamesList();
+        await this.loadGamesList();
+
+        // Trigger search after games list loads if q param is present
+        if (qParam) {
+            this.performSearch();
+        }
     }
     
     initializeEventListeners() {
