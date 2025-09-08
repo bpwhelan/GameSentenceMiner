@@ -97,7 +97,7 @@ document.addEventListener('DOMContentLoaded', function () {
         showLoading(true);
         showError(false);
         try {
-            const resp = await fetch('/api/anki-stats');
+            const resp = await fetch('/api/anki_stats');
             if (!resp.ok) throw new Error('Failed to load');
             const data = await resp.json();
             console.log('Received data:', data);

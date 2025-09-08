@@ -263,7 +263,7 @@ def stats():
     """Renders the stats page."""
     return render_template('stats.html')
 
-@app.route('/api/anki-stats')
+@app.route('/api/anki_stats')
 def api_anki_stats():
     """
     API endpoint to provide Anki vs GSM kanji stats for the frontend.
@@ -275,7 +275,6 @@ def api_anki_stats():
             "coverage_percent": 27.0
         }
     """
-    print("DEBUG: api_anki_stats() function called - returning JSON data")
     from GameSentenceMiner.anki import get_all_anki_first_field_kanji
     from GameSentenceMiner.web.stats import calculate_kanji_frequency, is_kanji
     from GameSentenceMiner.util.db import GameLinesTable
@@ -314,6 +313,11 @@ def api_anki_stats():
 def search():
     """Renders the search page."""
     return render_template('search.html')
+
+@app.route('/anki_stats')
+def anki_stats():
+    """Renders the Anki statistics page."""
+    return render_template('anki_stats.html')
 
 
 def get_selected_lines():
