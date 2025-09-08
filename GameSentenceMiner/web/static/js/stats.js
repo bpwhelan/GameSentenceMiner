@@ -690,6 +690,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Function to create kanji grid
+    // Kanji cells are now clickable: clicking a kanji opens /search.html?q=KANJI in the same tab.
     function createKanjiGrid(kanjiData) {
         const container = document.getElementById('kanjiGrid');
         const counterElement = document.getElementById('kanjiCount');
@@ -705,7 +706,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Clear existing grid
         container.innerHTML = '';
         
-        // Create kanji cells with gradient colors
+        // Create kanji cells with gradient colors and click handler
         kanjiData.kanji_data.forEach(item => {
             const cell = document.createElement('div');
             cell.className = 'kanji-cell';
@@ -725,7 +726,13 @@ document.addEventListener('DOMContentLoaded', function () {
             
             // Add tooltip
             cell.title = `${item.kanji}: ${item.frequency} encounters`;
-            
+
+            // Make kanji clickable: go to /search?q=KANJI
+            cell.style.cursor = 'pointer';
+            cell.addEventListener('click', function () {
+                window.location.href = `/search?q=${encodeURIComponent(item.kanji)}`;
+            });
+
             container.appendChild(cell);
         });
     }

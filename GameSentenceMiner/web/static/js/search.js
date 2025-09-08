@@ -1,6 +1,8 @@
-// Search Page JavaScript
-// Dependencies: shared.js (provides utility functions like escapeHtml, escapeRegex)
-
+/**
+ * Search Page JavaScript
+ * Dependencies: shared.js (provides utility functions like escapeHtml, escapeRegex)
+ * Now supports pre-filling the search input and auto-searching via the ?q=KANJI URL parameter.
+ */
 class SentenceSearchApp {
     constructor() {
         this.searchInput = document.getElementById('searchInput');
@@ -19,7 +21,16 @@ class SentenceSearchApp {
         this.searchTimeout = null;
         this.currentQuery = '';
         this.totalResults = 0;
-        
+
+        // Check for ?q= parameter and pre-fill input
+        const urlParams = new URLSearchParams(window.location.search);
+        const qParam = urlParams.get('q');
+        if (qParam) {
+            this.searchInput.value = qParam;
+            // Trigger search after games list loads
+            setTimeout(() => this.performSearch(), 0);
+        }
+
         this.initializeEventListeners();
         this.loadGamesList();
     }
