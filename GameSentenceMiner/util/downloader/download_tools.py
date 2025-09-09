@@ -10,8 +10,36 @@ from GameSentenceMiner.util.downloader.Untitled_json import scenes
 from GameSentenceMiner.util.configuration import get_app_directory, logger
 from GameSentenceMiner.util.ffmpeg import get_ffmpeg_path, get_ffprobe_path
 from GameSentenceMiner.obs import get_obs_path
+import tempfile
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
+
+def cleanup_temp_files(func):
+    def wrapper(*args, **kwargs):
+        temp_files = []
+
+        # Patch tempfile.NamedTemporaryFile to track created temp files
+        orig_named_tempfile = tempfile.NamedTemporaryFile
+        def tracked_named_tempfile(*a, **kw):
+            tmp = orig_named_tempfile(*a, **kw)
+            temp_files.append(tmp.name)
+            return tmp
+        tempfile.NamedTemporaryFile = tracked_named_tempfile
+
+        try:
+            result = func(*args, **kwargs)
+        finally:
+            # Restore original NamedTemporaryFile
+            tempfile.NamedTemporaryFile = orig_named_tempfile
+            # Remove tracked temp files
+            for f in temp_files:
+                try:
+                    if os.path.exists(f):
+                        os.remove(f)
+                except Exception:
+                    pass
+        return result
+    return wrapper
 
 def copy_obs_settings(src, dest):
 
@@ -111,6 +139,9 @@ def download_obs_if_needed():
         with open(os.path.join(scene_json_path, 'Untitled.json'), 'w') as scene_file:
             scene_file.write(scenes)
         logger.info(f"OBS extracted to {obs_path}.")
+        
+        # remove zip
+        os.unlink(obs_installer)
     else:
         logger.error(f"Please install OBS manually from {obs_installer}")
 
@@ -118,9 +149,14 @@ def download_ffmpeg_if_needed():
     ffmpeg_dir = os.path.join(get_app_directory(), 'ffmpeg')
     ffmpeg_exe_path = get_ffmpeg_path()
     ffprobe_exe_path = get_ffprobe_path()
-
+    python_dir = os.path.join(get_app_directory(), 'python')
+    ffmpeg_in_python = os.path.join(python_dir, "ffmpeg.exe")
+    
     if os.path.exists(ffmpeg_dir) and os.path.exists(ffmpeg_exe_path) and os.path.exists(ffprobe_exe_path):
         logger.debug(f"FFmpeg already installed at {ffmpeg_dir}.")
+        if not os.path.exists(ffmpeg_in_python):
+            shutil.copy2(ffmpeg_exe_path, ffmpeg_in_python)
+            logger.info(f"Copied ffmpeg.exe to Python folder: {ffmpeg_in_python}")
         return
 
     if os.path.exists(ffmpeg_dir) and (not os.path.exists(ffmpeg_exe_path) or not os.path.exists(ffprobe_exe_path)):
@@ -155,6 +191,13 @@ def download_ffmpeg_if_needed():
                 target = open(os.path.join(ffmpeg_dir, filename), "wb")
                 with source, target:
                     shutil.copyfileobj(source, target)
+                    
+    # Copy ffmpeg.exe to the python folder
+    if os.path.exists(ffmpeg_exe_path):
+        shutil.copy2(ffmpeg_exe_path, ffmpeg_in_python)
+        logger.info(f"Copied ffmpeg.exe to Python folder: {ffmpeg_in_python}")
+    else:
+        logger.warning(f"ffmpeg.exe not found in {ffmpeg_dir}.")
     logger.info(f"FFmpeg extracted to {ffmpeg_dir}.")
 
 def download_ocenaudio_if_needed():
