@@ -544,8 +544,10 @@ async function takeScreenshot() {
             link.click();
             document.body.removeChild(link);
             
-            // Clean up the URL object
-            URL.revokeObjectURL(link.href);
+            // Clean up the URL object after a short delay to avoid race condition
+            setTimeout(function() {
+                URL.revokeObjectURL(link.href);
+            }, 100);
         }, 'image/png');
         
     } catch (error) {
