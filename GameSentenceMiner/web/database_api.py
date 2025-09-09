@@ -843,7 +843,7 @@ def register_database_api_routes(app):
                 
                 # Now parse the full CSV with proper handling for multi-line fields
                 file_io = io.StringIO(file_content)
-                csv_reader = csv.DictReader(file_io, quoting=csv.QUOTE_ALL, skipinitialspace=True)
+                csv_reader = csv.DictReader(file_io, quoting=csv.QUOTE_MINIMAL, skipinitialspace=True)
                 
                 # Process CSV rows
                 imported_lines = []
