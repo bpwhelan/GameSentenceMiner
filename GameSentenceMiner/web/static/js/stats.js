@@ -1560,9 +1560,7 @@ document.addEventListener('DOMContentLoaded', function () {
             showImportProgress(false);
         } finally {
             // Re-enable import button
-            setTimeout(() => {
-                importExstaticBtn.disabled = false;
-            }, 2000);
+            importExstaticBtn.disabled = false;
         }
     }
 });
