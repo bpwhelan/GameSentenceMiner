@@ -886,8 +886,8 @@ def register_database_api_routes(app):
                             errors.append(f"Row {row_num}: Invalid time format: {time_str}")
                             continue
                         
-                        # Clean up line text (remove extra quotes and newlines)
-                        line_text = line.strip().strip('"').strip("'")
+                        # Preserve the actual line text content (CSV parser already handles unescaping)
+                        line_text = line  # CSV parser has already unescaped the content properly
                         
                         # Check if this UUID already exists in database
                         existing_line = GameLinesTable.get(uuid)
