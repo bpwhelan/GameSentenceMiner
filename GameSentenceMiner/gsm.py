@@ -790,7 +790,6 @@ async def async_main(reloading=False):
 
 
 def main():
-    """Main function to run the Game Sentence Miner."""
     logger.info("Starting GSM")
     try:
         asyncio.run(async_main())

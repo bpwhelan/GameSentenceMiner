@@ -319,6 +319,10 @@ def anki_stats():
     """Renders the Anki statistics page."""
     return render_template('anki_stats.html')
 
+@app.route('/get_websocket_port', methods=['GET'])
+def get_websocket_port():
+    return jsonify({"port": websocket_server_thread.get_ws_port_func()}), 200
+
 
 def get_selected_lines():
     return [item.line for item in event_manager if item.checked]
@@ -351,7 +355,9 @@ def start_web_server():
     if get_config().general.open_multimine_on_startup:
         open_texthooker()
 
-    # debug=True provides helpful error messages during development
+    # FOR TEXTHOOKER DEVELOPMENT, UNCOMMENT THE FOLLOWING LINE WITH Flask-CORS INSTALLED:
+    # from flask_cors import CORS
+    # CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
     app.run(host='0.0.0.0', port=port, debug=False)
 
 
