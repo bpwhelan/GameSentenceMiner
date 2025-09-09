@@ -1559,8 +1559,8 @@ document.addEventListener('DOMContentLoaded', function () {
             showImportStatus('Import failed due to network error. Please try again.', 'error', true);
             showImportProgress(false);
         } finally {
-            // Re-enable import button
-            importExstaticBtn.disabled = false;
+            // Re-enable import button only if a file is still selected
+            importExstaticBtn.disabled = !(exstaticFileInput && exstaticFileInput.files && exstaticFileInput.files.length > 0);
         }
     }
 });
