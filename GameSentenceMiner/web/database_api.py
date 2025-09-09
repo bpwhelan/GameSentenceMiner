@@ -1,5 +1,7 @@
 import datetime
 import re
+import csv
+import io
 from collections import defaultdict
 
 import flask
@@ -781,3 +783,164 @@ def register_database_api_routes(app):
             "allGamesStats": all_games_stats,
             "allLinesData": all_lines_data
         })
+
+    @app.route('/api/import-exstatic', methods=['POST'])
+    def api_import_exstatic():
+        """
+        Import ExStatic CSV data into GSM database.
+        Expected CSV format: uuid,given_identifier,name,line,time
+        """
+        try:
+            # Check if file is provided
+            if 'file' not in request.files:
+                return jsonify({'error': 'No file provided'}), 400
+            
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+            
+            # Validate file type
+            if not file.filename.lower().endswith('.csv'):
+                return jsonify({'error': 'File must be a CSV file'}), 400
+            
+            # Read and parse CSV
+            try:
+                # Read file content as text with proper encoding handling
+                file_content = file.read().decode('utf-8-sig')  # Handle BOM if present
+                
+                # First, get the header line manually to avoid issues with multi-line content
+                lines = file_content.split('\n')
+                if not lines:
+                    return jsonify({'error': 'Empty CSV file'}), 400
+                
+                header_line = lines[0].strip()
+                logger.info(f"Header line: {header_line}")
+                
+                # Parse headers manually
+                header_reader = csv.reader([header_line])
+                try:
+                    headers = next(header_reader)
+                    headers = [h.strip() for h in headers]  # Clean whitespace
+                    logger.info(f"Parsed headers: {headers}")
+                except StopIteration:
+                    return jsonify({'error': 'Could not parse CSV headers'}), 400
+                
+                # Validate headers
+                expected_headers = {'uuid', 'given_identifier', 'name', 'line', 'time'}
+                actual_headers = set(headers)
+                
+                if not expected_headers.issubset(actual_headers):
+                    missing_headers = expected_headers - actual_headers
+                    # Check if this looks like a stats CSV instead of lines CSV
+                    if 'client' in actual_headers and 'chars_read' in actual_headers:
+                        return jsonify({
+                            'error': 'This appears to be an ExStatic stats CSV. Please upload the ExStatic lines CSV file instead. The lines CSV should contain columns: uuid, given_identifier, name, line, time'
+                        }), 400
+                    else:
+                        return jsonify({
+                            'error': f'Invalid CSV format. Missing required columns: {", ".join(missing_headers)}. Expected format: uuid, given_identifier, name, line, time. Found headers: {", ".join(actual_headers)}'
+                        }), 400
+                
+                # Now parse the full CSV with proper handling for multi-line fields
+                file_io = io.StringIO(file_content)
+                csv_reader = csv.DictReader(file_io, quoting=csv.QUOTE_MINIMAL, skipinitialspace=True)
+                
+                # Process CSV rows
+                imported_lines = []
+                games_set = set()
+                errors = []
+                seen_uuids = set()  # Track UUIDs within this import batch
+                
+                for row_num, row in enumerate(csv_reader, start=2):  # Start at 2 (header is row 1)
+                    try:
+                        # Extract and validate required fields
+                        uuid = row.get('uuid', '').strip()
+                        name = row.get('name', '').strip()
+                        line = row.get('line', '').strip()
+                        time_str = row.get('time', '').strip()
+                        
+                        # Validate required fields
+                        if not uuid:
+                            errors.append(f"Row {row_num}: Missing UUID")
+                            continue
+                        if not name:
+                            errors.append(f"Row {row_num}: Missing name")
+                            continue
+                        if not line:
+                            errors.append(f"Row {row_num}: Missing line text")
+                            continue
+                        if not time_str:
+                            errors.append(f"Row {row_num}: Missing time")
+                            continue
+                        
+                        # Check for duplicates within this import batch
+                        if uuid in seen_uuids:
+                            logger.info(f"Skipping duplicate UUID within import batch: {uuid}")
+                            continue
+                        seen_uuids.add(uuid)
+                        
+                        # Convert time to timestamp
+                        try:
+                            timestamp = float(time_str)
+                        except ValueError:
+                            errors.append(f"Row {row_num}: Invalid time format: {time_str}")
+                            continue
+                        
+                        # Clean up line text (remove extra quotes and newlines)
+                        line_text = line.strip().strip('"').strip("'")
+                        
+                        # Check if this UUID already exists in database
+                        existing_line = GameLinesTable.get(uuid)
+                        if existing_line:
+                            logger.info(f"Skipping duplicate UUID already in database: {uuid}")
+                            continue
+                        
+                        # Create GameLinesTable entry
+                        game_line = GameLinesTable(
+                            id=uuid,
+                            game_name=name,
+                            line_text=line_text,
+                            timestamp=timestamp
+                        )
+                        
+                        imported_lines.append(game_line)
+                        games_set.add(name)
+                        
+                    except Exception as e:
+                        errors.append(f"Row {row_num}: Error processing row - {str(e)}")
+                        continue
+                
+                # Import lines into database
+                imported_count = 0
+                for game_line in imported_lines:
+                    try:
+                        game_line.add()
+                        imported_count += 1
+                    except Exception as e:
+                        logger.error(f"Failed to import line {game_line.id}: {e}")
+                        errors.append(f"Failed to import line {game_line.id}: {str(e)}")
+                
+                # Prepare response
+                response_data = {
+                    'message': f'Successfully imported {imported_count} lines from {len(games_set)} games',
+                    'imported_count': imported_count,
+                    'games_count': len(games_set),
+                    'games': list(games_set)
+                }
+                
+                if errors:
+                    response_data['warnings'] = errors
+                    response_data['warning_count'] = len(errors)
+                
+                logger.info(f"ExStatic import completed: {imported_count} lines from {len(games_set)} games")
+                
+                return jsonify(response_data), 200
+                
+            except csv.Error as e:
+                return jsonify({'error': f'CSV parsing error: {str(e)}'}), 400
+            except UnicodeDecodeError:
+                return jsonify({'error': 'File encoding error. Please ensure the CSV is UTF-8 encoded.'}), 400
+            
+        except Exception as e:
+            logger.error(f"Error in ExStatic import: {e}")
+            return jsonify({'error': f'Import failed: {str(e)}'}), 500
