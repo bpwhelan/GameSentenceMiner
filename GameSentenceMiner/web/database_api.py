@@ -810,7 +810,7 @@ def register_database_api_routes(app):
                 
                 # First, get the header line manually to avoid issues with multi-line content
                 lines = file_content.split('\n')
-                if not lines:
+                if len(lines) == 1 and not lines[0].strip():
                     return jsonify({'error': 'Empty CSV file'}), 400
                 
                 header_line = lines[0].strip()
