@@ -491,6 +491,70 @@ function escapeRegex(string) {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Screenshot functionality
+function initializeScreenshotButton() {
+    const screenshotButton = document.getElementById('screenshotToggle');
+    
+    if (!screenshotButton) {
+        return; // Screenshot button not available on this page
+    }
+    
+    screenshotButton.addEventListener('click', takeScreenshot);
+}
+
+async function takeScreenshot() {
+    try {
+        // Check if html2canvas is available
+        if (typeof html2canvas === 'undefined') {
+            console.error('html2canvas library not loaded');
+            return;
+        }
+        
+        // Generate timestamp for filename
+        const now = new Date();
+        const timestamp = now.getFullYear() + '-' +
+                         String(now.getMonth() + 1).padStart(2, '0') + '-' +
+                         String(now.getDate()).padStart(2, '0') + '_' +
+                         String(now.getHours()).padStart(2, '0') + '-' +
+                         String(now.getMinutes()).padStart(2, '0') + '-' +
+                         String(now.getSeconds()).padStart(2, '0');
+        
+        const filename = `screenshot_${timestamp}.png`;
+        
+        // Capture the entire page
+        const canvas = await html2canvas(document.body, {
+            useCORS: true,
+            allowTaint: true,
+            scale: 1,
+            scrollX: 0,
+            scrollY: 0,
+            width: document.body.scrollWidth,
+            height: document.body.scrollHeight
+        });
+        
+        // Convert canvas to blob
+        canvas.toBlob(function(blob) {
+            // Create download link
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = URL.createObjectURL(blob);
+            
+            // Trigger download
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Clean up the URL object after a short delay to avoid race condition
+            setTimeout(function() {
+                URL.revokeObjectURL(link.href);
+            }, 100);
+        }, 'image/png');
+        
+    } catch (error) {
+        console.error('Screenshot failed:', error);
+    }
+}
+
 // Initialize shared functionality when DOM loads
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize theme toggle
@@ -498,6 +562,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize modal handlers
     initializeModalHandlers();
+    
+    // Initialize screenshot button
+    initializeScreenshotButton();
     
     // Initialize settings manager if settings toggle exists
     if (document.getElementById('settingsToggle')) {
