@@ -387,6 +387,43 @@ class GameLinesTable(SQLiteDBTable):
         new_line.add()
         return new_line
 
+    @classmethod
+    def update_line_text(cls, line_id: str, new_text: str):
+        """Update the line_text of a specific line."""
+        line = cls.get(line_id)
+        if not line:
+            logger.warning(f"GameLine with id {line_id} not found for text update.")
+            return False
+        line.line_text = new_text
+        line.save()
+        logger.debug(f"Updated GameLine id={line_id} text.")
+        return True
+
+    @classmethod
+    def bulk_update_line_text(cls, line_updates: List[Tuple[str, str]]):
+        """Bulk update line_text for multiple lines.
+        
+        Args:
+            line_updates: List of tuples (line_id, new_text)
+        
+        Returns:
+            int: Number of lines successfully updated
+        """
+        updated_count = 0
+        for line_id, new_text in line_updates:
+            try:
+                cls._db.execute(
+                    f"UPDATE {cls._table} SET line_text=? WHERE id=?",
+                    (new_text, line_id),
+                    commit=True
+                )
+                updated_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to update line {line_id}: {e}")
+        
+        logger.info(f"Bulk updated {updated_count} lines out of {len(line_updates)} requested.")
+        return updated_count
+
 
 def get_db_directory():
     if platform == 'win32':  # Windows

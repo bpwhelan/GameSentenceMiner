@@ -1,6 +1,55 @@
 // Database Management JavaScript
 // Dependencies: shared.js (provides utility functions like escapeHtml, openModal, closeModal)
 
+// Download Database Function
+function downloadDatabase() {
+    try {
+        // Create a temporary link element and trigger download
+        const downloadUrl = '/api/download-database';
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = ''; // Let the server determine the filename
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } catch (error) {
+        console.error('Error downloading database:', error);
+        alert('Failed to download database. Please try again.');
+    }
+}
+
+// Import Database Function
+function importDatabase() {
+    const fileInput = document.getElementById('databaseFileInput');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert('Please select a database file first.');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    fetch('/api/import-database', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            alert('Database imported successfully!');
+            location.reload(); // Refresh page to show new data
+        }
+    })
+    .catch(error => {
+        console.error('Error importing database:', error);
+        alert('Failed to import database.');
+    });
+}
+
 // Database Management Class
 class DatabaseManager {
     constructor() {
@@ -78,6 +127,16 @@ class DatabaseManager {
         const removeDuplicatesBtn = document.querySelector('[data-action="removeDuplicates"]');
         if (removeDuplicatesBtn) {
             removeDuplicatesBtn.addEventListener('click', removeDuplicates);
+        }
+
+        const downloadDatabaseBtn = document.querySelector('[data-action="downloadDatabase"]');
+        if (downloadDatabaseBtn) {
+            downloadDatabaseBtn.addEventListener('click', downloadDatabase);
+        }
+
+        const importDatabaseBtn = document.querySelector('[data-action="importDatabase"]');
+        if (importDatabaseBtn) {
+            importDatabaseBtn.addEventListener('click', importDatabase);
         }
     }
     
@@ -229,8 +288,22 @@ const presetPatterns = {
     'empty_lines': '^\s*$',
     'numbers_only': '^\d+$',
     'single_char': '^.{1}$',
-    'repeated_chars': '(.)\\1{2,}'
+    'repeated_chars': '(.)\\1{2,}',
+    'remove_quotes': '[「」『』""\'\'"]',
+    'remove_character_names': '^[^「『"\']*[「『"\']'
 };
+
+// Patterns that should default to "entire line" deletion mode
+const entireLineModePatterns = [
+    'lines_over_50',
+    'lines_over_100',
+    'non_japanese',
+    'ascii_only',
+    'empty_lines',
+    'numbers_only',
+    'single_char',
+    'repeated_chars'
+];
 
 function applyPresetPattern() {
     const selectedPattern = document.getElementById('presetPatterns').value;
@@ -240,6 +313,17 @@ function applyPresetPattern() {
     if (selectedPattern && presetPatterns[selectedPattern]) {
         customRegexInput.value = presetPatterns[selectedPattern];
         useRegexCheckbox.checked = true;
+        
+        // Set appropriate deletion mode based on pattern
+        const entireLineRadio = document.getElementById('deletionModeEntireLine');
+        const matchingPartsRadio = document.getElementById('deletionModeMatchingParts');
+        
+        if (entireLineModePatterns.includes(selectedPattern)) {
+            entireLineRadio.checked = true;
+        } else {
+            matchingPartsRadio.checked = true;
+        }
+        
         // Clear preview when pattern changes
         document.getElementById('previewDeleteResults').style.display = 'none';
         document.getElementById('executeDeleteBtn').disabled = true;
@@ -251,6 +335,7 @@ async function previewTextDeletion() {
     const textToDelete = document.getElementById('textToDelete').value;
     const caseSensitive = document.getElementById('caseSensitiveDelete').checked;
     const useRegex = document.getElementById('useRegexDelete').checked;
+    const deletionMode = document.querySelector('input[name="deletionMode"]:checked').value;
     const errorDiv = document.getElementById('textLinesError');
     const previewDiv = document.getElementById('previewDeleteResults');
     
@@ -271,6 +356,7 @@ async function previewTextDeletion() {
             exact_text: textToDelete.trim() ? textToDelete.split('\n').filter(line => line.trim()) : null,
             case_sensitive: caseSensitive,
             use_regex: useRegex,
+            deletion_mode: deletionMode,
             preview_only: true
         };
         
@@ -284,28 +370,47 @@ async function previewTextDeletion() {
         
         if (response.ok) {
             // Show preview results
-            document.getElementById('previewDeleteCount').textContent = result.count.toLocaleString();
+            const totalCount = result.lines_to_delete + result.lines_to_update;
+            document.getElementById('previewDeleteCount').textContent = totalCount.toLocaleString();
             
             const samplesDiv = document.getElementById('previewDeleteSamples');
             if (result.samples && result.samples.length > 0) {
-                samplesDiv.innerHTML = '<strong>Sample matches:</strong><br>' +
-                    result.samples.slice(0, 5).map(sample =>
-                        `<div style="font-size: 12px; color: var(--text-tertiary); margin: 5px 0; padding: 5px; background: var(--bg-secondary); border-radius: 3px;">${escapeHtml(sample)}</div>`
-                    ).join('');
+                let samplesHtml = '<strong>Sample results:</strong><br>';
+                
+                if (deletionMode === 'matching_parts') {
+                    samplesHtml += `<div style="margin-bottom: 10px; font-size: 12px;">
+                        <span style="color: var(--success-color);">Lines to update: ${result.lines_to_update}</span> |
+                        <span style="color: var(--danger-color);">Lines to delete: ${result.lines_to_delete}</span>
+                    </div>`;
+                }
+                
+                samplesHtml += result.samples.slice(0, 5).map(sample => {
+                    if (sample.action === 'update') {
+                        return `<div style="font-size: 12px; color: var(--text-tertiary); margin: 5px 0; padding: 5px; background: var(--bg-secondary); border-radius: 3px;">
+                            <strong>Before:</strong> ${escapeHtml(sample.original)}<br>
+                            <strong>After:</strong> ${escapeHtml(sample.modified)}
+                        </div>`;
+                    } else {
+                        return `<div style="font-size: 12px; color: var(--text-tertiary); margin: 5px 0; padding: 5px; background: var(--bg-secondary); border-radius: 3px;">
+                            <strong>Delete:</strong> ${escapeHtml(sample.original)}
+                        </div>`;
+                    }
+                }).join('');
+                
+                samplesDiv.innerHTML = samplesHtml;
             } else {
                 samplesDiv.innerHTML = '<em>No matches found</em>';
             }
             
             previewDiv.style.display = 'block';
-            document.getElementById('executeDeleteBtn').disabled = result.count === 0;
+            document.getElementById('executeDeleteBtn').disabled = totalCount === 0;
         } else {
             errorDiv.textContent = result.error || 'Failed to preview deletion';
             errorDiv.style.display = 'block';
         }
     } catch (error) {
         console.error('Error previewing text deletion:', error);
-        // For now, show a placeholder since backend isn't implemented yet
-        errorDiv.textContent = 'Preview feature ready - backend endpoint needed';
+        errorDiv.textContent = 'Error connecting to server. Please try again.';
         errorDiv.style.display = 'block';
     }
 }
@@ -315,6 +420,7 @@ async function deleteTextLines() {
     const textToDelete = document.getElementById('textToDelete').value;
     const caseSensitive = document.getElementById('caseSensitiveDelete').checked;
     const useRegex = document.getElementById('useRegexDelete').checked;
+    const deletionMode = document.querySelector('input[name="deletionMode"]:checked').value;
     const errorDiv = document.getElementById('textLinesError');
     const successDiv = document.getElementById('textLinesSuccess');
     
@@ -327,7 +433,11 @@ async function deleteTextLines() {
         return;
     }
     
-    if (!confirm('This will permanently delete the selected text lines. Continue?')) {
+    const confirmMessage = deletionMode === 'matching_parts'
+        ? 'This will permanently modify or delete the selected text lines. Continue?'
+        : 'This will permanently delete the selected text lines. Continue?';
+    
+    if (!confirm(confirmMessage)) {
         return;
     }
     
@@ -337,6 +447,7 @@ async function deleteTextLines() {
             exact_text: textToDelete.trim() ? textToDelete.split('\n').filter(line => line.trim()) : null,
             case_sensitive: caseSensitive,
             use_regex: useRegex,
+            deletion_mode: deletionMode,
             preview_only: false
         };
         
@@ -349,8 +460,17 @@ async function deleteTextLines() {
         const result = await response.json();
         
         if (response.ok) {
-            successDiv.textContent = `Successfully deleted ${result.deleted_count} text lines!`;
+            if (deletionMode === 'matching_parts') {
+                successDiv.textContent = `Successfully modified ${result.updated_count} lines and deleted ${result.deleted_count} lines!`;
+            } else {
+                successDiv.textContent = `Successfully deleted ${result.deleted_count} text lines!`;
+            }
             successDiv.style.display = 'block';
+            
+            // Reset the preview
+            document.getElementById('previewDeleteResults').style.display = 'none';
+            document.getElementById('executeDeleteBtn').disabled = true;
+            
             // Refresh dashboard stats
             await databaseManager.loadDashboardStats();
         } else {
@@ -359,9 +479,8 @@ async function deleteTextLines() {
         }
     } catch (error) {
         console.error('Error deleting text lines:', error);
-        // Placeholder for development
-        successDiv.textContent = 'Text line deletion feature ready - backend endpoint needed';
-        successDiv.style.display = 'block';
+        errorDiv.textContent = 'Error connecting to server. Please try again.';
+        errorDiv.style.display = 'block';
     }
 }
 

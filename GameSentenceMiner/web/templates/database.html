@@ -85,6 +85,47 @@
                 </button>
             </div>
         </div>
+
+        <!-- Download Database Card -->
+        <div class="management-card download">
+            <div class="card-header">
+                <div class="card-icon">💾</div>
+                <h2 class="card-title">Download Database</h2>
+            </div>
+            <p class="card-description">
+                Download a complete backup of your GSM database including all sentences, translations, and metadata.
+            </p>
+            <div class="stats-row">
+                <span class="stats-label">Database Format:</span>
+                <span class="stats-value">SQLite (.db)</span>
+            </div>
+            <div class="card-actions">
+                <button class="action-btn primary" data-action="downloadDatabase">
+                    Download Database
+                </button>
+            </div>
+        </div>
+
+        <!-- Import Database Card -->
+        <div class="management-card import">
+            <div class="card-header">
+                <div class="card-icon">📥</div>
+                <h2 class="card-title">Import Database</h2>
+            </div>
+            <p class="card-description">
+                Replace current database with a selected file.
+            </p>
+            <div class="stats-row">
+                <span class="stats-label">Accepted Format:</span>
+                <span class="stats-value">SQLite (.db)</span>
+            </div>
+            <div class="card-actions">
+                <input type="file" id="databaseFileInput" accept=".db" style="margin-bottom: 10px;">
+                <button class="action-btn warning" data-action="importDatabase">
+                    Import Database
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -132,6 +173,21 @@
             <p class="warning-text">Remove specific lines of text from all games using preset patterns or custom regex. This operation cannot be undone.</p>
             
             <div class="form-group">
+                <label class="form-label">Deletion Mode:</label>
+                <div class="checkbox-container">
+                    <input type="radio" id="deletionModeEntireLine" name="deletionMode" value="entire_line" class="checkbox-input" checked>
+                    <label for="deletionModeEntireLine" class="checkbox-label">Delete entire line when pattern matches</label>
+                </div>
+                <div class="checkbox-container">
+                    <input type="radio" id="deletionModeMatchingParts" name="deletionMode" value="matching_parts" class="checkbox-input">
+                    <label for="deletionModeMatchingParts" class="checkbox-label">Delete only matching parts (keep rest of line)</label>
+                </div>
+                <small style="color: var(--text-tertiary); font-size: 12px;">
+                    Choose whether to delete entire lines or just the parts that match your pattern.
+                </small>
+            </div>
+            
+            <div class="form-group">
                 <label class="form-label">Preset Patterns:</label>
                 <select id="presetPatterns" class="form-input">
                     <option value="">Select a preset pattern...</option>
@@ -143,6 +199,8 @@
                     <option value="numbers_only">Lines with numbers only</option>
                     <option value="single_char">Single character lines</option>
                     <option value="repeated_chars">Lines with repeated characters (3+ times)</option>
+                    <option value="remove_quotes">Remove quotes (「」『』""'')</option>
+                    <option value="remove_character_names">Remove character names with quotes</option>
                 </select>
                 <small style="color: var(--text-tertiary); font-size: 12px;">
                     Select a common pattern or create a custom regex below.

@@ -1,11 +1,13 @@
 import datetime
 import re
 from collections import defaultdict
+import os
+import shutil
 
 import flask
-from flask import request, jsonify
+from flask import request, jsonify, send_file
 
-from GameSentenceMiner.util.db import GameLinesTable
+from GameSentenceMiner.util.db import GameLinesTable, gsm_db
 from GameSentenceMiner.util.configuration import logger, get_config, save_current_config
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency, calculate_heatmap_data, calculate_total_chars_per_game,
@@ -310,10 +312,44 @@ def register_database_api_routes(app):
             return jsonify({'error': 'Failed to save settings'}), 500
 
 
+    @app.route('/api/update-text-line', methods=['POST'])
+    def api_update_text_line():
+        """
+        Update the text content of a specific database line.
+        """
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            line_id = data.get('line_id')
+            new_text = data.get('new_text')
+            
+            if not line_id:
+                return jsonify({'error': 'line_id is required'}), 400
+            if new_text is None:
+                return jsonify({'error': 'new_text is required'}), 400
+            
+            # Update the line
+            success = GameLinesTable.update_line_text(line_id, new_text)
+            
+            if success:
+                return jsonify({
+                    'message': 'Line updated successfully',
+                    'line_id': line_id,
+                    'new_text': new_text
+                }), 200
+            else:
+                return jsonify({'error': 'Line not found or update failed'}), 404
+                
+        except Exception as e:
+            logger.error(f"Error updating text line: {e}")
+            return jsonify({'error': f'Update failed: {str(e)}'}), 500
+
     @app.route('/api/preview-text-deletion', methods=['POST'])
     def api_preview_text_deletion():
         """
-        Preview text lines that would be deleted based on regex or exact text matching.
+        Preview text lines that would be deleted or modified based on regex or exact text matching.
         """
         try:
             data = request.get_json()
@@ -324,6 +360,7 @@ def register_database_api_routes(app):
             exact_text = data.get('exact_text')
             case_sensitive = data.get('case_sensitive', False)
             use_regex = data.get('use_regex', False)
+            deletion_mode = data.get('deletion_mode', 'entire_line')  # 'entire_line' or 'matching_parts'
             
             if not regex_pattern and not exact_text:
                 return jsonify({'error': 'Either regex_pattern or exact_text must be provided'}), 400
@@ -331,9 +368,11 @@ def register_database_api_routes(app):
             # Get all lines from database
             all_lines = GameLinesTable.all()
             if not all_lines:
-                return jsonify({'count': 0, 'samples': []}), 200
+                return jsonify({'count': 0, 'samples': [], 'lines_to_delete': 0, 'lines_to_update': 0}), 200
             
             matches = []
+            lines_to_delete = 0
+            lines_to_update = 0
             
             if regex_pattern and use_regex:
                 # Use regex matching
@@ -347,7 +386,30 @@ def register_database_api_routes(app):
                     
                     for line in all_lines:
                         if line.line_text and isinstance(line.line_text, str) and pattern.search(line.line_text):
-                            matches.append(line.line_text)
+                            if deletion_mode == 'matching_parts':
+                                # Show what the line would look like after removing matches
+                                modified_text = pattern.sub('', line.line_text).strip()
+                                if modified_text:
+                                    matches.append({
+                                        'original': line.line_text,
+                                        'modified': modified_text,
+                                        'action': 'update'
+                                    })
+                                    lines_to_update += 1
+                                else:
+                                    matches.append({
+                                        'original': line.line_text,
+                                        'modified': None,
+                                        'action': 'delete'
+                                    })
+                                    lines_to_delete += 1
+                            else:
+                                matches.append({
+                                    'original': line.line_text,
+                                    'modified': None,
+                                    'action': 'delete'
+                                })
+                                lines_to_delete += 1
                             
                 except re.error as e:
                     return jsonify({'error': f'Invalid regex pattern: {str(e)}'}), 400
@@ -364,6 +426,7 @@ def register_database_api_routes(app):
                 for line in all_lines:
                     if line.line_text and isinstance(line.line_text, str):
                         line_text = line.line_text if case_sensitive else line.line_text.lower()
+                        original_text = line.line_text
                         
                         for target_text in text_lines:
                             # Ensure target_text is a string
@@ -371,23 +434,56 @@ def register_database_api_routes(app):
                                 continue
                             compare_text = target_text if case_sensitive else target_text.lower()
                             if compare_text in line_text:
-                                matches.append(line.line_text)
+                                if deletion_mode == 'matching_parts':
+                                    # Remove the matching text
+                                    if case_sensitive:
+                                        modified_text = original_text.replace(target_text, '').strip()
+                                    else:
+                                        # Case-insensitive replacement
+                                        import re
+                                        modified_text = re.sub(re.escape(target_text), '', original_text, flags=re.IGNORECASE).strip()
+                                    
+                                    if modified_text:
+                                        matches.append({
+                                            'original': original_text,
+                                            'modified': modified_text,
+                                            'action': 'update'
+                                        })
+                                        lines_to_update += 1
+                                    else:
+                                        matches.append({
+                                            'original': original_text,
+                                            'modified': None,
+                                            'action': 'delete'
+                                        })
+                                        lines_to_delete += 1
+                                else:
+                                    matches.append({
+                                        'original': original_text,
+                                        'modified': None,
+                                        'action': 'delete'
+                                    })
+                                    lines_to_delete += 1
                                 break
             
             # Remove duplicates while preserving order
             unique_matches = []
             seen = set()
             for match in matches:
-                if match not in seen:
+                match_key = f"{match['original']}_{match['action']}"
+                if match_key not in seen:
                     unique_matches.append(match)
-                    seen.add(match)
+                    seen.add(match_key)
             
             # Get sample matches (first 10)
             samples = unique_matches[:10]
             
             return jsonify({
                 'count': len(unique_matches),
-                'samples': samples
+                'samples': samples,
+                'lines_to_delete': lines_to_delete,
+                'lines_to_update': lines_to_update,
+                'deletion_mode': deletion_mode
             }), 200
             
         except Exception as e:
@@ -397,7 +493,7 @@ def register_database_api_routes(app):
     @app.route('/api/delete-text-lines', methods=['POST'])
     def api_delete_text_lines():
         """
-        Delete text lines from database based on regex or exact text matching.
+        Delete or modify text lines from database based on regex or exact text matching.
         """
         try:
             data = request.get_json()
@@ -408,6 +504,7 @@ def register_database_api_routes(app):
             exact_text = data.get('exact_text')
             case_sensitive = data.get('case_sensitive', False)
             use_regex = data.get('use_regex', False)
+            deletion_mode = data.get('deletion_mode', 'entire_line')  # 'entire_line' or 'matching_parts'
             
             if not regex_pattern and not exact_text:
                 return jsonify({'error': 'Either regex_pattern or exact_text must be provided'}), 400
@@ -415,9 +512,10 @@ def register_database_api_routes(app):
             # Get all lines from database
             all_lines = GameLinesTable.all()
             if not all_lines:
-                return jsonify({'deleted_count': 0}), 200
+                return jsonify({'deleted_count': 0, 'updated_count': 0}), 200
             
             lines_to_delete = []
+            lines_to_update = []
             
             if regex_pattern and use_regex:
                 # Use regex matching
@@ -431,7 +529,15 @@ def register_database_api_routes(app):
                     
                     for line in all_lines:
                         if line.line_text and isinstance(line.line_text, str) and pattern.search(line.line_text):
-                            lines_to_delete.append(line.id)
+                            if deletion_mode == 'matching_parts':
+                                # Replace matches with empty string
+                                modified_text = pattern.sub('', line.line_text).strip()
+                                if modified_text:
+                                    lines_to_update.append((line.id, modified_text))
+                                else:
+                                    lines_to_delete.append(line.id)
+                            else:
+                                lines_to_delete.append(line.id)
                             
                 except re.error as e:
                     return jsonify({'error': f'Invalid regex pattern: {str(e)}'}), 400
@@ -448,6 +554,7 @@ def register_database_api_routes(app):
                 for line in all_lines:
                     if line.line_text and isinstance(line.line_text, str):
                         line_text = line.line_text if case_sensitive else line.line_text.lower()
+                        original_text = line.line_text
                         
                         for target_text in text_lines:
                             # Ensure target_text is a string
@@ -455,10 +562,29 @@ def register_database_api_routes(app):
                                 continue
                             compare_text = target_text if case_sensitive else target_text.lower()
                             if compare_text in line_text:
-                                lines_to_delete.append(line.id)
+                                if deletion_mode == 'matching_parts':
+                                    # Remove the matching text
+                                    if case_sensitive:
+                                        modified_text = original_text.replace(target_text, '').strip()
+                                    else:
+                                        # Case-insensitive replacement
+                                        import re
+                                        modified_text = re.sub(re.escape(target_text), '', original_text, flags=re.IGNORECASE).strip()
+                                    
+                                    if modified_text:
+                                        lines_to_update.append((line.id, modified_text))
+                                    else:
+                                        lines_to_delete.append(line.id)
+                                else:
+                                    lines_to_delete.append(line.id)
                                 break
             
-            # Delete the matching lines
+            # Update lines with modified text
+            updated_count = 0
+            if lines_to_update:
+                updated_count = GameLinesTable.bulk_update_line_text(lines_to_update)
+            
+            # Delete the lines that became empty or should be fully deleted
             deleted_count = 0
             for line_id in set(lines_to_delete):  # Remove duplicates
                 try:
@@ -471,12 +597,24 @@ def register_database_api_routes(app):
                 except Exception as e:
                     logger.warning(f"Failed to delete line {line_id}: {e}")
             
-            logger.info(f"Deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}")
+            total_affected = deleted_count + updated_count
             
-            return jsonify({
-                'deleted_count': deleted_count,
-                'message': f'Successfully deleted {deleted_count} lines'
-            }), 200
+            if deletion_mode == 'matching_parts':
+                logger.info(f"Modified {updated_count} lines and deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}")
+                return jsonify({
+                    'deleted_count': deleted_count,
+                    'updated_count': updated_count,
+                    'total_affected': total_affected,
+                    'message': f'Successfully modified {updated_count} lines and deleted {deleted_count} lines'
+                }), 200
+            else:
+                logger.info(f"Deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}")
+                return jsonify({
+                    'deleted_count': deleted_count,
+                    'updated_count': 0,
+                    'total_affected': deleted_count,
+                    'message': f'Successfully deleted {deleted_count} lines'
+                }), 200
             
         except Exception as e:
             logger.error(f"Error in delete text lines: {e}")
@@ -781,3 +919,62 @@ def register_database_api_routes(app):
             "allGamesStats": all_games_stats,
             "allLinesData": all_lines_data
         })
+
+    @app.route('/api/download-database')
+    def api_download_database():
+        """
+        Download the SQLite database file.
+        """
+        try:
+            # Get the database file path
+            db_path = gsm_db.db_path
+            
+            # Check if the database file exists
+            if not os.path.exists(db_path):
+                logger.error(f"Database file not found at: {db_path}")
+                return jsonify({'error': 'Database file not found'}), 404
+            
+            # Generate a filename with timestamp for the download
+            import datetime
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            download_filename = f'gsm_database_{timestamp}.db'
+            
+            logger.info(f"Downloading database file: {db_path}")
+            
+            return send_file(
+                db_path,
+                as_attachment=True,
+                download_name=download_filename,
+                mimetype='application/x-sqlite3'
+            )
+            
+        except Exception as e:
+            logger.error(f"Error downloading database: {e}")
+            return jsonify({'error': 'Failed to download database'}), 500
+
+    @app.route('/api/import-database', methods=['POST'])
+    def api_import_database():
+        """
+        Import a database file to replace the current one.
+        """
+        try:
+            # Check if file was uploaded
+            if 'file' not in request.files:
+                return jsonify({'error': 'No file uploaded'}), 400
+            
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+            
+            # Get current database path
+            db_path = gsm_db.db_path
+            
+            # Save the uploaded file directly to the database location
+            file.save(db_path)
+            
+            logger.info(f"Database replaced with uploaded file: {file.filename}")
+            return jsonify({'message': 'Database imported successfully'}), 200
+            
+        except Exception as e:
+            logger.error(f"Error importing database: {e}")
+            return jsonify({'error': 'Failed to import database'}), 500
