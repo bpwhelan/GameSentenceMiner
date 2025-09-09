@@ -33,8 +33,9 @@
     position: relative;
     transition: all 0.2s ease;
     font-family: "Noto Sans CJK JP", "Hiragino Sans", "Yu Gothic", "Meiryo", "Takao", "IPAexGothic", "IPAPGothic", "VL PGothic", "Koruri", sans-serif;
-    line-height: 1;
+    line-height: 30px;
     text-align: center;
+    vertical-align: middle;
 }
 
 .kanji-cell:hover {
@@ -86,6 +87,7 @@
         width: 25px;
         height: 25px;
         font-size: 14px;
+        line-height: 25px;
     }
     
     .kanji-counter {
@@ -103,5 +105,6 @@
         width: 22px;
         height: 22px;
         font-size: 12px;
+        line-height: 22px;
     }
 }
