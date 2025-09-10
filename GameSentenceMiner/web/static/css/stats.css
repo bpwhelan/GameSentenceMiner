@@ -148,9 +148,11 @@
 
 /* Dashboard Cards Styles */
 .dashboard-container {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
     gap: 30px;
+    flex-wrap: wrap;
     margin-bottom: 40px;
 }
 
@@ -412,7 +414,7 @@
 /* Responsive Design for Dashboard */
 @media (max-width: 768px) {
     .dashboard-container {
-        grid-template-columns: 1fr;
+        flex-direction: column;
         gap: 20px;
         margin-bottom: 30px;
     }
