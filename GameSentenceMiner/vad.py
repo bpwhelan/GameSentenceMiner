@@ -202,7 +202,7 @@ class WhisperVADProcessor(VADProcessor):
                     logger.info(
                         "Unknown single character segment, not skipping, but logging, please report if this is a mistake: " + segment.text)
                     
-            if segment.no_speech_prob and segment.no_speech_prob > 0.6:
+            if segment.no_speech_prob and segment.no_speech_prob > 0.9:
                 logger.debug(f"Skipping segment with high no_speech_prob: {segment.no_speech_prob} for segment {segment.text} at {segment.start}-{segment.end}")
                 continue
             
@@ -211,7 +211,7 @@ class WhisperVADProcessor(VADProcessor):
                 logger.debug(f"Skipping segment with low unique words: {unique_words} for segment {segment.text} at {segment.start}-{segment.end}")
                 continue
                 
-            if previous_segment and segment.start - previous_segment.end > 5 and segment.no_speech_prob > .3:
+            if segment.seek > 0 and segment.no_speech_prob > .3:
                 logger.debug(f"Skipping segment after long pause with high no_speech_prob after: {segment.no_speech_prob} for segment {segment.text} at {segment.start}-{segment.end}")
                 continue
 

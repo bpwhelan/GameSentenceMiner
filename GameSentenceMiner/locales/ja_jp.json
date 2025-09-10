@@ -567,6 +567,10 @@
             "label": "キャプチャ対象モニター:",
             "tooltip": "キャプチャするモニターを選択（1から始まるインデックス）。",
             "not_detected": "OwOCRが検出されません"
+          },
+          "overlay_engine": {
+            "label": "オーバーレイエンジン:",
+            "tooltip": "オーバーレイのOCRエンジンを選択します。Lensを使用していてWindowsの場合、スキャンを最適化するためにOneOCRを使用します。"
           }
         },
         "wip": {

@@ -630,10 +630,15 @@ class Ai:
             self.gemini_model = 'gemini-2.5-flash-lite'
 
 
+class OverlayEngine(str, Enum):
+    LENS = 'lens'
+    ONEOCR = 'oneocr'
+
 @dataclass_json
 @dataclass
 class Overlay:
     websocket_port: int = 55499
+    engine: str = OverlayEngine.LENS.value
     monitor_to_capture: int = 0
 
     def __post_init__(self):

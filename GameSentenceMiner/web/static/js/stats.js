@@ -725,12 +725,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Filter datasets for each chart
                 const linesData = {
                     labels: data.labels,
-                    datasets: data.datasets.filter(d => d.label.includes('Lines Received'))
+                    datasets: data.datasets.filter(d => d.for === "Lines Received")
                 };
 
                 const charsData = {
                     labels: data.labels,
-                    datasets: data.datasets.filter(d => d.label.includes('Characters Read'))
+                    datasets: data.datasets.filter(d => d.for === 'Characters Read')
                 };
                 
                 // Remove the 'hidden' property so they appear on their own charts

@@ -391,9 +391,10 @@ class ConfigApp:
         self.use_canned_context_prompt_value = tk.BooleanVar(value=self.settings.ai.use_canned_context_prompt)
         self.ai_dialogue_context_length_value = tk.StringVar(value=str(self.settings.ai.dialogue_context_length))
         
-        # WIP Settings
+        # Overlay Settings
         self.overlay_websocket_port_value = tk.StringVar(value=str(self.settings.overlay.websocket_port))
         self.overlay_websocket_send_value = tk.BooleanVar(value=self.settings.overlay.monitor_to_capture)
+        self.overlay_engine_value = tk.StringVar(value=self.settings.overlay.engine)
         
         # Master Config Settings
         self.switch_to_default_if_not_found_value = tk.BooleanVar(value=self.master_config.switch_to_default_if_not_found)
@@ -623,7 +624,8 @@ class ConfigApp:
             ),
             overlay=Overlay(
                 websocket_port=int(self.overlay_websocket_port_value.get()),
-                monitor_to_capture=self.overlay_monitor.current() if self.monitors else 0
+                monitor_to_capture=self.overlay_monitor.current() if self.monitors else 0,
+                engine=OverlayEngine(self.overlay_engine_value.get()).value if self.overlay_engine_value.get() else OverlayEngine.LENS.value
             )
             # wip=WIP(
             #     overlay_websocket_port=int(self.overlay_websocket_port_value.get()),
@@ -2221,7 +2223,17 @@ class ConfigApp:
         self.overlay_monitor.current(0)
         self.overlay_monitor.config(state="disabled")
         self.current_row += 1
-        
+
+        # Overlay Engine Selection
+        overlay_engine_i18n = overlay_i18n.get('overlay_engine', {})
+        HoverInfoLabelWidget(overlay_frame, text=overlay_engine_i18n.get('label', '...'),
+                             tooltip=overlay_engine_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        self.overlay_engine = ttk.Combobox(overlay_frame, values=[e.value for e in OverlayEngine], state="readonly",
+                                           textvariable=self.overlay_engine_value)
+        self.overlay_engine.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
         if self.monitors:
             # Ensure the index is valid
             monitor_index = self.settings.overlay.monitor_to_capture

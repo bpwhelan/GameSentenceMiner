@@ -556,6 +556,10 @@
             "label": "捕获的显示器:",
             "tooltip": "选择要捕获的显示器（从1开始的索引）。",
             "not_detected": "未检测到 OwOCR"
+          },
+          "overlay_engine": {
+            "label": "覆盖层引擎:",
+            "tooltip": "为覆盖层选择 OCR 引擎。如果您使用的是 lens，并且在 windows 上，它将使用 OneOCR 来优化扫描。"
           }
         },
         "wip": {

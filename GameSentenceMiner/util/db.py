@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import sqlite3
 from sys import platform
 import time
@@ -10,6 +11,7 @@ import threading
 
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.util.configuration import logger, is_dev
+import gzip
 
 
 class SQLiteDB:
@@ -398,6 +400,37 @@ def get_db_directory():
     os.makedirs(config_dir, exist_ok=True)
     return os.path.join(config_dir, 'gsm.db')
 
+
+# Backup and compress the database on load, with today's date, up to 5 days ago (clean up old backups)
+def backup_db(db_path: str):
+    backup_dir = os.path.join(os.path.dirname(db_path), "backup", "database")
+    os.makedirs(backup_dir, exist_ok=True)
+    today = time.strftime("%Y-%m-%d")
+    backup_file = os.path.join(backup_dir, f"gsm_{today}.db.gz")
+    
+    # Test, remove backups older than 60 minutes
+    # cutoff = time.time() - 60 * 60
+    # Clean up backups older than 5 days
+    cutoff = time.time() - 5 * 24 * 60 * 60
+    for fname in os.listdir(backup_dir):
+        fpath = os.path.join(backup_dir, fname)
+        if fname.startswith("gsm_") and fname.endswith(".db.gz"):
+            try:
+                file_time = os.path.getmtime(fpath)
+                if file_time < cutoff:
+                    os.remove(fpath)
+                    logger.info(f"Old backup removed: {fpath}")
+            except Exception as e:
+                logger.warning(f"Failed to remove old backup {fpath}: {e}")
+
+    # Create backup if not already present for today
+    if not os.path.exists(backup_file):
+        with open(db_path, "rb") as f_in, open(backup_file, "wb") as f_out:
+            with gzip.GzipFile(fileobj=f_out, mode="wb") as gz_out:
+                shutil.copyfileobj(f_in, gz_out)
+        logger.info(f"Database backup created: {backup_file}")
+
+backup_db(get_db_directory())
 
 gsm_db = SQLiteDB(get_db_directory())
 
