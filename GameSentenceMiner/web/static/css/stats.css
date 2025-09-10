@@ -156,6 +156,14 @@
     margin-bottom: 40px;
 }
 
+/* Single dashboard card container - for standalone cards like Today's Overview */
+.dashboard-single-container {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    margin-bottom: 40px;
+}
+
 .dashboard-card {
     background: var(--bg-secondary);
     border-radius: 12px;
@@ -416,6 +424,10 @@
     .dashboard-container {
         flex-direction: column;
         gap: 20px;
+        margin-bottom: 30px;
+    }
+    
+    .dashboard-single-container {
         margin-bottom: 30px;
     }
     
