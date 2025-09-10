@@ -232,10 +232,6 @@
             "label": "VADモデル選択:",
             "tooltip": "使用するVADモデルを選択。"
           },
-          "backup_model": {
-            "label": "バックアップVADモデル:",
-            "tooltip": "音声が見つからない場合のバックアップモデルを選択。"
-          },
           "add_on_no_results": {
             "label": "結果なしでも音声追加:",
             "tooltip": "VADで音声が見つからなくても音声を追加します。"

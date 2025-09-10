@@ -553,7 +553,6 @@ class VAD:
     language: str = 'ja'
     # vosk_url: str = VOSK_BASE
     selected_vad_model: str = WHISPER
-    backup_vad_model: str = SILERO
     trim_beginning: bool = False
     beginning_offset: float = -0.25
     add_audio_on_no_results: bool = False
@@ -562,10 +561,10 @@ class VAD:
     use_cpu_for_inference: bool = False
 
     def is_silero(self):
-        return self.selected_vad_model == SILERO or self.backup_vad_model == SILERO
+        return self.selected_vad_model == SILERO
 
     def is_whisper(self):
-        return self.selected_vad_model == WHISPER or self.backup_vad_model == WHISPER
+        return self.selected_vad_model == WHISPER
 
     # def is_vosk(self):
     #     return self.selected_vad_model == VOSK or self.backup_vad_model == VOSK
@@ -1021,7 +1020,7 @@ def load_config():
                     return new_config
         except json.JSONDecodeError as e:
             logger.error(
-                f"Error parsing config.json, saving backup and returning new config: {e}")
+                f"Error parsing config.json, creating new config: {e}")
             shutil.copy(config_path, config_path + '.bak')
             config = Config.new()
             config.save()

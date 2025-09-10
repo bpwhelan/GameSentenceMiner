@@ -358,7 +358,6 @@ class ConfigApp:
         self.whisper_model_value = tk.StringVar(value=self.settings.vad.whisper_model)
         self.do_vad_postprocessing_value = tk.BooleanVar(value=self.settings.vad.do_vad_postprocessing)
         self.selected_vad_model_value = tk.StringVar(value=self.settings.vad.selected_vad_model)
-        self.backup_vad_model_value = tk.StringVar(value=self.settings.vad.backup_vad_model)
         self.vad_trim_beginning_value = tk.BooleanVar(value=self.settings.vad.trim_beginning)
         self.vad_beginning_offset_value = tk.StringVar(value=str(self.settings.vad.beginning_offset))
         self.add_audio_on_no_results_value = tk.BooleanVar(value=self.settings.vad.add_audio_on_no_results)
@@ -586,7 +585,6 @@ class ConfigApp:
                 whisper_model=self.whisper_model_value.get(),
                 do_vad_postprocessing=self.do_vad_postprocessing_value.get(),
                 selected_vad_model=self.selected_vad_model_value.get(),
-                backup_vad_model=self.backup_vad_model_value.get(),
                 trim_beginning=self.vad_trim_beginning_value.get(),
                 beginning_offset=float(self.vad_beginning_offset_value.get()),
                 add_audio_on_no_results=self.add_audio_on_no_results_value.get(),
@@ -653,13 +651,6 @@ class ConfigApp:
             self.master_config.set_config_for_profile(current_profile, config)
             
         self.master_config.locale = Locale[self.locale_value.get()].value
-
-
-        config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
-        os.makedirs(config_backup_folder, exist_ok=True)
-        timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-        with open(os.path.join(config_backup_folder, f"config_backup_{timestamp}.json"), 'w') as backup_file:
-            backup_file.write(self.master_config.to_json(indent=4))
 
         self.master_config = self.master_config.sync_shared_fields()
 
@@ -1088,13 +1079,6 @@ class ConfigApp:
         HoverInfoLabelWidget(vad_frame, text=selected_model_i18n.get('label', '...'), tooltip=selected_model_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
         ttk.Combobox(vad_frame, textvariable=self.selected_vad_model_value, values=[SILERO, WHISPER], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        self.current_row += 1
-
-        backup_model_i18n = vad_i18n.get('backup_model', {})
-        HoverInfoLabelWidget(vad_frame, text=backup_model_i18n.get('label', '...'),
-                             tooltip=backup_model_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Combobox(vad_frame, textvariable=self.backup_vad_model_value, values=[OFF, SILERO, WHISPER], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         no_results_i18n = vad_i18n.get('add_on_no_results', {})

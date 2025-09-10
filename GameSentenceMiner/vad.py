@@ -34,9 +34,6 @@ class VADSystem:
     def trim_audio_with_vad(self, input_audio, output_audio, game_line):
         if get_config().vad.do_vad_postprocessing:
             result = self._do_vad_processing(get_config().vad.selected_vad_model, input_audio, output_audio, game_line)
-            if not result.success and get_config().vad.backup_vad_model != configuration.OFF:
-                logger.info("No voice activity detected, using backup VAD model.")
-                result = self._do_vad_processing(get_config().vad.backup_vad_model, input_audio, output_audio, game_line)
             if not result.success:
                 if get_config().vad.add_audio_on_no_results:
                     logger.info("No voice activity detected, using full audio.")

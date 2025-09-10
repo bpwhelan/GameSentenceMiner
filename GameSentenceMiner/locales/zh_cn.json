@@ -233,10 +233,6 @@
             "label": "选择 VAD 模型:",
             "tooltip": "选择要使用的 VAD 模型。"
           },
-          "backup_model": {
-            "label": "备用 VAD 模型:",
-            "tooltip": "在未找到音频时选择备用模型。"
-          },
           "add_on_no_results": {
             "label": "无结果时添加音频:",
             "tooltip": "即使 VAD 未找到结果，也添加音频。"

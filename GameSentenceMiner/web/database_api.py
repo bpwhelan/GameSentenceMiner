@@ -920,38 +920,6 @@ def register_database_api_routes(app):
             "allLinesData": all_lines_data
         })
 
-    @app.route('/api/download-database')
-    def api_download_database():
-        """
-        Download the SQLite database file.
-        """
-        try:
-            # Get the database file path
-            db_path = gsm_db.db_path
-            
-            # Check if the database file exists
-            if not os.path.exists(db_path):
-                logger.error(f"Database file not found at: {db_path}")
-                return jsonify({'error': 'Database file not found'}), 404
-            
-            # Generate a filename with timestamp for the download
-            import datetime
-            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            download_filename = f'gsm_database_{timestamp}.db'
-            
-            logger.info(f"Downloading database file: {db_path}")
-            
-            return send_file(
-                db_path,
-                as_attachment=True,
-                download_name=download_filename,
-                mimetype='application/x-sqlite3'
-            )
-            
-        except Exception as e:
-            logger.error(f"Error downloading database: {e}")
-            return jsonify({'error': 'Failed to download database'}), 500
-
     @app.route('/api/import-database', methods=['POST'])
     def api_import_database():
         """

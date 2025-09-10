@@ -233,10 +233,6 @@
             "label": "Select VAD Model:",
             "tooltip": "Select which VAD model to use."
           },
-          "backup_model": {
-            "label": "Backup VAD Model:",
-            "tooltip": "Select which model to use as a backup if no audio is found."
-          },
           "add_on_no_results": {
             "label": "Add Audio on No Results:",
             "tooltip": "Add audio even if no results are found by VAD."

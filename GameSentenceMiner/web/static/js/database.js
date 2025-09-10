@@ -1,23 +1,6 @@
 // Database Management JavaScript
 // Dependencies: shared.js (provides utility functions like escapeHtml, openModal, closeModal)
 
-// Download Database Function
-function downloadDatabase() {
-    try {
-        // Create a temporary link element and trigger download
-        const downloadUrl = '/api/download-database';
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = ''; // Let the server determine the filename
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    } catch (error) {
-        console.error('Error downloading database:', error);
-        alert('Failed to download database. Please try again.');
-    }
-}
-
 // Import Database Function
 function importDatabase() {
     const fileInput = document.getElementById('databaseFileInput');
@@ -127,11 +110,6 @@ class DatabaseManager {
         const removeDuplicatesBtn = document.querySelector('[data-action="removeDuplicates"]');
         if (removeDuplicatesBtn) {
             removeDuplicatesBtn.addEventListener('click', removeDuplicates);
-        }
-
-        const downloadDatabaseBtn = document.querySelector('[data-action="downloadDatabase"]');
-        if (downloadDatabaseBtn) {
-            downloadDatabaseBtn.addEventListener('click', downloadDatabase);
         }
 
         const importDatabaseBtn = document.querySelector('[data-action="importDatabase"]');

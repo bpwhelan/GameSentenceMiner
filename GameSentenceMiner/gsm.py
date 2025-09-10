@@ -610,9 +610,9 @@ def initialize(reloading=False):
     initial_checks()
     register_websocket_message_handler(handle_websocket_message)
     # if get_config().vad.do_vad_postprocessing:
-    #     if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
+    #     if get_config().vad.selected_vad_model == VOSK:
     #         vosk_helper.get_vosk_model()
-    #     if WHISPER in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
+    #     if get_config().vad.selected_vad_model == WHISPER:
     #         whisper_helper.initialize_whisper_model()
 
 
