@@ -851,7 +851,7 @@ def register_database_api_routes(app):
                 errors = []
                 seen_uuids = set()  # Track UUIDs within this import batch
                 
-                for row_num, row in enumerate(csv_reader, start=2):  # Start at 2 (header is row 1)
+                for row_num, row in enumerate(csv_reader):
                     try:
                         # Extract and validate required fields
                         uuid = row.get('uuid', '').strip()
