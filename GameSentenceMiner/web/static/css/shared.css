@@ -835,6 +835,68 @@ h1 {
     color: var(--bg-secondary);
 }
 
+/* Game Merge Modal Styles */
+.merge-summary {
+    margin: 20px 0;
+}
+
+.primary-game-info,
+.secondary-games-info {
+    margin-bottom: 15px;
+}
+
+.primary-game-info h5,
+.secondary-games-info h5 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 10px 0;
+}
+
+.merge-stats {
+    margin-top: 20px;
+}
+
+.merge-stats .stats-row {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.merge-stats .stats-row:last-child {
+    border-bottom: none;
+}
+
+.secondary-games-info .game-item {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.secondary-games-info .game-item:last-child {
+    border-bottom: none;
+}
+
+.secondary-games-info .game-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.secondary-games-info .game-stats {
+    color: var(--text-tertiary);
+    font-size: 12px;
+}
+
+/* Merge button spacing */
+.modal-footer .action-btn {
+    margin-left: 10px;
+}
+
+.modal-footer .action-btn:first-child {
+    margin-left: 0;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     body {
@@ -867,6 +929,7 @@ h1 {
     .modal-footer button {
         width: 100%;
         margin-bottom: 10px;
+        margin-left: 0;
     }
     
     .games-table th, .games-table td {

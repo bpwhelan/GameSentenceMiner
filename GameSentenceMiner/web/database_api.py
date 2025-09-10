@@ -677,6 +677,107 @@ def register_database_api_routes(app):
             logger.error(f"Error in deduplication: {e}")
             return jsonify({'error': f'Deduplication failed: {str(e)}'}), 500
 
+    @app.route('/api/merge_games', methods=['POST'])
+    def api_merge_games():
+        """
+        Merges multiple selected games into a single game entry.
+        The first game in the list becomes the primary game that retains its name.
+        All lines from secondary games are moved to the primary game.
+        """
+        try:
+            data = request.get_json()
+            game_names = data.get('game_names', [])
+            
+            # Validation
+            if not game_names:
+                return jsonify({'error': 'No games specified for merging'}), 400
+            
+            if not isinstance(game_names, list):
+                return jsonify({'error': 'game_names must be a list'}), 400
+                
+            if len(game_names) < 2:
+                return jsonify({'error': 'At least 2 games must be selected for merging'}), 400
+            
+            # Validate that all games exist
+            existing_games = GameLinesTable.get_all_games_with_lines()
+            invalid_games = [name for name in game_names if name not in existing_games]
+            
+            if invalid_games:
+                return jsonify({'error': f'Games not found: {", ".join(invalid_games)}'}), 400
+            
+            # Check for duplicate game names
+            if len(set(game_names)) != len(game_names):
+                return jsonify({'error': 'Duplicate game names found in selection'}), 400
+            
+            # Identify primary and secondary games
+            primary_game = game_names[0]
+            secondary_games = game_names[1:]
+            
+            # Collect pre-merge statistics
+            primary_lines_before = GameLinesTable.get_all_lines_for_scene(primary_game)
+            total_lines_to_merge = 0
+            merge_summary = {
+                'primary_game': primary_game,
+                'secondary_games': secondary_games,
+                'lines_moved': 0,
+                'total_lines_after_merge': 0
+            }
+            
+            # Calculate lines to be moved and store counts
+            secondary_game_line_counts = {}
+            for game_name in secondary_games:
+                secondary_lines = GameLinesTable.get_all_lines_for_scene(game_name)
+                line_count = len(secondary_lines)
+                secondary_game_line_counts[game_name] = line_count
+                total_lines_to_merge += line_count
+            
+            if total_lines_to_merge == 0:
+                return jsonify({'error': 'No lines found in secondary games to merge'}), 400
+            
+            # Begin database transaction for merge
+            try:
+                # Perform the merge operation within transaction
+                lines_moved = 0
+                for game_name in secondary_games:
+                    # Update game_name for all lines belonging to this secondary game
+                    GameLinesTable._db.execute(
+                        f"UPDATE {GameLinesTable._table} SET game_name=? WHERE game_name=?",
+                        (primary_game, game_name),
+                        commit=True
+                    )
+                    
+                    # Add the count we calculated earlier
+                    lines_moved += secondary_game_line_counts[game_name]
+                
+                # Update merge summary
+                merge_summary['lines_moved'] = lines_moved
+                merge_summary['total_lines_after_merge'] = len(primary_lines_before) + lines_moved
+                
+                # Log the successful merge
+                logger.info(f"Successfully merged {len(secondary_games)} games into '{primary_game}': moved {lines_moved} lines")
+                
+                # Prepare success response
+                response_data = {
+                    'message': f'Successfully merged {len(secondary_games)} games into "{primary_game}"',
+                    'primary_game': primary_game,
+                    'merged_games': secondary_games,
+                    'lines_moved': lines_moved,
+                    'total_lines_in_primary': merge_summary['total_lines_after_merge'],
+                    'merge_summary': merge_summary
+                }
+                
+                return jsonify(response_data), 200
+                
+            except Exception as db_error:
+                logger.error(f"Database error during game merge: {db_error}")
+                return jsonify({
+                    'error': f'Failed to merge games due to database error: {str(db_error)}'
+                }), 500
+                
+        except Exception as e:
+            logger.error(f"Error in game merge API: {e}")
+            return jsonify({'error': f'Game merge failed: {str(e)}'}), 500
+
     @app.route('/api/stats')
     def api_stats():
         """

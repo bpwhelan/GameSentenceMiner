@@ -118,6 +118,7 @@
         </div>
         <div class="modal-footer">
             <button class="action-btn" data-action="closeModal" data-modal="gamesDeletionModal">Cancel</button>
+            <button class="action-btn warning" id="mergeSelectedGamesBtn" data-action="mergeSelectedGames" disabled>Merge Selected Games</button>
             <button class="action-btn danger" id="deleteSelectedGamesBtn" data-action="deleteSelectedGames" disabled>Delete Selected</button>
         </div>
     </div>
@@ -268,6 +269,69 @@
             <button class="action-btn" data-action="closeModal" data-modal="deduplicationModal">Cancel</button>
             <button class="action-btn primary" data-action="scanForDuplicates">Scan for Duplicates</button>
             <button class="action-btn success" id="removeDuplicatesBtn" data-action="removeDuplicates" disabled>Remove Duplicates</button>
+        </div>
+    </div>
+</div>
+
+<!-- Game Merge Confirmation Modal -->
+<div id="gameMergeModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3>Confirm Game Merge</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="gameMergeModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p class="warning-text">
+                ⚠️ This action is irreversible! You are about to merge multiple games into a single game entry.
+            </p>
+            
+            <div class="merge-summary">
+                <h4 style="margin-bottom: 15px; color: var(--text-primary);">Merge Details:</h4>
+                
+                <div class="primary-game-info" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid var(--success-color);">
+                    <h5 style="margin: 0 0 10px 0; color: var(--success-color);">
+                        📁 Primary Game (will keep this name):
+                    </h5>
+                    <div id="primaryGameName" style="font-weight: 600; font-size: 16px; color: var(--text-primary);"></div>
+                    <div id="primaryGameStats" style="color: var(--text-secondary); font-size: 14px; margin-top: 5px;"></div>
+                </div>
+                
+                <div class="secondary-games-info" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid var(--warning-color);">
+                    <h5 style="margin: 0 0 10px 0; color: var(--warning-color);">
+                        🔄 Games to be merged (will be removed):
+                    </h5>
+                    <div id="secondaryGamesList" style="max-height: 150px; overflow-y: auto;"></div>
+                </div>
+                
+                <div class="merge-stats" style="background: var(--bg-secondary); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <div class="stats-row">
+                        <span class="stats-label">Total sentences after merge:</span>
+                        <span class="stats-value" id="totalSentencesAfterMerge">0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Total characters after merge:</span>
+                        <span class="stats-value" id="totalCharactersAfterMerge">0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Games being consolidated:</span>
+                        <span class="stats-value" id="gamesBeingMerged">0</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="mergeError" class="error-text" style="display: none;"></div>
+            <div id="mergeSuccess" class="success-text" style="display: none;"></div>
+            
+            <div id="mergeLoadingIndicator" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Merging games...</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="gameMergeModal">Cancel</button>
+            <button class="action-btn warning" id="confirmMergeBtn" data-action="confirmGameMerge">
+                🔀 Confirm Merge
+            </button>
         </div>
     </div>
 </div>
