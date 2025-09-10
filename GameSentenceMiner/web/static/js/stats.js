@@ -885,11 +885,98 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('todayCharsPerHour').textContent = charsPerHour;
         }
 
+        function updateTodayOverviewWithGoals(todayStats) {
+            if (!todayStats) {
+                // Fallback to no goals display
+                document.getElementById('todayDate').textContent = new Date().toISOString().split('T')[0];
+                document.getElementById('todayTotalHours').textContent = '-';
+                document.getElementById('todayTotalChars').textContent = '-';
+                document.getElementById('todaySessions').textContent = '-';
+                document.getElementById('todayCharsPerHour').textContent = '-';
+                return;
+            }
+
+            // Update date
+            document.getElementById('todayDate').textContent = todayStats.date;
+
+            // Update values with formatted text
+            document.getElementById('todayTotalHours').textContent = todayStats.reading_time_formatted;
+            document.getElementById('todayTotalChars').textContent = todayStats.total_characters_formatted;
+            document.getElementById('todaySessions').textContent = todayStats.sessions;
+            document.getElementById('todayCharsPerHour').textContent = todayStats.chars_per_hour_formatted;
+
+            // Apply goal colors to stat items
+            const currentTheme = getCurrentTheme();
+            const isDarkMode = currentTheme === 'dark';
+
+            // Apply colors for reading time
+            const hoursStatItem = document.getElementById('todayTotalHours').closest('.dashboard-stat-item');
+            if (hoursStatItem && todayStats.reading_goal_progress) {
+                const progress = todayStats.reading_goal_progress;
+                applyGoalColors(hoursStatItem, progress, isDarkMode);
+                // Add goal progress tooltip
+                hoursStatItem.setAttribute('data-tooltip', 
+                    `${progress.percentage}% of ${todayStats.reading_goal}h goal (${todayStats.reading_time_formatted}/${todayStats.reading_goal}h)`);
+            }
+
+            // Apply colors for characters
+            const charsStatItem = document.getElementById('todayTotalChars').closest('.dashboard-stat-item');
+            if (charsStatItem && todayStats.characters_goal_progress) {
+                const progress = todayStats.characters_goal_progress;
+                applyGoalColors(charsStatItem, progress, isDarkMode);
+                charsStatItem.setAttribute('data-tooltip', 
+                    `${progress.percentage}% of ${todayStats.characters_goal.toLocaleString()} chars goal (${todayStats.total_characters}/${todayStats.characters_goal})`);
+            }
+
+            // Apply colors for sessions
+            const sessionsStatItem = document.getElementById('todaySessions').closest('.dashboard-stat-item');
+            if (sessionsStatItem && todayStats.sessions_goal_progress) {
+                const progress = todayStats.sessions_goal_progress;
+                applyGoalColors(sessionsStatItem, progress, isDarkMode);
+                sessionsStatItem.setAttribute('data-tooltip', 
+                    `${progress.percentage}% of ${todayStats.sessions_goal} sessions goal (${todayStats.sessions}/${todayStats.sessions_goal})`);
+            }
+
+            // Apply colors for chars/hour (performance metric, optional goal)
+            const charsPerHourStatItem = document.getElementById('todayCharsPerHour').closest('.dashboard-stat-item');
+            if (charsPerHourStatItem && todayStats.chars_per_hour_goal_progress) {
+                const progress = todayStats.chars_per_hour_goal_progress;
+                applyGoalColors(charsPerHourStatItem, progress, isDarkMode);
+                charsPerHourStatItem.setAttribute('data-tooltip', 
+                    `${progress.percentage}% of ${todayStats.chars_per_hour_goal} chars/hour target (${todayStats.chars_per_hour}/${todayStats.chars_per_hour_goal})`);
+            }
+        }
+
+        function applyGoalColors(element, goalProgress, isDarkMode) {
+            if (!element || !goalProgress) return;
+
+            // Apply background and text colors
+            element.style.backgroundColor = goalProgress.background_color;
+            element.style.color = goalProgress.text_color;
+            
+            // Add a subtle border for better visual definition
+            element.style.border = `1px solid ${goalProgress.background_color}`;
+            
+            // Add some visual feedback for completion
+            if (goalProgress.is_complete) {
+                element.style.boxShadow = '0 0 8px rgba(46, 230, 224, 0.3)'; // Cyan glow for completion
+            } else {
+                element.style.boxShadow = 'none';
+            }
+            
+            // Ensure good contrast and readability
+            element.style.transition = 'all 0.3s ease';
+        }
+
         if (data && data.currentGameStats && data.allGamesStats) {
             // Use existing data if available
             updateCurrentGameDashboard(data.currentGameStats);
             updateAllGamesDashboard(data.allGamesStats);
-            if (data.allLinesData) updateTodayOverview(data.allLinesData);
+            if (data.todayStatsWithGoals) {
+                updateTodayOverviewWithGoals(data.todayStatsWithGoals);
+            } else if (data.allLinesData) {
+                updateTodayOverview(data.allLinesData);
+            }
             hideDashboardLoading();
         } else {
             // Fetch fresh data
@@ -900,7 +987,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (data.currentGameStats && data.allGamesStats) {
                         updateCurrentGameDashboard(data.currentGameStats);
                         updateAllGamesDashboard(data.allGamesStats);
-                        if (data.allLinesData) updateTodayOverview(data.allLinesData);
+                        if (data.todayStatsWithGoals) {
+                            updateTodayOverviewWithGoals(data.todayStatsWithGoals);
+                        } else if (data.allLinesData) {
+                            updateTodayOverview(data.allLinesData);
+                        }
                     } else {
                         showDashboardError();
                     }

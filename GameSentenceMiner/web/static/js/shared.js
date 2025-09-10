@@ -224,6 +224,11 @@ class SettingsManager {
         this.sessionGapInput = document.getElementById('sessionGap');
         this.heatmapYearSelect = document.getElementById('heatmapYear');
         this.streakRequirementInput = document.getElementById('streakRequirement');
+        
+        // Goal setting elements
+        this.readingGoalInput = document.getElementById('readingGoal');
+        this.charactersGoalInput = document.getElementById('charactersGoal');
+        this.sessionsGoalInput = document.getElementById('sessionsGoal');
     }
     
     attachEventListeners() {
@@ -255,7 +260,8 @@ class SettingsManager {
         }
         
         // Clear messages when user starts typing
-        [this.afkTimerInput, this.sessionGapInput, this.heatmapYearSelect, this.streakRequirementInput]
+        [this.afkTimerInput, this.sessionGapInput, this.heatmapYearSelect, this.streakRequirementInput,
+         this.readingGoalInput, this.charactersGoalInput, this.sessionsGoalInput]
             .filter(Boolean)
             .forEach(input => {
                 input.addEventListener('input', () => this.clearMessages());
@@ -317,6 +323,17 @@ class SettingsManager {
         }
         if (this.streakRequirementInput) {
             this.streakRequirementInput.value = settings.streak_requirement_hours || 1;
+        }
+        
+        // Load goal settings
+        if (this.readingGoalInput) {
+            this.readingGoalInput.value = settings.reading_goal_hours || 1.0;
+        }
+        if (this.charactersGoalInput) {
+            this.charactersGoalInput.value = settings.characters_goal || 10000;
+        }
+        if (this.sessionsGoalInput) {
+            this.sessionsGoalInput.value = settings.sessions_goal || 3;
         }
         
         // Load saved year preference
@@ -397,6 +414,34 @@ class SettingsManager {
                     return;
                 }
                 settings.streak_requirement_hours = streakRequirement;
+            }
+            
+            // Goal settings validation
+            if (this.readingGoalInput) {
+                const readingGoal = parseFloat(this.readingGoalInput.value);
+                if (isNaN(readingGoal) || readingGoal < 0.01 || readingGoal > 24) {
+                    this.showError('Reading goal must be between 0.01 and 24 hours');
+                    return;
+                }
+                settings.reading_goal_hours = readingGoal;
+            }
+            
+            if (this.charactersGoalInput) {
+                const charactersGoal = parseInt(this.charactersGoalInput.value);
+                if (isNaN(charactersGoal) || charactersGoal < 1 || charactersGoal > 1000000) {
+                    this.showError('Characters goal must be between 1 and 1,000,000');
+                    return;
+                }
+                settings.characters_goal = charactersGoal;
+            }
+            
+            if (this.sessionsGoalInput) {
+                const sessionsGoal = parseInt(this.sessionsGoalInput.value);
+                if (isNaN(sessionsGoal) || sessionsGoal < 1 || sessionsGoal > 100) {
+                    this.showError('Sessions goal must be between 1 and 100');
+                    return;
+                }
+                settings.sessions_goal = sessionsGoal;
             }
             
             // Show loading state

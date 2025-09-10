@@ -580,3 +580,152 @@ def calculate_all_games_stats(all_lines):
         'last_date': datetime.date.fromtimestamp(max_timestamp).strftime('%Y-%m-%d'),
         'daily_activity': dict(daily_activity)
     }
+
+
+def get_goal_color(current_value, goal_value, is_dark_mode=False):
+    """
+    Get color based on goal completion percentage with gradient support.
+    
+    Args:
+        current_value: Current achieved value
+        goal_value: Target goal value
+        is_dark_mode: Whether to use dark mode colors
+    
+    Returns:
+        dict: Color information with background, text color, and percentage
+    """
+    if goal_value <= 0:
+        # No goal set - use default neutral color
+        return {
+            'background_color': '#333' if is_dark_mode else '#fff',
+            'text_color': '#fff' if is_dark_mode else '#333',
+            'percentage': 0,
+            'is_complete': False
+        }
+    
+    percentage = min((current_value / goal_value) * 100, 100)
+    
+    # Color thresholds based on requirements
+    if percentage >= 100:
+        color = '#2ee6e0'  # Cyan for 100%+
+        text_color = '#333'
+        is_complete = True
+    elif percentage >= 50:
+        # Gradient between green (50%) and cyan (100%)
+        factor = (percentage - 50) / 50  # 0 to 1
+        color = interpolate_color('#3be62f', '#2ee6e0', factor)
+        text_color = '#333'
+        is_complete = False
+    elif percentage >= 25:
+        # Gradient between yellow (25%) and green (50%)
+        factor = (percentage - 25) / 25  # 0 to 1
+        color = interpolate_color('#e6dc2e', '#3be62f', factor)
+        text_color = '#333'
+        is_complete = False
+    elif percentage > 0:
+        # Gradient between default and yellow (25%)
+        factor = percentage / 25  # 0 to 1
+        base_color = '#333' if is_dark_mode else '#fff'
+        color = interpolate_color(base_color, '#e6dc2e', factor)
+        text_color = '#fff' if is_dark_mode else '#333'
+        is_complete = False
+    else:
+        # 0% - use theme appropriate color
+        color = '#333' if is_dark_mode else '#fff'
+        text_color = '#fff' if is_dark_mode else '#333'
+        is_complete = False
+    
+    return {
+        'background_color': color,
+        'text_color': text_color,
+        'percentage': round(percentage, 1),
+        'is_complete': is_complete
+    }
+
+
+def calculate_today_stats_with_goals(all_lines):
+    """
+    Calculate today's statistics with goal progress information.
+    
+    Args:
+        all_lines: List of all game lines
+    
+    Returns:
+        dict: Today's stats with goal progress colors and percentages
+    """
+    if not all_lines:
+        return None
+    
+    # Get today's date
+    today = datetime.date.today()
+    today_str = today.strftime('%Y-%m-%d')
+    
+    # Filter lines for today
+    today_lines = [
+        line for line in all_lines 
+        if datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d') == today_str
+    ]
+    
+    # Calculate today's basic stats
+    total_characters = sum(len(line.line_text) if line.line_text else 0 for line in today_lines)
+    
+    # Calculate today's reading time using AFK timer
+    if len(today_lines) >= 2:
+        timestamps = [float(line.timestamp) for line in today_lines]
+        reading_time_seconds = calculate_actual_reading_time(timestamps)
+        reading_time_hours = reading_time_seconds / 3600
+    else:
+        reading_time_hours = 0
+    
+    # Calculate today's sessions
+    if today_lines:
+        sorted_timestamps = sorted([float(line.timestamp) for line in today_lines])
+        sessions = 1
+        for i in range(1, len(sorted_timestamps)):
+            time_gap = sorted_timestamps[i] - sorted_timestamps[i-1]
+            if time_gap > get_config().advanced.session_gap_seconds:
+                sessions += 1
+    else:
+        sessions = 0
+    
+    # Calculate reading speed for today
+    chars_per_hour = int(total_characters / reading_time_hours) if reading_time_hours > 0 else 0
+    
+    # Get goals from configuration
+    config = get_config()
+    reading_goal = getattr(config.advanced, 'reading_goal_hours', 1.0)
+    characters_goal = getattr(config.advanced, 'characters_goal', 10000)
+    sessions_goal = getattr(config.advanced, 'sessions_goal', 3)
+    
+    # Note: For chars_per_hour, we'll use a reasonable default goal since it's more of a performance metric
+    # This could be made configurable in the future if needed
+    chars_per_hour_goal = 2000  # Default goal of 2000 chars/hour
+    
+    # Calculate goal progress (assuming light mode for now - this should be passed from frontend)
+    is_dark_mode = False  # This should be determined from theme context
+    
+    reading_goal_progress = get_goal_color(reading_time_hours, reading_goal, is_dark_mode)
+    characters_goal_progress = get_goal_color(total_characters, characters_goal, is_dark_mode)
+    sessions_goal_progress = get_goal_color(sessions, sessions_goal, is_dark_mode)
+    chars_per_hour_goal_progress = get_goal_color(chars_per_hour, chars_per_hour_goal, is_dark_mode)
+    
+    return {
+        'date': today_str,
+        'reading_time_hours': reading_time_hours,
+        'reading_time_formatted': format_time_human_readable(reading_time_hours),
+        'total_characters': total_characters,
+        'total_characters_formatted': format_large_number(total_characters),
+        'sessions': sessions,
+        'chars_per_hour': chars_per_hour,
+        'chars_per_hour_formatted': format_large_number(chars_per_hour),
+        # Goal progress information
+        'reading_goal_progress': reading_goal_progress,
+        'characters_goal_progress': characters_goal_progress,
+        'sessions_goal_progress': sessions_goal_progress,
+        'chars_per_hour_goal_progress': chars_per_hour_goal_progress,
+        # Goal values for reference
+        'reading_goal': reading_goal,
+        'characters_goal': characters_goal,
+        'sessions_goal': sessions_goal,
+        'chars_per_hour_goal': chars_per_hour_goal
+    }

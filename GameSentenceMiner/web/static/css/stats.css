@@ -239,6 +239,22 @@
     transform: scale(1.02);
 }
 
+/* Goal progress colors - these will be overridden by JavaScript for goal progress */
+.dashboard-stat-item.goal-progress {
+    border: 1px solid transparent;
+}
+
+.dashboard-stat-item.goal-complete {
+    box-shadow: 0 0 8px rgba(46, 230, 224, 0.3);
+}
+
+/* Ensure text remains readable on goal progress backgrounds */
+.dashboard-stat-item .dashboard-stat-value,
+.dashboard-stat-item .dashboard-stat-label {
+    position: relative;
+    z-index: 1;
+}
+
 .dashboard-stat-value {
     font-size: 24px;
     font-weight: bold;

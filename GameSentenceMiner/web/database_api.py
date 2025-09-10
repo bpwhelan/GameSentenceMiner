@@ -13,7 +13,7 @@ from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency, calculate_heatmap_data, calculate_total_chars_per_game,
     calculate_reading_time_per_game, calculate_reading_speed_per_game,
     calculate_current_game_stats, calculate_all_games_stats, calculate_daily_reading_time,
-    calculate_time_based_streak, calculate_actual_reading_time
+    calculate_time_based_streak, calculate_actual_reading_time, calculate_today_stats_with_goals
 )
 
 
@@ -226,14 +226,17 @@ def register_database_api_routes(app):
     @app.route('/api/settings', methods=['GET'])
     def api_get_settings():
         """
-        Get current AFK timer, session gap, and streak requirement settings.
+        Get current AFK timer, session gap, streak requirement, and goals settings.
         """
         try:
             config = get_config()
             return jsonify({
                 'afk_timer_seconds': config.advanced.afk_timer_seconds,
                 'session_gap_seconds': config.advanced.session_gap_seconds,
-                'streak_requirement_hours': getattr(config.advanced, 'streak_requirement_hours', 1.0)
+                'streak_requirement_hours': getattr(config.advanced, 'streak_requirement_hours', 1.0),
+                'reading_goal_hours': getattr(config.advanced, 'reading_goal_hours', 1.0),
+                'characters_goal': getattr(config.advanced, 'characters_goal', 10000),
+                'sessions_goal': getattr(config.advanced, 'sessions_goal', 3)
             }), 200
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
@@ -242,7 +245,7 @@ def register_database_api_routes(app):
     @app.route('/api/settings', methods=['POST'])
     def api_save_settings():
         """
-        Save/update AFK timer, session gap, and streak requirement settings.
+        Save/update AFK timer, session gap, streak requirement, and goals settings.
         """
         try:
             data = request.get_json()
@@ -253,6 +256,9 @@ def register_database_api_routes(app):
             afk_timer = data.get('afk_timer_seconds')
             session_gap = data.get('session_gap_seconds')
             streak_requirement = data.get('streak_requirement_hours')
+            reading_goal = data.get('reading_goal_hours')
+            characters_goal = data.get('characters_goal')
+            sessions_goal = data.get('sessions_goal')
             
             # Validate input - only require the settings that are provided
             settings_to_update = {}
@@ -284,6 +290,33 @@ def register_database_api_routes(app):
                 except (ValueError, TypeError):
                     return jsonify({'error': 'Streak requirement must be a valid number'}), 400
             
+            if reading_goal is not None:
+                try:
+                    reading_goal = float(reading_goal)
+                    if reading_goal < 0.01 or reading_goal > 24:
+                        return jsonify({'error': 'Reading goal must be between 0.01 and 24 hours'}), 400
+                    settings_to_update['reading_goal_hours'] = reading_goal
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Reading goal must be a valid number'}), 400
+            
+            if characters_goal is not None:
+                try:
+                    characters_goal = int(characters_goal)
+                    if characters_goal < 1 or characters_goal > 1000000:
+                        return jsonify({'error': 'Characters goal must be between 1 and 1,000,000'}), 400
+                    settings_to_update['characters_goal'] = characters_goal
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Characters goal must be a valid integer'}), 400
+            
+            if sessions_goal is not None:
+                try:
+                    sessions_goal = int(sessions_goal)
+                    if sessions_goal < 1 or sessions_goal > 100:
+                        return jsonify({'error': 'Sessions goal must be between 1 and 100'}), 400
+                    settings_to_update['sessions_goal'] = sessions_goal
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Sessions goal must be a valid integer'}), 400
+            
             if not settings_to_update:
                 return jsonify({'error': 'No valid settings provided'}), 400
             
@@ -296,6 +329,12 @@ def register_database_api_routes(app):
                 config.advanced.session_gap_seconds = settings_to_update['session_gap_seconds']
             if 'streak_requirement_hours' in settings_to_update:
                 setattr(config.advanced, 'streak_requirement_hours', settings_to_update['streak_requirement_hours'])
+            if 'reading_goal_hours' in settings_to_update:
+                setattr(config.advanced, 'reading_goal_hours', settings_to_update['reading_goal_hours'])
+            if 'characters_goal' in settings_to_update:
+                setattr(config.advanced, 'characters_goal', settings_to_update['characters_goal'])
+            if 'sessions_goal' in settings_to_update:
+                setattr(config.advanced, 'sessions_goal', settings_to_update['sessions_goal'])
             
             # Save configuration
             save_current_config(config)
@@ -763,6 +802,7 @@ def register_database_api_routes(app):
         # 6. Calculate dashboard statistics
         current_game_stats = calculate_current_game_stats(all_lines)
         all_games_stats = calculate_all_games_stats(all_lines)
+        today_stats_with_goals = calculate_today_stats_with_goals(all_lines)
 
         # 7. Prepare allLinesData for frontend calculations (needed for average daily time)
         all_lines_data = []
@@ -783,6 +823,7 @@ def register_database_api_routes(app):
             "readingSpeedPerGame": reading_speed_per_game_data,
             "currentGameStats": current_game_stats,
             "allGamesStats": all_games_stats,
+            "todayStatsWithGoals": today_stats_with_goals,
             "allLinesData": all_lines_data
         })
 
