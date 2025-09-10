@@ -184,15 +184,11 @@ function updateGameSelection() {
     
     // Update delete button
     deleteBtn.disabled = selectedCheckboxes.length === 0;
-    deleteBtn.textContent = selectedCheckboxes.length > 0
-        ? `Delete Selected (${selectedCheckboxes.length})`
-        : 'Delete Selected';
+    deleteBtn.textContent = selectedCheckboxes.length > 0 ? `Delete Selected (${selectedCheckboxes.length})` : 'Delete Selected';
     
     // Update merge button - only enable when 2 or more games are selected
     mergeBtn.disabled = selectedCheckboxes.length < 2;
-    mergeBtn.textContent = selectedCheckboxes.length >= 2
-        ? `Merge Selected (${selectedCheckboxes.length})`
-        : 'Merge Selected Games';
+    mergeBtn.textContent = selectedCheckboxes.length >= 2 ? `Merge Selected (${selectedCheckboxes.length})` : 'Merge Selected Games';
 }
 
 async function deleteSelectedGames() {
