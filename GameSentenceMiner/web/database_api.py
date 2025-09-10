@@ -740,8 +740,11 @@ def register_database_api_routes(app):
                 lines_moved = 0
                 for game_name in secondary_games:
                     # Update game_name for all lines belonging to this secondary game
+                    # Ensure the table name is as expected to prevent SQL injection
+                    if GameLinesTable._table != "game_lines":
+                        raise ValueError("Unexpected table name in GameLinesTable._table")
                     GameLinesTable._db.execute(
-                        f"UPDATE {GameLinesTable._table} SET game_name=? WHERE game_name=?",
+                        "UPDATE game_lines SET game_name=? WHERE game_name=?",
                         (primary_game, game_name),
                         commit=True
                     )
