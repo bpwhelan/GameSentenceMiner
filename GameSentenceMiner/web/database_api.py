@@ -135,8 +135,8 @@ def register_database_api_routes(app):
                     'date_range': f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}" if min_date != max_date else min_date.strftime('%Y-%m-%d')
                 })
             
-            # Sort by first entry date (most recent first)
-            games_data.sort(key=lambda x: x['first_entry_date'], reverse=True)
+            # Sort by total characters (most characters first)
+            games_data.sort(key=lambda x: x['total_characters'], reverse=True)
             
             return jsonify({'games': games_data}), 200
             
