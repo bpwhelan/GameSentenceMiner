@@ -486,7 +486,7 @@ document.addEventListener('DOMContentLoaded', function () {
             };
         }
         
-        const chartInstance = new Chart(ctx, {
+        new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: chartData.labels, // Each game as a separate label
