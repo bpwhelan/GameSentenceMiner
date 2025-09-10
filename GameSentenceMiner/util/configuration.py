@@ -567,10 +567,10 @@ class VAD:
         return self.selected_vad_model == WHISPER
 
     # def is_vosk(self):
-    #     return self.selected_vad_model == VOSK or self.backup_vad_model == VOSK
+    #     return self.selected_vad_model == VOSK
 
     # def is_groq(self):
-    #     return self.selected_vad_model == GROQ or self.backup_vad_model == GROQ
+    #     return self.selected_vad_model == GROQ
 
 
 @dataclass_json
