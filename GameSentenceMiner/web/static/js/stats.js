@@ -1424,4 +1424,143 @@ document.addEventListener('DOMContentLoaded', function () {
     if (document.getElementById('gamesTableBody')) {
         new GameDeletionManager();
     }
+    
+    // ExStatic Import Functionality
+    const exstaticFileInput = document.getElementById('exstaticFile');
+    const importExstaticBtn = document.getElementById('importExstaticBtn');
+    const importProgress = document.getElementById('importProgress');
+    const importProgressBar = document.getElementById('importProgressBar');
+    const importProgressText = document.getElementById('importProgressText');
+    const importStatus = document.getElementById('importStatus');
+    
+    if (exstaticFileInput && importExstaticBtn) {
+        // Enable/disable import button based on file selection
+        exstaticFileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file && file.type === 'text/csv' && file.name.toLowerCase().endsWith('.csv')) {
+                importExstaticBtn.disabled = false;
+                importExstaticBtn.style.background = '#2980b9';
+                importExstaticBtn.style.cursor = 'pointer';
+                showImportStatus('', 'info', false);
+            } else {
+                importExstaticBtn.disabled = true;
+                importExstaticBtn.style.background = '#666';
+                importExstaticBtn.style.cursor = 'not-allowed';
+                if (file) {
+                    showImportStatus('Please select a valid CSV file.', 'error', true);
+                }
+            }
+        });
+        
+        // Handle import button click
+        importExstaticBtn.addEventListener('click', function() {
+            const file = exstaticFileInput.files[0];
+            if (!file) {
+                showImportStatus('Please select a CSV file first.', 'error', true);
+                return;
+            }
+            
+            importExstaticData(file);
+        });
+    }
+    
+    function showImportStatus(message, type, show) {
+        if (!importStatus) return;
+        
+        if (show && message) {
+            importStatus.textContent = message;
+            importStatus.style.display = 'block';
+            
+            // Set appropriate styling based on type
+            if (type === 'error') {
+                importStatus.style.background = 'var(--danger-color)';
+                importStatus.style.color = 'white';
+            } else if (type === 'success') {
+                importStatus.style.background = 'var(--success-color)';
+                importStatus.style.color = 'white';
+            } else if (type === 'info') {
+                importStatus.style.background = 'var(--primary-color)';
+                importStatus.style.color = 'white';
+            } else {
+                importStatus.style.background = 'var(--bg-tertiary)';
+                importStatus.style.color = 'var(--text-primary)';
+            }
+        } else {
+            importStatus.style.display = 'none';
+        }
+    }
+    
+    function showImportProgress(show, percentage = 0) {
+        if (!importProgress || !importProgressBar || !importProgressText) return;
+        
+        if (show) {
+            importProgress.style.display = 'block';
+            importProgressBar.style.width = percentage + '%';
+            importProgressText.textContent = Math.round(percentage) + '%';
+        } else {
+            importProgress.style.display = 'none';
+        }
+    }
+    
+    async function importExstaticData(file) {
+        try {
+            // Disable import button and show progress
+            importExstaticBtn.disabled = true;
+            showImportProgress(true, 0);
+            showImportStatus('Preparing import...', 'info', true);
+            
+            // Create FormData and append the file
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            // Show upload progress
+            showImportProgress(true, 25);
+            showImportStatus('Uploading file...', 'info', true);
+            
+            // Send file to backend
+            const response = await fetch('/api/import-exstatic', {
+                method: 'POST',
+                body: formData
+            });
+            
+            showImportProgress(true, 75);
+            showImportStatus('Processing data...', 'info', true);
+            
+            const result = await response.json();
+            
+            showImportProgress(true, 100);
+            
+            if (response.ok) {
+                // Success
+                const message = `Successfully imported ${result.imported_count || 0} lines from ${result.games_count || 0} games.`;
+                showImportStatus(message, 'success', true);
+                
+                // Reset file input and button
+                exstaticFileInput.value = '';
+                importExstaticBtn.disabled = true;
+                
+                // Hide progress after a delay
+                setTimeout(() => {
+                    showImportProgress(false);
+                    // Optionally refresh the page to show new data
+                    if (result.imported_count > 0) {
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 2000);
+                    }
+                }, 1500);
+            } else {
+                // Error
+                showImportStatus(result.error || 'Import failed. Please try again.', 'error', true);
+                showImportProgress(false);
+            }
+        } catch (error) {
+            console.error('Import error:', error);
+            showImportStatus('Import failed due to network error. Please try again.', 'error', true);
+            showImportProgress(false);
+        } finally {
+            // Re-enable import button only if a file is still selected
+            importExstaticBtn.disabled = !(exstaticFileInput && exstaticFileInput.files && exstaticFileInput.files.length > 0);
+        }
+    }
 });
