@@ -451,6 +451,28 @@ document.addEventListener('DOMContentLoaded', function () {
         return colors;
     }
 
+    // Helper function to filter chart data for visible bars
+    function getFilteredChartData(originalData, hiddenBars, colors) {
+        // Filter data to only include visible bars
+        const visibleLabels = [];
+        const visibleTotals = [];
+        const visibleColors = [];
+
+        originalData.labels.forEach((label, index) => {
+            if (!hiddenBars[index]) {
+                visibleLabels.push(label);
+                visibleTotals.push(originalData.totals[index]);
+                visibleColors.push(colors[index]);
+            }
+        });
+
+        return {
+            labels: visibleLabels,
+            totals: visibleTotals,
+            colors: visibleColors
+        };
+    }
+
     // Reusable function to create game bar charts with interactive legend
     function createGameBarChart(canvasId, chartData, chartTitle, yAxisLabel) {
         const ctx = document.getElementById(canvasId).getContext('2d');
@@ -466,24 +488,7 @@ document.addEventListener('DOMContentLoaded', function () {
         };
         
         function updateChartData() {
-            // Filter data to only include visible bars
-            const visibleLabels = [];
-            const visibleTotals = [];
-            const visibleColors = [];
-            
-            originalData.labels.forEach((label, index) => {
-                if (!hiddenBars[index]) {
-                    visibleLabels.push(label);
-                    visibleTotals.push(originalData.totals[index]);
-                    visibleColors.push(colors[index]);
-                }
-            });
-            
-            return {
-                labels: visibleLabels,
-                totals: visibleTotals,
-                colors: visibleColors
-            };
+            return getFilteredChartData(originalData, hiddenBars, colors);
         }
         
         new Chart(ctx, {
@@ -604,24 +609,7 @@ document.addEventListener('DOMContentLoaded', function () {
         };
         
         function updateChartData() {
-            // Filter data to only include visible bars
-            const visibleLabels = [];
-            const visibleTotals = [];
-            const visibleColors = [];
-            
-            originalData.labels.forEach((label, index) => {
-                if (!hiddenBars[index]) {
-                    visibleLabels.push(label);
-                    visibleTotals.push(originalData.totals[index]);
-                    visibleColors.push(colors[index]);
-                }
-            });
-            
-            return {
-                labels: visibleLabels,
-                totals: visibleTotals,
-                colors: visibleColors
-            };
+            return getFilteredChartData(originalData, hiddenBars, colors);
         }
         
         new Chart(ctx, {
