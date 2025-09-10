@@ -899,42 +899,43 @@ document.addEventListener('DOMContentLoaded', function () {
             // Update date
             document.getElementById('todayDate').textContent = todayStats.date;
 
-            // Update values with formatted text
-            document.getElementById('todayTotalHours').textContent = todayStats.reading_time_formatted;
-            document.getElementById('todayTotalChars').textContent = todayStats.total_characters_formatted;
-            document.getElementById('todaySessions').textContent = todayStats.sessions;
-            document.getElementById('todayCharsPerHour').textContent = todayStats.chars_per_hour_formatted;
+            // Update values with formatted text for today's activity
+            document.getElementById('todayTotalHours').textContent = todayStats.today_reading_time_formatted;
+            document.getElementById('todayTotalChars').textContent = todayStats.today_total_characters_formatted;
+            document.getElementById('todaySessions').textContent = todayStats.today_sessions;
+            document.getElementById('todayCharsPerHour').textContent = todayStats.today_chars_per_hour_formatted;
 
-            // Apply goal colors to stat items
+            // Apply goal colors to stat items based on total progress
             const currentTheme = getCurrentTheme();
             const isDarkMode = currentTheme === 'dark';
 
-            // Apply colors for reading time
+            // Apply colors for reading time (progress toward total goal)
             const hoursStatItem = document.getElementById('todayTotalHours').closest('.dashboard-stat-item');
             if (hoursStatItem && todayStats.reading_goal_progress) {
                 const progress = todayStats.reading_goal_progress;
                 applyGoalColors(hoursStatItem, progress, isDarkMode);
-                // Add goal progress tooltip
+                // Add goal progress tooltip showing total progress
                 hoursStatItem.setAttribute('data-tooltip', 
-                    `${progress.percentage}% of ${todayStats.reading_goal}h goal (${todayStats.reading_time_formatted}/${todayStats.reading_goal}h)`);
+                    `${progress.percentage}% of ${todayStats.total_reading_goal}h total goal (${todayStats.total_reading_time_formatted}/${todayStats.total_reading_goal}h)`);
             }
 
-            // Apply colors for characters
+            // Apply colors for characters (progress toward total goal)
             const charsStatItem = document.getElementById('todayTotalChars').closest('.dashboard-stat-item');
             if (charsStatItem && todayStats.characters_goal_progress) {
                 const progress = todayStats.characters_goal_progress;
                 applyGoalColors(charsStatItem, progress, isDarkMode);
+                // Add goal progress tooltip showing total progress
                 charsStatItem.setAttribute('data-tooltip', 
-                    `${progress.percentage}% of ${todayStats.characters_goal.toLocaleString()} chars goal (${todayStats.total_characters}/${todayStats.characters_goal})`);
+                    `${progress.percentage}% of ${todayStats.total_characters_goal.toLocaleString()} chars total goal (${todayStats.total_characters_formatted}/${todayStats.total_characters_goal.toLocaleString()})`);
             }
 
-            // Apply colors for sessions
+            // Sessions item shows today's activity without total goal coloring (since we removed sessions goal)
             const sessionsStatItem = document.getElementById('todaySessions').closest('.dashboard-stat-item');
-            if (sessionsStatItem && todayStats.sessions_goal_progress) {
-                const progress = todayStats.sessions_goal_progress;
-                applyGoalColors(sessionsStatItem, progress, isDarkMode);
-                sessionsStatItem.setAttribute('data-tooltip', 
-                    `${progress.percentage}% of ${todayStats.sessions_goal} sessions goal (${todayStats.sessions}/${todayStats.sessions_goal})`);
+            if (sessionsStatItem) {
+                // Reset any previous goal styling
+                sessionsStatItem.style.backgroundColor = '';
+                sessionsStatItem.style.color = '';
+                sessionsStatItem.style.border = '';
             }
 
             // Apply colors for chars/hour (performance metric, optional goal)
@@ -942,8 +943,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (charsPerHourStatItem && todayStats.chars_per_hour_goal_progress) {
                 const progress = todayStats.chars_per_hour_goal_progress;
                 applyGoalColors(charsPerHourStatItem, progress, isDarkMode);
+                // Add goal progress tooltip for today's performance
                 charsPerHourStatItem.setAttribute('data-tooltip', 
-                    `${progress.percentage}% of ${todayStats.chars_per_hour_goal} chars/hour target (${todayStats.chars_per_hour}/${todayStats.chars_per_hour_goal})`);
+                    `${progress.percentage}% of ${todayStats.chars_per_hour_goal} chars/hour target (${todayStats.today_chars_per_hour}/${todayStats.chars_per_hour_goal})`);
             }
         }
 

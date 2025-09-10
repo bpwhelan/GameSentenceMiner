@@ -234,9 +234,9 @@ def register_database_api_routes(app):
                 'afk_timer_seconds': config.advanced.afk_timer_seconds,
                 'session_gap_seconds': config.advanced.session_gap_seconds,
                 'streak_requirement_hours': getattr(config.advanced, 'streak_requirement_hours', 1.0),
-                'reading_goal_hours': getattr(config.advanced, 'reading_goal_hours', 1.0),
-                'characters_goal': getattr(config.advanced, 'characters_goal', 10000),
-                'sessions_goal': getattr(config.advanced, 'sessions_goal', 3)
+                'total_reading_goal_hours': getattr(config.advanced, 'total_reading_goal_hours', 100.0),
+                'total_characters_goal': getattr(config.advanced, 'total_characters_goal', 1000000),
+                'total_games_goal': getattr(config.advanced, 'total_games_goal', 10)
             }), 200
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
@@ -256,9 +256,9 @@ def register_database_api_routes(app):
             afk_timer = data.get('afk_timer_seconds')
             session_gap = data.get('session_gap_seconds')
             streak_requirement = data.get('streak_requirement_hours')
-            reading_goal = data.get('reading_goal_hours')
-            characters_goal = data.get('characters_goal')
-            sessions_goal = data.get('sessions_goal')
+            total_reading_goal = data.get('total_reading_goal_hours')
+            total_characters_goal = data.get('total_characters_goal')
+            total_games_goal = data.get('total_games_goal')
             
             # Validate input - only require the settings that are provided
             settings_to_update = {}
@@ -290,32 +290,32 @@ def register_database_api_routes(app):
                 except (ValueError, TypeError):
                     return jsonify({'error': 'Streak requirement must be a valid number'}), 400
             
-            if reading_goal is not None:
+            if total_reading_goal is not None:
                 try:
-                    reading_goal = float(reading_goal)
-                    if reading_goal < 0.01 or reading_goal > 24:
-                        return jsonify({'error': 'Reading goal must be between 0.01 and 24 hours'}), 400
-                    settings_to_update['reading_goal_hours'] = reading_goal
+                    total_reading_goal = float(total_reading_goal)
+                    if total_reading_goal < 1 or total_reading_goal > 100000:
+                        return jsonify({'error': 'Total reading goal must be between 1 and 100,000 hours'}), 400
+                    settings_to_update['total_reading_goal_hours'] = total_reading_goal
                 except (ValueError, TypeError):
-                    return jsonify({'error': 'Reading goal must be a valid number'}), 400
+                    return jsonify({'error': 'Total reading goal must be a valid number'}), 400
             
-            if characters_goal is not None:
+            if total_characters_goal is not None:
                 try:
-                    characters_goal = int(characters_goal)
-                    if characters_goal < 1 or characters_goal > 1000000:
-                        return jsonify({'error': 'Characters goal must be between 1 and 1,000,000'}), 400
-                    settings_to_update['characters_goal'] = characters_goal
+                    total_characters_goal = int(total_characters_goal)
+                    if total_characters_goal < 1000 or total_characters_goal > 100000000:
+                        return jsonify({'error': 'Total characters goal must be between 1,000 and 100,000,000'}), 400
+                    settings_to_update['total_characters_goal'] = total_characters_goal
                 except (ValueError, TypeError):
-                    return jsonify({'error': 'Characters goal must be a valid integer'}), 400
+                    return jsonify({'error': 'Total characters goal must be a valid integer'}), 400
             
-            if sessions_goal is not None:
+            if total_games_goal is not None:
                 try:
-                    sessions_goal = int(sessions_goal)
-                    if sessions_goal < 1 or sessions_goal > 100:
-                        return jsonify({'error': 'Sessions goal must be between 1 and 100'}), 400
-                    settings_to_update['sessions_goal'] = sessions_goal
+                    total_games_goal = int(total_games_goal)
+                    if total_games_goal < 1 or total_games_goal > 1000:
+                        return jsonify({'error': 'Total games goal must be between 1 and 1,000'}), 400
+                    settings_to_update['total_games_goal'] = total_games_goal
                 except (ValueError, TypeError):
-                    return jsonify({'error': 'Sessions goal must be a valid integer'}), 400
+                    return jsonify({'error': 'Total games goal must be a valid integer'}), 400
             
             if not settings_to_update:
                 return jsonify({'error': 'No valid settings provided'}), 400
@@ -329,12 +329,12 @@ def register_database_api_routes(app):
                 config.advanced.session_gap_seconds = settings_to_update['session_gap_seconds']
             if 'streak_requirement_hours' in settings_to_update:
                 setattr(config.advanced, 'streak_requirement_hours', settings_to_update['streak_requirement_hours'])
-            if 'reading_goal_hours' in settings_to_update:
-                setattr(config.advanced, 'reading_goal_hours', settings_to_update['reading_goal_hours'])
-            if 'characters_goal' in settings_to_update:
-                setattr(config.advanced, 'characters_goal', settings_to_update['characters_goal'])
-            if 'sessions_goal' in settings_to_update:
-                setattr(config.advanced, 'sessions_goal', settings_to_update['sessions_goal'])
+            if 'total_reading_goal_hours' in settings_to_update:
+                setattr(config.advanced, 'total_reading_goal_hours', settings_to_update['total_reading_goal_hours'])
+            if 'total_characters_goal' in settings_to_update:
+                setattr(config.advanced, 'total_characters_goal', settings_to_update['total_characters_goal'])
+            if 'total_games_goal' in settings_to_update:
+                setattr(config.advanced, 'total_games_goal', settings_to_update['total_games_goal'])
             
             # Save configuration
             save_current_config(config)

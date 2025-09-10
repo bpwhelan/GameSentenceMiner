@@ -645,13 +645,13 @@ def get_goal_color(current_value, goal_value, is_dark_mode=False):
 
 def calculate_today_stats_with_goals(all_lines):
     """
-    Calculate today's statistics with goal progress information.
+    Calculate today's statistics with progress toward total goals.
     
     Args:
         all_lines: List of all game lines
     
     Returns:
-        dict: Today's stats with goal progress colors and percentages
+        dict: Today's stats with progress toward total goals
     """
     if not all_lines:
         return None
@@ -667,65 +667,86 @@ def calculate_today_stats_with_goals(all_lines):
     ]
     
     # Calculate today's basic stats
-    total_characters = sum(len(line.line_text) if line.line_text else 0 for line in today_lines)
+    today_total_characters = sum(len(line.line_text) if line.line_text else 0 for line in today_lines)
     
     # Calculate today's reading time using AFK timer
     if len(today_lines) >= 2:
         timestamps = [float(line.timestamp) for line in today_lines]
         reading_time_seconds = calculate_actual_reading_time(timestamps)
-        reading_time_hours = reading_time_seconds / 3600
+        today_reading_time_hours = reading_time_seconds / 3600
     else:
-        reading_time_hours = 0
+        today_reading_time_hours = 0
     
     # Calculate today's sessions
     if today_lines:
         sorted_timestamps = sorted([float(line.timestamp) for line in today_lines])
-        sessions = 1
+        today_sessions = 1
         for i in range(1, len(sorted_timestamps)):
             time_gap = sorted_timestamps[i] - sorted_timestamps[i-1]
             if time_gap > get_config().advanced.session_gap_seconds:
-                sessions += 1
+                today_sessions += 1
     else:
-        sessions = 0
+        today_sessions = 0
     
-    # Calculate reading speed for today
-    chars_per_hour = int(total_characters / reading_time_hours) if reading_time_hours > 0 else 0
+    # Calculate today's reading speed
+    today_chars_per_hour = int(today_total_characters / today_reading_time_hours) if today_reading_time_hours > 0 else 0
+    
+    # Calculate total progress toward goals using all_lines
+    total_characters = sum(len(line.line_text) if line.line_text else 0 for line in all_lines)
+    
+    # Calculate total reading time using AFK timer
+    if len(all_lines) >= 2:
+        all_timestamps = [float(line.timestamp) for line in all_lines]
+        total_reading_time_seconds = calculate_actual_reading_time(all_timestamps)
+        total_reading_time_hours = total_reading_time_seconds / 3600
+    else:
+        total_reading_time_hours = 0
+    
+    # Calculate total unique games
+    total_unique_games = len(set(line.game_name or "Unknown Game" for line in all_lines))
     
     # Get goals from configuration
     config = get_config()
-    reading_goal = getattr(config.advanced, 'reading_goal_hours', 1.0)
-    characters_goal = getattr(config.advanced, 'characters_goal', 10000)
-    sessions_goal = getattr(config.advanced, 'sessions_goal', 3)
+    total_reading_goal = getattr(config.advanced, 'total_reading_goal_hours', 100.0)
+    total_characters_goal = getattr(config.advanced, 'total_characters_goal', 1000000)
+    total_games_goal = getattr(config.advanced, 'total_games_goal', 10)
     
-    # Note: For chars_per_hour, we'll use a reasonable default goal since it's more of a performance metric
-    # This could be made configurable in the future if needed
-    chars_per_hour_goal = 2000  # Default goal of 2000 chars/hour
+    # For chars_per_hour, we'll use today's performance against a reasonable target
+    chars_per_hour_goal = 2000  # Default target of 2000 chars/hour for today's performance
     
     # Calculate goal progress (assuming light mode for now - this should be passed from frontend)
     is_dark_mode = False  # This should be determined from theme context
     
-    reading_goal_progress = get_goal_color(reading_time_hours, reading_goal, is_dark_mode)
-    characters_goal_progress = get_goal_color(total_characters, characters_goal, is_dark_mode)
-    sessions_goal_progress = get_goal_color(sessions, sessions_goal, is_dark_mode)
-    chars_per_hour_goal_progress = get_goal_color(chars_per_hour, chars_per_hour_goal, is_dark_mode)
+    # Calculate progress toward total goals (not daily)
+    reading_goal_progress = get_goal_color(total_reading_time_hours, total_reading_goal, is_dark_mode)
+    characters_goal_progress = get_goal_color(total_characters, total_characters_goal, is_dark_mode)
+    games_goal_progress = get_goal_color(total_unique_games, total_games_goal, is_dark_mode)
+    chars_per_hour_goal_progress = get_goal_color(today_chars_per_hour, chars_per_hour_goal, is_dark_mode)
     
     return {
         'date': today_str,
-        'reading_time_hours': reading_time_hours,
-        'reading_time_formatted': format_time_human_readable(reading_time_hours),
+        # Today's actual values
+        'today_reading_time_hours': today_reading_time_hours,
+        'today_reading_time_formatted': format_time_human_readable(today_reading_time_hours),
+        'today_total_characters': today_total_characters,
+        'today_total_characters_formatted': format_large_number(today_total_characters),
+        'today_sessions': today_sessions,
+        'today_chars_per_hour': today_chars_per_hour,
+        'today_chars_per_hour_formatted': format_large_number(today_chars_per_hour),
+        # Total progress toward goals
+        'total_reading_time_hours': total_reading_time_hours,
+        'total_reading_time_formatted': format_time_human_readable(total_reading_time_hours),
         'total_characters': total_characters,
         'total_characters_formatted': format_large_number(total_characters),
-        'sessions': sessions,
-        'chars_per_hour': chars_per_hour,
-        'chars_per_hour_formatted': format_large_number(chars_per_hour),
-        # Goal progress information
+        'total_unique_games': total_unique_games,
+        # Goal progress information (based on totals)
         'reading_goal_progress': reading_goal_progress,
         'characters_goal_progress': characters_goal_progress,
-        'sessions_goal_progress': sessions_goal_progress,
+        'games_goal_progress': games_goal_progress,
         'chars_per_hour_goal_progress': chars_per_hour_goal_progress,
         # Goal values for reference
-        'reading_goal': reading_goal,
-        'characters_goal': characters_goal,
-        'sessions_goal': sessions_goal,
+        'total_reading_goal': total_reading_goal,
+        'total_characters_goal': total_characters_goal,
+        'total_games_goal': total_games_goal,
         'chars_per_hour_goal': chars_per_hour_goal
     }

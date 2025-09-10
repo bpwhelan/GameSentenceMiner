@@ -226,9 +226,9 @@ class SettingsManager {
         this.streakRequirementInput = document.getElementById('streakRequirement');
         
         // Goal setting elements
-        this.readingGoalInput = document.getElementById('readingGoal');
-        this.charactersGoalInput = document.getElementById('charactersGoal');
-        this.sessionsGoalInput = document.getElementById('sessionsGoal');
+        this.totalReadingGoalInput = document.getElementById('totalReadingGoal');
+        this.totalCharactersGoalInput = document.getElementById('totalCharactersGoal');
+        this.totalGamesGoalInput = document.getElementById('totalGamesGoal');
     }
     
     attachEventListeners() {
@@ -261,7 +261,7 @@ class SettingsManager {
         
         // Clear messages when user starts typing
         [this.afkTimerInput, this.sessionGapInput, this.heatmapYearSelect, this.streakRequirementInput,
-         this.readingGoalInput, this.charactersGoalInput, this.sessionsGoalInput]
+         this.totalReadingGoalInput, this.totalCharactersGoalInput, this.totalGamesGoalInput]
             .filter(Boolean)
             .forEach(input => {
                 input.addEventListener('input', () => this.clearMessages());
@@ -326,14 +326,14 @@ class SettingsManager {
         }
         
         // Load goal settings
-        if (this.readingGoalInput) {
-            this.readingGoalInput.value = settings.reading_goal_hours || 1.0;
+        if (this.totalReadingGoalInput) {
+            this.totalReadingGoalInput.value = settings.total_reading_goal_hours || 100;
         }
-        if (this.charactersGoalInput) {
-            this.charactersGoalInput.value = settings.characters_goal || 10000;
+        if (this.totalCharactersGoalInput) {
+            this.totalCharactersGoalInput.value = settings.total_characters_goal || 1000000;
         }
-        if (this.sessionsGoalInput) {
-            this.sessionsGoalInput.value = settings.sessions_goal || 3;
+        if (this.totalGamesGoalInput) {
+            this.totalGamesGoalInput.value = settings.total_games_goal || 10;
         }
         
         // Load saved year preference
@@ -417,31 +417,31 @@ class SettingsManager {
             }
             
             // Goal settings validation
-            if (this.readingGoalInput) {
-                const readingGoal = parseFloat(this.readingGoalInput.value);
-                if (isNaN(readingGoal) || readingGoal < 0.01 || readingGoal > 24) {
-                    this.showError('Reading goal must be between 0.01 and 24 hours');
+            if (this.totalReadingGoalInput) {
+                const totalReadingGoal = parseFloat(this.totalReadingGoalInput.value);
+                if (isNaN(totalReadingGoal) || totalReadingGoal < 1 || totalReadingGoal > 100000) {
+                    this.showError('Total reading goal must be between 1 and 100,000 hours');
                     return;
                 }
-                settings.reading_goal_hours = readingGoal;
+                settings.total_reading_goal_hours = totalReadingGoal;
             }
             
-            if (this.charactersGoalInput) {
-                const charactersGoal = parseInt(this.charactersGoalInput.value);
-                if (isNaN(charactersGoal) || charactersGoal < 1 || charactersGoal > 1000000) {
-                    this.showError('Characters goal must be between 1 and 1,000,000');
+            if (this.totalCharactersGoalInput) {
+                const totalCharactersGoal = parseInt(this.totalCharactersGoalInput.value);
+                if (isNaN(totalCharactersGoal) || totalCharactersGoal < 1000 || totalCharactersGoal > 100000000) {
+                    this.showError('Total characters goal must be between 1,000 and 100,000,000');
                     return;
                 }
-                settings.characters_goal = charactersGoal;
+                settings.total_characters_goal = totalCharactersGoal;
             }
             
-            if (this.sessionsGoalInput) {
-                const sessionsGoal = parseInt(this.sessionsGoalInput.value);
-                if (isNaN(sessionsGoal) || sessionsGoal < 1 || sessionsGoal > 100) {
-                    this.showError('Sessions goal must be between 1 and 100');
+            if (this.totalGamesGoalInput) {
+                const totalGamesGoal = parseInt(this.totalGamesGoalInput.value);
+                if (isNaN(totalGamesGoal) || totalGamesGoal < 1 || totalGamesGoal > 1000) {
+                    this.showError('Total games goal must be between 1 and 1,000');
                     return;
                 }
-                settings.sessions_goal = sessionsGoal;
+                settings.total_games_goal = totalGamesGoal;
             }
             
             // Show loading state
