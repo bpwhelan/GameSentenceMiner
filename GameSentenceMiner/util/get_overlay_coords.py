@@ -1,18 +1,66 @@
 import asyncio
 import io
 import base64
+import json
 import math
 import os
 import time
 from PIL import Image
 from typing import Dict, Any, List, Tuple
+import json
+from rapidfuzz.distance import Levenshtein
 
 # Local application imports
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
-from GameSentenceMiner.util.configuration import get_config, is_windows
+from GameSentenceMiner.util.configuration import OverlayEngine, get_config, is_windows, is_beangate, logger
 from GameSentenceMiner.util.electron_config import get_ocr_language
-from GameSentenceMiner.obs import get_screenshot_PIL, logger
+from GameSentenceMiner.obs import get_screenshot_PIL
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
+
+# def align_and_correct(ocr_json, reference_text):
+#     logger.info(f"Starting align_and_correct with reference_text: '{reference_text}'")
+#     corrected = []
+#     ref_chars = list(reference_text)
+#     logger.info(f"Reference chars: {ref_chars}")
+
+#     for block_idx, block in enumerate(ocr_json):
+#         logger.info(f"Processing block {block_idx}: {block}")
+#         ocr_chars = [w["text"] for w in block["words"]]
+#         ocr_str = "".join(ocr_chars)
+
+#         # Compute edit operations from OCR → Reference
+#         ops = Levenshtein.editops(ocr_str, "".join(ref_chars))
+
+#         corrected_words = block["words"][:]
+
+#         # Apply corrections
+#         for op_idx, (op, i, j) in enumerate(ops):
+#             logger.info(f"Operation {op_idx}: {op}, i={i}, j={j}")
+#             if op == "replace":
+#                 logger.info(f"Replacing word at index {i} ('{corrected_words[i]['text']}') with reference char '{ref_chars[j]}'")
+#                 corrected_words[i]["text"] = ref_chars[j]
+#             elif op == "insert":
+#                 if i > 0:
+#                     prev = corrected_words[i - 1]["bounding_rect"]
+#                     bbox = prev  # simple: copy neighbor bbox
+#                 else:
+#                     bbox = corrected_words[0]["bounding_rect"]
+#                 corrected_words.insert(i, {
+#                     "text": ref_chars[j],
+#                     "bounding_rect": bbox,
+#                     "confidence": 1.0
+#                 })
+#             elif op == "delete":
+#                 logger.info(f"Deleting word at index {i} ('{corrected_words[i]['text']}')")
+#                 corrected_words[i]["text"] = ""  # mark empty
+
+#         corrected_words = [w for w in corrected_words if w["text"]]
+
+#         block["words"] = corrected_words
+#         block["text"] = "".join(w["text"] for w in corrected_words)
+#         corrected.append(block)
+
+#     return corrected
 
 # Conditionally import OCR engines
 try:
@@ -218,6 +266,15 @@ class OverlayProcessor:
             )
         else:
             composite_image = full_screenshot
+            
+        # If User Home is beangate
+        if is_beangate:
+            with open("oneocr_results.json", "w", encoding="utf-8") as f:
+                f.write(json.dumps(oneocr_results, ensure_ascii=False, indent=2))
+            
+        if get_config().overlay.engine == OverlayEngine.ONEOCR.value and self.oneocr:
+            logger.info("Using OneOCR results for overlay as configured.")
+            return oneocr_results
         
         # 4. Use Google Lens on the cleaner composite image for higher accuracy
         res = self.lens(

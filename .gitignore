@@ -107,3 +107,6 @@ GameSentenceMiner.wiki/
 /test
 /.venv
 .webui_secret_key
+/GameSentenceMiner/test
+*.png
+oneocr_results.json

@@ -568,6 +568,10 @@
             "label": "Monitor to Capture:",
             "tooltip": "Select the monitor to capture (1-based index).",
             "not_detected": "OwOCR Not Detected"
+          },
+          "overlay_engine": {
+            "label": "Overlay Engine:",
+            "tooltip": "Select the OCR engine for the overlay. If you use lens, and are on windows, it will use OneOCR to optimize the scan."
           }
         },
         "wip": {
