@@ -430,9 +430,11 @@ def backup_db(db_path: str):
                 shutil.copyfileobj(f_in, gz_out)
         logger.info(f"Database backup created: {backup_file}")
 
-backup_db(get_db_directory())
+db_path = get_db_directory()
+if os.path.exists(db_path):
+    backup_db(db_path)
 
-gsm_db = SQLiteDB(get_db_directory())
+gsm_db = SQLiteDB(db_path)
 
 for cls in [AIModelsTable, GameLinesTable]:
     cls.set_db(gsm_db)
