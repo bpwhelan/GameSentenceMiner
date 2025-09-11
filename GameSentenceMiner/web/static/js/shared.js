@@ -224,6 +224,8 @@ class SettingsManager {
         this.sessionGapInput = document.getElementById('sessionGap');
         this.heatmapYearSelect = document.getElementById('heatmapYear');
         this.streakRequirementInput = document.getElementById('streakRequirement');
+        this.dailyCharacterGoalInput = document.getElementById('dailyCharacterGoal');
+        this.dailyTimeGoalInput = document.getElementById('dailyTimeGoal');
     }
     
     attachEventListeners() {
@@ -318,6 +320,12 @@ class SettingsManager {
         if (this.streakRequirementInput) {
             this.streakRequirementInput.value = settings.streak_requirement_hours || 1;
         }
+        if (this.dailyCharacterGoalInput) {
+            this.dailyCharacterGoalInput.value = settings.daily_character_goal || 5000;
+        }
+        if (this.dailyTimeGoalInput) {
+            this.dailyTimeGoalInput.value = settings.daily_time_goal_hours || 1.0;
+        }
         
         // Load saved year preference
         const savedYear = localStorage.getItem('selectedHeatmapYear') || 'all';
@@ -397,6 +405,24 @@ class SettingsManager {
                     return;
                 }
                 settings.streak_requirement_hours = streakRequirement;
+            }
+            
+            if (this.dailyCharacterGoalInput) {
+                const dailyCharacterGoal = parseInt(this.dailyCharacterGoalInput.value);
+                if (isNaN(dailyCharacterGoal) || dailyCharacterGoal < 100 || dailyCharacterGoal > 50000) {
+                    this.showError('Daily character goal must be between 100 and 50,000 characters');
+                    return;
+                }
+                settings.daily_character_goal = dailyCharacterGoal;
+            }
+            
+            if (this.dailyTimeGoalInput) {
+                const dailyTimeGoal = parseFloat(this.dailyTimeGoalInput.value);
+                if (isNaN(dailyTimeGoal) || dailyTimeGoal < 0.1 || dailyTimeGoal > 12) {
+                    this.showError('Daily time goal must be between 0.1 and 12 hours');
+                    return;
+                }
+                settings.daily_time_goal_hours = dailyTimeGoal;
             }
             
             // Show loading state

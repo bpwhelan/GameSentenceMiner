@@ -580,3 +580,57 @@ def calculate_all_games_stats(all_lines):
         'last_date': datetime.date.fromtimestamp(max_timestamp).strftime('%Y-%m-%d'),
         'daily_activity': dict(daily_activity)
     }
+
+def calculate_goal_progress_data(all_lines, character_goal=None, time_goal_hours=None):
+    """
+    Calculate goal progress data for the last 30 days.
+    
+    Args:
+        all_lines: List of game lines
+        character_goal: Daily character goal (if None, uses config)
+        time_goal_hours: Daily time goal in hours (if None, uses config)
+    
+    Returns:
+        dict: Goal progress data for chart
+    """
+    if character_goal is None:
+        character_goal = getattr(get_config().advanced, 'daily_character_goal', 5000)
+    if time_goal_hours is None:
+        time_goal_hours = getattr(get_config().advanced, 'daily_time_goal_hours', 1.0)
+    
+    # Calculate daily characters
+    daily_characters = defaultdict(int)
+    for line in all_lines:
+        date_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
+        daily_characters[date_str] += len(line.line_text) if line.line_text else 0
+    
+    # Calculate daily reading time using existing function
+    daily_reading_time = calculate_daily_reading_time(all_lines)
+    
+    # Generate last 30 days data
+    today = datetime.date.today()
+    dates = []
+    actual_characters = []
+    target_characters = []
+    actual_time = []
+    target_time = []
+    
+    for i in range(29, -1, -1):  # Last 30 days, oldest to newest
+        date = today - datetime.timedelta(days=i)
+        date_str = date.strftime('%Y-%m-%d')
+        
+        dates.append(date.strftime('%m/%d'))  # Short format for chart
+        actual_characters.append(daily_characters.get(date_str, 0))
+        target_characters.append(character_goal)
+        actual_time.append(daily_reading_time.get(date_str, 0.0))
+        target_time.append(time_goal_hours)
+    
+    return {
+        'dates': dates,
+        'actual_characters': actual_characters,
+        'target_characters': target_characters,
+        'actual_time_hours': actual_time,
+        'target_time_hours': target_time,
+        'character_goal': character_goal,
+        'time_goal_hours': time_goal_hours
+    }

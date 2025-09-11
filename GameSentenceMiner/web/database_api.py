@@ -13,7 +13,7 @@ from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency, calculate_heatmap_data, calculate_total_chars_per_game,
     calculate_reading_time_per_game, calculate_reading_speed_per_game,
     calculate_current_game_stats, calculate_all_games_stats, calculate_daily_reading_time,
-    calculate_time_based_streak, calculate_actual_reading_time
+    calculate_time_based_streak, calculate_actual_reading_time, calculate_goal_progress_data
 )
 
 
@@ -226,14 +226,16 @@ def register_database_api_routes(app):
     @app.route('/api/settings', methods=['GET'])
     def api_get_settings():
         """
-        Get current AFK timer, session gap, and streak requirement settings.
+        Get current AFK timer, session gap, streak requirement, and goal settings.
         """
         try:
             config = get_config()
             return jsonify({
                 'afk_timer_seconds': config.advanced.afk_timer_seconds,
                 'session_gap_seconds': config.advanced.session_gap_seconds,
-                'streak_requirement_hours': getattr(config.advanced, 'streak_requirement_hours', 1.0)
+                'streak_requirement_hours': getattr(config.advanced, 'streak_requirement_hours', 1.0),
+                'daily_character_goal': getattr(config.advanced, 'daily_character_goal', 5000),
+                'daily_time_goal_hours': getattr(config.advanced, 'daily_time_goal_hours', 1.0)
             }), 200
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
@@ -242,7 +244,7 @@ def register_database_api_routes(app):
     @app.route('/api/settings', methods=['POST'])
     def api_save_settings():
         """
-        Save/update AFK timer, session gap, and streak requirement settings.
+        Save/update AFK timer, session gap, streak requirement, and goal settings.
         """
         try:
             data = request.get_json()
@@ -253,6 +255,8 @@ def register_database_api_routes(app):
             afk_timer = data.get('afk_timer_seconds')
             session_gap = data.get('session_gap_seconds')
             streak_requirement = data.get('streak_requirement_hours')
+            daily_character_goal = data.get('daily_character_goal')
+            daily_time_goal = data.get('daily_time_goal_hours')
             
             # Validate input - only require the settings that are provided
             settings_to_update = {}
@@ -284,6 +288,24 @@ def register_database_api_routes(app):
                 except (ValueError, TypeError):
                     return jsonify({'error': 'Streak requirement must be a valid number'}), 400
             
+            if daily_character_goal is not None:
+                try:
+                    daily_character_goal = int(daily_character_goal)
+                    if daily_character_goal < 100 or daily_character_goal > 50000:
+                        return jsonify({'error': 'Daily character goal must be between 100 and 50,000 characters'}), 400
+                    settings_to_update['daily_character_goal'] = daily_character_goal
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Daily character goal must be a valid integer'}), 400
+            
+            if daily_time_goal is not None:
+                try:
+                    daily_time_goal = float(daily_time_goal)
+                    if daily_time_goal < 0.1 or daily_time_goal > 12:
+                        return jsonify({'error': 'Daily time goal must be between 0.1 and 12 hours'}), 400
+                    settings_to_update['daily_time_goal_hours'] = daily_time_goal
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Daily time goal must be a valid number'}), 400
+            
             if not settings_to_update:
                 return jsonify({'error': 'No valid settings provided'}), 400
             
@@ -296,6 +318,10 @@ def register_database_api_routes(app):
                 config.advanced.session_gap_seconds = settings_to_update['session_gap_seconds']
             if 'streak_requirement_hours' in settings_to_update:
                 setattr(config.advanced, 'streak_requirement_hours', settings_to_update['streak_requirement_hours'])
+            if 'daily_character_goal' in settings_to_update:
+                setattr(config.advanced, 'daily_character_goal', settings_to_update['daily_character_goal'])
+            if 'daily_time_goal_hours' in settings_to_update:
+                setattr(config.advanced, 'daily_time_goal_hours', settings_to_update['daily_time_goal_hours'])
             
             # Save configuration
             save_current_config(config)
@@ -763,8 +789,11 @@ def register_database_api_routes(app):
         # 6. Calculate dashboard statistics
         current_game_stats = calculate_current_game_stats(all_lines)
         all_games_stats = calculate_all_games_stats(all_lines)
+        
+        # 7. Calculate goal progress data
+        goal_progress_data = calculate_goal_progress_data(all_lines)
 
-        # 7. Prepare allLinesData for frontend calculations (needed for average daily time)
+        # 8. Prepare allLinesData for frontend calculations (needed for average daily time)
         all_lines_data = []
         for line in all_lines:
             all_lines_data.append({
@@ -783,6 +812,7 @@ def register_database_api_routes(app):
             "readingSpeedPerGame": reading_speed_per_game_data,
             "currentGameStats": current_game_stats,
             "allGamesStats": all_games_stats,
+            "goalProgressData": goal_progress_data,
             "allLinesData": all_lines_data
         })
 

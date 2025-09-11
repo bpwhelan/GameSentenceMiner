@@ -689,6 +689,152 @@ document.addEventListener('DOMContentLoaded', function () {
         return `Speed: ${charsPerHour.toLocaleString()} chars/hour`;
     }
 
+    // Function to create goal progress chart
+    function createGoalProgressChart(canvasId, goalData) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: goalData.dates,
+                datasets: [
+                    {
+                        label: 'Characters Target',
+                        data: goalData.target_characters,
+                        borderColor: '#e67e22',
+                        backgroundColor: '#e67e2233',
+                        borderDash: [5, 5],
+                        fill: false,
+                        tension: 0,
+                        yAxisID: 'characters',
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Characters Actual',
+                        data: goalData.actual_characters,
+                        borderColor: '#3498db',
+                        backgroundColor: '#3498db33',
+                        fill: false,
+                        tension: 0.1,
+                        yAxisID: 'characters'
+                    },
+                    {
+                        label: 'Time Target (hrs)',
+                        data: goalData.target_time_hours,
+                        borderColor: '#e74c3c',
+                        backgroundColor: '#e74c3c33',
+                        borderDash: [5, 5],
+                        fill: false,
+                        tension: 0,
+                        yAxisID: 'time',
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Time Actual (hrs)',
+                        data: goalData.actual_time_hours,
+                        borderColor: '#2ecc71',
+                        backgroundColor: '#2ecc7133',
+                        fill: false,
+                        tension: 0.1,
+                        yAxisID: 'time'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            color: getThemeTextColor(),
+                            usePointStyle: true,
+                            boxWidth: 8
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Goal Progress (Last 30 Days)',
+                        color: getThemeTextColor()
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return `Date: ${context[0].label}`;
+                            },
+                            label: function(context) {
+                                const datasetLabel = context.dataset.label;
+                                const value = context.parsed.y;
+                                
+                                if (datasetLabel.includes('Time')) {
+                                    return `${datasetLabel}: ${value.toFixed(2)} hours`;
+                                } else {
+                                    return `${datasetLabel}: ${value.toLocaleString()} characters`;
+                                }
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: 'white',
+                        bodyColor: 'white',
+                        borderColor: 'rgba(255, 255, 255, 0.1)',
+                        borderWidth: 1
+                    }
+                },
+                scales: {
+                    characters: {
+                        type: 'linear',
+                        position: 'left',
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Characters',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    time: {
+                        type: 'linear',
+                        position: 'right',
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Hours',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toFixed(1) + 'h';
+                            }
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            maxTicksLimit: 15
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     // Initialize Kanji Grid Renderer (using shared component)
     const kanjiGridRenderer = new KanjiGridRenderer({
         containerSelector: '#kanjiGrid',
@@ -754,6 +900,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     // Create reading speed per game chart if data exists
                     if (data.readingSpeedPerGame) {
                         createGameBarChartWithCustomFormat('readingSpeedPerGameChart', data.readingSpeedPerGame, 'Reading Speed Improvement', 'Speed (chars/hour)', formatSpeed);
+                    }
+                    
+                    // Create goal progress chart if data exists
+                    if (data.goalProgressData) {
+                        createGoalProgressChart('goalProgressChart', data.goalProgressData);
                     }
 
                     // Create kanji grid if data exists

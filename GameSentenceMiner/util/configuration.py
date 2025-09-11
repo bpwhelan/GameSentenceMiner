@@ -588,6 +588,8 @@ class Advanced:
     afk_timer_seconds: int = 120
     session_gap_seconds: int = 3600
     streak_requirement_hours: float = 0.01 # 1 second required per day to keep your streak by default
+    daily_character_goal: int = 5000 # Daily character reading goal
+    daily_time_goal_hours: float = 1.0 # Daily time goal in hours
 
     def __post_init__(self):
         if self.plaintext_websocket_port == -1:
