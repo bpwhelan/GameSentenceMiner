@@ -836,7 +836,7 @@ document.addEventListener('DOMContentLoaded', function () {
     let goalSettings = {
         reading_hours_target: 1500,
         character_count_target: 25000000,
-        visual_novels_target: 100
+        games_target: 100
     };
 
     // Function to load goal settings from API
@@ -848,7 +848,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 goalSettings = {
                     reading_hours_target: settings.reading_hours_target || 1500,
                     character_count_target: settings.character_count_target || 25000000,
-                    visual_novels_target: settings.visual_novels_target || 100
+                    games_target: settings.games_target || 100
                 };
             }
         } catch (error) {
@@ -1036,18 +1036,18 @@ document.addEventListener('DOMContentLoaded', function () {
         charsProgressBar.setAttribute('data-percentage', Math.floor(charsPercentage / 25) * 25);
         updateProgressBarColor(charsProgressBar, charsPercentage);
         
-        // Update Visual Novels Goal
-        const vnsPercentage = Math.min(100, (currentGames / goalSettings.visual_novels_target) * 100);
-        document.getElementById('goalVnsCurrent').textContent = currentGames.toLocaleString();
-        document.getElementById('goalVnsTarget').textContent = goalSettings.visual_novels_target.toLocaleString();
-        document.getElementById('goalVnsPercentage').textContent = Math.floor(vnsPercentage) + '%';
-        document.getElementById('goalVnsProjection').textContent =
-            formatProjection(currentGames, goalSettings.visual_novels_target, dailyGamesAvg, 'games');
+        // Update Games Goal
+        const gamesPercentage = Math.min(100, (currentGames / goalSettings.games_target) * 100);
+        document.getElementById('goalGamesCurrent').textContent = currentGames.toLocaleString();
+        document.getElementById('goalGamesTarget').textContent = goalSettings.games_target.toLocaleString();
+        document.getElementById('goalGamesPercentage').textContent = Math.floor(gamesPercentage) + '%';
+        document.getElementById('goalGamesProjection').textContent =
+            formatProjection(currentGames, goalSettings.games_target, dailyGamesAvg, 'games');
             
-        const vnsProgressBar = document.getElementById('goalVnsProgress');
-        vnsProgressBar.style.width = vnsPercentage + '%';
-        vnsProgressBar.setAttribute('data-percentage', Math.floor(vnsPercentage / 25) * 25);
-        updateProgressBarColor(vnsProgressBar, vnsPercentage);
+        const gamesProgressBar = document.getElementById('goalGamesProgress');
+        gamesProgressBar.style.width = gamesPercentage + '%';
+        gamesProgressBar.setAttribute('data-percentage', Math.floor(gamesPercentage / 25) * 25);
+        updateProgressBarColor(gamesProgressBar, gamesPercentage);
     }
 
     // Main function to load and display goal progress

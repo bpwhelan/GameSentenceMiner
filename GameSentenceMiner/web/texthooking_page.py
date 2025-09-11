@@ -27,7 +27,7 @@ from GameSentenceMiner.web.stats import (
     calculate_actual_reading_time, calculate_daily_reading_time, calculate_time_based_streak,
     format_time_human_readable, calculate_current_game_stats, calculate_all_games_stats
 )
-from GameSentenceMiner.web.websockets import (
+from GameSentenceMiner.web.gsm_websocket import (
     WebsocketServerThread, websocket_queue, paused, websocket_server_thread,
     plaintext_websocket_server_thread, overlay_server_thread, websocket_server_threads,
     handle_exit_signal

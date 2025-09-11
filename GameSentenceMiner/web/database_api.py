@@ -11,7 +11,7 @@ from flask import request, jsonify
 import regex
 
 from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.configuration import logger, get_config, save_current_config
+from GameSentenceMiner.util.configuration import get_stats_config, logger, get_config, save_current_config, save_stats_config
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency, calculate_heatmap_data, calculate_total_chars_per_game,
     calculate_reading_time_per_game, calculate_reading_speed_per_game,
@@ -297,14 +297,14 @@ def register_database_api_routes(app):
         Get current AFK timer, session gap, streak requirement, and goal settings.
         """
         try:
-            config = get_config()
+            config = get_stats_config()
             return jsonify({
-                'afk_timer_seconds': config.advanced.afk_timer_seconds,
-                'session_gap_seconds': config.advanced.session_gap_seconds,
-                'streak_requirement_hours': getattr(config.advanced, 'streak_requirement_hours', 1.0),
-                'reading_hours_target': getattr(config.advanced, 'reading_hours_target', 1500),
-                'character_count_target': getattr(config.advanced, 'character_count_target', 25000000),
-                'visual_novels_target': getattr(config.advanced, 'visual_novels_target', 100)
+                'afk_timer_seconds': config.afk_timer_seconds,
+                'session_gap_seconds': config.session_gap_seconds,
+                'streak_requirement_hours': config.streak_requirement_hours,
+                'reading_hours_target': config.reading_hours_target,
+                'character_count_target': config.character_count_target,
+                'games_target': config.games_target
             }), 200
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
@@ -326,7 +326,7 @@ def register_database_api_routes(app):
             streak_requirement = data.get('streak_requirement_hours')
             reading_hours_target = data.get('reading_hours_target')
             character_count_target = data.get('character_count_target')
-            visual_novels_target = data.get('visual_novels_target')
+            games_target = data.get('games_target')
             
             # Validate input - only require the settings that are provided
             settings_to_update = {}
@@ -376,37 +376,36 @@ def register_database_api_routes(app):
                 except (ValueError, TypeError):
                     return jsonify({'error': 'Character count target must be a valid integer'}), 400
             
-            if visual_novels_target is not None:
+            if games_target is not None:
                 try:
-                    visual_novels_target = int(visual_novels_target)
-                    if visual_novels_target < 1 or visual_novels_target > 1000:
-                        return jsonify({'error': 'Visual novels target must be between 1 and 1,000'}), 400
-                    settings_to_update['visual_novels_target'] = visual_novels_target
+                    games_target = int(games_target)
+                    if games_target < 1 or games_target > 1000:
+                        return jsonify({'error': 'Games target must be between 1 and 1,000'}), 400
+                    settings_to_update['games_target'] = games_target
                 except (ValueError, TypeError):
-                    return jsonify({'error': 'Visual novels target must be a valid integer'}), 400
+                    return jsonify({'error': 'Games target must be a valid integer'}), 400
             
             if not settings_to_update:
                 return jsonify({'error': 'No valid settings provided'}), 400
             
             # Update configuration
-            config = get_config()
+            config = get_stats_config()
             
             if 'afk_timer_seconds' in settings_to_update:
-                config.advanced.afk_timer_seconds = settings_to_update['afk_timer_seconds']
+                config.afk_timer_seconds = settings_to_update['afk_timer_seconds']
             if 'session_gap_seconds' in settings_to_update:
-                config.advanced.session_gap_seconds = settings_to_update['session_gap_seconds']
+                config.session_gap_seconds = settings_to_update['session_gap_seconds']
             if 'streak_requirement_hours' in settings_to_update:
-                setattr(config.advanced, 'streak_requirement_hours', settings_to_update['streak_requirement_hours'])
+                config.streak_requirement_hours = settings_to_update['streak_requirement_hours']
             if 'reading_hours_target' in settings_to_update:
-                setattr(config.advanced, 'reading_hours_target', settings_to_update['reading_hours_target'])
+                config.reading_hours_target = settings_to_update['reading_hours_target']
             if 'character_count_target' in settings_to_update:
-                setattr(config.advanced, 'character_count_target', settings_to_update['character_count_target'])
-            if 'visual_novels_target' in settings_to_update:
-                setattr(config.advanced, 'visual_novels_target', settings_to_update['visual_novels_target'])
+                config.character_count_target = settings_to_update['character_count_target']
+            if 'games_target' in settings_to_update:
+                config.games_target = settings_to_update['games_target']
             
-            # Save configuration
-            save_current_config(config)
-            
+            save_stats_config(config)
+
             logger.info(f"Settings updated: {settings_to_update}")
             
             response_data = {'message': 'Settings saved successfully'}
@@ -792,7 +791,7 @@ def register_database_api_routes(app):
         Provides aggregated, cumulative stats for charting.
         Accepts optional 'year' parameter to filter heatmap data.
         """
-        punctionation_regex = regex.compile(r'[\p{P}\p{S}]')
+        punctionation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
         # Get optional year filter parameter
         filter_year = request.args.get('year', None)
         
@@ -816,6 +815,7 @@ def register_database_api_routes(app):
         # end_time = time.perf_counter()
         # logger.info(f"Without Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
 
+        # start_time = time.perf_counter()
         for line in all_lines:
             day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
             game = line.game_name or "Unknown Game"
@@ -824,6 +824,8 @@ def register_database_api_routes(app):
             line.line_text = clean_text  # Update line text to cleaned version for future use
             daily_data[day_str][game]['lines'] += 1
             daily_data[day_str][game]['chars'] += len(clean_text)
+        # end_time = time.perf_counter()
+        # logger.info(f"With Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
 
         # 3. Create cumulative datasets for Chart.js
         sorted_days = sorted(daily_data.keys())

@@ -19,12 +19,17 @@ function closeModal(modalId) {
 
 // Initialize modal close functionality (backdrop clicks and ESC key)
 function initializeModalHandlers() {
-    // Close modals when clicking outside (backdrop)
+    // Close modals only if both mousedown and mouseup are on the backdrop
     document.querySelectorAll('.modal').forEach(modal => {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
+        let backdropMouseDown = false;
+        modal.addEventListener('mousedown', (e) => {
+            backdropMouseDown = (e.target === modal);
+        });
+        modal.addEventListener('mouseup', (e) => {
+            if (backdropMouseDown && e.target === modal) {
                 closeModal(modal.id);
             }
+            backdropMouseDown = false;
         });
     });
     
@@ -226,7 +231,7 @@ class SettingsManager {
         this.streakRequirementInput = document.getElementById('streakRequirement');
         this.readingHoursTargetInput = document.getElementById('readingHoursTarget');
         this.characterCountTargetInput = document.getElementById('characterCountTarget');
-        this.visualNovelsTargetInput = document.getElementById('visualNovelsTarget');
+        this.gamesTargetInput = document.getElementById('gamesTarget');
     }
     
     attachEventListeners() {
@@ -248,18 +253,18 @@ class SettingsManager {
             this.saveSettingsBtn.addEventListener('click', () => this.saveSettings());
         }
         
-        // Close modal when clicking outside
-        if (this.settingsModal) {
-            this.settingsModal.addEventListener('click', (e) => {
-                if (e.target === this.settingsModal) {
-                    this.closeModal();
-                }
-            });
-        }
+        // // Close modal when clicking outside
+        // if (this.settingsModal) {
+        //     this.settingsModal.addEventListener('click', (e) => {
+        //         if (e.target === this.settingsModal) {
+        //             this.closeModal();
+        //         }
+        //     });
+        // }
         
         // Clear messages when user starts typing
         [this.afkTimerInput, this.sessionGapInput, this.heatmapYearSelect, this.streakRequirementInput,
-         this.readingHoursTargetInput, this.characterCountTargetInput, this.visualNovelsTargetInput]
+         this.readingHoursTargetInput, this.characterCountTargetInput, this.gamesTargetInput]
             .filter(Boolean)
             .forEach(input => {
                 input.addEventListener('input', () => this.clearMessages());
@@ -328,8 +333,8 @@ class SettingsManager {
         if (this.characterCountTargetInput) {
             this.characterCountTargetInput.value = settings.character_count_target || 25000000;
         }
-        if (this.visualNovelsTargetInput) {
-            this.visualNovelsTargetInput.value = settings.visual_novels_target || 100;
+        if (this.gamesTargetInput) {
+            this.gamesTargetInput.value = settings.games_target || 100;
         }
         
         // Load saved year preference
@@ -430,13 +435,13 @@ class SettingsManager {
                 settings.character_count_target = characterCountTarget;
             }
             
-            if (this.visualNovelsTargetInput) {
-                const visualNovelsTarget = parseInt(this.visualNovelsTargetInput.value);
-                if (isNaN(visualNovelsTarget) || visualNovelsTarget < 1 || visualNovelsTarget > 1000) {
-                    this.showError('Visual novels target must be between 1 and 1,000');
+            if (this.gamesTargetInput) {
+                const gamesTarget = parseInt(this.gamesTargetInput.value);
+                if (isNaN(gamesTarget) || gamesTarget < 1 || gamesTarget > 1000) {
+                    this.showError('Games target must be between 1 and 1,000');
                     return;
                 }
-                settings.visual_novels_target = visualNovelsTarget;
+                settings.games_target = gamesTarget;
             }
             
             // Show loading state

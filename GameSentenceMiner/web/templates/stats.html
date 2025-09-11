@@ -236,7 +236,7 @@
                 </div>
             </div>
 
-            <!-- Visual Novels Goal -->
+            <!-- Games Goal -->
             <div class="goal-progress-item">
                 <div class="goal-progress-header">
                     <div class="goal-progress-label">
@@ -244,17 +244,17 @@
                         Games
                     </div>
                     <div class="goal-progress-values">
-                        <span class="goal-current" id="goalVnsCurrent">-</span>
+                        <span class="goal-current" id="goalGamesCurrent">-</span>
                         <span class="goal-separator">/</span>
-                        <span class="goal-target" id="goalVnsTarget">-</span>
+                        <span class="goal-target" id="goalGamesTarget">-</span>
                     </div>
                 </div>
                 <div class="goal-progress-bar">
-                    <div class="goal-progress-fill" id="goalVnsProgress" data-percentage="0"></div>
+                    <div class="goal-progress-fill" id="goalGamesProgress" data-percentage="0"></div>
                 </div>
                 <div class="goal-progress-info">
-                    <span class="goal-percentage" id="goalVnsPercentage">0%</span>
-                    <span class="goal-projection" id="goalVnsProjection">-</span>
+                    <span class="goal-percentage" id="goalGamesPercentage">0%</span>
+                    <span class="goal-projection" id="goalGamesProjection">-</span>
                 </div>
             </div>
         </div>
@@ -273,7 +273,7 @@
     </div>
 
     <div class="chart-container">
-        <h2>Reading Activity Heatmap</h2>
+        <h2>Activity Heatmap</h2>
         <div id="heatmapContainer"></div>
     </div>
 
@@ -342,7 +342,7 @@
                             type="number"
                             id="afkTimer"
                             name="afk_timer_seconds"
-                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
                             placeholder="120"
                         >
                         <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
@@ -358,7 +358,7 @@
                             type="number"
                             id="sessionGap"
                             name="session_gap_seconds"
-                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
                             placeholder="3600"
                         >
                         <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
@@ -393,7 +393,7 @@
                             min="0.01"
                             max="24"
                             step="0.01"
-                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            style="width: 80%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
                             placeholder="1.0"
                         >
                         <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
@@ -447,20 +447,20 @@
                         </div>
                         
                         <div style="margin-bottom: 15px;">
-                            <label for="visualNovelsTarget" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                Visual Novels/Games Target
+                            <label for="gamesTarget" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Games/Visual Novels Target
                             </label>
                             <input
                                 type="number"
-                                id="visualNovelsTarget"
-                                name="visual_novels_target"
+                                id="gamesTarget"
+                                name="games_target"
                                 min="1"
                                 max="1000"
                                 style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
                                 placeholder="100"
                             >
                             <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                                Number of visual novels/games to complete (1-1,000) - Default: 100 based on Refold standards
+                                Number of games/visual novels to complete (1-1,000) - Default: 100 based on Refold standards
                             </small>
                         </div>
                     </div>
@@ -475,7 +475,7 @@
                                 type="file"
                                 id="exstaticFile"
                                 accept=".csv"
-                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                style="width: 80%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
                             >
                             <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
                                 Select an ExStatic CSV file to import reading data into GSM
@@ -484,7 +484,7 @@
                         <button
                             type="button"
                             id="importExstaticBtn"
-                            style="width: 100%; padding: 10px; background: #666; color: white; border: none; border-radius: 5px; font-size: 14px; cursor: not-allowed; margin-bottom: 10px;"
+                            style="width: 80%; padding: 10px; background: #666; color: white; border: none; border-radius: 5px; font-size: 14px; cursor: not-allowed; margin-bottom: 10px;"
                             disabled
                         >
                             Import ExStatic Lines

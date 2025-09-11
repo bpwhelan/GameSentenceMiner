@@ -2,7 +2,7 @@ import datetime
 from collections import defaultdict
 
 from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.configuration import logger, get_config
+from GameSentenceMiner.util.configuration import get_stats_config, logger, get_config
 
 
 def is_kanji(char):
@@ -286,7 +286,7 @@ def calculate_actual_reading_time(timestamps, afk_timer_seconds=None):
         return 0.0
     
     if afk_timer_seconds is None:
-        afk_timer_seconds = get_config().advanced.afk_timer_seconds
+        afk_timer_seconds = get_stats_config().afk_timer_seconds
     
     # Sort timestamps to ensure chronological order
     sorted_timestamps = sorted(timestamps)
@@ -442,7 +442,7 @@ def calculate_current_game_stats(all_lines):
     sessions = 1
     for i in range(1, len(sorted_timestamps)):
         time_gap = sorted_timestamps[i] - sorted_timestamps[i-1]
-        if time_gap > get_config().advanced.session_gap_seconds:
+        if time_gap > get_stats_config().session_gap_seconds:
             sessions += 1
     
     # Calculate daily activity for progress trend
