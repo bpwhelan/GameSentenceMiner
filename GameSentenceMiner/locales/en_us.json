@@ -184,11 +184,15 @@
           },
           "video_field": {
             "label": "Video Field:",
-            "tooltip": "Field in Anki for associated videos. This will be AV1 encoded video of the VAD Trimmed Voiceline, if no Voice found, this will be empty."
+            "tooltip": "Field in Anki for associated videos. This will be AV1 encoded video of the VAD Trimmed Voiceline, if no Voice found, this will be empty. (OPTIONAL)"
           },
           "custom_tags": {
             "label": "Add Tags:",
             "tooltip": "Comma-separated custom tags for the Anki cards."
+          },
+          "game_name_field": {
+            "label": "Game Name Field:",
+            "tooltip": "Field in Anki for the game name. If empty, game name will not be added as a field. (OPTIONAL)"
           },
           "tags_to_check": {
             "label": "Tags to work on:",

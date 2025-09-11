@@ -307,6 +307,7 @@ class ConfigApp:
         self.word_field_value = tk.StringVar(value=self.settings.anki.word_field)
         self.previous_sentence_field_value = tk.StringVar(value=self.settings.anki.previous_sentence_field)
         self.previous_image_field_value = tk.StringVar(value=self.settings.anki.previous_image_field)
+        self.game_name_field_value = tk.StringVar(value=self.settings.anki.game_name_field)
         self.video_field_value = tk.StringVar(value=self.settings.anki.video_field)
         self.custom_tags_value = tk.StringVar(value=', '.join(self.settings.anki.custom_tags))
         self.tags_to_check_value = tk.StringVar(value=', '.join(self.settings.anki.tags_to_check))
@@ -528,6 +529,7 @@ class ConfigApp:
                 previous_sentence_field=self.previous_sentence_field_value.get(),
                 previous_image_field=self.previous_image_field_value.get(),
                 video_field=self.video_field_value.get(),
+                game_name_field=self.game_name_field_value.get(),
                 custom_tags=[tag.strip() for tag in self.custom_tags_value.get().split(',') if tag.strip()],
                 tags_to_check=[tag.strip().lower() for tag in self.tags_to_check_value.get().split(',') if tag.strip()],
                 add_game_tag=self.add_game_tag_value.get(),
@@ -1322,6 +1324,12 @@ class ConfigApp:
                              tooltip=video_img_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
         ttk.Entry(anki_frame, textvariable=self.video_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+        
+        game_name_field_i18n = anki_i18n.get('game_name_field', {})
+        HoverInfoLabelWidget(anki_frame, text=game_name_field_i18n.get('label', 'Game Name Field:'),
+                    tooltip=game_name_field_i18n.get('tooltip', 'Field in Anki for the game name.'), row=self.current_row, column=0)
+        ttk.Entry(anki_frame, textvariable=self.game_name_field_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
         self.current_row += 1
 
         tags_i18n = anki_i18n.get('custom_tags', {})

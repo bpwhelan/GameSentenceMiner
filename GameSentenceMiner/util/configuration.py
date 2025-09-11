@@ -441,6 +441,7 @@ class Anki:
     custom_tags: List[str] = None
     tags_to_check: List[str] = None
     add_game_tag: bool = True
+    game_name_field: str = ''
     polling_rate: int = 200
     overwrite_audio: bool = False
     overwrite_picture: bool = True

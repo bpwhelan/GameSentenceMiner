@@ -190,6 +190,10 @@
             "label": "添加标签:",
             "tooltip": "Anki 卡片的自定义标签（以逗号分隔）。"
           },
+          "game_name_field": {
+            "label": "游戏名称字段:",
+            "tooltip": "Anki 中用于游戏名称的字段。如果为空，则不会添加游戏名称。"
+          },
           "tags_to_check": {
             "label": "处理的标签:",
             "tooltip": "脚本将只对带有这些标签的卡片进行一键操作（建议留空）。"

@@ -816,11 +816,16 @@ def register_database_api_routes(app):
         # logger.info(f"Without Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
 
         # start_time = time.perf_counter()
+        wrong_instance_found = False
         for line in all_lines:
             day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
             game = line.game_name or "Unknown Game"
             # Remove punctuation and symbols from line text before counting characters
-            clean_text = punctionation_regex.sub('', line.line_text) if line.line_text else ''
+            clean_text = punctionation_regex.sub('', str(line.line_text)) if line.line_text else ''
+            if not isinstance(clean_text, str) and not wrong_instance_found:
+                logger.info(f"Non-string line_text encountered: {clean_text} (type: {type(clean_text)})")
+                wrong_instance_found = True
+
             line.line_text = clean_text  # Update line text to cleaned version for future use
             daily_data[day_str][game]['lines'] += 1
             daily_data[day_str][game]['chars'] += len(clean_text)

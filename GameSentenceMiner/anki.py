@@ -87,12 +87,17 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
 
     if update_picture and screenshot_in_anki:
         note['fields'][get_config().anki.picture_field] = image_html
-        
+
     if video_in_anki:
         note['fields'][get_config().anki.video_field] = video_in_anki
-        
+
     if not get_config().screenshot.enabled:
         logger.info("Skipping Adding Screenshot to Anki, Screenshot is disabled in settings")
+
+    # Add game name to field if configured
+    game_name_field = get_config().anki.game_name_field
+    if note and 'fields' in note and game_name_field:
+        note['fields'][game_name_field] = get_current_game()
 
     if note and 'fields' in note and get_config().ai.enabled:
         sentence_field = note['fields'].get(get_config().anki.sentence_field, {})
