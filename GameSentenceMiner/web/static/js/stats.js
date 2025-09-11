@@ -61,84 +61,61 @@ document.addEventListener('DOMContentLoaded', function () {
         return '#222';
     }
 
+    // --- GOALS PROGRESS CHART (PERCENT ONLY, NO NUMBERS OR BAR) ---
     function renderGoalsProgress() {
         const container = document.getElementById('goalsProgressContainer');
         if (!container) return;
-        const goals = getGoalSettings();
-        const stats = getAllTimeStats();
-        // Defensive: fallback to 0 if not loaded
-        // --- GOALS PROGRESS CHART (PERCENT ONLY, NO NUMBERS OR BAR) ---
-        function renderGoalsProgress() {
-            const container = document.getElementById('goalsProgressContainer');
-            if (!container) return;
-            // Fixed goals and labels
-            const goals = [
-                { label: '1500 Hours', goal: 1500, value: parseFloat(window.allGamesStats?.total_time_hours || 0) },
-                { label: '100,000,000 Chars', goal: 100000000, value: parseInt(window.allGamesStats?.total_characters || 0, 10) },
-                { label: '100 Games', goal: 100, value: parseInt(window.allGamesStats?.unique_games || 0, 10) }
-            ];
-            container.innerHTML = '';
-            goals.forEach(item => {
-                let pct = Math.floor((item.value / item.goal) * 100);
-                if (pct > 100) pct = 100;
-                if (pct < 0) pct = 0;
-                const color = getGoalGradientColor(pct);
-                const box = document.createElement('div');
-                box.className = 'goal-progress-box';
-                box.style.background = color;
-                box.textContent = `${pct}%`;
-                box.title = item.label + ' Goal Progress';
-                container.appendChild(box);
-            });
-        }
-
-        // Gradient color logic
-        function getGoalGradientColor(percent) {
-            function lerpColor(a, b, t) {
-                const ah = parseInt(a.replace('#', ''), 16), bh = parseInt(b.replace('#', ''), 16);
-                const ar = (ah >> 16) & 0xff, ag = (ah >> 8) & 0xff, ab = ah & 0xff;
-                const br = (bh >> 16) & 0xff, bg = (bh >> 8) & 0xff, bb = bh & 0xff;
-                const rr = ar + t * (br - ar);
-                const rg = ag + t * (bg - ag);
-                const rb = ab + t * (bb - ab);
-                return '#' + ((1 << 24) + (rr << 16) + (rg << 8) + (rb | 0)).toString(16).slice(1, 7);
-            }
-            const stops = [
-                { pct: 0, color: getCurrentTheme() === 'dark' ? '#333' : '#fff' },
-                { pct: 25, color: '#e6dc2e' },
-                { pct: 50, color: '#3be62f' },
-                { pct: 100, color: '#2ee6e0' }
-            ];
-            for (let i = 1; i < stops.length; i++) {
-                if (percent <= stops[i].pct) {
-                    const lower = stops[i - 1];
-                    const upper = stops[i];
-                    const t = (percent - lower.pct) / (upper.pct - lower.pct);
-                    return lerpColor(lower.color, upper.color, t);
-                }
-            }
-            return stops[stops.length - 1].color;
-        }
-
-        // Call after stats load/update
-        window.renderGoalsProgress = renderGoalsProgress;
-                            color: getThemeTextColor()
-                        }
-                    },
-                    x: {
-                         title: {
-                            display: true,
-                            text: 'Date',
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor()
-                        }
-                    }
-                }
-            }
+        // Fixed goals and labels
+        const goals = [
+            { label: '1500 Hours', goal: 1500, value: parseFloat(window.allGamesStats?.total_time_hours || 0) },
+            { label: '100,000,000 Chars', goal: 100000000, value: parseInt(window.allGamesStats?.total_characters || 0, 10) },
+            { label: '100 Games', goal: 100, value: parseInt(window.allGamesStats?.unique_games || 0, 10) }
+        ];
+        container.innerHTML = '';
+        goals.forEach(item => {
+            let pct = Math.floor((item.value / item.goal) * 100);
+            if (pct > 100) pct = 100;
+            if (pct < 0) pct = 0;
+            const color = getGoalGradientColor(pct);
+            const box = document.createElement('div');
+            box.className = 'goal-progress-box';
+            box.style.background = color;
+            box.textContent = `${pct}%`;
+            box.title = item.label + ' Goal Progress';
+            container.appendChild(box);
         });
     }
+
+    // Gradient color logic
+    function getGoalGradientColor(percent) {
+        function lerpColor(a, b, t) {
+            const ah = parseInt(a.replace('#', ''), 16), bh = parseInt(b.replace('#', ''), 16);
+            const ar = (ah >> 16) & 0xff, ag = (ah >> 8) & 0xff, ab = ah & 0xff;
+            const br = (bh >> 16) & 0xff, bg = (bh >> 8) & 0xff, bb = bh & 0xff;
+            const rr = ar + t * (br - ar);
+            const rg = ag + t * (bg - ag);
+            const rb = ab + t * (bb - ab);
+            return '#' + ((1 << 24) + (rr << 16) + (rg << 8) + (rb | 0)).toString(16).slice(1, 7);
+        }
+        const stops = [
+            { pct: 0, color: getCurrentTheme() === 'dark' ? '#333' : '#fff' },
+            { pct: 25, color: '#e6dc2e' },
+            { pct: 50, color: '#3be62f' },
+            { pct: 100, color: '#2ee6e0' }
+        ];
+        for (let i = 1; i < stops.length; i++) {
+            if (percent <= stops[i].pct) {
+                const lower = stops[i - 1];
+                const upper = stops[i];
+                const t = (percent - lower.pct) / (upper.pct - lower.pct);
+                return lerpColor(lower.color, upper.color, t);
+            }
+        }
+        return stops[stops.length - 1].color;
+    }
+
+    // Call after stats load/update
+    window.renderGoalsProgress = renderGoalsProgress;
 
     // Helper function to get week number of year (GitHub style - week starts on Sunday)
     function getWeekOfYear(date) {
