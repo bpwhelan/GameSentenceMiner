@@ -1057,10 +1057,55 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('allReadingSpeed').textContent = stats.reading_speed_formatted;
         document.getElementById('allSessions').textContent = stats.sessions.toLocaleString();
 
+        // Apply goal colors to main stats
+        const currentTheme = getCurrentTheme();
+        const isDarkMode = currentTheme === 'dark';
+
+        // Apply colors for total characters
+        const allCharsStatItem = document.getElementById('allTotalChars').closest('.dashboard-stat-item');
+        if (allCharsStatItem && stats.characters_goal_progress) {
+            const progress = stats.characters_goal_progress;
+            applyGoalColors(allCharsStatItem, progress, isDarkMode);
+            allCharsStatItem.setAttribute('data-tooltip', 
+                `${progress.percentage}% of ${stats.total_characters_goal.toLocaleString()} chars total goal (${stats.total_characters_formatted}/${stats.total_characters_goal.toLocaleString()})`);
+        }
+
+        // Apply colors for total reading time
+        const allTimeStatItem = document.getElementById('allTotalTime').closest('.dashboard-stat-item');
+        if (allTimeStatItem && stats.reading_goal_progress) {
+            const progress = stats.reading_goal_progress;
+            applyGoalColors(allTimeStatItem, progress, isDarkMode);
+            allTimeStatItem.setAttribute('data-tooltip', 
+                `${progress.percentage}% of ${stats.total_reading_goal}h total goal (${stats.total_time_formatted}/${stats.total_reading_goal}h)`);
+        }
+
         // Update progress section
         document.getElementById('allMonthlyChars').textContent = stats.monthly_characters_formatted;
         document.getElementById('allUniqueGames').textContent = stats.unique_games.toLocaleString();
         document.getElementById('allTotalSentences').textContent = stats.total_sentences.toLocaleString();
+
+        // Apply goal colors to unique games if available
+        if (stats.games_goal_progress) {
+            const currentTheme = getCurrentTheme();
+            const isDarkMode = currentTheme === 'dark';
+            const gamesProgressItem = document.getElementById('allUniqueGames').closest('.dashboard-progress-item');
+            if (gamesProgressItem) {
+                const progress = stats.games_goal_progress;
+                // Apply goal colors to the progress value element
+                const progressValue = gamesProgressItem.querySelector('.dashboard-progress-value');
+                if (progressValue) {
+                    progressValue.style.backgroundColor = progress.background_color;
+                    progressValue.style.color = progress.text_color;
+                    progressValue.style.border = `1px solid ${progress.background_color}`;
+                    progressValue.style.borderRadius = '4px';
+                    progressValue.style.padding = '4px 8px';
+                }
+                
+                // Add goal progress tooltip
+                gamesProgressItem.setAttribute('data-tooltip', 
+                    `${progress.percentage}% of ${stats.total_games_goal} unique games goal (${stats.unique_games}/${stats.total_games_goal})`);
+            }
+        }
 
         // Update streak indicator
         const streakElement = document.getElementById('allGamesStreak');

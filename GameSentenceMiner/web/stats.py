@@ -561,6 +561,18 @@ def calculate_all_games_stats(all_lines):
     # Count unique games
     unique_games = len(set(line.game_name or "Unknown Game" for line in all_lines))
     
+    # Get goals from configuration for goal progress calculation
+    config = get_config()
+    total_reading_goal = getattr(config.advanced, 'total_reading_goal_hours', 100.0)
+    total_characters_goal = getattr(config.advanced, 'total_characters_goal', 1000000)
+    total_games_goal = getattr(config.advanced, 'total_games_goal', 10)
+    
+    # Calculate goal progress (assuming light mode for now - this should be passed from frontend)
+    is_dark_mode = False  # This should be determined from theme context
+    reading_goal_progress = get_goal_color(total_time_hours, total_reading_goal, is_dark_mode)
+    characters_goal_progress = get_goal_color(total_characters, total_characters_goal, is_dark_mode)
+    games_goal_progress = get_goal_color(unique_games, total_games_goal, is_dark_mode)
+    
     return {
         'total_characters': total_characters,
         'total_characters_formatted': format_large_number(total_characters),
@@ -578,7 +590,14 @@ def calculate_all_games_stats(all_lines):
         'avg_daily_time_formatted': format_time_human_readable(avg_daily_time_hours),
         'first_date': datetime.date.fromtimestamp(min_timestamp).strftime('%Y-%m-%d'),
         'last_date': datetime.date.fromtimestamp(max_timestamp).strftime('%Y-%m-%d'),
-        'daily_activity': dict(daily_activity)
+        'daily_activity': dict(daily_activity),
+        # Goal progress for total stats
+        'reading_goal_progress': reading_goal_progress,
+        'characters_goal_progress': characters_goal_progress,
+        'games_goal_progress': games_goal_progress,
+        'total_reading_goal': total_reading_goal,
+        'total_characters_goal': total_characters_goal,
+        'total_games_goal': total_games_goal
     }
 
 
