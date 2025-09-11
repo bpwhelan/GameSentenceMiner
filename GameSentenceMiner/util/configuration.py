@@ -588,6 +588,9 @@ class Advanced:
     afk_timer_seconds: int = 120
     session_gap_seconds: int = 3600
     streak_requirement_hours: float = 0.01 # 1 second required per day to keep your streak by default
+    reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
+    character_count_target: int = 25000000  # Target character count (25M) inspired by Discord server milestones
+    visual_novels_target: int = 100  # Target VNs/games completed based on Refold community standards
 
     def __post_init__(self):
         if self.plaintext_websocket_port == -1:

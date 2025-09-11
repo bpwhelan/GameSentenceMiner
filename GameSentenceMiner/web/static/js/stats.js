@@ -777,6 +777,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     window.dashboardInitialized = true;
                 }
 
+                // Load goal progress chart (always refresh)
+                if (typeof loadGoalProgress === 'function') {
+                    // Use the current data instead of making another API call
+                    updateGoalProgressWithData(data);
+                }
+
                 return data;
             })
             .catch(error => {
@@ -786,13 +792,310 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
+    // Goal Progress Chart functionality
+    let goalSettings = {
+        reading_hours_target: 1500,
+        character_count_target: 25000000,
+        visual_novels_target: 100
+    };
+
+    // Function to load goal settings from API
+    async function loadGoalSettings() {
+        try {
+            const response = await fetch('/api/settings');
+            if (response.ok) {
+                const settings = await response.json();
+                goalSettings = {
+                    reading_hours_target: settings.reading_hours_target || 1500,
+                    character_count_target: settings.character_count_target || 25000000,
+                    visual_novels_target: settings.visual_novels_target || 100
+                };
+            }
+        } catch (error) {
+            console.error('Error loading goal settings:', error);
+        }
+    }
+
+    // Function to calculate 90-day rolling average for projections
+    function calculate90DayAverage(allLinesData, metricType) {
+        if (!allLinesData || allLinesData.length === 0) {
+            return 0;
+        }
+
+        const today = new Date();
+        const ninetyDaysAgo = new Date(today.getTime() - (90 * 24 * 60 * 60 * 1000));
+        
+        // Filter data to last 90 days
+        const recentData = allLinesData.filter(line => {
+            const lineDate = new Date(line.timestamp * 1000);
+            return lineDate >= ninetyDaysAgo && lineDate <= today;
+        });
+
+        if (recentData.length === 0) {
+            return 0;
+        }
+
+        let dailyTotals = {};
+        
+        if (metricType === 'hours') {
+            // Group by day and calculate reading time using AFK timer logic
+            const dailyTimestamps = {};
+            for (const line of recentData) {
+                const dateStr = new Date(line.timestamp * 1000).toISOString().split('T')[0];
+                if (!dailyTimestamps[dateStr]) {
+                    dailyTimestamps[dateStr] = [];
+                }
+                dailyTimestamps[dateStr].push(line.timestamp);
+            }
+            
+            for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
+                if (timestamps.length >= 2) {
+                    timestamps.sort((a, b) => a - b);
+                    let dayHours = 0;
+                    const afkTimerSeconds = 120; // Default AFK timer
+                    
+                    for (let i = 1; i < timestamps.length; i++) {
+                        const gap = timestamps[i] - timestamps[i-1];
+                        dayHours += Math.min(gap, afkTimerSeconds) / 3600;
+                    }
+                    dailyTotals[dateStr] = dayHours;
+                } else if (timestamps.length === 1) {
+                    dailyTotals[dateStr] = 1 / 3600; // Minimal activity
+                }
+            }
+        } else if (metricType === 'characters') {
+            // Group by day and sum characters
+            for (const line of recentData) {
+                const dateStr = new Date(line.timestamp * 1000).toISOString().split('T')[0];
+                dailyTotals[dateStr] = (dailyTotals[dateStr] || 0) + (line.characters || 0);
+            }
+        } else if (metricType === 'games') {
+            // Group by day and count unique games
+            const dailyGames = {};
+            for (const line of recentData) {
+                const dateStr = new Date(line.timestamp * 1000).toISOString().split('T')[0];
+                if (!dailyGames[dateStr]) {
+                    dailyGames[dateStr] = new Set();
+                }
+                dailyGames[dateStr].add(line.game_name);
+            }
+            
+            for (const [dateStr, gamesSet] of Object.entries(dailyGames)) {
+                dailyTotals[dateStr] = gamesSet.size;
+            }
+        }
+        
+        const totalDays = Object.keys(dailyTotals).length;
+        if (totalDays === 0) {
+            return 0;
+        }
+        
+        const totalValue = Object.values(dailyTotals).reduce((sum, value) => sum + value, 0);
+        return totalValue / totalDays;
+    }
+
+    // Function to format projection text
+    function formatProjection(currentValue, targetValue, dailyAverage, metricType) {
+        if (currentValue >= targetValue) {
+            return 'Goal achieved! 🎉';
+        }
+        
+        if (dailyAverage <= 0) {
+            return 'No recent activity';
+        }
+        
+        const remaining = targetValue - currentValue;
+        const daysToComplete = Math.ceil(remaining / dailyAverage);
+        
+        if (daysToComplete <= 0) {
+            return 'Goal achieved! 🎉';
+        } else if (daysToComplete === 1) {
+            return '~1 day remaining';
+        } else if (daysToComplete <= 7) {
+            return `~${daysToComplete} days remaining`;
+        } else if (daysToComplete <= 30) {
+            const weeks = Math.ceil(daysToComplete / 7);
+            return `~${weeks} week${weeks > 1 ? 's' : ''} remaining`;
+        } else if (daysToComplete <= 365) {
+            const months = Math.ceil(daysToComplete / 30);
+            return `~${months} month${months > 1 ? 's' : ''} remaining`;
+        } else {
+            const years = Math.ceil(daysToComplete / 365);
+            return `~${years} year${years > 1 ? 's' : ''} remaining`;
+        }
+    }
+
+    // Function to format large numbers
+    function formatGoalNumber(num) {
+        if (num >= 1000000) {
+            return (num / 1000000).toFixed(1) + 'M';
+        } else if (num >= 1000) {
+            return (num / 1000).toFixed(1) + 'K';
+        }
+        return num.toString();
+    }
+
+    // Function to update progress bar color based on percentage
+    function updateProgressBarColor(progressElement, percentage) {
+        // Remove existing completion classes
+        progressElement.classList.remove('completion-0', 'completion-25', 'completion-50', 'completion-75', 'completion-100');
+        
+        // Add appropriate class based on percentage
+        if (percentage >= 100) {
+            progressElement.classList.add('completion-100');
+        } else if (percentage >= 75) {
+            progressElement.classList.add('completion-75');
+        } else if (percentage >= 50) {
+            progressElement.classList.add('completion-50');
+        } else if (percentage >= 25) {
+            progressElement.classList.add('completion-25');
+        } else {
+            progressElement.classList.add('completion-0');
+        }
+    }
+
+    // Helper function to update goal progress UI with provided data
+    function updateGoalProgressUI(allGamesStats, allLinesData) {
+        if (!allGamesStats) {
+            throw new Error('No stats data available');
+        }
+        
+        // Calculate current progress
+        const currentHours = allGamesStats.total_time_hours || 0;
+        const currentCharacters = allGamesStats.total_characters || 0;
+        const currentGames = allGamesStats.unique_games || 0;
+        
+        // Calculate 90-day averages for projections
+        const dailyHoursAvg = calculate90DayAverage(allLinesData, 'hours');
+        const dailyCharsAvg = calculate90DayAverage(allLinesData, 'characters');
+        const dailyGamesAvg = calculate90DayAverage(allLinesData, 'games');
+        
+        // Update Hours Goal
+        const hoursPercentage = Math.min(100, (currentHours / goalSettings.reading_hours_target) * 100);
+        document.getElementById('goalHoursCurrent').textContent = Math.floor(currentHours).toLocaleString();
+        document.getElementById('goalHoursTarget').textContent = goalSettings.reading_hours_target.toLocaleString();
+        document.getElementById('goalHoursPercentage').textContent = Math.floor(hoursPercentage) + '%';
+        document.getElementById('goalHoursProjection').textContent =
+            formatProjection(currentHours, goalSettings.reading_hours_target, dailyHoursAvg, 'hours');
+        
+        const hoursProgressBar = document.getElementById('goalHoursProgress');
+        hoursProgressBar.style.width = hoursPercentage + '%';
+        hoursProgressBar.setAttribute('data-percentage', Math.floor(hoursPercentage / 25) * 25);
+        updateProgressBarColor(hoursProgressBar, hoursPercentage);
+        
+        // Update Characters Goal
+        const charsPercentage = Math.min(100, (currentCharacters / goalSettings.character_count_target) * 100);
+        document.getElementById('goalCharsCurrent').textContent = formatGoalNumber(currentCharacters);
+        document.getElementById('goalCharsTarget').textContent = formatGoalNumber(goalSettings.character_count_target);
+        document.getElementById('goalCharsPercentage').textContent = Math.floor(charsPercentage) + '%';
+        document.getElementById('goalCharsProjection').textContent =
+            formatProjection(currentCharacters, goalSettings.character_count_target, dailyCharsAvg, 'characters');
+            
+        const charsProgressBar = document.getElementById('goalCharsProgress');
+        charsProgressBar.style.width = charsPercentage + '%';
+        charsProgressBar.setAttribute('data-percentage', Math.floor(charsPercentage / 25) * 25);
+        updateProgressBarColor(charsProgressBar, charsPercentage);
+        
+        // Update Visual Novels Goal
+        const vnsPercentage = Math.min(100, (currentGames / goalSettings.visual_novels_target) * 100);
+        document.getElementById('goalVnsCurrent').textContent = currentGames.toLocaleString();
+        document.getElementById('goalVnsTarget').textContent = goalSettings.visual_novels_target.toLocaleString();
+        document.getElementById('goalVnsPercentage').textContent = Math.floor(vnsPercentage) + '%';
+        document.getElementById('goalVnsProjection').textContent =
+            formatProjection(currentGames, goalSettings.visual_novels_target, dailyGamesAvg, 'games');
+            
+        const vnsProgressBar = document.getElementById('goalVnsProgress');
+        vnsProgressBar.style.width = vnsPercentage + '%';
+        vnsProgressBar.setAttribute('data-percentage', Math.floor(vnsPercentage / 25) * 25);
+        updateProgressBarColor(vnsProgressBar, vnsPercentage);
+    }
+
+    // Main function to load and display goal progress
+    async function loadGoalProgress() {
+        const goalProgressChart = document.getElementById('goalProgressChart');
+        const goalProgressLoading = document.getElementById('goalProgressLoading');
+        const goalProgressError = document.getElementById('goalProgressError');
+        
+        if (!goalProgressChart) return;
+        
+        try {
+            // Show loading state
+            goalProgressLoading.style.display = 'flex';
+            goalProgressError.style.display = 'none';
+            
+            // Load goal settings and stats data
+            await loadGoalSettings();
+            const response = await fetch('/api/stats');
+            if (!response.ok) throw new Error('Failed to fetch stats data');
+            
+            const data = await response.json();
+            const allGamesStats = data.allGamesStats;
+            const allLinesData = data.allLinesData || [];
+            
+            // Update the UI using the shared helper function
+            updateGoalProgressUI(allGamesStats, allLinesData);
+            
+            // Hide loading state
+            goalProgressLoading.style.display = 'none';
+            
+        } catch (error) {
+            console.error('Error loading goal progress:', error);
+            goalProgressLoading.style.display = 'none';
+            goalProgressError.style.display = 'block';
+        }
+    }
+
     // Initial load with saved year preference
     const savedYear = localStorage.getItem('selectedHeatmapYear') || 'all';
     loadStatsData(savedYear);
 
+    // Function to update goal progress using existing stats data
+    async function updateGoalProgressWithData(statsData) {
+        const goalProgressChart = document.getElementById('goalProgressChart');
+        const goalProgressLoading = document.getElementById('goalProgressLoading');
+        const goalProgressError = document.getElementById('goalProgressError');
+        
+        if (!goalProgressChart) return;
+        
+        try {
+            // Load goal settings if not already loaded
+            if (!goalSettings.reading_hours_target) {
+                await loadGoalSettings();
+            }
+            
+            const allGamesStats = statsData.allGamesStats;
+            const allLinesData = statsData.allLinesData || [];
+            
+            // Update the UI using the shared helper function
+            updateGoalProgressUI(allGamesStats, allLinesData);
+            
+            // Hide loading and error states
+            goalProgressLoading.style.display = 'none';
+            goalProgressError.style.display = 'none';
+            
+        } catch (error) {
+            console.error('Error updating goal progress:', error);
+            goalProgressLoading.style.display = 'none';
+            goalProgressError.style.display = 'block';
+        }
+    }
+
+    // Load goal progress initially
+    setTimeout(() => {
+        loadGoalProgress();
+    }, 1000);
+    
+    // Refresh goal progress when settings are updated
+    window.addEventListener('settingsUpdated', () => {
+        setTimeout(() => {
+            loadGoalProgress();
+        }, 500);
+    });
+
     // Make functions globally available
     window.createHeatmap = createHeatmap;
     window.loadStatsData = loadStatsData;
+    window.loadGoalProgress = loadGoalProgress;
 
     // Dashboard functionality
     function loadDashboardData(data = null) {

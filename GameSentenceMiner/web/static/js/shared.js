@@ -224,6 +224,9 @@ class SettingsManager {
         this.sessionGapInput = document.getElementById('sessionGap');
         this.heatmapYearSelect = document.getElementById('heatmapYear');
         this.streakRequirementInput = document.getElementById('streakRequirement');
+        this.readingHoursTargetInput = document.getElementById('readingHoursTarget');
+        this.characterCountTargetInput = document.getElementById('characterCountTarget');
+        this.visualNovelsTargetInput = document.getElementById('visualNovelsTarget');
     }
     
     attachEventListeners() {
@@ -255,7 +258,8 @@ class SettingsManager {
         }
         
         // Clear messages when user starts typing
-        [this.afkTimerInput, this.sessionGapInput, this.heatmapYearSelect, this.streakRequirementInput]
+        [this.afkTimerInput, this.sessionGapInput, this.heatmapYearSelect, this.streakRequirementInput,
+         this.readingHoursTargetInput, this.characterCountTargetInput, this.visualNovelsTargetInput]
             .filter(Boolean)
             .forEach(input => {
                 input.addEventListener('input', () => this.clearMessages());
@@ -317,6 +321,15 @@ class SettingsManager {
         }
         if (this.streakRequirementInput) {
             this.streakRequirementInput.value = settings.streak_requirement_hours || 1;
+        }
+        if (this.readingHoursTargetInput) {
+            this.readingHoursTargetInput.value = settings.reading_hours_target || 1500;
+        }
+        if (this.characterCountTargetInput) {
+            this.characterCountTargetInput.value = settings.character_count_target || 25000000;
+        }
+        if (this.visualNovelsTargetInput) {
+            this.visualNovelsTargetInput.value = settings.visual_novels_target || 100;
         }
         
         // Load saved year preference
@@ -399,6 +412,33 @@ class SettingsManager {
                 settings.streak_requirement_hours = streakRequirement;
             }
             
+            if (this.readingHoursTargetInput) {
+                const readingHoursTarget = parseInt(this.readingHoursTargetInput.value);
+                if (isNaN(readingHoursTarget) || readingHoursTarget < 1 || readingHoursTarget > 10000) {
+                    this.showError('Reading hours target must be between 1 and 10,000 hours');
+                    return;
+                }
+                settings.reading_hours_target = readingHoursTarget;
+            }
+            
+            if (this.characterCountTargetInput) {
+                const characterCountTarget = parseInt(this.characterCountTargetInput.value);
+                if (isNaN(characterCountTarget) || characterCountTarget < 1000 || characterCountTarget > 1000000000) {
+                    this.showError('Character count target must be between 1,000 and 1,000,000,000 characters');
+                    return;
+                }
+                settings.character_count_target = characterCountTarget;
+            }
+            
+            if (this.visualNovelsTargetInput) {
+                const visualNovelsTarget = parseInt(this.visualNovelsTargetInput.value);
+                if (isNaN(visualNovelsTarget) || visualNovelsTarget < 1 || visualNovelsTarget > 1000) {
+                    this.showError('Visual novels target must be between 1 and 1,000');
+                    return;
+                }
+                settings.visual_novels_target = visualNovelsTarget;
+            }
+            
             // Show loading state
             if (this.saveSettingsBtn) {
                 this.saveSettingsBtn.disabled = true;
@@ -420,6 +460,9 @@ class SettingsManager {
             }
             
             this.showSuccess('Settings saved successfully! Changes will apply to new calculations.');
+            
+            // Dispatch event to notify other components that settings were updated
+            window.dispatchEvent(new CustomEvent('settingsUpdated'));
             
             // Auto-close modal after 2 seconds
             setTimeout(() => {
