@@ -451,6 +451,28 @@ document.addEventListener('DOMContentLoaded', function () {
         return colors;
     }
 
+    // Helper function to filter chart data for visible bars
+    function getFilteredChartData(originalData, hiddenBars, colors) {
+        // Filter data to only include visible bars
+        const visibleLabels = [];
+        const visibleTotals = [];
+        const visibleColors = [];
+
+        originalData.labels.forEach((label, index) => {
+            if (!hiddenBars[index]) {
+                visibleLabels.push(label);
+                visibleTotals.push(originalData.totals[index]);
+                visibleColors.push(colors[index]);
+            }
+        });
+
+        return {
+            labels: visibleLabels,
+            totals: visibleTotals,
+            colors: visibleColors
+        };
+    }
+
     // Reusable function to create game bar charts with interactive legend
     function createGameBarChart(canvasId, chartData, chartTitle, yAxisLabel) {
         const ctx = document.getElementById(canvasId).getContext('2d');
@@ -458,6 +480,16 @@ document.addEventListener('DOMContentLoaded', function () {
         
         // Track which bars are hidden for toggle functionality
         const hiddenBars = new Array(chartData.labels.length).fill(false);
+        
+        // Store original data for filtering
+        const originalData = {
+            labels: [...chartData.labels],
+            totals: [...chartData.totals]
+        };
+        
+        function updateChartData() {
+            return getFilteredChartData(originalData, hiddenBars, colors);
+        }
         
         new Chart(ctx, {
             type: 'bar',
@@ -483,8 +515,8 @@ document.addEventListener('DOMContentLoaded', function () {
                         labels: {
                             color: getThemeTextColor(),
                             generateLabels: function(chart) {
-                                // Create custom legend items for each game
-                                return chartData.labels.map((gameName, index) => ({
+                                // Create custom legend items for each game using original data
+                                return originalData.labels.map((gameName, index) => ({
                                     text: gameName,
                                     fillStyle: colors[index],
                                     strokeStyle: colors[index],
@@ -498,19 +530,18 @@ document.addEventListener('DOMContentLoaded', function () {
                         onClick: function(e, legendItem) {
                             const index = legendItem.index;
                             const chart = this.chart;
-                            const meta = chart.getDatasetMeta(0);
                             
                             // Toggle visibility for this specific bar
                             hiddenBars[index] = !hiddenBars[index];
                             
-                            // Update the dataset to hide/show this bar
-                            if (hiddenBars[index]) {
-                                meta.data[index].hidden = true;
-                            } else {
-                                meta.data[index].hidden = false;
-                            }
+                            // Update chart with filtered data
+                            const filteredData = updateChartData();
+                            chart.data.labels = filteredData.labels;
+                            chart.data.datasets[0].data = filteredData.totals;
+                            chart.data.datasets[0].backgroundColor = filteredData.colors.map(color => color + '99');
+                            chart.data.datasets[0].borderColor = filteredData.colors;
                             
-                            chart.update();
+                            chart.update('resize');
                         }
                     },
                     title: {
@@ -571,6 +602,16 @@ document.addEventListener('DOMContentLoaded', function () {
         // Track which bars are hidden for toggle functionality
         const hiddenBars = new Array(chartData.labels.length).fill(false);
         
+        // Store original data for filtering
+        const originalData = {
+            labels: [...chartData.labels],
+            totals: [...chartData.totals]
+        };
+        
+        function updateChartData() {
+            return getFilteredChartData(originalData, hiddenBars, colors);
+        }
+        
         new Chart(ctx, {
             type: 'bar',
             data: {
@@ -595,8 +636,8 @@ document.addEventListener('DOMContentLoaded', function () {
                         labels: {
                             color: getThemeTextColor(),
                             generateLabels: function(chart) {
-                                // Create custom legend items for each game
-                                return chartData.labels.map((gameName, index) => ({
+                                // Create custom legend items for each game using original data
+                                return originalData.labels.map((gameName, index) => ({
                                     text: gameName,
                                     fillStyle: colors[index],
                                     strokeStyle: colors[index],
@@ -610,19 +651,18 @@ document.addEventListener('DOMContentLoaded', function () {
                         onClick: function(e, legendItem) {
                             const index = legendItem.index;
                             const chart = this.chart;
-                            const meta = chart.getDatasetMeta(0);
                             
                             // Toggle visibility for this specific bar
                             hiddenBars[index] = !hiddenBars[index];
                             
-                            // Update the dataset to hide/show this bar
-                            if (hiddenBars[index]) {
-                                meta.data[index].hidden = true;
-                            } else {
-                                meta.data[index].hidden = false;
-                            }
+                            // Update chart with filtered data
+                            const filteredData = updateChartData();
+                            chart.data.labels = filteredData.labels;
+                            chart.data.datasets[0].data = filteredData.totals;
+                            chart.data.datasets[0].backgroundColor = filteredData.colors.map(color => color + '99');
+                            chart.data.datasets[0].borderColor = filteredData.colors;
                             
-                            chart.update();
+                            chart.update('resize');
                         }
                     },
                     title: {
