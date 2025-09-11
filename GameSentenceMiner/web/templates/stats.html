@@ -186,6 +186,12 @@
         <div id="heatmapContainer"></div>
     </div>
 
+        <!-- Goals Progress Chart -->
+        <div class="chart-container">
+            <h2>Goals Progress</h2>
+            <div id="goalsProgressContainer" class="goals-progress-container"></div>
+        </div>
+
     <div class="chart-container">
         <h2>Lines Received Over Time</h2>
         <canvas id="linesChart"></canvas>
@@ -243,6 +249,63 @@
                 </p>
                 
                 <form id="settingsForm">
+                        <div style="margin-bottom: 20px;">
+                            <label for="goalHours" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Reading Hours Goal
+                            </label>
+                            <input
+                                type="number"
+                                id="goalHours"
+                                name="goal_hours"
+                                min="1"
+                                max="10000"
+                                step="1"
+                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="1500"
+                                value="1500"
+                            >
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Default: 1500 hours (TMW N1 estimate)
+                            </small>
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <label for="goalChars" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Characters Read Goal
+                            </label>
+                            <input
+                                type="number"
+                                id="goalChars"
+                                name="goal_chars"
+                                min="1000000"
+                                max="1000000000"
+                                step="100000"
+                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="100000000"
+                                value="100000000"
+                            >
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Default: 100,000,000 characters (Discord role)
+                            </small>
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <label for="goalGames" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Games/VNs Read Goal
+                            </label>
+                            <input
+                                type="number"
+                                id="goalGames"
+                                name="goal_games"
+                                min="1"
+                                max="10000"
+                                step="1"
+                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="100"
+                                value="100"
+                            >
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Default: 100 games/VNs (Refold role)
+                            </small>
+                        </div>
                     <div style="margin-bottom: 20px;">
                         <label for="afkTimer" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
                             AFK Timer (seconds)

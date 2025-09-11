@@ -44,6 +44,95 @@ if (window.Chart) {
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
 document.addEventListener('DOMContentLoaded', function () {
+    // --- GOALS PROGRESS CHART ---
+    function getGoalSettings() {
+        // Read from settings modal, fallback to defaults
+        const hours = parseInt(document.getElementById('goalHours')?.value, 10) || 1500;
+        const chars = parseInt(document.getElementById('goalChars')?.value, 10) || 100000000;
+        const games = parseInt(document.getElementById('goalGames')?.value, 10) || 100;
+        return { hours, chars, games };
+    }
+
+    function getAllTimeStats() {
+        // These are set by updateAllGamesDashboard
+        const chars = parseInt((window.allGamesStats?.total_characters) || 0, 10);
+        const hours = parseFloat((window.allGamesStats?.total_time_hours) || 0);
+        const games = parseInt((window.allGamesStats?.unique_games) || 0, 10);
+        return { hours, chars, games };
+    }
+
+    function getGoalColor(pct) {
+        // 0%: #333/#fff (theme), 25%: #e6dc2e, 50%: #3be62f, 100%: #2ee6e0
+        if (pct >= 1) return '#2ee6e0';
+        if (pct >= 0.5) return '#3be62f';
+        if (pct >= 0.25) return '#e6dc2e';
+        // 0%: dark or light
+        return getCurrentTheme() === 'dark' ? '#333' : '#fff';
+    }
+
+    function getGoalTextColor(pct) {
+        // For 0% box
+        if (pct < 0.25) return getCurrentTheme() === 'dark' ? '#fff' : '#333';
+        return '#222';
+    }
+
+    function renderGoalsProgress() {
+        const container = document.getElementById('goalsProgressContainer');
+        if (!container) return;
+        const goals = getGoalSettings();
+        const stats = getAllTimeStats();
+        // Defensive: fallback to 0 if not loaded
+        const progress = [
+            {
+                label: 'Read for X Hours',
+                value: stats.hours,
+                goal: goals.hours,
+                unit: 'hours',
+                display: `${Math.round(stats.hours).toLocaleString()} / ${goals.hours.toLocaleString()} hours`
+            },
+            {
+                label: 'Read X Characters',
+                value: stats.chars,
+                goal: goals.chars,
+                unit: 'characters',
+                display: `${stats.chars.toLocaleString()} / ${goals.chars.toLocaleString()} chars`
+            },
+            {
+                label: 'Read X Games/VNs',
+                value: stats.games,
+                goal: goals.games,
+                unit: 'games',
+                display: `${stats.games.toLocaleString()} / ${goals.games.toLocaleString()} games`
+            }
+        ];
+        container.innerHTML = '';
+        progress.forEach(item => {
+            const pct = Math.max(0, Math.min(1, item.value / item.goal));
+            const color = getGoalColor(pct);
+            const textColor = getGoalTextColor(pct);
+            const box = document.createElement('div');
+            box.className = 'goal-progress-box';
+            box.setAttribute('data-goal-pct', Math.round(pct * 100));
+            box.style.background = color;
+            box.style.color = textColor;
+            box.innerHTML = `
+                <div class="goal-progress-label">${item.label}</div>
+                <div class="goal-progress-value">${item.display}</div>
+                <div class="goal-progress-percent">${Math.floor(pct * 100)}%</div>
+                <div class="goal-progress-bar">
+                    <div class="goal-progress-bar-inner" style="width: ${Math.min(100, pct * 100)}%; background: ${color};"></div>
+                </div>
+            `;
+            container.appendChild(box);
+        });
+    }
+
+    // Re-render goals chart when settings are changed
+    ['goalHours','goalChars','goalGames'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', renderGoalsProgress);
+    });
+    // --- END GOALS PROGRESS CHART ---
     // Helper function to create a chart to avoid repeating code
     function createChart(canvasId, datasets, chartTitle) {
         const ctx = document.getElementById(canvasId).getContext('2d');
@@ -949,6 +1038,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateAllGamesDashboard(stats) {
+        // Store for goals chart
+        window.allGamesStats = stats;
         if (!stats) {
             showNoDashboardData('allGamesCard', 'No games data available');
             return;
@@ -978,6 +1069,9 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             streakElement.style.display = 'none';
         }
+
+        // Update goals progress chart
+        renderGoalsProgress();
 
 
         // Show the card
