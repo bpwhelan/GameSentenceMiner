@@ -139,73 +139,33 @@
 
 /* Goals Progress Styles */
 .goals-progress-container {
+.goals-progress-container {
     display: flex;
     gap: 24px;
-    justify-content: center;
-    align-items: stretch;
-    margin: 24px 0 0 0;
-    flex-wrap: wrap;
+    margin: 24px 0 12px 0;
+    justify-content: flex-start;
 }
 .goal-progress-box {
-    flex: 1 1 220px;
-    min-width: 200px;
-    max-width: 320px;
-    background: var(--bg-tertiary);
-    border-radius: 10px;
-    box-shadow: 0 2px 8px var(--shadow-color);
-    padding: 24px 18px 18px 18px;
+    flex: 1 1 120px;
+    min-width: 120px;
+    max-width: 180px;
+    height: 80px;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    transition: box-shadow 0.2s;
-    position: relative;
-    margin-bottom: 16px;
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: #222;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    transition: background 0.3s, color 0.3s;
+    cursor: default;
+    user-select: none;
+    border: 2px solid #eee;
 }
-.goal-progress-label {
-    font-size: 15px;
-    color: var(--text-secondary);
-    margin-bottom: 10px;
-    text-align: center;
-}
-.goal-progress-value {
-    font-size: 2.2em;
-    font-weight: bold;
-    margin-bottom: 8px;
-    text-align: center;
-    color: var(--text-primary);
-}
-.goal-progress-percent {
-    font-size: 1.1em;
-    font-weight: 600;
-    margin-bottom: 6px;
-    text-align: center;
-}
-.goal-progress-bar {
-    width: 100%;
-    height: 16px;
-    border-radius: 8px;
-    margin: 10px 0 0 0;
-    background: #333;
-    position: relative;
-    overflow: hidden;
-}
-.goal-progress-bar-inner {
-    height: 100%;
-    border-radius: 8px;
-    transition: width 0.5s cubic-bezier(.4,2,.6,1), background 0.5s;
-}
-.goal-progress-box[data-goal-pct="100"] {
-    box-shadow: 0 0 0 3px #2ee6e0;
-}
-@media (max-width: 900px) {
-    .goals-progress-container {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    .goal-progress-box {
-        max-width: 100%;
-    }
+body.dark .goal-progress-box {
+    color: #fff;
+    border: 2px solid #222;
 }
 
 /* Delete Game Entry Section Styles */

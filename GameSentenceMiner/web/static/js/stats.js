@@ -44,22 +44,7 @@ if (window.Chart) {
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
 document.addEventListener('DOMContentLoaded', function () {
-    // --- GOALS PROGRESS CHART ---
-    function getGoalSettings() {
-        // Read from settings modal, fallback to defaults
-        const hours = parseInt(document.getElementById('goalHours')?.value, 10) || 1500;
-        const chars = parseInt(document.getElementById('goalChars')?.value, 10) || 100000000;
-        const games = parseInt(document.getElementById('goalGames')?.value, 10) || 100;
-        return { hours, chars, games };
-    }
 
-    function getAllTimeStats() {
-        // These are set by updateAllGamesDashboard
-        const chars = parseInt((window.allGamesStats?.total_characters) || 0, 10);
-        const hours = parseFloat((window.allGamesStats?.total_time_hours) || 0);
-        const games = parseInt((window.allGamesStats?.unique_games) || 0, 10);
-        return { hours, chars, games };
-    }
 
     function getGoalColor(pct) {
         // 0%: #333/#fff (theme), 25%: #e6dc2e, 50%: #3be62f, 100%: #2ee6e0
@@ -82,90 +67,61 @@ document.addEventListener('DOMContentLoaded', function () {
         const goals = getGoalSettings();
         const stats = getAllTimeStats();
         // Defensive: fallback to 0 if not loaded
-        const progress = [
-            {
-                label: 'Read for X Hours',
-                value: stats.hours,
-                goal: goals.hours,
-                unit: 'hours',
-                display: `${Math.round(stats.hours).toLocaleString()} / ${goals.hours.toLocaleString()} hours`
-            },
-            {
-                label: 'Read X Characters',
-                value: stats.chars,
-                goal: goals.chars,
-                unit: 'characters',
-                display: `${stats.chars.toLocaleString()} / ${goals.chars.toLocaleString()} chars`
-            },
-            {
-                label: 'Read X Games/VNs',
-                value: stats.games,
-                goal: goals.games,
-                unit: 'games',
-                display: `${stats.games.toLocaleString()} / ${goals.games.toLocaleString()} games`
-            }
-        ];
-        container.innerHTML = '';
-        progress.forEach(item => {
-            const pct = Math.max(0, Math.min(1, item.value / item.goal));
-            const color = getGoalColor(pct);
-            const textColor = getGoalTextColor(pct);
-            const box = document.createElement('div');
-            box.className = 'goal-progress-box';
-            box.setAttribute('data-goal-pct', Math.round(pct * 100));
-            box.style.background = color;
-            box.style.color = textColor;
-            box.innerHTML = `
-                <div class="goal-progress-label">${item.label}</div>
-                <div class="goal-progress-value">${item.display}</div>
-                <div class="goal-progress-percent">${Math.floor(pct * 100)}%</div>
-                <div class="goal-progress-bar">
-                    <div class="goal-progress-bar-inner" style="width: ${Math.min(100, pct * 100)}%; background: ${color};"></div>
-                </div>
-            `;
-            container.appendChild(box);
-        });
-    }
+        // --- GOALS PROGRESS CHART (PERCENT ONLY, NO NUMBERS OR BAR) ---
+        function renderGoalsProgress() {
+            const container = document.getElementById('goalsProgressContainer');
+            if (!container) return;
+            // Fixed goals and labels
+            const goals = [
+                { label: '1500 Hours', goal: 1500, value: parseFloat(window.allGamesStats?.total_time_hours || 0) },
+                { label: '100,000,000 Chars', goal: 100000000, value: parseInt(window.allGamesStats?.total_characters || 0, 10) },
+                { label: '100 Games', goal: 100, value: parseInt(window.allGamesStats?.unique_games || 0, 10) }
+            ];
+            container.innerHTML = '';
+            goals.forEach(item => {
+                let pct = Math.floor((item.value / item.goal) * 100);
+                if (pct > 100) pct = 100;
+                if (pct < 0) pct = 0;
+                const color = getGoalGradientColor(pct);
+                const box = document.createElement('div');
+                box.className = 'goal-progress-box';
+                box.style.background = color;
+                box.textContent = `${pct}%`;
+                box.title = item.label + ' Goal Progress';
+                container.appendChild(box);
+            });
+        }
 
-    // Re-render goals chart when settings are changed
-    ['goalHours','goalChars','goalGames'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener('input', renderGoalsProgress);
-    });
-    // --- END GOALS PROGRESS CHART ---
-    // Helper function to create a chart to avoid repeating code
-    function createChart(canvasId, datasets, chartTitle) {
-        const ctx = document.getElementById(canvasId).getContext('2d');
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: datasets.labels,
-                datasets: datasets.datasets
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        position: 'top',
-                        labels: {
-                            color: getThemeTextColor()
-                        }
-                    },
-                    title: {
-                        display: true,
-                        text: chartTitle,
-                        color: getThemeTextColor()
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Cumulative Count',
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
+        // Gradient color logic
+        function getGoalGradientColor(percent) {
+            function lerpColor(a, b, t) {
+                const ah = parseInt(a.replace('#', ''), 16), bh = parseInt(b.replace('#', ''), 16);
+                const ar = (ah >> 16) & 0xff, ag = (ah >> 8) & 0xff, ab = ah & 0xff;
+                const br = (bh >> 16) & 0xff, bg = (bh >> 8) & 0xff, bb = bh & 0xff;
+                const rr = ar + t * (br - ar);
+                const rg = ag + t * (bg - ag);
+                const rb = ab + t * (bb - ab);
+                return '#' + ((1 << 24) + (rr << 16) + (rg << 8) + (rb | 0)).toString(16).slice(1, 7);
+            }
+            const stops = [
+                { pct: 0, color: getCurrentTheme() === 'dark' ? '#333' : '#fff' },
+                { pct: 25, color: '#e6dc2e' },
+                { pct: 50, color: '#3be62f' },
+                { pct: 100, color: '#2ee6e0' }
+            ];
+            for (let i = 1; i < stops.length; i++) {
+                if (percent <= stops[i].pct) {
+                    const lower = stops[i - 1];
+                    const upper = stops[i];
+                    const t = (percent - lower.pct) / (upper.pct - lower.pct);
+                    return lerpColor(lower.color, upper.color, t);
+                }
+            }
+            return stops[stops.length - 1].color;
+        }
+
+        // Call after stats load/update
+        window.renderGoalsProgress = renderGoalsProgress;
                             color: getThemeTextColor()
                         }
                     },
@@ -1038,6 +994,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateAllGamesDashboard(stats) {
+    window.allGamesStats = stats;
         // Store for goals chart
         window.allGamesStats = stats;
         if (!stats) {
@@ -1069,6 +1026,9 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             streakElement.style.display = 'none';
         }
+
+        // Update goals progress chart
+        if (window.renderGoalsProgress) window.renderGoalsProgress();
 
         // Update goals progress chart
         renderGoalsProgress();
