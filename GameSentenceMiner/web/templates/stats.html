@@ -181,6 +181,97 @@
         </div>
     </div>
 
+        <!-- Goal Progress Chart -->
+    <div class="dashboard-card goal-progress-chart" id="goalProgressChart" style="margin-bottom: 30px;">
+        <div class="dashboard-card-header">
+            <h3 class="dashboard-card-title">
+                <span class="dashboard-card-icon">🎯</span>
+                Goal Progress Chart
+            </h3>
+            <p class="dashboard-card-subtitle">Track your reading goals and projected completion dates</p>
+        </div>
+        
+        <div class="goal-progress-grid">
+            <!-- Reading Hours Goal -->
+            <div class="goal-progress-item">
+                <div class="goal-progress-header">
+                    <div class="goal-progress-label">
+                        <span class="goal-icon">⏱️</span>
+                        Reading Hours
+                    </div>
+                    <div class="goal-progress-values">
+                        <span class="goal-current" id="goalHoursCurrent">-</span>
+                        <span class="goal-separator">/</span>
+                        <span class="goal-target" id="goalHoursTarget">-</span>
+                    </div>
+                </div>
+                <div class="goal-progress-bar">
+                    <div class="goal-progress-fill" id="goalHoursProgress" data-percentage="0"></div>
+                </div>
+                <div class="goal-progress-info">
+                    <span class="goal-percentage" id="goalHoursPercentage">0%</span>
+                    <span class="goal-projection" id="goalHoursProjection">-</span>
+                </div>
+            </div>
+
+            <!-- Character Count Goal -->
+            <div class="goal-progress-item">
+                <div class="goal-progress-header">
+                    <div class="goal-progress-label">
+                        <span class="goal-icon">📖</span>
+                        Characters Read
+                    </div>
+                    <div class="goal-progress-values">
+                        <span class="goal-current" id="goalCharsCurrent">-</span>
+                        <span class="goal-separator">/</span>
+                        <span class="goal-target" id="goalCharsTarget">-</span>
+                    </div>
+                </div>
+                <div class="goal-progress-bar">
+                    <div class="goal-progress-fill" id="goalCharsProgress" data-percentage="0"></div>
+                </div>
+                <div class="goal-progress-info">
+                    <span class="goal-percentage" id="goalCharsPercentage">0%</span>
+                    <span class="goal-projection" id="goalCharsProjection">-</span>
+                </div>
+            </div>
+
+            <!-- Visual Novels Goal -->
+            <div class="goal-progress-item">
+                <div class="goal-progress-header">
+                    <div class="goal-progress-label">
+                        <span class="goal-icon">🎮</span>
+                        Games
+                    </div>
+                    <div class="goal-progress-values">
+                        <span class="goal-current" id="goalVnsCurrent">-</span>
+                        <span class="goal-separator">/</span>
+                        <span class="goal-target" id="goalVnsTarget">-</span>
+                    </div>
+                </div>
+                <div class="goal-progress-bar">
+                    <div class="goal-progress-fill" id="goalVnsProgress" data-percentage="0"></div>
+                </div>
+                <div class="goal-progress-info">
+                    <span class="goal-percentage" id="goalVnsPercentage">0%</span>
+                    <span class="goal-projection" id="goalVnsProjection">-</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading/Error states -->
+        <div class="goal-progress-loading" id="goalProgressLoading" style="display: none;">
+            <div class="spinner"></div>
+            <span>Loading goal progress...</span>
+        </div>
+
+        <div class="goal-progress-error" id="goalProgressError" style="display: none;">
+            <div class="goal-progress-error-icon">⚠️</div>
+            <div class="goal-progress-error-message">Failed to load goal progress</div>
+            <button class="retry-btn" onclick="loadGoalProgress()">Retry</button>
+        </div>
+    </div>
+
     <div class="chart-container">
         <h2>Reading Activity Heatmap</h2>
         <div id="heatmapContainer"></div>
@@ -312,6 +403,70 @@
                         <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
                             Minimum hours of reading activity required to maintain streak (0.01-24 hours)
                         </small>
+                    </div>
+
+                    <!-- Reading Goals Section -->
+                    <div style="margin-bottom: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Reading Goals Configuration
+                        </label>
+                        <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                            Set your long-term reading targets for tracking progress and projections.
+                        </p>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label for="readingHoursTarget" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Reading Hours Target
+                            </label>
+                            <input
+                                type="number"
+                                id="readingHoursTarget"
+                                name="reading_hours_target"
+                                min="1"
+                                max="10000"
+                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="1500"
+                            >
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Total reading hours goal (1-10,000 hours) - Default: 1500 hours based on TMW N1 achievement
+                            </small>
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label for="characterCountTarget" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Character Count Target
+                            </label>
+                            <input
+                                type="number"
+                                id="characterCountTarget"
+                                name="character_count_target"
+                                min="1000"
+                                max="1000000000"
+                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="25000000"
+                            >
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Total characters read goal (1,000-1,000,000,000) - Default: 25 million characters
+                            </small>
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label for="visualNovelsTarget" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Visual Novels/Games Target
+                            </label>
+                            <input
+                                type="number"
+                                id="visualNovelsTarget"
+                                name="visual_novels_target"
+                                min="1"
+                                max="1000"
+                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="100"
+                            >
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Number of visual novels/games to complete (1-1,000) - Default: 100 based on Refold standards
+                            </small>
+                        </div>
                     </div>
 
                     <!-- Import ExStatic Lines Section -->

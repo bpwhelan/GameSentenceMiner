@@ -226,14 +226,17 @@ def register_database_api_routes(app):
     @app.route('/api/settings', methods=['GET'])
     def api_get_settings():
         """
-        Get current AFK timer, session gap, and streak requirement settings.
+        Get current AFK timer, session gap, streak requirement, and goal settings.
         """
         try:
             config = get_config()
             return jsonify({
                 'afk_timer_seconds': config.advanced.afk_timer_seconds,
                 'session_gap_seconds': config.advanced.session_gap_seconds,
-                'streak_requirement_hours': getattr(config.advanced, 'streak_requirement_hours', 1.0)
+                'streak_requirement_hours': getattr(config.advanced, 'streak_requirement_hours', 1.0),
+                'reading_hours_target': getattr(config.advanced, 'reading_hours_target', 1500),
+                'character_count_target': getattr(config.advanced, 'character_count_target', 25000000),
+                'visual_novels_target': getattr(config.advanced, 'visual_novels_target', 100)
             }), 200
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
@@ -242,7 +245,7 @@ def register_database_api_routes(app):
     @app.route('/api/settings', methods=['POST'])
     def api_save_settings():
         """
-        Save/update AFK timer, session gap, and streak requirement settings.
+        Save/update AFK timer, session gap, streak requirement, and goal settings.
         """
         try:
             data = request.get_json()
@@ -253,6 +256,9 @@ def register_database_api_routes(app):
             afk_timer = data.get('afk_timer_seconds')
             session_gap = data.get('session_gap_seconds')
             streak_requirement = data.get('streak_requirement_hours')
+            reading_hours_target = data.get('reading_hours_target')
+            character_count_target = data.get('character_count_target')
+            visual_novels_target = data.get('visual_novels_target')
             
             # Validate input - only require the settings that are provided
             settings_to_update = {}
@@ -284,6 +290,33 @@ def register_database_api_routes(app):
                 except (ValueError, TypeError):
                     return jsonify({'error': 'Streak requirement must be a valid number'}), 400
             
+            if reading_hours_target is not None:
+                try:
+                    reading_hours_target = int(reading_hours_target)
+                    if reading_hours_target < 1 or reading_hours_target > 10000:
+                        return jsonify({'error': 'Reading hours target must be between 1 and 10,000 hours'}), 400
+                    settings_to_update['reading_hours_target'] = reading_hours_target
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Reading hours target must be a valid integer'}), 400
+            
+            if character_count_target is not None:
+                try:
+                    character_count_target = int(character_count_target)
+                    if character_count_target < 1000 or character_count_target > 1000000000:
+                        return jsonify({'error': 'Character count target must be between 1,000 and 1,000,000,000 characters'}), 400
+                    settings_to_update['character_count_target'] = character_count_target
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Character count target must be a valid integer'}), 400
+            
+            if visual_novels_target is not None:
+                try:
+                    visual_novels_target = int(visual_novels_target)
+                    if visual_novels_target < 1 or visual_novels_target > 1000:
+                        return jsonify({'error': 'Visual novels target must be between 1 and 1,000'}), 400
+                    settings_to_update['visual_novels_target'] = visual_novels_target
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Visual novels target must be a valid integer'}), 400
+            
             if not settings_to_update:
                 return jsonify({'error': 'No valid settings provided'}), 400
             
@@ -296,6 +329,12 @@ def register_database_api_routes(app):
                 config.advanced.session_gap_seconds = settings_to_update['session_gap_seconds']
             if 'streak_requirement_hours' in settings_to_update:
                 setattr(config.advanced, 'streak_requirement_hours', settings_to_update['streak_requirement_hours'])
+            if 'reading_hours_target' in settings_to_update:
+                setattr(config.advanced, 'reading_hours_target', settings_to_update['reading_hours_target'])
+            if 'character_count_target' in settings_to_update:
+                setattr(config.advanced, 'character_count_target', settings_to_update['character_count_target'])
+            if 'visual_novels_target' in settings_to_update:
+                setattr(config.advanced, 'visual_novels_target', settings_to_update['visual_novels_target'])
             
             # Save configuration
             save_current_config(config)
