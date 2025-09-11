@@ -1,11 +1,14 @@
+import copy
 import datetime
 import re
 import csv
 import io
 from collections import defaultdict
+import time
 
 import flask
 from flask import request, jsonify
+import regex
 
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.configuration import logger, get_config, save_current_config
@@ -685,6 +688,7 @@ def register_database_api_routes(app):
         Provides aggregated, cumulative stats for charting.
         Accepts optional 'year' parameter to filter heatmap data.
         """
+        punctionation_regex = regex.compile(r'[\p{P}\p{S}]')
         # Get optional year filter parameter
         filter_year = request.args.get('year', None)
         
@@ -697,13 +701,25 @@ def register_database_api_routes(app):
         # 2. Process data into daily totals for each game
         # Structure: daily_data[date_str][game_name] = {'lines': N, 'chars': N}
         daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0}))
+        
+        
+        # start_time = time.perf_counter()
+        # for line in all_lines:
+        #     day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
+        #     game = line.game_name or "Unknown Game"
+        #     daily_data[day_str][game]['lines'] += 1
+        #     daily_data[day_str][game]['chars'] += len(line.line_text) if line.line_text else 0
+        # end_time = time.perf_counter()
+        # logger.info(f"Without Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
 
         for line in all_lines:
             day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
             game = line.game_name or "Unknown Game"
-            
+            # Remove punctuation and symbols from line text before counting characters
+            clean_text = punctionation_regex.sub('', line.line_text) if line.line_text else ''
+            line.line_text = clean_text  # Update line text to cleaned version for future use
             daily_data[day_str][game]['lines'] += 1
-            daily_data[day_str][game]['chars'] += len(line.line_text) if line.line_text else 0
+            daily_data[day_str][game]['chars'] += len(clean_text)
 
         # 3. Create cumulative datasets for Chart.js
         sorted_days = sorted(daily_data.keys())

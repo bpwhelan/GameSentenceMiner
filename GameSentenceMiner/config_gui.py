@@ -440,6 +440,7 @@ class ConfigApp:
         default_category_config = getattr(self.default_settings, category)
 
         setattr(self.settings, category, default_category_config)
+        self.create_vars()  # Recreate variables to reflect default values
         recreate_tab()
         self.save_settings(profile_change=False)
         self.reload_settings()
@@ -1146,6 +1147,9 @@ class ConfigApp:
         HoverInfoLabelWidget(vad_frame, text=use_cpu_i18n.get('label', 'Force CPU'), tooltip=use_cpu_i18n.get('tooltip', 'Even if CUDA is installed, use CPU for Whisper'), row=self.current_row, column=0)
         ttk.Checkbutton(vad_frame, variable=self.use_cpu_for_inference_value, bootstyle="round-toggle").grid(row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
+        
+        # Add Reset Button
+        self.add_reset_button(vad_frame, "vad", self.current_row, column=0, recreate_tab=self.create_vad_tab)
 
     @new_tab
     def create_paths_tab(self):
