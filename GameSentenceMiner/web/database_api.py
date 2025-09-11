@@ -35,6 +35,7 @@ def register_database_api_routes(app):
             sort_by = request.args.get('sort', 'relevance')
             page = int(request.args.get('page', 1))
             page_size = int(request.args.get('page_size', 20))
+            use_regex = request.args.get('use_regex', 'false').lower() == 'true'
             
             # Validate parameters
             if not query:
@@ -44,65 +45,129 @@ def register_database_api_routes(app):
                 page = 1
             if page_size < 1 or page_size > 100:
                 page_size = 20
-            
-            # Build the SQL query
-            base_query = f"SELECT * FROM {GameLinesTable._table} WHERE line_text LIKE ?"
-            params = [f'%{query}%']
-            
-            # Add game filter if specified
-            if game_filter:
-                base_query += " AND game_name = ?"
-                params.append(game_filter)
-            
-            # Add sorting
-            if sort_by == 'date_desc':
-                base_query += " ORDER BY timestamp DESC"
-            elif sort_by == 'date_asc':
-                base_query += " ORDER BY timestamp ASC"
-            elif sort_by == 'game_name':
-                base_query += " ORDER BY game_name, timestamp DESC"
-            else:  # relevance - could be enhanced with proper scoring
-                base_query += " ORDER BY timestamp DESC"
-            
-            # Get total count for pagination
-            count_query = f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE line_text LIKE ?"
-            count_params = [f'%{query}%']
-            if game_filter:
-                count_query += " AND game_name = ?"
-                count_params.append(game_filter)
-            
-            total_results = GameLinesTable._db.fetchone(count_query, count_params)[0]
-            
-            # Add pagination
-            offset = (page - 1) * page_size
-            base_query += f" LIMIT ? OFFSET ?"
-            params.extend([page_size, offset])
-            
-            # Execute search query
-            rows = GameLinesTable._db.fetchall(base_query, params)
-            
-            # Format results
-            results = []
-            for row in rows:
-                game_line = GameLinesTable.from_row(row)
-                if game_line:
-                    results.append({
-                        'id': game_line.id,
-                        'sentence': game_line.line_text or '',
-                        'game_name': game_line.game_name or 'Unknown Game',
-                        'timestamp': float(game_line.timestamp) if game_line.timestamp else 0,
-                        'translation': game_line.translation or None,
-                        'has_audio': bool(game_line.audio_path),
-                        'has_screenshot': bool(game_line.screenshot_path)
-                    })
-            
-            return jsonify({
-                'results': results,
-                'total': total_results,
-                'page': page,
-                'page_size': page_size,
-                'total_pages': (total_results + page_size - 1) // page_size
-            }), 200
+
+            if use_regex:
+                # Regex search: fetch all candidate rows, filter in Python
+                try:
+                    # Ensure query is a string
+                    if not isinstance(query, str):
+                        return jsonify({'error': 'Invalid query parameter type'}), 400
+                    
+                    all_lines = GameLinesTable.all()
+                    if game_filter:
+                        all_lines = [line for line in all_lines if line.game_name == game_filter]
+                    
+                    # Compile regex pattern with proper error handling
+                    try:
+                        pattern = re.compile(query, re.IGNORECASE)
+                    except re.error as regex_err:
+                        return jsonify({'error': f'Invalid regex pattern: {str(regex_err)}'}), 400
+                    
+                    # Filter lines using regex
+                    filtered_lines = []
+                    for line in all_lines:
+                        if line.line_text and isinstance(line.line_text, str):
+                            try:
+                                if pattern.search(line.line_text):
+                                    filtered_lines.append(line)
+                            except Exception as search_err:
+                                # Log but continue with other lines
+                                logger.warning(f"Regex search error on line {line.id}: {search_err}")
+                                continue
+                    
+                    # Sorting (default: timestamp DESC, or as specified)
+                    if sort_by == 'date_asc':
+                        filtered_lines.sort(key=lambda l: float(l.timestamp) if l.timestamp else 0)
+                    elif sort_by == 'game_name':
+                        filtered_lines.sort(key=lambda l: (l.game_name or '', -(float(l.timestamp) if l.timestamp else 0)))
+                    else:  # date_desc or relevance
+                        filtered_lines.sort(key=lambda l: -(float(l.timestamp) if l.timestamp else 0))
+                    
+                    total_results = len(filtered_lines)
+                    # Pagination
+                    start = (page - 1) * page_size
+                    end = start + page_size
+                    paged_lines = filtered_lines[start:end]
+                    results = []
+                    for line in paged_lines:
+                        results.append({
+                            'id': line.id,
+                            'sentence': line.line_text or '',
+                            'game_name': line.game_name or 'Unknown Game',
+                            'timestamp': float(line.timestamp) if line.timestamp else 0,
+                            'translation': line.translation or None,
+                            'has_audio': bool(getattr(line, 'audio_path', None)),
+                            'has_screenshot': bool(getattr(line, 'screenshot_path', None))
+                        })
+                    return jsonify({
+                        'results': results,
+                        'total': total_results,
+                        'page': page,
+                        'page_size': page_size,
+                        'total_pages': (total_results + page_size - 1) // page_size
+                    }), 200
+                except Exception as e:
+                    logger.error(f"Regex search failed: {e}")
+                    return jsonify({'error': f'Search failed: {str(e)}'}), 500
+            else:
+                # Build the SQL query
+                base_query = f"SELECT * FROM {GameLinesTable._table} WHERE line_text LIKE ?"
+                params = [f'%{query}%']
+                
+                # Add game filter if specified
+                if game_filter:
+                    base_query += " AND game_name = ?"
+                    params.append(game_filter)
+                
+                # Add sorting
+                if sort_by == 'date_desc':
+                    base_query += " ORDER BY timestamp DESC"
+                elif sort_by == 'date_asc':
+                    base_query += " ORDER BY timestamp ASC"
+                elif sort_by == 'game_name':
+                    base_query += " ORDER BY game_name, timestamp DESC"
+                else:  # relevance - could be enhanced with proper scoring
+                    base_query += " ORDER BY timestamp DESC"
+                
+                # Get total count for pagination
+                count_query = f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE line_text LIKE ?"
+                count_params = [f'%{query}%']
+                if game_filter:
+                    count_query += " AND game_name = ?"
+                    count_params.append(game_filter)
+                
+                total_results = GameLinesTable._db.fetchone(count_query, count_params)[0]
+                
+                # Add pagination
+                offset = (page - 1) * page_size
+                base_query += f" LIMIT ? OFFSET ?"
+                params.extend([page_size, offset])
+                
+                # Execute search query
+                rows = GameLinesTable._db.fetchall(base_query, params)
+                
+                # Format results
+                results = []
+                for row in rows:
+                    game_line = GameLinesTable.from_row(row)
+                    if game_line:
+                        results.append({
+                            'id': game_line.id,
+                            'sentence': game_line.line_text or '',
+                            'game_name': game_line.game_name or 'Unknown Game',
+                            'timestamp': float(game_line.timestamp) if game_line.timestamp else 0,
+                            'translation': game_line.translation or None,
+                            'has_audio': bool(game_line.audio_path),
+                            'has_screenshot': bool(game_line.screenshot_path)
+                        })
+                
+                return jsonify({
+                    'results': results,
+                    'total': total_results,
+                    'page': page,
+                    'page_size': page_size,
+                    'total_pages': (total_results + page_size - 1) // page_size
+                }), 200
             
         except ValueError as e:
             return jsonify({'error': 'Invalid pagination parameters'}), 400
