@@ -978,21 +978,24 @@ def register_database_api_routes(app):
                 imported_lines = []
                 games_set = set()
                 errors = []
-                seen_uuids = set()  # Track UUIDs within this import batch
-                
+                seen_uuids = set()  # Track UUIDs + Line within import batch
+
+                def get_line_hash(uuid: str, line_text: str) -> str:
+                    return uuid + '|' + line_text.strip()
+
                 for row_num, row in enumerate(csv_reader):
                     try:
                         # Extract and validate required fields
-                        uuid = row.get('uuid', '').strip()
-                        name = row.get('name', '').strip()
+                        game_uuid = row.get('uuid', '').strip()
+                        game_name = row.get('name', '').strip()
                         line = row.get('line', '').strip()
                         time_str = row.get('time', '').strip()
                         
                         # Validate required fields
-                        if not uuid:
+                        if not game_uuid:
                             errors.append(f"Row {row_num}: Missing UUID")
                             continue
-                        if not name:
+                        if not game_name:
                             errors.append(f"Row {row_num}: Missing name")
                             continue
                         if not line:
@@ -1002,12 +1005,12 @@ def register_database_api_routes(app):
                             errors.append(f"Row {row_num}: Missing time")
                             continue
                         
-                        # Check for duplicates within this import batch
-                        if uuid in seen_uuids:
-                            logger.info(f"Skipping duplicate UUID within import batch: {uuid}")
+                        line_hash = get_line_hash(game_uuid, line)
+                        if line_hash in seen_uuids:
+                            logger.info(f"Skipping duplicate line from game UUID {game_uuid} in import batch")
                             continue
-                        seen_uuids.add(uuid)
-                        
+                        seen_uuids.add(line_hash)
+
                         # Convert time to timestamp
                         try:
                             timestamp = float(time_str)
@@ -1018,22 +1021,22 @@ def register_database_api_routes(app):
                         # Clean up line text (remove extra whitespace and newlines)
                         line_text = line.strip()
                         
-                        # Check if this UUID already exists in database
-                        existing_line = GameLinesTable.get(uuid)
+                        # Check if this line already exists in database
+                        existing_line = GameLinesTable.get(line_hash)
                         if existing_line:
-                            logger.info(f"Skipping duplicate UUID already in database: {uuid}")
+                            logger.info(f"Skipping duplicate UUID already in database: {line_hash}")
                             continue
                         
                         # Create GameLinesTable entry
                         game_line = GameLinesTable(
-                            id=uuid,
-                            game_name=name,
+                            id=line_hash,
+                            game_name=game_name,
                             line_text=line_text,
                             timestamp=timestamp
                         )
                         
                         imported_lines.append(game_line)
-                        games_set.add(name)
+                        games_set.add(game_name)
                         
                     except Exception as e:
                         errors.append(f"Row {row_num}: Error processing row - {str(e)}")
