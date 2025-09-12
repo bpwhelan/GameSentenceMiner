@@ -142,7 +142,7 @@ function getGSMModulePath(): string {
 }
 
 function getIconPath(size: number = 0): string {
-    const filename = size ? `icon${size}.png` : 'icon.png';
+    const filename = 'gsm.ico'
     return path.join(getAssetsDir(), filename);
 }
 
