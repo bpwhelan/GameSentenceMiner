@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to GSM! This guide will help you get started with development.
 
-This guide is largely AI Written, and lightly edited by me. If you find any oddities or mistakes, please let me know.
+This guide is **very clearly** AI Written, and lightly edited by me. If you find any oddities or mistakes, please let me know.
 
 ## Quick Start
 
