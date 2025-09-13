@@ -383,6 +383,31 @@
                     </div>
 
                     <div style="margin-bottom: 20px;">
+                        <label for="historicalDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            View Stats As Of Date
+                        </label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input
+                                type="date"
+                                id="historicalDate"
+                                name="historical_date"
+                                style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            >
+                            <button
+                                type="button"
+                                id="resetHistoricalDate"
+                                style="padding: 10px 15px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; font-size: 14px;"
+                                title="Reset to current date"
+                            >
+                                Reset
+                            </button>
+                        </div>
+                        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            View your stats as they were on this date (useful for tracking progress over time)
+                        </small>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
                         <label for="streakRequirement" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
                             Streak Requirement (hours)
                         </label>

@@ -790,13 +790,28 @@ def register_database_api_routes(app):
         """
         Provides aggregated, cumulative stats for charting.
         Accepts optional 'year' parameter to filter heatmap data.
+        Accepts optional 'cutoff_date' parameter to show historical stats up to that date.
         """
         punctionation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
-        # Get optional year filter parameter
+        # Get optional filter parameters
         filter_year = request.args.get('year', None)
+        cutoff_date = request.args.get('cutoff_date', None)
         
         # 1. Fetch all lines and sort them chronologically
         all_lines = sorted(GameLinesTable.all(), key=lambda line: line.timestamp)
+        
+        # Filter by cutoff date if provided
+        if cutoff_date:
+            try:
+                from datetime import datetime
+                cutoff_datetime = datetime.strptime(cutoff_date, '%Y-%m-%d')
+                cutoff_timestamp = cutoff_datetime.timestamp()
+                # Add 24 hours to include the entire cutoff day
+                cutoff_timestamp += 24 * 60 * 60
+                all_lines = [line for line in all_lines if float(line.timestamp) <= cutoff_timestamp]
+            except ValueError:
+                logger.warning(f"Invalid cutoff_date format: {cutoff_date}")
+        
         
         if not all_lines:
             return jsonify({"labels": [], "datasets": []})

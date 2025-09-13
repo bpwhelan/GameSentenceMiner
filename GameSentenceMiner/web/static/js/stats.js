@@ -742,9 +742,21 @@ document.addEventListener('DOMContentLoaded', function () {
         kanjiGridRenderer.render(kanjiData);
     }
 
-    // Function to load stats data with optional year filter
-    function loadStatsData(filterYear = null) {
-        const url = filterYear && filterYear !== 'all' ? `/api/stats?year=${filterYear}` : '/api/stats';
+    // Function to load stats data with optional year filter and historical date cutoff
+    function loadStatsData(filterYear = null, cutoffDate = null) {
+        let url = '/api/stats';
+        const params = new URLSearchParams();
+        
+        if (filterYear && filterYear !== 'all') {
+            params.append('year', filterYear);
+        }
+        if (cutoffDate) {
+            params.append('cutoff_date', cutoffDate);
+        }
+        
+        if (params.toString()) {
+            url += '?' + params.toString();
+        }
         
         return fetch(url)
             .then(response => response.json())
@@ -1085,9 +1097,10 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Initial load with saved year preference
+    // Initial load with saved year preference and historical date
     const savedYear = localStorage.getItem('selectedHeatmapYear') || 'all';
-    loadStatsData(savedYear);
+    const savedHistoricalDate = localStorage.getItem('selectedHistoricalDate') || null;
+    loadStatsData(savedYear, savedHistoricalDate);
 
     // Function to update goal progress using existing stats data
     async function updateGoalProgressWithData(statsData) {

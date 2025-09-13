@@ -228,6 +228,8 @@ class SettingsManager {
         this.afkTimerInput = document.getElementById('afkTimer');
         this.sessionGapInput = document.getElementById('sessionGap');
         this.heatmapYearSelect = document.getElementById('heatmapYear');
+        this.historicalDateInput = document.getElementById('historicalDate');
+        this.resetHistoricalDateBtn = document.getElementById('resetHistoricalDate');
         this.streakRequirementInput = document.getElementById('streakRequirement');
         this.readingHoursTargetInput = document.getElementById('readingHoursTarget');
         this.characterCountTargetInput = document.getElementById('characterCountTarget');
@@ -263,7 +265,7 @@ class SettingsManager {
         // }
         
         // Clear messages when user starts typing
-        [this.afkTimerInput, this.sessionGapInput, this.heatmapYearSelect, this.streakRequirementInput,
+        [this.afkTimerInput, this.sessionGapInput, this.heatmapYearSelect, this.historicalDateInput, this.streakRequirementInput,
          this.readingHoursTargetInput, this.characterCountTargetInput, this.gamesTargetInput]
             .filter(Boolean)
             .forEach(input => {
@@ -278,12 +280,31 @@ class SettingsManager {
                 this.refreshHeatmapData(selectedYear);
             });
         }
+
+        // Handle historical date change
+        if (this.historicalDateInput) {
+            this.historicalDateInput.addEventListener('change', (e) => {
+                const selectedDate = e.target.value;
+                localStorage.setItem('selectedHistoricalDate', selectedDate);
+                this.refreshStatsData();
+            });
+        }
+
+        // Handle historical date reset
+        if (this.resetHistoricalDateBtn) {
+            this.resetHistoricalDateBtn.addEventListener('click', () => {
+                this.historicalDateInput.value = '';
+                localStorage.removeItem('selectedHistoricalDate');
+                this.refreshStatsData();
+            });
+        }
     }
     
     async openModal() {
         try {
             await this.loadCurrentSettings();
             await this.loadAvailableYears();
+            this.loadHistoricalDate();
             this.showModal();
         } catch (error) {
             console.error('Error opening settings modal:', error);
@@ -381,6 +402,27 @@ class SettingsManager {
             }
         } catch (error) {
             console.error('Error refreshing heatmap data:', error);
+        }
+    }
+
+    loadHistoricalDate() {
+        if (!this.historicalDateInput) return;
+        
+        const savedDate = localStorage.getItem('selectedHistoricalDate');
+        if (savedDate) {
+            this.historicalDateInput.value = savedDate;
+        }
+    }
+
+    async refreshStatsData() {
+        try {
+            if (typeof loadStatsData === 'function') {
+                const selectedYear = this.heatmapYearSelect ? this.heatmapYearSelect.value : null;
+                const selectedDate = this.historicalDateInput ? this.historicalDateInput.value : null;
+                await loadStatsData(selectedYear, selectedDate);
+            }
+        } catch (error) {
+            console.error('Error refreshing stats data:', error);
         }
     }
     
