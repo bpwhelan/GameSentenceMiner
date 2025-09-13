@@ -12,6 +12,7 @@ import regex
 
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.configuration import get_stats_config, logger, get_config, save_current_config, save_stats_config
+from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency, calculate_heatmap_data, calculate_total_chars_per_game,
     calculate_reading_time_per_game, calculate_reading_speed_per_game,
@@ -304,7 +305,7 @@ def register_database_api_routes(app):
                 'streak_requirement_hours': config.streak_requirement_hours,
                 'reading_hours_target': config.reading_hours_target,
                 'character_count_target': config.character_count_target,
-                'games_target': config.games_target
+                'games_target': config.games_target,
             }), 200
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
@@ -806,6 +807,8 @@ def register_database_api_routes(app):
         daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0}))
         
         
+        
+        
         # start_time = time.perf_counter()
         # for line in all_lines:
         #     day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
@@ -975,11 +978,15 @@ def register_database_api_routes(app):
                 csv_reader = csv.DictReader(file_io, quoting=csv.QUOTE_MINIMAL, skipinitialspace=True)
                 
                 # Process CSV rows
-                imported_lines = []
                 games_set = set()
                 errors = []
-                seen_uuids = set()  # Track UUIDs + Line within import batch
-
+                
+                all_lines = GameLinesTable.all()
+                existing_uuids = {line.id for line in all_lines}
+                batch_size = 1000  # For logging progress
+                batch_insert = []
+                imported_count = 0
+                
                 def get_line_hash(uuid: str, line_text: str) -> str:
                     return uuid + '|' + line_text.strip()
 
@@ -1006,10 +1013,11 @@ def register_database_api_routes(app):
                             continue
                         
                         line_hash = get_line_hash(game_uuid, line)
-                        if line_hash in seen_uuids:
-                            logger.info(f"Skipping duplicate line from game UUID {game_uuid} in import batch")
+                        
+                        # Check if this line already exists in database
+                        if line_hash in existing_uuids:
+                            logger.info(f"Skipping duplicate UUID already in database: {line_hash}")
                             continue
-                        seen_uuids.add(line_hash)
 
                         # Convert time to timestamp
                         try:
@@ -1021,37 +1029,52 @@ def register_database_api_routes(app):
                         # Clean up line text (remove extra whitespace and newlines)
                         line_text = line.strip()
                         
-                        # Check if this line already exists in database
-                        existing_line = GameLinesTable.get(line_hash)
-                        if existing_line:
-                            logger.info(f"Skipping duplicate UUID already in database: {line_hash}")
-                            continue
-                        
                         # Create GameLinesTable entry
-                        game_line = GameLinesTable(
+                        # Convert timestamp float to datetime object
+                        dt = datetime.datetime.fromtimestamp(timestamp)
+                        batch_insert.append(GameLine(
                             id=line_hash,
-                            game_name=game_name,
-                            line_text=line_text,
-                            timestamp=timestamp
-                        )
+                            text=line_text,
+                            scene=game_name,
+                            time=dt,
+                            prev=None,
+                            next=None,
+                            index=0,
+                        ))
                         
-                        imported_lines.append(game_line)
+                        logger.info(f"Batch insert size: {len(batch_insert)}")
+                        
+                        existing_uuids.add(line_hash)  # Add to existing to prevent duplicates in same import
+                        
+                        if len(batch_insert) >= batch_size:
+                            logger.info(f"Importing batch of {len(batch_insert)} lines...")
+                            GameLinesTable.add_lines(batch_insert)
+                            imported_count += len(batch_insert)
+                            batch_insert = []
                         games_set.add(game_name)
                         
                     except Exception as e:
+                        logger.error(f"Error processing row {row_num}: {e}")
                         errors.append(f"Row {row_num}: Error processing row - {str(e)}")
                         continue
+                    
+                # Insert the rest of the batch
+                if batch_insert:
+                    logger.info(f"Importing final batch of {len(batch_insert)} lines...")
+                    GameLinesTable.add_lines(batch_insert)
+                    imported_count += len(batch_insert)
+                    batch_insert = []
                 
-                # Import lines into database
-                imported_count = 0
-                for game_line in imported_lines:
-                    try:
-                        game_line.add()
-                        imported_count += 1
-                    except Exception as e:
-                        logger.error(f"Failed to import line {game_line.id}: {e}")
-                        errors.append(f"Failed to import line {game_line.id}: {str(e)}")
-                
+                # # Import lines into database
+                # imported_count = 0
+                # for game_line in imported_lines:
+                #     try:
+                #         game_line.add()
+                #         imported_count += 1
+                #     except Exception as e:
+                #         logger.error(f"Failed to import line {game_line.id}: {e}")
+                #         errors.append(f"Failed to import line {game_line.id}: {str(e)}")
+
                 # Prepare response
                 response_data = {
                     'message': f'Successfully imported {imported_count} lines from {len(games_set)} games',
@@ -1065,6 +1088,8 @@ def register_database_api_routes(app):
                     response_data['warning_count'] = len(errors)
                 
                 logger.info(f"ExStatic import completed: {imported_count} lines from {len(games_set)} games")
+                
+                logger.info(f"Import response: {response_data}")
                 
                 return jsonify(response_data), 200
                 

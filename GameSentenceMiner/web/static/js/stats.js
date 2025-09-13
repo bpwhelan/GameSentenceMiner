@@ -128,7 +128,7 @@ document.addEventListener('DOMContentLoaded', function () {
             for (let day = 0; day < 7; day++) {
                 const date = grid[day][week];
                 if (date) {
-                    const dateStr = date.toISOString().split('T')[0];
+                    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
                     const activity = yearData[dateStr] || 0;
                     dates.push({ date: dateStr, activity: activity });
                 }
@@ -154,7 +154,8 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         
         // Calculate current streak from today backwards
-        const today = new Date().toISOString().split('T')[0];
+        const date = new Date();
+        const today = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
         
         // Find today's index or the most recent date before today
         let todayIndex = -1;
@@ -182,7 +183,10 @@ document.addEventListener('DOMContentLoaded', function () {
             // Group timestamps by day for this year
             const dailyTimestamps = {};
             for (const line of allLinesForYear) {
-                const dateStr = new Date(parseFloat(line.timestamp) * 1000).toISOString().split('T')[0];
+                const ts = parseFloat(line.timestamp);
+                if (isNaN(ts)) continue;
+                const dateObj = new Date(ts * 1000);
+                const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
                 if (!dailyTimestamps[dateStr]) {
                     dailyTimestamps[dateStr] = [];
                 }
@@ -326,7 +330,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     
                     const date = grid[day][week];
                     if (date) {
-                        const dateStr = date.toISOString().split('T')[0];
+                        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
                         const activity = yearData[dateStr] || 0;
                         
                         if (activity > 0 && maxActivity > 0) {
@@ -881,11 +885,14 @@ document.addEventListener('DOMContentLoaded', function () {
             // Group by day and calculate reading time using AFK timer logic
             const dailyTimestamps = {};
             for (const line of recentData) {
-                const dateStr = new Date(line.timestamp * 1000).toISOString().split('T')[0];
+                const ts = parseFloat(line.timestamp);
+                if (isNaN(ts)) continue;
+                const dateObj = new Date(ts * 1000);
+                const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
                 if (!dailyTimestamps[dateStr]) {
                     dailyTimestamps[dateStr] = [];
                 }
-                dailyTimestamps[dateStr].push(line.timestamp);
+                dailyTimestamps[dateStr].push(ts);
             }
             
             for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
@@ -906,14 +913,20 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (metricType === 'characters') {
             // Group by day and sum characters
             for (const line of recentData) {
-                const dateStr = new Date(line.timestamp * 1000).toISOString().split('T')[0];
+                const ts = parseFloat(line.timestamp);
+                if (isNaN(ts)) continue;
+                const dateObj = new Date(ts * 1000);
+                const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
                 dailyTotals[dateStr] = (dailyTotals[dateStr] || 0) + (line.characters || 0);
             }
         } else if (metricType === 'games') {
             // Group by day and count unique games
             const dailyGames = {};
             for (const line of recentData) {
-                const dateStr = new Date(line.timestamp * 1000).toISOString().split('T')[0];
+                const ts = parseFloat(line.timestamp);
+                if (isNaN(ts)) continue;
+                const dateObj = new Date(ts * 1000);
+                const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
                 if (!dailyGames[dateStr]) {
                     dailyGames[dateStr] = new Set();
                 }
@@ -1141,14 +1154,19 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadDashboardData(data = null) {
         function updateTodayOverview(allLinesData) {
             // Get today's date string (YYYY-MM-DD)
+            // Get today's date string (YYYY-MM-DD), timezone aware (local time)
             const today = new Date();
-            const todayStr = today.toISOString().split('T')[0];
+            const pad = n => n.toString().padStart(2, '0');
+            const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
             document.getElementById('todayDate').textContent = todayStr;
 
             // Filter lines for today
             const todayLines = (allLinesData || []).filter(line => {
                 if (!line.timestamp) return false;
-                const lineDate = new Date(parseFloat(line.timestamp) * 1000).toISOString().split('T')[0];
+                const ts = parseFloat(line.timestamp);
+                if (isNaN(ts)) return false;
+                const dateObj = new Date(ts * 1000);
+                const lineDate = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}`;
                 return lineDate === todayStr;
             });
 
@@ -1195,7 +1213,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 .map(l => parseFloat(l.timestamp))
                 .filter(ts => !isNaN(ts))
                 .sort((a, b) => a - b);
-            const afkTimerSeconds = 120;
+            // Get AFK timer from settings modal if available
+            let afkTimerSeconds = 120; // default
+            const afkTimerInput = document.getElementById('afkTimer');
+            if (afkTimerInput && afkTimerInput.value) {
+                const parsed = parseInt(afkTimerInput.value, 10);
+                if (!isNaN(parsed) && parsed > 0) afkTimerSeconds = parsed;
+            }
             if (timestamps.length >= 2) {
                 for (let i = 1; i < timestamps.length; i++) {
                     const gap = timestamps[i] - timestamps[i-1];

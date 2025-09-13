@@ -186,7 +186,7 @@ class SentenceSearchApp {
         
         // Format timestamp to ISO format
         const date = new Date(result.timestamp * 1000);
-        const formattedDate = date.toISOString().split('T')[0] + ' ' + date.toTimeString().split(' ')[0];
+        const formattedDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${date.toTimeString().split(' ')[0]}`;
         
         div.innerHTML = `
             <div class="result-sentence">${highlightedText}</div>
