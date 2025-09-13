@@ -277,7 +277,7 @@ class SettingsManager {
             this.heatmapYearSelect.addEventListener('change', (e) => {
                 const selectedYear = e.target.value;
                 localStorage.setItem('selectedHeatmapYear', selectedYear);
-                this.refreshHeatmapData(selectedYear);
+                this.refreshStatsData(); // Use unified refresh function
             });
         }
 

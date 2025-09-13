@@ -30,6 +30,12 @@
     <!-- Include shared navigation -->
     {% include 'components/navigation.html' %}
 
+    <!-- Historical View Indicator -->
+    <div id="historicalViewIndicator" class="historical-view-indicator" style="display: none;">
+        📅 <strong>Historical View:</strong> Showing stats as of <span id="historicalViewDate"></span>
+        <button id="exitHistoricalView" class="exit-historical-btn">Return to Current</button>
+    </div>
+
     <!-- Dashboard Statistics Sections -->
     <div class="dashboard-container">
         <!-- Current Game Statistics Panel -->
@@ -540,6 +546,57 @@
 <script src="/static/js/shared.js"></script>
 <script src="/static/js/kanji-grid.js"></script>
 <script src="/static/js/stats.js"></script>
+
+<style>
+.historical-view-indicator {
+    background: linear-gradient(90deg, #ffeaa7, #fdcb6e);
+    border: 1px solid #e17055;
+    color: #2d3436;
+    padding: 12px 20px;
+    border-radius: 8px;
+    margin: 15px 0;
+    font-size: 14px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    animation: slideIn 0.3s ease-out;
+}
+
+.exit-historical-btn {
+    background: #e17055;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.exit-historical-btn:hover {
+    background: #d63031;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Dark theme support */
+[data-theme="dark"] .historical-view-indicator {
+    background: linear-gradient(90deg, #f39c12, #e67e22);
+    border-color: #d35400;
+    color: #2c3e50;
+}
+</style>
 
 </body>
 </html>

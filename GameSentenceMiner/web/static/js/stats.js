@@ -835,6 +835,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     updateGoalProgressWithData(data);
                 }
 
+                // Update historical view indicator
+                updateHistoricalViewIndicator(cutoffDate);
+
                 return data;
             })
             .catch(error => {
@@ -843,6 +846,49 @@ document.addEventListener('DOMContentLoaded', function () {
                 throw error;
             });
     }
+
+    // Historical View Indicator functionality
+    function updateHistoricalViewIndicator(cutoffDate) {
+        const indicator = document.getElementById('historicalViewIndicator');
+        const dateSpan = document.getElementById('historicalViewDate');
+        
+        if (cutoffDate) {
+            if (indicator && dateSpan) {
+                dateSpan.textContent = cutoffDate;
+                indicator.style.display = 'flex';
+            }
+        } else {
+            if (indicator) {
+                indicator.style.display = 'none';
+            }
+        }
+    }
+
+    function exitHistoricalView() {
+        // Clear the historical date
+        localStorage.removeItem('selectedHistoricalDate');
+        
+        // Clear the input if it exists
+        const historicalDateInput = document.getElementById('historicalDate');
+        if (historicalDateInput) {
+            historicalDateInput.value = '';
+        }
+        
+        // Hide the indicator
+        updateHistoricalViewIndicator(null);
+        
+        // Refresh the stats
+        const savedYear = localStorage.getItem('selectedHeatmapYear') || 'all';
+        loadStatsData(savedYear, null);
+    }
+
+    // Add event listener for exit historical view button
+    document.addEventListener('DOMContentLoaded', function() {
+        const exitBtn = document.getElementById('exitHistoricalView');
+        if (exitBtn) {
+            exitBtn.addEventListener('click', exitHistoricalView);
+        }
+    });
 
     // Goal Progress Chart functionality
     let goalSettings = {
