@@ -43,6 +43,30 @@ if (window.Chart) {
 // Statistics Page JavaScript
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
+// Global variable to cache AFK timer setting
+let globalAFKTimerSeconds = 120; // Default fallback
+
+// Function to fetch AFK timer setting from API
+async function fetchAFKTimerSetting() {
+    try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+            const settings = await response.json();
+            globalAFKTimerSeconds = settings.afk_timer_seconds || 120;
+            return globalAFKTimerSeconds;
+        } else {
+            console.warn('Failed to fetch AFK timer setting, using default');
+            return 120;
+        }
+    } catch (error) {
+        console.error('Error fetching AFK timer setting:', error);
+        return 120;
+    }
+}
+
+// Initialize AFK timer setting on page load
+fetchAFKTimerSetting();
+
 document.addEventListener('DOMContentLoaded', function () {
     // Helper function to create a chart to avoid repeating code
     function createChart(canvasId, datasets, chartTitle) {
@@ -196,7 +220,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Calculate reading time for each day with activity
             let totalHours = 0;
             let activeDays = 0;
-            const afkTimerSeconds = 120; // Default AFK timer - should be fetched from settings
+            const afkTimerSeconds = globalAFKTimerSeconds; // Use global AFK timer setting
             
             for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
                 if (timestamps.length >= 2) {
@@ -750,9 +774,11 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadStatsData(filterYear = null) {
         const url = filterYear && filterYear !== 'all' ? `/api/stats?year=${filterYear}` : '/api/stats';
         
-        return fetch(url)
-            .then(response => response.json())
-            .then(data => {
+        // Ensure AFK timer setting is loaded before processing stats
+        return fetchAFKTimerSetting().then(() => {
+            return fetch(url)
+                .then(response => response.json())
+                .then(data => {
                 // Store all lines data globally for heatmap calculations
                 if (data.allLinesData && Array.isArray(data.allLinesData)) {
                     window.allLinesData = data.allLinesData;
@@ -834,6 +860,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 showDashboardError();
                 throw error;
             });
+        });
     }
 
     // Goal Progress Chart functionality
@@ -899,7 +926,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (timestamps.length >= 2) {
                     timestamps.sort((a, b) => a - b);
                     let dayHours = 0;
-                    const afkTimerSeconds = 120; // Default AFK timer
+                    const afkTimerSeconds = globalAFKTimerSeconds; // Use global AFK timer setting
                     
                     for (let i = 1; i < timestamps.length; i++) {
                         const gap = timestamps[i] - timestamps[i-1];
@@ -1142,6 +1169,8 @@ document.addEventListener('DOMContentLoaded', function () {
     window.addEventListener('settingsUpdated', () => {
         setTimeout(() => {
             loadGoalProgress();
+            // Refresh the AFK timer setting when settings are updated
+            fetchAFKTimerSetting();
         }, 500);
     });
 
@@ -1213,8 +1242,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 .map(l => parseFloat(l.timestamp))
                 .filter(ts => !isNaN(ts))
                 .sort((a, b) => a - b);
-            // Get AFK timer from settings modal if available
-            let afkTimerSeconds = 120; // default
+            // Get AFK timer from settings modal if available, otherwise use global setting
+            let afkTimerSeconds = globalAFKTimerSeconds;
             const afkTimerInput = document.getElementById('afkTimer');
             if (afkTimerInput && afkTimerInput.value) {
                 const parsed = parseInt(afkTimerInput.value, 10);
