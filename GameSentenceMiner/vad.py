@@ -50,7 +50,7 @@ class VADSystem:
                     if not get_config().vad.use_tts_as_fallback:
                         logger.warning("Failed to get audio, and tts fallback is not on.") 
                     text_to_tts = game_line.text  
-                    url = get_config().vad.tts_url.replace("%s", text_to_tts)           
+                    url = get_config().vad.tts_url.replace("$s", text_to_tts)           
                     tts_resp = requests.get(url)     
                     if not tts_resp.ok:
                         logger.error(f"Error fetching TTS audio from {tts_url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
