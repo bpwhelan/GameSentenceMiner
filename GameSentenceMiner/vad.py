@@ -53,7 +53,7 @@ class VADSystem:
                     url = get_config().vad.tts_url.replace("%s", text_to_tts)           
                     tts_resp = requests.get(url)     
                     if not tts_resp.ok:
-                        logger.error(f"Error fetching TTS audio from {tts_url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
+                        logger.error(f"Error fetching TTS audio from {url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
                         return result
                     tts_path = tempfile.mktemp(suffix=".opus")
                     with open(tts_path, "wb") as f:
