@@ -495,6 +495,7 @@ def get_video_timings(video_path, game_line, anki_card_creation_time=None):
     total_seconds = file_length - time_delta.total_seconds()
     total_seconds_after_offset = total_seconds + get_config().audio.beginning_offset
     if total_seconds < 0 or total_seconds >= file_length:
+        logger.debug(f"get_video_timings: file_mod_time={file_mod_time}, file_length={file_length}, time_delta={time_delta}, total_seconds={total_seconds}, total_seconds_after_offset={total_seconds_after_offset}")
         logger.error("Line mined is outside of the replay buffer! Defaulting to the last 30 seconds of the replay buffer.")
         logger.info("Recommend either increasing replay buffer length in OBS Settings or mining faster.")
         return max(file_length - 30, 0), 0, max(file_length - 30, 0), file_length

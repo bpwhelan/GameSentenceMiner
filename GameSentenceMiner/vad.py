@@ -185,7 +185,7 @@ class WhisperVADProcessor(VADProcessor):
         # Transcribe the audio using Whisper
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result: WhisperResult = self.vad_model.transcribe(temp_wav, vad=True, language=get_config().vad.language,
+            result: WhisperResult = self.vad_model.transcribe(temp_wav, vad=True, language=get_config().vad.language, vad_filter=get_config().vad.use_vad_filter_for_whisper,
                                                              temperature=0.0)
         voice_activity = []
 
@@ -406,6 +406,7 @@ def test_vad_processors():
     get_config().vad.cut_and_splice_segments = False
     get_config().vad.trim_beginning = True
     get_config().vad.add_audio_on_no_results = True
+    get_config().vad.use_vad_filter_for_whisper = False
     for processor, out_name in processors:
         logger.info("Testing Trim Audio with " + processor.vad_system_name)
         out_path = os.path.join(output_dir, out_name.replace("after_splice_", "after_trim_"))

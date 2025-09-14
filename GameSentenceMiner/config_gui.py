@@ -366,6 +366,7 @@ class ConfigApp:
         self.language_value = tk.StringVar(value=self.settings.vad.language)
         self.cut_and_splice_segments_value = tk.BooleanVar(value=self.settings.vad.cut_and_splice_segments)
         self.splice_padding_value = tk.StringVar(value=str(self.settings.vad.splice_padding) if self.settings.vad.splice_padding else "")
+        self.use_vad_filter_for_whisper_value = tk.BooleanVar(value=self.settings.vad.use_vad_filter_for_whisper)
         
         # Advanced Settings
         self.audio_player_path_value = tk.StringVar(value=self.settings.advanced.audio_player_path)
@@ -598,6 +599,7 @@ class ConfigApp:
                 cut_and_splice_segments=self.cut_and_splice_segments_value.get(),
                 splice_padding=float(self.splice_padding_value.get()) if self.splice_padding_value.get() else 0.0,
                 use_cpu_for_inference=self.use_cpu_for_inference_value.get(),
+                use_vad_filter_for_whisper=self.use_vad_filter_for_whisper_value.get(),
             ),
             advanced=Advanced(
                 audio_player_path=self.audio_player_path_value.get(),
@@ -1148,6 +1150,12 @@ class ConfigApp:
         use_cpu_i18n = vad_i18n.get('use_cpu_for_inference', {})
         HoverInfoLabelWidget(vad_frame, text=use_cpu_i18n.get('label', 'Force CPU'), tooltip=use_cpu_i18n.get('tooltip', 'Even if CUDA is installed, use CPU for Whisper'), row=self.current_row, column=0)
         ttk.Checkbutton(vad_frame, variable=self.use_cpu_for_inference_value, bootstyle="round-toggle").grid(row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+        
+        # TODO Add Localization
+        use_vad_filter_for_whisper_i18n = vad_i18n.get('use_vad_filter_for_whisper', {})
+        HoverInfoLabelWidget(vad_frame, text=use_vad_filter_for_whisper_i18n.get('label', 'Use VAD Filter for Whisper'), tooltip=use_vad_filter_for_whisper_i18n.get('tooltip', 'Uses Silero to Filter out Non-Voiced Segments before Transcribing with Whisper.'), row=self.current_row, column=0)
+        ttk.Checkbutton(vad_frame, variable=self.use_vad_filter_for_whisper_value, bootstyle="round-toggle").grid(row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
         
         # Add Reset Button

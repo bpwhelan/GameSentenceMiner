@@ -561,6 +561,7 @@ class VAD:
     cut_and_splice_segments: bool = False
     splice_padding: float = 0.1
     use_cpu_for_inference: bool = False
+    use_vad_filter_for_whisper: bool = True
 
     def is_silero(self):
         return self.selected_vad_model == SILERO or self.backup_vad_model == SILERO
