@@ -42,8 +42,23 @@ class VADSystem:
                     logger.info("No voice activity detected, using full audio.")
                     result.output_audio = input_audio
                 else:
-                    logger.info("No voice activity detected.")
-                    return result
+                    # TTS fallback
+                    logger.info("No voice activity detected, using TTS fallback.")
+                    if not game_line or not game_line.text:
+                        logger.error("No game line text available for TTS fallback. Please consider setting 'Add Audio on No Results' to true.")
+                        return result 
+                    text_to_tts = game_line.text
+                    if not get_config().vad.use_tts_as_fallback:
+                        logger.warning("Failed to get audio, and tts fallback is not on.")   
+                    url = get_config().vad.tts_url.replace("%s", text_to_tts)                
+                    if not tts_resp.ok:
+                        logger.error(f"Error fetching TTS audio from {tts_url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
+                        return result
+                    tts_path = tempfile.mktemp(suffix=".opus")
+                    with open(tts_path, "wb") as f:
+                        f.write(tts_resp.content)
+                    result.output_audio = tts_path
+                    result.success = True
             else:
                 logger.info(result.trim_successful_string())
             return result
