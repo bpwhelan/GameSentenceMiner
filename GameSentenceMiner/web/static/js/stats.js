@@ -66,10 +66,9 @@ async function fetchAFKTimerSetting() {
     }
 }
 
-// Initialize AFK timer setting on page load
-fetchAFKTimerSetting();
-
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', async function () {
+    // Initialize AFK timer setting before other initialization to ensure it's available
+    await fetchAFKTimerSetting();
     // Helper function to create a chart to avoid repeating code
     function createChart(canvasId, datasets, chartTitle) {
         const ctx = document.getElementById(canvasId).getContext('2d');
