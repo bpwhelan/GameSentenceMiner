@@ -47,10 +47,11 @@ class VADSystem:
                     if not game_line or not game_line.text:
                         logger.error("No game line text available for TTS fallback. Please consider setting 'Add Audio on No Results' to true.")
                         return result 
-                    text_to_tts = game_line.text
                     if not get_config().vad.use_tts_as_fallback:
-                        logger.warning("Failed to get audio, and tts fallback is not on.")   
-                    url = get_config().vad.tts_url.replace("%s", text_to_tts)                
+                        logger.warning("Failed to get audio, and tts fallback is not on.") 
+                    text_to_tts = game_line.text  
+                    url = get_config().vad.tts_url.replace("%s", text_to_tts)           
+                    tts_resp = requests.get(url)     
                     if not tts_resp.ok:
                         logger.error(f"Error fetching TTS audio from {tts_url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
                         return result
