@@ -774,11 +774,9 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadStatsData(filterYear = null) {
         const url = filterYear && filterYear !== 'all' ? `/api/stats?year=${filterYear}` : '/api/stats';
         
-        // Ensure AFK timer setting is loaded before processing stats
-        return fetchAFKTimerSetting().then(() => {
-            return fetch(url)
-                .then(response => response.json())
-                .then(data => {
+        return fetch(url)
+            .then(response => response.json())
+            .then(data => {
                 // Store all lines data globally for heatmap calculations
                 if (data.allLinesData && Array.isArray(data.allLinesData)) {
                     window.allLinesData = data.allLinesData;
@@ -860,7 +858,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 showDashboardError();
                 throw error;
             });
-        });
     }
 
     // Goal Progress Chart functionality
