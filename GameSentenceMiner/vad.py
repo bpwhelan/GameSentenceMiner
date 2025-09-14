@@ -56,9 +56,9 @@ class VADSystem:
                     if not tts_resp.ok:
                         logger.error(f"Error fetching TTS audio from {url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
                         return result
-                    tts_path = tempfile.mktemp(suffix=".opus")
-                    with open(tts_path, "wb") as f:
-                        f.write(tts_resp.content)
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".opus") as tmpfile:
+                        tmpfile.write(tts_resp.content)
+                        tts_path = tmpfile.name
                     result.output_audio = tts_path
                     result.success = True
             else:
