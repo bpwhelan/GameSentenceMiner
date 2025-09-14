@@ -1168,7 +1168,13 @@ document.addEventListener('DOMContentLoaded', async function () {
         setTimeout(() => {
             loadGoalProgress();
             // Refresh the AFK timer setting when settings are updated
-            fetchAFKTimerSetting();
+            (async () => {
+                try {
+                    await fetchAFKTimerSetting();
+                } catch (error) {
+                    console.error('Error refreshing AFK timer setting:', error);
+                }
+            })();
         }, 500);
     });
 
