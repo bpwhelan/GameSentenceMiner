@@ -56,10 +56,12 @@ async function fetchAFKTimerSetting() {
             return globalAFKTimerSeconds;
         } else {
             console.warn('Failed to fetch AFK timer setting, using default');
+            globalAFKTimerSeconds = 120;
             return 120;
         }
     } catch (error) {
         console.error('Error fetching AFK timer setting:', error);
+        globalAFKTimerSeconds = 120;
         return 120;
     }
 }
