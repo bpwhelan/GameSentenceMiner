@@ -1113,6 +1113,7 @@ class ConfigApp:
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
+        # TODO ADD LOCALIZATION
         tts_fallback_i18n = vad_i18n.get('use_tts_as_fallback', {})
         HoverInfoLabelWidget(vad_frame, text=tts_fallback_i18n.get('label', 'Use TTS as Fallback.'), tooltip=tts_fallback_i18n.get('tooltip', 'Use TTS if no audio is detected'), row=self.current_row, column=0)
         ttk.Checkbutton(vad_frame, variable=self.use_tts_as_fallback_value, bootstyle="round-toggle").grid(row=self.current_row, column=1, sticky='W', pady=2)
