@@ -1,6 +1,7 @@
 import tempfile
 import time
 import warnings
+import requests
 from abc import abstractmethod, ABC
 
 from GameSentenceMiner.util import configuration, ffmpeg
