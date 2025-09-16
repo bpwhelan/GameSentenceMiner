@@ -520,6 +520,28 @@
     </div>
 
 
+    {% set afk_timer = stats_config.afk_timer_seconds | default(120) %}
+    {% set session_gap = stats_config.session_gap_seconds | default(3600) %}
+    {% set streak_req = config.advanced.streak_requirement_hours | default(1.0) %}
+    {% set hours_target = stats_config.reading_hours_target | default(1500) %}
+    {% set chars_target = stats_config.character_count_target | default(25000000) %}
+    {% set games_target = stats_config.games_target | default(100) %}
+    {% set heatmap_year = 'all' %}
+
+    {% set stats_config = {
+        'afkTimerSeconds': afk_timer,
+        'sessionGapSeconds': session_gap,
+        'streakRequirementHours': streak_req,
+        'readingHoursTarget': hours_target,
+        'characterCountTarget': chars_target,
+        'gamesTarget': games_target,
+        'heatmapDisplayYear': heatmap_year
+    } %}
+
+    <!-- Inject stats config values for frontend -->
+    <script>
+      window.statsConfig = {{ stats_config | tojson }};
+    </script>
     <!-- Include shared JavaScript first (required dependency for stats.js) -->
     <script src="/static/js/shared.js"></script>
     <script src="/static/js/kanji-grid.js"></script>

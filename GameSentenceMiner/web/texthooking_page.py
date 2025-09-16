@@ -261,7 +261,11 @@ def datetimeformat(value, format='%Y-%m-%d %H:%M:%S'):
 @app.route('/stats')
 def stats():
     """Renders the stats page."""
-    return render_template('stats.html')
+    from GameSentenceMiner.util.configuration import get_master_config, get_stats_config
+    return render_template('stats.html',
+                         config=get_config(),
+                         master_config=get_master_config(),
+                         stats_config=get_stats_config())
 
 @app.route('/api/anki_stats')
 def api_anki_stats():

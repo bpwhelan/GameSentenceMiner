@@ -152,11 +152,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 tempStreak = 0;
             }
         }
-        
-        // Calculate current streak from today backwards
+
+        // Calculate current streak from today backwards, using streak requirement hours from config
         const date = new Date();
         const today = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-        
+        const streakRequirement = window.statsConfig ? window.statsConfig.streakRequirementHours : 1.0;
+
         // Find today's index or the most recent date before today
         let todayIndex = -1;
         for (let i = dates.length - 1; i >= 0; i--) {
@@ -165,11 +166,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 break;
             }
         }
-        
+
         // Count backwards from today (or most recent date)
         if (todayIndex >= 0) {
             for (let i = todayIndex; i >= 0; i--) {
-                if (dates[i].activity > 0) {
+                if (dates[i].activity >= streakRequirement) {
                     currentStreak++;
                 } else {
                     break;
@@ -196,18 +197,24 @@ document.addEventListener('DOMContentLoaded', function () {
             // Calculate reading time for each day with activity
             let totalHours = 0;
             let activeDays = 0;
-            const afkTimerSeconds = 120; // Default AFK timer - should be fetched from settings
-            
+            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
+            // Try to get AFK timer from settings modal if available and valid
+            const afkTimerInput = document.getElementById('afkTimer');
+            if (afkTimerInput && afkTimerInput.value) {
+                const parsed = parseInt(afkTimerInput.value, 10);
+                if (!isNaN(parsed) && parsed > 0) afkTimerSeconds = parsed;
+            }
+
             for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
                 if (timestamps.length >= 2) {
                     timestamps.sort((a, b) => a - b);
                     let dayReadingTime = 0;
-                    
+
                     for (let i = 1; i < timestamps.length; i++) {
                         const gap = timestamps[i] - timestamps[i-1];
                         dayReadingTime += Math.min(gap, afkTimerSeconds);
                     }
-                    
+
                     if (dayReadingTime > 0) {
                         totalHours += dayReadingTime / 3600;
                         activeDays++;
@@ -837,14 +844,20 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Goal Progress Chart functionality
-    let goalSettings = {
-        reading_hours_target: 1500,
-        character_count_target: 25000000,
-        games_target: 100
-    };
+    let goalSettings = window.statsConfig || {};
+    if (!goalSettings.reading_hours_target) goalSettings.reading_hours_target = 1500;
+    if (!goalSettings.character_count_target) goalSettings.character_count_target = 25000000;
+    if (!goalSettings.games_target) goalSettings.games_target = 100;
 
-    // Function to load goal settings from API
+    // Function to load goal settings from API (fallback)
     async function loadGoalSettings() {
+        // Use global config if available, otherwise fetch
+        if (window.statsConfig) {
+            goalSettings.reading_hours_target = window.statsConfig.readingHoursTarget || 1500;
+            goalSettings.character_count_target = window.statsConfig.characterCountTarget || 25000000;
+            goalSettings.games_target = window.statsConfig.gamesTarget || 100;
+            return;
+        }
         try {
             const response = await fetch('/api/settings');
             if (response.ok) {
@@ -899,8 +912,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (timestamps.length >= 2) {
                     timestamps.sort((a, b) => a - b);
                     let dayHours = 0;
-                    const afkTimerSeconds = 120; // Default AFK timer
-                    
+                    let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
+                    // Try to get AFK timer from settings modal if available and valid
+                    const afkTimerInput = document.getElementById('afkTimer');
+                    if (afkTimerInput && afkTimerInput.value) {
+                        const parsed = parseInt(afkTimerInput.value, 10);
+                        if (!isNaN(parsed) && parsed > 0) afkTimerSeconds = parsed;
+                    }
+
                     for (let i = 1; i < timestamps.length; i++) {
                         const gap = timestamps[i] - timestamps[i-1];
                         dayHours += Math.min(gap, afkTimerSeconds) / 3600;
@@ -1099,8 +1118,31 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Initial load with saved year preference
-    const savedYear = localStorage.getItem('selectedHeatmapYear') || 'all';
+    const savedYear = localStorage.getItem('selectedHeatmapYear') || window.statsConfig?.heatmapDisplayYear || 'all';
     loadStatsData(savedYear);
+
+    // Populate settings modal with global config values on load
+    document.addEventListener('DOMContentLoaded', function() {
+        if (window.statsConfig) {
+            const sessionGapInput = document.getElementById('sessionGap');
+            if (sessionGapInput) sessionGapInput.value = window.statsConfig.sessionGapSeconds || 3600;
+
+            const streakReqInput = document.getElementById('streakRequirement');
+            if (streakReqInput) streakReqInput.value = window.statsConfig.streakRequirementHours || 1.0;
+
+            const heatmapYearSelect = document.getElementById('heatmapYear');
+            if (heatmapYearSelect) heatmapYearSelect.value = window.statsConfig.heatmapDisplayYear || 'all';
+
+            const hoursTargetInput = document.getElementById('readingHoursTarget');
+            if (hoursTargetInput) hoursTargetInput.value = window.statsConfig.readingHoursTarget || 1500;
+
+            const charsTargetInput = document.getElementById('characterCountTarget');
+            if (charsTargetInput) charsTargetInput.value = window.statsConfig.characterCountTarget || 25000000;
+
+            const gamesTargetInput = document.getElementById('gamesTarget');
+            if (gamesTargetInput) gamesTargetInput.value = window.statsConfig.gamesTarget || 100;
+        }
+    });
 
     // Function to update goal progress using existing stats data
     async function updateGoalProgressWithData(statsData) {
@@ -1178,9 +1220,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // Calculate sessions (count gaps > session threshold as new sessions)
             let sessions = 0;
-            const sessionGapDefault = 3600; // 1 hour in seconds
-            // Try to get session gap from settings modal if available
-            let sessionGap = sessionGapDefault;
+            let sessionGap = window.statsConfig ? window.statsConfig.sessionGapSeconds : 3600;
+            // Try to get session gap from settings modal if available and valid
             const sessionGapInput = document.getElementById('sessionGap');
             if (sessionGapInput && sessionGapInput.value) {
                 const parsed = parseInt(sessionGapInput.value, 10);
@@ -1214,7 +1255,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 .filter(ts => !isNaN(ts))
                 .sort((a, b) => a - b);
             // Get AFK timer from settings modal if available
-            let afkTimerSeconds = 120; // default
+            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             const afkTimerInput = document.getElementById('afkTimer');
             if (afkTimerInput && afkTimerInput.value) {
                 const parsed = parseInt(afkTimerInput.value, 10);
