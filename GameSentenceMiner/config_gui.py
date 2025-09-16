@@ -399,6 +399,8 @@ class ConfigApp:
         self.overlay_websocket_port_value = tk.StringVar(value=str(self.settings.overlay.websocket_port))
         self.overlay_websocket_send_value = tk.BooleanVar(value=self.settings.overlay.monitor_to_capture)
         self.overlay_engine_value = tk.StringVar(value=self.settings.overlay.engine)
+        self.periodic_value = tk.BooleanVar(value=self.settings.overlay.periodic)
+        self.periodic_interval_value = tk.StringVar(value=str(self.settings.overlay.periodic_interval))
         
         # Master Config Settings
         self.switch_to_default_if_not_found_value = tk.BooleanVar(value=self.master_config.switch_to_default_if_not_found)
@@ -634,7 +636,9 @@ class ConfigApp:
             overlay=Overlay(
                 websocket_port=int(self.overlay_websocket_port_value.get()),
                 monitor_to_capture=self.overlay_monitor.current() if self.monitors else 0,
-                engine=OverlayEngine(self.overlay_engine_value.get()).value if self.overlay_engine_value.get() else OverlayEngine.LENS.value
+                engine=OverlayEngine(self.overlay_engine_value.get()).value if self.overlay_engine_value.get() else OverlayEngine.LENS.value,
+                periodic=self.periodic_value.get(),
+                periodic_interval=self.periodic_interval_value.get(),
             )
             # wip=WIP(
             #     overlay_websocket_port=int(self.overlay_websocket_port_value.get()),
@@ -1176,6 +1180,13 @@ class ConfigApp:
         # Add Reset Button
         self.add_reset_button(vad_frame, "vad", self.current_row, column=0, recreate_tab=self.create_vad_tab)
 
+        for col in range(3):
+            vad_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            vad_frame.grid_rowconfigure(row, minsize=30)
+
+        return vad_frame
+
     @new_tab
     def create_paths_tab(self):
         if self.paths_tab is None:
@@ -1198,7 +1209,7 @@ class ConfigApp:
         ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(folder_watch_entry),
                    bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
         self.current_row += 1
-        
+
         # Combine "Copy temp files to output folder" and "Output folder" on one row
         copy_to_output_i18n = paths_i18n.get('copy_temp_files_to_output_folder', {})
         combined_i18n = paths_i18n.get('output_folder', {})
@@ -2073,7 +2084,7 @@ class ConfigApp:
         entry = ttk.Entry(ai_frame, textvariable=self.open_ai_url_value)
         entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
-        
+
         entry.bind("<FocusOut>", lambda e, row=self.current_row: self.update_models_element(ai_frame, row))
         entry.bind("<Return>", lambda e, row=self.current_row: self.update_models_element(ai_frame, row))
 
@@ -2268,6 +2279,21 @@ class ConfigApp:
                                            textvariable=self.overlay_engine_value)
         self.overlay_engine.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
+        
+        # Periodic Settings
+        periodic_i18n = overlay_i18n.get('periodic', {})
+        HoverInfoLabelWidget(overlay_frame, text=periodic_i18n.get('label', 'Periodic:'),
+                             tooltip=periodic_i18n.get('tooltip', 'Enable periodic Scanning.'),
+                             row=self.current_row, column=0)
+        ttk.Checkbutton(overlay_frame, variable=self.periodic_value, bootstyle="round-toggle").grid(
+            row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+        periodic_interval_i18n = overlay_i18n.get('periodic_interval', {})
+        HoverInfoLabelWidget(overlay_frame, text=periodic_interval_i18n.get('label', 'Periodic Interval:'),
+                             tooltip=periodic_interval_i18n.get('tooltip', 'Interval for periodic scanning.'),
+                             row=self.current_row, column=0)
+        ttk.Entry(overlay_frame, textvariable=self.periodic_interval_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
 
         if self.monitors:
             # Ensure the index is valid
@@ -2308,7 +2334,7 @@ class ConfigApp:
             # self.controller_hotkey_entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
             
             # listen_for_input_button = ttk.Button(wip_frame, text="Listen for Input", command=lambda: self.listen_for_controller_input())
-            # listen_for_input_button.grid(row=self.current_row, column=2, sticky='EW', pady=2)
+            # listen_for_input_button.grid(row=self.current_row, column=2, sticky='EW', pady=2, padx=5)
             # self.current_row += 1
 
         except Exception as e:
@@ -2421,6 +2447,7 @@ class ConfigApp:
             default_path = get_default_anki_media_collection_path()
             if default_path != self.anki_media_collection_value.get():
                 self.anki_media_collection_value.set(default_path)
+               
                 self.save_settings()
 
 

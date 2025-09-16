@@ -559,7 +559,7 @@ class VAD:
     beginning_offset: float = -0.25
     add_audio_on_no_results: bool = False
     use_tts_as_fallback: bool = False
-    tts_url: str = 'http://127.0.0.1:5050/?term=$s' # I wrote it like this so people can see how their endpoint is meant to look
+    tts_url: str = 'http://127.0.0.1:5050/?term=$s'
     cut_and_splice_segments: bool = False
     splice_padding: float = 0.1
     use_cpu_for_inference: bool = False
@@ -644,6 +644,8 @@ class Overlay:
     websocket_port: int = 55499
     engine: str = OverlayEngine.LENS.value
     monitor_to_capture: int = 0
+    periodic: bool = False
+    periodic_interval: float = 1.0
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:

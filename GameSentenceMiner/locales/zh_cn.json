@@ -268,6 +268,14 @@
           "use_cpu_for_inference": {
             "label": "强制使用 CPU:",
             "tooltip": "即使已安装 CUDA，也强制使用 CPU 运行 Whisper"
+          },
+          "use_tts_as_fallback": {
+            "label": "使用 TTS 作为后备:",
+            "tooltip": "在未找到音频时使用文本转语音作为后备。"
+          },
+          "tts_url": {
+            "label": "TTS URL:",
+            "tooltip": "文本转语音服务的 URL。使用 $s 作为文本的占位符。"
           }
         },
         "features": {
@@ -564,6 +572,14 @@
           "overlay_engine": {
             "label": "覆盖层引擎:",
             "tooltip": "为覆盖层选择 OCR 引擎。如果您使用的是 lens，并且在 windows 上，它将使用 OneOCR 来优化扫描。"
+          },
+          "periodic": {
+            "label": "定期捕获:",
+            "tooltip": "启用定期屏幕捕获以进行 OCR 处理。"
+          },
+          "periodic_interval": {
+            "label": "捕获间隔（秒）:",
+            "tooltip": "定期屏幕捕获的时间间隔（秒）。"
           }
         },
         "wip": {

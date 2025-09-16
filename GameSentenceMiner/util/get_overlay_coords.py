@@ -4,6 +4,7 @@ import base64
 import json
 import math
 import os
+import threading
 import time
 from PIL import Image
 from typing import Dict, Any, List, Tuple
@@ -16,6 +17,7 @@ from GameSentenceMiner.util.configuration import OverlayEngine, get_config, is_w
 from GameSentenceMiner.util.electron_config import get_ocr_language
 from GameSentenceMiner.obs import get_screenshot_PIL
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
+from GameSentenceMiner.web.gsm_websocket import overlay_server_thread
 
 # def align_and_correct(ocr_json, reference_text):
 #     logger.info(f"Starting align_and_correct with reference_text: '{reference_text}'")
@@ -80,6 +82,32 @@ try:
     import mss
 except ImportError:
     mss = None
+    
+class OverlayThread(threading.Thread):
+    """
+    A thread to run the overlay processing loop.
+    This is a simple wrapper around asyncio to run the overlay processing
+    in a separate thread.
+    """
+    def __init__(self):
+        super().__init__()
+        self.overlay_processor = OverlayProcessor()
+        self.loop = asyncio.new_event_loop()
+        self.daemon = True  # Ensure thread exits when main program exits
+
+    def run(self):
+        """Runs the overlay processing loop."""
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_until_complete(self.overlay_loop())
+
+    async def overlay_loop(self):
+        """Main loop to periodically process and send overlay data."""
+        while True:
+            if get_config().overlay.periodic and overlay_server_thread.has_clients():
+                await self.overlay_processor.find_box_and_send_to_overlay('')
+                await asyncio.sleep(get_config().overlay.periodic_interval)  # Adjust the interval as needed
+            else:
+                await asyncio.sleep(3)  # Sleep briefly when not active
 
 class OverlayProcessor:
     """
@@ -254,7 +282,7 @@ class OverlayProcessor:
                 return_coords=True,
                 multiple_crop_coords=True,
                 return_one_box=False,
-                furigana_filter_sensitivity=None # Disable furigana filtering
+                furigana_filter_sensitivity=None, # Disable furigana filtering
             )
 
             # 3. Create a composite image with only the detected text regions

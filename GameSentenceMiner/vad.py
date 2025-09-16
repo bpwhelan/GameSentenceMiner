@@ -38,56 +38,7 @@ class VADSystem:
             if not result.success and get_config().vad.backup_vad_model != configuration.OFF:
                 logger.info("No voice activity detected, using backup VAD model.")
                 result = self._do_vad_processing(get_config().vad.backup_vad_model, input_audio, output_audio, game_line)
-            if not result.success:
-                if get_config().vad.add_audio_on_no_results:
-                    logger.info("No voice activity detected, using full audio.")
-                    result.output_audio = input_audio
-                    return result
-                # TTS fallback should be handled after the return
-                return result
-            else:
-                logger.info(result.trim_successful_string())
             return result
-
-        if (
-            get_config().vad.do_vad_postprocessing
-            and not result.success
-            and not get_config().vad.add_audio_on_no_results
-            and get_config().vad.use_tts_as_fallback
-            and game_line
-            and getattr(game_line, "text", None)
-        ):
-            text_to_tts = game_line.text
-            url = get_config().vad.tts_url.replace("$s", text_to_tts)
-            tts_resp = requests.get(url)
-            if not tts_resp.ok:
-                logger.error(f"Error fetching TTS audio from {url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
-                return result
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".opus") as tmpfile:
-                tmpfile.write(tts_resp.content)
-                tts_path = tmpfile.name
-            result.output_audio = tts_path
-            result.success = True
-            return result
-        elif (
-            get_config().vad.do_vad_postprocessing
-            and not result.success
-            and not get_config().vad.add_audio_on_no_results
-            and (not game_line or not getattr(game_line, "text", None))
-        ):
-            logger.error("No game line text available for TTS fallback. Please consider setting 'Add Audio on No Results' to true.")
-            return result
-        elif (
-            get_config().vad.do_vad_postprocessing
-            and not result.success
-            and not get_config().vad.add_audio_on_no_results
-            and not get_config().vad.use_tts_as_fallback
-        ):
-            logger.warning("Failed to get audio, and tts fallback is not on.")
-            return result
-        else:
-            return VADResult(True, 0, get_audio_length(input_audio), "OFF", [], input_audio)
-
 
     def _do_vad_processing(self, model, input_audio, output_audio, game_line):
         match model:
