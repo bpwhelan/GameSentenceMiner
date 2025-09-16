@@ -1122,27 +1122,25 @@ document.addEventListener('DOMContentLoaded', function () {
     loadStatsData(savedYear);
 
     // Populate settings modal with global config values on load
-    document.addEventListener('DOMContentLoaded', function() {
-        if (window.statsConfig) {
-            const sessionGapInput = document.getElementById('sessionGap');
-            if (sessionGapInput) sessionGapInput.value = window.statsConfig.sessionGapSeconds || 3600;
+    if (window.statsConfig) {
+        const sessionGapInput = document.getElementById('sessionGap');
+        if (sessionGapInput) sessionGapInput.value = window.statsConfig.sessionGapSeconds || 3600;
 
-            const streakReqInput = document.getElementById('streakRequirement');
-            if (streakReqInput) streakReqInput.value = window.statsConfig.streakRequirementHours || 1.0;
+        const streakReqInput = document.getElementById('streakRequirement');
+        if (streakReqInput) streakReqInput.value = window.statsConfig.streakRequirementHours || 1.0;
 
-            const heatmapYearSelect = document.getElementById('heatmapYear');
-            if (heatmapYearSelect) heatmapYearSelect.value = window.statsConfig.heatmapDisplayYear || 'all';
+        const heatmapYearSelect = document.getElementById('heatmapYear');
+        if (heatmapYearSelect) heatmapYearSelect.value = window.statsConfig.heatmapDisplayYear || 'all';
 
-            const hoursTargetInput = document.getElementById('readingHoursTarget');
-            if (hoursTargetInput) hoursTargetInput.value = window.statsConfig.readingHoursTarget || 1500;
+        const hoursTargetInput = document.getElementById('readingHoursTarget');
+        if (hoursTargetInput) hoursTargetInput.value = window.statsConfig.readingHoursTarget || 1500;
 
-            const charsTargetInput = document.getElementById('characterCountTarget');
-            if (charsTargetInput) charsTargetInput.value = window.statsConfig.characterCountTarget || 25000000;
+        const charsTargetInput = document.getElementById('characterCountTarget');
+        if (charsTargetInput) charsTargetInput.value = window.statsConfig.characterCountTarget || 25000000;
 
-            const gamesTargetInput = document.getElementById('gamesTarget');
-            if (gamesTargetInput) gamesTargetInput.value = window.statsConfig.gamesTarget || 100;
-        }
-    });
+        const gamesTargetInput = document.getElementById('gamesTarget');
+        if (gamesTargetInput) gamesTargetInput.value = window.statsConfig.gamesTarget || 100;
+    }
 
     // Function to update goal progress using existing stats data
     async function updateGoalProgressWithData(statsData) {
