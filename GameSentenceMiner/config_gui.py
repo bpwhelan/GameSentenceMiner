@@ -363,6 +363,8 @@ class ConfigApp:
         self.vad_trim_beginning_value = tk.BooleanVar(value=self.settings.vad.trim_beginning)
         self.vad_beginning_offset_value = tk.StringVar(value=str(self.settings.vad.beginning_offset))
         self.add_audio_on_no_results_value = tk.BooleanVar(value=self.settings.vad.add_audio_on_no_results)
+        self.use_tts_as_fallback_value = tk.BooleanVar(value=self.settings.vad.use_tts_as_fallback)
+        self.tts_url_value = tk.StringVar(value=self.settings.vad.tts_url)
         self.language_value = tk.StringVar(value=self.settings.vad.language)
         self.cut_and_splice_segments_value = tk.BooleanVar(value=self.settings.vad.cut_and_splice_segments)
         self.splice_padding_value = tk.StringVar(value=str(self.settings.vad.splice_padding) if self.settings.vad.splice_padding else "")
@@ -595,6 +597,8 @@ class ConfigApp:
                 trim_beginning=self.vad_trim_beginning_value.get(),
                 beginning_offset=float(self.vad_beginning_offset_value.get()),
                 add_audio_on_no_results=self.add_audio_on_no_results_value.get(),
+                use_tts_as_fallback=self.use_tts_as_fallback_value.get(),
+                tts_url=self.tts_url_value.get(),
                 language=self.language_value.get(),
                 cut_and_splice_segments=self.cut_and_splice_segments_value.get(),
                 splice_padding=float(self.splice_padding_value.get()) if self.splice_padding_value.get() else 0.0,
@@ -1109,6 +1113,17 @@ class ConfigApp:
                              tooltip=no_results_i18n.get('tooltip', '...'), row=self.current_row, column=0)
         ttk.Checkbutton(vad_frame, variable=self.add_audio_on_no_results_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+
+        # TODO ADD LOCALIZATION
+        tts_fallback_i18n = vad_i18n.get('use_tts_as_fallback', {})
+        HoverInfoLabelWidget(vad_frame, text=tts_fallback_i18n.get('label', 'Use TTS as Fallback.'), tooltip=tts_fallback_i18n.get('tooltip', 'Use TTS if no audio is detected'), row=self.current_row, column=0)
+        ttk.Checkbutton(vad_frame, variable=self.use_tts_as_fallback_value, bootstyle="round-toggle").grid(row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+
+        tts_url_i18n = vad_i18n.get('tts_url', {})
+        HoverInfoLabelWidget(vad_frame, text=tts_url_i18n.get('label', 'TTS URL'), tooltip=tts_url_i18n.get('tooltip', 'The URL for the TTS service'), row=self.current_row, column=0)
+        ttk.Entry(vad_frame, textvariable=self.tts_url_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         end_offset_i18n = vad_i18n.get('audio_end_offset', {})
