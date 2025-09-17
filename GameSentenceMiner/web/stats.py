@@ -656,7 +656,7 @@ def calculate_all_stats_unified(all_lines, filter_year=None):
             # Extract and validate common data with robust error handling
             try:
                 timestamp = float(getattr(line, 'timestamp', 0))
-                if timestamp <= 0:
+                if timestamp is None or timestamp < 0:
                     logger.warning(f"Invalid timestamp {timestamp} for line {getattr(line, 'id', 'unknown')}")
                     continue
             except (ValueError, TypeError, AttributeError) as e:
