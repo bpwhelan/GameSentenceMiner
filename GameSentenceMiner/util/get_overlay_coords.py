@@ -154,9 +154,9 @@ class OverlayProcessor:
         """
         Sends the detected text boxes to the overlay via WebSocket.
         """
-        boxes = await self.find_box_for_sentence(sentence_to_check)
-        logger.info(f"Sending {len(boxes)} boxes to overlay.")
-        await send_word_coordinates_to_overlay(boxes)
+        await self.find_box_for_sentence(sentence_to_check)
+        # logger.info(f"Sending {len(boxes)} boxes to overlay.")
+        # await send_word_coordinates_to_overlay(boxes)
 
     async def find_box_for_sentence(self, sentence_to_check: str = None) -> List[Dict[str, Any]]:
         """
@@ -284,6 +284,18 @@ class OverlayProcessor:
                 return_one_box=False,
                 furigana_filter_sensitivity=None, # Disable furigana filtering
             )
+            
+            logger.info("Sending OneOCR results to overlay.")
+            await send_word_coordinates_to_overlay(oneocr_results)
+            
+            # If User Home is beangate
+            if is_beangate:
+                with open("oneocr_results.json", "w", encoding="utf-8") as f:
+                    f.write(json.dumps(oneocr_results, ensure_ascii=False, indent=2))
+            
+            if get_config().overlay.engine == OverlayEngine.ONEOCR.value and self.oneocr:
+                logger.info("Using OneOCR results for overlay as configured.")
+                return
 
             # 3. Create a composite image with only the detected text regions
             composite_image = self._create_composite_image(
@@ -294,15 +306,6 @@ class OverlayProcessor:
             )
         else:
             composite_image = full_screenshot
-            
-        # If User Home is beangate
-        if is_beangate:
-            with open("oneocr_results.json", "w", encoding="utf-8") as f:
-                f.write(json.dumps(oneocr_results, ensure_ascii=False, indent=2))
-            
-        if get_config().overlay.engine == OverlayEngine.ONEOCR.value and self.oneocr:
-            logger.info("Using OneOCR results for overlay as configured.")
-            return oneocr_results
         
         # 4. Use Google Lens on the cleaner composite image for higher accuracy
         res = self.lens(
@@ -312,12 +315,12 @@ class OverlayProcessor:
         )
         
         if len(res) != 3:
-            return oneocr_results
+            return
         
         _, _, coords = res
 
         if not res or not coords:
-            return oneocr_results
+            return
         
         # 5. Process the high-accuracy results into the desired format
         extracted_data = self._extract_text_with_pixel_boxes(
@@ -330,8 +333,8 @@ class OverlayProcessor:
             crop_height=composite_image.height,
             use_percentages=True
         )
-        
-        return extracted_data
+        logger.info("Sending Google Lens results to overlay.")
+        await send_word_coordinates_to_overlay(extracted_data)
 
     def _extract_text_with_pixel_boxes(
         self,
