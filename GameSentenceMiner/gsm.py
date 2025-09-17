@@ -314,17 +314,20 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 logger.info("No voice activity detected, using full audio.")
                 vad_result.output_audio = trimmed_audio
             elif get_config().vad.use_tts_as_fallback:
-                logger.info(
-                    "No voice activity detected, using TTS as fallback.")
-                text_to_tts = full_text if full_text else game_line.text
-                url = get_config().vad.tts_url.replace("$s", text_to_tts)
-                tts_resp = requests.get(url)
-                if not tts_resp.ok:
-                    logger.error(
-                        f"Error fetching TTS audio from {url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
-                with tempfile.NamedTemporaryFile(dir=get_temporary_directory(), delete=False, suffix=".opus") as tmpfile:
-                    tmpfile.write(tts_resp.content)
-                    vad_result.output_audio = tmpfile.name
+                try:
+                    logger.info(
+                        "No voice activity detected, using TTS as fallback.")
+                    text_to_tts = full_text if full_text else game_line.text
+                    url = get_config().vad.tts_url.replace("$s", text_to_tts)
+                    tts_resp = requests.get(url)
+                    if not tts_resp.ok:
+                        logger.error(
+                            f"Error fetching TTS audio from {url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
+                    with tempfile.NamedTemporaryFile(dir=get_temporary_directory(), delete=False, suffix=".opus") as tmpfile:
+                        tmpfile.write(tts_resp.content)
+                        vad_result.output_audio = tmpfile.name
+                except Exception as e:
+                    logger.error(f"Error getting TTS audio: {e}, skipping audio.")
         else:
             logger.info(vad_result.trim_successful_string())
         if vad_result.output_audio:
