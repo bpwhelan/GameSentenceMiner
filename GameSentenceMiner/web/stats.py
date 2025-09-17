@@ -580,3 +580,395 @@ def calculate_all_games_stats(all_lines):
         'last_date': datetime.date.fromtimestamp(max_timestamp).strftime('%Y-%m-%d'),
         'daily_activity': dict(daily_activity)
     }
+
+
+def calculate_all_stats_unified(all_lines, filter_year=None):
+    """
+    Calculate all statistics in a single pass through the data.
+    
+    This unified function replaces multiple separate iterations through all_lines
+    with a single pass that accumulates all required statistics simultaneously.
+    
+    Args:
+        all_lines: List of GameLine objects
+        filter_year: Optional year filter for heatmap data (string)
+    
+    Returns:
+        Dictionary containing all statistics data that individual functions would return:
+        - kanji_grid_data: Kanji frequency data with colors
+        - heatmap_data: Reading activity heatmap by year/date
+        - total_chars_per_game: Character totals per game
+        - reading_time_per_game: Reading time per game in hours
+        - reading_speed_per_game: Reading speed per game (chars/hour)
+        - current_game_stats: Stats for the most recently active game
+        - all_games_stats: Aggregate stats across all games
+        - daily_data: Daily line/char counts per game for charting
+        - all_lines_data: Simplified line data for frontend calculations
+    """
+    if not all_lines:
+        return {
+            'kanji_grid_data': {'kanji_data': [], 'unique_count': 0},
+            'heatmap_data': {},
+            'total_chars_per_game': {'labels': [], 'totals': []},
+            'reading_time_per_game': {'labels': [], 'totals': []},
+            'reading_speed_per_game': {'labels': [], 'totals': []},
+            'current_game_stats': None,
+            'all_games_stats': None,
+            'daily_data': {},
+            'all_lines_data': []
+        }
+    
+    # Initialize unified accumulators
+    accumulators = {
+        # For daily charting data
+        'daily_data': defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0})),
+        
+        # For kanji frequency analysis
+        'kanji_count': defaultdict(int),
+        
+        # For heatmap data
+        'heatmap_data': defaultdict(lambda: defaultdict(int)),
+        
+        # For per-game statistics
+        'game_data': defaultdict(lambda: {
+            'total_chars': 0,
+            'timestamps': [],
+            'first_time': None
+        }),
+        
+        # For aggregate statistics
+        'all_timestamps': [],
+        'all_chars': 0,
+        'total_sentences': 0,
+        'unique_games': set(),
+        
+        # For current game tracking
+        'current_game_timestamp': 0,
+        'current_game_name': None,
+        
+        # For frontend data
+        'all_lines_data': []
+    }
+    
+    # Single pass through all lines - accumulate all statistics simultaneously
+    for line in all_lines:
+        try:
+            # Extract and validate common data with robust error handling
+            try:
+                timestamp = float(getattr(line, 'timestamp', 0))
+                if timestamp <= 0:
+                    logger.warning(f"Invalid timestamp {timestamp} for line {getattr(line, 'id', 'unknown')}")
+                    continue
+            except (ValueError, TypeError, AttributeError) as e:
+                logger.warning(f"Failed to parse timestamp for line {getattr(line, 'id', 'unknown')}: {e}")
+                continue
+            
+            try:
+                game_name = getattr(line, 'game_name', None) or "Unknown Game"
+                if not isinstance(game_name, str):
+                    game_name = str(game_name) if game_name is not None else "Unknown Game"
+            except Exception as e:
+                logger.warning(f"Failed to get game_name for line {getattr(line, 'id', 'unknown')}: {e}")
+                game_name = "Unknown Game"
+            
+            try:
+                line_text_raw = getattr(line, 'line_text', None)
+                line_text = str(line_text_raw) if line_text_raw is not None else ""
+                char_count = len(line_text)
+            except Exception as e:
+                logger.warning(f"Failed to process line_text for line {getattr(line, 'id', 'unknown')}: {e}")
+                line_text = ""
+                char_count = 0
+            
+            try:
+                date_obj = datetime.date.fromtimestamp(timestamp)
+                date_str = date_obj.strftime('%Y-%m-%d')
+                year = str(date_obj.year)
+            except (ValueError, OSError, OverflowError) as e:
+                logger.warning(f"Failed to convert timestamp {timestamp} to date for line {getattr(line, 'id', 'unknown')}: {e}")
+                continue
+            
+            # 1. Update daily data for charting
+            accumulators['daily_data'][date_str][game_name]['lines'] += 1
+            accumulators['daily_data'][date_str][game_name]['chars'] += char_count
+            
+            # 2. Update kanji frequency count (with character validation)
+            try:
+                for char in line_text:
+                    if is_kanji(char):
+                        accumulators['kanji_count'][char] += 1
+            except Exception as e:
+                logger.warning(f"Error processing kanji in line_text for line {getattr(line, 'id', 'unknown')}: {e}")
+            
+            # 3. Update heatmap data (with optional year filter)
+            if not filter_year or year == filter_year:
+                accumulators['heatmap_data'][year][date_str] += char_count
+            
+            # 4. Update per-game data
+            game_data = accumulators['game_data'][game_name]
+            game_data['total_chars'] += char_count
+            game_data['timestamps'].append(timestamp)
+            if game_data['first_time'] is None:
+                game_data['first_time'] = timestamp
+            
+            # 5. Update aggregate data
+            accumulators['all_timestamps'].append(timestamp)
+            accumulators['all_chars'] += char_count
+            accumulators['total_sentences'] += 1
+            accumulators['unique_games'].add(game_name)
+            
+            # 6. Track current game (most recent)
+            if timestamp > accumulators['current_game_timestamp']:
+                accumulators['current_game_timestamp'] = timestamp
+                accumulators['current_game_name'] = game_name
+            
+            # 7. Build all_lines_data for frontend
+            accumulators['all_lines_data'].append({
+                'timestamp': timestamp,
+                'game_name': game_name,
+                'characters': char_count
+            })
+            
+        except Exception as e:
+            logger.error(f"Unexpected error processing line {getattr(line, 'id', 'unknown')} in unified stats calculation: {e}")
+            continue
+    
+    # Post-process accumulated data into final format
+    return _format_unified_results(accumulators, all_lines, filter_year)
+
+
+def _format_unified_results(accumulators, all_lines, filter_year):
+    """
+    Format the accumulated statistics into the expected return structures.
+    
+    This function transforms the raw accumulated data into the same format
+    that the individual stats functions would return, ensuring API compatibility.
+    """
+    results = {}
+    
+    try:
+        # 1. Format kanji grid data with error handling
+        kanji_count = accumulators.get('kanji_count', {})
+        if kanji_count:
+            try:
+                max_frequency = max(kanji_count.values())
+                sorted_kanji = sorted(kanji_count.items(), key=lambda x: x[1], reverse=True)
+                kanji_data = []
+                for kanji, count in sorted_kanji:
+                    try:
+                        color = get_gradient_color(count, max_frequency)
+                        kanji_data.append({
+                            "kanji": kanji,
+                            "frequency": count,
+                            "color": color
+                        })
+                    except Exception as e:
+                        logger.warning(f"Error formatting kanji {repr(kanji)} with count {count}: {e}")
+                        continue
+                
+                results['kanji_grid_data'] = {
+                    "kanji_data": kanji_data,
+                    "unique_count": len(sorted_kanji),
+                    "max_frequency": max_frequency
+                }
+            except Exception as e:
+                logger.error(f"Error formatting kanji grid data: {e}")
+                results['kanji_grid_data'] = {"kanji_data": [], "unique_count": 0}
+        else:
+            results['kanji_grid_data'] = {"kanji_data": [], "unique_count": 0}
+        
+        # 2. Format heatmap data safely
+        try:
+            results['heatmap_data'] = dict(accumulators.get('heatmap_data', {}))
+        except Exception as e:
+            logger.error(f"Error formatting heatmap data: {e}")
+            results['heatmap_data'] = {}
+        
+        # 3. Format per-game character totals with error handling
+        try:
+            char_data = []
+            game_data = accumulators.get('game_data', {})
+            for game, data in game_data.items():
+                try:
+                    if isinstance(data, dict) and data.get('total_chars', 0) > 0:
+                        char_data.append((game, data['total_chars'], data.get('first_time', 0)))
+                except Exception as e:
+                    logger.warning(f"Error processing char data for game {game}: {e}")
+                    continue
+            
+            char_data.sort(key=lambda x: x[2] if x[2] is not None else 0)
+            results['total_chars_per_game'] = {
+                "labels": [item[0] for item in char_data],
+                "totals": [item[1] for item in char_data]
+            }
+        except Exception as e:
+            logger.error(f"Error formatting total chars per game: {e}")
+            results['total_chars_per_game'] = {"labels": [], "totals": []}
+        
+        # 4. Format reading time per game with error handling
+        try:
+            time_data = []
+            game_data = accumulators.get('game_data', {})
+            for game, data in game_data.items():
+                try:
+                    timestamps = data.get('timestamps', [])
+                    if len(timestamps) >= 2:
+                        reading_time_seconds = calculate_actual_reading_time(timestamps)
+                        hours = reading_time_seconds / 3600
+                        if hours > 0:
+                            time_data.append((game, hours, data.get('first_time', 0)))
+                except Exception as e:
+                    logger.warning(f"Error calculating reading time for game {game}: {e}")
+                    continue
+            
+            time_data.sort(key=lambda x: x[2] if x[2] is not None else 0)
+            results['reading_time_per_game'] = {
+                "labels": [item[0] for item in time_data],
+                "totals": [round(item[1], 2) for item in time_data]
+            }
+        except Exception as e:
+            logger.error(f"Error formatting reading time per game: {e}")
+            results['reading_time_per_game'] = {"labels": [], "totals": []}
+        
+        # 5. Format reading speed per game with error handling
+        try:
+            speed_data = []
+            game_data = accumulators.get('game_data', {})
+            for game, data in game_data.items():
+                try:
+                    timestamps = data.get('timestamps', [])
+                    total_chars = data.get('total_chars', 0)
+                    if len(timestamps) >= 2 and total_chars > 0:
+                        reading_time_seconds = calculate_actual_reading_time(timestamps)
+                        hours = reading_time_seconds / 3600
+                        if hours > 0:
+                            speed = total_chars / hours
+                            speed_data.append((game, speed, data.get('first_time', 0)))
+                except Exception as e:
+                    logger.warning(f"Error calculating reading speed for game {game}: {e}")
+                    continue
+            
+            speed_data.sort(key=lambda x: x[2] if x[2] is not None else 0)
+            results['reading_speed_per_game'] = {
+                "labels": [item[0] for item in speed_data],
+                "totals": [round(item[1], 0) for item in speed_data]
+            }
+        except Exception as e:
+            logger.error(f"Error formatting reading speed per game: {e}")
+            results['reading_speed_per_game'] = {"labels": [], "totals": []}
+        
+        # 6. Calculate current game stats with error handling
+        try:
+            current_game_name = accumulators.get('current_game_name')
+            if current_game_name and all_lines:
+                current_game_lines = [line for line in all_lines if (getattr(line, 'game_name', None) or "Unknown Game") == current_game_name]
+                if current_game_lines:
+                    results['current_game_stats'] = calculate_current_game_stats(current_game_lines)
+                else:
+                    results['current_game_stats'] = None
+            else:
+                results['current_game_stats'] = None
+        except Exception as e:
+            logger.error(f"Error calculating current game stats: {e}")
+            results['current_game_stats'] = None
+        
+        # 7. Calculate all games stats with error handling
+        try:
+            all_timestamps = accumulators.get('all_timestamps', [])
+            if all_timestamps:
+                min_timestamp = min(all_timestamps)
+                max_timestamp = max(all_timestamps)
+                total_time_seconds = calculate_actual_reading_time(all_timestamps)
+                total_time_hours = total_time_seconds / 3600
+                all_chars = accumulators.get('all_chars', 0)
+                reading_speed = int(all_chars / total_time_hours) if total_time_hours > 0 else 0
+                
+                # Calculate sessions (gaps > 1 hour = new session)
+                sorted_timestamps = sorted(all_timestamps)
+                sessions = 1
+                for i in range(1, len(sorted_timestamps)):
+                    if sorted_timestamps[i] - sorted_timestamps[i-1] > 3600:
+                        sessions += 1
+                
+                # Calculate daily activity and monthly progress
+                daily_activity = defaultdict(int)
+                all_lines_data = accumulators.get('all_lines_data', [])
+                for line_data in all_lines_data:
+                    try:
+                        timestamp = line_data.get('timestamp', 0)
+                        characters = line_data.get('characters', 0)
+                        date_str = datetime.date.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+                        daily_activity[date_str] += characters
+                    except Exception as e:
+                        logger.warning(f"Error processing line data for daily activity: {e}")
+                        continue
+                
+                today = datetime.date.today()
+                monthly_chars = 0
+                try:
+                    monthly_chars = sum(
+                        daily_activity.get((today - datetime.timedelta(days=i)).strftime('%Y-%m-%d'), 0)
+                        for i in range(30)
+                    )
+                except Exception as e:
+                    logger.warning(f"Error calculating monthly chars: {e}")
+                
+                # Calculate streak and average daily time
+                try:
+                    current_streak = calculate_time_based_streak(all_lines)
+                    avg_daily_time_hours = calculate_average_daily_reading_time(all_lines)
+                except Exception as e:
+                    logger.warning(f"Error calculating streak/average daily time: {e}")
+                    current_streak = 0
+                    avg_daily_time_hours = 0.0
+                
+                results['all_games_stats'] = {
+                    'total_characters': all_chars,
+                    'total_characters_formatted': format_large_number(all_chars),
+                    'total_sentences': accumulators.get('total_sentences', 0),
+                    'total_time_hours': total_time_hours,
+                    'total_time_formatted': format_time_human_readable(total_time_hours),
+                    'reading_speed': reading_speed,
+                    'reading_speed_formatted': format_large_number(reading_speed),
+                    'sessions': sessions,
+                    'unique_games': len(accumulators.get('unique_games', set())),
+                    'monthly_characters': monthly_chars,
+                    'monthly_characters_formatted': format_large_number(monthly_chars),
+                    'current_streak': current_streak,
+                    'avg_daily_time_hours': avg_daily_time_hours,
+                    'avg_daily_time_formatted': format_time_human_readable(avg_daily_time_hours),
+                    'first_date': datetime.date.fromtimestamp(min_timestamp).strftime('%Y-%m-%d'),
+                    'last_date': datetime.date.fromtimestamp(max_timestamp).strftime('%Y-%m-%d'),
+                    'daily_activity': dict(daily_activity)
+                }
+            else:
+                results['all_games_stats'] = None
+        except Exception as e:
+            logger.error(f"Error calculating all games stats: {e}")
+            results['all_games_stats'] = None
+        
+        # 8. Include daily data and all_lines_data safely
+        try:
+            results['daily_data'] = dict(accumulators.get('daily_data', {}))
+            results['all_lines_data'] = accumulators.get('all_lines_data', [])
+        except Exception as e:
+            logger.error(f"Error including daily data: {e}")
+            results['daily_data'] = {}
+            results['all_lines_data'] = []
+    
+    except Exception as e:
+        logger.error(f"Critical error in _format_unified_results: {e}")
+        # Return minimal safe structure
+        results = {
+            'kanji_grid_data': {"kanji_data": [], "unique_count": 0},
+            'heatmap_data': {},
+            'total_chars_per_game': {"labels": [], "totals": []},
+            'reading_time_per_game': {"labels": [], "totals": []},
+            'reading_speed_per_game': {"labels": [], "totals": []},
+            'current_game_stats': None,
+            'all_games_stats': None,
+            'daily_data': {},
+            'all_lines_data': []
+        }
+    
+    return results
