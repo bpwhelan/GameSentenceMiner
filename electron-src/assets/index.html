@@ -1422,7 +1422,7 @@
 
             // Repair GSM
             document.getElementById('repair-gsm-btn').addEventListener('click', async () => {
-                if (confirm('Are you sure you want to repair GSM? This will remove all custom packages and completely reinstall Python and GSM.')) {
+                if (confirm('THIS IS ONLY TO BE USED IF SOMETHING IS COMPLETELY BROKEN WITH GSM DUE TO A CUSTOM/BAD PYTHON PACKAGE INSTALLATION. THIS SHOULD NOT BE EXPECTED TO FIX MINOR ISSUES, AND HAS A HIGHER CHANCE OF DOING MORE PAIN THAN GOOD.\n\nAre you sure you want to proceed with repairing GSM?')) {
                     showPythonStatus('🔧 Repairing GSM... This may take several minutes.');
                     switchToConsoleTab(); // Switch to console to see progress
                     

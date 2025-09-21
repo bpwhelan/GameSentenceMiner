@@ -417,10 +417,10 @@ class ConfigApp:
         self.create_screenshot_tab()
         self.create_audio_tab()
         self.create_obs_tab()
-        self.create_profiles_tab()
         self.create_ai_tab()
         self.create_advanced_tab()
         self.create_overlay_tab()
+        self.create_profiles_tab()
         # self.create_wip_tab()
 
     def add_reset_button(self, frame, category, row, column=0, recreate_tab=None):
