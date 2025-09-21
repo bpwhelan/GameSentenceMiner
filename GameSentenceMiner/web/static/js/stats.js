@@ -120,6 +120,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     
     // Function to calculate heatmap streaks and average daily time
+    // This function is used by both the heatmap display and dashboard overview
     function calculateHeatmapStreaks(grid, yearData, allLinesForYear = []) {
         const dates = [];
         
@@ -240,6 +241,91 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         
         return { longestStreak, currentStreak, avgDailyTime };
+    }
+
+    // Global function to calculate current streak for any dataset
+    // This ensures consistent streak calculation across heatmap and dashboard
+    function calculateCurrentStreak(allLinesData, gameFilter = null) {
+        if (!allLinesData || allLinesData.length === 0) {
+            return 0;
+        }
+
+        // Get streak requirement from config
+        const streakRequirement = window.statsConfig ? window.statsConfig.streakRequirementHours : 1.0;
+        
+        // Filter by game if specified (for current game dashboard)
+        let filteredLines = allLinesData;
+        if (gameFilter) {
+            filteredLines = allLinesData.filter(line => line.game_name === gameFilter);
+        }
+        
+        // Calculate daily reading time using the same logic as the heatmap
+        const dailyReadingTime = {};
+        
+        // Get AFK timer from settings
+        const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
+        
+        for (const line of filteredLines) {
+            if (!line.timestamp) continue;
+            
+            const date = new Date(line.timestamp * 1000);
+            const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+            
+            if (!dailyReadingTime[dateStr]) {
+                dailyReadingTime[dateStr] = [];
+            }
+            dailyReadingTime[dateStr].push(line.timestamp);
+        }
+        
+        // Calculate actual reading hours per day
+        const dailyHours = {};
+        for (const [dateStr, timestamps] of Object.entries(dailyReadingTime)) {
+            timestamps.sort((a, b) => a - b);
+            let totalSeconds = 0;
+            
+            if (timestamps.length >= 2) {
+                for (let i = 1; i < timestamps.length; i++) {
+                    const gap = timestamps[i] - timestamps[i-1];
+                    totalSeconds += Math.min(gap, afkTimerSeconds);
+                }
+            } else if (timestamps.length === 1) {
+                // Single timestamp - count as minimal activity (1 second)
+                totalSeconds = 1;
+            }
+            
+            dailyHours[dateStr] = totalSeconds / 3600;
+        }
+        
+        // Calculate current streak from today backwards
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        
+        let currentStreak = 0;
+        let checkDate = new Date(today);
+        
+        // Check up to 365 days back
+        for (let i = 0; i < 365; i++) {
+            const checkDateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, '0')}-${String(checkDate.getDate()).padStart(2, '0')}`;
+            const readingHours = dailyHours[checkDateStr] || 0;
+            
+            if (readingHours >= streakRequirement) {
+                currentStreak++;
+            } else {
+                break;
+            }
+            
+            // Move to previous day
+            checkDate.setDate(checkDate.getDate() - 1);
+        }
+        
+        // Debug logging
+        if (gameFilter) {
+            console.log(`Current game (${gameFilter}) streak: ${currentStreak}, based on ${filteredLines.length} lines`);
+        } else {
+            console.log(`All games streak: ${currentStreak}, based on ${allLinesData.length} lines`);
+        }
+        
+        return currentStreak;
     }
 
     // Function to create GitHub-style heatmap
@@ -1292,9 +1378,14 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         if (data && data.currentGameStats && data.allGamesStats) {
-            // Use existing data if available
-            updateCurrentGameDashboard(data.currentGameStats);
-            updateAllGamesDashboard(data.allGamesStats);
+            // Calculate streaks using global function
+            const allGamesStreak = data.allLinesData ? calculateCurrentStreak(data.allLinesData) : 0;
+            const currentGameStreak = (data.allLinesData && data.currentGameStats.game_name) ? 
+                calculateCurrentStreak(data.allLinesData, data.currentGameStats.game_name) : allGamesStreak;
+            
+            // Use existing data if available, but override streak with global calculation
+            updateCurrentGameDashboard(data.currentGameStats, data.allLinesData, currentGameStreak);
+            updateAllGamesDashboard(data.allGamesStats, data.allLinesData, allGamesStreak);
             if (data.allLinesData) updateTodayOverview(data.allLinesData);
             hideDashboardLoading();
         } else {
@@ -1304,8 +1395,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 .then(response => response.json())
                 .then(data => {
                     if (data.currentGameStats && data.allGamesStats) {
-                        updateCurrentGameDashboard(data.currentGameStats);
-                        updateAllGamesDashboard(data.allGamesStats);
+                        // Calculate streaks using global function
+                        const allGamesStreak = data.allLinesData ? calculateCurrentStreak(data.allLinesData) : 0;
+                        const currentGameStreak = (data.allLinesData && data.currentGameStats.game_name) ? 
+                            calculateCurrentStreak(data.allLinesData, data.currentGameStats.game_name) : allGamesStreak;
+                        
+                        updateCurrentGameDashboard(data.currentGameStats, data.allLinesData, currentGameStreak);
+                        updateAllGamesDashboard(data.allGamesStats, data.allLinesData, allGamesStreak);
                         if (data.allLinesData) updateTodayOverview(data.allLinesData);
                     } else {
                         showDashboardError();
@@ -1320,7 +1416,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    function updateCurrentGameDashboard(stats) {
+    function updateCurrentGameDashboard(stats, allLinesData = null, globalStreak = null) {
         if (!stats) {
             showNoDashboardData('currentGameCard', 'No current game data available');
             return;
@@ -1340,11 +1436,15 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('currentFirstDate').textContent = stats.first_date;
         document.getElementById('currentLastDate').textContent = stats.last_date;
 
-        // Update streak indicator
+        // Update streak indicator using global streak calculation if available
         const streakElement = document.getElementById('currentGameStreak');
         const streakValue = document.getElementById('currentStreakValue');
-        if (stats.current_streak > 0) {
-            streakValue.textContent = stats.current_streak;
+        
+        // Use global streak if provided, otherwise fall back to stats streak
+        const streakToUse = globalStreak !== null ? globalStreak : (stats.current_streak || 0);
+        
+        if (streakToUse > 0) {
+            streakValue.textContent = streakToUse;
             streakElement.style.display = 'inline-flex';
         } else {
             streakElement.style.display = 'none';
@@ -1354,7 +1454,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('currentGameCard').style.display = 'block';
     }
 
-    function updateAllGamesDashboard(stats) {
+    function updateAllGamesDashboard(stats, allLinesData = null, globalStreak = null) {
         if (!stats) {
             showNoDashboardData('allGamesCard', 'No games data available');
             return;
@@ -1375,11 +1475,15 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('allUniqueGames').textContent = stats.unique_games.toLocaleString();
         document.getElementById('allTotalSentences').textContent = stats.total_sentences.toLocaleString();
 
-        // Update streak indicator
+        // Update streak indicator using global streak calculation if available
         const streakElement = document.getElementById('allGamesStreak');
         const streakValue = document.getElementById('allStreakValue');
-        if (stats.current_streak > 0) {
-            streakValue.textContent = stats.current_streak;
+        
+        // Use global streak if provided, otherwise fall back to stats streak
+        const streakToUse = globalStreak !== null ? globalStreak : (stats.current_streak || 0);
+        
+        if (streakToUse > 0) {
+            streakValue.textContent = streakToUse;
             streakElement.style.display = 'inline-flex';
         } else {
             streakElement.style.display = 'none';

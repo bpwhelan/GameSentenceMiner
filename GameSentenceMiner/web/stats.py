@@ -463,8 +463,8 @@ def calculate_current_game_stats(all_lines):
         date_str = date.strftime('%Y-%m-%d')
         monthly_chars += daily_activity.get(date_str, 0)
     
-    # Calculate reading streak using time-based requirements
-    current_streak = calculate_time_based_streak(current_game_lines)
+    # Calculate reading streak using time-based requirements - DISABLED: Now calculated on frontend for consistency
+    # current_streak = calculate_time_based_streak(current_game_lines)
     
     return {
         'game_name': current_game_name,
@@ -478,7 +478,7 @@ def calculate_current_game_stats(all_lines):
         'sessions': sessions,
         'monthly_characters': monthly_chars,
         'monthly_characters_formatted': format_large_number(monthly_chars),
-        'current_streak': current_streak,
+        # 'current_streak': current_streak,  # Now calculated on frontend for consistency with heatmap
         'first_date': datetime.date.fromtimestamp(min_timestamp).strftime('%Y-%m-%d'),
         'last_date': datetime.date.fromtimestamp(max_timestamp).strftime('%Y-%m-%d'),
         'daily_activity': dict(daily_activity)
@@ -557,8 +557,8 @@ def calculate_all_games_stats(all_lines):
         date_str = date.strftime('%Y-%m-%d')
         monthly_chars += daily_activity.get(date_str, 0)
     
-    # Calculate reading streak using time-based requirements
-    current_streak = calculate_time_based_streak(all_lines)
+    # Calculate reading streak using time-based requirements - DISABLED: Now calculated on frontend for consistency
+    # current_streak = calculate_time_based_streak(all_lines)
     
     # Calculate average daily reading time
     avg_daily_time_hours = calculate_average_daily_reading_time(all_lines)
@@ -578,7 +578,7 @@ def calculate_all_games_stats(all_lines):
         'unique_games': unique_games,
         'monthly_characters': monthly_chars,
         'monthly_characters_formatted': format_large_number(monthly_chars),
-        'current_streak': current_streak,
+        # 'current_streak': current_streak,  # Now calculated on frontend for consistency with heatmap
         'avg_daily_time_hours': avg_daily_time_hours,
         'avg_daily_time_formatted': format_time_human_readable(avg_daily_time_hours),
         'first_date': datetime.date.fromtimestamp(min_timestamp).strftime('%Y-%m-%d'),
