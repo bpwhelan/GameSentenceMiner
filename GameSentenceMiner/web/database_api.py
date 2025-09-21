@@ -17,7 +17,7 @@ from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency, calculate_heatmap_data, calculate_total_chars_per_game,
     calculate_reading_time_per_game, calculate_reading_speed_per_game,
     calculate_current_game_stats, calculate_all_games_stats, calculate_daily_reading_time,
-    calculate_time_based_streak, calculate_actual_reading_time
+    calculate_time_based_streak, calculate_actual_reading_time, calculate_all_stats_unified
 )
 
 
@@ -792,7 +792,9 @@ def register_database_api_routes(app):
         Provides aggregated, cumulative stats for charting.
         Accepts optional 'year' parameter to filter heatmap data.
         """
+        import regex
         punctionation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
+        
         # Get optional year filter parameter
         filter_year = request.args.get('year', None)
         
@@ -802,40 +804,22 @@ def register_database_api_routes(app):
         if not all_lines:
             return jsonify({"labels": [], "datasets": []})
 
-        # 2. Process data into daily totals for each game
-        # Structure: daily_data[date_str][game_name] = {'lines': N, 'chars': N}
-        daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0}))
-        
-        
-        
-        
-        # start_time = time.perf_counter()
-        # for line in all_lines:
-        #     day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
-        #     game = line.game_name or "Unknown Game"
-        #     daily_data[day_str][game]['lines'] += 1
-        #     daily_data[day_str][game]['chars'] += len(line.line_text) if line.line_text else 0
-        # end_time = time.perf_counter()
-        # logger.info(f"Without Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
-
-        # start_time = time.perf_counter()
+        # 2. Clean line text by removing punctuation (preserve for backward compatibility)
         wrong_instance_found = False
         for line in all_lines:
-            day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
-            game = line.game_name or "Unknown Game"
             # Remove punctuation and symbols from line text before counting characters
             clean_text = punctionation_regex.sub('', str(line.line_text)) if line.line_text else ''
             if not isinstance(clean_text, str) and not wrong_instance_found:
                 logger.info(f"Non-string line_text encountered: {clean_text} (type: {type(clean_text)})")
                 wrong_instance_found = True
-
             line.line_text = clean_text  # Update line text to cleaned version for future use
-            daily_data[day_str][game]['lines'] += 1
-            daily_data[day_str][game]['chars'] += len(clean_text)
-        # end_time = time.perf_counter()
-        # logger.info(f"With Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
 
-        # 3. Create cumulative datasets for Chart.js
+        # 3. Calculate all statistics in a single pass using unified function
+        logger.info(f"Calculating unified stats for {len(all_lines)} lines")
+        unified_results = calculate_all_stats_unified(all_lines, filter_year)
+        
+        # 4. Build cumulative chart data from daily data
+        daily_data = unified_results['daily_data']
         sorted_days = sorted(daily_data.keys())
         game_names = GameLinesTable.get_all_games_with_lines()
         
@@ -855,7 +839,7 @@ def register_database_api_routes(app):
                 final_data[game]['lines'].append(cumulative_totals[game]['lines'])
                 final_data[game]['chars'].append(cumulative_totals[game]['chars'])
         
-        # 4. Format into Chart.js dataset structure
+        # 5. Format into Chart.js dataset structure
         datasets = []
         # A simple color palette for the chart lines
         colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22']
@@ -883,37 +867,18 @@ def register_database_api_routes(app):
                 "hidden": True # Hide by default to not clutter the chart
             })
 
-        # 5. Calculate additional chart data
-        kanji_grid_data = calculate_kanji_frequency(all_lines)
-        heatmap_data = calculate_heatmap_data(all_lines, filter_year)
-        total_chars_data = calculate_total_chars_per_game(all_lines)
-        reading_time_data = calculate_reading_time_per_game(all_lines)
-        reading_speed_per_game_data = calculate_reading_speed_per_game(all_lines)
-        
-        # 6. Calculate dashboard statistics
-        current_game_stats = calculate_current_game_stats(all_lines)
-        all_games_stats = calculate_all_games_stats(all_lines)
-
-        # 7. Prepare allLinesData for frontend calculations (needed for average daily time)
-        all_lines_data = []
-        for line in all_lines:
-            all_lines_data.append({
-                'timestamp': float(line.timestamp),
-                'game_name': line.game_name or 'Unknown Game',
-                'characters': len(line.line_text) if line.line_text else 0
-            })
-
+        # 6. Return unified results with chart data
         return jsonify({
             "labels": sorted_days,
             "datasets": datasets,
-            "kanjiGridData": kanji_grid_data,
-            "heatmapData": heatmap_data,
-            "totalCharsPerGame": total_chars_data,
-            "readingTimePerGame": reading_time_data,
-            "readingSpeedPerGame": reading_speed_per_game_data,
-            "currentGameStats": current_game_stats,
-            "allGamesStats": all_games_stats,
-            "allLinesData": all_lines_data
+            "kanjiGridData": unified_results['kanji_grid_data'],
+            "heatmapData": unified_results['heatmap_data'],
+            "totalCharsPerGame": unified_results['total_chars_per_game'],
+            "readingTimePerGame": unified_results['reading_time_per_game'],
+            "readingSpeedPerGame": unified_results['reading_speed_per_game'],
+            "currentGameStats": unified_results['current_game_stats'],
+            "allGamesStats": unified_results['all_games_stats'],
+            "allLinesData": unified_results['all_lines_data']
         })
 
     @app.route('/api/import-exstatic', methods=['POST'])
