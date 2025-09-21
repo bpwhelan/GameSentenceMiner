@@ -318,13 +318,6 @@ document.addEventListener('DOMContentLoaded', function () {
             checkDate.setDate(checkDate.getDate() - 1);
         }
         
-        // Debug logging
-        
-        
-        
-        
-        
-        
         return currentStreak;
     }
 
