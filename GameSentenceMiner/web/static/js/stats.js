@@ -319,11 +319,11 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         
         // Debug logging
-        if (gameFilter) {
-            console.log(`Current game (${gameFilter}) streak: ${currentStreak}, based on ${filteredLines.length} lines`);
-        } else {
-            console.log(`All games streak: ${currentStreak}, based on ${allLinesData.length} lines`);
-        }
+        
+        
+        
+        
+        
         
         return currentStreak;
     }
