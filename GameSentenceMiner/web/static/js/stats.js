@@ -303,8 +303,8 @@ document.addEventListener('DOMContentLoaded', function () {
         let currentStreak = 0;
         let checkDate = new Date(today);
         
-        // Check up to 365 days back
-        for (let i = 0; i < 365; i++) {
+        // Check back indefinitely until streak breaks
+        while (true) {
             const checkDateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, '0')}-${String(checkDate.getDate()).padStart(2, '0')}`;
             const readingHours = dailyHours[checkDateStr] || 0;
             
