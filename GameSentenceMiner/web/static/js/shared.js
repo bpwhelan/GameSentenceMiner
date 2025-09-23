@@ -377,7 +377,7 @@ class SettingsManager {
     async refreshHeatmapData(selectedYear) {
         try {
             if (typeof loadStatsData === 'function') {
-                await loadStatsData(selectedYear);
+                await loadStatsData(filterYear = selectedYear, start_timestamp = null, end_timestamp = null);
             }
         } catch (error) {
             console.error('Error refreshing heatmap data:', error);

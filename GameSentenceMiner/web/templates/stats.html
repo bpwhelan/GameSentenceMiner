@@ -32,6 +32,35 @@
         <!-- Include shared navigation -->
         {% include 'components/navigation.html' %}
 
+        <div class="dashboard-date-range">
+        <div class="dashboard-date-item">
+            <label for="fromDate">From</label>
+            <input type="date" id="fromDate" class="dashboard-date-input">
+        </div>
+        <div class="dashboard-date-item">
+            <label for="toDate">To</label>
+            <input type="date" id="toDate" class="dashboard-date-input">
+        </div>
+        <div class="dashboard-date-item">
+            <button id="fetchStatsBtn" class="dashboard-fetch-btn">Fetch Stats</button>
+        </div>
+        </div>
+
+        <div id="dateErrorPopup" class="dashboard-popup hidden">
+        <div class="dashboard-popup-content">
+            <div class="dashboard-popup-icon">⚠️</div>
+            <div class="dashboard-popup-message">"From" date cannot be later than "To" date.</div>
+            <button id="closePopupBtn" class="dashboard-popup-btn">OK</button>
+        </div>
+        </div>
+
+        <div id="noDataPopup" class="no-data-popup hidden">
+            <div class="no-data-content">
+                <p>No data found for the selected range.</p>
+                <button id="closeNoDataPopup">OK</button>
+            </div>
+        </div>
+
         <!-- Dashboard Statistics Sections -->
         <div class="dashboard-container">
             <!-- Current Game Statistics Panel -->

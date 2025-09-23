@@ -44,10 +44,20 @@ if (window.Chart) {
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
 document.addEventListener('DOMContentLoaded', function () {
+
+    // Global object to store chart instances
+    window.myCharts = window.myCharts || {};
+
     // Helper function to create a chart to avoid repeating code
     function createChart(canvasId, datasets, chartTitle) {
         const ctx = document.getElementById(canvasId).getContext('2d');
-        new Chart(ctx, {
+
+        // Destroy existing chart on this canvas if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+
+        window.myCharts[canvasId] = new Chart(ctx, {
             type: 'line',
             data: {
                 labels: datasets.labels,
@@ -93,6 +103,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
         });
+        return window.myCharts[canvasId];   
     }
 
     // Helper function to get week number of year (GitHub style - week starts on Sunday)
@@ -502,7 +513,12 @@ document.addEventListener('DOMContentLoaded', function () {
             return getFilteredChartData(originalData, hiddenBars, colors);
         }
         
-        new Chart(ctx, {
+        // Destroy existing chart on this canvas if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: chartData.labels, // Each game as a separate label
@@ -603,6 +619,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
         });
+
+        return window.myCharts[canvasId];
     }
 
     // Specialized function for charts with custom formatting (time/speed)
@@ -623,7 +641,13 @@ document.addEventListener('DOMContentLoaded', function () {
             return getFilteredChartData(originalData, hiddenBars, colors);
         }
         
-        new Chart(ctx, {
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+
+        // Create new chart and store globally
+        window.myCharts[canvasId] = new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: chartData.labels, // Each game as a separate label
@@ -724,6 +748,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
         });
+        return window.myCharts[canvasId];
     }
 
     // Helper functions for formatting
@@ -753,9 +778,32 @@ document.addEventListener('DOMContentLoaded', function () {
         kanjiGridRenderer.render(kanjiData);
     }
 
+    function showNoDataPopup() {
+        document.getElementById("noDataPopup").classList.remove("hidden");
+    }   
+
+    document.getElementById("closeNoDataPopup").addEventListener("click", () => {
+        document.getElementById("noDataPopup").classList.add("hidden");
+    });
+
     // Function to load stats data with optional year filter
-    function loadStatsData(filterYear = null) {
-        const url = filterYear && filterYear !== 'all' ? `/api/stats?year=${filterYear}` : '/api/stats';
+    function loadStatsData(filterYear = null, start_timestamp = null, end_timestamp = null) {
+        let url = '/api/stats';
+        const params = new URLSearchParams();
+
+        if (filterYear && filterYear !== 'all') {
+            // Only filter by year
+            params.append('year', filterYear);
+        } else if (start_timestamp && end_timestamp) {
+            // Only filter by timestamps
+            params.append('start', start_timestamp);
+            params.append('end', end_timestamp);
+        }
+
+        const queryString = params.toString();
+        if (queryString) {
+            url += `?${queryString}`;
+        }
         
         return fetch(url)
             .then(response => response.json())
@@ -770,6 +818,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 
                 if (!data.labels || data.labels.length === 0) {
                     console.log("No data to display.");
+                    showNoDataPopup();
                     return data;
                 }
 
@@ -787,33 +836,30 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Remove the 'hidden' property so they appear on their own charts
                 [...charsData.datasets].forEach(d => delete d.hidden);
 
-                // Create the charts (only on initial load)
-                if (!window.chartsInitialized) {
+                // Charts are re-created with the new data 
                     createChart('linesChart', linesData, 'Cumulative Lines Received');
                     createChart('charsChart', charsData, 'Cumulative Characters Read');
 
-                    // Create reading chars quantity chart if data exists
-                    if (data.totalCharsPerGame) {
-                        createGameBarChart('readingCharsChart', data.totalCharsPerGame, 'Reading Chars Quantity', 'Characters Read');
-                    }
-
-                    // Create reading time quantity chart if data exists
-                    if (data.readingTimePerGame) {
-                        createGameBarChartWithCustomFormat('readingTimeChart', data.readingTimePerGame, 'Reading Time Quantity', 'Time (hours)', formatTime);
-                    }
-
-                    // Create reading speed per game chart if data exists
-                    if (data.readingSpeedPerGame) {
-                        createGameBarChartWithCustomFormat('readingSpeedPerGameChart', data.readingSpeedPerGame, 'Reading Speed Improvement', 'Speed (chars/hour)', formatSpeed);
-                    }
-
-                    // Create kanji grid if data exists
-                    if (data.kanjiGridData) {
-                        createKanjiGrid(data.kanjiGridData);
-                    }
-
-                    window.chartsInitialized = true;
+                // Create reading chars quantity chart if data exists
+                if (data.totalCharsPerGame) {
+                    createGameBarChart('readingCharsChart', data.totalCharsPerGame, 'Reading Chars Quantity', 'Characters Read');
                 }
+
+                // Create reading time quantity chart if data exists
+                if (data.readingTimePerGame) {
+                    createGameBarChartWithCustomFormat('readingTimeChart', data.readingTimePerGame, 'Reading Time Quantity', 'Time (hours)', formatTime);
+                }
+
+                // Create reading speed per game chart if data exists
+                if (data.readingSpeedPerGame) {
+                    createGameBarChartWithCustomFormat('readingSpeedPerGameChart', data.readingSpeedPerGame, 'Reading Speed Improvement', 'Speed (chars/hour)', formatSpeed);
+                }
+
+                // Create kanji grid if data exists
+                if (data.kanjiGridData) {
+                    createKanjiGrid(data.kanjiGridData);
+                }
+
 
                 // Always update heatmap
                 if (data.heatmapData) {
@@ -822,11 +868,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     createHeatmap(data.heatmapData);
                 }
 
-                // Load dashboard data (only on initial load)
-                if (!window.dashboardInitialized) {
-                    loadDashboardData(data);
-                    window.dashboardInitialized = true;
-                }
+                // Load dashboard data 
+                loadDashboardData(data, end_timestamp);
 
                 // Load goal progress chart (always refresh)
                 if (typeof loadGoalProgress === 'function') {
@@ -1119,7 +1162,46 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Initial load with saved year preference
     const savedYear = localStorage.getItem('selectedHeatmapYear') || window.statsConfig?.heatmapDisplayYear || 'all';
-    loadStatsData(savedYear);
+    loadStatsData(filterYear = savedYear);
+
+    const fromDateInput = document.getElementById('fromDate');
+    const toDateInput = document.getElementById('toDate');
+    const fetchBtn = document.getElementById('fetchStatsBtn');
+    const popup = document.getElementById('dateErrorPopup');
+    const closePopupBtn = document.getElementById('closePopupBtn');
+
+    fetchBtn.addEventListener('click', () => {
+        const fromDateStr = fromDateInput.value;
+        const toDateStr = toDateInput.value;
+
+        // Validate date order before continuing
+        if (fromDateStr && toDateStr && new Date(fromDateStr) > new Date(toDateStr)) {
+            popup.classList.remove("hidden");
+            return; 
+        }
+
+        // Starting unix timestamp for the day
+        const fromDate = fromDateStr 
+            ? Math.floor(new Date(fromDateStr).getTime() / 1000) 
+            : null;
+
+
+        // Ending unix timestamp for the day
+        let toDate = null;
+        if (toDateStr) {
+            const d = new Date(toDateStr);
+            // set to 23:59:59 local time
+            d.setHours(23, 59, 59, 999);
+            toDate = Math.floor(d.getTime() / 1000);
+        }
+
+        loadStatsData(filterYear = null, start_timestamp = fromDate, end_timestamp = toDate);
+    });
+
+    // Popup close button
+    closePopupBtn.addEventListener("click", () => {
+        popup.classList.add("hidden");
+    });
 
     // Populate settings modal with global config values on load
     if (window.statsConfig) {
@@ -1191,7 +1273,7 @@ document.addEventListener('DOMContentLoaded', function () {
     window.loadGoalProgress = loadGoalProgress;
 
     // Dashboard functionality
-    function loadDashboardData(data = null) {
+    function loadDashboardData(data = null, end_timestamp = null) {
         function updateTodayOverview(allLinesData) {
             // Get today's date string (YYYY-MM-DD)
             // Get today's date string (YYYY-MM-DD), timezone aware (local time)
@@ -1291,11 +1373,116 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('todayCharsPerHour').textContent = charsPerHour;
         }
 
+        function updateOverviewForEndDay(allLinesData, endTimestamp) {
+            if (!endTimestamp) return;
+
+            const pad = n => n.toString().padStart(2, '0');
+
+            // Determine target date string (YYYY-MM-DD) from the end timestamp
+            const endDateObj = new Date(endTimestamp * 1000);
+            const targetDateStr = `${endDateObj.getFullYear()}-${pad(endDateObj.getMonth() + 1)}-${pad(endDateObj.getDate())}`;
+            document.getElementById('todayDate').textContent = targetDateStr;
+
+            // Filter lines that fall on the target date
+            const targetLines = (allLinesData || []).filter(line => {
+                if (!line.timestamp) return false;
+                const ts = parseFloat(line.timestamp);
+                if (isNaN(ts)) return false;
+                const dateObj = new Date(ts * 1000);
+                const lineDate = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}`;
+                return lineDate === targetDateStr;
+            });
+
+            // Calculate total characters
+            const totalChars = targetLines.reduce((sum, line) => {
+                const chars = Number(line.characters);
+                return sum + (isNaN(chars) ? 0 : chars);
+            }, 0);
+
+            // Determine session gap (from settings or default)
+            let sessionGap = window.statsConfig?.sessionGapSeconds || 3600;
+            const sessionGapInput = document.getElementById('sessionGap');
+            if (sessionGapInput?.value) {
+                const parsed = parseInt(sessionGapInput.value, 10);
+                if (!isNaN(parsed) && parsed > 0) sessionGap = parsed;
+            }
+
+            // Calculate sessions
+            let sessions = 0;
+            if (targetLines.length > 0 && targetLines[0].session_id !== undefined) {
+                const sessionSet = new Set(targetLines.map(l => l.session_id));
+                sessions = sessionSet.size;
+            } else {
+                const timestamps = targetLines
+                    .map(l => parseFloat(l.timestamp))
+                    .filter(ts => !isNaN(ts))
+                    .sort((a, b) => a - b);
+                if (timestamps.length > 0) {
+                    sessions = 1;
+                    for (let i = 1; i < timestamps.length; i++) {
+                        if (timestamps[i] - timestamps[i - 1] > sessionGap) {
+                            sessions += 1;
+                        }
+                    }
+                }
+            }
+
+            // Calculate total reading time
+            let totalSeconds = 0;
+            const timestamps = targetLines
+                .map(l => parseFloat(l.timestamp))
+                .filter(ts => !isNaN(ts))
+                .sort((a, b) => a - b);
+
+            let afkTimerSeconds = window.statsConfig?.afkTimerSeconds || 120;
+            const afkTimerInput = document.getElementById('afkTimer');
+            if (afkTimerInput?.value) {
+                const parsed = parseInt(afkTimerInput.value, 10);
+                if (!isNaN(parsed) && parsed > 0) afkTimerSeconds = parsed;
+            }
+
+            if (timestamps.length >= 2) {
+                for (let i = 1; i < timestamps.length; i++) {
+                    const gap = timestamps[i] - timestamps[i - 1];
+                    totalSeconds += Math.min(gap, afkTimerSeconds);
+                }
+            } else if (timestamps.length === 1) {
+                totalSeconds = 1;
+            }
+
+            let totalHours = totalSeconds / 3600;
+
+            // Calculate chars/hour
+            let charsPerHour = '-';
+            if (totalChars > 0) {
+                if (totalHours <= 0) totalHours = 1/60; // Minimum 1 minute
+                charsPerHour = Math.round(totalChars / totalHours).toLocaleString();
+            }
+
+            // Format hours for display
+            let hoursDisplay = '-';
+            if (totalHours > 0) {
+                const h = Math.floor(totalHours);
+                const m = Math.round((totalHours - h) * 60);
+                hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
+            }
+
+            // Update DOM
+            document.getElementById('todayTotalHours').textContent = hoursDisplay;
+            document.getElementById('todayTotalChars').textContent = totalChars.toLocaleString();
+            document.getElementById('todaySessions').textContent = sessions;
+            document.getElementById('todayCharsPerHour').textContent = charsPerHour;
+        }
+
         if (data && data.currentGameStats && data.allGamesStats) {
             // Use existing data if available
             updateCurrentGameDashboard(data.currentGameStats);
             updateAllGamesDashboard(data.allGamesStats);
-            if (data.allLinesData) updateTodayOverview(data.allLinesData);
+            
+            if (data.allLinesData) {
+                end_timestamp == null ? updateTodayOverview(data.allLinesData) : updateOverviewForEndDay(data.allLinesData, end_timestamp)
+            }
+
             hideDashboardLoading();
         } else {
             // Fetch fresh data
@@ -1306,7 +1493,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (data.currentGameStats && data.allGamesStats) {
                         updateCurrentGameDashboard(data.currentGameStats);
                         updateAllGamesDashboard(data.allGamesStats);
-                        if (data.allLinesData) updateTodayOverview(data.allLinesData);
+                        if (data.allLinesData) {
+                            end_timestamp == null ? updateTodayOverview(data.allLinesData) : updateOverviewForEndDay(data.allLinesData, end_timestamp)
+                        }
                     } else {
                         showDashboardError();
                     }
