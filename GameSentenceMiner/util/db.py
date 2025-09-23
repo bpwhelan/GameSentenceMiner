@@ -417,7 +417,35 @@ class GameLinesTable(SQLiteDBTable):
             commit=True
         )
 
+    @classmethod
+    def get_lines_filtered_by_timestamp(cls, start: Optional[float] = None, end: Optional[float] = None) -> List['GameLinesTable']:
+        """
+        Fetches all lines optionally filtered by start and end timestamps.
+        If start or end is None, that bound is ignored.
+        """
+        query = f"SELECT * FROM {cls._table}"
+        conditions = []
+        params = []
 
+        # Add timestamp conditions if provided
+        if start is not None:
+            conditions.append("timestamp >= ?")
+            params.append(start)
+        if end is not None:
+            conditions.append("timestamp <= ?")
+            params.append(end)
+
+        # Combine conditions into WHERE clause if any
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        # Sort by timestamp ascending
+        query += " ORDER BY timestamp ASC"
+
+        # Execute the query
+        rows = cls._db.fetchall(query, tuple(params))
+        return [cls.from_row(row) for row in rows]
+    
 def get_db_directory():
     if platform == 'win32':  # Windows
         appdata_dir = os.getenv('APPDATA')
