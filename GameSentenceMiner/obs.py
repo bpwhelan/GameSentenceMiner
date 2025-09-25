@@ -6,6 +6,7 @@ import threading
 import time
 import logging
 import contextlib
+import shutil
 
 import psutil
 
@@ -189,13 +190,24 @@ def start_obs():
             except ValueError:
                 print("Invalid PID found in file. Launching new OBS instance.")
             except OSError:
-                print("No process found with the stored PID. Launching new OBS instance.")
+                print("No process found with the stored PID. Launching new OBS instance.")   
 
     obs_path = get_obs_path()
     if not os.path.exists(obs_path):
         print(f"OBS not found at {obs_path}. Please install OBS.")
         return None
     try:
+        sentinel_folder = os.path.join(configuration.get_app_directory(), 'obs-studio', 'config', 'obs-studio', '.sentinel')
+        if os.path.exists(sentinel_folder):
+            try:
+                if os.path.isdir(sentinel_folder):
+                    shutil.rmtree(sentinel_folder)
+                else:
+                    os.remove(sentinel_folder)
+                print(f"Deleted sentinel folder: {sentinel_folder}")
+            except Exception as e:
+                print(f"Failed to delete sentinel folder: {e}")
+        
         obs_process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable', '--startreplaybuffer', ], cwd=os.path.dirname(obs_path))
         obs_process_pid = obs_process.pid
         with open(OBS_PID_FILE, "w") as f:
@@ -663,8 +675,23 @@ def main():
     update_current_game()
     print("Testing `get_current_game`:", get_current_game())
     disconnect_from_obs()
+    
+def create_scene():
+    with connection_pool.get_client() as client:
+        # Extract fields from request_json
+        request_json = r'{"sceneName":"SILENT HILL f","inputName":"SILENT HILL f - Capture","inputKind":"window_capture","inputSettings":{"mode":"window","window":"SILENT HILL f  :UnrealWindow:SHf-Win64-Shipping.exe","capture_audio":true,"cursor":false,"method":"2"}}'
+        request_dict = json.loads(request_json)
+        scene_name = request_dict.get('sceneName')
+        input_name = request_dict.get('inputName')
+        input_kind = request_dict.get('inputKind')
+        input_settings = request_dict.get('inputSettings')
+        input_settings['method'] = 2
+        # Remove sceneName from request_dict if needed for create_input
+        request_dict.pop('sceneName', None)
+        response = client.create_input(inputName=input_name, inputKind=input_kind, sceneName=scene_name, inputSettings=input_settings, sceneItemEnabled=True)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     connect_to_obs_sync()
-    set_fit_to_screen_for_scene_items(get_current_scene())
+    # set_fit_to_screen_for_scene_items(get_current_scene())
+    create_scene()

@@ -392,8 +392,8 @@ class SettingsManager {
             
             if (this.afkTimerInput) {
                 const afkTimer = parseInt(this.afkTimerInput.value);
-                if (isNaN(afkTimer) || afkTimer < 30 || afkTimer > 600) {
-                    this.showError('AFK timer must be between 30 and 600 seconds');
+                if (isNaN(afkTimer) || afkTimer < 0 || afkTimer > 600) {
+                    this.showError('AFK timer must be between 0 and 600 seconds');
                     return;
                 }
                 settings.afk_timer_seconds = afkTimer;
@@ -401,8 +401,8 @@ class SettingsManager {
             
             if (this.sessionGapInput) {
                 const sessionGap = parseInt(this.sessionGapInput.value);
-                if (isNaN(sessionGap) || sessionGap < 300 || sessionGap > 7200) {
-                    this.showError('Session gap must be between 300 and 7200 seconds');
+                if (isNaN(sessionGap) || sessionGap < 0 || sessionGap > 7200) {
+                    this.showError('Session gap must be between 0 and 7200 seconds (0 to 2 hours)');
                     return;
                 }
                 settings.session_gap_seconds = sessionGap;

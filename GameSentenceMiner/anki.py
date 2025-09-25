@@ -490,6 +490,7 @@ def update_card_from_same_sentence(last_card, lines, game_line):
                 card_queue.pop(0)
                 logger.error(f"Error saving replay buffer: {e}")
                 return
+            return
     anki_result = anki_results[game_line.id]
     if anki_result.success:
         note, last_card = get_initial_card_info(last_card, lines)

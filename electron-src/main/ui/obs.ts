@@ -1,7 +1,7 @@
 // electron-src/main/launchers/obs.ts
 import {BrowserWindow, dialog, ipcMain} from 'electron';
 import path from 'path';
-import {BASE_DIR, getAssetsDir} from '../util.js';
+import {BASE_DIR, getAssetsDir, isWindows, isWindows10OrHigher} from '../util.js';
 import {isQuitting} from '../main.js';
 import {exec} from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
@@ -228,8 +228,7 @@ export async function registerOBSIPC() {
             // Set the new scene as the current program scene
             await obs.call('SetCurrentProgramScene', {sceneName});
 
-            // Add a game capture source to the new scene
-            await obs.call('CreateInput', {
+            let request: any = {
                 sceneName,
                 inputName: `${window.title} - Capture`,
                 inputKind: 'window_capture',
@@ -237,9 +236,15 @@ export async function registerOBSIPC() {
                     mode: 'window',
                     window: window.value,
                     capture_audio: true,
-                    capture_cursor: false,
+                    cursor: false,
                 }
-            });
+            };
+
+            if (isWindows10OrHigher()) {
+                request.inputSettings.method = 2;
+            }
+
+            await obs.call('CreateInput', request);
 
             await modifyAutoSceneSwitcherInJSON(sceneName, window.title)
 
@@ -259,8 +264,7 @@ export async function registerOBSIPC() {
             // Set the new scene as the current program scene
             await obs.call('SetCurrentProgramScene', {sceneName});
 
-            // Add a game capture source to the new scene
-            await obs.call('CreateInput', {
+            let request: any = {
                 sceneName,
                 inputName: `${window.title} - Game Capture`,
                 inputKind: 'game_capture',
@@ -268,9 +272,12 @@ export async function registerOBSIPC() {
                     capture_mode: 'window',
                     window: window.value,
                     capture_audio: true,
-                    capture_cursor: false,
+                    cursor: false,
                 }
-            });
+            };
+
+            // Add a game capture source to the new scene
+            await obs.call('CreateInput', request);
 
             await modifyAutoSceneSwitcherInJSON(sceneName, window.title)
 

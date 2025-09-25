@@ -83,6 +83,7 @@ async def listen_websockets():
                     line_time = None
                     while True:
                         message = await websocket.recv()
+                        message_received_time = datetime.now()
                         if not message:
                             continue
                         logger.debug(message)
@@ -97,7 +98,7 @@ async def listen_websockets():
                         logger.info
                         if current_clipboard != current_line:
                             try:
-                                await handle_new_text_event(current_clipboard, line_time if line_time else None)
+                                await handle_new_text_event(current_clipboard, line_time if line_time else message_received_time)
                             except Exception as e: 
                                 logger.error(f"Error handling new text event: {e}", exc_info=True)
             except (websockets.ConnectionClosed, ConnectionError, InvalidStatus, ConnectionResetError, Exception) as e:

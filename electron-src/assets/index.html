@@ -292,7 +292,15 @@
                                 </label>
                             </div>
                             <div id="screen-selector-group" class="input-group" style="justify-content: center;">
-                                <button id="run-screen-selector">Run Area(s) Selector (Recommended)</button>
+                                <button id="run-screen-selector">Run Area(s) Selector</button>
+                                <button id="open-ocr-wiki-btn" class="secondary" style="margin-left: 10px;">
+                                    <span style="font-size: 14px;">❓</span>
+                                </button>
+                                <script>
+                                    document.getElementById('open-ocr-wiki-btn').addEventListener('click', () => {
+                                        window.open('https://github.com/bpwhelan/GameSentenceMiner/wiki/OCR-%E2%80%90-Area-Selector', '_blank');
+                                    });
+                                </script>
                             </div>
                         </div>
                     </div>
