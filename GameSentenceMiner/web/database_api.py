@@ -795,9 +795,20 @@ def register_database_api_routes(app):
         punctionation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
         # Get optional year filter parameter
         filter_year = request.args.get('year', None)
+
+        # Get Start and End time as unix timestamp
+        start_timestamp = request.args.get('start', None)
+        end_timestamp = request.args.get('end', None)
         
+        # Convert timestamps to float if provided
+        start_timestamp = float(start_timestamp) if start_timestamp else None
+        end_timestamp = float(end_timestamp) if end_timestamp else None
+
+        # # 1. Fetch all lines and sort them chronologically
+        # all_lines = sorted(GameLinesTable.all(), key=lambda line: line.timestamp)
+
         # 1. Fetch all lines and sort them chronologically
-        all_lines = sorted(GameLinesTable.all(), key=lambda line: line.timestamp)
+        all_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=start_timestamp, end=end_timestamp)
         
         if not all_lines:
             return jsonify({"labels": [], "datasets": []})
