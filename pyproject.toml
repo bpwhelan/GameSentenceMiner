@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.17.0"
+version = "2.17.1"
 description = "A tool for mining sentences from games. Update: Overlay?"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -61,8 +61,8 @@ dependencies = [
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
-# call the `main()` function defined in the package’s __main__.py (or wherever
-# you’ve placed your entry function). Adjust the import path as needed.
+# call the `main()` function defined in the package's __main__.py (or wherever
+# you've placed your entry function). Adjust the import path as needed.
 [project.scripts]
 gamesentenceminer = "GameSentenceMiner.gsm:main"
 

@@ -165,28 +165,36 @@ class OBSConnectionManager(threading.Thread):
                 self.counter = 0
                 return
             start_replay_buffer()
-
+    
 def get_obs_path():
     return os.path.join(configuration.get_app_directory(), 'obs-studio/bin/64bit/obs64.exe')
 
 def is_process_running(pid):
     try:
         process = psutil.Process(pid)
-        return 'obs' in process.exe()
+        return 'obs' in process.exe().lower()
     except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
         if os.path.exists(OBS_PID_FILE):
             os.remove(OBS_PID_FILE)
         return False
 
-def start_obs():
+def start_obs(force_restart=False):
     global obs_process_pid
     if os.path.exists(OBS_PID_FILE):
         with open(OBS_PID_FILE, "r") as f:
             try:
                 obs_process_pid = int(f.read().strip())
                 if is_process_running(obs_process_pid):
-                    print(f"OBS is already running with PID: {obs_process_pid}")
-                    return obs_process_pid
+                    if force_restart:
+                        try:
+                            process = psutil.Process(obs_process_pid)
+                            process.terminate()
+                            process.wait(timeout=10)
+                            print("OBS process terminated for restart.")
+                        except Exception as e:
+                            print(f"Error terminating OBS process: {e}")
+                    else:
+                        return obs_process_pid
             except ValueError:
                 print("Invalid PID found in file. Launching new OBS instance.")
             except OSError:

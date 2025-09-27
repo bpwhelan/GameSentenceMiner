@@ -1,7 +1,9 @@
 import asyncio
 import copy
 import json
+import os
 import subprocess
+import sys
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, scrolledtext, font
@@ -12,7 +14,11 @@ import ttkbootstrap as ttk
 from GameSentenceMiner import obs
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.communication.send import send_restart_signal
-from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.configuration import Config, Locale, logger, CommonLanguages, ProfileConfig, General, Paths, \
+    Anki, Features, Screenshot, Audio, OBS, Hotkeys, VAD, Overlay, Ai, Advanced, OverlayEngine, get_app_directory, \
+    get_config, is_beangate, AVAILABLE_LANGUAGES, WHSIPER_LARGE, WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, \
+    WHISPER_MEDIUM, WHISPER_TURBO, SILERO, WHISPER, OFF, gsm_state, DEFAULT_CONFIG, get_latest_version, \
+    get_current_version, AI_GEMINI, AI_GROQ, AI_OPENAI, save_full_config, get_default_anki_media_collection_path
 from GameSentenceMiner.util.db import AIModelsTable
 from GameSentenceMiner.util.downloader.download_tools import download_ocenaudio_if_needed
     

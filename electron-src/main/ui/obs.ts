@@ -340,6 +340,10 @@ export async function registerOBSIPC() {
         }
     });
 
+    ipcMain.handle('openOBS', async () => {
+        webSocketManager.sendStartOBS();
+    });
+
     async function getExecutableNameFromSource(obsSceneID: string): Promise<string | undefined | null> {
         try {
             await getOBSConnection();

@@ -1,11 +1,14 @@
+import json
+import logging
+import os
+import shutil
 import tempfile
 import time
 import warnings
-import requests
 from abc import abstractmethod, ABC
 
 from GameSentenceMiner.util import configuration, ffmpeg
-from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.configuration import get_config, get_temporary_directory, logger, SILERO, WHISPER
 from GameSentenceMiner.util.ffmpeg import get_audio_length
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name, run_new_thread
 from GameSentenceMiner.util.model import VADResult

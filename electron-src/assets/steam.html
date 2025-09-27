@@ -24,6 +24,7 @@
 <div class="card form-group">
     <h2>Path Configuration</h2>
     <button id="setAgentBtn">Set Agent Path</button>
+    <button id="setAgentScriptsBtn">Set Agent Scripts Path</button>
     <button id="setTextractorPathBtn">Set Textractor Path</button>
     <button id="setSteamPathBtn">Set Steam.exe Path</button>
 </div>
@@ -44,6 +45,7 @@
     const configGameBtn = document.getElementById('configGameBtn');
     const status = document.getElementById('status');
     const setTextractorPathBtn = document.getElementById('setTextractorPathBtn');
+    const setAgentScriptsBtn = document.getElementById('setAgentScriptsBtn');
 
     async function loadGames() {
         const games = await ipcRenderer.invoke('steam.getSteamGames');
@@ -99,6 +101,11 @@
             status.textContent = result.message;
         }
     });
+
+    setAgentScriptsBtn.addEventListener('click', async () => {
+        await ipcRenderer.invoke("yuzu.setAgentScriptsPath");
+    });
+
 
 
     document.addEventListener('DOMContentLoaded', init);

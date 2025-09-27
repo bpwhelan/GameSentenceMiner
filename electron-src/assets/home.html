@@ -65,8 +65,9 @@
             </button>
             <span id="websocket_container" class="grid-container">
             </span>
-            <button class="status-button card" id="obs-status" title="OBS Status: Indicates whether OBS is running.">
-                <span class="icon">📹</span> <span>OBS</span> <span></span>
+            <button class="status-button card" id="obs-status" title="OBS Status: Indicates whether OBS is running."
+                style="pointer-events: auto; cursor: pointer;">
+            <span class="icon">📹</span> <span>OBS</span> <span></span>
             </button>
             <button class="status-button card" id="anki-status"
                 title="Anki Status: Indicates whether Anki is connected.">
@@ -111,6 +112,13 @@
         const removeSceneBtn = document.getElementById('removeSceneBtn');
         const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
         const runOverlayBtn = document.getElementById('runOverlayBtn');
+        const obsStatusBtn = document.getElementById('obs-status');
+
+
+        obsStatusBtn.addEventListener('click', async () => {
+            console.log("Opening OBS");
+            await ipcRenderer.invoke('openOBS');
+        });
 
         function openExternalLink(url) {
             ipcRenderer.invoke('open-external-link', url);

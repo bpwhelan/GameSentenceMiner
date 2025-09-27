@@ -1,10 +1,11 @@
-import tempfile
-import time
 import asyncio
+import os
+import shutil
 import subprocess
 import sys
-
-import os
+import tempfile
+import threading
+import time
 import warnings
 
 import requests
@@ -42,7 +43,10 @@ try:
     import psutil
 
     start_time = time.time()
-    from GameSentenceMiner.util.configuration import *
+    from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
+    get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
+    is_windows, is_linux
+
     logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
@@ -112,10 +116,6 @@ try:
     from GameSentenceMiner.util.text_log import GameLine, get_text_event, get_mined_line, get_all_lines, game_log
     logger.debug(
         f"[Import] util.text_log (GameLine, get_text_event, get_mined_line, get_all_lines, game_log): {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.util import *
-    logger.debug(f"[Import] util *: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web import texthooking_page
@@ -675,6 +675,7 @@ def initialize_async():
 
 
 def handle_websocket_message(message: Message):
+    logger.info(f"WebSocket Message Received: {message.to_json()}")
     try:
         match FunctionName(message.function):
             case FunctionName.QUIT:
@@ -683,7 +684,7 @@ def handle_websocket_message(message: Message):
             case FunctionName.QUIT_OBS:
                 close_obs()
             case FunctionName.START_OBS:
-                obs.start_obs()
+                obs.start_obs(force_restart=not gsm_status.obs_connected)
             case FunctionName.OPEN_SETTINGS:
                 open_settings()
             case FunctionName.OPEN_TEXTHOOKER:

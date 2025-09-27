@@ -1,4 +1,8 @@
 import copy
+import json
+import os
+import shutil
+import threading
 from pathlib import Path
 import queue
 import time
@@ -15,8 +19,8 @@ from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.gsm_utils import make_unique, sanitize_filename, wait_for_stable_file, remove_html_and_cloze_tags, combine_dialogue, \
     run_new_thread, open_audio_in_external
 from GameSentenceMiner.util import ffmpeg, notification
-from GameSentenceMiner.util.configuration import *
-from GameSentenceMiner.util.configuration import get_config
+from GameSentenceMiner.util.configuration import get_config, AnkiUpdateResult, logger, anki_results, gsm_status, \
+    gsm_state
 from GameSentenceMiner.util.model import AnkiCard
 from GameSentenceMiner.util.text_log import get_all_lines, get_text_event, get_mined_line, lines_match
 from GameSentenceMiner.obs import get_current_game
