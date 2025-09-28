@@ -4,18 +4,20 @@ import base64
 import json
 import math
 import os
+import threading
 import time
 from PIL import Image
 from typing import Dict, Any, List, Tuple
 import json
-from rapidfuzz.distance import Levenshtein
+from rapidfuzz import fuzz
 
 # Local application imports
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
-from GameSentenceMiner.util.configuration import OverlayEngine, get_config, is_windows, is_beangate, logger
+from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_temporary_directory, is_windows, is_beangate, logger
 from GameSentenceMiner.util.electron_config import get_ocr_language
 from GameSentenceMiner.obs import get_screenshot_PIL
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
+from GameSentenceMiner.web.gsm_websocket import overlay_server_thread
 
 # def align_and_correct(ocr_json, reference_text):
 #     logger.info(f"Starting align_and_correct with reference_text: '{reference_text}'")
@@ -80,6 +82,40 @@ try:
     import mss
 except ImportError:
     mss = None
+    
+class OverlayThread(threading.Thread):
+    """
+    A thread to run the overlay processing loop.
+    This is a simple wrapper around asyncio to run the overlay processing
+    in a separate thread.
+    """
+    def __init__(self):
+        super().__init__()
+        self.overlay_processor = OverlayProcessor()
+        self.loop = asyncio.new_event_loop()
+        self.daemon = True
+        self.first_time_run = True
+
+    def run(self):
+        """Runs the overlay processing loop."""
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_until_complete(self.overlay_loop())
+
+    async def overlay_loop(self):
+        """Main loop to periodically process and send overlay data."""
+        while True:
+            if overlay_server_thread.has_clients():
+                if get_config().overlay.periodic:
+                    await self.overlay_processor.find_box_and_send_to_overlay('')
+                    await asyncio.sleep(get_config().overlay.periodic_interval)
+                elif self.first_time_run:
+                    await self.overlay_processor.find_box_and_send_to_overlay('')
+                    self.first_time_run = False
+                else:
+                    await asyncio.sleep(3)
+            else:
+                self.first_time_run = True
+                await asyncio.sleep(3)
 
 class OverlayProcessor:
     """
@@ -97,6 +133,8 @@ class OverlayProcessor:
         self.lens = None
         self.regex = None
         self.ready = False
+        self.last_oneocr_result = None
+        self.last_lens_result = None
 
         try:
             if self.config.overlay.websocket_port and all([GoogleLens, get_regex]):
@@ -126,9 +164,9 @@ class OverlayProcessor:
         """
         Sends the detected text boxes to the overlay via WebSocket.
         """
-        boxes = await self.find_box_for_sentence(sentence_to_check)
-        logger.info(f"Sending {len(boxes)} boxes to overlay.")
-        await send_word_coordinates_to_overlay(boxes)
+        await self.find_box_for_sentence(sentence_to_check)
+        # logger.info(f"Sending {len(boxes)} boxes to overlay.")
+        # await send_word_coordinates_to_overlay(boxes)
 
     async def find_box_for_sentence(self, sentence_to_check: str = None) -> List[Dict[str, Any]]:
         """
@@ -193,6 +231,8 @@ class OverlayProcessor:
             monitor = self.get_monitor_workarea(0)  # Get primary monitor work area
             sct_img = sct.grab(monitor)
             img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+            
+            img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
                 
             return img, monitor['width'], monitor['height']
 
@@ -233,6 +273,8 @@ class OverlayProcessor:
             paste_x = math.floor(x1)
             paste_y = math.floor(y1)
             composite_img.paste(cropped_image, (paste_x, paste_y))
+            
+        composite_img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_trimmed.png"))
         
         return composite_img
 
@@ -249,13 +291,36 @@ class OverlayProcessor:
             return []
         if self.oneocr:
             # 2. Use OneOCR to find general text areas (fast)
-            _, _, oneocr_results, crop_coords_list = self.oneocr(
+            res, text, oneocr_results, crop_coords_list = self.oneocr(
                 full_screenshot,
                 return_coords=True,
                 multiple_crop_coords=True,
                 return_one_box=False,
-                furigana_filter_sensitivity=None # Disable furigana filtering
+                furigana_filter_sensitivity=None, # Disable furigana filtering
             )
+            
+            text_str = "".join([text for text in text if self.regex.match(text)])
+            
+            # RapidFuzz fuzzy match 90% to not send the same results repeatedly
+            if self.last_oneocr_result:
+                
+                score = fuzz.ratio(text_str, self.last_oneocr_result)
+                if score >= 80:
+                    logger.info("OneOCR results are similar to the last results (score: %d). Skipping overlay update.", score)
+                    return
+            self.last_oneocr_result = text_str
+
+            logger.info("Sending OneOCR results to overlay.")
+            await send_word_coordinates_to_overlay(self._convert_oneocr_results_to_percentages(oneocr_results, monitor_width, monitor_height))
+            
+            # If User Home is beangate
+            if is_beangate:
+                with open("oneocr_results.json", "w", encoding="utf-8") as f:
+                    f.write(json.dumps(oneocr_results, ensure_ascii=False, indent=2))
+            
+            if get_config().overlay.engine == OverlayEngine.ONEOCR.value and self.oneocr:
+                logger.info("Using OneOCR results for overlay as configured.")
+                return
 
             # 3. Create a composite image with only the detected text regions
             composite_image = self._create_composite_image(
@@ -266,15 +331,6 @@ class OverlayProcessor:
             )
         else:
             composite_image = full_screenshot
-            
-        # If User Home is beangate
-        if is_beangate:
-            with open("oneocr_results.json", "w", encoding="utf-8") as f:
-                f.write(json.dumps(oneocr_results, ensure_ascii=False, indent=2))
-            
-        if get_config().overlay.engine == OverlayEngine.ONEOCR.value and self.oneocr:
-            logger.info("Using OneOCR results for overlay as configured.")
-            return oneocr_results
         
         # 4. Use Google Lens on the cleaner composite image for higher accuracy
         res = self.lens(
@@ -284,12 +340,22 @@ class OverlayProcessor:
         )
         
         if len(res) != 3:
-            return oneocr_results
+            return
         
-        _, _, coords = res
+        success, text_list, coords = res
+        
+        text_str = "".join([text for text in text_list if self.regex.match(text)])
+        
+        # RapidFuzz fuzzy match 90% to not send the same results repeatedly
+        if self.last_lens_result:
+            score = fuzz.ratio(text_str, self.last_lens_result)
+            if score >= 80:
+                logger.info("Google Lens results are similar to the last results (score: %d). Skipping overlay update.", score)
+                return
+        self.last_lens_result = text_str
 
-        if not res or not coords:
-            return oneocr_results
+        if not success or not coords:
+            return
         
         # 5. Process the high-accuracy results into the desired format
         extracted_data = self._extract_text_with_pixel_boxes(
@@ -302,8 +368,8 @@ class OverlayProcessor:
             crop_height=composite_image.height,
             use_percentages=True
         )
-        
-        return extracted_data
+        logger.info("Sending Google Lens results to overlay.")
+        await send_word_coordinates_to_overlay(extracted_data)
 
     def _extract_text_with_pixel_boxes(
         self,
@@ -402,6 +468,38 @@ class OverlayProcessor:
             "x3": center_x + half_w, "y3": center_y + half_h,
             "x4": center_x - half_w, "y4": center_y + half_h,
         }
+        
+    def _convert_oneocr_results_to_percentages(
+        self,
+        oneocr_results: List[Dict[str, Any]],
+        monitor_width: int,
+        monitor_height: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Converts OneOCR results with pixel coordinates to percentages relative to the monitor size.
+        """
+        converted_results = []
+        for item in oneocr_results:
+            bbox = item.get("bounding_rect", {})
+            if not bbox:
+                continue
+            # Convert each coordinate to a percentage of the monitor dimensions
+            converted_bbox = {
+                key: (value / monitor_width if "x" in key else value / monitor_height)
+                for key, value in bbox.items()
+            }
+            converted_item = item.copy()
+            converted_item["bounding_rect"] = converted_bbox
+            converted_results.append(converted_item)
+            for word in converted_item.get("words", []):
+                word_bbox = word.get("bounding_rect", {})
+                if word_bbox:
+                    word["bounding_rect"] = {
+                        key: (value / monitor_width if "x" in key else value / monitor_height)
+                        for key, value in word_bbox.items()
+                    }
+        # logger.info(f"Converted OneOCR results to percentages: {converted_results}")
+        return converted_results
 
 async def main_test_screenshot():
     """

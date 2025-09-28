@@ -328,6 +328,7 @@ class ScreenSelector:
             "How to Use:\n"
             "  • Left Click + Drag: Create a capture area (green).\n"
             "  • Shift + Left Click + Drag: Create an exclusion area (orange).\n"
+            "  • Ctrl + Left Click + Drag: Create a secondary (menu) area (purple).\n"
             "  • Right-Click on a box: Delete it.\n\n"
             "Hotkeys:\n"
             "  • Ctrl + S: Save and Quit\n"

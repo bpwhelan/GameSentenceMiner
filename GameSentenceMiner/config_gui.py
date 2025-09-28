@@ -1,7 +1,9 @@
 import asyncio
 import copy
 import json
+import os
 import subprocess
+import sys
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, scrolledtext, font
@@ -12,7 +14,11 @@ import ttkbootstrap as ttk
 from GameSentenceMiner import obs
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.communication.send import send_restart_signal
-from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.configuration import Config, Locale, logger, CommonLanguages, ProfileConfig, General, Paths, \
+    Anki, Features, Screenshot, Audio, OBS, Hotkeys, VAD, Overlay, Ai, Advanced, OverlayEngine, get_app_directory, \
+    get_config, is_beangate, AVAILABLE_LANGUAGES, WHSIPER_LARGE, WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, \
+    WHISPER_MEDIUM, WHISPER_TURBO, SILERO, WHISPER, OFF, gsm_state, DEFAULT_CONFIG, get_latest_version, \
+    get_current_version, AI_GEMINI, AI_GROQ, AI_OPENAI, save_full_config, get_default_anki_media_collection_path
 from GameSentenceMiner.util.db import AIModelsTable
 from GameSentenceMiner.util.downloader.download_tools import download_ocenaudio_if_needed
     
@@ -307,6 +313,7 @@ class ConfigApp:
         self.word_field_value = tk.StringVar(value=self.settings.anki.word_field)
         self.previous_sentence_field_value = tk.StringVar(value=self.settings.anki.previous_sentence_field)
         self.previous_image_field_value = tk.StringVar(value=self.settings.anki.previous_image_field)
+        self.game_name_field_value = tk.StringVar(value=self.settings.anki.game_name_field)
         self.video_field_value = tk.StringVar(value=self.settings.anki.video_field)
         self.custom_tags_value = tk.StringVar(value=', '.join(self.settings.anki.custom_tags))
         self.tags_to_check_value = tk.StringVar(value=', '.join(self.settings.anki.tags_to_check))
@@ -362,9 +369,12 @@ class ConfigApp:
         self.vad_trim_beginning_value = tk.BooleanVar(value=self.settings.vad.trim_beginning)
         self.vad_beginning_offset_value = tk.StringVar(value=str(self.settings.vad.beginning_offset))
         self.add_audio_on_no_results_value = tk.BooleanVar(value=self.settings.vad.add_audio_on_no_results)
+        self.use_tts_as_fallback_value = tk.BooleanVar(value=self.settings.vad.use_tts_as_fallback)
+        self.tts_url_value = tk.StringVar(value=self.settings.vad.tts_url)
         self.language_value = tk.StringVar(value=self.settings.vad.language)
         self.cut_and_splice_segments_value = tk.BooleanVar(value=self.settings.vad.cut_and_splice_segments)
         self.splice_padding_value = tk.StringVar(value=str(self.settings.vad.splice_padding) if self.settings.vad.splice_padding else "")
+        self.use_vad_filter_for_whisper_value = tk.BooleanVar(value=self.settings.vad.use_vad_filter_for_whisper)
         
         # Advanced Settings
         self.audio_player_path_value = tk.StringVar(value=self.settings.advanced.audio_player_path)
@@ -395,6 +405,8 @@ class ConfigApp:
         self.overlay_websocket_port_value = tk.StringVar(value=str(self.settings.overlay.websocket_port))
         self.overlay_websocket_send_value = tk.BooleanVar(value=self.settings.overlay.monitor_to_capture)
         self.overlay_engine_value = tk.StringVar(value=self.settings.overlay.engine)
+        self.periodic_value = tk.BooleanVar(value=self.settings.overlay.periodic)
+        self.periodic_interval_value = tk.StringVar(value=str(self.settings.overlay.periodic_interval))
         
         # Master Config Settings
         self.switch_to_default_if_not_found_value = tk.BooleanVar(value=self.master_config.switch_to_default_if_not_found)
@@ -411,10 +423,10 @@ class ConfigApp:
         self.create_screenshot_tab()
         self.create_audio_tab()
         self.create_obs_tab()
-        self.create_profiles_tab()
         self.create_ai_tab()
         self.create_advanced_tab()
         self.create_overlay_tab()
+        self.create_profiles_tab()
         # self.create_wip_tab()
 
     def add_reset_button(self, frame, category, row, column=0, recreate_tab=None):
@@ -440,6 +452,7 @@ class ConfigApp:
         default_category_config = getattr(self.default_settings, category)
 
         setattr(self.settings, category, default_category_config)
+        self.create_vars()  # Recreate variables to reflect default values
         recreate_tab()
         self.save_settings(profile_change=False)
         self.reload_settings()
@@ -527,6 +540,7 @@ class ConfigApp:
                 previous_sentence_field=self.previous_sentence_field_value.get(),
                 previous_image_field=self.previous_image_field_value.get(),
                 video_field=self.video_field_value.get(),
+                game_name_field=self.game_name_field_value.get(),
                 custom_tags=[tag.strip() for tag in self.custom_tags_value.get().split(',') if tag.strip()],
                 tags_to_check=[tag.strip().lower() for tag in self.tags_to_check_value.get().split(',') if tag.strip()],
                 add_game_tag=self.add_game_tag_value.get(),
@@ -591,10 +605,13 @@ class ConfigApp:
                 trim_beginning=self.vad_trim_beginning_value.get(),
                 beginning_offset=float(self.vad_beginning_offset_value.get()),
                 add_audio_on_no_results=self.add_audio_on_no_results_value.get(),
+                use_tts_as_fallback=self.use_tts_as_fallback_value.get(),
+                tts_url=self.tts_url_value.get(),
                 language=self.language_value.get(),
                 cut_and_splice_segments=self.cut_and_splice_segments_value.get(),
                 splice_padding=float(self.splice_padding_value.get()) if self.splice_padding_value.get() else 0.0,
                 use_cpu_for_inference=self.use_cpu_for_inference_value.get(),
+                use_vad_filter_for_whisper=self.use_vad_filter_for_whisper_value.get(),
             ),
             advanced=Advanced(
                 audio_player_path=self.audio_player_path_value.get(),
@@ -625,7 +642,9 @@ class ConfigApp:
             overlay=Overlay(
                 websocket_port=int(self.overlay_websocket_port_value.get()),
                 monitor_to_capture=self.overlay_monitor.current() if self.monitors else 0,
-                engine=OverlayEngine(self.overlay_engine_value.get()).value if self.overlay_engine_value.get() else OverlayEngine.LENS.value
+                engine=OverlayEngine(self.overlay_engine_value.get()).value if self.overlay_engine_value.get() else OverlayEngine.LENS.value,
+                periodic=self.periodic_value.get(),
+                periodic_interval=self.periodic_interval_value.get(),
             )
             # wip=WIP(
             #     overlay_websocket_port=int(self.overlay_websocket_port_value.get()),
@@ -1106,6 +1125,17 @@ class ConfigApp:
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
+        # TODO ADD LOCALIZATION
+        tts_fallback_i18n = vad_i18n.get('use_tts_as_fallback', {})
+        HoverInfoLabelWidget(vad_frame, text=tts_fallback_i18n.get('label', 'Use TTS as Fallback.'), tooltip=tts_fallback_i18n.get('tooltip', 'Use TTS if no audio is detected'), row=self.current_row, column=0)
+        ttk.Checkbutton(vad_frame, variable=self.use_tts_as_fallback_value, bootstyle="round-toggle").grid(row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+
+        tts_url_i18n = vad_i18n.get('tts_url', {})
+        HoverInfoLabelWidget(vad_frame, text=tts_url_i18n.get('label', 'TTS URL'), tooltip=tts_url_i18n.get('tooltip', 'The URL for the TTS service'), row=self.current_row, column=0)
+        ttk.Entry(vad_frame, textvariable=self.tts_url_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
         end_offset_i18n = vad_i18n.get('audio_end_offset', {})
         HoverInfoLabelWidget(vad_frame, text=end_offset_i18n.get('label', '...'),
                              tooltip=end_offset_i18n.get('tooltip', '...'), foreground="dark orange",
@@ -1146,6 +1176,22 @@ class ConfigApp:
         HoverInfoLabelWidget(vad_frame, text=use_cpu_i18n.get('label', 'Force CPU'), tooltip=use_cpu_i18n.get('tooltip', 'Even if CUDA is installed, use CPU for Whisper'), row=self.current_row, column=0)
         ttk.Checkbutton(vad_frame, variable=self.use_cpu_for_inference_value, bootstyle="round-toggle").grid(row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
+        
+        # TODO Add Localization
+        use_vad_filter_for_whisper_i18n = vad_i18n.get('use_vad_filter_for_whisper', {})
+        HoverInfoLabelWidget(vad_frame, text=use_vad_filter_for_whisper_i18n.get('label', 'Use VAD Filter for Whisper'), tooltip=use_vad_filter_for_whisper_i18n.get('tooltip', 'Uses Silero to Filter out Non-Voiced Segments before Transcribing with Whisper.'), row=self.current_row, column=0)
+        ttk.Checkbutton(vad_frame, variable=self.use_vad_filter_for_whisper_value, bootstyle="round-toggle").grid(row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+        
+        # Add Reset Button
+        self.add_reset_button(vad_frame, "vad", self.current_row, column=0, recreate_tab=self.create_vad_tab)
+
+        for col in range(3):
+            vad_frame.grid_columnconfigure(col, weight=0)
+        for row in range(self.current_row):
+            vad_frame.grid_rowconfigure(row, minsize=30)
+
+        return vad_frame
 
     @new_tab
     def create_paths_tab(self):
@@ -1169,7 +1215,7 @@ class ConfigApp:
         ttk.Button(paths_frame, text=browse_text, command=lambda: self.browse_folder(folder_watch_entry),
                    bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
         self.current_row += 1
-        
+
         # Combine "Copy temp files to output folder" and "Output folder" on one row
         copy_to_output_i18n = paths_i18n.get('copy_temp_files_to_output_folder', {})
         combined_i18n = paths_i18n.get('output_folder', {})
@@ -1318,6 +1364,12 @@ class ConfigApp:
                              tooltip=video_img_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
         ttk.Entry(anki_frame, textvariable=self.video_field_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+        
+        game_name_field_i18n = anki_i18n.get('game_name_field', {})
+        HoverInfoLabelWidget(anki_frame, text=game_name_field_i18n.get('label', 'Game Name Field:'),
+                    tooltip=game_name_field_i18n.get('tooltip', 'Field in Anki for the game name.'), row=self.current_row, column=0)
+        ttk.Entry(anki_frame, textvariable=self.game_name_field_value).grid(row=self.current_row, column=1, columnspan=3, sticky='EW', pady=2)
         self.current_row += 1
 
         tags_i18n = anki_i18n.get('custom_tags', {})
@@ -2038,7 +2090,7 @@ class ConfigApp:
         entry = ttk.Entry(ai_frame, textvariable=self.open_ai_url_value)
         entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
-        
+
         entry.bind("<FocusOut>", lambda e, row=self.current_row: self.update_models_element(ai_frame, row))
         entry.bind("<Return>", lambda e, row=self.current_row: self.update_models_element(ai_frame, row))
 
@@ -2233,6 +2285,21 @@ class ConfigApp:
                                            textvariable=self.overlay_engine_value)
         self.overlay_engine.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
+        
+        # Periodic Settings
+        periodic_i18n = overlay_i18n.get('periodic', {})
+        HoverInfoLabelWidget(overlay_frame, text=periodic_i18n.get('label', 'Periodic:'),
+                             tooltip=periodic_i18n.get('tooltip', 'Enable periodic Scanning.'),
+                             row=self.current_row, column=0)
+        ttk.Checkbutton(overlay_frame, variable=self.periodic_value, bootstyle="round-toggle").grid(
+            row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+        periodic_interval_i18n = overlay_i18n.get('periodic_interval', {})
+        HoverInfoLabelWidget(overlay_frame, text=periodic_interval_i18n.get('label', 'Periodic Interval:'),
+                             tooltip=periodic_interval_i18n.get('tooltip', 'Interval for periodic scanning.'),
+                             row=self.current_row, column=0)
+        ttk.Entry(overlay_frame, textvariable=self.periodic_interval_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
 
         if self.monitors:
             # Ensure the index is valid
@@ -2273,7 +2340,7 @@ class ConfigApp:
             # self.controller_hotkey_entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
             
             # listen_for_input_button = ttk.Button(wip_frame, text="Listen for Input", command=lambda: self.listen_for_controller_input())
-            # listen_for_input_button.grid(row=self.current_row, column=2, sticky='EW', pady=2)
+            # listen_for_input_button.grid(row=self.current_row, column=2, sticky='EW', pady=2, padx=5)
             # self.current_row += 1
 
         except Exception as e:
@@ -2386,6 +2453,7 @@ class ConfigApp:
             default_path = get_default_anki_media_collection_path()
             if default_path != self.anki_media_collection_value.get():
                 self.anki_media_collection_value.set(default_path)
+               
                 self.save_settings()
 
 

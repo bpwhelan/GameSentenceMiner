@@ -1,16 +1,22 @@
 
 
+from datetime import datetime
 import json
 import os
+import random
 import shutil
 import sqlite3
 from sys import platform
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union, Type, TypeVar
 import threading
+import uuid
+
+import pytz
+from datetime import timedelta
 
 from GameSentenceMiner.util.text_log import GameLine
-from GameSentenceMiner.util.configuration import logger, is_dev
+from GameSentenceMiner.util.configuration import get_stats_config, logger, is_dev
 import gzip
 
 
@@ -23,6 +29,14 @@ class SQLiteDB:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._lock = threading.Lock()
+        
+    def backup(self, backup_path: str):
+        """ Create a backup of the database using built in SQLite backup API. """
+        with self._lock, sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+            with sqlite3.connect(backup_path, check_same_thread=False) as backup_conn:
+                conn.backup(backup_conn)
+                if is_dev:
+                    logger.debug(f"Database backed up to {backup_path}")
 
     def execute(self, query: str, params: Union[Tuple, Dict] = (), commit: bool = False) -> sqlite3.Cursor:
         with self._lock, sqlite3.connect(self.db_path, check_same_thread=False) as conn:
@@ -378,7 +392,7 @@ class GameLinesTable(SQLiteDBTable):
         self.game_name = game_name
         self.line_text = line_text
         self.context = context
-        self.timestamp = timestamp if timestamp is not None else time.time()
+        self.timestamp = timestamp if timestamp is not None else datetime.now().timestamp()
         self.screenshot_in_anki = screenshot_in_anki if screenshot_in_anki is not None else ''
         self.audio_in_anki = audio_in_anki if audio_in_anki is not None else ''
         self.screenshot_path = screenshot_path if screenshot_path is not None else ''
@@ -426,6 +440,20 @@ class GameLinesTable(SQLiteDBTable):
         # logger.info("Adding GameLine to DB: %s", new_line)
         new_line.add()
         return new_line
+    
+    @classmethod
+    def add_lines(cls, gamelines: List[GameLine]):
+        new_lines = [cls(id=gl.id, game_name=gl.scene,
+                         line_text=gl.text, timestamp=gl.time.timestamp()) for gl in gamelines]
+        # logger.info("Adding %d GameLines to DB", len(new_lines))
+        params = [(line.id, line.game_name, line.line_text, line.timestamp, line.screenshot_in_anki,
+                   line.audio_in_anki, line.screenshot_path, line.audio_path, line.replay_path, line.translation)
+                  for line in new_lines]
+        cls._db.executemany(
+            f"INSERT INTO {cls._table} (id, game_name, line_text, timestamp, screenshot_in_anki, audio_in_anki, screenshot_path, audio_path, replay_path, translation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params,
+            commit=True
+        )
 
 
 def get_db_directory():
@@ -479,3 +507,56 @@ for cls in [AIModelsTable, GameLinesTable]:
     # Uncomment to start fresh every time
     # cls.drop()
     # cls.set_db(gsm_db)  # --- IGNORE ---
+    
+# import random
+# import uuid
+# from datetime import datetime
+# from GameSentenceMiner.util.text_log import GameLine
+# from GameSentenceMiner.util.db import GameLinesTable
+
+# List of common Japanese characters (kanji, hiragana, katakana)
+# japanese_chars = (
+#     "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん"
+#     "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン"
+#     "亜唖娃阿哀愛挨悪握圧扱宛嵐安暗案闇以衣位囲医依委威為胃尉異移維緯"
+#     # ... (add more kanji for more variety)
+# )
+
+# def random_japanese_text(length):
+#     return ''.join(random.choices(japanese_chars, k=length))
+
+# batch_size = 1000
+# lines_batch = []
+
+# def random_datetime(start_year=2024, end_year=2026):
+#     start = datetime(start_year, 1, 1, 0, 0, 0)
+#     end = datetime(end_year, 12, 31, 23, 59, 59)
+#     delta = end - start
+#     random_seconds = random.randint(0, int(delta.total_seconds()))
+#     return start + timedelta(seconds=random_seconds)
+
+# from datetime import timedelta
+
+# for i in range(500000):  # Adjust for desired number of lines
+#     line_text = random_japanese_text(random.randint(25, 40))
+#     lines_batch.append(GameLine(
+#         id=str(uuid.uuid1()),
+#         text=line_text,
+#         time=random_datetime(),
+#         prev=None,
+#         next=None,
+#         index=i,
+#         scene="RandomScene"
+#     ))
+    
+#     if len(lines_batch) >= batch_size:
+#         GameLinesTable.add_lines(lines_batch)
+#         lines_batch = []
+#     if i % 1000 == 0:
+#         print(f"Inserted {i} lines...")
+
+# # Insert any remaining lines
+# if lines_batch:
+#     GameLinesTable.add_lines(lines_batch)
+
+print("Done populating GameLinesDB with random Japanese text.")

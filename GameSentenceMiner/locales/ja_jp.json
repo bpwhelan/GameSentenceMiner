@@ -189,6 +189,10 @@
             "label": "追加タグ:",
             "tooltip": "Ankiカードに追加するカスタムタグ（カンマ区切り）。"
           },
+          "game_name_field": {
+            "label": "ゲーム名フィールド:",
+            "tooltip": "Ankiのゲーム名用フィールド。空欄の場合は追加されません。"
+          },
           "tags_to_check": {
             "label": "対象タグ:",
             "tooltip": "これらのタグを持つカードのみワンクリック対象になります（通常は空を推奨）。"
@@ -263,6 +267,14 @@
           "use_cpu_for_inference": {
             "label": "CPU強制使用:",
             "tooltip": "CUDAがインストールされていてもWhisperでCPUを使用します"
+          },
+          "use_tts_as_fallback": {
+            "label": "TTSをフォールバックとして使用:",
+            "tooltip": "音声が見つからない場合にテキスト読み上げをフォールバックとして使用します。"
+          },
+          "tts_url": {
+            "label": "TTS URL:",
+            "tooltip": "テキスト読み上げサービスのURL。テキストのプレースホルダーとして$sを使用します。"
           }
         },
         "features": {
@@ -571,6 +583,14 @@
           "overlay_engine": {
             "label": "オーバーレイエンジン:",
             "tooltip": "オーバーレイのOCRエンジンを選択します。Lensを使用していてWindowsの場合、スキャンを最適化するためにOneOCRを使用します。"
+          },
+          "periodic": {
+            "label": "定期キャプチャ:",
+            "tooltip": "OCR処理のために画面を定期的にキャプチャするかどうか。"
+          },
+          "periodic_interval": {
+            "label": "キャプチャ間隔（秒）:",
+            "tooltip": "定期的な画面キャプチャの間隔（秒単位）。"
           }
         },
         "wip": {

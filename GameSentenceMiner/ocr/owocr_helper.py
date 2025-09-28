@@ -19,13 +19,15 @@ from PIL import Image
 from rapidfuzz import fuzz
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.util.electron_config import *
 from GameSentenceMiner.ocr.ss_picker import ScreenCropper
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window, get_ocr_config_path
-from GameSentenceMiner.owocr.owocr import screen_coordinate_picker, run
-from GameSentenceMiner.util.gsm_utils import sanitize_filename, do_text_replacements, OCR_REPLACEMENTS_FILE
+from GameSentenceMiner.owocr.owocr import run
+from GameSentenceMiner.util.electron_config import get_ocr_ocr2, get_ocr_send_to_clipboard, get_ocr_scan_rate, \
+    has_ocr_config_changed, reload_electron_config, get_ocr_two_pass_ocr, get_ocr_optimize_second_scan, \
+    get_ocr_language, get_ocr_manual_ocr_hotkey
+from GameSentenceMiner.util.gsm_utils import sanitize_filename
 import threading
 import time
 
@@ -420,7 +422,7 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None):
     Logic is unchanged, but code is refactored for clarity and maintainability.
     """
     def return_original_image():
-        logger.info("Returning original image for OCR2 (no cropping or optimization).")
+        logger.debug("Returning original image for OCR2 (no cropping or optimization).")
         if not crop_coords or not get_ocr_optimize_second_scan():
             return og_image
         x1, y1, x2, y2 = crop_coords
@@ -546,9 +548,10 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
         ocr_config = get_ocr_config()
         img = obs.get_screenshot_PIL(compression=80, img_format="jpg")
         ocr_config.scale_to_custom_size(img.width, img.height)
-        img = run.apply_ocr_config_to_image(img, ocr_config, is_secondary=True)
-        do_second_ocr("", datetime.now(), img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
-        
+        for rectangle in [rectangle for rectangle in ocr_config.rectangles if rectangle.is_secondary]:
+            new_img = run.apply_ocr_config_to_image(img, ocr_config, is_secondary=True, rectangles=[rectangle])
+            do_second_ocr("", datetime.now(), new_img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
+
     filtering = TextFiltering(lang=get_ocr_language())
     cropper = ScreenCropper()
     def capture():

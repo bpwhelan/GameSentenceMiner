@@ -1,14 +1,18 @@
+import copy
 import datetime
 import re
 import csv
 import io
 from collections import defaultdict
+import time
 
 import flask
 from flask import request, jsonify
+import regex
 
 from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.configuration import logger, get_config, save_current_config
+from GameSentenceMiner.util.configuration import get_stats_config, logger, get_config, save_current_config, save_stats_config
+from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency, calculate_heatmap_data, calculate_total_chars_per_game,
     calculate_reading_time_per_game, calculate_reading_speed_per_game,
@@ -32,6 +36,7 @@ def register_database_api_routes(app):
             sort_by = request.args.get('sort', 'relevance')
             page = int(request.args.get('page', 1))
             page_size = int(request.args.get('page_size', 20))
+            use_regex = request.args.get('use_regex', 'false').lower() == 'true'
             
             # Validate parameters
             if not query:
@@ -41,65 +46,129 @@ def register_database_api_routes(app):
                 page = 1
             if page_size < 1 or page_size > 100:
                 page_size = 20
-            
-            # Build the SQL query
-            base_query = f"SELECT * FROM {GameLinesTable._table} WHERE line_text LIKE ?"
-            params = [f'%{query}%']
-            
-            # Add game filter if specified
-            if game_filter:
-                base_query += " AND game_name = ?"
-                params.append(game_filter)
-            
-            # Add sorting
-            if sort_by == 'date_desc':
-                base_query += " ORDER BY timestamp DESC"
-            elif sort_by == 'date_asc':
-                base_query += " ORDER BY timestamp ASC"
-            elif sort_by == 'game_name':
-                base_query += " ORDER BY game_name, timestamp DESC"
-            else:  # relevance - could be enhanced with proper scoring
-                base_query += " ORDER BY timestamp DESC"
-            
-            # Get total count for pagination
-            count_query = f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE line_text LIKE ?"
-            count_params = [f'%{query}%']
-            if game_filter:
-                count_query += " AND game_name = ?"
-                count_params.append(game_filter)
-            
-            total_results = GameLinesTable._db.fetchone(count_query, count_params)[0]
-            
-            # Add pagination
-            offset = (page - 1) * page_size
-            base_query += f" LIMIT ? OFFSET ?"
-            params.extend([page_size, offset])
-            
-            # Execute search query
-            rows = GameLinesTable._db.fetchall(base_query, params)
-            
-            # Format results
-            results = []
-            for row in rows:
-                game_line = GameLinesTable.from_row(row)
-                if game_line:
-                    results.append({
-                        'id': game_line.id,
-                        'sentence': game_line.line_text or '',
-                        'game_name': game_line.game_name or 'Unknown Game',
-                        'timestamp': float(game_line.timestamp) if game_line.timestamp else 0,
-                        'translation': game_line.translation or None,
-                        'has_audio': bool(game_line.audio_path),
-                        'has_screenshot': bool(game_line.screenshot_path)
-                    })
-            
-            return jsonify({
-                'results': results,
-                'total': total_results,
-                'page': page,
-                'page_size': page_size,
-                'total_pages': (total_results + page_size - 1) // page_size
-            }), 200
+
+            if use_regex:
+                # Regex search: fetch all candidate rows, filter in Python
+                try:
+                    # Ensure query is a string
+                    if not isinstance(query, str):
+                        return jsonify({'error': 'Invalid query parameter type'}), 400
+                    
+                    all_lines = GameLinesTable.all()
+                    if game_filter:
+                        all_lines = [line for line in all_lines if line.game_name == game_filter]
+                    
+                    # Compile regex pattern with proper error handling
+                    try:
+                        pattern = re.compile(query, re.IGNORECASE)
+                    except re.error as regex_err:
+                        return jsonify({'error': f'Invalid regex pattern: {str(regex_err)}'}), 400
+                    
+                    # Filter lines using regex
+                    filtered_lines = []
+                    for line in all_lines:
+                        if line.line_text and isinstance(line.line_text, str):
+                            try:
+                                if pattern.search(line.line_text):
+                                    filtered_lines.append(line)
+                            except Exception as search_err:
+                                # Log but continue with other lines
+                                logger.warning(f"Regex search error on line {line.id}: {search_err}")
+                                continue
+                    
+                    # Sorting (default: timestamp DESC, or as specified)
+                    if sort_by == 'date_asc':
+                        filtered_lines.sort(key=lambda l: float(l.timestamp) if l.timestamp else 0)
+                    elif sort_by == 'game_name':
+                        filtered_lines.sort(key=lambda l: (l.game_name or '', -(float(l.timestamp) if l.timestamp else 0)))
+                    else:  # date_desc or relevance
+                        filtered_lines.sort(key=lambda l: -(float(l.timestamp) if l.timestamp else 0))
+                    
+                    total_results = len(filtered_lines)
+                    # Pagination
+                    start = (page - 1) * page_size
+                    end = start + page_size
+                    paged_lines = filtered_lines[start:end]
+                    results = []
+                    for line in paged_lines:
+                        results.append({
+                            'id': line.id,
+                            'sentence': line.line_text or '',
+                            'game_name': line.game_name or 'Unknown Game',
+                            'timestamp': float(line.timestamp) if line.timestamp else 0,
+                            'translation': line.translation or None,
+                            'has_audio': bool(getattr(line, 'audio_path', None)),
+                            'has_screenshot': bool(getattr(line, 'screenshot_path', None))
+                        })
+                    return jsonify({
+                        'results': results,
+                        'total': total_results,
+                        'page': page,
+                        'page_size': page_size,
+                        'total_pages': (total_results + page_size - 1) // page_size
+                    }), 200
+                except Exception as e:
+                    logger.error(f"Regex search failed: {e}")
+                    return jsonify({'error': f'Search failed: {str(e)}'}), 500
+            else:
+                # Build the SQL query
+                base_query = f"SELECT * FROM {GameLinesTable._table} WHERE line_text LIKE ?"
+                params = [f'%{query}%']
+                
+                # Add game filter if specified
+                if game_filter:
+                    base_query += " AND game_name = ?"
+                    params.append(game_filter)
+                
+                # Add sorting
+                if sort_by == 'date_desc':
+                    base_query += " ORDER BY timestamp DESC"
+                elif sort_by == 'date_asc':
+                    base_query += " ORDER BY timestamp ASC"
+                elif sort_by == 'game_name':
+                    base_query += " ORDER BY game_name, timestamp DESC"
+                else:  # relevance - could be enhanced with proper scoring
+                    base_query += " ORDER BY timestamp DESC"
+                
+                # Get total count for pagination
+                count_query = f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE line_text LIKE ?"
+                count_params = [f'%{query}%']
+                if game_filter:
+                    count_query += " AND game_name = ?"
+                    count_params.append(game_filter)
+                
+                total_results = GameLinesTable._db.fetchone(count_query, count_params)[0]
+                
+                # Add pagination
+                offset = (page - 1) * page_size
+                base_query += f" LIMIT ? OFFSET ?"
+                params.extend([page_size, offset])
+                
+                # Execute search query
+                rows = GameLinesTable._db.fetchall(base_query, params)
+                
+                # Format results
+                results = []
+                for row in rows:
+                    game_line = GameLinesTable.from_row(row)
+                    if game_line:
+                        results.append({
+                            'id': game_line.id,
+                            'sentence': game_line.line_text or '',
+                            'game_name': game_line.game_name or 'Unknown Game',
+                            'timestamp': float(game_line.timestamp) if game_line.timestamp else 0,
+                            'translation': game_line.translation or None,
+                            'has_audio': bool(game_line.audio_path),
+                            'has_screenshot': bool(game_line.screenshot_path)
+                        })
+                
+                return jsonify({
+                    'results': results,
+                    'total': total_results,
+                    'page': page,
+                    'page_size': page_size,
+                    'total_pages': (total_results + page_size - 1) // page_size
+                }), 200
             
         except ValueError as e:
             return jsonify({'error': 'Invalid pagination parameters'}), 400
@@ -226,14 +295,17 @@ def register_database_api_routes(app):
     @app.route('/api/settings', methods=['GET'])
     def api_get_settings():
         """
-        Get current AFK timer, session gap, and streak requirement settings.
+        Get current AFK timer, session gap, streak requirement, and goal settings.
         """
         try:
-            config = get_config()
+            config = get_stats_config()
             return jsonify({
-                'afk_timer_seconds': config.advanced.afk_timer_seconds,
-                'session_gap_seconds': config.advanced.session_gap_seconds,
-                'streak_requirement_hours': getattr(config.advanced, 'streak_requirement_hours', 1.0)
+                'afk_timer_seconds': config.afk_timer_seconds,
+                'session_gap_seconds': config.session_gap_seconds,
+                'streak_requirement_hours': config.streak_requirement_hours,
+                'reading_hours_target': config.reading_hours_target,
+                'character_count_target': config.character_count_target,
+                'games_target': config.games_target,
             }), 200
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
@@ -242,7 +314,7 @@ def register_database_api_routes(app):
     @app.route('/api/settings', methods=['POST'])
     def api_save_settings():
         """
-        Save/update AFK timer, session gap, and streak requirement settings.
+        Save/update AFK timer, session gap, streak requirement, and goal settings.
         """
         try:
             data = request.get_json()
@@ -253,6 +325,9 @@ def register_database_api_routes(app):
             afk_timer = data.get('afk_timer_seconds')
             session_gap = data.get('session_gap_seconds')
             streak_requirement = data.get('streak_requirement_hours')
+            reading_hours_target = data.get('reading_hours_target')
+            character_count_target = data.get('character_count_target')
+            games_target = data.get('games_target')
             
             # Validate input - only require the settings that are provided
             settings_to_update = {}
@@ -260,8 +335,8 @@ def register_database_api_routes(app):
             if afk_timer is not None:
                 try:
                     afk_timer = int(afk_timer)
-                    if afk_timer < 30 or afk_timer > 600:
-                        return jsonify({'error': 'AFK timer must be between 30 and 600 seconds'}), 400
+                    if afk_timer < 0 or afk_timer > 600:
+                        return jsonify({'error': 'AFK timer must be between 0 and 600 seconds'}), 400
                     settings_to_update['afk_timer_seconds'] = afk_timer
                 except (ValueError, TypeError):
                     return jsonify({'error': 'AFK timer must be a valid integer'}), 400
@@ -269,8 +344,8 @@ def register_database_api_routes(app):
             if session_gap is not None:
                 try:
                     session_gap = int(session_gap)
-                    if session_gap < 300 or session_gap > 7200:
-                        return jsonify({'error': 'Session gap must be between 300 and 7200 seconds (5 minutes to 2 hours)'}), 400
+                    if session_gap < 0 or session_gap > 7200:
+                        return jsonify({'error': 'Session gap must be between 0 and 7200 seconds (0 to 2 hours)'}), 400
                     settings_to_update['session_gap_seconds'] = session_gap
                 except (ValueError, TypeError):
                     return jsonify({'error': 'Session gap must be a valid integer'}), 400
@@ -284,22 +359,54 @@ def register_database_api_routes(app):
                 except (ValueError, TypeError):
                     return jsonify({'error': 'Streak requirement must be a valid number'}), 400
             
+            if reading_hours_target is not None:
+                try:
+                    reading_hours_target = int(reading_hours_target)
+                    if reading_hours_target < 1 or reading_hours_target > 10000:
+                        return jsonify({'error': 'Reading hours target must be between 1 and 10,000 hours'}), 400
+                    settings_to_update['reading_hours_target'] = reading_hours_target
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Reading hours target must be a valid integer'}), 400
+            
+            if character_count_target is not None:
+                try:
+                    character_count_target = int(character_count_target)
+                    if character_count_target < 1000 or character_count_target > 1000000000:
+                        return jsonify({'error': 'Character count target must be between 1,000 and 1,000,000,000 characters'}), 400
+                    settings_to_update['character_count_target'] = character_count_target
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Character count target must be a valid integer'}), 400
+            
+            if games_target is not None:
+                try:
+                    games_target = int(games_target)
+                    if games_target < 1 or games_target > 1000:
+                        return jsonify({'error': 'Games target must be between 1 and 1,000'}), 400
+                    settings_to_update['games_target'] = games_target
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Games target must be a valid integer'}), 400
+            
             if not settings_to_update:
                 return jsonify({'error': 'No valid settings provided'}), 400
             
             # Update configuration
-            config = get_config()
+            config = get_stats_config()
             
             if 'afk_timer_seconds' in settings_to_update:
-                config.advanced.afk_timer_seconds = settings_to_update['afk_timer_seconds']
+                config.afk_timer_seconds = settings_to_update['afk_timer_seconds']
             if 'session_gap_seconds' in settings_to_update:
-                config.advanced.session_gap_seconds = settings_to_update['session_gap_seconds']
+                config.session_gap_seconds = settings_to_update['session_gap_seconds']
             if 'streak_requirement_hours' in settings_to_update:
-                setattr(config.advanced, 'streak_requirement_hours', settings_to_update['streak_requirement_hours'])
+                config.streak_requirement_hours = settings_to_update['streak_requirement_hours']
+            if 'reading_hours_target' in settings_to_update:
+                config.reading_hours_target = settings_to_update['reading_hours_target']
+            if 'character_count_target' in settings_to_update:
+                config.character_count_target = settings_to_update['character_count_target']
+            if 'games_target' in settings_to_update:
+                config.games_target = settings_to_update['games_target']
             
-            # Save configuration
-            save_current_config(config)
-            
+            save_stats_config(config)
+
             logger.info(f"Settings updated: {settings_to_update}")
             
             response_data = {'message': 'Settings saved successfully'}
@@ -791,6 +898,7 @@ def register_database_api_routes(app):
         Accepts optional 'year' parameter to filter heatmap data.
         """
         try:
+            punctionation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
             # Get optional year filter parameter
             filter_year = request.args.get('year', None)
             
@@ -809,12 +917,31 @@ def register_database_api_routes(app):
             daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0}))
 
             try:
+                # start_time = time.perf_counter()
+                # for line in all_lines:
+                #     day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
+                #     game = line.game_name or "Unknown Game"
+                #     daily_data[day_str][game]['lines'] += 1
+                #     daily_data[day_str][game]['chars'] += len(line.line_text) if line.line_text else 0
+                # end_time = time.perf_counter()
+                # logger.info(f"Without Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
+
+                # start_time = time.perf_counter()
+                wrong_instance_found = False
                 for line in all_lines:
                     day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
                     game = line.game_name or "Unknown Game"
-                    
+                    # Remove punctuation and symbols from line text before counting characters
+                    clean_text = punctionation_regex.sub('', str(line.line_text)) if line.line_text else ''
+                    if not isinstance(clean_text, str) and not wrong_instance_found:
+                        logger.info(f"Non-string line_text encountered: {clean_text} (type: {type(clean_text)})")
+                        wrong_instance_found = True
+
+                    line.line_text = clean_text  # Update line text to cleaned version for future use
                     daily_data[day_str][game]['lines'] += 1
-                    daily_data[day_str][game]['chars'] += len(line.line_text) if line.line_text else 0
+                    daily_data[day_str][game]['chars'] += len(clean_text)
+                # end_time = time.perf_counter()
+                # logger.info(f"With Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
             except Exception as e:
                 logger.error(f"Error processing daily data: {e}")
                 return jsonify({'error': 'Failed to process daily data'}), 500
@@ -1009,24 +1136,31 @@ def register_database_api_routes(app):
                 csv_reader = csv.DictReader(file_io, quoting=csv.QUOTE_MINIMAL, skipinitialspace=True)
                 
                 # Process CSV rows
-                imported_lines = []
                 games_set = set()
                 errors = []
-                seen_uuids = set()  # Track UUIDs within this import batch
                 
+                all_lines = GameLinesTable.all()
+                existing_uuids = {line.id for line in all_lines}
+                batch_size = 1000  # For logging progress
+                batch_insert = []
+                imported_count = 0
+                
+                def get_line_hash(uuid: str, line_text: str) -> str:
+                    return uuid + '|' + line_text.strip()
+
                 for row_num, row in enumerate(csv_reader):
                     try:
                         # Extract and validate required fields
-                        uuid = row.get('uuid', '').strip()
-                        name = row.get('name', '').strip()
+                        game_uuid = row.get('uuid', '').strip()
+                        game_name = row.get('name', '').strip()
                         line = row.get('line', '').strip()
                         time_str = row.get('time', '').strip()
                         
                         # Validate required fields
-                        if not uuid:
+                        if not game_uuid:
                             errors.append(f"Row {row_num}: Missing UUID")
                             continue
-                        if not name:
+                        if not game_name:
                             errors.append(f"Row {row_num}: Missing name")
                             continue
                         if not line:
@@ -1036,12 +1170,13 @@ def register_database_api_routes(app):
                             errors.append(f"Row {row_num}: Missing time")
                             continue
                         
-                        # Check for duplicates within this import batch
-                        if uuid in seen_uuids:
-                            logger.info(f"Skipping duplicate UUID within import batch: {uuid}")
-                            continue
-                        seen_uuids.add(uuid)
+                        line_hash = get_line_hash(game_uuid, line)
                         
+                        # Check if this line already exists in database
+                        if line_hash in existing_uuids:
+                            logger.info(f"Skipping duplicate UUID already in database: {line_hash}")
+                            continue
+
                         # Convert time to timestamp
                         try:
                             timestamp = float(time_str)
@@ -1052,37 +1187,52 @@ def register_database_api_routes(app):
                         # Clean up line text (remove extra whitespace and newlines)
                         line_text = line.strip()
                         
-                        # Check if this UUID already exists in database
-                        existing_line = GameLinesTable.get(uuid)
-                        if existing_line:
-                            logger.info(f"Skipping duplicate UUID already in database: {uuid}")
-                            continue
-                        
                         # Create GameLinesTable entry
-                        game_line = GameLinesTable(
-                            id=uuid,
-                            game_name=name,
-                            line_text=line_text,
-                            timestamp=timestamp
-                        )
+                        # Convert timestamp float to datetime object
+                        dt = datetime.datetime.fromtimestamp(timestamp)
+                        batch_insert.append(GameLine(
+                            id=line_hash,
+                            text=line_text,
+                            scene=game_name,
+                            time=dt,
+                            prev=None,
+                            next=None,
+                            index=0,
+                        ))
                         
-                        imported_lines.append(game_line)
-                        games_set.add(name)
+                        logger.info(f"Batch insert size: {len(batch_insert)}")
+                        
+                        existing_uuids.add(line_hash)  # Add to existing to prevent duplicates in same import
+                        
+                        if len(batch_insert) >= batch_size:
+                            logger.info(f"Importing batch of {len(batch_insert)} lines...")
+                            GameLinesTable.add_lines(batch_insert)
+                            imported_count += len(batch_insert)
+                            batch_insert = []
+                        games_set.add(game_name)
                         
                     except Exception as e:
+                        logger.error(f"Error processing row {row_num}: {e}")
                         errors.append(f"Row {row_num}: Error processing row - {str(e)}")
                         continue
+                    
+                # Insert the rest of the batch
+                if batch_insert:
+                    logger.info(f"Importing final batch of {len(batch_insert)} lines...")
+                    GameLinesTable.add_lines(batch_insert)
+                    imported_count += len(batch_insert)
+                    batch_insert = []
                 
-                # Import lines into database
-                imported_count = 0
-                for game_line in imported_lines:
-                    try:
-                        game_line.add()
-                        imported_count += 1
-                    except Exception as e:
-                        logger.error(f"Failed to import line {game_line.id}: {e}")
-                        errors.append(f"Failed to import line {game_line.id}: {str(e)}")
-                
+                # # Import lines into database
+                # imported_count = 0
+                # for game_line in imported_lines:
+                #     try:
+                #         game_line.add()
+                #         imported_count += 1
+                #     except Exception as e:
+                #         logger.error(f"Failed to import line {game_line.id}: {e}")
+                #         errors.append(f"Failed to import line {game_line.id}: {str(e)}")
+
                 # Prepare response
                 response_data = {
                     'message': f'Successfully imported {imported_count} lines from {len(games_set)} games',
@@ -1096,6 +1246,8 @@ def register_database_api_routes(app):
                     response_data['warning_count'] = len(errors)
                 
                 logger.info(f"ExStatic import completed: {imported_count} lines from {len(games_set)} games")
+                
+                logger.info(f"Import response: {response_data}")
                 
                 return jsonify(response_data), 200
                 

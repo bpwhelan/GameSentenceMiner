@@ -1,10 +1,14 @@
+import json
+import logging
+import os
+import shutil
 import tempfile
 import time
 import warnings
 from abc import abstractmethod, ABC
 
 from GameSentenceMiner.util import configuration, ffmpeg
-from GameSentenceMiner.util.configuration import *
+from GameSentenceMiner.util.configuration import get_config, get_temporary_directory, logger, SILERO, WHISPER
 from GameSentenceMiner.util.ffmpeg import get_audio_length
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name, run_new_thread
 from GameSentenceMiner.util.model import VADResult
@@ -37,19 +41,7 @@ class VADSystem:
             if not result.success and get_config().vad.backup_vad_model != configuration.OFF:
                 logger.info("No voice activity detected, using backup VAD model.")
                 result = self._do_vad_processing(get_config().vad.backup_vad_model, input_audio, output_audio, game_line)
-            if not result.success:
-                if get_config().vad.add_audio_on_no_results:
-                    logger.info("No voice activity detected, using full audio.")
-                    result.output_audio = input_audio
-                else:
-                    logger.info("No voice activity detected.")
-                    return result
-            else:
-                logger.info(result.trim_successful_string())
             return result
-        else:
-            return VADResult(True, 0, get_audio_length(input_audio), "OFF", [], input_audio)
-
 
     def _do_vad_processing(self, model, input_audio, output_audio, game_line):
         match model:
@@ -185,7 +177,7 @@ class WhisperVADProcessor(VADProcessor):
         # Transcribe the audio using Whisper
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result: WhisperResult = self.vad_model.transcribe(temp_wav, vad=True, language=get_config().vad.language,
+            result: WhisperResult = self.vad_model.transcribe(temp_wav, vad=True, language=get_config().vad.language, vad_filter=get_config().vad.use_vad_filter_for_whisper,
                                                              temperature=0.0)
         voice_activity = []
 
@@ -406,6 +398,7 @@ def test_vad_processors():
     get_config().vad.cut_and_splice_segments = False
     get_config().vad.trim_beginning = True
     get_config().vad.add_audio_on_no_results = True
+    get_config().vad.use_vad_filter_for_whisper = False
     for processor, out_name in processors:
         logger.info("Testing Trim Audio with " + processor.vad_system_name)
         out_path = os.path.join(output_dir, out_name.replace("after_splice_", "after_trim_"))

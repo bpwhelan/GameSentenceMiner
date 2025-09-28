@@ -1,10 +1,17 @@
-import time
 import asyncio
+import os
+import shutil
 import subprocess
 import sys
-
-import os
+import tempfile
+import threading
+import time
 import warnings
+
+import requests
+
+from GameSentenceMiner.util.get_overlay_coords import OverlayThread
+from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 
 os.environ.pop('TCL_LIBRARY', None)
 
@@ -21,6 +28,7 @@ def handle_error_in_initialization(e):
         logger.info("Exiting due to initialization error.")
         sys.exit(1)
 
+
 try:
     import os.path
     import signal
@@ -35,7 +43,10 @@ try:
     import psutil
 
     start_time = time.time()
-    from GameSentenceMiner.util.configuration import *
+    from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
+    get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
+    is_windows, is_linux
+
     logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
@@ -48,15 +59,18 @@ try:
 
     start_time = time.time()
     from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
-    logger.debug(f"[Import] download_tools (download_obs_if_needed, download_ffmpeg_if_needed): {time.time() - start_time:.3f}s")
+    logger.debug(
+        f"[Import] download_tools (download_obs_if_needed, download_ffmpeg_if_needed): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.communication.send import send_restart_signal
-    logger.debug(f"[Import] send_restart_signal: {time.time() - start_time:.3f}s")
+    logger.debug(
+        f"[Import] send_restart_signal: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
-    logger.debug(f"[Import] gsm_utils (wait_for_stable_file, make_unique_file_name, run_new_thread): {time.time() - start_time:.3f}s")
+    logger.debug(
+        f"[Import] gsm_utils (wait_for_stable_file, make_unique_file_name, run_new_thread): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner import anki
@@ -68,7 +82,8 @@ try:
 
     start_time = time.time()
     from GameSentenceMiner.util import configuration, notification, ffmpeg
-    logger.debug(f"[Import] util (configuration, notification, ffmpeg): {time.time() - start_time:.3f}s")
+    logger.debug(
+        f"[Import] util (configuration, notification, ffmpeg): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner import gametext
@@ -84,35 +99,38 @@ try:
 
     start_time = time.time()
     from GameSentenceMiner.util.communication.websocket import connect_websocket, register_websocket_message_handler, FunctionName
-    logger.debug(f"[Import] websocket (connect_websocket, register_websocket_message_handler, FunctionName): {time.time() - start_time:.3f}s")
+    logger.debug(
+        f"[Import] websocket (connect_websocket, register_websocket_message_handler, FunctionName): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.ffmpeg import get_audio_and_trim, get_video_timings, get_ffmpeg_path
-    logger.debug(f"[Import] util.ffmpeg (get_audio_and_trim, get_video_timings, get_ffmpeg_path): {time.time() - start_time:.3f}s")
+    logger.debug(
+        f"[Import] util.ffmpeg (get_audio_and_trim, get_video_timings, get_ffmpeg_path): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.obs import check_obs_folder_is_correct
-    logger.debug(f"[Import] obs.check_obs_folder_is_correct: {time.time() - start_time:.3f}s")
+    logger.debug(
+        f"[Import] obs.check_obs_folder_is_correct: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.text_log import GameLine, get_text_event, get_mined_line, get_all_lines, game_log
-    logger.debug(f"[Import] util.text_log (GameLine, get_text_event, get_mined_line, get_all_lines, game_log): {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
-    from GameSentenceMiner.util import *
-    logger.debug(f"[Import] util *: {time.time() - start_time:.3f}s")
+    logger.debug(
+        f"[Import] util.text_log (GameLine, get_text_event, get_mined_line, get_all_lines, game_log): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web import texthooking_page
-    logger.debug(f"[Import] web.texthooking_page: {time.time() - start_time:.3f}s")
+    logger.debug(
+        f"[Import] web.texthooking_page: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web.service import handle_texthooker_button, set_get_audio_from_video_callback
-    logger.debug(f"[Import] web.service (handle_texthooker_button, set_get_audio_from_video_callback): {time.time() - start_time:.3f}s")
+    logger.debug(
+        f"[Import] web.service (handle_texthooker_button, set_get_audio_from_video_callback): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
-    logger.debug(f"[Import] web.texthooking_page.run_text_hooker_page: {time.time() - start_time:.3f}s")
+    logger.debug(
+        f"[Import] web.texthooking_page.run_text_hooker_page: {time.time() - start_time:.3f}s")
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
     handle_error_in_initialization(e)
@@ -172,8 +190,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 if get_config().features.backfill_audio:
                     last_note = anki.get_cards_by_sentence(
                         gametext.current_line_after_regex)
-                    
-            note, last_note = anki.get_initial_card_info(last_note, selected_lines)
+
+            note, last_note = anki.get_initial_card_info(
+                last_note, selected_lines)
             tango = last_note.get_field(
                 get_config().anki.word_field) if last_note else ''
 
@@ -184,12 +203,15 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 start_line = selected_lines[0]
                 mined_line = get_mined_line(last_note, selected_lines)
                 line_cutoff = selected_lines[-1].get_next_time()
+                full_text = remove_html_and_cloze_tags(note['fields'][get_config().anki.sentence_field])
             else:
                 mined_line = get_text_event(last_note)
                 if mined_line:
                     start_line = mined_line
                     if mined_line.next:
                         line_cutoff = mined_line.next.time
+                    full_text = mined_line.text
+
             gsm_state.last_mined_line = mined_line
 
             if os.path.exists(video_path) and os.access(video_path, os.R_OK):
@@ -213,7 +235,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     line_cutoff,
                     video_path,
                     anki_card_creation_time,
-                    mined_line=mined_line)
+                    mined_line=mined_line,
+                    full_text=full_text)
             else:
                 final_audio_output = ""
                 vad_result = VADResult(True, 0, 0, '')
@@ -269,11 +292,13 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     f"Error removing video file {video_path}: {e}", exc_info=True)
 
     @staticmethod
-    def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None):
+    def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None, full_text=''):
         trimmed_audio, start_time, end_time = get_audio_and_trim(
             video_path, game_line, next_line_time, anki_card_creation_time)
         if temporary:
             return ffmpeg.convert_audio_to_wav_lossless(trimmed_audio)
+        if not get_config().vad.do_vad_postprocessing:
+            return trimmed_audio, VADResult(True, start_time, end_time, "No VAD"), trimmed_audio, start_time, end_time
         vad_trimmed_audio = make_unique_file_name(
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         final_audio_output = make_unique_file_name(os.path.join(get_temporary_directory(),
@@ -283,6 +308,28 @@ class VideoToAudioHandler(FileSystemEventHandler):
             trimmed_audio, vad_trimmed_audio, game_line)
         if timing_only:
             return vad_result
+
+        if not vad_result.success:
+            if get_config().vad.add_audio_on_no_results:
+                logger.info("No voice activity detected, using full audio.")
+                vad_result.output_audio = trimmed_audio
+            elif get_config().vad.use_tts_as_fallback:
+                try:
+                    logger.info(
+                        "No voice activity detected, using TTS as fallback.")
+                    text_to_tts = full_text if full_text else game_line.text
+                    url = get_config().vad.tts_url.replace("$s", text_to_tts)
+                    tts_resp = requests.get(url)
+                    if not tts_resp.ok:
+                        logger.error(
+                            f"Error fetching TTS audio from {url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
+                    with tempfile.NamedTemporaryFile(dir=get_temporary_directory(), delete=False, suffix=".opus") as tmpfile:
+                        tmpfile.write(tts_resp.content)
+                        vad_result.output_audio = tmpfile.name
+                except Exception as e:
+                    logger.error(f"Error getting TTS audio: {e}, skipping audio.")
+        else:
+            logger.info(vad_result.trim_successful_string())
         if vad_result.output_audio:
             vad_trimmed_audio = vad_result.output_audio
         if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(vad_trimmed_audio):
@@ -404,12 +451,13 @@ def open_multimine(icon, item):
 
 
 def exit_program(passed_icon, item):
-        """Exit the application."""
-        if not passed_icon:
-            passed_icon = icon
-        logger.info("Exiting...")
-        passed_icon.stop()
-        cleanup()
+    """Exit the application."""
+    if not passed_icon:
+        passed_icon = icon
+    logger.info("Exiting...")
+    passed_icon.stop()
+    cleanup()
+
 
 class GSMTray(threading.Thread):
     def __init__(self):
@@ -421,12 +469,11 @@ class GSMTray(threading.Thread):
     def run(self):
         self.run_tray()
 
-
     def run_tray(self):
         self.profile_menu = Menu(
             *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, self.switch_profile) for
-            profile in
-            get_master_config().get_all_profile_names()]
+              profile in
+              get_master_config().get_all_profile_names()]
         )
 
         menu = Menu(
@@ -447,8 +494,8 @@ class GSMTray(threading.Thread):
         # Recreate the menu with the updated button text
         profile_menu = Menu(
             *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, self.switch_profile) for
-            profile in
-            get_master_config().get_all_profile_names()]
+              profile in
+              get_master_config().get_all_profile_names()]
         )
 
         menu = Menu(
@@ -485,6 +532,7 @@ class GSMTray(threading.Thread):
     def stop(self):
         if self.icon:
             self.icon.stop()
+
 
 gsm_tray = GSMTray()
 
@@ -540,13 +588,13 @@ def cleanup():
         obs.disconnect_from_obs()
         if get_config().obs.close_obs:
             close_obs()
-            
+
         if texthooking_page.websocket_server_threads:
             for thread in texthooking_page.websocket_server_threads:
                 if thread and isinstance(thread, threading.Thread) and thread.is_alive():
                     thread.stop_server()
                     thread.join()
-        
+
         proc: Popen
         for proc in procs_to_close:
             try:
@@ -568,7 +616,8 @@ def cleanup():
                 if os.path.exists(video):
                     os.remove(video)
             except Exception as e:
-                logger.error(f"Error removing temporary video file {video}: {e}")
+                logger.error(
+                    f"Error removing temporary video file {video}: {e}")
 
         settings_window.window.destroy()
         # time.sleep(5)
@@ -626,6 +675,7 @@ def initialize_async():
 
 
 def handle_websocket_message(message: Message):
+    logger.info(f"WebSocket Message Received: {message.to_json()}")
     try:
         match FunctionName(message.function):
             case FunctionName.QUIT:
@@ -634,7 +684,7 @@ def handle_websocket_message(message: Message):
             case FunctionName.QUIT_OBS:
                 close_obs()
             case FunctionName.START_OBS:
-                obs.start_obs()
+                obs.start_obs(force_restart=not gsm_status.obs_connected)
             case FunctionName.OPEN_SETTINGS:
                 open_settings()
             case FunctionName.OPEN_TEXTHOOKER:
@@ -668,6 +718,9 @@ def async_loop():
         await register_scene_switcher_callback()
         await check_obs_folder_is_correct()
         vad_processor.init()
+        OverlayThread().start()
+
+        # Keep loop alive
         # if is_beangate:
         # await run_test_code()
 
@@ -713,8 +766,8 @@ async def run_test_code():
         if boxes:
             await texthooking_page.send_word_coordinates_to_overlay(boxes)
         await asyncio.sleep(2)
-        
-        
+
+
 async def check_if_script_is_running():
     """Check if the script is already running and kill it if so."""
     if os.path.exists(os.path.join(get_app_directory(), "current_pid.txt")):
@@ -722,14 +775,15 @@ async def check_if_script_is_running():
             pid = int(f.read().strip())
             if psutil.pid_exists(pid) and 'python' in psutil.Process(pid).name().lower():
                 logger.info(f"Script is already running with PID: {pid}")
-                psutil.Process(pid).terminate()  # Attempt to terminate the existing process
+                # Attempt to terminate the existing process
+                psutil.Process(pid).terminate()
                 logger.info("Sent SIGTERM to the existing process.")
                 notification.send_error_notification(
                     "Script was already running. Terminating the existing process.")
                 return True
     return False
-    
-    
+
+
 async def log_current_pid():
     """Log the current process ID."""
     current_pid = os.getpid()
@@ -748,17 +802,17 @@ async def async_main(reloading=False):
         initialize_async()
         observer = Observer()
         observer.schedule(VideoToAudioHandler(),
-                        get_config().paths.folder_to_watch, recursive=False)
+                          get_config().paths.folder_to_watch, recursive=False)
         observer.start()
         if is_windows():
             register_hotkeys()
-            
+
         run_new_thread(initialize_text_monitor)
         run_new_thread(run_text_hooker_page)
         run_new_thread(async_loop).join()
-        
+
         logger.info("Initialization complete. Happy Mining! がんばれ！")
-        
+
         # await check_if_script_is_running()
         # await log_current_pid()
 
@@ -795,7 +849,6 @@ def main():
         asyncio.run(async_main())
     except Exception as e:
         handle_error_in_initialization(e)
-
 
 
 if __name__ == "__main__":

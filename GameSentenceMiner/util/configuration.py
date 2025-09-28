@@ -441,6 +441,7 @@ class Anki:
     custom_tags: List[str] = None
     tags_to_check: List[str] = None
     add_game_tag: bool = True
+    game_name_field: str = ''
     polling_rate: int = 200
     overwrite_audio: bool = False
     overwrite_picture: bool = True
@@ -557,9 +558,12 @@ class VAD:
     trim_beginning: bool = False
     beginning_offset: float = -0.25
     add_audio_on_no_results: bool = False
+    use_tts_as_fallback: bool = False
+    tts_url: str = 'http://127.0.0.1:5050/?term=$s'
     cut_and_splice_segments: bool = False
     splice_padding: float = 0.1
     use_cpu_for_inference: bool = False
+    use_vad_filter_for_whisper: bool = True
 
     def is_silero(self):
         return self.selected_vad_model == SILERO or self.backup_vad_model == SILERO
@@ -640,6 +644,8 @@ class Overlay:
     websocket_port: int = 55499
     engine: str = OverlayEngine.LENS.value
     monitor_to_capture: int = 0
+    periodic: bool = False
+    periodic_interval: float = 1.0
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:
@@ -780,6 +786,15 @@ class ProfileConfig:
     def config_changed(self, new: 'ProfileConfig') -> bool:
         return self != new
 
+@dataclass_json
+@dataclass
+class StatsConfig:
+    afk_timer_seconds: int = 120
+    session_gap_seconds: int = 3600
+    streak_requirement_hours: float = 0.01 # 1 second required per day to keep your streak by default
+    reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
+    character_count_target: int = 25000000  # Target character count (25M) inspired by Discord server milestones
+    games_target: int = 100  # Target VNs/games completed based on Refold community standards
 
 @dataclass_json
 @dataclass
@@ -788,6 +803,7 @@ class Config:
     current_profile: str = DEFAULT_CONFIG
     switch_to_default_if_not_found: bool = True
     locale: str = Locale.English.value
+    stats: StatsConfig = field(default_factory=StatsConfig)
 
     @classmethod
     def new(cls):
@@ -812,6 +828,18 @@ class Config:
                 return cls.from_dict(data)
         else:
             return cls.new()
+        
+    def __post_init__(self):
+        # Move Stats to global config if found in profiles for legacy support
+        default_stats = StatsConfig()
+        for profile in self.configs.values():
+            if profile.advanced:
+                if profile.advanced.afk_timer_seconds != default_stats.afk_timer_seconds:
+                    self.stats.afk_timer_seconds = profile.advanced.afk_timer_seconds
+                if profile.advanced.session_gap_seconds != default_stats.session_gap_seconds:
+                    self.stats.session_gap_seconds = profile.advanced.session_gap_seconds
+                if profile.advanced.streak_requirement_hours != default_stats.streak_requirement_hours:
+                    self.stats.streak_requirement_hours = profile.advanced.streak_requirement_hours
 
     def save(self):
         with open(get_config_path(), 'w') as file:
@@ -1069,6 +1097,12 @@ def reload_config():
         logger.warning(
             "Backfill is enabled, but full auto is also enabled. Disabling backfill...")
         config.features.backfill_audio = False
+        
+def get_stats_config():
+    global config_instance
+    if config_instance is None:
+        config_instance = load_config()
+    return config_instance.stats
 
 
 def get_master_config():
@@ -1084,6 +1118,12 @@ def save_current_config(config):
     global config_instance
     config_instance.set_config_for_profile(
         config_instance.current_profile, config)
+    save_full_config(config_instance)
+    
+
+def save_stats_config(stats_config):
+    global config_instance
+    config_instance.stats = stats_config
     save_full_config(config_instance)
 
 

@@ -13,12 +13,14 @@ class SentenceSearchApp {
         this.errorMessage = document.getElementById('errorMessage');
         this.searchStats = document.getElementById('searchStats');
         this.searchTime = document.getElementById('searchTime');
+        this.regexCheckbox = document.getElementById('regexCheckbox');
         
         this.currentPage = 1;
         this.pageSize = 20;
         this.searchTimeout = null;
         this.currentQuery = '';
         this.totalResults = 0;
+        this.currentUseRegex = false;
 
         // Move initialization logic to async method
         this.initialize();
@@ -66,6 +68,13 @@ class SentenceSearchApp {
             this.currentPage++;
             this.performSearch();
         });
+
+        // Regex checkbox toggle triggers search
+        if (this.regexCheckbox) {
+            this.regexCheckbox.addEventListener('change', () => {
+                this.performSearch();
+            });
+        }
     }
     
     async loadGamesList() {
@@ -94,22 +103,24 @@ class SentenceSearchApp {
         const query = this.searchInput.value.trim();
         const gameFilter = this.gameFilter.value;
         const sortBy = this.sortFilter.value;
-        
-        // Reset to first page for new searches
-        if (query !== this.currentQuery) {
+        const useRegex = this.regexCheckbox && this.regexCheckbox.checked;
+
+        // Reset to first page for new searches or regex toggle
+        if (query !== this.currentQuery || useRegex !== this.currentUseRegex) {
             this.currentPage = 1;
         }
         this.currentQuery = query;
-        
+        this.currentUseRegex = useRegex;
+
         // Show appropriate state
         if (!query) {
             this.showEmptyState();
             return;
         }
-        
+
         this.showLoadingState();
         const startTime = Date.now();
-        
+
         try {
             const params = new URLSearchParams({
                 q: query,
@@ -117,22 +128,25 @@ class SentenceSearchApp {
                 page_size: this.pageSize,
                 sort: sortBy
             });
-            
+
             if (gameFilter) {
                 params.append('game', gameFilter);
             }
-            
+            if (useRegex) {
+                params.append('use_regex', 'true');
+            }
+
             const response = await fetch(`/api/search-sentences?${params}`);
             const data = await response.json();
-            
+
             const searchTime = Date.now() - startTime;
-            
+
             if (!response.ok) {
                 throw new Error(data.error || 'Search failed');
             }
-            
+
             this.displayResults(data, searchTime);
-            
+
         } catch (error) {
             this.showErrorState(error.message);
         }
@@ -172,7 +186,7 @@ class SentenceSearchApp {
         
         // Format timestamp to ISO format
         const date = new Date(result.timestamp * 1000);
-        const formattedDate = date.toISOString().split('T')[0] + ' ' + date.toTimeString().split(' ')[0];
+        const formattedDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${date.toTimeString().split(' ')[0]}`;
         
         div.innerHTML = `
             <div class="result-sentence">${highlightedText}</div>
@@ -198,17 +212,27 @@ class SentenceSearchApp {
     
     highlightSearchTerms(text, query) {
         if (!query) return escapeHtml(text);
-        
+
+        const useRegex = this.regexCheckbox && this.regexCheckbox.checked;
         const escapedText = escapeHtml(text);
-        const searchTerms = query.split(' ').filter(term => term.length > 0);
-        
-        let result = escapedText;
-        searchTerms.forEach(term => {
-            const regex = new RegExp(`(${escapeRegex(term)})`, 'gi');
-            result = result.replace(regex, '<span class="search-highlight">$1</span>');
-        });
-        
-        return result;
+
+        if (useRegex) {
+            try {
+                const pattern = new RegExp(query, 'gi');
+                return escapedText.replace(pattern, '<span class="search-highlight">$&</span>');
+            } catch (e) {
+                // If invalid regex, just return escaped text
+                return escapedText;
+            }
+        } else {
+            const searchTerms = query.split(' ').filter(term => term.length > 0);
+            let result = escapedText;
+            searchTerms.forEach(term => {
+                const regex = new RegExp(`(${escapeRegex(term)})`, 'gi');
+                result = result.replace(regex, '<span class="search-highlight">$1</span>');
+            });
+            return result;
+        }
     }
     
     updatePagination(data) {

@@ -292,7 +292,15 @@
                                 </label>
                             </div>
                             <div id="screen-selector-group" class="input-group" style="justify-content: center;">
-                                <button id="run-screen-selector">Run Area(s) Selector (Recommended)</button>
+                                <button id="run-screen-selector">Run Area(s) Selector</button>
+                                <button id="open-ocr-wiki-btn" class="secondary" style="margin-left: 10px;">
+                                    <span style="font-size: 14px;">❓</span>
+                                </button>
+                                <script>
+                                    document.getElementById('open-ocr-wiki-btn').addEventListener('click', () => {
+                                        window.open('https://github.com/bpwhelan/GameSentenceMiner/wiki/OCR-%E2%80%90-Area-Selector', '_blank');
+                                    });
+                                </script>
                             </div>
                         </div>
                     </div>
@@ -943,9 +951,7 @@
                         fitIntervalMs: 500,
                     });
                         const windowName = document.getElementById('windowSelect').value.trim();
-                        console.log('Screen selector start:', new Date().toISOString());
                         await ipcRenderer.send('ocr.run-screen-selector', windowName);
-                        console.log('Screen selector end:', new Date().toISOString());
                     });
                 });
 
@@ -1424,7 +1430,7 @@
 
             // Repair GSM
             document.getElementById('repair-gsm-btn').addEventListener('click', async () => {
-                if (confirm('Are you sure you want to repair GSM? This will remove all custom packages and completely reinstall Python and GSM.')) {
+                if (confirm('THIS IS ONLY TO BE USED IF SOMETHING IS COMPLETELY BROKEN WITH GSM DUE TO A CUSTOM/BAD PYTHON PACKAGE INSTALLATION. THIS SHOULD NOT BE EXPECTED TO FIX MINOR ISSUES, AND HAS A HIGHER CHANCE OF DOING MORE PAIN THAN GOOD.\n\nAre you sure you want to proceed with repairing GSM?')) {
                     showPythonStatus('🔧 Repairing GSM... This may take several minutes.');
                     switchToConsoleTab(); // Switch to console to see progress
                     

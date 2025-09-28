@@ -35,8 +35,20 @@
     <div class="card">
         <div class="grid-container">
             <div class="grid-container">
-                <button id="openGSMSettingsBtn">Open GSM Settings</button>
-                <button id="runOverlayBtn">Run Overlay (WIP)</button>
+                <div class="input-group">
+                    <button id="openGSMSettingsBtn" style="width: 100%;">Open GSM Settings</button>
+                </div>
+                <div class="input-group">
+                    <button id="runOverlayBtn" style="width: 100%;">Run Overlay</button>
+                    <button id="open-overlay-wiki-btn" class="secondary">
+                        <span style="font-size: 14px;">❓</span>
+                    </button>
+                    <script>
+                        document.getElementById('open-overlay-wiki-btn').addEventListener('click', () => {
+                            window.open('https://github.com/bpwhelan/GameSentenceMiner/wiki/Overlay-%E2%80%90-Overview', '_blank');
+                        });
+                    </script>
+                </div>
             </div>
         </div>
     </div>
@@ -53,8 +65,9 @@
             </button>
             <span id="websocket_container" class="grid-container">
             </span>
-            <button class="status-button card" id="obs-status" title="OBS Status: Indicates whether OBS is running.">
-                <span class="icon">📹</span> <span>OBS</span> <span></span>
+            <button class="status-button card" id="obs-status" title="OBS Status: Indicates whether OBS is running."
+                style="pointer-events: auto; cursor: pointer;">
+            <span class="icon">📹</span> <span>OBS</span> <span></span>
             </button>
             <button class="status-button card" id="anki-status"
                 title="Anki Status: Indicates whether Anki is connected.">
@@ -99,6 +112,13 @@
         const removeSceneBtn = document.getElementById('removeSceneBtn');
         const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
         const runOverlayBtn = document.getElementById('runOverlayBtn');
+        const obsStatusBtn = document.getElementById('obs-status');
+
+
+        obsStatusBtn.addEventListener('click', async () => {
+            console.log("Opening OBS");
+            await ipcRenderer.invoke('openOBS');
+        });
 
         function openExternalLink(url) {
             ipcRenderer.invoke('open-external-link', url);

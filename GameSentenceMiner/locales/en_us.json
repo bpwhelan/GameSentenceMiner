@@ -184,11 +184,15 @@
           },
           "video_field": {
             "label": "Video Field:",
-            "tooltip": "Field in Anki for associated videos. This will be AV1 encoded video of the VAD Trimmed Voiceline, if no Voice found, this will be empty."
+            "tooltip": "Field in Anki for associated videos. This will be AV1 encoded video of the VAD Trimmed Voiceline, if no Voice found, this will be empty. (OPTIONAL)"
           },
           "custom_tags": {
             "label": "Add Tags:",
             "tooltip": "Comma-separated custom tags for the Anki cards."
+          },
+          "game_name_field": {
+            "label": "Game Name Field:",
+            "tooltip": "Field in Anki for the game name. If empty, game name will not be added as a field. (OPTIONAL)"
           },
           "tags_to_check": {
             "label": "Tags to work on:",
@@ -264,6 +268,14 @@
           "use_cpu_for_inference": {
             "label": "Force CPU:",
             "tooltip": "Even if CUDA is installed, use CPU for Whisper"
+          },
+          "use_tts_as_fallback": {
+            "label": "Use TTS as Fallback:",
+            "tooltip": "Use Text-to-Speech as a fallback when no audio is found."
+          },
+          "tts_url": {
+            "label": "TTS URL:",
+            "tooltip": "URL for the Text-to-Speech service. Use $s as a placeholder for the text."
           }
         },
         "features": {
@@ -572,6 +584,14 @@
           "overlay_engine": {
             "label": "Overlay Engine:",
             "tooltip": "Select the OCR engine for the overlay. If you use lens, and are on windows, it will use OneOCR to optimize the scan."
+          },
+          "periodic": {
+            "label": "Periodic Capture:",
+            "tooltip": "Enable periodic capture of the screen for Overlay. Note, you still need text flowing into GSM for mining to work."
+          },
+          "periodic_interval": {
+            "label": "Capture Interval (Seconds):",
+            "tooltip": "Interval in seconds for periodic screen capture."
           }
         },
         "wip": {

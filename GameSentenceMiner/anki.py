@@ -1,4 +1,8 @@
 import copy
+import json
+import os
+import shutil
+import threading
 from pathlib import Path
 import queue
 import time
@@ -15,8 +19,8 @@ from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.gsm_utils import make_unique, sanitize_filename, wait_for_stable_file, remove_html_and_cloze_tags, combine_dialogue, \
     run_new_thread, open_audio_in_external
 from GameSentenceMiner.util import ffmpeg, notification
-from GameSentenceMiner.util.configuration import *
-from GameSentenceMiner.util.configuration import get_config
+from GameSentenceMiner.util.configuration import get_config, AnkiUpdateResult, logger, anki_results, gsm_status, \
+    gsm_state
 from GameSentenceMiner.util.model import AnkiCard
 from GameSentenceMiner.util.text_log import get_all_lines, get_text_event, get_mined_line, lines_match
 from GameSentenceMiner.obs import get_current_game
@@ -87,12 +91,17 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
 
     if update_picture and screenshot_in_anki:
         note['fields'][get_config().anki.picture_field] = image_html
-        
+
     if video_in_anki:
         note['fields'][get_config().anki.video_field] = video_in_anki
-        
+
     if not get_config().screenshot.enabled:
         logger.info("Skipping Adding Screenshot to Anki, Screenshot is disabled in settings")
+
+    # Add game name to field if configured
+    game_name_field = get_config().anki.game_name_field
+    if note and 'fields' in note and game_name_field:
+        note['fields'][game_name_field] = get_current_game()
 
     if note and 'fields' in note and get_config().ai.enabled:
         sentence_field = note['fields'].get(get_config().anki.sentence_field, {})
@@ -485,6 +494,7 @@ def update_card_from_same_sentence(last_card, lines, game_line):
                 card_queue.pop(0)
                 logger.error(f"Error saving replay buffer: {e}")
                 return
+            return
     anki_result = anki_results[game_line.id]
     if anki_result.success:
         note, last_card = get_initial_card_info(last_card, lines)

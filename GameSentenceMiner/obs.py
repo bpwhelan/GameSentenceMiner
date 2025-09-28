@@ -6,6 +6,7 @@ import threading
 import time
 import logging
 import contextlib
+import shutil
 
 import psutil
 
@@ -164,38 +165,57 @@ class OBSConnectionManager(threading.Thread):
                 self.counter = 0
                 return
             start_replay_buffer()
-
+    
 def get_obs_path():
     return os.path.join(configuration.get_app_directory(), 'obs-studio/bin/64bit/obs64.exe')
 
 def is_process_running(pid):
     try:
         process = psutil.Process(pid)
-        return 'obs' in process.exe()
+        return 'obs' in process.exe().lower()
     except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
         if os.path.exists(OBS_PID_FILE):
             os.remove(OBS_PID_FILE)
         return False
 
-def start_obs():
+def start_obs(force_restart=False):
     global obs_process_pid
     if os.path.exists(OBS_PID_FILE):
         with open(OBS_PID_FILE, "r") as f:
             try:
                 obs_process_pid = int(f.read().strip())
                 if is_process_running(obs_process_pid):
-                    print(f"OBS is already running with PID: {obs_process_pid}")
-                    return obs_process_pid
+                    if force_restart:
+                        try:
+                            process = psutil.Process(obs_process_pid)
+                            process.terminate()
+                            process.wait(timeout=10)
+                            print("OBS process terminated for restart.")
+                        except Exception as e:
+                            print(f"Error terminating OBS process: {e}")
+                    else:
+                        return obs_process_pid
             except ValueError:
                 print("Invalid PID found in file. Launching new OBS instance.")
             except OSError:
-                print("No process found with the stored PID. Launching new OBS instance.")
+                print("No process found with the stored PID. Launching new OBS instance.")   
 
     obs_path = get_obs_path()
     if not os.path.exists(obs_path):
         print(f"OBS not found at {obs_path}. Please install OBS.")
         return None
     try:
+        sentinel_folder = os.path.join(configuration.get_app_directory(), 'obs-studio', 'config', 'obs-studio', '.sentinel')
+        if os.path.exists(sentinel_folder):
+            try:
+                if os.path.isdir(sentinel_folder):
+                    shutil.rmtree(sentinel_folder)
+                else:
+                    os.remove(sentinel_folder)
+                print(f"Deleted sentinel folder: {sentinel_folder}")
+            except Exception as e:
+                print(f"Failed to delete sentinel folder: {e}")
+        
         obs_process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable', '--startreplaybuffer', ], cwd=os.path.dirname(obs_path))
         obs_process_pid = obs_process.pid
         with open(OBS_PID_FILE, "w") as f:
@@ -663,8 +683,23 @@ def main():
     update_current_game()
     print("Testing `get_current_game`:", get_current_game())
     disconnect_from_obs()
+    
+def create_scene():
+    with connection_pool.get_client() as client:
+        # Extract fields from request_json
+        request_json = r'{"sceneName":"SILENT HILL f","inputName":"SILENT HILL f - Capture","inputKind":"window_capture","inputSettings":{"mode":"window","window":"SILENT HILL f  :UnrealWindow:SHf-Win64-Shipping.exe","capture_audio":true,"cursor":false,"method":"2"}}'
+        request_dict = json.loads(request_json)
+        scene_name = request_dict.get('sceneName')
+        input_name = request_dict.get('inputName')
+        input_kind = request_dict.get('inputKind')
+        input_settings = request_dict.get('inputSettings')
+        input_settings['method'] = 2
+        # Remove sceneName from request_dict if needed for create_input
+        request_dict.pop('sceneName', None)
+        response = client.create_input(inputName=input_name, inputKind=input_kind, sceneName=scene_name, inputSettings=input_settings, sceneItemEnabled=True)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     connect_to_obs_sync()
-    set_fit_to_screen_for_scene_items(get_current_scene())
+    # set_fit_to_screen_for_scene_items(get_current_scene())
+    create_scene()

@@ -2,7 +2,7 @@ import datetime
 from collections import defaultdict
 
 from GameSentenceMiner.util.db import GameLinesTable
-from GameSentenceMiner.util.configuration import logger, get_config
+from GameSentenceMiner.util.configuration import get_stats_config, logger, get_config
 
 
 def is_kanji(char):
@@ -286,7 +286,7 @@ def calculate_actual_reading_time(timestamps, afk_timer_seconds=None):
         return 0.0
     
     if afk_timer_seconds is None:
-        afk_timer_seconds = get_config().advanced.afk_timer_seconds
+        afk_timer_seconds = get_stats_config().afk_timer_seconds
     
     # Sort timestamps to ensure chronological order
     sorted_timestamps = sorted(timestamps)
@@ -345,8 +345,11 @@ def calculate_time_based_streak(lines, streak_requirement_hours=None):
         int: Current streak in days
     """
     if streak_requirement_hours is None:
-        streak_requirement_hours = getattr(get_config().advanced, 'streak_requirement_hours', 1.0)
-    
+        # Prefer stats_config if available, fallback to config.advanced, then 1.0
+        try:
+            streak_requirement_hours = get_stats_config().streak_requirement_hours
+        except AttributeError:
+            streak_requirement_hours = getattr(get_config().advanced, 'streak_requirement_hours', 1.0)
     # Add debug logging
     logger.debug(f"Calculating streak with requirement: {streak_requirement_hours} hours")
     logger.debug(f"Processing {len(lines)} lines for streak calculation")
@@ -440,9 +443,10 @@ def calculate_current_game_stats(all_lines):
     # Calculate sessions (gaps of more than session_gap_seconds = new session)
     sorted_timestamps = sorted(timestamps)
     sessions = 1
+    session_gap = get_stats_config().session_gap_seconds
     for i in range(1, len(sorted_timestamps)):
         time_gap = sorted_timestamps[i] - sorted_timestamps[i-1]
-        if time_gap > get_config().advanced.session_gap_seconds:
+        if time_gap > session_gap:
             sessions += 1
     
     # Calculate daily activity for progress trend
@@ -533,9 +537,10 @@ def calculate_all_games_stats(all_lines):
     # Calculate sessions across all games (gaps of more than 1 hour = new session)
     sorted_timestamps = sorted(timestamps)
     sessions = 1
+    session_gap = get_stats_config().session_gap_seconds
     for i in range(1, len(sorted_timestamps)):
         time_gap = sorted_timestamps[i] - sorted_timestamps[i-1]
-        if time_gap > 3600:  # 1 hour gap
+        if time_gap > session_gap:
             sessions += 1
     
     # Calculate daily activity for progress trend

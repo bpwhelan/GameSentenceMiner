@@ -1,5 +1,7 @@
 import asyncio
+import json
 import re
+from datetime import datetime
 
 import pyperclip
 import requests
@@ -7,12 +9,11 @@ import websockets
 from websockets import InvalidStatus
 from rapidfuzz import fuzz
 
-
+from GameSentenceMiner.util.configuration import get_config, gsm_status, logger, gsm_state
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
-from GameSentenceMiner.util.configuration import *
-from GameSentenceMiner.util.text_log import *
 from GameSentenceMiner import obs
+from GameSentenceMiner.util.text_log import add_line, get_text_log
 from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, overlay_server_thread
 
 from GameSentenceMiner.util.get_overlay_coords import OverlayProcessor
@@ -83,6 +84,7 @@ async def listen_websockets():
                     line_time = None
                     while True:
                         message = await websocket.recv()
+                        message_received_time = datetime.now()
                         if not message:
                             continue
                         logger.debug(message)
@@ -97,7 +99,7 @@ async def listen_websockets():
                         logger.info
                         if current_clipboard != current_line:
                             try:
-                                await handle_new_text_event(current_clipboard, line_time if line_time else None)
+                                await handle_new_text_event(current_clipboard, line_time if line_time else message_received_time)
                             except Exception as e: 
                                 logger.error(f"Error handling new text event: {e}", exc_info=True)
             except (websockets.ConnectionClosed, ConnectionError, InvalidStatus, ConnectionResetError, Exception) as e:

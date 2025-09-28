@@ -42,6 +42,10 @@ export function isLinux(): boolean {
     return getPlatform() === 'linux';
 }
 
+export function isWindows10OrHigher(): boolean {
+    return isWindows() && parseInt(process.getSystemVersion().split('.')[0]) >= 10;
+}
+
 /**
  * Get the base directory for assets.
  * Handles both development and production (ASAR) environments.

@@ -27,7 +27,7 @@ from GameSentenceMiner.web.stats import (
     calculate_actual_reading_time, calculate_daily_reading_time, calculate_time_based_streak,
     format_time_human_readable, calculate_current_game_stats, calculate_all_games_stats
 )
-from GameSentenceMiner.web.websockets import (
+from GameSentenceMiner.web.gsm_websocket import (
     WebsocketServerThread, websocket_queue, paused, websocket_server_thread,
     plaintext_websocket_server_thread, overlay_server_thread, websocket_server_threads,
     handle_exit_signal
@@ -261,7 +261,11 @@ def datetimeformat(value, format='%Y-%m-%d %H:%M:%S'):
 @app.route('/stats')
 def stats():
     """Renders the stats page."""
-    return render_template('stats.html')
+    from GameSentenceMiner.util.configuration import get_master_config, get_stats_config
+    return render_template('stats.html',
+                         config=get_config(),
+                         master_config=get_master_config(),
+                         stats_config=get_stats_config())
 
 @app.route('/api/anki_stats')
 def api_anki_stats():

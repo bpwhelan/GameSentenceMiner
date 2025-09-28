@@ -142,7 +142,7 @@ function getGSMModulePath(): string {
 }
 
 function getIconPath(size: number = 0): string {
-    const filename = size ? `icon${size}.png` : 'icon.png';
+    const filename = 'gsm.ico'
     return path.join(getAssetsDir(), filename);
 }
 
@@ -251,6 +251,26 @@ async function createWindow() {
             backgroundThrottling: false,
         },
         title: `${APP_NAME} v${app.getVersion()}`,
+    });
+
+    // Remove menu from any new windows created via window.open (e.g. target="_blank")
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        const child = new BrowserWindow({
+            parent: mainWindow ? mainWindow : undefined,
+            show: true,
+            width: 1200,
+            height: 980,
+            webPreferences: {
+                nodeIntegration: true,
+                contextIsolation: false,
+                devTools: true,
+                nodeIntegrationInSubFrames: true,
+                backgroundThrottling: false,
+            },
+        });
+        child.setMenu(null); // Remove menu
+        child.loadURL(url);
+        return { action: 'deny' }; // Prevent Electron's default window creation
     });
 
     registerIPC();

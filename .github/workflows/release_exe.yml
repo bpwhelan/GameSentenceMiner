@@ -58,6 +58,13 @@ jobs:
           }
         continue-on-error: true
 
+      - name: Convert Handlebar files to LF line endings
+        run: |
+            Get-ChildItem -Path ./GSM_Overlay/yomitan/data/templates -Recurse -Include *.handlebars | ForEach-Object {
+            $content = (Get-Content $_.FullName -Raw) -replace "`r`n", "`n"
+            Set-Content $_.FullName $content -NoNewline
+            }
+
       - name: Build Overlay
         if: steps.version_check.outputs.should_build == 'true'
         working-directory: ./GSM_Overlay

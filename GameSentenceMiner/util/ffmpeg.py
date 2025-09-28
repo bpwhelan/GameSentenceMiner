@@ -1,13 +1,16 @@
+import json
+import os
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
 
 from GameSentenceMiner import obs
+from GameSentenceMiner.util.configuration import get_app_directory, is_windows, logger, get_config, \
+    get_temporary_directory, gsm_state, is_linux
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name, get_file_modification_time
 from GameSentenceMiner.util import configuration
-from GameSentenceMiner.util.configuration import *
-from GameSentenceMiner.util.model import VADResult
 from GameSentenceMiner.util.text_log import initial_time
 
 
@@ -453,7 +456,7 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i", untrimmed_audio,
         "-ss", str(start_trim_time)]
-    if next_line and next_line > game_line.time:
+    if next_line and next_line > game_line.time and total_seconds:
         end_trim_seconds = total_seconds + (next_line - game_line.time).total_seconds() + get_config().audio.pre_vad_end_offset
         end_trim_time = f"{end_trim_seconds:.3f}"
         ffmpeg_command.extend(['-to', end_trim_time])
@@ -495,9 +498,10 @@ def get_video_timings(video_path, game_line, anki_card_creation_time=None):
     total_seconds = file_length - time_delta.total_seconds()
     total_seconds_after_offset = total_seconds + get_config().audio.beginning_offset
     if total_seconds < 0 or total_seconds >= file_length:
-        logger.error("Line mined is outside of the replay buffer! Defaulting to the beginning of the replay buffer. ")
+        logger.debug(f"get_video_timings: file_mod_time={file_mod_time}, file_length={file_length}, time_delta={time_delta}, total_seconds={total_seconds}, total_seconds_after_offset={total_seconds_after_offset}")
+        logger.error("Line mined is outside of the replay buffer! Defaulting to the last 30 seconds of the replay buffer.")
         logger.info("Recommend either increasing replay buffer length in OBS Settings or mining faster.")
-        return 0, 0, 0, file_length
+        return max(file_length - 30, 0), 0, max(file_length - 30, 0), file_length
 
     return total_seconds_after_offset, total_seconds, total_seconds_after_offset, file_length
 
