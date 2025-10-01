@@ -787,14 +787,11 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // Function to load stats data with optional year filter
-    function loadStatsData(filterYear = null, start_timestamp = null, end_timestamp = null) {
+    function loadStatsData(start_timestamp = null, end_timestamp = null) {
         let url = '/api/stats';
         const params = new URLSearchParams();
 
-        if (filterYear && filterYear !== 'all') {
-            // Only filter by year
-            params.append('year', filterYear);
-        } else if (start_timestamp && end_timestamp) {
+        if (start_timestamp && end_timestamp) {
             // Only filter by timestamps
             params.append('start', start_timestamp);
             params.append('end', end_timestamp);
@@ -1212,10 +1209,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Initial load with saved year preference
-    const savedYear = localStorage.getItem('selectedHeatmapYear') || window.statsConfig?.heatmapDisplayYear || 'all';
-    // loadStatsData(filterYear = savedYear);
-
     const fromDateInput = document.getElementById('fromDate');
     const toDateInput = document.getElementById('toDate');
     const popup = document.getElementById('dateErrorPopup');
@@ -1226,7 +1219,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const toDate = sessionStorage.getItem("toDate");
         const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDate, toDate);
         
-        loadStatsData(null, startTimestamp, endTimestamp);
+        loadStatsData(startTimestamp, endTimestamp);
     });
 
      
@@ -1245,7 +1238,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDateStr, toDateStr);
 
-        loadStatsData(null, startTimestamp, endTimestamp);
+        loadStatsData(startTimestamp, endTimestamp);
     }
 
     // Attach listeners to both date inputs
@@ -1266,9 +1259,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const streakReqInput = document.getElementById('streakRequirement');
         if (streakReqInput) streakReqInput.value = window.statsConfig.streakRequirementHours || 1.0;
-
-        const heatmapYearSelect = document.getElementById('heatmapYear');
-        if (heatmapYearSelect) heatmapYearSelect.value = window.statsConfig.heatmapDisplayYear || 'all';
 
         const hoursTargetInput = document.getElementById('readingHoursTarget');
         if (hoursTargetInput) hoursTargetInput.value = window.statsConfig.readingHoursTarget || 1500;
