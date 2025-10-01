@@ -1160,43 +1160,99 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // ================================
+    // Utility to convert date strings to Unix timestamps
+    // Returns start of day for startDate and end of day for endDate
+    // ================================
+    function getUnixTimestamps(startDate, endDate) {
+        const start = new Date(startDate + 'T00:00:00');
+        const startTimestamp = Math.floor(start.getTime() / 1000); // convert ms to s
+
+        const end = new Date(endDate + 'T23:59:59.999');
+        const endTimestamp = Math.floor(end.getTime() / 1000); // convert ms to s
+
+        return { startTimestamp, endTimestamp };
+    }
+    
+    // ================================
+    // Initialize date inputs with sessionStorage or fetch initial values
+    // Dispatches "datesSet" event once dates are set
+    // ================================
+    function initializeDates() {
+        const fromDateInput = document.getElementById('fromDate');
+        const toDateInput = document.getElementById('toDate');
+
+        const fromDate = sessionStorage.getItem("fromDate");
+        const toDate = sessionStorage.getItem("toDate"); 
+
+        if (!(fromDate && toDate)) {
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(response_json => {
+                    // Get first date from API
+                    const firstDate = response_json.allGamesStats.first_date;
+                    fromDateInput.value = firstDate;
+
+                    // Get today's date
+                    const today = new Date();
+                    toDateInput.value = today.toISOString().split("T")[0];
+
+                    // Save in sessionStorage
+                    sessionStorage.setItem("fromDate", firstDate);
+                    sessionStorage.setItem("toDate", today.toISOString().split("T")[0]);
+
+                    document.dispatchEvent(new Event("datesSet"));
+                });
+        } else {
+            // If values already in sessionStorage, set inputs from there
+            fromDateInput.value = fromDate;
+            toDateInput.value = toDate;
+
+            document.dispatchEvent(new Event("datesSet"));
+        }
+    }
+
     // Initial load with saved year preference
     const savedYear = localStorage.getItem('selectedHeatmapYear') || window.statsConfig?.heatmapDisplayYear || 'all';
-    loadStatsData(filterYear = savedYear);
+    // loadStatsData(filterYear = savedYear);
 
     const fromDateInput = document.getElementById('fromDate');
     const toDateInput = document.getElementById('toDate');
-    const fetchBtn = document.getElementById('fetchStatsBtn');
     const popup = document.getElementById('dateErrorPopup');
     const closePopupBtn = document.getElementById('closePopupBtn');
 
-    fetchBtn.addEventListener('click', () => {
+    document.addEventListener("datesSet", () => {
+        const fromDate = sessionStorage.getItem("fromDate");
+        const toDate = sessionStorage.getItem("toDate");
+        const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDate, toDate);
+        
+        loadStatsData(null, startTimestamp, endTimestamp);
+    });
+
+     
+    function handleDateChange() {
         const fromDateStr = fromDateInput.value;
         const toDateStr = toDateInput.value;
 
-        // Validate date order before continuing
+        sessionStorage.setItem("fromDate", fromDateStr);
+        sessionStorage.setItem("toDate", toDateStr);
+
+        // Validate date order
         if (fromDateStr && toDateStr && new Date(fromDateStr) > new Date(toDateStr)) {
             popup.classList.remove("hidden");
             return; 
         }
 
-        // Starting unix timestamp for the day
-        const fromDate = fromDateStr 
-            ? Math.floor(new Date(fromDateStr).getTime() / 1000) 
-            : null;
+        const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDateStr, toDateStr);
 
+        loadStatsData(null, startTimestamp, endTimestamp);
+    }
 
-        // Ending unix timestamp for the day
-        let toDate = null;
-        if (toDateStr) {
-            const d = new Date(toDateStr);
-            // set to 23:59:59 local time
-            d.setHours(23, 59, 59, 999);
-            toDate = Math.floor(d.getTime() / 1000);
-        }
+    // Attach listeners to both date inputs
+    fromDateInput.addEventListener("change", handleDateChange);
+    toDateInput.addEventListener("change", handleDateChange);
 
-        loadStatsData(filterYear = null, start_timestamp = fromDate, end_timestamp = toDate);
-    });
+    initializeDates();
 
     // Popup close button
     closePopupBtn.addEventListener("click", () => {
