@@ -34,6 +34,42 @@
     <!-- Include shared navigation -->
     {% include 'components/navigation.html' %}
 
+    <div class="dashboard-card date-range">
+        <div class="dashboard-card-header">
+            <h3 class="dashboard-card-title">
+                <span class="dashboard-card-icon">📅</span>
+                Date Range
+            </h3>
+        </div>
+
+        <div class="dashboard-date-range">
+            <div class="dashboard-date-item tooltip" data-tooltip="Select the start date for your stats">
+                <label for="fromDate">From</label>
+                <input type="date" id="fromDate" class="dashboard-date-input">
+            </div>
+            <div class="dashboard-date-item tooltip" data-tooltip="Select the end date for your stats">
+                <label for="toDate">To</label>
+                <input type="date" id="toDate" class="dashboard-date-input">
+            </div>
+        </div>
+    </div>
+
+
+    <div id="dateErrorPopup" class="dashboard-popup hidden">
+        <div class="dashboard-popup-content">
+            <div class="dashboard-popup-icon">⚠️</div>
+            <div class="dashboard-popup-message">"From" date cannot be later than "To" date.</div>
+            <button id="closePopupBtn" class="dashboard-popup-btn">OK</button>
+        </div>
+    </div>
+
+    <div id="noDataPopup" class="no-data-popup hidden">
+        <div class="no-data-content">
+            <p>No data found for the selected range.</p>
+            <button id="closeNoDataPopup">OK</button>
+        </div>
+    </div>
+
     <!-- Dashboard Statistics Sections -->
     <div class="dashboard-container">
         <!-- Missing High-Frequency Kanji Card -->

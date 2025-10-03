@@ -227,7 +227,6 @@ class SettingsManager {
         // Optional elements that may not exist on all pages
         this.afkTimerInput = document.getElementById('afkTimer');
         this.sessionGapInput = document.getElementById('sessionGap');
-        this.heatmapYearSelect = document.getElementById('heatmapYear');
         this.streakRequirementInput = document.getElementById('streakRequirement');
         this.readingHoursTargetInput = document.getElementById('readingHoursTarget');
         this.characterCountTargetInput = document.getElementById('characterCountTarget');
@@ -263,27 +262,17 @@ class SettingsManager {
         // }
         
         // Clear messages when user starts typing
-        [this.afkTimerInput, this.sessionGapInput, this.heatmapYearSelect, this.streakRequirementInput,
+        [this.afkTimerInput, this.sessionGapInput, this.streakRequirementInput,
          this.readingHoursTargetInput, this.characterCountTargetInput, this.gamesTargetInput]
             .filter(Boolean)
             .forEach(input => {
                 input.addEventListener('input', () => this.clearMessages());
             });
-        
-        // Handle year selection change
-        if (this.heatmapYearSelect) {
-            this.heatmapYearSelect.addEventListener('change', (e) => {
-                const selectedYear = e.target.value;
-                localStorage.setItem('selectedHeatmapYear', selectedYear);
-                this.refreshHeatmapData(selectedYear);
-            });
-        }
     }
     
     async openModal() {
         try {
             await this.loadCurrentSettings();
-            await this.loadAvailableYears();
             this.showModal();
         } catch (error) {
             console.error('Error opening settings modal:', error);
@@ -336,48 +325,12 @@ class SettingsManager {
         if (this.gamesTargetInput) {
             this.gamesTargetInput.value = settings.games_target || 100;
         }
-        
-        // Load saved year preference
-        const savedYear = localStorage.getItem('selectedHeatmapYear') || 'all';
-        if (this.heatmapYearSelect) {
-            this.heatmapYearSelect.value = savedYear;
-        }
-    }
-    
-    async loadAvailableYears() {
-        if (!this.heatmapYearSelect) return;
-        
-        try {
-            const response = await fetch('/api/stats');
-            if (!response.ok) throw new Error('Failed to fetch stats');
-            
-            const data = await response.json();
-            const availableYears = Object.keys(data.heatmapData || {}).sort().reverse();
-            
-            // Clear existing options except "All Years"
-            this.heatmapYearSelect.innerHTML = '<option value="all">All Years</option>';
-            
-            // Add available years
-            availableYears.forEach(year => {
-                const option = document.createElement('option');
-                option.value = year;
-                option.textContent = year;
-                this.heatmapYearSelect.appendChild(option);
-            });
-            
-            // Restore saved selection
-            const savedYear = localStorage.getItem('selectedHeatmapYear') || 'all';
-            this.heatmapYearSelect.value = savedYear;
-            
-        } catch (error) {
-            console.error('Error loading available years:', error);
-        }
     }
     
     async refreshHeatmapData(selectedYear) {
         try {
             if (typeof loadStatsData === 'function') {
-                await loadStatsData(selectedYear);
+                await loadStatsData(start_timestamp = null, end_timestamp = null);
             }
         } catch (error) {
             console.error('Error refreshing heatmap data:', error);
