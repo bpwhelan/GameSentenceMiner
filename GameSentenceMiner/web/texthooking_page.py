@@ -208,12 +208,14 @@ def play_audio():
 def translate_line():
     data = request.get_json()
     event_id = data.get('id')
+    text = data.get('text', '').strip()
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
-    line_to_translate = get_line_by_id(event_id)
-    translation = get_ai_prompt_result(get_all_lines(), line_to_translate.text,
-                                       line_to_translate, get_current_game())
-    line_to_translate.set_TL(translation)
+    line = get_line_by_id(event_id)
+    line_to_translate = text if text else line.text
+    translation = get_ai_prompt_result(get_all_lines(), line_to_translate,
+                                       line, get_current_game())
+    line.set_TL(translation)
     return jsonify({'TL': translation}), 200
 
 @app.route('/translate-multiple', methods=['POST'])
@@ -383,7 +385,7 @@ def start_web_server():
     # FOR TEXTHOOKER DEVELOPMENT, UNCOMMENT THE FOLLOWING LINE WITH Flask-CORS INSTALLED:
     # from flask_cors import CORS
     # CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host=get_config().advanced.localhost_bind_address, port=port, debug=False)
 
 
 async def texthooker_page_coro():

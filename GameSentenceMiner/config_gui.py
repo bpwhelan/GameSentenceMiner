@@ -384,6 +384,7 @@ class ConfigApp:
         self.ocr_websocket_port_value = tk.StringVar(value=str(self.settings.advanced.ocr_websocket_port))
         self.texthooker_communication_websocket_port_value = tk.StringVar(value=str(self.settings.advanced.texthooker_communication_websocket_port))
         self.plaintext_websocket_export_port_value = tk.StringVar(value=str(self.settings.advanced.plaintext_websocket_port))
+        self.localhost_bind_address_value = tk.StringVar(value=self.settings.advanced.localhost_bind_address)
         
         # AI Settings
         self.ai_enabled_value = tk.BooleanVar(value=self.settings.ai.enabled)
@@ -407,6 +408,7 @@ class ConfigApp:
         self.overlay_engine_value = tk.StringVar(value=self.settings.overlay.engine)
         self.periodic_value = tk.BooleanVar(value=self.settings.overlay.periodic)
         self.periodic_interval_value = tk.StringVar(value=str(self.settings.overlay.periodic_interval))
+        self.scan_delay_value = tk.StringVar(value=str(self.settings.overlay.scan_delay))
         
         # Master Config Settings
         self.switch_to_default_if_not_found_value = tk.BooleanVar(value=self.master_config.switch_to_default_if_not_found)
@@ -621,6 +623,7 @@ class ConfigApp:
                 ocr_websocket_port=int(self.ocr_websocket_port_value.get()),
                 texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port_value.get()),
                 plaintext_websocket_port=int(self.plaintext_websocket_export_port_value.get()),
+                localhost_bind_address=self.localhost_bind_address_value.get(),
             ),
             ai=Ai(
                 enabled=self.ai_enabled_value.get(),
@@ -643,6 +646,7 @@ class ConfigApp:
                 websocket_port=int(self.overlay_websocket_port_value.get()),
                 monitor_to_capture=self.overlay_monitor.current() if self.monitors else 0,
                 engine=OverlayEngine(self.overlay_engine_value.get()).value if self.overlay_engine_value.get() else OverlayEngine.LENS.value,
+                scan_delay=float(self.scan_delay_value.get()),
                 periodic=self.periodic_value.get(),
                 periodic_interval=self.periodic_interval_value.get(),
             )
@@ -1998,6 +2002,12 @@ class ConfigApp:
         ttk.Entry(advanced_frame, textvariable=self.polling_rate_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
         
+        localhost_bind_address_i18n = advanced_i18n.get('localhost_bind_address', {})
+        HoverInfoLabelWidget(advanced_frame, text=localhost_bind_address_i18n.get('label', 'LocalHost Bind Address:'),
+                             tooltip=localhost_bind_address_i18n.get('tooltip', 'Set this to 0.0.0.0 if you want to connect from another device in your LAN, otherwise leave as is.'), row=self.current_row, column=0)
+        ttk.Entry(advanced_frame, textvariable=self.localhost_bind_address_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
         current_ver_i18n = advanced_i18n.get('current_version', {})
         HoverInfoLabelWidget(advanced_frame, text=current_ver_i18n.get('label', 'Current Version:'), bootstyle="secondary",
                              tooltip=current_ver_i18n.get('tooltip', '...'), row=self.current_row, column=0)
@@ -2285,7 +2295,15 @@ class ConfigApp:
                                            textvariable=self.overlay_engine_value)
         self.overlay_engine.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
-        
+
+        # Scan Delay
+        scan_delay_i18n = overlay_i18n.get('scan_delay', {})
+        HoverInfoLabelWidget(overlay_frame, text=scan_delay_i18n.get('label', 'Scan Delay:'),
+                             tooltip=scan_delay_i18n.get('tooltip', 'Delay between GSM Receiving Text, and Scanning for Overlay. Increase this value if your game\'s text appears slowly.'),
+                             row=self.current_row, column=0)
+        ttk.Entry(overlay_frame, textvariable=self.scan_delay_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
         # Periodic Settings
         periodic_i18n = overlay_i18n.get('periodic', {})
         HoverInfoLabelWidget(overlay_frame, text=periodic_i18n.get('label', 'Periodic:'),

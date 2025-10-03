@@ -5,6 +5,7 @@ import { Downloader } from 'nodejs-file-downloader';
 import * as tar from 'tar';
 import { BASE_DIR, execFileAsync, getPlatform, isArmMac, SupportedPlatform } from '../util.js';
 import { mainWindow } from '../main.js';
+import { dialog } from 'electron';
 
 // --- Interfaces and Constants ---
 
@@ -194,6 +195,14 @@ export async function getOrInstallPython(): Promise<string> {
         console.log(`Python is already installed at: ${pythonPath}`);
         return pythonPath;
     }
+
+    // Show notification about installation starting, native to electron, not a webcontents send
+    dialog.showMessageBox(mainWindow!, {
+        type: 'info',
+        title: 'First Time Setup',
+        message: 'GSM Running First Time Setup. There are a lot of moving parts, so it may take a few minutes. Please be patient!',
+    });
+
 
     console.log('Python not found. Starting installation process...');
     const message =

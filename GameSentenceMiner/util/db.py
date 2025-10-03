@@ -264,6 +264,50 @@ class SQLiteDBTable:
     @classmethod
     def drop(cls):
         cls._db.execute(f"DROP TABLE IF EXISTS {cls._table}", commit=True)
+        
+    @classmethod
+    def has_column(cls, column_name: str) -> bool:
+        row = cls._db.fetchone(
+            f"PRAGMA table_info({cls._table})")
+        if not row:
+            return False
+        columns = [col[1] for col in cls._db.fetchall(
+            f"PRAGMA table_info({cls._table})")]
+        return column_name in columns
+    
+    @classmethod
+    def rename_column(cls, old_column: str, new_column: str):
+        cls._db.execute(
+            f"ALTER TABLE {cls._table} RENAME COLUMN {old_column} TO {new_column}", commit=True)
+        
+    @classmethod
+    def drop_column(cls, column_name: str):
+        cls._db.execute(
+            f"ALTER TABLE {cls._table} DROP COLUMN {column_name}", commit=True)
+        
+    @classmethod
+    def get_column_type(cls, column_name: str) -> Optional[str]:
+        row = cls._db.fetchone(
+            f"PRAGMA table_info({cls._table})")
+        if not row:
+            return None
+        columns = cls._db.fetchall(
+            f"PRAGMA table_info({cls._table})")
+        for col in columns:
+            if col[1] == column_name:
+                return col[2]  # Return the type
+        return None
+        
+    @classmethod
+    def alter_column_type(cls, old_column: str, new_column: str, new_type: str):
+        # Add new column
+        cls._db.execute(
+            f"ALTER TABLE {cls._table} ADD COLUMN {new_column} {new_type}", commit=True)
+        # Copy and cast data
+        cls._db.execute(
+            f"UPDATE {cls._table} SET {new_column} = CAST({old_column} AS {new_type})", commit=True)
+        cls._db.execute(
+            f"ALTER TABLE {cls._table} DROP COLUMN {old_column}", commit=True)
 
 
 class AIModelsTable(SQLiteDBTable):
@@ -333,10 +377,10 @@ class AIModelsTable(SQLiteDBTable):
 
 class GameLinesTable(SQLiteDBTable):
     _table = 'game_lines'
-    _fields = ['game_name', 'line_text', 'timestamp', 'screenshot_in_anki',
-               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation']
+    _fields = ['game_name', 'line_text', 'screenshot_in_anki',
+               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp']
     _types = [str,  # Includes primary key type
-              str, str, str, str, str, str, str, str, str]
+              str, str, str, str, str, str, str, str, float]
     _pk = 'id'
     _auto_increment = False  # Use string IDs
 
@@ -355,7 +399,7 @@ class GameLinesTable(SQLiteDBTable):
         self.game_name = game_name
         self.line_text = line_text
         self.context = context
-        self.timestamp = timestamp if timestamp is not None else datetime.now().timestamp()
+        self.timestamp = float(timestamp) if timestamp is not None else datetime.now().timestamp()
         self.screenshot_in_anki = screenshot_in_anki if screenshot_in_anki is not None else ''
         self.audio_in_anki = audio_in_anki if audio_in_anki is not None else ''
         self.screenshot_path = screenshot_path if screenshot_path is not None else ''
@@ -416,7 +460,7 @@ class GameLinesTable(SQLiteDBTable):
             params,
             commit=True
         )
-
+        
     @classmethod
     def get_lines_filtered_by_timestamp(cls, start: Optional[float] = None, end: Optional[float] = None) -> List['GameLinesTable']:
         """
@@ -445,8 +489,50 @@ class GameLinesTable(SQLiteDBTable):
         # Execute the query
         rows = cls._db.fetchall(query, tuple(params))
         return [cls.from_row(row) for row in rows]
+        
+class StatsRollupTable(SQLiteDBTable):
+    _table = 'stats_rollup'
+    _fields = ['date', 'games_played', 'lines_mined', 'anki_cards_created', 'time_spent_mining']
+    _types = [int,  # Includes primary key type
+              str, int, int, int, float]
+    _pk = 'id'
+    _auto_increment = True  # Use auto-incrementing integer IDs
     
-def get_db_directory():
+    def __init__(self, id: Optional[int] = None,
+                 date: Optional[str] = None,
+                 games_played: int = 0,
+                 lines_mined: int = 0,
+                 anki_cards_created: int = 0,
+                 time_spent_mining: float = 0.0):
+        self.id = id
+        self.date = date if date is not None else datetime.now().strftime("%Y-%m-%d")
+        self.games_played = games_played
+        self.lines_mined = lines_mined
+        self.anki_cards_created = anki_cards_created
+        self.time_spent_mining = time_spent_mining
+
+    @classmethod
+    def get_stats_for_date(cls, date: str) -> Optional['StatsRollupTable']:
+        row = cls._db.fetchone(
+            f"SELECT * FROM {cls._table} WHERE date=?", (date,))
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def update_stats(cls, date: str, games_played: int = 0, lines_mined: int = 0, anki_cards_created: int = 0, time_spent_mining: float = 0.0):
+        stats = cls.get_stats_for_date(date)
+        if not stats:
+            new_stats = cls(date=date, games_played=games_played,
+                            lines_mined=lines_mined, anki_cards_created=anki_cards_created, time_spent_mining=time_spent_mining)
+            new_stats.save()
+            return
+        stats.games_played += games_played
+        stats.lines_mined += lines_mined
+        stats.anki_cards_created += anki_cards_created
+        stats.time_spent_mining += time_spent_mining
+        stats.save()
+        
+# Ensure database directory exists and return path
+def get_db_directory(test=False, delete_test=False) -> str:
     if platform == 'win32':  # Windows
         appdata_dir = os.getenv('APPDATA')
     else:  # macOS and Linux
@@ -454,7 +540,11 @@ def get_db_directory():
     config_dir = os.path.join(appdata_dir, 'GameSentenceMiner')
     # Create the directory if it doesn't exist
     os.makedirs(config_dir, exist_ok=True)
-    return os.path.join(config_dir, 'gsm.db')
+    path = os.path.join(config_dir, 'gsm.db' if not test else 'gsm_test.db')
+    if test and delete_test:
+        if os.path.exists(path):
+            os.remove(path)
+    return path
 
 
 # Backup and compress the database on load, with today's date, up to 5 days ago (clean up old backups)
@@ -490,6 +580,8 @@ db_path = get_db_directory()
 if os.path.exists(db_path):
     backup_db(db_path)
 
+# db_path = get_db_directory(test=True, delete_test=False)
+
 gsm_db = SQLiteDB(db_path)
 
 for cls in [AIModelsTable, GameLinesTable]:
@@ -498,13 +590,47 @@ for cls in [AIModelsTable, GameLinesTable]:
     # cls.drop()
     # cls.set_db(gsm_db)  # --- IGNORE ---
     
+# GameLinesTable.drop_column('timestamp')
+    
+# if GameLinesTable.has_column('timestamp_old'):
+#     GameLinesTable.alter_column_type('timestamp_old', 'timestamp', 'TEXT')
+#     logger.info("Altered 'timestamp_old' column to 'timestamp' with TEXT type in GameLinesTable.")
+
+def check_and_run_migrations():
+    def migrate_timestamp():
+        if GameLinesTable.has_column('timestamp') and GameLinesTable.get_column_type('timestamp') != 'REAL':
+            logger.info("Migrating 'timestamp' column to REAL type in GameLinesTable.")
+            # Rename 'timestamp' to 'timestamp_old'
+            GameLinesTable.rename_column('timestamp', 'timestamp_old')
+            # Copy and cast data from old column to new column
+            GameLinesTable.alter_column_type('timestamp_old', 'timestamp', 'REAL')
+            logger.info("Migrated 'timestamp' column to REAL type in GameLinesTable.")
+            
+            
+    migrate_timestamp()
+        
+check_and_run_migrations()
+    
+# all_lines = GameLinesTable.all()
+
+
+# # Convert String timestamp to float timestamp
+# for line in all_lines:
+#     if isinstance(line.timestamp, str):
+#         try:
+#             line.timestamp = float(line.timestamp)
+#         except ValueError:
+#             # Handle invalid timestamp format
+#             line.timestamp = 0.0
+#     line.save()
+
 # import random
 # import uuid
 # from datetime import datetime
 # from GameSentenceMiner.util.text_log import GameLine
 # from GameSentenceMiner.util.db import GameLinesTable
 
-# List of common Japanese characters (kanji, hiragana, katakana)
+# # List of common Japanese characters (kanji, hiragana, katakana)
 # japanese_chars = (
 #     "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん"
 #     "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン"
@@ -541,6 +667,7 @@ for cls in [AIModelsTable, GameLinesTable]:
     
 #     if len(lines_batch) >= batch_size:
 #         GameLinesTable.add_lines(lines_batch)
+#         GameLinesTable2.add_lines(lines_batch)
 #         lines_batch = []
 #     if i % 1000 == 0:
 #         print(f"Inserted {i} lines...")
@@ -548,5 +675,18 @@ for cls in [AIModelsTable, GameLinesTable]:
 # # Insert any remaining lines
 # if lines_batch:
 #     GameLinesTable.add_lines(lines_batch)
+#     GameLinesTable2.add_lines(lines_batch)
+# for _ in range(10):  # Run multiple times to see consistent timing
+#     start_time = time.time()
+#     GameLinesTable.all()
+#     end_time = time.time()
 
-print("Done populating GameLinesDB with random Japanese text.")
+#     print(f"Time taken to query all lines from GameLinesTable: {end_time - start_time:.2f} seconds")
+
+#     start_time = time.time()
+#     GameLinesTable2.all()
+#     end_time = time.time()
+
+#     print(f"Time taken to query all lines from GameLinesTable2: {end_time - start_time:.2f} seconds")
+
+# print("Done populating GameLinesTable and GameLinesTable2 with random Japanese text.")

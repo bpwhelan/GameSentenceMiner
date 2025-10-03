@@ -589,9 +589,10 @@ class Advanced:
     multi_line_sentence_storage_field: str = ''
     ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 55001
-    afk_timer_seconds: int = 120
-    session_gap_seconds: int = 3600
-    streak_requirement_hours: float = 0.01 # 1 second required per day to keep your streak by default
+    afk_timer_seconds: int = 120 # LEGACY, not used anymore
+    session_gap_seconds: int = 3600 # LEGACY, not used anymore
+    streak_requirement_hours: float = 0.01 # LEGACY, not used anymore
+    localhost_bind_address: str = '127.0.0.1' # Default 127.0.0.1 for security, set to 0.0.0.0 to allow external connections
 
     def __post_init__(self):
         if self.plaintext_websocket_port == -1:
@@ -646,6 +647,7 @@ class Overlay:
     monitor_to_capture: int = 0
     periodic: bool = False
     periodic_interval: float = 1.0
+    scan_delay: float = 0.25
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:
@@ -1248,5 +1250,5 @@ is_dev = is_running_from_source()
 
 is_beangate = os.path.exists("C:/Users/Beangate")
 
-logger.debug(f"Running in development mode: {is_dev}")
-logger.debug(f"Running on Beangate's PC: {is_beangate}")
+# logger.debug(f"Running in development mode: {is_dev}")
+# logger.debug(f"Running on Beangate's PC: {is_beangate}")
