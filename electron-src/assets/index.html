@@ -148,7 +148,9 @@
                                 </select>
                                 <button id="install-cuda-btn" class="secondary">Install CUDA</button>
                                 <div class="tooltip">❓
-                                    <span class="tooltiptext">Install PyTorch with CUDA support for GPU acceleration. This enables much faster Whisper Processing, and is used for a few OCR options (none recommended).</span>
+                                    <span class="tooltiptext">Install PyTorch with CUDA support for GPU acceleration.
+                                        This enables much faster Whisper Processing, and is used for a few OCR options
+                                        (none recommended).</span>
                                 </div>
                             </div>
                             <div class="input-group">
@@ -158,7 +160,8 @@
                                         <strong>Choose your CUDA version:</strong><br>
                                         • <strong>CUDA 12.6:</strong> Most stable, works with older GPUs<br>
                                         • <strong>CUDA 12.8:</strong> Recommended for most users (RTX 30/40 series)<br>
-                                        • <strong>CUDA 12.9:</strong> Latest version, best performance for newest GPUs<br><br>
+                                        • <strong>CUDA 12.9:</strong> Latest version, best performance for newest
+                                        GPUs<br><br>
                                         <strong>Note:</strong> Your GPU driver must support the CUDA version you choose.
                                     </span>
                                 </div>
@@ -175,13 +178,15 @@
                             <div class="input-group">
                                 <button id="repair-gsm-btn" class="danger">🔧 Repair GSM</button>
                                 <div class="tooltip">❓
-                                    <span class="tooltiptext">Complete reinstall of Python and GameSentenceMiner. This will remove all custom packages and restore to default state.</span>
+                                    <span class="tooltiptext">Complete reinstall of Python and GameSentenceMiner. This
+                                        will remove all custom packages and restore to default state.</span>
                                 </div>
                             </div>
                             <div class="input-group">
                                 <button id="clean-cache-btn" class="secondary">🧹 Clean Python Cache</button>
                                 <div class="tooltip">❓
-                                    <span class="tooltiptext">Clear pip cache and temporary files to fix installation issues</span>
+                                    <span class="tooltiptext">Clear pip cache and temporary files to fix installation
+                                        issues</span>
                                 </div>
                             </div>
                         </div>
@@ -195,9 +200,12 @@
                         <div class="form-group">
                             <div class="input-group">
                                 <label for="custom-package-input" class="tooltip-indicator">Package Name:
-                                    <span class="tooltiptext">Enter the name of the package you want to install (e.g., numpy, requests, etc.) This may break things, and should only be used upon instruction.</span>
+                                    <span class="tooltiptext">Enter the name of the package you want to install (e.g.,
+                                        numpy, requests, etc.) This may break things, and should only be used upon
+                                        instruction.</span>
                                 </label>
-                                <input type="text" id="custom-package-input" placeholder="e.g., numpy, requests, etc." />
+                                <input type="text" id="custom-package-input"
+                                    placeholder="e.g., numpy, requests, etc." />
                                 <button id="install-custom-package-btn" class="danger">Install Package</button>
                             </div>
                         </div>
@@ -234,7 +242,8 @@
         <div id="ocr-tab-container" class="tab-container">
             <div id="ocr-grid-container" class="grid-container">
                 <div id='setup-card' class="card">
-                    <h2 id="setup-header" class="collapsible-header">1. Installation <span class="arrow-icon">▲</span></h2>
+                    <h2 id="setup-header" class="collapsible-header">1. Installation <span class="arrow-icon">▲</span>
+                    </h2>
                     <div id="setup-collapsible-content" class="collapsible-content" style="display: block;">
                         <div class="form-group">
                             <button id="install-recommended-btn">Install OwOCR</button>
@@ -273,14 +282,16 @@
                         <div class="form-group">
                             <div id="scene-select-group" class="input-group">
                                 <label for="sceneSelect" class="tooltip-indicator">Game (OBS Scene):
-                                    <span class="tooltiptext tooltiptext-right">Select the OBS Scene to Capture for OCR. You can make a new Scene in the "Home" Tab</span>
+                                    <span class="tooltiptext tooltiptext-right">Select the OBS Scene to Capture for OCR.
+                                        You can make a new Scene in the "Home" Tab</span>
                                 </label>
                                 <select id="sceneSelect"></select>
                                 <button id="refreshScenesBtn" class="secondary">↻</button>
                             </div>
                             <div id="window-select-group" class="input-group">
                                 <label for="windowSelect" class="tooltip-indicator">Window:
-                                    <span class="tooltiptext tooltiptext-right">Select the OBS window for the game</span>
+                                    <span class="tooltiptext tooltiptext-right">Select the OBS window for the
+                                        game</span>
                                 </label>
                                 <select id="windowSelect"></select>
                                 <button id="refreshWindowsBtn" class="secondary">↻</button>
@@ -317,7 +328,8 @@
                                 <label for="ocr1-input" class="tooltip-indicator">
                                     Text Stability:
                                     <span class="tooltiptext tooltiptext-right">
-                                        This will run at the set scan rate, and when the text stabilizes, it will trigger the main OCR.
+                                        This will run at the set scan rate, and when the text stabilizes, it will
+                                        trigger the main OCR.
                                         This should preferably be a fast engine. On Windows, OneOCR is recommended.
                                     </span>
                                 </label>
@@ -341,7 +353,9 @@
                             <div id="ocr2-select-group" class="input-group">
                                 <label for="ocr2-input" class="tooltip-indicator">Main OCR:
                                     <span class="tooltiptext tooltiptext-right">
-                                        This engine will be used to send the result to clipboard/websocket. This should be an accurate engine. If Two Pass is enabled, it will be triggered after the text has stabilized on screen.
+                                        This engine will be used to send the result to clipboard/websocket. This should
+                                        be an accurate engine. If Two Pass is enabled, it will be triggered after the
+                                        text has stabilized on screen.
                                     </span>
                                 </label>
                                 <select id="ocr2-input">
@@ -402,10 +416,13 @@
                                     class="tooltip-indicator tooltip-bottom tooltip-right">
                                     Furigana Filter Sensitivity:
                                     <span class="tooltiptext">
-                                        Filters characters smaller than the selected text size. Very experimental, if you
-                                        notice real text being filtered out, either lower this or disable by setting to 0.
+                                        Filters characters smaller than the selected text size. Very experimental, if
+                                        you
+                                        notice real text being filtered out, either lower this or disable by setting to
+                                        0.
                                         <br><br>
-                                        <strong>Tip:</strong> Click<span style="color: blue;"> Preview</span> to bring up a box to show what it
+                                        <strong>Tip:</strong> Click<span style="color: blue;"> Preview</span> to bring
+                                        up a box to show what it
                                         should filter out.
                                         Anything that fits inside of the box should get filtered out.
                                     </span>
@@ -478,7 +495,8 @@
                             </div>
                             <div id="keep-newline-group" class="input-group">
                                 <label for="keep-newline" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                    <span class="tooltiptext">If enabled, OCR will attempt to keep newlines in the output text (for
+                                    <span class="tooltiptext">If enabled, OCR will attempt to keep newlines in the
+                                        output text (for
                                         better readability) NOT GUARANTEED.</span>
                                     Maintain Line Breaks in Output:
                                 </label>
@@ -519,7 +537,8 @@
                 </div>
                 <div id="stop-ocr-controls" class="input-group"
                     style="display: none; position: relative; justify-content: center; align-items: center; gap: 16px;">
-                    <label id="ocr-status-label" style="position: absolute; left: 0; text-align: left; font-size: 18px; padding-bottom: 15px"></label>
+                    <label id="ocr-status-label"
+                        style="position: absolute; left: 0; text-align: left; font-size: 18px; padding-bottom: 15px"></label>
                     <div style="display: flex; gap: 16px;">
                         <button id="stop-ocr" class="danger">Stop OCR (Open Settings)</button>
                         <button id="pause-ocr" class="secondary">Pause OCR</button>
@@ -537,7 +556,8 @@
                             <button id="open-ocr-page-btn" class="secondary">Open OCR Error Fixes Page</button>
                             <button id="open-config-json" class="secondary">Open Config File</button>
                             <button id="open-config-folder" class="secondary">Open OCR Config Folder</button>
-                            <button id="open-temp-folder" class="secondary">Open Temp Folder (To see OCR'd Image Samples)</button>
+                            <button id="open-temp-folder" class="secondary">Open Temp Folder (To see OCR'd Image
+                                Samples)</button>
                         </div>
                         <div class="form-group">
                             <div id="dependency-removal-group" class="input-group">
@@ -650,19 +670,19 @@
                 previous_message = "";
 
                 const engineColors = {
-                    "OneOCR":      { ansi: "\x1b[36m",   html: "color: #00FFFF;" },
-                    "Google Lens": { ansi: "\x1b[92m",   html: "color: #00FF00;" },
-                    "Gemini":      { ansi: "\x1b[95m",   html: "color: #FF77FF;" },
-                    "Bing":        { ansi: "\x1b[34m",   html: "color: #0000FF;" },
-                    "EasyOCR":     { ansi: "\x1b[33m",   html: "color: #FFFF00;" },
-                    "RapidOCR":    { ansi: "\x1b[35m",   html: "color: #FF00FF;" },
-                    "Manga OCR":   { ansi: "\x1b[95m",   html: "color: #FF77FF;" },
-                    "WindowsOCR":  { ansi: "\x1b[36m",   html: "color: #00FFFF;" },
-                    "WinRT OCR":  { ansi: "\x1b[36m",   html: "color: #00FFFF;" },
-                    "Google Vision":{ ansi: "\x1b[92m",  html: "color: #00FF00;" },
-                    "Azure Image Analysis": { ansi: "\x1b[96m",   html: "color: #00FFFF;" },
-                    "OCRSpace":    { ansi: "\x1b[93m",   html: "color: #FFFF00;" },
-                    "Qwen2-VL":    { ansi: "\x1b[90m",   html: "color: #808080;" },
+                    "OneOCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
+                    "Google Lens": { ansi: "\x1b[92m", html: "color: #00FF00;" },
+                    "Gemini": { ansi: "\x1b[95m", html: "color: #FF77FF;" },
+                    "Bing": { ansi: "\x1b[34m", html: "color: #0000FF;" },
+                    "EasyOCR": { ansi: "\x1b[33m", html: "color: #FFFF00;" },
+                    "RapidOCR": { ansi: "\x1b[35m", html: "color: #FF00FF;" },
+                    "Manga OCR": { ansi: "\x1b[95m", html: "color: #FF77FF;" },
+                    "WindowsOCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
+                    "WinRT OCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
+                    "Google Vision": { ansi: "\x1b[92m", html: "color: #00FF00;" },
+                    "Azure Image Analysis": { ansi: "\x1b[96m", html: "color: #00FFFF;" },
+                    "OCRSpace": { ansi: "\x1b[93m", html: "color: #FFFF00;" },
+                    "Qwen2-VL": { ansi: "\x1b[90m", html: "color: #808080;" },
                     "Local LLM OCR": { ansi: "\x1b[95m", html: "color: #D6A4FF;" },
                 };
 
@@ -713,7 +733,7 @@
                     }
                     if (trimmedData.endsWith(engine_name + ":") && !paused) {
                         // Start scanning animation
-                        document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Scanning using " + engine_pretty_html + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>' ;
+                        document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Scanning using " + engine_pretty_html + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>';
                         animationFrame = (animationFrame + 1) % scanningAnimation.length;
                         //if (!isScanning) {
                         //   isScanning = true;
@@ -937,19 +957,19 @@
                         else
                             hideSettingsCard = false;
                         openOCRConsole("Close Console", {
-                        hideSetupCard: true,
-                        hideConfigCard: false,
-                        hideSettingsCard: hideSettingsCard,
-                        showLogCard: true,
-                        hideStartControls: true,
-                        showStopControls: true,
-                        hideManualHotkey: false,
-                        hideAreaHotkey: false,
-                        hideScreenshotsGroup: false,
-                        showSelectAreasButton: false,
-                        updateSettingsHeader: false,
-                        fitIntervalMs: 500,
-                    });
+                            hideSetupCard: true,
+                            hideConfigCard: false,
+                            hideSettingsCard: hideSettingsCard,
+                            showLogCard: true,
+                            hideStartControls: true,
+                            showStopControls: true,
+                            hideManualHotkey: false,
+                            hideAreaHotkey: false,
+                            hideScreenshotsGroup: false,
+                            showSelectAreasButton: false,
+                            updateSettingsHeader: false,
+                            fitIntervalMs: 500,
+                        });
                         const windowName = document.getElementById('windowSelect').value.trim();
                         await ipcRenderer.send('ocr.run-screen-selector', windowName);
                     });
@@ -1239,10 +1259,29 @@
             term.open(document.getElementById('terminal'));
             fitAddon.fit();
 
+            // Helper function to switch to console tab
+            function switchToConsoleTab() {
+                // Remove active from all tabs
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+                // Activate console tab
+                document.querySelector('[data-tab="console"]').classList.add('active');
+                document.getElementById('console').classList.add('active');
+
+                // Fit terminal
+                setTimeout(() => {
+                    fitAddon.fit();
+                }, 100);
+            }
+
             window.addEventListener('resize', () => fitAddon.fit());
 
             ipcRenderer.on('terminal-output', (event, data) => {
-                if (data.includes("ERROR: INFO:") || data.includes("DEBUG:" || data.includes("[OCR"))) {
+                if (data.includes("Python not found")) {
+                    switchToConsoleTab();
+                }
+                if (data.includes("ERROR: INFO:") || data.includes("DEBUG:") || data.includes("[OCR")) {
                     return; // THIS IS DEBUG THAT SOMEHOW GETS THROUGH TO STDOUT
                 }
                 if (data.includes("Transcribe:")) {
@@ -1381,24 +1420,18 @@
             });
         });
 
+        // Listen for installation messages from main process
+        ipcRenderer.on('installing', (event, data) => {
+            // showPythonStatus(data.message, 'info');
+            // Optionally switch to console tab to show progress
+            switchToConsoleTab();
+        });
+
+        // Initialize Python tab on DOM load
+        initializePythonTab();
+
         loadSettings();
         setInterval(loadSettings, 500);
-
-        // Helper function to switch to console tab
-        function switchToConsoleTab() {
-            // Remove active from all tabs
-            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-            
-            // Activate console tab
-            document.querySelector('[data-tab="console"]').classList.add('active');
-            document.getElementById('console').classList.add('active');
-            
-            // Fit terminal
-            setTimeout(() => {
-                fitAddon.fit();
-            }, 100);
-        }
 
         // Initialize Python tab functionality
         function initializePythonTab() {
@@ -1410,7 +1443,7 @@
                 const cudaVersion = document.getElementById('cuda-version-select').value;
                 showPythonStatus(`Installing CUDA ${cudaVersion}... This may take several minutes.`);
                 switchToConsoleTab(); // Switch to console to see progress
-                
+
                 try {
                     const result = await ipcRenderer.invoke('python.installCudaPackage', cudaVersion);
                     if (result.success) {
@@ -1433,7 +1466,7 @@
                 if (confirm('THIS IS ONLY TO BE USED IF SOMETHING IS COMPLETELY BROKEN WITH GSM DUE TO A CUSTOM/BAD PYTHON PACKAGE INSTALLATION. THIS SHOULD NOT BE EXPECTED TO FIX MINOR ISSUES, AND HAS A HIGHER CHANCE OF DOING MORE PAIN THAN GOOD.\n\nAre you sure you want to proceed with repairing GSM?')) {
                     showPythonStatus('🔧 Repairing GSM... This may take several minutes.');
                     switchToConsoleTab(); // Switch to console to see progress
-                    
+
                     try {
                         const result = await ipcRenderer.invoke('python.repairGSM');
                         if (result.success) {
@@ -1451,7 +1484,7 @@
             // Clean cache
             document.getElementById('clean-cache-btn').addEventListener('click', async () => {
                 showPythonStatus('🧹 Cleaning Python cache...');
-                
+
                 try {
                     const result = await ipcRenderer.invoke('python.cleanCache');
                     if (result.success) {
@@ -1474,7 +1507,7 @@
 
                 showPythonStatus(`Installing package: ${packageName}...`);
                 switchToConsoleTab(); // Switch to console to see progress
-                
+
                 try {
                     const result = await ipcRenderer.invoke('python.installCustomPackage', packageName);
                     if (result.success) {
@@ -1519,10 +1552,10 @@
         function showPythonStatus(message, type = 'info') {
             const statusCard = document.getElementById('python-status-card');
             const statusText = document.getElementById('python-status-text');
-            
+
             statusText.textContent = message;
             statusCard.style.display = 'block';
-            
+
             // Auto-hide success/error messages after 10 seconds
             if (type === 'success' || type === 'error') {
                 setTimeout(() => {
@@ -1531,17 +1564,14 @@
             }
         }
 
-        // Initialize Python tab on DOM load
-        initializePythonTab();
-
         // Setup collapsible sections for Python tab
         function setupPythonCollapsibleSections() {
             const pythonHeaders = document.querySelectorAll('#python .collapsible-header');
             pythonHeaders.forEach(header => {
-                header.addEventListener('click', function() {
+                header.addEventListener('click', function () {
                     const content = this.nextElementSibling;
                     const arrow = this.querySelector('.arrow-icon');
-                    
+
                     if (content.style.display === 'none' || content.style.display === '') {
                         content.style.display = 'block';
                         arrow.textContent = '▲';

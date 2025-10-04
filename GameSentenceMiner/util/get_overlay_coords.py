@@ -283,6 +283,9 @@ class OverlayProcessor:
         if not self.lens:
             logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
             return []
+        
+        if get_config().overlay.scan_delay > 0:
+            await asyncio.sleep(get_config().overlay.scan_delay)
 
         # 1. Get screenshot
         full_screenshot, monitor_width, monitor_height = self._get_full_screenshot()

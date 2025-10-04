@@ -701,5 +701,7 @@ def create_scene():
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     connect_to_obs_sync()
-    # set_fit_to_screen_for_scene_items(get_current_scene())
-    create_scene()
+    img = get_screenshot_PIL(source_name='Display Capture 2', compression=100, img_format='jpg', width=2560, height=1440)
+    img.show()
+    # # set_fit_to_screen_for_scene_items(get_current_scene())
+    # create_scene()

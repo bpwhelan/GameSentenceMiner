@@ -175,7 +175,7 @@ class WebsocketServerThread(threading.Thread):
             self._stop_event = stop_event = asyncio.Event()
             self._event.set()
             self.server = start_server = websockets.serve(self.server_handler,
-                                                          "0.0.0.0",
+                                                          get_config().advanced.localhost_bind_address,
                                                           get_config().advanced.ocr_websocket_port,
                                                           max_size=1000000000)
             async with start_server:

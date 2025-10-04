@@ -901,6 +901,65 @@ def register_database_api_routes(app):
             punctionation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
             # Get optional year filter parameter
             filter_year = request.args.get('year', None)
+
+            # Get Start and End time as unix timestamp
+            start_timestamp = request.args.get('start', None)
+            end_timestamp = request.args.get('end', None)
+            
+            # Convert timestamps to float if provided
+            start_timestamp = float(start_timestamp) if start_timestamp else None
+            end_timestamp = float(end_timestamp) if end_timestamp else None
+
+            # 1. Fetch all lines and sort them chronologically
+            all_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=start_timestamp, end=end_timestamp)
+            
+            if not all_lines:
+                return jsonify({"labels": [], "datasets": []})
+
+            # 2. Process data into daily totals for each game
+            # Structure: daily_data[date_str][game_name] = {'lines': N, 'chars': N}
+            daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0}))
+            wrong_instance_found = False
+            for line in all_lines:
+                day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
+                game = line.game_name or "Unknown Game"
+                # Remove punctuation and symbols from line text before counting characters
+                clean_text = punctionation_regex.sub('', str(line.line_text)) if line.line_text else ''
+                if not isinstance(clean_text, str) and not wrong_instance_found:
+                    logger.info(f"Non-string line_text encountered: {clean_text} (type: {type(clean_text)})")
+                    wrong_instance_found = True
+
+                line.line_text = clean_text  # Update line text to cleaned version for future use
+                daily_data[day_str][game]['lines'] += 1
+                daily_data[day_str][game]['chars'] += len(clean_text)
+
+            # 3. Create cumulative datasets for Chart.js
+            sorted_days = sorted(daily_data.keys())
+            game_names = GameLinesTable.get_all_games_with_lines()
+            
+            # Keep track of the running total for each metric for each game
+            cumulative_totals = defaultdict(lambda: {'lines': 0, 'chars': 0})
+            
+            # Structure for final data: final_data[game_name][metric] = [day1_val, day2_val, ...]
+            final_data = defaultdict(lambda: defaultdict(list))
+
+            for day in sorted_days:
+                for game in game_names:
+                    # Add the day's total to the cumulative total
+                    cumulative_totals[game]['lines'] += daily_data[day][game]['lines']
+                    cumulative_totals[game]['chars'] += daily_data[day][game]['chars']
+                    
+                    # Append the new cumulative total to the list for that day
+                    final_data[game]['lines'].append(cumulative_totals[game]['lines'])
+                    final_data[game]['chars'].append(cumulative_totals[game]['chars'])
+            
+            # 4. Format into Chart.js dataset structure
+            datasets = []
+            # A simple color palette for the chart lines
+            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22']
+            
+            for i, game in enumerate(game_names):
+                color = colors[i % len(colors)]
             
             # 1. Fetch all lines and sort them chronologically
             try:

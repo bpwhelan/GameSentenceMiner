@@ -1,21 +1,3 @@
-import asyncio
-import os
-import shutil
-import subprocess
-import sys
-import tempfile
-import threading
-import time
-import warnings
-
-import requests
-
-from GameSentenceMiner.util.get_overlay_coords import OverlayThread
-from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
-
-os.environ.pop('TCL_LIBRARY', None)
-
-
 def handle_error_in_initialization(e):
     """Handle errors that occur during initialization."""
     logger.exception(e, exc_info=True)
@@ -30,9 +12,20 @@ def handle_error_in_initialization(e):
 
 
 try:
+    import asyncio
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import tempfile
+    import threading
+    import time
+    import warnings
+    import requests
     import os.path
     import signal
     from subprocess import Popen
+    os.environ.pop('TCL_LIBRARY', None)
 
     import keyboard
     import ttkbootstrap as ttk
@@ -46,6 +39,8 @@ try:
     from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
     get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
     is_windows, is_linux
+    from GameSentenceMiner.util.get_overlay_coords import OverlayThread
+    from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 
     logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
 

@@ -71,6 +71,7 @@ def download_obs_if_needed():
     def get_windows_obs_url():
         machine = platform.machine().lower()
         if machine in ['arm64', 'aarch64']:
+            logger.info("Detected Windows on ARM64. Getting ARM64 version of OBS Studio.")
             return next(asset['browser_download_url'] for asset in latest_release['assets'] if
                         asset['name'].endswith('Windows-arm64.zip'))
         return next(asset['browser_download_url'] for asset in latest_release['assets'] if 
@@ -80,12 +81,12 @@ def download_obs_if_needed():
     with urllib.request.urlopen(latest_release_url) as response:
         latest_release = json.load(response)
         obs_url = {
-            "Windows": get_windows_obs_url(),
-            "Linux": next(asset['browser_download_url'] for asset in latest_release['assets'] if
-                          asset['name'].endswith('Ubuntu-24.04-x86_64.deb')),
-            "Darwin": next(asset['browser_download_url'] for asset in latest_release['assets'] if
-                           asset['name'].endswith('macOS-Intel.dmg'))
-        }.get(platform.system(), None)
+            "Windows": get_windows_obs_url,
+            # "Linux": lambda: next(asset['browser_download_url'] for asset in latest_release['assets'] if
+            #                       asset['name'].endswith('Ubuntu-24.04-x86_64.deb')),
+            # "Darwin": lambda: next(asset['browser_download_url'] for asset in latest_release['assets'] if
+            #                        asset['name'].endswith('macOS-Intel.dmg'))
+        }.get(platform.system(), lambda: None)()
 
     if obs_url is None:
         logger.error("Unsupported OS. Please install OBS manually.")
@@ -163,42 +164,74 @@ def download_ffmpeg_if_needed():
         logger.info("FFmpeg directory exists but executables are missing. Re-downloading FFmpeg...")
         shutil.rmtree(ffmpeg_dir)
 
-    ffmpeg_url = {
-        "Windows": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
-        "Linux": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
-        "Darwin": "https://evermeet.cx/ffmpeg/ffmpeg.zip"
-    }.get(platform.system(), None)
+    system = platform.system()
+    ffmpeg_url = None
+    compressed_format = "zip"
+    if system == "Windows":
+        machine = platform.machine().lower()
+        if machine in ['arm64', 'aarch64']:
+            ffmpeg_url = "https://gsm.beangate.us/ffmpeg-8.0-essentials-shared-win-arm64.zip"
+            compressed_format = "zip"
+        else:
+            ffmpeg_url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+            compressed_format = "zip"
+    # elif system == "Linux":
+    #     ffmpeg_url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+    # elif system == "Darwin":
+    #     ffmpeg_url = "https://evermeet.cx/ffmpeg/ffmpeg.zip"
 
     if ffmpeg_url is None:
-        logger.error("Unsupported OS. Please install FFmpeg manually.")
+        logger.error("Unsupported OS/architecture. Please install FFmpeg manually.")
         return
 
     download_dir = os.path.join(get_app_directory(), "downloads")
     os.makedirs(download_dir, exist_ok=True)
-    ffmpeg_archive = os.path.join(download_dir, "ffmpeg.zip")
+    ffmpeg_archive = os.path.join(download_dir, f"ffmpeg.{compressed_format}")
 
     logger.info(f"Downloading FFmpeg from {ffmpeg_url}...")
     urllib.request.urlretrieve(ffmpeg_url, ffmpeg_archive)
     logger.info(f"FFmpeg downloaded. Extracting to {ffmpeg_dir}...")
 
     os.makedirs(ffmpeg_dir, exist_ok=True)
-
-    with zipfile.ZipFile(ffmpeg_archive, 'r') as zip_ref:
-        for member in zip_ref.namelist():
-            filename = os.path.basename(member)
-            if filename:  # Skip directories
-                source = zip_ref.open(member)
-                target = open(os.path.join(ffmpeg_dir, filename), "wb")
-                with source, target:
-                    shutil.copyfileobj(source, target)
+    
+    # Extract 7z
+    # Extract archive
+    if ffmpeg_url.endswith('.7z'):
+        with py7zr.SevenZipFile(ffmpeg_archive, mode='r') as z:
+            z.extractall(ffmpeg_dir)
+    else:
+        with zipfile.ZipFile(ffmpeg_archive, 'r') as zip_ref:
+            zip_ref.extractall(ffmpeg_dir)
+    
+    # Flatten directory structure - move all files to root ffmpeg_dir
+    def flatten_directory(directory):
+        for root, dirs, files in os.walk(directory):
+            for file in files:
+                file_path = os.path.join(root, file)
+                if root != directory:  # Only move files from subdirectories
+                    target_path = os.path.join(directory, file)
+                    # Handle name conflicts by keeping the first occurrence
+                    if not os.path.exists(target_path):
+                        shutil.move(file_path, target_path)
+        # Remove empty subdirectories
+        for root, dirs, files in os.walk(directory, topdown=False):
+            for dir_name in dirs:
+                dir_path = os.path.join(root, dir_name)
+                try:
+                    os.rmdir(dir_path)
+                except OSError:
+                    pass  # Directory not empty
+    
+    flatten_directory(ffmpeg_dir)
                     
     # Copy ffmpeg.exe to the python folder
     if os.path.exists(ffmpeg_exe_path):
         shutil.copy2(ffmpeg_exe_path, ffmpeg_in_python)
         logger.info(f"Copied ffmpeg.exe to Python folder: {ffmpeg_in_python}")
     else:
-        logger.warning(f"ffmpeg.exe not found in {ffmpeg_dir}.")
+        logger.warning(f"ffmpeg.exe not found in {ffmpeg_dir}. Extraction might have failed.")
     logger.info(f"FFmpeg extracted to {ffmpeg_dir}.")
+
 
 def download_ocenaudio_if_needed():
     ocenaudio_dir = os.path.join(get_app_directory(), 'ocenaudio')

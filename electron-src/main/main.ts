@@ -20,6 +20,7 @@ import {
     getGSMBaseDir,
     isConnected,
     isDev,
+    isWindows,
     PACKAGE_NAME,
 } from './util.js';
 import electronUpdater, { type AppUpdater } from 'electron-updater';
@@ -142,7 +143,10 @@ function getGSMModulePath(): string {
 }
 
 function getIconPath(size: number = 0): string {
-    const filename = 'gsm.ico'
+    let filename = 'icon.png';
+    if (isWindows()) {
+        filename = 'gsm.ico';
+    }
     return path.join(getAssetsDir(), filename);
 }
 
@@ -281,7 +285,7 @@ async function createWindow() {
         {
             label: 'File',
             submenu: [
-                { label: 'Update GSM', click: () => update(true, false) },
+                { label: 'Update GSM', click: () => update(true, true) },
                 { label: 'Restart GSM', click: () => restartGSM() },
                 { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
                 { type: 'separator' },
@@ -428,7 +432,7 @@ async function updateGSM(shouldRestart: boolean = false, force = false): Promise
 function createTray() {
     tray = new Tray(getIconPath(32)); // Replace with a valid icon path
     const contextMenu = Menu.buildFromTemplate([
-        { label: 'Update GSM', click: () => update(true, false) },
+        { label: 'Update GSM', click: () => update(true, true) },
         { label: 'Restart GSM', click: () => restartGSM() },
         { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
         { label: 'Quit', click: () => quit() },

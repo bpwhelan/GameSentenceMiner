@@ -10,6 +10,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const ankiTotalKanji = document.getElementById('ankiTotalKanji');
     const gsmTotalKanji = document.getElementById('gsmTotalKanji');
     const ankiCoverage = document.getElementById('ankiCoverage');
+    const fromDateInput = document.getElementById('fromDate');
+    const toDateInput = document.getElementById('toDate');
     
     console.log('Found DOM elements:', {
         loading, error, missingKanjiGrid, missingKanjiCount,
@@ -62,12 +64,18 @@ document.addEventListener('DOMContentLoaded', function () {
         renderKanjiGrid(data.missing_kanji);
     }
 
-    async function loadStats() {
+    async function loadStats(start_timestamp = null, end_timestamp = null) {
         console.log('Loading Anki stats...');
         showLoading(true);
         showError(false);
         try {
-            const resp = await fetch('/api/anki_stats');
+            // Build URL with optional query params
+            const params = new URLSearchParams();
+            if (start_timestamp) params.append('start_timestamp', start_timestamp);
+            if (end_timestamp) params.append('end_timestamp', end_timestamp);
+            const url = '/api/anki_stats' + (params.toString() ? `?${params.toString()}` : '');
+
+            const resp = await fetch(url);
             if (!resp.ok) throw new Error('Failed to load');
             const data = await resp.json();
             console.log('Received data:', data);
@@ -80,5 +88,81 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    loadStats();
+    function getUnixTimestampsInMilliseconds(startDate, endDate) {
+        // Parse the start date and create a Date object at the beginning of the day
+        const start = new Date(startDate + 'T00:00:00');
+        const startTimestamp = start.getTime(); 
+
+        // Parse the end date and create a Date object at the end of the day
+        const end = new Date(endDate + 'T23:59:59.999');
+        const endTimestamp = end.getTime();
+
+        return { startTimestamp, endTimestamp };
+    }
+
+    document.addEventListener("datesSetAnki", () => {
+        const fromDate = sessionStorage.getItem("fromDateAnki");
+        const toDate = sessionStorage.getItem("toDateAnki");
+        const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDate, toDate);
+        
+        loadStats(startTimestamp, endTimestamp);
+    });
+
+    function initializeDates() {
+        const fromDateInput = document.getElementById('fromDate');
+        const toDateInput = document.getElementById('toDate');
+
+        const fromDate = sessionStorage.getItem("fromDateAnki");
+        const toDate = sessionStorage.getItem("toDateAnki"); 
+
+        if (!(fromDate && toDate)) {
+            fetch('/api/anki_earliest_date')
+                .then(response => response.json())
+                .then(response_json => {
+                    // Get first date in ms from API
+                    const firstDateinMs = response_json.earliest_card;
+                    const firstDateObject = new Date(firstDateinMs);
+                    fromDateInput.value = firstDateObject.toISOString().split('T')[0];
+
+                    // Get today's date
+                    const today = new Date();
+                    toDateInput.value = today.toISOString().split("T")[0];
+
+                    // Save in sessionStorage
+                    sessionStorage.setItem("fromDateAnki", firstDateObject.toISOString().split('T')[0]);
+                    sessionStorage.setItem("toDateAnki", today.toISOString().split("T")[0]);
+
+                    document.dispatchEvent(new Event("datesSetAnki"));
+                });
+        } else {
+            // If values already in sessionStorage, set inputs from there
+            fromDateInput.value = fromDate;
+            toDateInput.value = toDate;
+            console.log("already in session storage, dispatching datesSetAnki")
+            document.dispatchEvent(new Event("datesSetAnki"));
+        }
+    }
+
+    function handleDateChange() {
+        const fromDateStr = fromDateInput.value;
+        const toDateStr = toDateInput.value;
+
+        sessionStorage.setItem("fromDateAnki", fromDateStr);
+        sessionStorage.setItem("toDateAnki", toDateStr);
+
+        // Validate date order
+        if (fromDateStr && toDateStr && new Date(fromDateStr) > new Date(toDateStr)) {
+            popup.classList.remove("hidden");
+            return;
+        }
+
+        const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDateStr, toDateStr);
+
+        loadStats(startTimestamp, endTimestamp)
+    }
+
+    fromDateInput.addEventListener("change", handleDateChange);
+    toDateInput.addEventListener("change", handleDateChange);
+
+    initializeDates();
 });

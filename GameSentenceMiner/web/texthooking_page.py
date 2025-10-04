@@ -208,12 +208,14 @@ def play_audio():
 def translate_line():
     data = request.get_json()
     event_id = data.get('id')
+    text = data.get('text', '').strip()
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
-    line_to_translate = get_line_by_id(event_id)
-    translation = get_ai_prompt_result(get_all_lines(), line_to_translate.text,
-                                       line_to_translate, get_current_game())
-    line_to_translate.set_TL(translation)
+    line = get_line_by_id(event_id)
+    line_to_translate = text if text else line.text
+    translation = get_ai_prompt_result(get_all_lines(), line_to_translate,
+                                       line, get_current_game())
+    line.set_TL(translation)
     return jsonify({'TL': translation}), 200
 
 @app.route('/translate-multiple', methods=['POST'])
@@ -267,6 +269,15 @@ def stats():
                          master_config=get_master_config(),
                          stats_config=get_stats_config())
 
+@app.route('/api/anki_earliest_date')
+def anki_earliest_date():
+    """Returns the timestamp of earliest available card in anki collection."""
+    from GameSentenceMiner.anki import get_anki_earliest_date
+    earliest_card = get_anki_earliest_date()
+    return jsonify({
+        "earliest_card": earliest_card
+    })
+
 @app.route('/api/anki_stats')
 def api_anki_stats():
     """
@@ -283,14 +294,26 @@ def api_anki_stats():
     from GameSentenceMiner.web.stats import calculate_kanji_frequency, is_kanji
     from GameSentenceMiner.util.db import GameLinesTable
 
-    # Get all GSM lines and calculate kanji frequency
-    all_lines = GameLinesTable.all()
+    start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
+    end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
+
+    # Get GSM lines and calculate kanji frequency
+    try:
+        all_lines = (
+            GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000, end_timestamp / 1000)
+            if start_timestamp is not None and end_timestamp is not None
+            else GameLinesTable.all()
+        )
+    except Exception as e:
+        logger.warning(f"Failed to filter lines by timestamp: {e}, fetching all lines instead")
+        all_lines = GameLinesTable.all()
+
     gsm_kanji_stats = calculate_kanji_frequency(all_lines)
     gsm_kanji_list = gsm_kanji_stats.get("kanji_data", [])
     gsm_kanji_set = set([k["kanji"] for k in gsm_kanji_list])
 
     # Get all kanji in Anki (first field only)
-    anki_kanji_set = get_all_anki_first_field_kanji()
+    anki_kanji_set = get_all_anki_first_field_kanji(start_timestamp, end_timestamp)
 
     # Find missing kanji (in GSM but not in Anki)
     missing_kanji = [
@@ -362,7 +385,7 @@ def start_web_server():
     # FOR TEXTHOOKER DEVELOPMENT, UNCOMMENT THE FOLLOWING LINE WITH Flask-CORS INSTALLED:
     # from flask_cors import CORS
     # CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host=get_config().advanced.localhost_bind_address, port=port, debug=False)
 
 
 async def texthooker_page_coro():

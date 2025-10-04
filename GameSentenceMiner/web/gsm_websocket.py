@@ -78,7 +78,7 @@ class WebsocketServerThread(threading.Thread):
             while True:
                 try:
                     self.server = start_server = websockets.serve(self.server_handler,
-                                                                  "0.0.0.0",
+                                                                  get_config().advanced.localhost_bind_address,
                                                                   self.get_ws_port_func(),
                                                                   max_size=1000000000)
                     async with start_server:
