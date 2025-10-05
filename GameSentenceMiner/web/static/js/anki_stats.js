@@ -122,15 +122,17 @@ document.addEventListener('DOMContentLoaded', function () {
                     // Get first date in ms from API
                     const firstDateinMs = response_json.earliest_card;
                     const firstDateObject = new Date(firstDateinMs);
-                    fromDateInput.value = firstDateObject.toISOString().split('T')[0];
+                    const fromDate = firstDateObject.toLocaleDateString('en-CA');
+                    fromDateInput.value = fromDate;
 
                     // Get today's date
                     const today = new Date();
-                    toDateInput.value = today.toISOString().split("T")[0];
+                    const toDate = today.toLocaleDateString('en-CA');
+                    toDateInput.value = toDate;
 
                     // Save in sessionStorage
-                    sessionStorage.setItem("fromDateAnki", firstDateObject.toISOString().split('T')[0]);
-                    sessionStorage.setItem("toDateAnki", today.toISOString().split("T")[0]);
+                    sessionStorage.setItem("fromDateAnki", fromDate);
+                    sessionStorage.setItem("toDateAnki", toDate);
 
                     document.dispatchEvent(new Event("datesSetAnki"));
                 });
