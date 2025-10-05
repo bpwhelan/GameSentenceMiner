@@ -42,9 +42,10 @@ function launchSteamGame(gameIdOrExecutable: number | string): number | null {
             let process = execFile(getSteamPath(), ['-applaunch', gameIdOrExecutable.toString()]);
             return process.pid ?? null;
         } else {
-            let process = execFile(gameIdOrExecutable.toString());
+            const executableDir = path.dirname(gameIdOrExecutable);
+            let process = execFile(gameIdOrExecutable, [], { cwd: executableDir });
             if (!process.pid) {
-                process = exec(gameIdOrExecutable.toString());
+                process = exec(gameIdOrExecutable, { cwd: executableDir });
             }
             return process.pid ?? null;
         }
