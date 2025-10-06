@@ -199,25 +199,30 @@ rectangles = None
 last_ocr2_result = []
 last_sent_result = ""
 
-def do_second_ocr(ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False):
-    global twopassocr, ocr2, last_ocr2_result, last_sent_result
-    try:
-        orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, filtering, None,
-                                                        engine=get_ocr_ocr2(), furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
-        
-        if compare_ocr_results(last_sent_result, text, threshold=80):
-            if text:
-                logger.info("Seems like Text we already sent, not doing anything.")
-            return
-        save_result_image(img, pre_crop_image=pre_crop_image)
-        last_ocr2_result = orig_text
-        last_sent_result = text
-        asyncio.run(send_result(text, time))
-    except json.JSONDecodeError:
-        print("Invalid JSON received.")
-    except Exception as e:
-        logger.exception(e)
-        print(f"Error processing message: {e}")
+class OCRProcessor():
+    def __init__(self):
+        self.filtering = TextFiltering(lang=get_ocr_language())
+        pass
+
+    def do_second_ocr(self, ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False):
+        global twopassocr, ocr2, last_ocr2_result, last_sent_result
+        try:
+            orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, self.filtering, None,
+                                                            engine=get_ocr_ocr2(), furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0)
+            
+            if compare_ocr_results(last_sent_result, text, threshold=80):
+                if text:
+                    logger.info("Seems like Text we already sent, not doing anything.")
+                return
+            save_result_image(img, pre_crop_image=pre_crop_image)
+            last_ocr2_result = orig_text
+            last_sent_result = text
+            asyncio.run(send_result(text, time))
+        except json.JSONDecodeError:
+            print("Invalid JSON received.")
+        except Exception as e:
+            logger.exception(e)
+            print(f"Error processing message: {e}")
 
 
 def save_result_image(img, pre_crop_image=None):
@@ -249,6 +254,7 @@ previous_img = None
 previous_orig_text = ""  # Store original text result
 TEXT_APPEARENCE_DELAY = get_ocr_scan_rate() * 1000 + 500  # Adjust as needed
 force_stable = False
+second_ocr_processor = OCRProcessor()
 
 class ConfigChangeCheckThread(threading.Thread):
     def __init__(self):
@@ -461,7 +467,7 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None):
 
     # If no crop or optimization, just apply config and return
     if not crop_coords or not get_ocr_optimize_second_scan():
-        img = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=True)
+        img = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False)
         return img
 
     # Calculate scaling ratios
@@ -495,7 +501,7 @@ def process_task_queue():
             if task is None:  # Exit signal
                 break
             ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image = task
-            do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image)
+            second_ocr_processor.do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image)
         except Exception as e:
             logger.exception(f"Error processing task: {e}")
         finally:
@@ -550,21 +556,21 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
         ocr_config.scale_to_custom_size(img.width, img.height)
         for rectangle in [rectangle for rectangle in ocr_config.rectangles if rectangle.is_secondary]:
             new_img = run.apply_ocr_config_to_image(img, ocr_config, is_secondary=True, rectangles=[rectangle])
-            do_second_ocr("", datetime.now(), new_img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
+            second_ocr_processor.do_second_ocr("", datetime.now(), new_img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
 
     filtering = TextFiltering(lang=get_ocr_language())
     cropper = ScreenCropper()
     def capture():
         print("Taking screenshot...")
         img = cropper.run()
-        do_second_ocr("", datetime.now(), img, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
+        second_ocr_processor.do_second_ocr("", datetime.now(), img, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
     def capture_main_monitor():
         print("Taking screenshot of main monitor...")
         with mss.mss() as sct:
             main_monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
             img = sct.grab(main_monitor)
             img_bytes = mss.tools.to_png(img.rgb, img.size)
-            do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
+            second_ocr_processor.do_second_ocr("", datetime.now(), img_bytes, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
     hotkey_reg = None
     secondary_hotkey_reg = None
     try:
