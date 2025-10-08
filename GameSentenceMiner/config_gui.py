@@ -647,8 +647,8 @@ class ConfigApp:
                 monitor_to_capture=self.overlay_monitor.current() if self.monitors else 0,
                 engine=OverlayEngine(self.overlay_engine_value.get()).value if self.overlay_engine_value.get() else OverlayEngine.LENS.value,
                 scan_delay=float(self.scan_delay_value.get()),
-                periodic=self.periodic_value.get(),
-                periodic_interval=self.periodic_interval_value.get(),
+                periodic=float(self.periodic_value.get()),
+                periodic_interval=float(self.periodic_interval_value.get()),
             )
             # wip=WIP(
             #     overlay_websocket_port=int(self.overlay_websocket_port_value.get()),

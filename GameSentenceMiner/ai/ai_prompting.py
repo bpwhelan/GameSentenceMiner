@@ -252,7 +252,7 @@ class GeminiAI(AIManager):
             )
             if "2.5" in self.model_name:
                 self.generation_config.thinking_config = types.ThinkingConfig(
-                    thinking_budget=-1
+                    thinking_budget=-1 if '2.5-pro' in self.model_name else 0,
                 )
             self.logger.debug(
                 f"GeminiAIManager initialized with model: {self.model_name}")
@@ -497,59 +497,59 @@ if __name__ == '__main__':
 
     # Completely neutral Japanese sentences
     #
-    # lines = [
-    #     GameLine(index=0, text="今日はいい天気ですね。", id=None,
-    #              time=None, prev=None, next=None),
-    #     GameLine(index=1, text="おはようございます。", id=None,
-    #              time=None, prev=None, next=None),
-    #     GameLine(index=2, text="お元気ですか？", id=None,
-    #              time=None, prev=None, next=None),
-    #     GameLine(index=3, text="これはペンです。", id=None,
-    #              time=None, prev=None, next=None),
-    #     GameLine(index=4, text="私は学生です。", id=None,
-    #              time=None, prev=None, next=None),
-    #     GameLine(index=5, text="東京は日本の首都です。", id=None,
-    #              time=None, prev=None, next=None),
-    #     GameLine(index=6, text="こんにちは、元気ですか？", id=None,
-    #              time=None, prev=None, next=None),
-    #     GameLine(index=7, text="さようなら。また会いましょう。", id=None,
-    #              time=None, prev=None, next=None),
-    #     GameLine(index=8, text="ありがとう。助かりました。", id=None,
-    #              time=None, prev=None, next=None),
-    #     GameLine(index=9, text="すみません、道に迷いました。", id=None,
-    #              time=None, prev=None, next=None),
-    #     GameLine(index=10, text="これは本です。", id=None,
-    #              time=None, prev=None, next=None),
-    #     GameLine(index=11, text="私は先生です。", id=None,
-    #              time=None, prev=None, next=None),
-    # ]
+    lines = [
+        GameLine(index=0, text="今日はいい天気ですね。", id=None,
+                 time=None, prev=None, next=None),
+        GameLine(index=1, text="おはようございます。", id=None,
+                 time=None, prev=None, next=None),
+        GameLine(index=2, text="お元気ですか？", id=None,
+                 time=None, prev=None, next=None),
+        GameLine(index=3, text="これはペンです。", id=None,
+                 time=None, prev=None, next=None),
+        GameLine(index=4, text="私は学生です。", id=None,
+                 time=None, prev=None, next=None),
+        GameLine(index=5, text="東京は日本の首都です。", id=None,
+                 time=None, prev=None, next=None),
+        GameLine(index=6, text="こんにちは、元気ですか？", id=None,
+                 time=None, prev=None, next=None),
+        GameLine(index=7, text="さようなら。また会いましょう。", id=None,
+                 time=None, prev=None, next=None),
+        GameLine(index=8, text="ありがとう。助かりました。", id=None,
+                 time=None, prev=None, next=None),
+        GameLine(index=9, text="すみません、道に迷いました。", id=None,
+                 time=None, prev=None, next=None),
+        GameLine(index=10, text="これは本です。", id=None,
+                 time=None, prev=None, next=None),
+        GameLine(index=11, text="私は先生です。", id=None,
+                 time=None, prev=None, next=None),
+    ]
 
-    sentence = "あぁ…もっと奥まで…ダメ…イッちゃう…！"
+    sentence = "おはようございます。"
     current_line = lines[3]
     game_title = "Corrupted Reality"
 
     results = []
 
-    # get_config().ai.provider = AIType.GEMINI.value
-    # models = [
-    #     'gemini-2.5-pro']
+    get_config().ai.provider = AIType.GEMINI.value
+    models = [
+        'gemini-2.5-flash']
 
-    # for model in models:
-    #     get_config().ai.gemini_model = model
-    #     start_time = time.time()
-    #     result = get_ai_prompt_result(lines, sentence, current_line, game_title, True)
-    #     results.append({"model": model, "response": result, "time": time.time() - start_time, "iteration": 1})
-
-    get_config().ai.provider = AIType.OPENAI.value
-    get_config().ai.open_ai_url = "https://api.openai.com/v1"
-    get_config().ai.open_ai_model = "gpt-5-nano-2025-08-07"
-
-    for i in range(5):
+    for model in models:
+        get_config().ai.gemini_model = model
         start_time = time.time()
-        result = get_ai_prompt_result(
-        lines, sentence, current_line, game_title, True)
-        results.append({"model": get_config().ai.open_ai_model,
-                       "response": result, "time": time.time() - start_time, "iteration": i})
+        result = get_ai_prompt_result(lines, sentence, current_line, game_title, True)
+        results.append({"model": model, "response": result, "time": time.time() - start_time, "iteration": 1})
+
+    # get_config().ai.provider = AIType.OPENAI.value
+    # get_config().ai.open_ai_url = "https://api.openai.com/v1"
+    # get_config().ai.open_ai_model = "gpt-5-nano-2025-08-07"
+
+    # for i in range(5):
+    #     start_time = time.time()
+    #     result = get_ai_prompt_result(
+    #     lines, sentence, current_line, game_title, True)
+    #     results.append({"model": get_config().ai.open_ai_model,
+    #                    "response": result, "time": time.time() - start_time, "iteration": i})
 
     # get_config().ai.provider = AIType.OPENAI.value
     # models = [
