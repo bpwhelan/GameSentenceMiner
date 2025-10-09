@@ -231,6 +231,9 @@ class SettingsManager {
         this.readingHoursTargetInput = document.getElementById('readingHoursTarget');
         this.characterCountTargetInput = document.getElementById('characterCountTarget');
         this.gamesTargetInput = document.getElementById('gamesTarget');
+        this.readingHoursTargetDateInput = document.getElementById('readingHoursTargetDate');
+        this.characterCountTargetDateInput = document.getElementById('characterCountTargetDate');
+        this.gamesTargetDateInput = document.getElementById('gamesTargetDate');
     }
     
     attachEventListeners() {
@@ -325,6 +328,15 @@ class SettingsManager {
         if (this.gamesTargetInput) {
             this.gamesTargetInput.value = settings.games_target || 100;
         }
+        if (this.readingHoursTargetDateInput) {
+            this.readingHoursTargetDateInput.value = settings.reading_hours_target_date || '';
+        }
+        if (this.characterCountTargetDateInput) {
+            this.characterCountTargetDateInput.value = settings.character_count_target_date || '';
+        }
+        if (this.gamesTargetDateInput) {
+            this.gamesTargetDateInput.value = settings.games_target_date || '';
+        }
     }
     
     async refreshHeatmapData(selectedYear) {
@@ -395,6 +407,19 @@ class SettingsManager {
                     return;
                 }
                 settings.games_target = gamesTarget;
+            }
+            
+            // Add target date fields (optional)
+            if (this.readingHoursTargetDateInput) {
+                settings.reading_hours_target_date = this.readingHoursTargetDateInput.value || '';
+            }
+            
+            if (this.characterCountTargetDateInput) {
+                settings.character_count_target_date = this.characterCountTargetDateInput.value || '';
+            }
+            
+            if (this.gamesTargetDateInput) {
+                settings.games_target_date = this.gamesTargetDateInput.value || '';
             }
             
             // Show loading state

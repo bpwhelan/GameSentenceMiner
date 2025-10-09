@@ -1268,6 +1268,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const gamesTargetInput = document.getElementById('gamesTarget');
         if (gamesTargetInput) gamesTargetInput.value = window.statsConfig.gamesTarget || 100;
+
+        const hoursDateInput = document.getElementById('readingHoursTargetDate');
+        if (hoursDateInput) hoursDateInput.value = window.statsConfig.readingHoursTargetDate || '';
+
+        const charsDateInput = document.getElementById('characterCountTargetDate');
+        if (charsDateInput) charsDateInput.value = window.statsConfig.characterCountTargetDate || '';
+
+        const gamesDateInput = document.getElementById('gamesTargetDate');
+        if (gamesDateInput) gamesDateInput.value = window.statsConfig.gamesTargetDate || '';
     }
 
     // Function to update goal progress using existing stats data

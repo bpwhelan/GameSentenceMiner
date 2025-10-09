@@ -1235,3 +1235,30 @@
 .no-data-content button:hover {
     background: #0056b3;
 }
+
+/* ================================
+   Goals Page Specific Styles
+================================ */
+.dashboard-card.today-goals::before {
+    background: linear-gradient(90deg, #e6dc2e, #3be62f);
+}
+
+.dashboard-card.projection-card::before {
+    background: linear-gradient(90deg, #3be62f, #2ee6e0);
+}
+
+.no-targets-message {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-tertiary);
+    font-style: italic;
+    font-size: 14px;
+}
+
+.no-targets-message::before {
+    content: '⚙️';
+    display: block;
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
