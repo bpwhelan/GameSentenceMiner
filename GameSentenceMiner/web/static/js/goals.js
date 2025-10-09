@@ -76,10 +76,10 @@ document.addEventListener('DOMContentLoaded', function () {
             const currentCharacters = allGamesStats.total_characters || 0;
             const currentGames = allGamesStats.unique_games || 0;
             
-            // Calculate 90-day averages for projections (reusing logic from stats.js)
-            const dailyHoursAvg = calculate90DayAverage(allLinesData, 'hours');
-            const dailyCharsAvg = calculate90DayAverage(allLinesData, 'characters');
-            const dailyGamesAvg = calculate90DayAverage(allLinesData, 'games');
+            // Calculate daily averages for projections using 90-day lookback period (reusing logic from stats.js)
+            const dailyHoursAvg = calculateDailyAverage(allLinesData, 'hours');
+            const dailyCharsAvg = calculateDailyAverage(allLinesData, 'characters');
+            const dailyGamesAvg = calculateDailyAverage(allLinesData, 'games');
             
             // Update Hours Goal
             const hoursPercentage = Math.min(100, (currentHours / hoursTarget) * 100);
@@ -129,8 +129,8 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Function to calculate 90-day rolling average (copied from stats.js)
-    function calculate90DayAverage(allLinesData, metricType) {
+    // Function to calculate daily average using a 90-day lookback period (copied from stats.js)
+    function calculateDailyAverage(allLinesData, metricType) {
         if (!allLinesData || allLinesData.length === 0) {
             return 0;
         }
