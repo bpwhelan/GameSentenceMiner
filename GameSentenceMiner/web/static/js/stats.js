@@ -1192,11 +1192,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
                     // Get today's date
                     const today = new Date();
-                    toDateInput.value = today.toISOString().split("T")[0];
+                    const toDate = today.toLocaleDateString('en-CA');
+                    toDateInput.value = toDate;
 
                     // Save in sessionStorage
                     sessionStorage.setItem("fromDate", firstDate);
-                    sessionStorage.setItem("toDate", today.toISOString().split("T")[0]);
+                    sessionStorage.setItem("toDate", toDate);
 
                     document.dispatchEvent(new Event("datesSet"));
                 });
