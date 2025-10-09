@@ -355,49 +355,7 @@
 }
 
 /* Tooltip Styles */
-.tooltip {
-    position: relative;
-    cursor: help;
-}
-
-.tooltip::before {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: 125%;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.9);
-    color: white;
-    padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 12px;
-    white-space: nowrap;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s ease;
-    z-index: 1000;
-    pointer-events: none;
-}
-
-.tooltip::after {
-    content: '';
-    position: absolute;
-    bottom: 120%;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 4px solid transparent;
-    border-top-color: rgba(0, 0, 0, 0.9);
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s ease;
-    z-index: 1000;
-}
-
-.tooltip:hover::before,
-.tooltip:hover::after {
-    opacity: 1;
-    visibility: visible;
-}
+/* Tooltip styles are now only in shared.css */
 
 /* Loading State */
 .dashboard-loading {
