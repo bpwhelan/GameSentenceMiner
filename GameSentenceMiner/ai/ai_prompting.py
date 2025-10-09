@@ -304,6 +304,7 @@ class GroqAI(AIManager):
     def __init__(self, model, api_key, logger: Optional[logging.Logger] = None):
         super().__init__(GroqAiConfig(model=model, api_key=api_key), logger)
         self.api_key = self.ai_config.api_key
+        self.model_name = model
         try:
             self.client = Groq(api_key=self.api_key)
             self.logger.debug(

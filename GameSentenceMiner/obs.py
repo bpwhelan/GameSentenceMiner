@@ -139,9 +139,14 @@ class OBSConnectionManager(threading.Thread):
 
     def _manage_replay_buffer_and_utils(self):
         errors = []
+        
+        if not self.should_check_output:
+            return errors
+        
         set_fit_to_screen_for_scene_items(get_current_scene())
-
-        if get_config().obs.turn_off_output_check or not self.should_check_output:
+            
+        if not get_config().obs.automatically_manage_replay_buffer:
+            errors.append("Automatic Replay Buffer management is disabled in GSM settings.")
             return errors
 
         replay_buffer_enabled, error_message = self.check_replay_buffer_enabled()
