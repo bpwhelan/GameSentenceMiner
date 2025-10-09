@@ -1,0 +1,17 @@
+{
+    "version": 1,
+    "name": "Grade",
+    "lang": "ja",
+    "source": "https://web.archive.org/web/20170708205442/http://www.mext.go.jp:80/component/a_menu/education/micro_detail/__icsFiles/afieldfile/2017/05/12/1384661_4_2.pdf (pp. 30-31), https://ja.wikipedia.org/w/index.php?title=%E4%BA%BA%E5%90%8D%E7%94%A8%E6%BC%A2%E5%AD%97&oldid=66764047#%E4%BA%BA%E5%90%8D%E7%94%A8%E6%BC%A2%E5%AD%97%E3%81%AE%E4%B8%80%E8%A6%A7",
+    "leftover_group": "Non-Jouyou Kanji",
+    "groups": [
+        {
+            "name": "Grade 1 Kanji",
+            "characters": "一右雨円王音下火花貝学気休玉金九空月犬見五口校左三山四子糸字耳七車手十出女小上森人水正生青石赤先千川早草足村大男竹中虫町天田土二日入年白八百文本名木目夕立力林六"
+        },
+        {
+            "name": "Jinmeiyou (variant) Kanji",
+            "characters": "亞惡爲逸榮衞謁圓緣薗應櫻奧橫"
+        }
+    ]
+}

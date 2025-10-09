@@ -1,5 +1,41 @@
 /* Shared Kanji Grid Component Styles */
 
+/* Sort Dropdown */
+.kanji-sort-dropdown-container {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 15px;
+    gap: 8px;
+}
+
+.kanji-sort-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary, #333);
+}
+
+.kanji-sort-dropdown {
+    padding: 6px 12px;
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 4px;
+    background: var(--bg-secondary, #fff);
+    color: var(--text-primary, #333);
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.kanji-sort-dropdown:hover {
+    border-color: var(--primary-color, #007bff);
+}
+
+.kanji-sort-dropdown:focus {
+    outline: none;
+    border-color: var(--primary-color, #007bff);
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
+}
+
 /* Kanji Grid Container */
 .kanji-counter {
     text-align: center;
@@ -10,11 +46,16 @@
 }
 
 .kanji-grid {
+    display: block;
+    margin-bottom: 20px;
+    max-width: 100%;
+}
+
+/* Flat/frequency mode - use grid for kanji cells only */
+.kanji-grid.flat-mode {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
     gap: 3px;
-    margin-bottom: 20px;
-    max-width: 100%;
 }
 
 /* Individual Kanji Cell */
@@ -49,6 +90,57 @@
 .kanji-cell.level-2 { background-color: #7bc96f; }
 .kanji-cell.level-3 { background-color: #239a3b; color: white; }
 .kanji-cell.level-4 { background-color: #196127; color: white; }
+
+/* Group Sections - Stacked Layout */
+.kanji-group-section {
+    margin-bottom: 60px;
+    width: 100%;
+    clear: both;
+    padding: 15px 0;
+    overflow: hidden;
+}
+
+.kanji-group-section:last-child {
+    margin-bottom: 30px;
+}
+
+.kanji-group-header {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary, #d0d0d0);
+    margin: 0 auto 15px auto;
+    padding: 0;
+    text-align: center;
+    width: 100%;
+    display: block;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 100%;
+}
+
+.kanji-group-stats {
+    font-size: 14px;
+    color: var(--text-secondary, #888);
+    margin: 0 auto 25px auto;
+    text-align: center;
+    width: 100%;
+    display: block;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.5;
+}
+
+.kanji-group-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    justify-content: flex-start;
+    align-items: flex-start;
+    min-width: 0;
+}
 
 /* Legend */
 .kanji-legend {

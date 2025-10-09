@@ -3,8 +3,11 @@ import datetime
 import re
 import csv
 import io
+import os
+import json
 from collections import defaultdict
 import time
+from pathlib import Path
 
 import flask
 from flask import request, jsonify
@@ -1605,6 +1608,87 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error in ExStatic import: {e}")
             return jsonify({'error': f'Import failed: {str(e)}'}), 500
+
+    @app.route('/api/kanji-sorting-configs', methods=['GET'])
+    def api_kanji_sorting_configs():
+        """
+        List available kanji sorting configuration JSON files.
+        Returns metadata for each available sorting option.
+        """
+        try:
+            # Get the kanji_grid directory path
+            template_dir = Path(__file__).parent / 'templates' / 'components' / 'kanji_grid'
+            
+            if not template_dir.exists():
+                logger.warning(f"Kanji grid directory does not exist: {template_dir}")
+                return jsonify({'configs': []}), 200
+            
+            configs = []
+            
+            # Scan for JSON files in the directory
+            for json_file in template_dir.glob('*.json'):
+                try:
+                    with open(json_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        
+                        # Extract metadata from JSON
+                        configs.append({
+                            'filename': json_file.name,
+                            'name': data.get('name', json_file.stem),
+                            'version': data.get('version', 1),
+                            'lang': data.get('lang', 'ja'),
+                            'source': data.get('source', ''),
+                            'group_count': len(data.get('groups', []))
+                        })
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse {json_file.name}: {e}")
+                    continue
+                except Exception as e:
+                    logger.warning(f"Error reading {json_file.name}: {e}")
+                    continue
+            
+            # Sort by name for consistency
+            configs.sort(key=lambda x: x['name'])
+            
+            return jsonify({'configs': configs}), 200
+            
+        except Exception as e:
+            logger.error(f"Error fetching kanji sorting configs: {e}")
+            return jsonify({'error': 'Failed to fetch sorting configurations'}), 500
+
+    @app.route('/api/kanji-sorting-config/<filename>', methods=['GET'])
+    def api_kanji_sorting_config(filename):
+        """
+        Get a specific kanji sorting configuration file.
+        Returns the full JSON configuration.
+        """
+        try:
+            # Sanitize filename to prevent path traversal
+            if '..' in filename or '/' in filename or '\\' in filename:
+                return jsonify({'error': 'Invalid filename'}), 400
+            
+            if not filename.endswith('.json'):
+                filename += '.json'
+            
+            # Get the kanji_grid directory path
+            template_dir = Path(__file__).parent / 'templates' / 'components' / 'kanji_grid'
+            config_file = template_dir / filename
+            
+            if not config_file.exists() or not config_file.is_file():
+                return jsonify({'error': 'Configuration file not found'}), 404
+            
+            # Read and return the JSON configuration
+            with open(config_file, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+            
+            return jsonify(config_data), 200
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse {filename}: {e}")
+            return jsonify({'error': 'Invalid JSON configuration'}), 500
+        except Exception as e:
+            logger.error(f"Error fetching config {filename}: {e}")
+            return jsonify({'error': 'Failed to fetch configuration'}), 500
 
     @app.route('/api/debug-db', methods=['GET'])
     def api_debug_db():
