@@ -260,6 +260,15 @@ def datetimeformat(value, format='%Y-%m-%d %H:%M:%S'):
     return datetime.datetime.fromtimestamp(float(value)).strftime(format)
 
 
+@app.route('/overview')
+def overview():
+    """Renders the overview page."""
+    from GameSentenceMiner.util.configuration import get_master_config, get_stats_config
+    return render_template('overview.html',
+                         config=get_config(),
+                         master_config=get_master_config(),
+                         stats_config=get_stats_config())
+
 @app.route('/stats')
 def stats():
     """Renders the stats page."""
