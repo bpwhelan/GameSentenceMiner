@@ -278,6 +278,15 @@ def stats():
                          master_config=get_master_config(),
                          stats_config=get_stats_config())
 
+@app.route('/goals')
+def goals():
+    """Renders the goals page."""
+    from GameSentenceMiner.util.configuration import get_master_config, get_stats_config
+    return render_template('goals.html',
+                         config=get_config(),
+                         master_config=get_master_config(),
+                         stats_config=get_stats_config())
+
 @app.route('/api/anki_earliest_date')
 def anki_earliest_date():
     """Returns the timestamp of earliest available card in anki collection."""

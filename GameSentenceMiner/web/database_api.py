@@ -306,6 +306,9 @@ def register_database_api_routes(app):
                 'reading_hours_target': config.reading_hours_target,
                 'character_count_target': config.character_count_target,
                 'games_target': config.games_target,
+                'reading_hours_target_date': config.reading_hours_target_date,
+                'character_count_target_date': config.character_count_target_date,
+                'games_target_date': config.games_target_date,
             }), 200
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
@@ -328,6 +331,9 @@ def register_database_api_routes(app):
             reading_hours_target = data.get('reading_hours_target')
             character_count_target = data.get('character_count_target')
             games_target = data.get('games_target')
+            reading_hours_target_date = data.get('reading_hours_target_date')
+            character_count_target_date = data.get('character_count_target_date')
+            games_target_date = data.get('games_target_date')
             
             # Validate input - only require the settings that are provided
             settings_to_update = {}
@@ -386,6 +392,37 @@ def register_database_api_routes(app):
                 except (ValueError, TypeError):
                     return jsonify({'error': 'Games target must be a valid integer'}), 400
             
+            # Validate target dates (ISO format: YYYY-MM-DD)
+            if reading_hours_target_date is not None:
+                if reading_hours_target_date == '':
+                    settings_to_update['reading_hours_target_date'] = ''
+                else:
+                    try:
+                        datetime.datetime.strptime(reading_hours_target_date, '%Y-%m-%d')
+                        settings_to_update['reading_hours_target_date'] = reading_hours_target_date
+                    except ValueError:
+                        return jsonify({'error': 'Reading hours target date must be in YYYY-MM-DD format'}), 400
+            
+            if character_count_target_date is not None:
+                if character_count_target_date == '':
+                    settings_to_update['character_count_target_date'] = ''
+                else:
+                    try:
+                        datetime.datetime.strptime(character_count_target_date, '%Y-%m-%d')
+                        settings_to_update['character_count_target_date'] = character_count_target_date
+                    except ValueError:
+                        return jsonify({'error': 'Character count target date must be in YYYY-MM-DD format'}), 400
+            
+            if games_target_date is not None:
+                if games_target_date == '':
+                    settings_to_update['games_target_date'] = ''
+                else:
+                    try:
+                        datetime.datetime.strptime(games_target_date, '%Y-%m-%d')
+                        settings_to_update['games_target_date'] = games_target_date
+                    except ValueError:
+                        return jsonify({'error': 'Games target date must be in YYYY-MM-DD format'}), 400
+            
             if not settings_to_update:
                 return jsonify({'error': 'No valid settings provided'}), 400
             
@@ -404,6 +441,12 @@ def register_database_api_routes(app):
                 config.character_count_target = settings_to_update['character_count_target']
             if 'games_target' in settings_to_update:
                 config.games_target = settings_to_update['games_target']
+            if 'reading_hours_target_date' in settings_to_update:
+                config.reading_hours_target_date = settings_to_update['reading_hours_target_date']
+            if 'character_count_target_date' in settings_to_update:
+                config.character_count_target_date = settings_to_update['character_count_target_date']
+            if 'games_target_date' in settings_to_update:
+                config.games_target_date = settings_to_update['games_target_date']
             
             save_stats_config(config)
 
@@ -1132,6 +1175,244 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Unexpected error in api_stats: {e}")
             return jsonify({'error': 'Failed to generate statistics'}), 500
+
+    @app.route('/api/goals-today', methods=['GET'])
+    def api_goals_today():
+        """
+        Calculate daily requirements and current progress for today based on goal target dates.
+        Returns what needs to be accomplished today to stay on track.
+        """
+        try:
+            config = get_stats_config()
+            today = datetime.date.today()
+            
+            # Get all lines for overall progress
+            all_lines = GameLinesTable.all()
+            if not all_lines:
+                return jsonify({
+                    'hours': {'required': 0, 'progress': 0, 'has_target': False},
+                    'characters': {'required': 0, 'progress': 0, 'has_target': False},
+                    'games': {'required': 0, 'progress': 0, 'has_target': False}
+                }), 200
+            
+            # Calculate overall current progress
+            timestamps = [float(line.timestamp) for line in all_lines]
+            total_time_seconds = calculate_actual_reading_time(timestamps)
+            total_hours = total_time_seconds / 3600
+            total_characters = sum(len(line.line_text) if line.line_text else 0 for line in all_lines)
+            total_games = len(set(line.game_name or "Unknown Game" for line in all_lines))
+            
+            # Get today's lines for progress
+            today_lines = [line for line in all_lines 
+                          if datetime.date.fromtimestamp(float(line.timestamp)) == today]
+            
+            today_timestamps = [float(line.timestamp) for line in today_lines]
+            today_time_seconds = calculate_actual_reading_time(today_timestamps) if len(today_timestamps) >= 2 else 0
+            today_hours = today_time_seconds / 3600
+            today_characters = sum(len(line.line_text) if line.line_text else 0 for line in today_lines)
+            
+            result = {}
+            
+            # Calculate hours requirement
+            if config.reading_hours_target_date:
+                try:
+                    target_date = datetime.datetime.strptime(config.reading_hours_target_date, '%Y-%m-%d').date()
+                    days_remaining = (target_date - today).days + 1  # +1 to include today
+                    if days_remaining > 0:
+                        hours_needed = max(0, config.reading_hours_target - total_hours)
+                        daily_hours_required = hours_needed / days_remaining
+                        result['hours'] = {
+                            'required': round(daily_hours_required, 2),
+                            'progress': round(today_hours, 2),
+                            'has_target': True,
+                            'target_date': config.reading_hours_target_date,
+                            'days_remaining': days_remaining
+                        }
+                    else:
+                        result['hours'] = {'required': 0, 'progress': round(today_hours, 2), 'has_target': True, 'expired': True}
+                except ValueError:
+                    result['hours'] = {'required': 0, 'progress': round(today_hours, 2), 'has_target': False}
+            else:
+                result['hours'] = {'required': 0, 'progress': round(today_hours, 2), 'has_target': False}
+            
+            # Calculate characters requirement
+            if config.character_count_target_date:
+                try:
+                    target_date = datetime.datetime.strptime(config.character_count_target_date, '%Y-%m-%d').date()
+                    days_remaining = (target_date - today).days + 1
+                    if days_remaining > 0:
+                        chars_needed = max(0, config.character_count_target - total_characters)
+                        daily_chars_required = int(chars_needed / days_remaining)
+                        result['characters'] = {
+                            'required': daily_chars_required,
+                            'progress': today_characters,
+                            'has_target': True,
+                            'target_date': config.character_count_target_date,
+                            'days_remaining': days_remaining
+                        }
+                    else:
+                        result['characters'] = {'required': 0, 'progress': today_characters, 'has_target': True, 'expired': True}
+                except ValueError:
+                    result['characters'] = {'required': 0, 'progress': today_characters, 'has_target': False}
+            else:
+                result['characters'] = {'required': 0, 'progress': today_characters, 'has_target': False}
+            
+            # Calculate games requirement
+            if config.games_target_date:
+                try:
+                    target_date = datetime.datetime.strptime(config.games_target_date, '%Y-%m-%d').date()
+                    days_remaining = (target_date - today).days + 1
+                    if days_remaining > 0:
+                        games_needed = max(0, config.games_target - total_games)
+                        daily_games_required = games_needed / days_remaining
+                        result['games'] = {
+                            'required': round(daily_games_required, 2),
+                            'progress': total_games,
+                            'has_target': True,
+                            'target_date': config.games_target_date,
+                            'days_remaining': days_remaining
+                        }
+                    else:
+                        result['games'] = {'required': 0, 'progress': total_games, 'has_target': True, 'expired': True}
+                except ValueError:
+                    result['games'] = {'required': 0, 'progress': total_games, 'has_target': False}
+            else:
+                result['games'] = {'required': 0, 'progress': total_games, 'has_target': False}
+            
+            return jsonify(result), 200
+            
+        except Exception as e:
+            logger.error(f"Error calculating goals today: {e}")
+            return jsonify({'error': 'Failed to calculate daily goals'}), 500
+
+    @app.route('/api/goals-projection', methods=['GET'])
+    def api_goals_projection():
+        """
+        Calculate projections based on 30-day rolling average.
+        Returns projected stats by target dates.
+        """
+        try:
+            config = get_stats_config()
+            today = datetime.date.today()
+            thirty_days_ago = today - datetime.timedelta(days=30)
+            
+            # Get all lines
+            all_lines = GameLinesTable.all()
+            if not all_lines:
+                return jsonify({
+                    'hours': {'projection': 0, 'daily_average': 0},
+                    'characters': {'projection': 0, 'daily_average': 0},
+                    'games': {'projection': 0, 'daily_average': 0}
+                }), 200
+            
+            # Get last 30 days of lines
+            recent_lines = [line for line in all_lines 
+                           if datetime.date.fromtimestamp(float(line.timestamp)) >= thirty_days_ago]
+            
+            # Calculate 30-day averages
+            if recent_lines:
+                # Group by day for accurate averaging
+                daily_data = defaultdict(lambda: {'timestamps': [], 'characters': 0, 'games': set()})
+                for line in recent_lines:
+                    day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
+                    daily_data[day_str]['timestamps'].append(float(line.timestamp))
+                    daily_data[day_str]['characters'] += len(line.line_text) if line.line_text else 0
+                    daily_data[day_str]['games'].add(line.game_name or "Unknown Game")
+                
+                # Calculate daily averages
+                total_hours = 0
+                total_chars = 0
+                total_unique_games = set()
+                
+                for day_data in daily_data.values():
+                    if len(day_data['timestamps']) >= 2:
+                        day_seconds = calculate_actual_reading_time(day_data['timestamps'])
+                        total_hours += day_seconds / 3600
+                    total_chars += day_data['characters']
+                    total_unique_games.update(day_data['games'])
+                
+                # Average over ALL 30 days (including days with 0 activity)
+                avg_daily_hours = total_hours / 30
+                avg_daily_chars = total_chars / 30
+                # Calculate average daily unique games correctly
+                today = datetime.date.today()
+                daily_unique_games_counts = []
+                for i in range(30):
+                    day = (today - datetime.timedelta(days=i)).strftime('%Y-%m-%d')
+                    daily_unique_games_counts.append(len(daily_data[day]['games']) if day in daily_data else 0)
+                avg_daily_games = sum(daily_unique_games_counts) / 30
+            else:
+                avg_daily_hours = 0
+                avg_daily_chars = 0
+                avg_daily_games = 0
+            
+            # Calculate current totals
+            timestamps = [float(line.timestamp) for line in all_lines]
+            current_hours = calculate_actual_reading_time(timestamps) / 3600
+            current_chars = sum(len(line.line_text) if line.line_text else 0 for line in all_lines)
+            current_games = len(set(line.game_name or "Unknown Game" for line in all_lines))
+            
+            result = {}
+            
+            # Project hours by target date
+            if config.reading_hours_target_date:
+                try:
+                    target_date = datetime.datetime.strptime(config.reading_hours_target_date, '%Y-%m-%d').date()
+                    days_until_target = (target_date - today).days
+                    projected_hours = current_hours + (avg_daily_hours * days_until_target)
+                    result['hours'] = {
+                        'projection': round(projected_hours, 2),
+                        'daily_average': round(avg_daily_hours, 2),
+                        'target_date': config.reading_hours_target_date,
+                        'target': config.reading_hours_target,
+                        'current': round(current_hours, 2)
+                    }
+                except ValueError:
+                    result['hours'] = {'projection': 0, 'daily_average': round(avg_daily_hours, 2)}
+            else:
+                result['hours'] = {'projection': 0, 'daily_average': round(avg_daily_hours, 2)}
+            
+            # Project characters by target date
+            if config.character_count_target_date:
+                try:
+                    target_date = datetime.datetime.strptime(config.character_count_target_date, '%Y-%m-%d').date()
+                    days_until_target = (target_date - today).days
+                    projected_chars = int(current_chars + (avg_daily_chars * days_until_target))
+                    result['characters'] = {
+                        'projection': projected_chars,
+                        'daily_average': int(avg_daily_chars),
+                        'target_date': config.character_count_target_date,
+                        'target': config.character_count_target,
+                        'current': current_chars
+                    }
+                except ValueError:
+                    result['characters'] = {'projection': 0, 'daily_average': int(avg_daily_chars)}
+            else:
+                result['characters'] = {'projection': 0, 'daily_average': int(avg_daily_chars)}
+            
+            # Project games by target date
+            if config.games_target_date:
+                try:
+                    target_date = datetime.datetime.strptime(config.games_target_date, '%Y-%m-%d').date()
+                    days_until_target = (target_date - today).days
+                    projected_games = int(current_games + (avg_daily_games * days_until_target))
+                    result['games'] = {
+                        'projection': projected_games,
+                        'daily_average': round(avg_daily_games, 2),
+                        'target_date': config.games_target_date,
+                        'target': config.games_target,
+                        'current': current_games
+                    }
+                except ValueError:
+                    result['games'] = {'projection': 0, 'daily_average': round(avg_daily_games, 2)}
+            else:
+                result['games'] = {'projection': 0, 'daily_average': round(avg_daily_games, 2)}
+            
+            return jsonify(result), 200
+            
+        except Exception as e:
+            logger.error(f"Error calculating goal projections: {e}")
+            return jsonify({'error': 'Failed to calculate projections'}), 500
 
     @app.route('/api/import-exstatic', methods=['POST'])
     def api_import_exstatic():

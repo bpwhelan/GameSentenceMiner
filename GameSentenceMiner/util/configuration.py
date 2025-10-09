@@ -797,6 +797,9 @@ class StatsConfig:
     reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
     character_count_target: int = 25000000  # Target character count (25M) inspired by Discord server milestones
     games_target: int = 100  # Target VNs/games completed based on Refold community standards
+    reading_hours_target_date: str = ""  # Target date for reading hours goal (ISO format: YYYY-MM-DD)
+    character_count_target_date: str = ""  # Target date for character count goal (ISO format: YYYY-MM-DD)
+    games_target_date: str = ""  # Target date for games/VNs goal (ISO format: YYYY-MM-DD)
 
 @dataclass_json
 @dataclass

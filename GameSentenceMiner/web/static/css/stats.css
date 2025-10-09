@@ -1235,3 +1235,106 @@
 .no-data-content button:hover {
     background: #0056b3;
 }
+
+/* ================================
+   Goals Page Specific Styles
+================================ */
+.dashboard-card.today-goals::before {
+    background: linear-gradient(90deg, #e6dc2e, #3be62f);
+}
+
+.dashboard-card.projection-card::before {
+    background: linear-gradient(90deg, #3be62f, #2ee6e0);
+}
+
+.no-targets-message {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-tertiary);
+    font-style: italic;
+    font-size: 14px;
+}
+
+.no-targets-message::before {
+    content: '⚙️';
+    display: block;
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+
+/* Goal stat item with vertical progress/required layout */
+.goal-stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    transition: all 0.3s ease;
+    padding: 20px 12px;
+}
+
+.goal-stat-item .goal-progress-value {
+    font-size: 1.8em;
+    font-weight: 600;
+    color: var(--text-secondary);
+    line-height: 1;
+    margin-bottom: 12px;
+}
+
+.goal-stat-item .goal-divider {
+    width: 90%;
+    height: 2px;
+    background: var(--border-color);
+    margin: 10px 0;
+}
+
+.goal-stat-item .goal-required-value {
+    font-size: 2.5em;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+.goal-stat-item .dashboard-stat-label {
+    margin-top: 12px;
+    font-size: 13px;
+}
+
+/* Green highlight when goal is met */
+.goal-stat-item.goal-met {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.1) 100%);
+    border: 2px solid rgba(34, 197, 94, 0.4);
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+}
+
+.goal-stat-item.goal-met .goal-progress-value,
+.goal-stat-item.goal-met .goal-required-value {
+    color: #22c55e;
+}
+
+.goal-stat-item.goal-met .goal-divider {
+    background: rgba(34, 197, 94, 0.6);
+    height: 3px;
+}
+
+.goal-stat-item.goal-met .dashboard-stat-label {
+    color: #22c55e;
+    font-weight: 600;
+}
+
+/* Goal stat item - simple inline format showing TODAY / GOAL */
+.goal-stat-item .dashboard-stat-value {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 8px;
+}
+
+.goal-stat-item .goal-separator {
+    font-size: 0.8em;
+    color: var(--text-tertiary);
+    font-weight: 400;
+}
