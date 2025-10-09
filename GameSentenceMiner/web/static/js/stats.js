@@ -166,7 +166,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Reusable function to create game bar charts with interactive legend
-    function createGameBarChart(canvasId, chartData, chartTitle, yAxisLabel) {
+    function createGameBarChart(canvasId, chartData, chartTitle, yAxisLabel, showTrendline = false) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return null;  // Add null check
         
@@ -186,22 +186,49 @@ document.addEventListener('DOMContentLoaded', function () {
             return getFilteredChartData(originalData, hiddenBars, colors);
         }
         
+        // Calculate trendline if requested
+        let trendlineData = null;
+        if (showTrendline && chartData.totals.length > 1) {
+            const trendline = calculateTrendline(chartData.totals);
+            trendlineData = trendline.points;
+        }
+        
         // Destroy existing chart on this canvas if it exists
         if (window.myCharts[canvasId]) {
             window.myCharts[canvasId].destroy();
+        }
+        
+        // Build datasets array
+        const datasets = [{
+            label: chartTitle,
+            data: chartData.totals,
+            backgroundColor: colors.map(color => color + '99'), // Semi-transparent
+            borderColor: colors,
+            borderWidth: 2,
+            order: 2
+        }];
+        
+        // Add trendline dataset if available
+        if (trendlineData) {
+            datasets.push({
+                label: 'Trendline',
+                data: trendlineData,
+                type: 'line',
+                borderColor: '#ff6384',
+                borderWidth: 3,
+                borderDash: [5, 5],
+                fill: false,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                order: 1
+            });
         }
         
         window.myCharts[canvasId] = new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: chartData.labels, // Each game as a separate label
-                datasets: [{
-                    label: chartTitle,
-                    data: chartData.totals,
-                    backgroundColor: colors.map(color => color + '99'), // Semi-transparent
-                    borderColor: colors,
-                    borderWidth: 2
-                }]
+                datasets: datasets
             },
             options: {
                 responsive: true,
@@ -297,7 +324,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Specialized function for charts with custom formatting (time/speed)
-    function createGameBarChartWithCustomFormat(canvasId, chartData, chartTitle, yAxisLabel, formatFunction) {
+    function createGameBarChartWithCustomFormat(canvasId, chartData, chartTitle, yAxisLabel, formatFunction, showTrendline = false) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return null;  // Add null check
         
@@ -317,9 +344,42 @@ document.addEventListener('DOMContentLoaded', function () {
             return getFilteredChartData(originalData, hiddenBars, colors);
         }
         
+        // Calculate trendline if requested
+        let trendlineData = null;
+        if (showTrendline && chartData.totals.length > 1) {
+            const trendline = calculateTrendline(chartData.totals);
+            trendlineData = trendline.points;
+        }
+        
         // Destroy existing chart if it exists
         if (window.myCharts[canvasId]) {
             window.myCharts[canvasId].destroy();
+        }
+
+        // Build datasets array
+        const datasets = [{
+            label: chartTitle,
+            data: chartData.totals,
+            backgroundColor: colors.map(color => color + '99'), // Semi-transparent
+            borderColor: colors,
+            borderWidth: 2,
+            order: 2
+        }];
+        
+        // Add trendline dataset if available
+        if (trendlineData) {
+            datasets.push({
+                label: 'Trendline',
+                data: trendlineData,
+                type: 'line',
+                borderColor: '#ff6384',
+                borderWidth: 3,
+                borderDash: [5, 5],
+                fill: false,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                order: 1
+            });
         }
 
         // Create new chart and store globally
@@ -327,13 +387,7 @@ document.addEventListener('DOMContentLoaded', function () {
             type: 'bar',
             data: {
                 labels: chartData.labels, // Each game as a separate label
-                datasets: [{
-                    label: chartTitle,
-                    data: chartData.totals,
-                    backgroundColor: colors.map(color => color + '99'), // Semi-transparent
-                    borderColor: colors,
-                    borderWidth: 2
-                }]
+                datasets: datasets
             },
             options: {
                 responsive: true,
@@ -427,6 +481,38 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];
     }
 
+    // Helper function to calculate linear regression trendline
+    function calculateTrendline(data) {
+        const n = data.length;
+        if (n === 0) return { slope: 0, intercept: 0, points: [] };
+        
+        // Calculate means
+        let sumX = 0, sumY = 0;
+        for (let i = 0; i < n; i++) {
+            sumX += i;
+            sumY += data[i];
+        }
+        const meanX = sumX / n;
+        const meanY = sumY / n;
+        
+        // Calculate slope
+        let numerator = 0, denominator = 0;
+        for (let i = 0; i < n; i++) {
+            numerator += (i - meanX) * (data[i] - meanY);
+            denominator += (i - meanX) * (i - meanX);
+        }
+        const slope = denominator !== 0 ? numerator / denominator : 0;
+        const intercept = meanY - slope * meanX;
+        
+        // Generate trendline points
+        const points = [];
+        for (let i = 0; i < n; i++) {
+            points.push(slope * i + intercept);
+        }
+        
+        return { slope, intercept, points };
+    }
+
     // Helper functions for formatting
     function formatTime(hours) {
         if (hours < 1) {
@@ -517,19 +603,19 @@ document.addEventListener('DOMContentLoaded', function () {
                 createChart('linesChart', linesData, 'Cumulative Lines Received');
                 createChart('charsChart', charsData, 'Cumulative Characters Read');
 
-                // Create reading chars quantity chart if data exists
+                // Create reading chars quantity chart if data exists (with trendline)
                 if (data.totalCharsPerGame) {
-                    createGameBarChart('readingCharsChart', data.totalCharsPerGame, 'Reading Chars Quantity', 'Characters Read');
+                    createGameBarChart('readingCharsChart', data.totalCharsPerGame, 'Reading Chars Quantity', 'Characters Read', true);
                 }
 
-                // Create reading time quantity chart if data exists
+                // Create reading time quantity chart if data exists (with trendline)
                 if (data.readingTimePerGame) {
-                    createGameBarChartWithCustomFormat('readingTimeChart', data.readingTimePerGame, 'Reading Time Quantity', 'Time (hours)', formatTime);
+                    createGameBarChartWithCustomFormat('readingTimeChart', data.readingTimePerGame, 'Reading Time Quantity', 'Time (hours)', formatTime, true);
                 }
 
-                // Create reading speed per game chart if data exists
+                // Create reading speed per game chart if data exists (with trendline)
                 if (data.readingSpeedPerGame) {
-                    createGameBarChartWithCustomFormat('readingSpeedPerGameChart', data.readingSpeedPerGame, 'Reading Speed Improvement', 'Speed (chars/hour)', formatSpeed);
+                    createGameBarChartWithCustomFormat('readingSpeedPerGameChart', data.readingSpeedPerGame, 'Reading Speed Improvement', 'Speed (chars/hour)', formatSpeed, true);
                 }
 
                 // Create kanji grid if data exists
