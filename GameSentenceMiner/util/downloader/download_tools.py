@@ -7,8 +7,8 @@ import platform
 import zipfile
 
 from GameSentenceMiner.util.downloader.Untitled_json import scenes
-from GameSentenceMiner.util.configuration import get_app_directory, logger
-from GameSentenceMiner.util.ffmpeg import get_ffmpeg_path, get_ffprobe_path
+from GameSentenceMiner.util.configuration import get_app_directory, get_ffmpeg_path, logger
+from GameSentenceMiner.util.configuration import get_ffprobe_path
 from GameSentenceMiner.obs import get_obs_path
 import tempfile
 

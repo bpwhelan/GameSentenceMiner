@@ -4,10 +4,13 @@ import logging
 import os
 import shutil
 import threading
+import inspect
+
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from os.path import expanduser
 from sys import platform
+import time
 from typing import List, Dict
 import sys
 from enum import Enum
@@ -16,6 +19,7 @@ import toml
 from dataclasses_json import dataclass_json
 
 from importlib import metadata
+
 
 
 
@@ -429,6 +433,7 @@ class Paths:
 @dataclass
 class Anki:
     update_anki: bool = True
+    show_update_confirmation_dialog: bool = False
     url: str = 'http://127.0.0.1:8765'
     sentence_field: str = "Sentence"
     sentence_audio_field: str = "SentenceAudio"
@@ -554,7 +559,7 @@ class VAD:
     language: str = 'ja'
     # vosk_url: str = VOSK_BASE
     selected_vad_model: str = WHISPER
-    backup_vad_model: str = SILERO
+    backup_vad_model: str = OFF
     trim_beginning: bool = False
     beginning_offset: float = -0.25
     add_audio_on_no_results: bool = False
@@ -1003,8 +1008,40 @@ def get_app_directory():
     return config_dir
 
 
+def get_logger_name():
+    """Determine the appropriate logger name based on the calling context."""
+    frame = inspect.currentframe()
+    try:
+        # Go up the call stack to find the main module
+        while frame:
+            filename = frame.f_code.co_filename
+            if filename.endswith(('gsm.py', 'gamesentenceminer.py', '__main__.py')):
+                return "GameSentenceMiner"
+            elif 'ocr' in filename.lower():
+                return "misc_ocr_utils"
+            elif 'overlay' in filename.lower():
+                return "GSM_Overlay"
+            frame = frame.f_back
+        
+        # Fallback: check the main module name
+        main_module = inspect.getmodule(inspect.stack()[-1][0])
+        if main_module and hasattr(main_module, '__file__'):
+            main_file = os.path.basename(main_module.__file__)
+            if main_file in ('gsm.py', 'gamesentenceminer.py'):
+                return "GameSentenceMiner"
+            elif 'ocr' in main_file.lower():
+                return "misc_ocr_utils"
+            elif 'overlay' in main_file.lower():
+                return "GSM_Overlay"
+
+        return "GameSentenceMiner"  # Default fallback
+    finally:
+        del frame
+        
+logger_name = get_logger_name()
+
 def get_log_path():
-    path = os.path.join(get_app_directory(), "logs", 'gamesentenceminer.log')
+    path = os.path.join(get_app_directory(), "logs", f'{logger_name.lower()}.log')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return path
 
@@ -1142,7 +1179,7 @@ def switch_profile_and_save(profile_name):
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
-logger = logging.getLogger("GameSentenceMiner")
+logger = logging.getLogger(logger_name)
 # Set the base level to DEBUG so that all messages are captured
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter(
@@ -1157,27 +1194,47 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 file_path = get_log_path()
-try:
-    if os.path.exists(file_path) and os.path.getsize(file_path) > 1 * 1024 * 1024 and os.access(file_path, os.W_OK):
-        old_log_path = os.path.join(os.path.dirname(
-            file_path), "gamesentenceminer_old.log")
-        if os.path.exists(old_log_path):
-            os.remove(old_log_path)
-        shutil.move(file_path, old_log_path)
-except Exception as e:
-    logger.info(
-        "Couldn't rotate log, probably because the file is being written to by another process. NOT AN ERROR")
-
-file_handler = logging.FileHandler(file_path, encoding='utf-8')
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
+# Use RotatingFileHandler for automatic log rotation
+rotating_handler = RotatingFileHandler(
+    file_path, 
+    maxBytes=10 * 1024 * 1024,  # 10MB
+    backupCount=5 if logger_name == "GameSentenceMiner" else 0,  # Keep more logs for OCR and Overlay
+    encoding='utf-8'
+)
+rotating_handler.setLevel(logging.DEBUG)
+rotating_handler.setFormatter(formatter)
+logger.addHandler(rotating_handler)
 
 DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
 
 
+# Clean up files in log directory older than 7 days
+def cleanup_old_logs(days=7):
+    log_dir = os.path.dirname(get_log_path())
+    now = time.time()
+    cutoff = now - (days * 86400)  # 86400 seconds in a day
+
+    if os.path.exists(log_dir):
+        for filename in os.listdir(log_dir):
+            file_path = os.path.join(log_dir, filename)
+            if os.path.isfile(file_path):
+                file_modified = os.path.getmtime(file_path)
+                if file_modified < cutoff:
+                    try:
+                        os.remove(file_path)
+                        logger.info(f"Deleted old log file: {file_path}")
+                    except Exception as e:
+                        logger.error(f"Error deleting file {file_path}: {e}")
+
+try:
+    cleanup_old_logs()
+except Exception as e:
+    logger.warning(f"Error during log cleanup: {e}")
+
+
 class GsmAppState:
     def __init__(self):
+        self.config_app = None
         self.line_for_audio = None
         self.line_for_screenshot = None
         self.anki_note_for_screenshot = None
@@ -1187,6 +1244,7 @@ class GsmAppState:
         self.previous_audio = None
         self.previous_screenshot = None
         self.previous_replay = None
+        self.current_replay = None
         self.lock = threading.Lock()
         self.last_mined_line = None
         self.keep_running = True
@@ -1240,8 +1298,6 @@ def is_running_from_source():
     while project_root != os.path.dirname(project_root):  # Avoid infinite loop
         if os.path.isdir(os.path.join(project_root, '.git')):
             return True
-        if os.path.isfile(os.path.join(project_root, 'pyproject.toml')):
-            return True
         project_root = os.path.dirname(project_root)
     return False
 
@@ -1252,6 +1308,16 @@ gsm_state = GsmAppState()
 is_dev = is_running_from_source()
 
 is_beangate = os.path.exists("C:/Users/Beangate")
+
+
+def get_ffmpeg_path():
+    return os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if is_windows() else "ffmpeg"
+
+def get_ffprobe_path():
+    return os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if is_windows() else "ffprobe"
+
+ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
+
 
 # logger.debug(f"Running in development mode: {is_dev}")
 # logger.debug(f"Running on Beangate's PC: {is_beangate}")

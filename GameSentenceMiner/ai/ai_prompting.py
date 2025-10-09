@@ -178,7 +178,7 @@ class OpenAIManager(AIManager):
         try:
             prompt = self._build_prompt(
                 lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
-            self.logger.debug(f"Generated prompt:\n{prompt}")
+            # self.logger.debug(f"Generated prompt:\n{prompt}")
             # Try with full parameters first, fallback to basic parameters if model doesn't support them
             if self.extra_params_allowed:
                 try:
@@ -216,7 +216,7 @@ class OpenAIManager(AIManager):
                     json_output = text_output[text_output.find(
                         "{"):text_output.rfind("}")+1]
                     text_output = json.loads(json_output)['output']
-            self.logger.debug(f"Received response:\n{text_output}")
+            # self.logger.debug(f"Received response:\n{text_output}")
             return text_output
         except Exception as e:
             self.logger.error(f"OpenAI processing failed: {e}")
@@ -263,6 +263,7 @@ class GeminiAI(AIManager):
     def _build_prompt(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str, custom_prompt=None) -> str:
         prompt = super()._build_prompt(lines, sentence, current_line,
                                        game_title, custom_prompt=custom_prompt)
+        # self.logger.debug(f"Built prompt:\n{prompt}")
         return prompt
 
     def process(self, lines: List[GameLine], sentence: str, current_line: GameLine, game_title: str = "", custom_prompt=None) -> str:
@@ -285,13 +286,12 @@ class GeminiAI(AIManager):
                     ],
                 ),
             ]
-            self.logger.debug(f"Generated prompt:\n{prompt}")
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=contents,
                 config=self.generation_config
             )
-            self.logger.debug(f"Full response: {response}")
+            # self.logger.debug(f"Full response: {response}")
             result = response.text.strip()
             self.logger.debug(f"Received response:\n{result}")
             return result
@@ -329,7 +329,6 @@ class GroqAI(AIManager):
         try:
             prompt = self._build_prompt(
                 lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
-            self.logger.debug(f"Generated prompt:\n{prompt}")
             completion = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
@@ -340,7 +339,7 @@ class GroqAI(AIManager):
                 stop=None,
             )
             result = completion.choices[0].message.content.strip()
-            self.logger.debug(f"Received response:\n{result}")
+            # self.logger.debug(f"Received response:\n{result}")
             return result
         except Exception as e:
             self.logger.error(f"Groq processing failed: {e}")

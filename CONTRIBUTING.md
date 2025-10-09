@@ -72,7 +72,7 @@ node --version
    - Edit TypeScript files in `electron-src/`
    - Edit Python files in `GameSentenceMiner/` as needed
    - Use `npm run start` to build and test your changes
-   - Use `Restart GSM` from app menus to reload Python changes
+   - Use `Restart Python App` from app menus to reload Python changes
 
 ## 🏗️ Project Structure
 

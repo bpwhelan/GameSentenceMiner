@@ -1,3 +1,6 @@
+# There should be no imports here, as any error will crash the program.
+# All imports should be done in the try/except block below.
+
 def handle_error_in_initialization(e):
     """Handle errors that occur during initialization."""
     logger.exception(e, exc_info=True)
@@ -36,13 +39,17 @@ try:
     import psutil
 
     start_time = time.time()
+    import GameSentenceMiner.util.configuration
     from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
     get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
-    is_windows, is_linux
-    from GameSentenceMiner.util.get_overlay_coords import OverlayThread
-    from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
+    is_windows, is_linux, get_ffmpeg_path
 
     logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
+    
+    start_time = time.time()
+    from GameSentenceMiner.util.get_overlay_coords import OverlayThread
+    from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
+    logger.debug(f"[Import] get_overlay_coords (OverlayThread, remove_html_and_cloze_tags): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.model import VADResult
@@ -72,7 +79,7 @@ try:
     logger.debug(f"[Import] anki: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner import config_gui
+    from GameSentenceMiner.ui import config_gui
     logger.debug(f"[Import] config_gui: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
@@ -98,7 +105,7 @@ try:
         f"[Import] websocket (connect_websocket, register_websocket_message_handler, FunctionName): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.ffmpeg import get_audio_and_trim, get_video_timings, get_ffmpeg_path
+    from GameSentenceMiner.util.ffmpeg import get_audio_and_trim, get_video_timings
     logger.debug(
         f"[Import] util.ffmpeg (get_audio_and_trim, get_video_timings, get_ffmpeg_path): {time.time() - start_time:.3f}s")
 
@@ -154,6 +161,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             self.process_replay(event.src_path)
 
     def process_replay(self, video_path):
+        gsm_state.current_replay = video_path
         vad_trimmed_audio = ''
         final_audio_output = ''
         skip_delete = False
@@ -337,7 +345,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
 def initial_checks():
     try:
-        subprocess.run(ffmpeg.ffmpeg_base_command_list)
+        subprocess.run(GameSentenceMiner.util.configuration.ffmpeg_base_command_list)
         logger.debug("FFMPEG is installed and accessible.")
     except FileNotFoundError:
         logger.error(
@@ -465,6 +473,13 @@ class GSMTray(threading.Thread):
         self.run_tray()
 
     def run_tray(self):
+        def run_anki_confirmation_window():
+            settings_window.show_anki_confirmation_dialog(expression="こんにちは",
+                sentence="こんにちは、世界！元気ですか？",
+                screenshot_path="test_image.png",
+                audio_path="C:/path/to/my/audio.mp3",
+                translation="Hello world! How are you?")
+
         self.profile_menu = Menu(
             *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, self.switch_profile) for
               profile in
@@ -478,9 +493,10 @@ class GSMTray(threading.Thread):
             MenuItem("Toggle Replay Buffer", self.play_pause),
             MenuItem("Restart OBS", restart_obs),
             MenuItem("Switch Profile", self.profile_menu),
+            MenuItem("Run Test Code", run_anki_confirmation_window),
             MenuItem("Exit", exit_program)
         )
-
+        
         self.icon = Icon("TrayApp", create_image(), "GameSentenceMiner", menu)
         self.icon.run()
 
@@ -794,6 +810,7 @@ async def async_main(reloading=False):
         root = ttk.Window(themename='darkly')
         start_time = time.time()
         settings_window = config_gui.ConfigApp(root)
+        gsm_state.config_app = settings_window
         initialize_async()
         observer = Observer()
         observer.schedule(VideoToAudioHandler(),
@@ -823,6 +840,11 @@ async def async_main(reloading=False):
             if get_config().general.open_config_on_startup:
                 root.after(50, settings_window.show)
             root.after(50, gsm_tray.start)
+            # root.after(100, settings_window.show_anki_confirmation_dialog(expression="こんにちは",
+            #     sentence="こんにちは、世界！元気ですか？",
+            #     screenshot_path="test_image.png",
+            #     audio_path="C:/path/to/my/audio.mp3",
+            #     translation="Hello world! How are you?"))
             settings_window.add_save_hook(gsm_tray.update_icon)
             settings_window.on_exit = exit_program
             root.mainloop()

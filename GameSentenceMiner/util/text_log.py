@@ -89,7 +89,6 @@ class GameText:
             scene=gsm_state.current_game or ""
         )
         self.values_dict[line_id] = new_line
-        logger.debug(f"Adding line: {new_line}")
         self.game_line_index += 1
         if self.values:
             self.values[-1].next = new_line
@@ -119,16 +118,17 @@ def strip_whitespace_and_punctuation(text: str) -> str:
     return re.sub(r'[\s　、。「」【】《》., ]', '', text).strip()
 
 
+# TODO See if partial_ratio is better than ratio
 def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> bool:
     # Replace newlines, spaces, other whitespace characters, AND japanese punctuation
     texthooker_sentence = strip_whitespace_and_punctuation(texthooker_sentence)
     anki_sentence = strip_whitespace_and_punctuation(anki_sentence)
     similarity = rapidfuzz.fuzz.ratio(texthooker_sentence, anki_sentence)
-    logger.debug(f"Comparing sentences: '{texthooker_sentence}' and '{anki_sentence}' - Similarity: {similarity}")
-    if texthooker_sentence in anki_sentence:
-        logger.debug(f"One contains the other: {texthooker_sentence} in {anki_sentence} - Similarity: {similarity}")
-    elif anki_sentence in texthooker_sentence:
-        logger.debug(f"One contains the other: {anki_sentence} in {texthooker_sentence} - Similarity: {similarity}")
+    # logger.debug(f"Comparing sentences: '{texthooker_sentence}' and '{anki_sentence}' - Similarity: {similarity}")
+    # if texthooker_sentence in anki_sentence:
+    #     logger.debug(f"One contains the other: {texthooker_sentence} in {anki_sentence} - Similarity: {similarity}")
+    # elif anki_sentence in texthooker_sentence:
+    #     logger.debug(f"One contains the other: {anki_sentence} in {texthooker_sentence} - Similarity: {similarity}")
     return (anki_sentence in texthooker_sentence) or (texthooker_sentence in anki_sentence) or (similarity >= similarity_threshold)
 
 
@@ -145,7 +145,8 @@ def get_text_event(last_note) -> GameLine:
     if not sentence:
         return lines[-1]
 
-    for line in reversed(lines):
+    # Check the last 50 lines for a match
+    for line in reversed(lines[-50:]):
         if lines_match(line.text, remove_html_and_cloze_tags(sentence)):
             return line
 
@@ -181,7 +182,7 @@ def get_mined_line(last_note: AnkiCard, lines=None):
         raise Exception("No voicelines in GSM. GSM can only do work on text that has been sent to it since it started. If you are not getting any text into GSM, please check your setup/config.")
 
     sentence = last_note.get_field(get_config().anki.sentence_field)
-    for line in reversed(lines):
+    for line in reversed(lines[-50:]):
         if lines_match(line.get_stripped_text(), remove_html_and_cloze_tags(sentence)):
             return line
     return lines[-1]

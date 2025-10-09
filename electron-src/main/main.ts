@@ -231,7 +231,9 @@ function runGSM(command: string, args: string[]): Promise<void> {
                 reject(new Error(`Command failed with exit code ${code}`));
             }
             if (!isUpdating) {
-                app.quit();
+                setTimeout(() => {
+                    app.quit();
+                }, 2000);
             }
         });
 
@@ -286,7 +288,7 @@ async function createWindow() {
             label: 'File',
             submenu: [
                 { label: 'Update GSM', click: () => update(true, true) },
-                { label: 'Restart GSM', click: () => restartGSM() },
+                { label: 'Restart Python App', click: () => restartGSM() },
                 { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
                 { type: 'separator' },
                 { label: 'Quit', click: async () => await quit() },
@@ -433,7 +435,7 @@ function createTray() {
     tray = new Tray(getIconPath(32)); // Replace with a valid icon path
     const contextMenu = Menu.buildFromTemplate([
         { label: 'Update GSM', click: () => update(true, true) },
-        { label: 'Restart GSM', click: () => restartGSM() },
+        { label: 'Restart Python App', click: () => restartGSM() },
         { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
         { label: 'Quit', click: () => quit() },
     ]);

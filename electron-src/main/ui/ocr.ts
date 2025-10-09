@@ -1,5 +1,5 @@
 import { exec, spawn } from 'child_process';
-import { dialog, ipcMain, BrowserWindow, screen, IpcMainEvent } from 'electron';
+import { dialog, ipcMain, BrowserWindow, screen, IpcMainEvent, clipboard } from 'electron';
 import {
     getAutoUpdateElectron,
     getAutoUpdateGSMApp,
@@ -574,6 +574,90 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('close-furigana-window', () => {
         if (furiganaWindow) {
             furiganaWindow.hide();
+        }
+    });
+
+    ipcMain.handle('ocr.export-ocr-config', async () => {
+        try {
+            const config = await getActiveOCRConfig(getOCRConfig().useWindowForConfig);
+            if (!config) {
+                return { success: false, message: 'No active OCR config found' };
+            }
+            
+            // Only export rectangles and coordinate_system
+            const exportConfig = {
+                rectangles: config.rectangles || [],
+                coordinate_system: config.coordinate_system || ""
+            };
+            
+            const configJson = JSON.stringify(exportConfig, null, 2);
+            clipboard.writeText(configJson);
+            
+            return { success: true, message: 'OCR config (rectangles & coordinate system) exported to clipboard' };
+        } catch (error: any) {
+            console.error('Error exporting OCR config:', error.message);
+            return { success: false, message: error.message };
+        }
+    });
+
+    ipcMain.handle('ocr.import-ocr-config', async () => {
+        try {
+            const clipboardText = clipboard.readText();
+            
+            if (!clipboardText.trim()) {
+                return { success: false, message: 'Clipboard is empty' };
+            }
+            
+            let importedData;
+            try {
+                importedData = JSON.parse(clipboardText);
+            } catch (parseError) {
+                return { success: false, message: 'Invalid JSON in clipboard' };
+            }
+            
+            // Basic validation
+            if (!importedData || typeof importedData !== 'object') {
+                return { success: false, message: 'Invalid config format' };
+            }
+            
+            // Get current config or create base structure
+            const currentConfig = await getActiveOCRConfig(getOCRConfig().useWindowForConfig) || {};
+            
+            // Merge only rectangles and coordinate_system from imported data
+            const updatedConfig = {
+                ...currentConfig,
+                scene: "",
+                window: "",
+                coordinate_system: importedData.coordinate_system || "",
+                window_geometry: {
+                    left: 0,
+                    top: 0,
+                    width: 0,
+                    height: 0
+                },
+                rectangles: importedData.rectangles || [],
+                furiganaFilterSensitivity: 0
+            };
+
+            // Show Dialogue about how many rectangles are in the config, and ask for confirmation to proceed
+            const response = await dialog.showMessageBox(mainWindow!, {
+                type: 'question',
+                buttons: ['Yes', 'No'],
+                title: 'Import OCR Config',
+                message: `This config contains ${importedData.rectangles?.length || 0} rectangles. This will overwrite the current Area configuration. Proceed with import?`
+            });
+
+            if (response.response !== 0) {
+                return { success: false, message: 'Import cancelled by user' };
+            }
+
+            const sceneConfigPath = await getActiveOCRConfigPath(getOCRConfig().useWindowForConfig);
+            await fs.promises.writeFile(sceneConfigPath, JSON.stringify(updatedConfig, null, 4), 'utf-8');
+            
+            return { success: true, message: 'OCR config imported successfully' };
+        } catch (error: any) {
+            console.error('Error importing OCR config:', error.message);
+            return { success: false, message: error.message };
         }
     });
 }

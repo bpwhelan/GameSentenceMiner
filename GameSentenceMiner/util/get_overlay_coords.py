@@ -190,37 +190,38 @@ class OverlayProcessor:
         """
         with mss.mss() as sct:
             monitors = sct.monitors[1:]
-            if is_windows() and monitor_index == 0:
-                from ctypes import wintypes
-                import ctypes
-                # Get work area for primary monitor (ignores taskbar)
-                SPI_GETWORKAREA = 0x0030
-                rect = wintypes.RECT()
-                res = ctypes.windll.user32.SystemParametersInfoW(
-                    SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
-                )
-                if not res:
-                    raise ctypes.WinError()
+            return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
+            # if is_windows() and monitor_index == 0:
+            #     from ctypes import wintypes
+            #     import ctypes
+            #     # Get work area for primary monitor (ignores taskbar)
+            #     SPI_GETWORKAREA = 0x0030
+            #     rect = wintypes.RECT()
+            #     res = ctypes.windll.user32.SystemParametersInfoW(
+            #         SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
+            #     )
+            #     if not res:
+            #         raise ctypes.WinError()
                 
-                return {
-                    "left": rect.left,
-                    "top": rect.top,
-                    "width": rect.right - rect.left,
-                    "height": rect.bottom - rect.top,
-                }
-            elif is_windows() and monitor_index > 0:
-                # Secondary monitors: just return with a guess of how tall the taskbar is
-                taskbar_height_guess = 48  # A common taskbar height, may vary
-                mon = monitors[monitor_index]
-                return {
-                    "left": mon["left"],
-                    "top": mon["top"],
-                    "width": mon["width"],
-                    "height": mon["height"] - taskbar_height_guess
-                }
-            else:
-                # For non-Windows systems or unspecified monitors, return the monitor area as-is
-                return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
+            #     return {
+            #         "left": rect.left,
+            #         "top": rect.top,
+            #         "width": rect.right - rect.left,
+            #         "height": rect.bottom - rect.top,
+            #     }
+            # elif is_windows() and monitor_index > 0:
+            #     # Secondary monitors: just return with a guess of how tall the taskbar is
+            #     taskbar_height_guess = 48  # A common taskbar height, may vary
+            #     mon = monitors[monitor_index]
+            #     return {
+            #         "left": mon["left"],
+            #         "top": mon["top"],
+            #         "width": mon["width"],
+            #         "height": mon["height"] - taskbar_height_guess
+            #     }
+            # else:
+            #     # For non-Windows systems or unspecified monitors, return the monitor area as-is
+            #     return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
 
 
     def _get_full_screenshot(self) -> Tuple[Image.Image | None, int, int]:
@@ -309,11 +310,9 @@ class OverlayProcessor:
                 
                 score = fuzz.ratio(text_str, self.last_oneocr_result)
                 if score >= 80:
-                    logger.info("OneOCR results are similar to the last results (score: %d). Skipping overlay update.", score)
                     return
             self.last_oneocr_result = text_str
 
-            logger.info("Sending OneOCR results to overlay.")
             await send_word_coordinates_to_overlay(self._convert_oneocr_results_to_percentages(oneocr_results, monitor_width, monitor_height))
             
             # If User Home is beangate
@@ -322,7 +321,7 @@ class OverlayProcessor:
                     f.write(json.dumps(oneocr_results, ensure_ascii=False, indent=2))
             
             if get_config().overlay.engine == OverlayEngine.ONEOCR.value and self.oneocr:
-                logger.info("Using OneOCR results for overlay as configured.")
+                logger.info("Sent %d text boxes to overlay.", len(oneocr_results))
                 return
 
             # 3. Create a composite image with only the detected text regions
@@ -371,8 +370,9 @@ class OverlayProcessor:
             crop_height=composite_image.height,
             use_percentages=True
         )
-        logger.info("Sending Google Lens results to overlay.")
         await send_word_coordinates_to_overlay(extracted_data)
+        
+        logger.info("Sent %d text boxes to overlay.", len(extracted_data))
 
     def _extract_text_with_pixel_boxes(
         self,

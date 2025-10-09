@@ -5,6 +5,7 @@
 class DatabaseManager {
     constructor() {
         this.selectedGames = new Set();
+        this.mergeTargetGame = null; // Track the first game selected for merge operations
         this.initializePage();
     }
     
@@ -147,7 +148,7 @@ async function loadGamesForDeletion() {
                 
                 // Add event listener for the checkbox
                 const checkbox = gameItem.querySelector('.game-checkbox');
-                checkbox.addEventListener('change', updateGameSelection);
+                checkbox.addEventListener('change', (event) => handleGameSelectionChange(event));
                 
                 gamesList.appendChild(gameItem);
             });
@@ -164,16 +165,74 @@ async function loadGamesForDeletion() {
 }
 
 function selectAllGames() {
-    document.querySelectorAll('.game-checkbox').forEach(cb => {
+    // Clear current merge target
+    databaseManager.mergeTargetGame = null;
+    document.querySelectorAll('.checkbox-container').forEach(container => {
+        container.classList.remove('merge-target');
+    });
+    
+    const checkboxes = document.querySelectorAll('.game-checkbox');
+    checkboxes.forEach((cb, index) => {
         cb.checked = true;
+        // Mark the first checkbox as merge target
+        if (index === 0) {
+            databaseManager.mergeTargetGame = cb.dataset.game;
+            cb.closest('.checkbox-container').classList.add('merge-target');
+        }
     });
     updateGameSelection();
 }
 
 function selectNoGames() {
+    // Clear merge target
+    databaseManager.mergeTargetGame = null;
+    document.querySelectorAll('.checkbox-container').forEach(container => {
+        container.classList.remove('merge-target');
+    });
+    
     document.querySelectorAll('.game-checkbox').forEach(cb => {
         cb.checked = false;
     });
+    updateGameSelection();
+}
+
+function handleGameSelectionChange(event) {
+    const checkbox = event.target;
+    const gameName = checkbox.dataset.game;
+    const isChecked = checkbox.checked;
+    
+    // Get current selection count before updating
+    const currentSelectedCount = document.querySelectorAll('.game-checkbox:checked').length - (isChecked ? 1 : 0);
+    
+    if (isChecked) {
+        // Game is being selected
+        if (currentSelectedCount === 0) {
+            // This is the first game being selected, mark it as merge target
+            databaseManager.mergeTargetGame = gameName;
+            // Add visual indicator
+            checkbox.closest('.checkbox-container').classList.add('merge-target');
+        }
+    } else {
+        // Game is being deselected
+        if (gameName === databaseManager.mergeTargetGame) {
+            // The merge target is being deselected
+            databaseManager.mergeTargetGame = null;
+            checkbox.closest('.checkbox-container').classList.remove('merge-target');
+            
+            // If there are still other games selected, make the first one the new target
+            const remainingSelected = document.querySelectorAll('.game-checkbox:checked');
+            if (remainingSelected.length > 0) {
+                const newTargetCheckbox = remainingSelected[0];
+                const newTargetGame = newTargetCheckbox.dataset.game;
+                databaseManager.mergeTargetGame = newTargetGame;
+                newTargetCheckbox.closest('.checkbox-container').classList.add('merge-target');
+            }
+        } else {
+            // Remove merge target styling if it exists
+            checkbox.closest('.checkbox-container').classList.remove('merge-target');
+        }
+    }
+    
     updateGameSelection();
 }
 
@@ -566,9 +625,14 @@ async function openGameMergeModal() {
         if (response.ok && data.games) {
             const selectedGames = data.games.filter(game => gameNames.includes(game.name));
             
-            // Primary game is the first selected
-            const primaryGame = selectedGames[0];
-            const secondaryGames = selectedGames.slice(1);
+            // Use the tracked merge target as primary game, or fall back to first selected
+            let primaryGame = selectedGames.find(game => game.name === databaseManager.mergeTargetGame);
+            if (!primaryGame) {
+                primaryGame = selectedGames[0];
+            }
+            
+            // Secondary games are all selected games except the primary
+            const secondaryGames = selectedGames.filter(game => game.name !== primaryGame.name);
             
             // Calculate totals
             const totalSentences = selectedGames.reduce((sum, game) => sum + game.sentence_count, 0);
@@ -636,10 +700,12 @@ async function confirmGameMerge() {
     confirmBtn.disabled = true;
     
     try {
+        target_game = databaseManager.mergeTargetGame || gameNames[0];
         const response = await fetch('/api/merge_games', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ game_names: gameNames })
+            body: JSON.stringify(
+                { target_game: target_game, games_to_merge: gameNames.filter(name => name !== target_game) })
         });
         
         const result = await response.json();

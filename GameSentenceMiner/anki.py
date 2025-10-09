@@ -25,6 +25,7 @@ from GameSentenceMiner.util.model import AnkiCard
 from GameSentenceMiner.util.text_log import get_all_lines, get_text_event, get_mined_line, lines_match
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.web import texthooking_page
+from GameSentenceMiner.ui.config_gui import ConfigApp
 import re
 import platform
 import sys
@@ -57,10 +58,6 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         prev_screenshot_in_anki = anki_result.prev_screenshot_in_anki
         video_in_anki = anki_result.video_in_anki
     else:
-        if update_audio:
-            audio_in_anki = store_media_file(audio_path)
-            if get_config().audio.external_tool and get_config().audio.external_tool_enabled:
-                open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
         if update_picture:
             logger.info("Getting Screenshot...")
             if get_config().screenshot.animated:
@@ -68,7 +65,7 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
             else:
                 screenshot = ffmpeg.get_screenshot(video_path, ss_time, try_selector=get_config().screenshot.use_screenshot_selector)
             wait_for_stable_file(screenshot)
-            screenshot_in_anki = store_media_file(screenshot)
+            # screenshot_in_anki = store_media_file(screenshot)
         if get_config().anki.video_field:
             if vad_result:
                 video = ffmpeg.get_anki_compatible_video(video_path, start_time, vad_result.start, vad_result.end, codec='avif', quality=10, fps=12, audio=True)
@@ -79,18 +76,9 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
             prev_screenshot_in_anki = store_media_file(prev_screenshot)
             if get_config().paths.remove_screenshot:
                 os.remove(prev_screenshot)
-    audio_html = f"[sound:{audio_in_anki}]"
-    image_html = f"<img src=\"{screenshot_in_anki}\">"
     prev_screenshot_html = f"<img src=\"{prev_screenshot_in_anki}\">"
 
-
     # note = {'id': last_note.noteId, 'fields': {}}
-
-    if update_audio and audio_in_anki:
-        note['fields'][get_config().anki.sentence_audio_field] = audio_html
-
-    if update_picture and screenshot_in_anki:
-        note['fields'][get_config().anki.picture_field] = image_html
 
     if video_in_anki:
         note['fields'][get_config().anki.video_field] = video_in_anki
@@ -125,10 +113,33 @@ def update_anki_card(last_note: AnkiCard, note=None, audio_path='', video_path='
         tags.append(game)
     if get_config().anki.custom_tags:
         tags.extend(get_config().anki.custom_tags)
-    if tags:
-        tag_string = " ".join(tags)
-        invoke("addTags", tags=tag_string, notes=[last_note.noteId])
+    
+    use_voice = True
+    if get_config().anki.show_update_confirmation_dialog:
+        config_app: ConfigApp = gsm_state.config_app
+        sentence = note['fields'][get_config().anki.sentence_field] if get_config().anki.sentence_field in note['fields'] else last_note.get_field(get_config().anki.sentence_field)
+        use_voice, sentence, translation, new_ss = config_app.show_anki_confirmation_dialog(tango, sentence, screenshot, audio_path, translation, ss_time)
+        if screenshot:
+            screenshot = new_ss
+
+    # Upload Files to Anki
+    if video:
+        video_in_anki = store_media_file(video)
+    if screenshot:
+        screenshot_in_anki = store_media_file(screenshot)
         
+    image_html = f"<img src=\"{screenshot_in_anki}\">"
+    
+    if update_audio and use_voice:
+        audio_in_anki = store_media_file(audio_path)
+        if get_config().audio.external_tool and get_config().audio.external_tool_enabled:
+            open_audio_in_external(f"{get_config().audio.anki_media_collection}/{audio_in_anki}")
+        audio_html = f"[sound:{audio_in_anki}]"
+        note['fields'][get_config().anki.sentence_audio_field] = audio_html
+
+    if update_picture and screenshot_in_anki:
+        note['fields'][get_config().anki.picture_field] = image_html
+
     run_new_thread(lambda: check_and_update_note(last_note, note, tags))
 
     word_path = os.path.join(get_config().paths.output_folder, sanitize_filename(tango)) if get_config().paths.output_folder else ''
@@ -221,6 +232,10 @@ def check_and_update_note(last_note, note, tags=[]):
     if last_note.noteId in selected_notes:
         notification.open_browser_window(1)
     invoke("updateNoteFields", note=note)
+    
+    if tags:
+        tag_string = " ".join(tags)
+        invoke("addTags", tags=tag_string, notes=[last_note.noteId])
 
     logger.info(f"UPDATED ANKI CARD FOR {last_note.noteId}")
     if last_note.noteId in selected_notes or get_config().features.open_anki_in_browser:

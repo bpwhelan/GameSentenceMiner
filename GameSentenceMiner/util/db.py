@@ -110,6 +110,11 @@ class SQLiteDBTable:
             pk_def = f"{cls._pk} TEXT PRIMARY KEY" if not cls._auto_increment else f"{cls._pk} INTEGER PRIMARY KEY AUTOINCREMENT"
             create_table_sql = f"CREATE TABLE IF NOT EXISTS {cls._table} ({pk_def}, {fields_def})"
             db.create_table(create_table_sql)
+        # Check for missing columns and add them
+        existing_columns = [col[1] for col in db.fetchall(f"PRAGMA table_info({cls._table})")]
+        for field in cls._fields:
+            if field not in existing_columns:
+                db.execute(f"ALTER TABLE {cls._table} ADD COLUMN {field} TEXT", commit=True)
 
     @classmethod
     def all(cls: Type[T]) -> List[T]:
@@ -133,81 +138,47 @@ class SQLiteDBTable:
             return None
         obj = cls()
         fields = [cls._pk] + cls._fields
-        
-        # Handle cases where the database might have fewer columns than the model expects
         for i, field in enumerate(fields):
-            # Skip if this field index exceeds the row length
-            if i >= len(row):
-                # Set default value for missing columns
-                if hasattr(obj, field):
-                    if field == 'original_game_name':
-                        setattr(obj, field, '')
-                    else:
-                        # Try to set a reasonable default based on type
-                        if i < len(cls._types):
-                            if cls._types[i] == str:
-                                setattr(obj, field, '')
-                            elif cls._types[i] == int:
-                                setattr(obj, field, 0)
-                            elif cls._types[i] == float:
-                                setattr(obj, field, 0.0)
-                            elif cls._types[i] == bool:
-                                setattr(obj, field, False)
-                            elif cls._types[i] == list:
-                                setattr(obj, field, [])
-                            elif cls._types[i] == dict:
-                                setattr(obj, field, {})
-                            else:
-                                setattr(obj, field, None)
+            if i == 0 and field == cls._pk:
+                if cls._types[i] is int:
+                    setattr(obj, field, int(row[i])
+                            if row[i] is not None else None)
+                elif cls._types[i] is str:
+                    setattr(obj, field, str(row[i])
+                            if row[i] is not None else None)
                 continue
-                
-            try:
-                if i == 0 and field == cls._pk:
-                    if i < len(cls._types):
-                        if cls._types[i] == int:
-                            setattr(obj, field, int(row[i])
-                                    if row[i] is not None else None)
-                        elif cls._types[i] == str:
-                            setattr(obj, field, str(row[i])
-                                    if row[i] is not None else None)
-                    continue
-                    
-                if i < len(cls._types):
-                    if cls._types[i] == str:
-                        if row[i] is not None and (str(row[i]).startswith('[') or str(row[i]).startswith('{')):
-                            try:
-                                setattr(obj, field, json.loads(row[i]))
-                            except json.JSONDecodeError:
-                                setattr(obj, field, row[i])
-                        else:
-                            setattr(obj, field, str(row[i])
-                                    if row[i] is not None else None)
-                    elif cls._types[i] == list:
-                        try:
-                            setattr(obj, field, json.loads(row[i]) if row[i] else [])
-                        except json.JSONDecodeError:
-                            setattr(obj, field, [])
-                    elif cls._types[i] == int:
-                        setattr(obj, field, int(row[i])
-                                if row[i] is not None else None)
-                    elif cls._types[i] == float:
-                        setattr(obj, field, float(row[i])
-                                if row[i] is not None else None)
-                    elif cls._types[i] == bool:
-                        setattr(obj, field, bool(row[i])
-                                if row[i] is not None else None)
-                    elif cls._types[i] == dict:
-                        try:
-                            setattr(obj, field, json.loads(row[i]) if row[i] else {})
-                        except json.JSONDecodeError:
-                            setattr(obj, field, {})
-                    else:
+            if cls._types[i] is str:
+                if not row[i]:
+                    setattr(obj, field, "")
+                elif (row[i].startswith('[') or row[i].startswith('{')):
+                    try:
+                        setattr(obj, field, json.loads(row[i]))
+                    except json.JSONDecodeError:
                         setattr(obj, field, row[i])
-            except (IndexError, ValueError, TypeError) as e:
-                logger.warning(f"Error setting field {field} in {cls.__name__}: {e}")
-                # Set a safe default
-                setattr(obj, field, '' if field == 'original_game_name' else None)
-                
+                else:
+                    setattr(obj, field, str(row[i])
+                            if row[i] is not None else None)
+            elif cls._types[i] is list:
+                try:
+                    setattr(obj, field, json.loads(row[i]) if row[i] else [])
+                except json.JSONDecodeError:
+                    setattr(obj, field, [])
+            elif cls._types[i] is int:
+                setattr(obj, field, int(row[i])
+                        if row[i] is not None else None)
+            elif cls._types[i] is float:
+                setattr(obj, field, float(row[i])
+                        if row[i] is not None else None)
+            elif cls._types[i] is bool:
+                setattr(obj, field, bool(row[i])
+                        if row[i] is not None else None)
+            elif cls._types[i] is dict:
+                try:
+                    setattr(obj, field, json.loads(row[i]) if row[i] else {})
+                except json.JSONDecodeError:
+                    setattr(obj, field, {})
+            else:
+                setattr(obj, field, row[i])
         return obj
 
     def save(self, retry=1):

@@ -7,11 +7,14 @@ import sys
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, scrolledtext, font
+from PIL import Image, ImageTk
 
 import pyperclip
 import ttkbootstrap as ttk
 
 from GameSentenceMiner import obs
+from GameSentenceMiner.ui.anki_confirmation import AnkiConfirmationDialog
+from GameSentenceMiner.ui.screenshot_selector import ScreenshotSelectorDialog
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.configuration import Config, Locale, logger, CommonLanguages, ProfileConfig, General, Paths, \
@@ -40,7 +43,7 @@ def load_localization(locale=Locale.English):
     try:
         # Use a path relative to this script file
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        lang_file = os.path.join(script_dir, 'locales', f'{locale.value}.json')
+        lang_file = os.path.join(script_dir, '..', 'locales', f'{locale.value}.json')
         with open(lang_file, 'r', encoding='utf-8') as f:
             return json.load(f)['python']['config']
     except (FileNotFoundError, json.JSONDecodeError) as e:
@@ -167,7 +170,6 @@ class ResetToDefaultButton(ttk.Button):
             self.tooltip.destroy()
             self.tooltip = None
 
-
 class ConfigApp:
     def __init__(self, root):
         self.window = root
@@ -267,6 +269,56 @@ class ConfigApp:
     def set_test_func(self, func):
         self.test_func = func
         
+    def show_anki_confirmation_dialog(self, expression, sentence, screenshot_path, audio_path, translation, ss_timestamp):
+        """
+        Displays a modal dialog for the user to confirm Anki card details and
+        choose whether to include audio.
+
+        Args:
+            expression (str): The target word or expression.
+            sentence (str): The full sentence.
+            screenshot_path (str): The file path to the screenshot image.
+            audio_path (str): The file path to the audio clip.
+            translation (str): The translation or definition.
+
+        Returns:
+            str: 'voice' if the user chooses to add with voice,
+                 'no_voice' if they choose to add without voice,
+                 or None if they cancel.
+        """
+        dialog = AnkiConfirmationDialog(self.window,
+                                        self,
+                                        expression=expression,
+                                        sentence=sentence,
+                                        screenshot_path=screenshot_path,
+                                        audio_path=audio_path,
+                                        translation=translation,
+                                        screenshot_timestamp=ss_timestamp)
+        return dialog.result
+    
+    def show_screenshot_selector(self, video_path, timestamp, mode='beginning'):
+        """
+        Displays a modal dialog for the user to select the best screenshot from
+        a series of extracted video frames.
+
+        Args:
+            video_path (str): The file path to the source video.
+            timestamp (str or float): The timestamp (in seconds) around which to extract frames.
+            mode (str): 'beginning', 'middle', or 'end'. Determines the time offset
+                        and which frame is highlighted as the "golden" frame.
+
+        Returns:
+            str: The file path of the image the user selected, or None if they canceled.
+        """
+        dialog = ScreenshotSelectorDialog(self.window,
+                                          self,
+                                          video_path=video_path,
+                                          timestamp=str(timestamp), # Ensure it's a string for ffmpeg
+                                          mode=mode)
+        
+        print(dialog.selected_path)
+        return dialog.selected_path
+        
     def create_vars(self):
         """
         Initializes all the tkinter variables used in the configuration GUI.
@@ -306,6 +358,7 @@ class ConfigApp:
 
         # Anki Settings
         self.update_anki_value = tk.BooleanVar(value=self.settings.anki.update_anki)
+        self.show_update_confirmation_dialog_value = tk.BooleanVar(value=self.settings.anki.show_update_confirmation_dialog)
         self.anki_url_value = tk.StringVar(value=self.settings.anki.url)
         self.sentence_field_value = tk.StringVar(value=self.settings.anki.sentence_field)
         self.sentence_audio_field_value = tk.StringVar(value=self.settings.anki.sentence_audio_field)
@@ -534,6 +587,7 @@ class ConfigApp:
             ),
             anki=Anki(
                 update_anki=self.update_anki_value.get(),
+                show_update_confirmation_dialog=self.show_update_confirmation_dialog_value.get(),
                 url=self.anki_url_value.get(),
                 sentence_field=self.sentence_field_value.get(),
                 sentence_audio_field=self.sentence_audio_field_value.get(),
@@ -752,6 +806,24 @@ class ConfigApp:
                 widget.destroy()
 
         general_i18n = self.i18n.get('tabs', {}).get('general', {})
+        
+        def launch_test_dialog():
+            # Make sure you have a file named 'test_image.png' in the script's directory
+            result = self.show_anki_confirmation_dialog(
+                expression="こんにちは",
+                sentence="こんにちは、世界！元気ですか？",
+                screenshot_path="test_image.png",
+                audio_path="C:/path/to/my/audio.mp3",
+                translation="Hello world! How are you?"
+            )
+            print(f"Dialog result was: {result}")
+            if result:
+                messagebox.showinfo("Result", f"You chose: {result}")
+
+        ttk.Button(self.general_tab, text="TEST ANKI DIALOG", command=launch_test_dialog).grid(
+            row=self.current_row, column=0, pady=20
+        )
+        self.current_row += 1
         
         ws_i18n = general_i18n.get('websocket_enabled', {})
         HoverInfoLabelWidget(self.general_tab, text=ws_i18n.get('label', 'Websocket Enabled:'),
@@ -1318,6 +1390,13 @@ class ConfigApp:
                                                                                               column=1, sticky='W', pady=2)
         self.current_row += 1
 
+        show_confirmation_i18n = anki_i18n.get('show_update_confirmation_dialog', {})
+        HoverInfoLabelWidget(anki_frame, text=show_confirmation_i18n.get('label', '...'), tooltip=show_confirmation_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Checkbutton(anki_frame, variable=self.show_update_confirmation_dialog_value, bootstyle="round-toggle").grid(row=self.current_row,
+                                                                                              column=1, sticky='W', pady=2)
+        self.current_row += 1
+
         url_i18n = anki_i18n.get('url', {})
         HoverInfoLabelWidget(anki_frame, text=url_i18n.get('label', '...'), tooltip=url_i18n.get('tooltip', '...'),
                              foreground="dark orange", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
@@ -1811,7 +1890,7 @@ class ConfigApp:
         ttk.Entry(obs_frame, textvariable=self.obs_minimum_replay_size_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
-        turn_off_output_check_i18n = obs_i18n.get('turn_off_output_check', {})
+        turn_off_output_check_i18n = obs_i18n.get('obs_turn_off_output_check_value', {})
         HoverInfoLabelWidget(obs_frame, text=turn_off_output_check_i18n.get('label', '...'),
                              tooltip=turn_off_output_check_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)

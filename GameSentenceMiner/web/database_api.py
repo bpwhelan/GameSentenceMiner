@@ -212,7 +212,7 @@ def register_database_api_routes(app):
             return jsonify({'games': games_data}), 200
             
         except Exception as e:
-            logger.error(f"Error fetching games list: {e}")
+            logger.error(f"Error fetching games list: {e}", exc_info=True)
             return jsonify({'error': 'Failed to fetch games list'}), 500
 
     @app.route('/api/delete-games', methods=['POST'])
@@ -838,46 +838,50 @@ def register_database_api_routes(app):
         """
         try:
             data = request.get_json()
-            game_names = data.get('game_names', [])
+            target_game = data.get('target_game', None)
+            games_to_merge = data.get('games_to_merge', [])
+            
+            logger.info(f"Merge request received: target_game='{target_game}', games_to_merge={games_to_merge}")
             
             # Validation
-            if not game_names:
+            if not target_game:
+                return jsonify({'error': 'No target game specified for merging'}), 400
+
+            if not games_to_merge:
                 return jsonify({'error': 'No games specified for merging'}), 400
             
-            if not isinstance(game_names, list):
+            if not isinstance(games_to_merge, list):
                 return jsonify({'error': 'game_names must be a list'}), 400
                 
-            if len(game_names) < 2:
-                return jsonify({'error': 'At least 2 games must be selected for merging'}), 400
-            
+            if len(games_to_merge) < 1:
+                return jsonify({'error': 'At least 1 game must be selected for merging'}), 400
+
             # Validate that all games exist
             existing_games = GameLinesTable.get_all_games_with_lines()
-            invalid_games = [name for name in game_names if name not in existing_games]
+            invalid_games = [name for name in games_to_merge if name not in existing_games]
             
             if invalid_games:
                 return jsonify({'error': f'Games not found: {", ".join(invalid_games)}'}), 400
             
             # Check for duplicate game names
-            if len(set(game_names)) != len(game_names):
+            if len(set(games_to_merge)) != len(games_to_merge):
                 return jsonify({'error': 'Duplicate game names found in selection'}), 400
             
             # Identify primary and secondary games
-            primary_game = game_names[0]
-            secondary_games = game_names[1:]
-            
+
             # Collect pre-merge statistics
-            primary_lines_before = GameLinesTable.get_all_lines_for_scene(primary_game)
+            primary_lines_before = GameLinesTable.get_all_lines_for_scene(target_game)
             total_lines_to_merge = 0
             merge_summary = {
-                'primary_game': primary_game,
-                'secondary_games': secondary_games,
+                'primary_game': target_game,
+                'secondary_games': games_to_merge,
                 'lines_moved': 0,
                 'total_lines_after_merge': 0
             }
             
             # Calculate lines to be moved and store counts
             secondary_game_line_counts = {}
-            for game_name in secondary_games:
+            for game_name in games_to_merge:
                 secondary_lines = GameLinesTable.get_all_lines_for_scene(game_name)
                 line_count = len(secondary_lines)
                 secondary_game_line_counts[game_name] = line_count
@@ -890,7 +894,7 @@ def register_database_api_routes(app):
             try:
                 # Perform the merge operation within transaction
                 lines_moved = 0
-                for game_name in secondary_games:
+                for game_name in games_to_merge:
                     # Update game_name for all lines belonging to this secondary game
                     # Also set original_game_name to preserve the original title
                     # Ensure the table name is as expected to prevent SQL injection
@@ -898,7 +902,7 @@ def register_database_api_routes(app):
                         raise ValueError("Unexpected table name in GameLinesTable._table")
                     GameLinesTable._db.execute(
                         "UPDATE game_lines SET game_name=?, original_game_name=COALESCE(original_game_name, ?) WHERE game_name=?",
-                        (primary_game, game_name, game_name),
+                        (target_game, game_name, game_name),
                         commit=True
                     )
                     
@@ -910,13 +914,13 @@ def register_database_api_routes(app):
                 merge_summary['total_lines_after_merge'] = len(primary_lines_before) + lines_moved
                 
                 # Log the successful merge
-                logger.info(f"Successfully merged {len(secondary_games)} games into '{primary_game}': moved {lines_moved} lines")
-                
+                logger.info(f"Successfully merged {len(games_to_merge)} games into '{target_game}': moved {lines_moved} lines")
+
                 # Prepare success response
                 response_data = {
-                    'message': f'Successfully merged {len(secondary_games)} games into "{primary_game}"',
-                    'primary_game': primary_game,
-                    'merged_games': secondary_games,
+                    'message': f'Successfully merged {len(games_to_merge)} games into "{target_game}"',
+                    'primary_game': target_game,
+                    'merged_games': games_to_merge,
                     'lines_moved': lines_moved,
                     'total_lines_in_primary': merge_summary['total_lines_after_merge'],
                     'merge_summary': merge_summary
@@ -925,7 +929,7 @@ def register_database_api_routes(app):
                 return jsonify(response_data), 200
                 
             except Exception as db_error:
-                logger.error(f"Database error during game merge: {db_error}")
+                logger.error(f"Database error during game merge: {db_error}", exc_info=True)
                 return jsonify({
                     'error': f'Failed to merge games due to database error: {str(db_error)}'
                 }), 500

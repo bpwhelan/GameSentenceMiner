@@ -9,7 +9,7 @@ import websockets
 from websockets import InvalidStatus
 from rapidfuzz import fuzz
 
-from GameSentenceMiner.util.configuration import get_config, gsm_status, logger, gsm_state
+from GameSentenceMiner.util.configuration import get_config, gsm_status, logger, gsm_state, is_dev
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
 from GameSentenceMiner import obs
@@ -87,7 +87,8 @@ async def listen_websockets():
                         message_received_time = datetime.now()
                         if not message:
                             continue
-                        logger.debug(message)
+                        if is_dev:
+                            logger.debug(message)
                         try:
                             data = json.loads(message)
                             if "sentence" in data:

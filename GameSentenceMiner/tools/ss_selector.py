@@ -1,21 +1,20 @@
-
+# TODO REMOVE THIS, DEPRECATED
 
 import os
 import sys
 import subprocess
+
+import tkinter as tk
+from PIL import Image, ImageTk
+from GameSentenceMiner.util.gsm_utils import sanitize_filename
+from GameSentenceMiner.util.configuration import get_temporary_directory, logger, ffmpeg_base_command_list
+from GameSentenceMiner.util import ffmpeg
 
 # Suppress stdout and stderr during imports
 sys_stdout = sys.stdout
 sys_stderr = sys.stderr
 sys.stdout = open(os.devnull, 'w')
 sys.stderr = open(os.devnull, 'w')
-
-import tkinter as tk
-from PIL import Image, ImageTk
-from GameSentenceMiner.util.gsm_utils import sanitize_filename
-from GameSentenceMiner.util.configuration import get_temporary_directory, logger
-from GameSentenceMiner.util.ffmpeg import ffmpeg_base_command_list
-from GameSentenceMiner.util import ffmpeg
 
 def extract_frames(video_path, timestamp, temp_dir, mode):
     frame_paths = []

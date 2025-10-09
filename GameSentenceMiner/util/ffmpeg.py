@@ -5,22 +5,19 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+import subprocess
+from pathlib import Path
+import shutil
+
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.util.configuration import get_app_directory, is_windows, logger, get_config, \
+from GameSentenceMiner.ui.config_gui import ConfigApp
+from GameSentenceMiner.util.configuration import ffmpeg_base_command_list, get_ffprobe_path, logger, get_config, \
     get_temporary_directory, gsm_state, is_linux
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name, get_file_modification_time
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.text_log import initial_time
 
-
-def get_ffmpeg_path():
-    return os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if is_windows() else "ffmpeg"
-
-def get_ffprobe_path():
-    return os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if is_windows() else "ffprobe"
-
-ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
 
 supported_formats = {
     'opus': 'libopus',
@@ -29,11 +26,6 @@ supported_formats = {
     'aac': 'aac',
     'm4a': 'aac',
 }
-
-import subprocess
-from pathlib import Path
-import shutil
-
 
 def video_to_anim(
     input_path: str | Path,
@@ -184,22 +176,24 @@ def call_frame_extractor(video_path, timestamp):
         str: The path of the selected image, or None on error.
     """
     try:
-        logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp)]))
+        config_app: ConfigApp = gsm_state.config_app
+        return config_app.show_screenshot_selector(video_path, timestamp, get_config().screenshot.screenshot_timing_setting)
+        # logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp)]))
 
-        # Run the script using subprocess.run()
-        result = subprocess.run(
-            [sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting],  # Use sys.executable
-            capture_output=True,
-            text=True,  # Get output as text
-            check=False  # Raise an exception for non-zero exit codes
-        )
-        if result.returncode != 0:
-            logger.error(f"Script failed with return code: {result.returncode}")
-            return None
-        logger.info(result)
-        # Print the standard output
-        logger.info(f"Frame extractor script output: {result.stdout.strip()}")
-        return result.stdout.strip() # Return the output
+        # # Run the script using subprocess.run()
+        # result = subprocess.run(
+        #     [sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting],  # Use sys.executable
+        #     capture_output=True,
+        #     text=True,  # Get output as text
+        #     check=False  # Raise an exception for non-zero exit codes
+        # )
+        # if result.returncode != 0:
+        #     logger.error(f"Script failed with return code: {result.returncode}")
+        #     return None
+        # logger.info(result)
+        # # Print the standard output
+        # logger.info(f"Frame extractor script output: {result.stdout.strip()}")
+        # return result.stdout.strip() # Return the output
 
     except subprocess.CalledProcessError as e:
         logger.error(f"Error calling script: {e}")

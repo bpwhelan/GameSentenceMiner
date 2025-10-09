@@ -154,6 +154,10 @@
             "label": "更新 Anki:",
             "tooltip": "使用新数据自动更新 Anki。"
           },
+          "show_update_confirmation_dialog": {
+            "label": "显示更新确认对话框:",
+            "tooltip": "在更新 Anki 卡片之前显示确认对话框。"
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "连接到您的 Anki 实例的 URL。"
@@ -440,10 +444,10 @@
             "label": "最小回放大小 (KB):",
             "tooltip": "OBS 录像回放的最小大小（KB）。如果回放小于此大小，将不抓取音频/截图。"
           },
-          "turn_off_output_check": {
-            "label": "关闭输出检查:",
-            "tooltip": "禁用视频输出的回放缓冲区检查。"
-          }
+            "turn_off_replay_buffer_management": {
+            "label": "关闭回放缓冲区管理:",
+            "tooltip": "禁用 OBS 回放缓冲区管理。如果您想在 OBS 中手动管理回放缓冲区，这将很有用。"
+            }
         },
         "profiles": {
           "title": "配置文件",

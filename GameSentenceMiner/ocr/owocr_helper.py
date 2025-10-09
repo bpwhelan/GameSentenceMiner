@@ -38,7 +38,7 @@ logger.setLevel(logging.DEBUG)
 # Create a file handler for logging
 log_file = os.path.join(get_app_directory(), "logs", "ocr_log.txt")
 os.makedirs(os.path.join(get_app_directory(), "logs"), exist_ok=True)
-file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024, backupCount=5, encoding='utf-8')
+file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024, backupCount=2, encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)
 # Create a formatter and set it for the handler
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')

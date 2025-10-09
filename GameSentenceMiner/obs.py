@@ -11,12 +11,11 @@ import shutil
 import psutil
 
 import obsws_python as obs
+import numpy as np
 
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.configuration import get_app_directory, get_config, get_master_config, is_windows, save_full_config, reload_config, logger, gsm_status, gsm_state
 from GameSentenceMiner.util.gsm_utils import sanitize_filename, make_unique_file_name
-import tkinter as tk
-from tkinter import messagebox
 
 connection_pool: 'OBSConnectionPool' = None
 event_client: obs.EventClient = None
@@ -75,7 +74,7 @@ class OBSConnectionPool:
             self._clients[index] = obs.ReqClient(**self.connection_kwargs)
 
     @contextlib.contextmanager
-    def get_client(self):
+    def get_client(self) -> obs.ReqClient:
         """A context manager to safely get a client from the pool."""
         with self._idx_lock:
             idx = self._next_idx
@@ -106,65 +105,115 @@ class OBSConnectionManager(threading.Thread):
         super().__init__()
         self.daemon = True
         self.running = True
+        self.should_check_output = check_output
         self.check_connection_interval = 1
-        self.said_no_to_replay_buffer = False
         self.counter = 0
-        self.check_output = check_output
+        self.last_replay_buffer_status = None
+        self.no_output_timestamp = None
+        self.NO_OUTPUT_SHUTDOWN_SECONDS = 300
+        self.last_errors = []
+        self.previous_image = None
+
+    def _check_obs_connection(self):
+        try:
+            client = connection_pool.get_healthcheck_client() if connection_pool else None
+            if client and not connecting:
+                client.get_version()
+                gsm_status.obs_connected = True
+                return True
+            else:
+                raise ConnectionError("Healthcheck client not available or connection in progress")
+        except Exception as e:
+            logger.debug(f"OBS WebSocket not connected. Attempting to reconnect... {e}")
+            gsm_status.obs_connected = False
+            asyncio.run(connect_to_obs())
+            return False
+        
+    def check_replay_buffer_enabled(self):
+        if not self.should_check_output:
+            return True, ""
+        output = get_replay_buffer_output()
+        if not output:
+            return False, "Replay Buffer output not found in OBS. Please enable Replay Buffer In OBS Settings -> Output -> Replay Buffer. I recommend 300 seconds (5 minutes) or higher."
+        return True, ""
+
+    def _manage_replay_buffer_and_utils(self):
+        errors = []
+        set_fit_to_screen_for_scene_items(get_current_scene())
+
+        if get_config().obs.turn_off_output_check or not self.should_check_output:
+            return errors
+
+        replay_buffer_enabled, error_message = self.check_replay_buffer_enabled()
+
+        if not replay_buffer_enabled:
+            errors.append(error_message)
+            return errors
+
+        current_status = get_replay_buffer_status()
+
+        if self.last_replay_buffer_status is None:
+            self.last_replay_buffer_status = current_status
+            return errors
+
+        if current_status != self.last_replay_buffer_status:
+            self.last_replay_buffer_status = current_status
+            self.no_output_timestamp = None
+            return errors
+        
+        img = get_screenshot_PIL(compression=100, img_format='jpg', width=1280, height=720)
+        has_changed = self.has_image_changed(img) if img else True
+
+        if not has_changed:
+            self.no_output_timestamp = None
+            if not current_status:
+                start_replay_buffer()
+                self.last_replay_buffer_status = True
+        else: # is_empty
+            if current_status:
+                if self.no_output_timestamp is None:
+                    self.no_output_timestamp = time.time()
+                elif time.time() - self.no_output_timestamp >= self.NO_OUTPUT_SHUTDOWN_SECONDS:
+                    stop_replay_buffer()
+                    self.last_replay_buffer_status = False
+                    self.no_output_timestamp = None
+
+    def has_image_changed(self, img):
+        if self.previous_image is None:
+            self.previous_image = np.array(img)
+            return True
+        try:
+            img1_np = np.array(img) if not isinstance(img, np.ndarray) else img
+            img2_np = self.previous_image
+            self.previous_image = img1_np
+        except Exception:
+            logger.warning("Failed to convert images to numpy arrays for comparison.")
+            return False
+
+        return (img1_np.shape == img2_np.shape) and np.array_equal(img1_np, img2_np)
 
     def run(self):
+        time.sleep(5)  # Initial delay to allow OBS to start
         while self.running:
             time.sleep(self.check_connection_interval)
-            try:
-                client = connection_pool.get_healthcheck_client() if connection_pool else None
-                if client and not connecting:
-                    client.get_version()
-                else:
-                    raise ConnectionError("Healthcheck client not healthy or not initialized")
-            except Exception as e:
-                logger.info(f"OBS WebSocket not connected. Attempting to reconnect... {e}")
-                gsm_status.obs_connected = False
-                asyncio.run(connect_to_obs())
+
+            if not self._check_obs_connection():
+                continue
+
             if self.counter % 5 == 0:
                 try:
-                    set_fit_to_screen_for_scene_items(get_current_scene())
-                    if get_config().obs.turn_off_output_check and self.check_output:
-                        replay_buffer_status = get_replay_buffer_status()
-                        if replay_buffer_status and self.said_no_to_replay_buffer:
-                            self.said_no_to_replay_buffer = False
-                            self.counter = 0
-                        if gsm_status.obs_connected and not replay_buffer_status and not self.said_no_to_replay_buffer:
-                            try:
-                                self.check_output()
-                            except Exception:
-                                pass
+                    errors = self._manage_replay_buffer_and_utils()
+                    if errors != self.last_errors:
+                        if errors:
+                            for error in errors:
+                                logger.error(f"OBS Health Check: {error}")
+                    self.last_errors = errors
                 except Exception as e:
                     logger.error(f"Error when running Extra Utils in OBS Health Check, Keeping ConnectionManager Alive: {e}")
             self.counter += 1
 
     def stop(self):
         self.running = False
-    
-    def check_output(self):
-        img = get_screenshot_PIL(compression=100, img_format='jpg', width=1280, height=720)
-        extrema = img.getextrema()
-        if isinstance(extrema[0], tuple):
-            is_empty = all(e[0] == e[1] for e in extrema)
-        else:
-            is_empty = extrema[0] == extrema[1]
-        if is_empty:
-            return
-        else:
-            root = tk.Tk()
-            root.attributes('-topmost', True)
-            root.withdraw()
-            root.deiconify()
-            result = messagebox.askyesno("GSM - Replay Buffer", "The replay buffer is not running, but there seems to be output in OBS. Do you want to start it? (If you click 'No', you won't be asked until you either restart GSM or start/stop replay buffer manually.)")
-            root.destroy()
-            if not result:
-                self.said_no_to_replay_buffer = True
-                self.counter = 0
-                return
-            start_replay_buffer()
     
 def get_obs_path():
     return os.path.join(configuration.get_app_directory(), 'obs-studio/bin/64bit/obs64.exe')
@@ -232,6 +281,7 @@ async def wait_for_obs_connected():
     for _ in range(10):
         try:
             with connection_pool.get_client() as client:
+                client: obs.ReqClient
                 response = client.get_version()
             if response:
                 return True
@@ -368,6 +418,7 @@ def do_obs_call(method_name: str, from_dict=None, retry=3, **kwargs):
 def toggle_replay_buffer():
     try:
         with connection_pool.get_client() as client:
+            client: obs.ReqClient
             response = client.toggle_replay_buffer()
         if response:
             logger.info("Replay buffer Toggled.")
@@ -377,6 +428,7 @@ def toggle_replay_buffer():
 def start_replay_buffer():
     try:
         with connection_pool.get_client() as client:
+            client: obs.ReqClient
             response = client.start_replay_buffer()
         if response and response.ok:
             logger.info("Replay buffer started.")
@@ -394,6 +446,7 @@ def get_replay_buffer_status():
 def stop_replay_buffer():
     try:
         with connection_pool.get_client() as client:
+            client: obs.ReqClient
             response = client.stop_replay_buffer()
         if response and response.ok:
             logger.info("Replay buffer stopped.")
@@ -403,6 +456,7 @@ def stop_replay_buffer():
 def save_replay_buffer():
     try:
         with connection_pool.get_client() as client:
+            client: obs.ReqClient
             response = client.save_replay_buffer()
         if response and response.ok:
             logger.info("Replay buffer saved. If your log stops here, make sure your obs output path matches \"Path To Watch\" in GSM settings.")
@@ -412,6 +466,7 @@ def save_replay_buffer():
 def get_current_scene():
     try:
         with connection_pool.get_client() as client:
+            client: obs.ReqClient
             response = client.get_current_program_scene()
         return response.scene_name if response else ''
     except Exception as e:
@@ -421,6 +476,7 @@ def get_current_scene():
 def get_source_from_scene(scene_name):
     try:
         with connection_pool.get_client() as client:
+            client: obs.ReqClient
             response = client.get_scene_item_list(name=scene_name)
         return response.scene_items[0] if response and response.scene_items else ''
     except Exception as e:
@@ -436,15 +492,80 @@ def get_active_source():
 def get_record_directory():
     try:
         with connection_pool.get_client() as client:
+            client: obs.ReqClient
             response = client.get_record_directory()
         return response.record_directory if response else ''
     except Exception as e:
         logger.error(f"Error getting recording folder: {e}")
         return ''
+    
+def get_replay_buffer_max_time_seconds():
+    """
+    Gets the configured maximum replay buffer time in seconds using the v5 protocol.
+    """
+    try:
+        # Assumes a connection_pool object that provides a connected client
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            # For v5, we get settings for the 'replay_buffer' output
+            response = client.get_output_settings(name='Replay Buffer')
+            
+            print(response.output_settings)
+
+            # The response object contains a dict of the actual settings
+            if response:
+                # The key for replay buffer length in seconds is 'max_time_sec'
+                settings = response.output_settings
+                if settings and 'max_time_sec' in settings:
+                    return settings['max_time_sec']
+                else:
+                    logger.warning("Replay buffer settings received, but 'max_time_sec' key was not found.")
+                    return 0
+            else:
+                logger.warning(f"get_output_settings for replay_buffer failed: {response.status}")
+                return 0
+    except Exception as e:
+        logger.error(f"Exception while fetching replay buffer settings: {e}")
+        return 0
+    
+def enable_replay_buffer():
+    try:
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            response = client.set_output_settings(name='Replay Buffer', settings={'outputFlags': {'OBS_OUTPUT_AUDIO': True, 'OBS_OUTPUT_ENCODED': True, 'OBS_OUTPUT_MULTI_TRACK': True, 'OBS_OUTPUT_SERVICE': False, 'OBS_OUTPUT_VIDEO': True}})
+        if response and response.ok:
+            logger.info("Replay buffer enabled.")
+            return True
+        else:
+            logger.error(f"Failed to enable replay buffer: {response.status if response else 'No response'}")
+            return False
+    except Exception as e:
+        logger.error(f"Error enabling replay buffer: {e}")
+        return False
+    
+def get_output_list():
+    try:
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            response = client.get_output_list()
+        return response.outputs if response else None
+    except Exception as e:
+        logger.error(f"Error getting output list: {e}")
+        return None
+    
+def get_replay_buffer_output():
+    outputs = get_output_list()
+    if not outputs:
+        return None
+    for output in outputs:
+        if output.get('outputKind') == 'replay_buffer':
+            return output
+    return None
 
 def get_obs_scenes():
     try:
         with connection_pool.get_client() as client:
+            client: obs.ReqClient
             response = client.get_scene_list()
         return response.scenes if response else None
     except Exception as e:
@@ -526,6 +647,7 @@ def get_screenshot_PIL(source_name=None, compression=75, img_format='png', width
         return None
     while True:
         with connection_pool.get_client() as client:
+            client: obs.ReqClient
             response = client.get_source_screenshot(name=source_name, img_format=img_format, quality=compression, width=width, height=height)
         try:
             response.image_data = response.image_data.split(',', 1)[-1]  # Remove data:image/png;base64, prefix if present
@@ -567,6 +689,7 @@ def set_fit_to_screen_for_scene_items(scene_name: str):
         
     try:
         with connection_pool.get_client() as client:
+            client: obs.ReqClient
             # 1. Get the canvas (base) resolution from OBS video settings
             video_settings = client.get_video_settings()
             if not hasattr(video_settings, 'base_width') or not hasattr(video_settings, 'base_height'):
@@ -686,6 +809,7 @@ def main():
     
 def create_scene():
     with connection_pool.get_client() as client:
+        client: obs.ReqClient
         # Extract fields from request_json
         request_json = r'{"sceneName":"SILENT HILL f","inputName":"SILENT HILL f - Capture","inputKind":"window_capture","inputSettings":{"mode":"window","window":"SILENT HILL f  :UnrealWindow:SHf-Win64-Shipping.exe","capture_audio":true,"cursor":false,"method":"2"}}'
         request_dict = json.loads(request_json)
@@ -701,7 +825,21 @@ def create_scene():
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     connect_to_obs_sync()
-    img = get_screenshot_PIL(source_name='Display Capture 2', compression=100, img_format='jpg', width=2560, height=1440)
-    img.show()
+    
+    save_replay_buffer()
+    # img = get_screenshot_PIL(source_name='Display Capture 2', compression=100, img_format='jpg', width=2560, height=1440)
+    # img.show()
+    # output_list = get_output_list()
+    # print(output_list)
+    
+    # response = enable_replay_buffer()
+    # print(response)
+    
+    # response = get_replay_buffer_max_time_seconds()
+    # # response is dataclass with attributes, print attributes
+    # print(response)
+    
+    # response = enable_replay_buffer()
+    # print(response)
     # # set_fit_to_screen_for_scene_items(get_current_scene())
     # create_scene()

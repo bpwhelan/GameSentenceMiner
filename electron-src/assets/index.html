@@ -304,7 +304,9 @@
                             </div>
                             <div id="screen-selector-group" class="input-group" style="justify-content: center;">
                                 <button id="run-screen-selector">Run Area(s) Selector</button>
-                                <button id="open-ocr-wiki-btn" class="secondary" style="margin-left: 10px;">
+                                <button id="import-config-btn" class="secondary" title="Import OCR Config">📋</button>
+                                <button id="export-config-btn" class="secondary" title="Export OCR Config">📤</button>
+                                <button id="open-ocr-wiki-btn" class="secondary" title="Open OCR Area Selector Wiki">
                                     <span style="font-size: 14px;">❓</span>
                                 </button>
                                 <script>
@@ -600,6 +602,28 @@
                 let ocr_settings = null;
                 let windows = [];
                 let scenes = [];
+
+                let importConfigBtn = document.getElementById('import-config-btn');
+                let exportConfigBtn = document.getElementById('export-config-btn');
+
+                importConfigBtn.addEventListener('click', async () => {
+                    const result = await ipcRenderer.invoke('ocr.import-ocr-config');
+                    if (result.success) {
+                        alert('Import successful!');
+                        loadCurrentConfig();
+                    } else {
+                        alert('Import failed: ' + result.message);
+                    }
+                });
+
+                exportConfigBtn.addEventListener('click', async () => {
+                    const result = await ipcRenderer.invoke('ocr.export-ocr-config');
+                    if (result.success) {
+                        alert('Exported Config to Clipboard!');
+                    } else {
+                        alert('Export failed: ' + result.message);
+                    }
+                });
 
                 const ocrTerm = new Terminal({
                     convertEol: true,
@@ -1059,7 +1083,7 @@
                         document.getElementById('furigana-filter-sensitivity-value').textContent = furiganaSensitivity || 0;
                         const windowName = config.window;
                         document.getElementById('config-tooltip').innerText = '✓';
-                        document.getElementById('ocr-config-summary').innerHTML = `Selected Config: ${config.scene || 'None'}<br> Window: ${windowName || 'None'}<br> Rectangles: ${config.rectangles?.length || 0}`;
+                        document.getElementById('ocr-config-summary').innerHTML = `Selected Config: ${config.scene || 'None'}<br> Rectangles: ${config.rectangles?.length || 0}`;
                         if (windowName && !windows.some(window => window === windowName)) {
                             const option = document.createElement('option');
                             option.value = windowName;

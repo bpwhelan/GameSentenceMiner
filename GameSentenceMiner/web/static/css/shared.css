@@ -1013,3 +1013,37 @@ input[type="date"].dashboard-date-input:hover {
     box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.15);
     outline: none;
 }
+
+/* Merge Target Styling */
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+}
+
+.checkbox-container.merge-target {
+    background-color: var(--accent-color);
+    border: 2px solid var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.15);
+}
+
+.checkbox-container.merge-target .checkbox-label {
+    color: white;
+    font-weight: 600;
+}
+
+.checkbox-container.merge-target .checkbox-label::before {
+    content: "🎯 MERGE TARGET: ";
+    font-weight: 700;
+}
+
+.checkbox-input {
+    margin-right: 8px;
+}
+
+.checkbox-label {
+    cursor: pointer;
+    transition: color 0.3s ease;
+}

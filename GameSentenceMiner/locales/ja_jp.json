@@ -153,6 +153,10 @@
             "label": "Ankiを更新:",
             "tooltip": "自動的にAnkiを更新します。"
           },
+          "show_update_confirmation_dialog": {
+            "label": "更新確認ダイアログを表示:",
+            "tooltip": "Ankiカードを更新する前に確認ダイアログを表示します。"
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "AnkiConnectの接続URL。"
@@ -439,10 +443,10 @@
             "label": "最小リプレイサイズ (KB):",
             "tooltip": "このサイズ未満のリプレイは処理しません。"
           },
-          "turn_off_output_check": {
-            "label": "出力チェックを無効化:",
-            "tooltip": "動画出力のリプレイバッファチェックを無効化します。"
-          }
+            "turn_off_replay_buffer_management": {
+            "label": "リプレイバッファ管理を無効化:",
+            "tooltip": "OBSリプレイバッファの管理を無効化します。OBSでリプレイバッファを手動で管理したい場合に便利です。"
+            }
         },
         "profiles": {
           "title": "プロファイル",
