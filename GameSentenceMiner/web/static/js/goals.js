@@ -256,38 +256,48 @@ document.addEventListener('DOMContentLoaded', function () {
             let hasAnyTarget = false;
             
             // Update hours goal
+            const hoursGoalItem = document.getElementById('hoursGoalItem');
             if (data.hours && data.hours.has_target && !data.hours.expired) {
                 hasAnyTarget = true;
-                document.getElementById('hoursGoalItem').style.display = 'block';
-                document.getElementById('hoursProgressItem').style.display = 'block';
+                hoursGoalItem.style.display = 'block';
                 document.getElementById('hoursDaysRemaining').style.display = 'block';
                 
-                document.getElementById('todayHoursRequired').textContent = formatHours(data.hours.required);
                 document.getElementById('todayHoursProgress').textContent = formatHours(data.hours.progress);
+                document.getElementById('todayHoursRequired').textContent = formatHours(data.hours.required);
                 document.getElementById('hoursRemainingValue').textContent = data.hours.days_remaining;
+                
+                // Add green highlight if goal is met
+                if (data.hours.progress >= data.hours.required) {
+                    hoursGoalItem.classList.add('goal-met');
+                } else {
+                    hoursGoalItem.classList.remove('goal-met');
+                }
             } else {
-                document.getElementById('hoursGoalItem').style.display = 'none';
-                document.getElementById('hoursProgressItem').style.display = 'none';
+                hoursGoalItem.style.display = 'none';
                 document.getElementById('hoursDaysRemaining').style.display = 'none';
             }
             
             // Update characters goal
+            const charsGoalItem = document.getElementById('charsGoalItem');
             if (data.characters && data.characters.has_target && !data.characters.expired) {
                 hasAnyTarget = true;
-                document.getElementById('charsGoalItem').style.display = 'block';
-                document.getElementById('charsProgressItem').style.display = 'block';
+                charsGoalItem.style.display = 'block';
                 document.getElementById('charsDaysRemaining').style.display = 'block';
                 
-                document.getElementById('todayCharsRequired').textContent = formatGoalNumber(data.characters.required);
                 document.getElementById('todayCharsProgress').textContent = formatGoalNumber(data.characters.progress);
+                document.getElementById('todayCharsRequired').textContent = formatGoalNumber(data.characters.required);
                 document.getElementById('charsRemainingValue').textContent = data.characters.days_remaining;
+                
+                // Add green highlight if goal is met
+                if (data.characters.progress >= data.characters.required) {
+                    charsGoalItem.classList.add('goal-met');
+                } else {
+                    charsGoalItem.classList.remove('goal-met');
+                }
             } else {
-                document.getElementById('charsGoalItem').style.display = 'none';
-                document.getElementById('charsProgressItem').style.display = 'none';
+                charsGoalItem.style.display = 'none';
                 document.getElementById('charsDaysRemaining').style.display = 'none';
             }
-            
-            // Update games goal (not displayed in today's goals as it's cumulative)
             
             // Show/hide sections based on whether any targets are set
             if (hasAnyTarget) {
@@ -318,13 +328,10 @@ document.addEventListener('DOMContentLoaded', function () {
             if (data.hours && data.hours.target_date) {
                 hasAnyProjection = true;
                 document.getElementById('hoursProjectionItem').style.display = 'block';
-                document.getElementById('hoursAvgItem').style.display = 'block';
                 document.getElementById('hoursProjectionSummary').style.display = 'block';
                 
-                document.getElementById('projectionHoursValue').textContent = 
+                document.getElementById('projectionHoursValue').textContent =
                     Math.floor(data.hours.projection).toLocaleString() + 'h';
-                document.getElementById('projectionHoursAvg').textContent = 
-                    formatHours(data.hours.daily_average);
                 
                 // Status message
                 const hoursStatus = document.getElementById('hoursProjectionStatus');
@@ -338,7 +345,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             } else {
                 document.getElementById('hoursProjectionItem').style.display = 'none';
-                document.getElementById('hoursAvgItem').style.display = 'none';
                 document.getElementById('hoursProjectionSummary').style.display = 'none';
             }
             
@@ -346,11 +352,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (data.characters && data.characters.target_date) {
                 hasAnyProjection = true;
                 document.getElementById('charsProjectionItem').style.display = 'block';
-                document.getElementById('charsAvgItem').style.display = 'block';
                 document.getElementById('charsProjectionSummary').style.display = 'block';
                 
                 document.getElementById('projectionCharsValue').textContent = formatGoalNumber(data.characters.projection);
-                document.getElementById('projectionCharsAvg').textContent = formatGoalNumber(data.characters.daily_average);
                 
                 // Status message
                 const charsStatus = document.getElementById('charsProjectionStatus');
@@ -364,7 +368,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             } else {
                 document.getElementById('charsProjectionItem').style.display = 'none';
-                document.getElementById('charsAvgItem').style.display = 'none';
                 document.getElementById('charsProjectionSummary').style.display = 'none';
             }
             
@@ -372,11 +375,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (data.games && data.games.target_date) {
                 hasAnyProjection = true;
                 document.getElementById('gamesProjectionItem').style.display = 'block';
-                document.getElementById('gamesAvgItem').style.display = 'block';
                 document.getElementById('gamesProjectionSummary').style.display = 'block';
                 
                 document.getElementById('projectionGamesValue').textContent = data.games.projection.toLocaleString();
-                document.getElementById('projectionGamesAvg').textContent = data.games.daily_average.toFixed(2);
                 
                 // Status message
                 const gamesStatus = document.getElementById('gamesProjectionStatus');
@@ -390,7 +391,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             } else {
                 document.getElementById('gamesProjectionItem').style.display = 'none';
-                document.getElementById('gamesAvgItem').style.display = 'none';
                 document.getElementById('gamesProjectionSummary').style.display = 'none';
             }
             

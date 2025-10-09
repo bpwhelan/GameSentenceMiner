@@ -135,21 +135,21 @@
             </div>
 
             <div class="dashboard-stats-grid" id="todayGoalsStats">
-                <div class="dashboard-stat-item tooltip" data-tooltip="Hours you need to read today to stay on track" id="hoursGoalItem" style="display: none;">
-                    <span class="dashboard-stat-value" id="todayHoursRequired">-</span>
+                <div class="dashboard-stat-item goal-stat-item tooltip" data-tooltip="Your progress toward today's hours goal" id="hoursGoalItem" style="display: none;">
+                    <span class="dashboard-stat-value">
+                        <span id="todayHoursProgress">-</span>
+                        <span class="goal-separator">/</span>
+                        <span id="todayHoursRequired">-</span>
+                    </span>
                     <span class="dashboard-stat-label">Hours Required</span>
                 </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Your reading progress for today" id="hoursProgressItem" style="display: none;">
-                    <span class="dashboard-stat-value" id="todayHoursProgress">-</span>
-                    <span class="dashboard-stat-label">Hours Today</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Characters you need to read today to stay on track" id="charsGoalItem" style="display: none;">
-                    <span class="dashboard-stat-value" id="todayCharsRequired">-</span>
+                <div class="dashboard-stat-item goal-stat-item tooltip" data-tooltip="Your progress toward today's character goal" id="charsGoalItem" style="display: none;">
+                    <span class="dashboard-stat-value">
+                        <span id="todayCharsProgress">-</span>
+                        <span class="goal-separator">/</span>
+                        <span id="todayCharsRequired">-</span>
+                    </span>
                     <span class="dashboard-stat-label">Characters Required</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Characters you've read today" id="charsProgressItem" style="display: none;">
-                    <span class="dashboard-stat-value" id="todayCharsProgress">-</span>
-                    <span class="dashboard-stat-label">Characters Today</span>
                 </div>
             </div>
 
@@ -187,29 +187,17 @@
             </div>
 
             <div class="dashboard-stats-grid" id="projectionStats">
-                <div class="dashboard-stat-item tooltip" data-tooltip="Projected hours by your target date" id="hoursProjectionItem" style="display: none;">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total hours you'll have by your target date" id="hoursProjectionItem" style="display: none;">
                     <span class="dashboard-stat-value" id="projectionHoursValue">-</span>
-                    <span class="dashboard-stat-label">Projected Hours</span>
+                    <span class="dashboard-stat-label">Total Hours by Target</span>
                 </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Your 30-day daily average for hours" id="hoursAvgItem" style="display: none;">
-                    <span class="dashboard-stat-value" id="projectionHoursAvg">-</span>
-                    <span class="dashboard-stat-label">Daily Avg (30d)</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Projected characters by your target date" id="charsProjectionItem" style="display: none;">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total characters you'll have by your target date" id="charsProjectionItem" style="display: none;">
                     <span class="dashboard-stat-value" id="projectionCharsValue">-</span>
-                    <span class="dashboard-stat-label">Projected Characters</span>
+                    <span class="dashboard-stat-label">Total Characters by Target</span>
                 </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Your 30-day daily average for characters" id="charsAvgItem" style="display: none;">
-                    <span class="dashboard-stat-value" id="projectionCharsAvg">-</span>
-                    <span class="dashboard-stat-label">Daily Avg (30d)</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Projected games by your target date" id="gamesProjectionItem" style="display: none;">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total games you'll have by your target date" id="gamesProjectionItem" style="display: none;">
                     <span class="dashboard-stat-value" id="projectionGamesValue">-</span>
-                    <span class="dashboard-stat-label">Projected Games</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Your 30-day daily average for games" id="gamesAvgItem" style="display: none;">
-                    <span class="dashboard-stat-value" id="projectionGamesAvg">-</span>
-                    <span class="dashboard-stat-label">Daily Avg (30d)</span>
+                    <span class="dashboard-stat-label">Total Games by Target</span>
                 </div>
             </div>
 
@@ -330,10 +318,11 @@
                                     Games/Visual Novels Target Date
                                 </label>
                                 <input type="date" id="gamesTargetDate" name="games_target_date"
-                                    style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                    style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                    data-date-format="yyyy-mm-dd">
                                 <small
                                     style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                                    Target date to achieve your games goal
+                                    Target date to achieve your games goal (Format: YYYY-MM-DD)
                                 </small>
                             </div>
                         </div>
