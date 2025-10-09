@@ -354,7 +354,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     const badge = `<span class="pace-badge pace-behind-mild">${Math.floor(hoursPercentDiff)}%</span>`;
                     hoursStatus.innerHTML = `${Math.floor(shortfall)}h short ${badge}`;
                     hoursStatus.className = 'dashboard-progress-value';
-                    hoursStatus.style.color = 'var(--danger-color)';
+                    hoursStatus.style.color = 'var(--warning-color)';
                 } else {
                     // Significantly behind (< -15%)
                     const shortfall = data.hours.target - data.hours.projection;
@@ -397,7 +397,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     const badge = `<span class="pace-badge pace-behind-mild">${Math.floor(charsPercentDiff)}%</span>`;
                     charsStatus.innerHTML = `${formatGoalNumber(shortfall)} short ${badge}`;
                     charsStatus.className = 'dashboard-progress-value';
-                    charsStatus.style.color = 'var(--danger-color)';
+                    charsStatus.style.color = 'var(--warning-color)';
                 } else {
                     // Significantly behind (< -15%)
                     const shortfall = data.characters.target - data.characters.projection;
@@ -440,7 +440,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     const badge = `<span class="pace-badge pace-behind-mild">${Math.floor(gamesPercentDiff)}%</span>`;
                     gamesStatus.innerHTML = `${shortfall} short ${badge}`;
                     gamesStatus.className = 'dashboard-progress-value';
-                    gamesStatus.style.color = 'var(--danger-color)';
+                    gamesStatus.style.color = 'var(--warning-color)';
                 } else {
                     // Significantly behind (< -15%)
                     const shortfall = data.games.target - data.games.projection;
