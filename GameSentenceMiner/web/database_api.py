@@ -1128,7 +1128,13 @@ def register_database_api_routes(app):
                 # Average over ALL 30 days (including days with 0 activity)
                 avg_daily_hours = total_hours / 30
                 avg_daily_chars = total_chars / 30
-                avg_daily_games = len(total_unique_games) / 30
+                # Calculate average daily unique games correctly
+                today = datetime.date.today()
+                daily_unique_games_counts = []
+                for i in range(30):
+                    day = (today - datetime.timedelta(days=i)).strftime('%Y-%m-%d')
+                    daily_unique_games_counts.append(len(daily_data[day]['games']) if day in daily_data else 0)
+                avg_daily_games = sum(daily_unique_games_counts) / 30
             else:
                 avg_daily_hours = 0
                 avg_daily_chars = 0
