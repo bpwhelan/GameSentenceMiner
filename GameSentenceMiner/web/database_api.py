@@ -786,146 +786,352 @@ def register_database_api_routes(app):
             logger.error(f"Error in deduplication: {e}")
             return jsonify({'error': f'Deduplication failed: {str(e)}'}), 500
 
+    @app.route('/api/merge_games', methods=['POST'])
+    def api_merge_games():
+        """
+        Merges multiple selected games into a single game entry.
+        The first game in the list becomes the primary game that retains its name.
+        All lines from secondary games are moved to the primary game.
+        """
+        try:
+            data = request.get_json()
+            game_names = data.get('game_names', [])
+            
+            # Validation
+            if not game_names:
+                return jsonify({'error': 'No games specified for merging'}), 400
+            
+            if not isinstance(game_names, list):
+                return jsonify({'error': 'game_names must be a list'}), 400
+                
+            if len(game_names) < 2:
+                return jsonify({'error': 'At least 2 games must be selected for merging'}), 400
+            
+            # Validate that all games exist
+            existing_games = GameLinesTable.get_all_games_with_lines()
+            invalid_games = [name for name in game_names if name not in existing_games]
+            
+            if invalid_games:
+                return jsonify({'error': f'Games not found: {", ".join(invalid_games)}'}), 400
+            
+            # Check for duplicate game names
+            if len(set(game_names)) != len(game_names):
+                return jsonify({'error': 'Duplicate game names found in selection'}), 400
+            
+            # Identify primary and secondary games
+            primary_game = game_names[0]
+            secondary_games = game_names[1:]
+            
+            # Collect pre-merge statistics
+            primary_lines_before = GameLinesTable.get_all_lines_for_scene(primary_game)
+            total_lines_to_merge = 0
+            merge_summary = {
+                'primary_game': primary_game,
+                'secondary_games': secondary_games,
+                'lines_moved': 0,
+                'total_lines_after_merge': 0
+            }
+            
+            # Calculate lines to be moved and store counts
+            secondary_game_line_counts = {}
+            for game_name in secondary_games:
+                secondary_lines = GameLinesTable.get_all_lines_for_scene(game_name)
+                line_count = len(secondary_lines)
+                secondary_game_line_counts[game_name] = line_count
+                total_lines_to_merge += line_count
+            
+            if total_lines_to_merge == 0:
+                return jsonify({'error': 'No lines found in secondary games to merge'}), 400
+            
+            # Begin database transaction for merge
+            try:
+                # Perform the merge operation within transaction
+                lines_moved = 0
+                for game_name in secondary_games:
+                    # Update game_name for all lines belonging to this secondary game
+                    # Also set original_game_name to preserve the original title
+                    # Ensure the table name is as expected to prevent SQL injection
+                    if GameLinesTable._table != "game_lines":
+                        raise ValueError("Unexpected table name in GameLinesTable._table")
+                    GameLinesTable._db.execute(
+                        "UPDATE game_lines SET game_name=?, original_game_name=COALESCE(original_game_name, ?) WHERE game_name=?",
+                        (primary_game, game_name, game_name),
+                        commit=True
+                    )
+                    
+                    # Add the count we calculated earlier
+                    lines_moved += secondary_game_line_counts[game_name]
+                
+                # Update merge summary
+                merge_summary['lines_moved'] = lines_moved
+                merge_summary['total_lines_after_merge'] = len(primary_lines_before) + lines_moved
+                
+                # Log the successful merge
+                logger.info(f"Successfully merged {len(secondary_games)} games into '{primary_game}': moved {lines_moved} lines")
+                
+                # Prepare success response
+                response_data = {
+                    'message': f'Successfully merged {len(secondary_games)} games into "{primary_game}"',
+                    'primary_game': primary_game,
+                    'merged_games': secondary_games,
+                    'lines_moved': lines_moved,
+                    'total_lines_in_primary': merge_summary['total_lines_after_merge'],
+                    'merge_summary': merge_summary
+                }
+                
+                return jsonify(response_data), 200
+                
+            except Exception as db_error:
+                logger.error(f"Database error during game merge: {db_error}")
+                return jsonify({
+                    'error': f'Failed to merge games due to database error: {str(db_error)}'
+                }), 500
+                
+        except Exception as e:
+            logger.error(f"Error in game merge API: {e}")
+            return jsonify({'error': f'Game merge failed: {str(e)}'}), 500
+
     @app.route('/api/stats')
     def api_stats():
         """
         Provides aggregated, cumulative stats for charting.
         Accepts optional 'year' parameter to filter heatmap data.
         """
-        punctionation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
-        # Get optional year filter parameter
-        filter_year = request.args.get('year', None)
+        try:
+            punctionation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
+            # Get optional year filter parameter
+            filter_year = request.args.get('year', None)
 
-        # Get Start and End time as unix timestamp
-        start_timestamp = request.args.get('start', None)
-        end_timestamp = request.args.get('end', None)
-        
-        # Convert timestamps to float if provided
-        start_timestamp = float(start_timestamp) if start_timestamp else None
-        end_timestamp = float(end_timestamp) if end_timestamp else None
-
-        # # 1. Fetch all lines and sort them chronologically
-        # all_lines = sorted(GameLinesTable.all(), key=lambda line: line.timestamp)
-
-        # 1. Fetch all lines and sort them chronologically
-        all_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=start_timestamp, end=end_timestamp)
-        
-        if not all_lines:
-            return jsonify({"labels": [], "datasets": []})
-
-        # 2. Process data into daily totals for each game
-        # Structure: daily_data[date_str][game_name] = {'lines': N, 'chars': N}
-        daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0}))
-        
-        
-        
-        
-        # start_time = time.perf_counter()
-        # for line in all_lines:
-        #     day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
-        #     game = line.game_name or "Unknown Game"
-        #     daily_data[day_str][game]['lines'] += 1
-        #     daily_data[day_str][game]['chars'] += len(line.line_text) if line.line_text else 0
-        # end_time = time.perf_counter()
-        # logger.info(f"Without Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
-
-        # start_time = time.perf_counter()
-        wrong_instance_found = False
-        for line in all_lines:
-            day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
-            game = line.game_name or "Unknown Game"
-            # Remove punctuation and symbols from line text before counting characters
-            clean_text = punctionation_regex.sub('', str(line.line_text)) if line.line_text else ''
-            if not isinstance(clean_text, str) and not wrong_instance_found:
-                logger.info(f"Non-string line_text encountered: {clean_text} (type: {type(clean_text)})")
-                wrong_instance_found = True
-
-            line.line_text = clean_text  # Update line text to cleaned version for future use
-            daily_data[day_str][game]['lines'] += 1
-            daily_data[day_str][game]['chars'] += len(clean_text)
-        # end_time = time.perf_counter()
-        # logger.info(f"With Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
-
-        # 3. Create cumulative datasets for Chart.js
-        sorted_days = sorted(daily_data.keys())
-        game_names = GameLinesTable.get_all_games_with_lines()
-        
-        # Keep track of the running total for each metric for each game
-        cumulative_totals = defaultdict(lambda: {'lines': 0, 'chars': 0})
-        
-        # Structure for final data: final_data[game_name][metric] = [day1_val, day2_val, ...]
-        final_data = defaultdict(lambda: defaultdict(list))
-
-        for day in sorted_days:
-            for game in game_names:
-                # Add the day's total to the cumulative total
-                cumulative_totals[game]['lines'] += daily_data[day][game]['lines']
-                cumulative_totals[game]['chars'] += daily_data[day][game]['chars']
-                
-                # Append the new cumulative total to the list for that day
-                final_data[game]['lines'].append(cumulative_totals[game]['lines'])
-                final_data[game]['chars'].append(cumulative_totals[game]['chars'])
-        
-        # 4. Format into Chart.js dataset structure
-        datasets = []
-        # A simple color palette for the chart lines
-        colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22']
-        
-        for i, game in enumerate(game_names):
-            color = colors[i % len(colors)]
+            # Get Start and End time as unix timestamp
+            start_timestamp = request.args.get('start', None)
+            end_timestamp = request.args.get('end', None)
             
-            datasets.append({
-                "label": f"{game}",
-                "for": "Lines Received",
-                "data": final_data[game]['lines'],
-                "borderColor": color,
-                "backgroundColor": f"{color}33", # Semi-transparent for fill
-                "fill": False,
-                "tension": 0.1
-            })
-            datasets.append({
-                "label": f"{game}",
-                "for": "Characters Read",
-                "data": final_data[game]['chars'],
-                "borderColor": color,
-                "backgroundColor": f"{color}33",
-                "fill": False,
-                "tension": 0.1,
-                "hidden": True # Hide by default to not clutter the chart
-            })
+            # Convert timestamps to float if provided
+            start_timestamp = float(start_timestamp) if start_timestamp else None
+            end_timestamp = float(end_timestamp) if end_timestamp else None
 
-        # 5. Calculate additional chart data
-        kanji_grid_data = calculate_kanji_frequency(all_lines)
-        heatmap_data = calculate_heatmap_data(all_lines, filter_year)
-        total_chars_data = calculate_total_chars_per_game(all_lines)
-        reading_time_data = calculate_reading_time_per_game(all_lines)
-        reading_speed_per_game_data = calculate_reading_speed_per_game(all_lines)
-        
-        # 6. Calculate dashboard statistics
-        current_game_stats = calculate_current_game_stats(all_lines)
-        all_games_stats = calculate_all_games_stats(all_lines)
+            # 1. Fetch all lines and sort them chronologically
+            all_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=start_timestamp, end=end_timestamp)
+            
+            if not all_lines:
+                return jsonify({"labels": [], "datasets": []})
 
-        # 7. Prepare allLinesData for frontend calculations (needed for average daily time)
-        all_lines_data = []
-        for line in all_lines:
-            all_lines_data.append({
-                'timestamp': float(line.timestamp),
-                'game_name': line.game_name or 'Unknown Game',
-                'characters': len(line.line_text) if line.line_text else 0
+            # 2. Process data into daily totals for each game
+            # Structure: daily_data[date_str][game_name] = {'lines': N, 'chars': N}
+            daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0}))
+            wrong_instance_found = False
+            for line in all_lines:
+                day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
+                game = line.game_name or "Unknown Game"
+                # Remove punctuation and symbols from line text before counting characters
+                clean_text = punctionation_regex.sub('', str(line.line_text)) if line.line_text else ''
+                if not isinstance(clean_text, str) and not wrong_instance_found:
+                    logger.info(f"Non-string line_text encountered: {clean_text} (type: {type(clean_text)})")
+                    wrong_instance_found = True
+
+                line.line_text = clean_text  # Update line text to cleaned version for future use
+                daily_data[day_str][game]['lines'] += 1
+                daily_data[day_str][game]['chars'] += len(clean_text)
+
+            # 3. Create cumulative datasets for Chart.js
+            sorted_days = sorted(daily_data.keys())
+            game_names = GameLinesTable.get_all_games_with_lines()
+            
+            # Keep track of the running total for each metric for each game
+            cumulative_totals = defaultdict(lambda: {'lines': 0, 'chars': 0})
+            
+            # Structure for final data: final_data[game_name][metric] = [day1_val, day2_val, ...]
+            final_data = defaultdict(lambda: defaultdict(list))
+
+            for day in sorted_days:
+                for game in game_names:
+                    # Add the day's total to the cumulative total
+                    cumulative_totals[game]['lines'] += daily_data[day][game]['lines']
+                    cumulative_totals[game]['chars'] += daily_data[day][game]['chars']
+                    
+                    # Append the new cumulative total to the list for that day
+                    final_data[game]['lines'].append(cumulative_totals[game]['lines'])
+                    final_data[game]['chars'].append(cumulative_totals[game]['chars'])
+            
+            # 4. Format into Chart.js dataset structure
+            datasets = []
+            # A simple color palette for the chart lines
+            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22']
+            
+            for i, game in enumerate(game_names):
+                color = colors[i % len(colors)]
+            
+            # 1. Fetch all lines and sort them chronologically
+            try:
+                all_lines = sorted(GameLinesTable.all(), key=lambda line: line.timestamp)
+            except Exception as e:
+                logger.error(f"Error fetching lines from database: {e}")
+                return jsonify({'error': 'Failed to fetch data from database'}), 500
+            
+            if not all_lines:
+                return jsonify({"labels": [], "datasets": []})
+
+            # 2. Process data into daily totals for each game
+            # Structure: daily_data[date_str][game_name] = {'lines': N, 'chars': N}
+            daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0}))
+
+            try:
+                # start_time = time.perf_counter()
+                # for line in all_lines:
+                #     day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
+                #     game = line.game_name or "Unknown Game"
+                #     daily_data[day_str][game]['lines'] += 1
+                #     daily_data[day_str][game]['chars'] += len(line.line_text) if line.line_text else 0
+                # end_time = time.perf_counter()
+                # logger.info(f"Without Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
+
+                # start_time = time.perf_counter()
+                wrong_instance_found = False
+                for line in all_lines:
+                    day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
+                    game = line.game_name or "Unknown Game"
+                    # Remove punctuation and symbols from line text before counting characters
+                    clean_text = punctionation_regex.sub('', str(line.line_text)) if line.line_text else ''
+                    if not isinstance(clean_text, str) and not wrong_instance_found:
+                        logger.info(f"Non-string line_text encountered: {clean_text} (type: {type(clean_text)})")
+                        wrong_instance_found = True
+
+                    line.line_text = clean_text  # Update line text to cleaned version for future use
+                    daily_data[day_str][game]['lines'] += 1
+                    daily_data[day_str][game]['chars'] += len(clean_text)
+                # end_time = time.perf_counter()
+                # logger.info(f"With Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
+            except Exception as e:
+                logger.error(f"Error processing daily data: {e}")
+                return jsonify({'error': 'Failed to process daily data'}), 500
+
+            # 3. Create cumulative datasets for Chart.js
+            try:
+                sorted_days = sorted(daily_data.keys())
+                game_names = GameLinesTable.get_all_games_with_lines()
+                
+                # Keep track of the running total for each metric for each game
+                cumulative_totals = defaultdict(lambda: {'lines': 0, 'chars': 0})
+                
+                # Structure for final data: final_data[game_name][metric] = [day1_val, day2_val, ...]
+                final_data = defaultdict(lambda: defaultdict(list))
+
+                for day in sorted_days:
+                    for game in game_names:
+                        # Add the day's total to the cumulative total
+                        cumulative_totals[game]['lines'] += daily_data[day][game]['lines']
+                        cumulative_totals[game]['chars'] += daily_data[day][game]['chars']
+                        
+                        # Append the new cumulative total to the list for that day
+                        final_data[game]['lines'].append(cumulative_totals[game]['lines'])
+                        final_data[game]['chars'].append(cumulative_totals[game]['chars'])
+            except Exception as e:
+                logger.error(f"Error creating cumulative datasets: {e}")
+                return jsonify({'error': 'Failed to create datasets'}), 500
+            
+            # 4. Format into Chart.js dataset structure
+            try:
+                datasets = []
+                # A simple color palette for the chart lines
+                colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22']
+                
+                for i, game in enumerate(game_names):
+                    color = colors[i % len(colors)]
+                    
+                    datasets.append({
+                        "label": f"{game} - Lines Received",
+                        "data": final_data[game]['lines'],
+                        "borderColor": color,
+                        "backgroundColor": f"{color}33", # Semi-transparent for fill
+                        "fill": False,
+                        "tension": 0.1
+                    })
+                    datasets.append({
+                        "label": f"{game} - Characters Read",
+                        "data": final_data[game]['chars'],
+                        "borderColor": color,
+                        "backgroundColor": f"{color}33",
+                        "fill": False,
+                        "tension": 0.1,
+                        "hidden": True # Hide by default to not clutter the chart
+                    })
+            except Exception as e:
+                logger.error(f"Error formatting Chart.js datasets: {e}")
+                return jsonify({'error': 'Failed to format chart data'}), 500
+
+            # 5. Calculate additional chart data
+            try:
+                kanji_grid_data = calculate_kanji_frequency(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating kanji frequency: {e}")
+                kanji_grid_data = []
+                
+            try:
+                heatmap_data = calculate_heatmap_data(all_lines, filter_year)
+            except Exception as e:
+                logger.error(f"Error calculating heatmap data: {e}")
+                heatmap_data = []
+                
+            try:
+                total_chars_data = calculate_total_chars_per_game(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating total chars per game: {e}")
+                total_chars_data = {}
+                
+            try:
+                reading_time_data = calculate_reading_time_per_game(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating reading time per game: {e}")
+                reading_time_data = {}
+                
+            try:
+                reading_speed_per_game_data = calculate_reading_speed_per_game(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating reading speed per game: {e}")
+                reading_speed_per_game_data = {}
+            
+            # 6. Calculate dashboard statistics
+            try:
+                current_game_stats = calculate_current_game_stats(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating current game stats: {e}")
+                current_game_stats = {}
+                
+            try:
+                all_games_stats = calculate_all_games_stats(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating all games stats: {e}")
+                all_games_stats = {}
+
+            # 7. Prepare allLinesData for frontend calculations (needed for average daily time)
+            try:
+                all_lines_data = []
+                for line in all_lines:
+                    all_lines_data.append({
+                        'timestamp': float(line.timestamp),
+                        'game_name': line.game_name or 'Unknown Game',
+                        'characters': len(line.line_text) if line.line_text else 0
+                    })
+            except Exception as e:
+                logger.error(f"Error preparing all lines data: {e}")
+                all_lines_data = []
+
+            return jsonify({
+                "labels": sorted_days,
+                "datasets": datasets,
+                "kanjiGridData": kanji_grid_data,
+                "heatmapData": heatmap_data,
+                "totalCharsPerGame": total_chars_data,
+                "readingTimePerGame": reading_time_data,
+                "readingSpeedPerGame": reading_speed_per_game_data,
+                "currentGameStats": current_game_stats,
+                "allGamesStats": all_games_stats,
+                "allLinesData": all_lines_data
             })
-
-        return jsonify({
-            "labels": sorted_days,
-            "datasets": datasets,
-            "kanjiGridData": kanji_grid_data,
-            "heatmapData": heatmap_data,
-            "totalCharsPerGame": total_chars_data,
-            "readingTimePerGame": reading_time_data,
-            "readingSpeedPerGame": reading_speed_per_game_data,
-            "currentGameStats": current_game_stats,
-            "allGamesStats": all_games_stats,
-            "allLinesData": all_lines_data
-        })
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in api_stats: {e}")
+            return jsonify({'error': 'Failed to generate statistics'}), 500
 
     @app.route('/api/import-exstatic', methods=['POST'])
     def api_import_exstatic():
@@ -1112,3 +1318,45 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error in ExStatic import: {e}")
             return jsonify({'error': f'Import failed: {str(e)}'}), 500
+
+    @app.route('/api/debug-db', methods=['GET'])
+    def api_debug_db():
+        """Debug endpoint to check database structure and content."""
+        try:
+            # Check table structure
+            columns_info = GameLinesTable._db.fetchall("PRAGMA table_info(game_lines)")
+            table_structure = [{'name': col[1], 'type': col[2], 'notnull': col[3], 'default': col[4]} for col in columns_info]
+            
+            # Check if we have any data
+            count_result = GameLinesTable._db.fetchone("SELECT COUNT(*) FROM game_lines")
+            total_count = count_result[0] if count_result else 0
+            
+            # Try to get a sample record
+            sample_record = None
+            if total_count > 0:
+                sample_row = GameLinesTable._db.fetchone("SELECT * FROM game_lines LIMIT 1")
+                if sample_row:
+                    sample_record = {
+                        'row_length': len(sample_row),
+                        'sample_data': sample_row[:5] if len(sample_row) > 5 else sample_row  # First 5 columns only
+                    }
+            
+            # Test the model
+            model_info = {
+                'fields_count': len(GameLinesTable._fields),
+                'types_count': len(GameLinesTable._types),
+                'fields': GameLinesTable._fields,
+                'types': [str(t) for t in GameLinesTable._types]
+            }
+            
+            return jsonify({
+                'table_structure': table_structure,
+                'total_records': total_count,
+                'sample_record': sample_record,
+                'model_info': model_info
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error in debug endpoint: {e}")
+            return jsonify({'error': f'Debug failed: {str(e)}'}), 500
+

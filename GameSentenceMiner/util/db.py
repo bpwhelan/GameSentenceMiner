@@ -133,45 +133,81 @@ class SQLiteDBTable:
             return None
         obj = cls()
         fields = [cls._pk] + cls._fields
+        
+        # Handle cases where the database might have fewer columns than the model expects
         for i, field in enumerate(fields):
-            if i == 0 and field == cls._pk:
-                if cls._types[i] == int:
-                    setattr(obj, field, int(row[i])
-                            if row[i] is not None else None)
-                elif cls._types[i] == str:
-                    setattr(obj, field, str(row[i])
-                            if row[i] is not None else None)
+            # Skip if this field index exceeds the row length
+            if i >= len(row):
+                # Set default value for missing columns
+                if hasattr(obj, field):
+                    if field == 'original_game_name':
+                        setattr(obj, field, '')
+                    else:
+                        # Try to set a reasonable default based on type
+                        if i < len(cls._types):
+                            if cls._types[i] == str:
+                                setattr(obj, field, '')
+                            elif cls._types[i] == int:
+                                setattr(obj, field, 0)
+                            elif cls._types[i] == float:
+                                setattr(obj, field, 0.0)
+                            elif cls._types[i] == bool:
+                                setattr(obj, field, False)
+                            elif cls._types[i] == list:
+                                setattr(obj, field, [])
+                            elif cls._types[i] == dict:
+                                setattr(obj, field, {})
+                            else:
+                                setattr(obj, field, None)
                 continue
-            if cls._types[i] == str:
-                if (row[i].startswith('[') or row[i].startswith('{')):
-                    try:
-                        setattr(obj, field, json.loads(row[i]))
-                    except json.JSONDecodeError:
+                
+            try:
+                if i == 0 and field == cls._pk:
+                    if i < len(cls._types):
+                        if cls._types[i] == int:
+                            setattr(obj, field, int(row[i])
+                                    if row[i] is not None else None)
+                        elif cls._types[i] == str:
+                            setattr(obj, field, str(row[i])
+                                    if row[i] is not None else None)
+                    continue
+                    
+                if i < len(cls._types):
+                    if cls._types[i] == str:
+                        if row[i] is not None and (str(row[i]).startswith('[') or str(row[i]).startswith('{')):
+                            try:
+                                setattr(obj, field, json.loads(row[i]))
+                            except json.JSONDecodeError:
+                                setattr(obj, field, row[i])
+                        else:
+                            setattr(obj, field, str(row[i])
+                                    if row[i] is not None else None)
+                    elif cls._types[i] == list:
+                        try:
+                            setattr(obj, field, json.loads(row[i]) if row[i] else [])
+                        except json.JSONDecodeError:
+                            setattr(obj, field, [])
+                    elif cls._types[i] == int:
+                        setattr(obj, field, int(row[i])
+                                if row[i] is not None else None)
+                    elif cls._types[i] == float:
+                        setattr(obj, field, float(row[i])
+                                if row[i] is not None else None)
+                    elif cls._types[i] == bool:
+                        setattr(obj, field, bool(row[i])
+                                if row[i] is not None else None)
+                    elif cls._types[i] == dict:
+                        try:
+                            setattr(obj, field, json.loads(row[i]) if row[i] else {})
+                        except json.JSONDecodeError:
+                            setattr(obj, field, {})
+                    else:
                         setattr(obj, field, row[i])
-                else:
-                    setattr(obj, field, str(row[i])
-                            if row[i] is not None else None)
-            elif cls._types[i] == list:
-                try:
-                    setattr(obj, field, json.loads(row[i]) if row[i] else [])
-                except json.JSONDecodeError:
-                    setattr(obj, field, [])
-            elif cls._types[i] == int:
-                setattr(obj, field, int(row[i])
-                        if row[i] is not None else None)
-            elif cls._types[i] == float:
-                setattr(obj, field, float(row[i])
-                        if row[i] is not None else None)
-            elif cls._types[i] == bool:
-                setattr(obj, field, bool(row[i])
-                        if row[i] is not None else None)
-            elif cls._types[i] == dict:
-                try:
-                    setattr(obj, field, json.loads(row[i]) if row[i] else {})
-                except json.JSONDecodeError:
-                    setattr(obj, field, {})
-            else:
-                setattr(obj, field, row[i])
+            except (IndexError, ValueError, TypeError) as e:
+                logger.warning(f"Error setting field {field} in {cls.__name__}: {e}")
+                # Set a safe default
+                setattr(obj, field, '' if field == 'original_game_name' else None)
+                
         return obj
 
     def save(self, retry=1):
@@ -212,7 +248,7 @@ class SQLiteDBTable:
     def add(self, retry=1):
         try:
             pk_val = getattr(self, self._pk, None)
-            if cls._auto_increment:
+            if self._auto_increment:
                 self.save()
             elif pk_val is None:
                 raise ValueError(
@@ -378,9 +414,9 @@ class AIModelsTable(SQLiteDBTable):
 class GameLinesTable(SQLiteDBTable):
     _table = 'game_lines'
     _fields = ['game_name', 'line_text', 'screenshot_in_anki',
-               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp']
+               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp', 'original_game_name']
     _types = [str,  # Includes primary key type
-              str, str, str, str, str, str, str, str, float]
+              str, str, str, str, str, str, str, str, float, str]
     _pk = 'id'
     _auto_increment = False  # Use string IDs
 
@@ -394,7 +430,8 @@ class GameLinesTable(SQLiteDBTable):
                  screenshot_path: Optional[str] = None,
                  audio_path: Optional[str] = None,
                  replay_path: Optional[str] = None,
-                 translation: Optional[str] = None):
+                 translation: Optional[str] = None,
+                 original_game_name: Optional[str] = None):
         self.id = id
         self.game_name = game_name
         self.line_text = line_text
@@ -406,6 +443,7 @@ class GameLinesTable(SQLiteDBTable):
         self.audio_path = audio_path if audio_path is not None else ''
         self.replay_path = replay_path if replay_path is not None else ''
         self.translation = translation if translation is not None else ''
+        self.original_game_name = original_game_name if original_game_name is not None else ''
 
     @classmethod
     def get_all_lines_for_scene(cls, game_name: str) -> List['GameLinesTable']:
