@@ -111,6 +111,10 @@ If you encounter issues, please ask for help in my [Discord](https://discord.gg/
 
 * https://github.com/Saplling/transparent-texthooker-overlay
 
+* [ExStatic for stats](https://github.com/KamWithK/exSTATic)
+
+* [Kanji Grid](https://github.com/Kuuuube/kanjigrid)
+
 ## Donations
 
 If you've found this or any of my other projects helpful, please consider supporting my work through [GitHub Sponsors](https://github.com/sponsors/bpwhelan), or [Ko-fi](https://ko-fi.com/beangate).
