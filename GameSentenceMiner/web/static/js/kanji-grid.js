@@ -389,7 +389,7 @@ class KanjiGridRenderer {
      * @returns {string} - CSS color value
      */
     getFrequencyColor(frequency) {
-        if (frequency > 500) return '#2ee6e0';  // Cyan for very frequent
+        if (frequency > 300) return '#2ee6e0';  // Cyan for very frequent
         else if (frequency > 100) return '#3be62f';  // Green for frequent
         else if (frequency > 30) return '#e6dc2e';   // Yellow for moderate
         else if (frequency > 10) return '#e6342e';   // Red for occasional
