@@ -344,7 +344,7 @@ class ConfigApp:
         self.obs_close_obs_value = tk.BooleanVar(value=self.settings.obs.close_obs)
         self.obs_get_game_from_scene_name_value = tk.BooleanVar(value=self.settings.obs.get_game_from_scene)
         self.obs_minimum_replay_size_value = tk.StringVar(value=str(self.settings.obs.minimum_replay_size))
-        self.obs_turn_off_output_check_value = tk.BooleanVar(value=self.settings.obs.turn_off_output_check)
+        self.automatically_manage_replay_buffer_value = tk.BooleanVar(value=self.settings.obs.automatically_manage_replay_buffer)
         
         # Paths Settings
         self.folder_to_watch_value = tk.StringVar(value=self.settings.paths.folder_to_watch)
@@ -646,7 +646,7 @@ class ConfigApp:
                 password=self.obs_password_value.get(),
                 get_game_from_scene=self.obs_get_game_from_scene_name_value.get(),
                 minimum_replay_size=int(self.obs_minimum_replay_size_value.get()),
-                turn_off_output_check=self.obs_turn_off_output_check_value.get()
+                automatically_manage_replay_buffer=self.automatically_manage_replay_buffer_value.get()
             ),
             hotkeys=Hotkeys(
                 reset_line=self.reset_line_hotkey_value.get(),
@@ -806,24 +806,6 @@ class ConfigApp:
                 widget.destroy()
 
         general_i18n = self.i18n.get('tabs', {}).get('general', {})
-        
-        def launch_test_dialog():
-            # Make sure you have a file named 'test_image.png' in the script's directory
-            result = self.show_anki_confirmation_dialog(
-                expression="こんにちは",
-                sentence="こんにちは、世界！元気ですか？",
-                screenshot_path="test_image.png",
-                audio_path="C:/path/to/my/audio.mp3",
-                translation="Hello world! How are you?"
-            )
-            print(f"Dialog result was: {result}")
-            if result:
-                messagebox.showinfo("Result", f"You chose: {result}")
-
-        ttk.Button(self.general_tab, text="TEST ANKI DIALOG", command=launch_test_dialog).grid(
-            row=self.current_row, column=0, pady=20
-        )
-        self.current_row += 1
         
         ws_i18n = general_i18n.get('websocket_enabled', {})
         HoverInfoLabelWidget(self.general_tab, text=ws_i18n.get('label', 'Websocket Enabled:'),
@@ -1890,13 +1872,13 @@ class ConfigApp:
         ttk.Entry(obs_frame, textvariable=self.obs_minimum_replay_size_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
-        turn_off_output_check_i18n = obs_i18n.get('obs_turn_off_output_check_value', {})
-        HoverInfoLabelWidget(obs_frame, text=turn_off_output_check_i18n.get('label', '...'),
-                             tooltip=turn_off_output_check_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Checkbutton(obs_frame, variable=self.obs_turn_off_output_check_value, bootstyle="round-toggle").grid(
-            row=self.current_row, column=1, sticky='W', pady=2)
-        self.current_row += 1
+        # turn_off_output_check_i18n = obs_i18n.get('turn_off_replay_buffer_management', {})
+        # HoverInfoLabelWidget(obs_frame, text=turn_off_output_check_i18n.get('label', '...'),
+        #                      tooltip=turn_off_output_check_i18n.get('tooltip', '...'),
+        #                      row=self.current_row, column=0)
+        # ttk.Checkbutton(obs_frame, variable=self.obs_turn_off_output_check_value, bootstyle="round-toggle").grid(
+        #     row=self.current_row, column=1, sticky='W', pady=2)
+        # self.current_row += 1
 
         self.add_reset_button(obs_frame, "obs", self.current_row, 0, self.create_obs_tab)
 
