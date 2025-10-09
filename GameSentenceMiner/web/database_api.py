@@ -1091,7 +1091,8 @@ def register_database_api_routes(app):
                         "borderColor": color,
                         "backgroundColor": f"{color}33", # Semi-transparent for fill
                         "fill": False,
-                        "tension": 0.1
+                        "tension": 0.1,
+                        "for": "Lines Received"
                     })
                     datasets.append({
                         "label": f"{game} - Characters Read",
@@ -1100,7 +1101,8 @@ def register_database_api_routes(app):
                         "backgroundColor": f"{color}33",
                         "fill": False,
                         "tension": 0.1,
-                        "hidden": True # Hide by default to not clutter the chart
+                        "hidden": True, # Hide by default to not clutter the chart
+                        "for": "Characters Read"
                     })
             except Exception as e:
                 logger.error(f"Error formatting Chart.js datasets: {e}")
