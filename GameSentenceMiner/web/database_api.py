@@ -1182,7 +1182,7 @@ def register_database_api_routes(app):
             })
             
         except Exception as e:
-            logger.error(f"Unexpected error in api_stats: {e}")
+            logger.error(f"Unexpected error in api_stats: {e}", exc_info=True)
             return jsonify({'error': 'Failed to generate statistics'}), 500
 
     @app.route('/api/goals-today', methods=['GET'])

@@ -93,6 +93,7 @@ class SQLiteDBTable:
     _types: List[type] = []
     _pk: str = 'id'
     _auto_increment: bool = True
+    _column_order_cache: Optional[List[str]] = None  # Cache for actual column order
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -104,6 +105,7 @@ class SQLiteDBTable:
     @classmethod
     def set_db(cls, db: SQLiteDB):
         cls._db = db
+        cls._column_order_cache = None  # Reset cache when database changes
         # Ensure table exists
         if not db.table_exists(cls._table):
             fields_def = ', '.join([f"{field} TEXT" for field in cls._fields])
@@ -115,6 +117,7 @@ class SQLiteDBTable:
         for field in cls._fields:
             if field not in existing_columns:
                 db.execute(f"ALTER TABLE {cls._table} ADD COLUMN {field} TEXT", commit=True)
+                cls._column_order_cache = None  # Reset cache when schema changes
 
     @classmethod
     def all(cls: Type[T]) -> List[T]:
@@ -137,49 +140,80 @@ class SQLiteDBTable:
         if not row:
             return None
         obj = cls()
-        fields = [cls._pk] + cls._fields
-        for i, field in enumerate(fields):
-            if i == 0 and field == cls._pk:
-                if cls._types[i] is int:
-                    setattr(obj, field, int(row[i])
-                            if row[i] is not None else None)
-                elif cls._types[i] is str:
-                    setattr(obj, field, str(row[i])
-                            if row[i] is not None else None)
-                continue
-            if cls._types[i] is str:
-                if not row[i]:
-                    setattr(obj, field, "")
-                elif (row[i].startswith('[') or row[i].startswith('{')):
-                    try:
-                        setattr(obj, field, json.loads(row[i]))
-                    except json.JSONDecodeError:
-                        setattr(obj, field, row[i])
-                else:
-                    setattr(obj, field, str(row[i])
-                            if row[i] is not None else None)
-            elif cls._types[i] is list:
-                try:
-                    setattr(obj, field, json.loads(row[i]) if row[i] else [])
-                except json.JSONDecodeError:
-                    setattr(obj, field, [])
-            elif cls._types[i] is int:
-                setattr(obj, field, int(row[i])
-                        if row[i] is not None else None)
-            elif cls._types[i] is float:
-                setattr(obj, field, float(row[i])
-                        if row[i] is not None else None)
-            elif cls._types[i] is bool:
-                setattr(obj, field, bool(row[i])
-                        if row[i] is not None else None)
-            elif cls._types[i] is dict:
-                try:
-                    setattr(obj, field, json.loads(row[i]) if row[i] else {})
-                except json.JSONDecodeError:
-                    setattr(obj, field, {})
-            else:
-                setattr(obj, field, row[i])
+        
+        try:
+            # Get actual column order from database schema
+            actual_columns = cls.get_actual_column_order()
+            expected_fields = [cls._pk] + cls._fields
+            
+            # Create a mapping from actual column positions to expected field positions
+            column_mapping = {}
+            for i, actual_col in enumerate(actual_columns):
+                if actual_col in expected_fields:
+                    expected_index = expected_fields.index(actual_col)
+                    column_mapping[i] = expected_index
+            
+            # Process each column in the row based on the mapping
+            for actual_pos, row_value in enumerate(row):
+                if actual_pos not in column_mapping:
+                    continue  # Skip unknown columns
+                    
+                expected_pos = column_mapping[actual_pos]
+                field = expected_fields[expected_pos]
+                field_type = cls._types[expected_pos]
+                
+                cls._set_field_value(obj, field, field_type, row_value, expected_pos == 0 and field == cls._pk)
+                
+        except Exception as e:
+            # Fallback to original behavior if schema-based mapping fails
+            logger.warning(f"Column mapping failed for {cls._table}, falling back to positional mapping: {e}")
+            expected_fields = [cls._pk] + cls._fields
+            for i, field in enumerate(expected_fields):
+                if i >= len(row):
+                    break  # Safety check
+                field_type = cls._types[i]
+                cls._set_field_value(obj, field, field_type, row[i], i == 0 and field == cls._pk)
+                    
         return obj
+    
+    @classmethod
+    def _set_field_value(cls, obj, field: str, field_type: type, row_value, is_pk: bool = False):
+        """Helper method to set field value with proper type conversion."""
+        if is_pk:
+            if field_type is int:
+                setattr(obj, field, int(row_value) if row_value is not None else None)
+            elif field_type is str:
+                setattr(obj, field, str(row_value) if row_value is not None else None)
+            return
+            
+        if field_type is str:
+            if not row_value:
+                setattr(obj, field, "")
+            elif isinstance(row_value, str) and (row_value.startswith('[') or row_value.startswith('{')):
+                try:
+                    setattr(obj, field, json.loads(row_value))
+                except json.JSONDecodeError:
+                    setattr(obj, field, row_value)
+            else:
+                setattr(obj, field, str(row_value) if row_value is not None else None)
+        elif field_type is list:
+            try:
+                setattr(obj, field, json.loads(row_value) if row_value else [])
+            except json.JSONDecodeError:
+                setattr(obj, field, [])
+        elif field_type is int:
+            setattr(obj, field, int(row_value) if row_value is not None else None)
+        elif field_type is float:
+            setattr(obj, field, float(row_value) if row_value is not None else None)
+        elif field_type is bool:
+            setattr(obj, field, bool(row_value) if row_value is not None else None)
+        elif field_type is dict:
+            try:
+                setattr(obj, field, json.loads(row_value) if row_value else {})
+            except json.JSONDecodeError:
+                setattr(obj, field, {})
+        else:
+            setattr(obj, field, row_value)
 
     def save(self, retry=1):
         try:
@@ -245,9 +279,9 @@ class SQLiteDBTable:
             
     def add_column(self, column_name: str, new_column_type: str = "TEXT"):
         try:
-            index = self._fields.index(column_name) + 1
             self._db.execute(
                 f"ALTER TABLE {self._table} ADD COLUMN {column_name} {new_column_type}", commit=True)
+            self.__class__._column_order_cache = None  # Reset cache when schema changes
             logger.info(f"Added column {column_name} to {self._table}")
         except sqlite3.OperationalError as e:
             if "duplicate column name" in str(e):
@@ -286,11 +320,13 @@ class SQLiteDBTable:
     def rename_column(cls, old_column: str, new_column: str):
         cls._db.execute(
             f"ALTER TABLE {cls._table} RENAME COLUMN {old_column} TO {new_column}", commit=True)
+        cls._column_order_cache = None  # Reset cache when schema changes
         
     @classmethod
     def drop_column(cls, column_name: str):
         cls._db.execute(
             f"ALTER TABLE {cls._table} DROP COLUMN {column_name}", commit=True)
+        cls._column_order_cache = None  # Reset cache when schema changes
         
     @classmethod
     def get_column_type(cls, column_name: str) -> Optional[str]:
@@ -315,6 +351,36 @@ class SQLiteDBTable:
             f"UPDATE {cls._table} SET {new_column} = CAST({old_column} AS {new_type})", commit=True)
         cls._db.execute(
             f"ALTER TABLE {cls._table} DROP COLUMN {old_column}", commit=True)
+        cls._column_order_cache = None  # Reset cache when schema changes
+        
+    @classmethod
+    def get_actual_column_order(cls) -> List[str]:
+        """Get the actual column order from the database schema."""
+        if cls._column_order_cache is not None:
+            return cls._column_order_cache
+            
+        # Use direct database access to avoid recursion through from_row()
+        with cls._db._lock:
+            import sqlite3
+            with sqlite3.connect(cls._db.db_path, check_same_thread=False) as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"PRAGMA table_info({cls._table})")
+                columns_info = cursor.fetchall()
+                
+        # Each row is (cid, name, type, notnull, dflt_value, pk)
+        # Sort by column id (cid) to get the actual order
+        sorted_columns = sorted(columns_info, key=lambda x: x[0])
+        column_order = [col[1] for col in sorted_columns]
+        
+        # Cache the result
+        cls._column_order_cache = column_order
+        return column_order
+        
+    @classmethod
+    def get_expected_column_list(cls) -> str:
+        """Get comma-separated list of columns in expected order for explicit SELECT queries."""
+        expected_fields = [cls._pk] + cls._fields
+        return ', '.join(expected_fields)
 
 
 class AIModelsTable(SQLiteDBTable):
