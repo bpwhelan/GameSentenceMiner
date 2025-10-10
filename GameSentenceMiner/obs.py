@@ -132,11 +132,14 @@ class OBSConnectionManager(threading.Thread):
         
     def check_replay_buffer_enabled(self):
         if not self.should_check_output:
-            return True, ""
-        output = get_replay_buffer_output()
-        if not output:
-            return False, "Replay Buffer output not found in OBS. Please enable Replay Buffer In OBS Settings -> Output -> Replay Buffer. I recommend 300 seconds (5 minutes) or higher."
-        return True, ""
+            return 300, ""
+        buffer_seconds = get_replay_buffer_max_time_seconds()
+        if not buffer_seconds:
+            replay_output = get_replay_buffer_output()
+            if not replay_output:
+                return 0, "Replay Buffer output not found in OBS. Please enable Replay Buffer In OBS Settings -> Output -> Replay Buffer. I recommend 300 seconds (5 minutes) or higher."
+            return 300, ""
+        return buffer_seconds, ""
 
     def _manage_replay_buffer_and_utils(self):
         errors = []
@@ -150,11 +153,13 @@ class OBSConnectionManager(threading.Thread):
             errors.append("Automatic Replay Buffer management is disabled in GSM settings.")
             return errors
 
-        replay_buffer_enabled, error_message = self.check_replay_buffer_enabled()
+        buffer_seconds, error_message = self.check_replay_buffer_enabled()
 
-        if not replay_buffer_enabled:
+        if not buffer_seconds:
             errors.append(error_message)
             return errors
+        
+        self.NO_OUTPUT_SHUTDOWN_SECONDS = max(300, buffer_seconds * 1.10)  # At least 5 minutes or 10% more than buffer
 
         current_status = get_replay_buffer_status()
 
@@ -167,10 +172,10 @@ class OBSConnectionManager(threading.Thread):
             self.no_output_timestamp = None
             return errors
         
-        img = get_screenshot_PIL(compression=100, img_format='jpg', width=1280, height=720)
-        has_changed = self.has_image_changed(img) if img else True
+        img = get_screenshot_PIL(compression=75, img_format='jpg', width=1280, height=720)
+        is_empty = self.is_image_empty(img) if img else True
 
-        if not has_changed:
+        if not is_empty:
             self.no_output_timestamp = None
             if not current_status:
                 start_replay_buffer()
@@ -184,19 +189,17 @@ class OBSConnectionManager(threading.Thread):
                     self.last_replay_buffer_status = False
                     self.no_output_timestamp = None
 
-    def has_image_changed(self, img):
-        if self.previous_image is None:
-            self.previous_image = np.array(img)
-            return True
+    def is_image_empty(self, img):
         try:
-            img1_np = np.array(img) if not isinstance(img, np.ndarray) else img
-            img2_np = self.previous_image
-            self.previous_image = img1_np
+            extrema = img.getextrema()
+            if isinstance(extrema[0], tuple):
+                is_empty = all(e[0] == e[1] for e in extrema)
+            else:
+                is_empty = extrema[0] == extrema[1]
+            return is_empty
         except Exception:
-            logger.warning("Failed to convert images to numpy arrays for comparison.")
+            logger.warning("Failed to check image extrema for emptiness.")
             return False
-
-        return (img1_np.shape == img2_np.shape) and np.array_equal(img1_np, img2_np)
 
     def run(self):
         time.sleep(5)  # Initial delay to allow OBS to start
@@ -566,7 +569,7 @@ def get_replay_buffer_max_time_seconds():
                 logger.warning(f"get_output_settings for replay_buffer failed: {response.status}")
                 return 0
     except Exception as e:
-        logger.error(f"Exception while fetching replay buffer settings: {e}")
+        # logger.error(f"Exception while fetching replay buffer settings: {e}")
         return 0
     
 def enable_replay_buffer():
@@ -805,7 +808,24 @@ def set_fit_to_screen_for_scene_items(scene_name: str):
     except obs.error.OBSSDKError as e:
         logger.error(f"An OBS error occurred: {e}")
     except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
+        logger.error(f"An unexpected error occurred: {e}")    
+
+def get_current_source_input_settings():
+    with connection_pool.get_client() as client:
+        client: obs.ReqClient
+        current_scene = get_current_scene()
+        if not current_scene:
+            return None
+        scene_items_response = client.get_scene_item_list(name=current_scene)
+        items = scene_items_response.scene_items if scene_items_response and scene_items_response.scene_items else []
+        if not items:
+            return None
+        first_item = items[0]
+        source_name = first_item.get('sourceName')
+        if not source_name:
+            return None
+        input_settings_response = client.get_input_settings(name=source_name)
+        return input_settings_response.input_settings if input_settings_response else None
 
 
 def main():
@@ -867,17 +887,23 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     connect_to_obs_sync()
     
-    save_replay_buffer()
+    # outputs = get_output_list()
+    # print(outputs)
+    
+    # output = get_replay_buffer_output()
+    # print(output)
+    
+    # save_replay_buffer()
     # img = get_screenshot_PIL(source_name='Display Capture 2', compression=100, img_format='jpg', width=2560, height=1440)
     # img.show()
-    # output_list = get_output_list()
-    # print(output_list)
+    # source = get_current_source_input_settings()
+    # print(source)
     
     # response = enable_replay_buffer()
     # print(response)
     
     # response = get_replay_buffer_max_time_seconds()
-    # # response is dataclass with attributes, print attributes
+    # response is dataclass with attributes, print attributes
     # print(response)
     
     # response = enable_replay_buffer()
