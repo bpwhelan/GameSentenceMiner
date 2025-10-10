@@ -1,6 +1,7 @@
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
 
+
 def handle_error_in_initialization(e):
     """Handle errors that occur during initialization."""
     logger.exception(e, exc_info=True)
@@ -27,6 +28,7 @@ try:
     import requests
     import os.path
     import signal
+    import datetime
     from subprocess import Popen
     os.environ.pop('TCL_LIBRARY', None)
 
@@ -48,7 +50,7 @@ try:
     
     start_time = time.time()
     from GameSentenceMiner.util.get_overlay_coords import OverlayThread
-    from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
+    from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags, add_srt_line
     logger.debug(f"[Import] get_overlay_coords (OverlayThread, remove_html_and_cloze_tags): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
@@ -152,10 +154,22 @@ class VideoToAudioHandler(FileSystemEventHandler):
         super().__init__()
 
     def on_created(self, event):
-        if event.is_directory or ("Replay" not in event.src_path and "GSM" not in event.src_path):
+        file_name = os.path.basename(event.src_path)
+        if event.is_directory or ("Replay" not in file_name and "GSM" not in file_name):
+            # This shows up as soon as recording starts, so it's kinda hard to use...
+            # if get_config().features.generate_longplay and event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):
+            #     add_srt_line(datetime.datetime.now(), get_all_lines()[-1])
+            #     logger.info(f"Recording {event.src_path} FOUND, RUNNING LOGIC")
+            #     wait_for_stable_file(event.src_path)
+            #     current_srt = gsm_state.current_srt
+            #     srt_name = os.path.splitext(os.path.basename(event.src_path))[0] + ".srt"
+            #     srt_path = os.path.join(os.path.dirname(event.src_path), srt_name)
+            #     shutil.move(current_srt, srt_path)
+            #     gsm_state.current_srt = None
+            #     # self.process_replay(event.src_path)
             return
         # Adjust based on your OBS output format
-        if event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):
+        if file_name.endswith(".mkv") or file_name.endswith(".mp4"):
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
             wait_for_stable_file(event.src_path)
             self.process_replay(event.src_path)
@@ -202,6 +216,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             # Get Info of line mined
             line_cutoff = None
             start_line = None
+            full_text = ''
             if selected_lines:
                 start_line = selected_lines[0]
                 mined_line = get_mined_line(last_note, selected_lines)
@@ -308,7 +323,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                                                                 f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
 
         vad_result = vad_processor.trim_audio_with_vad(
-            trimmed_audio, vad_trimmed_audio, game_line)
+            trimmed_audio, vad_trimmed_audio, game_line, full_text)
         if timing_only:
             return vad_result
 
@@ -590,6 +605,8 @@ def restart_obs():
 
 def cleanup():
     try:
+        if gsm_state.current_srt and len(get_all_lines()) > 0:
+            add_srt_line(datetime.datetime.now(), get_all_lines()[-1])
         logger.info("Performing cleanup...")
         gsm_state.keep_running = False
 

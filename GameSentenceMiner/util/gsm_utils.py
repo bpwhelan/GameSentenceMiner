@@ -13,7 +13,7 @@ from pathlib import Path
 import requests
 from rapidfuzz import process
 
-from GameSentenceMiner.util.configuration import logger, get_config, get_app_directory
+from GameSentenceMiner.util.configuration import gsm_state, logger, get_config, get_app_directory, get_temporary_directory
 
 SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
 
@@ -21,6 +21,13 @@ def run_new_thread(func):
     thread = threading.Thread(target=func, daemon=True)
     thread.start()
     return thread
+
+def make_unique_temp_file(path):
+    path = Path(path)
+    current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
+    temp_dir = get_temporary_directory()
+    os.makedirs(temp_dir, exist_ok=True)
+    return str(Path(temp_dir) / f"{path.stem}_{current_time}{path.suffix}")
 
 def make_unique_file_name(path):
     path = Path(path)
@@ -257,6 +264,29 @@ def is_connected():
 TEXT_REPLACEMENTS_FILE = os.path.join(get_app_directory(), 'config', 'text_replacements.json')
 OCR_REPLACEMENTS_FILE = os.path.join(get_app_directory(), 'config', 'ocr_replacements.json')
 os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
+
+
+def add_srt_line(line_time, new_line):
+    global srt_index
+    if get_config().features.generate_longplay and gsm_state.recording_started_time and new_line.prev:
+        logger.info(f"Adding SRT line {new_line.prev.text}... for longplay")
+        with open(gsm_state.current_srt, 'a', encoding='utf-8') as srt_file:
+            # Calculate start and end times for the previous line
+            prev_start_time = new_line.prev.time - gsm_state.recording_started_time
+            prev_end_time = (line_time if line_time else datetime.now()) - gsm_state.recording_started_time
+            # Format times as SRT timestamps (HH:MM:SS,mmm)
+            def format_srt_time(td, offset=0):
+                total_seconds = int(td.total_seconds()) + offset
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+                milliseconds = int(td.microseconds / 1000)
+                return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
+            
+            srt_file.write(f"{gsm_state.srt_index}\n")
+            srt_file.write(f"{format_srt_time(prev_start_time)} --> {format_srt_time(prev_end_time, offset=-1)}\n")
+            srt_file.write(f"{new_line.prev.text}\n\n")
+            gsm_state.srt_index += 1
 
 # if not os.path.exists(OCR_REPLACEMENTS_FILE):
 #     url = "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/refs/heads/main/electron-src/assets/ocr_replacements.json"

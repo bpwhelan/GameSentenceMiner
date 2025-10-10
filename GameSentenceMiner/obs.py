@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import json
 import os.path
 import subprocess
@@ -15,7 +16,7 @@ import numpy as np
 
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.configuration import get_app_directory, get_config, get_master_config, is_windows, save_full_config, reload_config, logger, gsm_status, gsm_state
-from GameSentenceMiner.util.gsm_utils import sanitize_filename, make_unique_file_name
+from GameSentenceMiner.util.gsm_utils import sanitize_filename, make_unique_file_name, make_unique_temp_file
 
 connection_pool: 'OBSConnectionPool' = None
 event_client: obs.EventClient = None
@@ -368,6 +369,8 @@ async def connect_to_obs(retry=5, connections=2, check_output=False):
                 obs_connection_manager = OBSConnectionManager(check_output=check_output)
                 obs_connection_manager.start()
             update_current_game()
+            if get_config().features.generate_longplay and check_output:
+                start_recording(True)
             break  # Exit the loop once connected
         except Exception as e:
             if retry <= 0:
@@ -424,8 +427,7 @@ def toggle_replay_buffer():
     try:
         with connection_pool.get_client() as client:
             client: obs.ReqClient
-            response = client.toggle_replay_buffer()
-        if response:
+            client.toggle_replay_buffer()
             logger.info("Replay buffer Toggled.")
     except Exception as e:
         logger.error(f"Error toggling buffer: {e}")
@@ -434,8 +436,9 @@ def start_replay_buffer():
     try:
         with connection_pool.get_client() as client:
             client: obs.ReqClient
-            response = client.start_replay_buffer()
-        if response and response.ok:
+            client.start_replay_buffer()
+            if get_config().features.generate_longplay:
+                start_recording(True)
             logger.info("Replay buffer started.")
     except Exception as e:
         logger.error(f"Error starting replay buffer: {e}")
@@ -452,8 +455,9 @@ def stop_replay_buffer():
     try:
         with connection_pool.get_client() as client:
             client: obs.ReqClient
-            response = client.stop_replay_buffer()
-        if response and response.ok:
+            client.stop_replay_buffer()
+            if get_config().features.generate_longplay:
+                stop_recording()
             logger.info("Replay buffer stopped.")
     except Exception as e:
         logger.warning(f"Error stopping replay buffer: {e}")
@@ -462,11 +466,43 @@ def save_replay_buffer():
     try:
         with connection_pool.get_client() as client:
             client: obs.ReqClient
-            response = client.save_replay_buffer()
-        if response and response.ok:
+            client.save_replay_buffer()
             logger.info("Replay buffer saved. If your log stops here, make sure your obs output path matches \"Path To Watch\" in GSM settings.")
     except Exception as e:
         raise Exception(f"Error saving replay buffer: {e}")
+
+def start_recording(longplay=False):
+    try:
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            if longplay:
+                gsm_state.recording_started_time = datetime.datetime.now()
+                gsm_state.current_srt = make_unique_temp_file(f"{get_current_game(sanitize=True)}.srt")
+                gsm_state.srt_index = 1
+            client.start_record()
+            logger.info("Recording started.")
+    except Exception as e:
+        logger.error(f"Error starting recording: {e}")
+        return None
+    
+def stop_recording():
+    try:
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            client.stop_record()
+            logger.info("Recording stopped.")
+    except Exception as e:
+        logger.error(f"Error stopping recording: {e}")
+        
+def get_last_recording_filename():
+    try:
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            response = client.get_record_status()
+        return response.recording_filename if response else ''
+    except Exception as e:
+        logger.error(f"Error getting last recording filename: {e}")
+        return ''
 
 def get_current_scene():
     try:

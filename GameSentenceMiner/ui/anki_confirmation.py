@@ -107,19 +107,23 @@ class AnkiConfirmationDialog(tk.Toplevel):
         ttk.Button(main_frame, text="Open Screenshot Selector", command=self._get_different_screenshot).grid(row=row, column=2, sticky="w", padx=5, pady=2)
        
         row += 1
-
+        
         # Audio Path
         ttk.Label(main_frame, text="Audio Path:", font=("-weight bold")).grid(row=row, column=0, sticky="ne", padx=5, pady=2)
-        ttk.Label(main_frame, text=audio_path, wraplength=400, justify="left").grid(row=row, column=1, sticky="w", padx=5, pady=2)
-        ttk.Button(main_frame, text="Play Audio", command=lambda: self._play_audio(audio_path)).grid(row=row, column=2, sticky="w", padx=5, pady=2)
+        ttk.Label(main_frame, text=audio_path if audio_path else "No Audio", wraplength=400, justify="left").grid(row=row, column=1, sticky="w", padx=5, pady=2)
+        if audio_path and os.path.isfile(audio_path):
+            ttk.Button(main_frame, text="Play Audio", command=lambda: self._play_audio(audio_path)).grid(row=row, column=2, sticky="w", padx=5, pady=2)
             
         row += 1
 
         # Action Buttons
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=row, column=0, columnspan=2, pady=15)
-        ttk.Button(button_frame, text="Voice", command=self._on_voice, bootstyle="success").pack(side="left", padx=10)
-        ttk.Button(button_frame, text="NO Voice", command=self._on_no_voice, bootstyle="danger").pack(side="left", padx=10)
+        if audio_path and os.path.isfile(audio_path):
+            ttk.Button(button_frame, text="Voice", command=self._on_voice, bootstyle="success").pack(side="left", padx=10)
+            ttk.Button(button_frame, text="NO Voice", command=self._on_no_voice, bootstyle="danger").pack(side="left", padx=10)
+        else:
+            ttk.Button(button_frame, text="Confirm", command=self._on_no_voice, bootstyle="primary").pack(side="left", padx=10)
         
         
     def _get_different_screenshot(self):

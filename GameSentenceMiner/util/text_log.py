@@ -93,6 +93,7 @@ class GameText:
         if self.values:
             self.values[-1].next = new_line
         self.values.append(new_line)
+        return new_line
         # self.remove_old_events(datetime.now() - timedelta(minutes=10))
 
     def has_line(self, line_text) -> bool:
@@ -200,7 +201,7 @@ def get_text_log() -> GameText:
     return game_log
 
 def add_line(current_line_after_regex, line_time):
-    game_log.add_line(current_line_after_regex, line_time)
+    return game_log.add_line(current_line_after_regex, line_time)
 
 def get_line_by_id(line_id: str) -> Optional[GameLine]:
     """

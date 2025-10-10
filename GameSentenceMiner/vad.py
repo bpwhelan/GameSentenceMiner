@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import time
 import warnings
+import re
 from abc import abstractmethod, ABC
 
 from GameSentenceMiner.util import configuration, ffmpeg
@@ -35,26 +36,26 @@ class VADSystem:
         #     if not self.groq:
         #         self.groq = GroqVADProcessor()
 
-    def trim_audio_with_vad(self, input_audio, output_audio, game_line):
+    def trim_audio_with_vad(self, input_audio, output_audio, game_line, full_text):
         if get_config().vad.do_vad_postprocessing:
-            result = self._do_vad_processing(get_config().vad.selected_vad_model, input_audio, output_audio, game_line)
+            result = self._do_vad_processing(get_config().vad.selected_vad_model, input_audio, output_audio, game_line, full_text)
             if not result.success and get_config().vad.backup_vad_model != configuration.OFF:
                 logger.info("No voice activity detected, using backup VAD model.")
-                result = self._do_vad_processing(get_config().vad.backup_vad_model, input_audio, output_audio, game_line)
+                result = self._do_vad_processing(get_config().vad.backup_vad_model, input_audio, output_audio, game_line, full_text)
             return result
 
-    def _do_vad_processing(self, model, input_audio, output_audio, game_line):
+    def _do_vad_processing(self, model, input_audio, output_audio, game_line, text_mined):
         match model:
             case configuration.OFF:
                 return VADResult(False, 0, 0, "OFF")
             case configuration.SILERO:
                 if not self.silero:
                     self.silero = SileroVADProcessor()
-                return self.silero.process_audio(input_audio, output_audio, game_line)
+                return self.silero.process_audio(input_audio, output_audio, game_line, text_mined)
             case configuration.WHISPER:
                 if not self.whisper:
                     self.whisper = WhisperVADProcessor()
-                return self.whisper.process_audio(input_audio, output_audio, game_line)
+                return self.whisper.process_audio(input_audio, output_audio, game_line, text_mined)
 
 # Base class for VAD systems
 class VADProcessor(ABC):
@@ -63,7 +64,7 @@ class VADProcessor(ABC):
         self.vad_system_name = None
 
     @abstractmethod
-    def _detect_voice_activity(self, input_audio):
+    def _detect_voice_activity(self, input_audio, text_mined):
         pass
 
     @staticmethod
@@ -100,8 +101,8 @@ class VADProcessor(ABC):
             shutil.move(files[0], output_audio)
 
 
-    def process_audio(self, input_audio, output_audio, game_line):
-        voice_activity = self._detect_voice_activity(input_audio)
+    def process_audio(self, input_audio, output_audio, game_line, text_mined):
+        voice_activity = self._detect_voice_activity(input_audio, text_mined)
 
         if not voice_activity:
             logger.info("No voice activity detected in the audio.")
@@ -140,7 +141,7 @@ class SileroVADProcessor(VADProcessor):
         self.vad_model = load_silero_vad()
         self.vad_system_name = SILERO
 
-    def _detect_voice_activity(self, input_audio):
+    def _detect_voice_activity(self, input_audio, text_mined):
         from silero_vad import read_audio, get_speech_timestamps
         temp_wav = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(), suffix='.wav').name
         ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
@@ -166,7 +167,7 @@ class WhisperVADProcessor(VADProcessor):
             logger.info(f"Whisper model '{get_config().vad.whisper_model}' loaded.")
         return self.vad_model
 
-    def _detect_voice_activity(self, input_audio):
+    def _detect_voice_activity(self, input_audio, text_mined):
         from stable_whisper import WhisperResult
         # Convert the audio to 16kHz mono WAV, evidence https://discord.com/channels/1286409772383342664/1286518821913362445/1407017127529152533
         temp_wav = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(), suffix='.wav').name
@@ -178,10 +179,22 @@ class WhisperVADProcessor(VADProcessor):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result: WhisperResult = self.vad_model.transcribe(temp_wav, vad=True, language=get_config().vad.language, vad_filter=get_config().vad.use_vad_filter_for_whisper,
-                                                             temperature=0.0)
+                                                             temperature=0.0, chunk_length=60)
         voice_activity = []
 
         logger.debug(json.dumps(result.to_dict()))
+        
+        text = result.text.strip()
+        
+        # If both mined text and Whisper transcription are available, compare their similarity
+        if text_mined and text:
+            from rapidfuzz import fuzz
+            similarity = fuzz.partial_ratio(text_mined, text)
+            logger.info(f"Whisper transcription: '{text}' | Mined text: '{text_mined}' | Partial similarity: {similarity:.1f}")
+            # If similarity is very low, treat as no voice activity detected
+            if similarity < 20:
+                logger.info(f"Partial similarity {similarity:.1f} is below threshold, skipping voice activity.")
+                return []
 
         # Process the segments to extract tokens, timestamps, and confidence
         previous_segment = None
@@ -193,6 +206,12 @@ class WhisperVADProcessor(VADProcessor):
                 else:
                     logger.info(
                         "Unknown single character segment, not skipping, but logging, please report if this is a mistake: " + segment.text)
+                
+            # Skip segments with excessive repeating sequences of at least 3 characters
+            match = re.search(r'(.{3,})\1{4,}', segment.text)
+            if match:
+                logger.debug(f"Skipping segment with excessive repeating sequence (>=5): '{segment.text}' at {segment.start}-{segment.end}. Likely Hallucination.")
+                continue
                     
             if segment.no_speech_prob and segment.no_speech_prob > 0.9:
                 logger.debug(f"Skipping segment with high no_speech_prob: {segment.no_speech_prob} for segment {segment.text} at {segment.start}-{segment.end}")

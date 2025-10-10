@@ -342,7 +342,6 @@ class ConfigApp:
         self.obs_password_value = tk.StringVar(value=self.settings.obs.password)
         self.obs_open_obs_value = tk.BooleanVar(value=self.settings.obs.open_obs)
         self.obs_close_obs_value = tk.BooleanVar(value=self.settings.obs.close_obs)
-        self.obs_get_game_from_scene_name_value = tk.BooleanVar(value=self.settings.obs.get_game_from_scene)
         self.obs_minimum_replay_size_value = tk.StringVar(value=str(self.settings.obs.minimum_replay_size))
         self.automatically_manage_replay_buffer_value = tk.BooleanVar(value=self.settings.obs.automatically_manage_replay_buffer)
         
@@ -384,6 +383,7 @@ class ConfigApp:
         self.open_anki_browser_value = tk.BooleanVar(value=self.settings.features.open_anki_in_browser)
         self.backfill_audio_value = tk.BooleanVar(value=self.settings.features.backfill_audio)
         self.browser_query_value = tk.StringVar(value=self.settings.features.browser_query)
+        self.generate_longplay_value = tk.BooleanVar(value=self.settings.features.generate_longplay)
         
         # Screenshot Settings
         self.screenshot_enabled_value = tk.BooleanVar(value=self.settings.screenshot.enabled)
@@ -613,6 +613,7 @@ class ConfigApp:
                 open_anki_in_browser=self.open_anki_browser_value.get(),
                 backfill_audio=self.backfill_audio_value.get(),
                 browser_query=self.browser_query_value.get(),
+                generate_longplay=self.generate_longplay_value.get(),
             ),
             screenshot=Screenshot(
                 enabled=self.screenshot_enabled_value.get(),
@@ -644,7 +645,6 @@ class ConfigApp:
                 host=self.obs_host_value.get(),
                 port=int(self.obs_port_value.get()),
                 password=self.obs_password_value.get(),
-                get_game_from_scene=self.obs_get_game_from_scene_name_value.get(),
                 minimum_replay_size=int(self.obs_minimum_replay_size_value.get()),
                 automatically_manage_replay_buffer=self.automatically_manage_replay_buffer_value.get()
             ),
@@ -892,21 +892,6 @@ class ConfigApp:
                                 row=self.current_row, column=0)
         ttk.Combobox(self.general_tab, textvariable=self.native_language_value, values=CommonLanguages.get_all_names_pretty(), state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
-
-        legend_i18n = general_i18n.get('legend', {})
-        ttk.Label(self.general_tab, text=legend_i18n.get('important', '...'), foreground="dark orange",
-                  font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
-        self.current_row += 1
-        ttk.Label(self.general_tab, text=legend_i18n.get('advanced', '...'), foreground="red",
-                  font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
-        self.current_row += 1
-        ttk.Label(self.general_tab, text=legend_i18n.get('recommended', '...'), foreground="green",
-                  font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
-        self.current_row += 1
-        ttk.Label(self.general_tab,
-                  text=legend_i18n.get('tooltip_info', '...'),
-                  font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
-        self.current_row += 1
         
         if is_beangate:
             ttk.Button(self.general_tab, text=self.i18n.get('buttons', {}).get('run_function', 'Run Function'), command=self.test_func, bootstyle="info").grid(
@@ -1092,6 +1077,26 @@ class ConfigApp:
                              tooltip=open_browser_i18n.get('tooltip', '...'), row=self.current_row, column=2, padx=5)
         ttk.Checkbutton(feature_frame, variable=self.open_anki_browser_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=3, sticky='W', pady=2)
+        self.current_row += 1
+        
+        # Add Horizontal Separator
+        sep = ttk.Separator(feature_frame, orient='horizontal')
+        sep.grid(row=self.current_row, column=0, columnspan=5, sticky='EW', pady=10)
+        self.current_row += 1
+
+        legend_i18n = general_i18n.get('legend', {})
+        ttk.Label(feature_frame,
+            text=legend_i18n.get('tooltip_info', '...'),
+            font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
+        self.current_row += 1
+        ttk.Label(feature_frame, text=legend_i18n.get('important', '...'), foreground="dark orange",
+                  font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
+        self.current_row += 1
+        ttk.Label(feature_frame, text=legend_i18n.get('advanced', '...'), foreground="red",
+                  font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
+        self.current_row += 1
+        ttk.Label(feature_frame, text=legend_i18n.get('recommended', '...'), foreground="green",
+                  font=("Helvetica", 10, "bold")).grid(row=self.current_row, column=0, columnspan=2, sticky='W', pady=2)
         self.current_row += 1
         
         # screenshot_i18n = simple_i18n.get('screenshot_enabled', {})
@@ -1374,7 +1379,7 @@ class ConfigApp:
 
         show_confirmation_i18n = anki_i18n.get('show_update_confirmation_dialog', {})
         HoverInfoLabelWidget(anki_frame, text=show_confirmation_i18n.get('label', '...'), tooltip=show_confirmation_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
+                             foreground="red", font=("Helvetica", 10, "bold"), row=self.current_row, column=0)
         ttk.Checkbutton(anki_frame, variable=self.show_update_confirmation_dialog_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                               column=1, sticky='W', pady=2)
         self.current_row += 1
@@ -1550,6 +1555,12 @@ class ConfigApp:
         HoverInfoLabelWidget(features_frame, text=backfill_i18n.get('label', '...'), tooltip=backfill_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
         ttk.Checkbutton(features_frame, variable=self.backfill_audio_value, bootstyle="round-toggle").grid(
+            row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+
+        HoverInfoLabelWidget(features_frame, text="Generate LongPlay", tooltip="Generate a LongPlay video using OBS recording, and write to a .srt file with all the text coming into gsm. RESTART REQUIRED FOR SETTING TO TAKE EFFECT.",
+                             row=self.current_row, column=0)
+        ttk.Checkbutton(features_frame, variable=self.generate_longplay_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
@@ -1856,13 +1867,6 @@ class ConfigApp:
         HoverInfoLabelWidget(obs_frame, text=pass_i18n.get('label', '...'), tooltip=pass_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
         ttk.Entry(obs_frame, show="*", textvariable=self.obs_password_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        self.current_row += 1
-
-        game_scene_i18n = obs_i18n.get('game_from_scene', {})
-        HoverInfoLabelWidget(obs_frame, text=game_scene_i18n.get('label', '...'), tooltip=game_scene_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Checkbutton(obs_frame, variable=self.obs_get_game_from_scene_name_value, bootstyle="round-toggle").grid(
-            row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
         min_size_i18n = obs_i18n.get('min_replay_size', {})

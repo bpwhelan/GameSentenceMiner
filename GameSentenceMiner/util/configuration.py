@@ -359,7 +359,7 @@ def get_current_version():
         version = metadata.version(PACKAGE_NAME)
         return version
     except metadata.PackageNotFoundError:
-        return None
+        return ""
 
 
 def get_latest_version():
@@ -469,6 +469,7 @@ class Features:
     open_anki_in_browser: bool = True
     browser_query: str = ''
     backfill_audio: bool = False
+    generate_longplay: bool = False
 
 
 @dataclass_json
@@ -540,6 +541,10 @@ class OBS:
     password: str = "your_password"
     get_game_from_scene: bool = True
     minimum_replay_size: int = 0
+    
+    def __post__init__(self):
+        # Force get_game_from_scene to be True
+        self.get_game_from_scene = True
 
 
 @dataclass_json
@@ -569,6 +574,10 @@ class VAD:
     splice_padding: float = 0.1
     use_cpu_for_inference: bool = False
     use_vad_filter_for_whisper: bool = True
+
+    def __post_init__(self):
+        if self.selected_vad_model == self.backup_vad_model:
+            self.backup_vad_model = OFF
 
     def is_silero(self):
         return self.selected_vad_model == SILERO or self.backup_vad_model == SILERO
@@ -814,6 +823,7 @@ class Config:
     switch_to_default_if_not_found: bool = True
     locale: str = Locale.English.value
     stats: StatsConfig = field(default_factory=StatsConfig)
+    version: str = ""
 
     @classmethod
     def new(cls):
@@ -850,6 +860,26 @@ class Config:
                     self.stats.session_gap_seconds = profile.advanced.session_gap_seconds
                 if profile.advanced.streak_requirement_hours != default_stats.streak_requirement_hours:
                     self.stats.streak_requirement_hours = profile.advanced.streak_requirement_hours
+        
+        # Add a way to migrate certain things based on version if needed, also help with better defaults
+        if self.version:
+            if self.version != get_current_version():
+                logger.info(f"Config version mismatch detected: {self.version} != {get_current_version()}")
+                # Handle version mismatch
+                changed = False
+                if self.version < "2.18.0":
+                    changed = True
+                    # Example, doesn't need to be done
+                    for profile in self.configs.values():
+                        profile.obs.get_game_from_scene = True
+                        # Whisper basically uses Silero's VAD internally, so no need for backup
+                        if profile.vad.selected_vad_model == WHISPER and profile.vad.backup_vad_model == SILERO:
+                            profile.vad.backup_vad_model = OFF
+
+                if changed:
+                    self.save()
+
+        self.version = get_current_version()
 
     def save(self):
         with open(get_config_path(), 'w') as file:
@@ -1250,6 +1280,9 @@ class GsmAppState:
         self.keep_running = True
         self.current_game = ''
         self.videos_to_remove = set()
+        self.recording_started_time = None
+        self.current_srt = None
+        self.srt_index = 1
 
 
 @dataclass_json
