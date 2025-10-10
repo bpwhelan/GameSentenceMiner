@@ -104,6 +104,39 @@
     </div>
 </div>
 
+<!-- Delete Confirmation Modal -->
+<div id="deleteConfirmationModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Confirm Deletion</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="deleteConfirmationModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p class="warning-text" id="deleteConfirmationMessage"></p>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn cancel-btn" data-action="closeModal" data-modal="deleteConfirmationModal">Cancel</button>
+            <button class="action-btn danger" id="confirmDeleteBtn">Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- Message Modal (for success/info messages) -->
+<div id="messageModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="messageModalTitle">Message</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="messageModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p id="messageModalText"></p>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn ok-btn" data-action="closeModal" data-modal="messageModal">OK</button>
+        </div>
+    </div>
+</div>
+
 <!-- Include shared JavaScript first (required dependency for search.js) -->
 <script src="/static/js/shared.js"></script>
 <script src="/static/js/search.js"></script>

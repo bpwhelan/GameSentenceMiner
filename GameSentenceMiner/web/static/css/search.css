@@ -1,5 +1,13 @@
 /* Search Page Specific Styles */
 
+/* Checkbox styling for search results */
+.line-checkbox {
+    margin-top: 4px;
+    cursor: pointer;
+    min-width: 16px;
+    min-height: 16px;
+}
+
 /* Search-specific responsive styles */
 @media (max-width: 768px) {
     .navigation {

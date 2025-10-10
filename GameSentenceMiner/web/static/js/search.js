@@ -197,10 +197,6 @@ class SentenceSearchApp {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.className = 'line-checkbox';
-        checkbox.style.marginTop = '4px';
-        checkbox.style.cursor = 'pointer';
-        checkbox.style.minWidth = '16px';
-        checkbox.style.minHeight = '16px';
         checkbox.dataset.lineId = result.id;
         checkbox.checked = this.selectedLineIds.has(result.id);
         
@@ -343,11 +339,11 @@ class SentenceSearchApp {
         const count = this.selectedLineIds.size;
         if (count === 0) return;
 
-        const message = `Are you sure you want to delete ${count} selected sentence${count > 1 ? 's' : ''}?\n\nThis action cannot be undone.`;
+        const message = `Are you sure you want to delete ${count} selected sentence${count > 1 ? 's' : ''}? This action cannot be undone.`;
         
-        if (confirm(message)) {
-            this.deleteSelectedLines();
-        }
+        // Show confirmation modal
+        document.getElementById('deleteConfirmationMessage').textContent = message;
+        openModal('deleteConfirmationModal');
     }
 
     async deleteSelectedLines() {
@@ -380,17 +376,41 @@ class SentenceSearchApp {
             // Refresh search results
             await this.performSearch();
 
-            // Show success message
-            alert(`Successfully deleted ${data.deleted_count} sentence${data.deleted_count > 1 ? 's' : ''}`);
+            // Show success message using modal
+            this.showMessage('Success', `Successfully deleted ${data.deleted_count} sentence${data.deleted_count > 1 ? 's' : ''}`);
 
         } catch (error) {
             this.showErrorState(`Failed to delete sentences: ${error.message}`);
             console.error('Delete error:', error);
         }
     }
+
+    showMessage(title, message) {
+        document.getElementById('messageModalTitle').textContent = title;
+        document.getElementById('messageModalText').textContent = message;
+        openModal('messageModal');
+    }
 }
 
 // Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    new SentenceSearchApp();
+    const app = new SentenceSearchApp();
+    
+    // Add modal close button handlers
+    const closeButtons = document.querySelectorAll('[data-action="closeModal"]');
+    closeButtons.forEach(btn => {
+        const modalId = btn.getAttribute('data-modal');
+        if (modalId) {
+            btn.addEventListener('click', () => closeModal(modalId));
+        }
+    });
+    
+    // Add confirm delete button handler
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+    if (confirmDeleteBtn) {
+        confirmDeleteBtn.addEventListener('click', () => {
+            closeModal('deleteConfirmationModal');
+            app.deleteSelectedLines();
+        });
+    }
 });
