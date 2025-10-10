@@ -253,7 +253,7 @@ def register_database_api_routes(app):
             
             response_data = {
                 'deleted_count': deleted_count,
-                'message': f'Successfully deleted {deleted_count} sentence{" " if deleted_count == 1 else "s"}'
+                'message': f'Successfully deleted {deleted_count} {"sentence" if deleted_count == 1 else "sentences"}'
             }
             
             if failed_ids:
