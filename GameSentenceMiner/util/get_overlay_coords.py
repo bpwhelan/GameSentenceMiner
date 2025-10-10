@@ -188,41 +188,41 @@ class OverlayProcessor:
         For primary monitor, excludes taskbar. For others, returns full monitor area.
         monitor_index: 0 = primary monitor, 1+ = others (as in mss.monitors).
         """
-        set_dpi_awareness()
+        # set_dpi_awareness()
         with mss.mss() as sct:
             monitors = sct.monitors[1:]
-            return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
-            # if is_windows() and monitor_index == 0:
-            #     from ctypes import wintypes
-            #     import ctypes
-            #     # Get work area for primary monitor (ignores taskbar)
-            #     SPI_GETWORKAREA = 0x0030
-            #     rect = wintypes.RECT()
-            #     res = ctypes.windll.user32.SystemParametersInfoW(
-            #         SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
-            #     )
-            #     if not res:
-            #         raise ctypes.WinError()
+            # return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
+            if is_windows() and monitor_index == 0:
+                from ctypes import wintypes
+                import ctypes
+                # Get work area for primary monitor (ignores taskbar)
+                SPI_GETWORKAREA = 0x0030
+                rect = wintypes.RECT()
+                res = ctypes.windll.user32.SystemParametersInfoW(
+                    SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
+                )
+                if not res:
+                    raise ctypes.WinError()
                 
-            #     return {
-            #         "left": rect.left,
-            #         "top": rect.top,
-            #         "width": rect.right - rect.left,
-            #         "height": rect.bottom - rect.top,
-            #     }
-            # elif is_windows() and monitor_index > 0:
-            #     # Secondary monitors: just return with a guess of how tall the taskbar is
-            #     taskbar_height_guess = 48  # A common taskbar height, may vary
-            #     mon = monitors[monitor_index]
-            #     return {
-            #         "left": mon["left"],
-            #         "top": mon["top"],
-            #         "width": mon["width"],
-            #         "height": mon["height"] - taskbar_height_guess
-            #     }
-            # else:
-            #     # For non-Windows systems or unspecified monitors, return the monitor area as-is
-            #     return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
+                return {
+                    "left": rect.left,
+                    "top": rect.top,
+                    "width": rect.right - rect.left,
+                    "height": rect.bottom - rect.top,
+                }
+            elif is_windows() and monitor_index > 0:
+                # Secondary monitors: just return with a guess of how tall the taskbar is
+                taskbar_height_guess = 48  # A common taskbar height, may vary
+                mon = monitors[monitor_index]
+                return {
+                    "left": mon["left"],
+                    "top": mon["top"],
+                    "width": mon["width"],
+                    "height": mon["height"] - taskbar_height_guess
+                }
+            else:
+                # For non-Windows systems or unspecified monitors, return the monitor area as-is
+                return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
 
 
     def _get_full_screenshot(self) -> Tuple[Image.Image | None, int, int]:
