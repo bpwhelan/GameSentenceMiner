@@ -14,6 +14,7 @@ class KanjiGridRenderer {
             emptyMessage: 'No kanji data available',
             showCounter: true,
             showLegend: true,
+            enableSorting: true, // Enable sorting dropdown
             ...options
         };
         
@@ -25,17 +26,144 @@ class KanjiGridRenderer {
             console.error(`KanjiGridRenderer: Container not found with selector: ${this.config.containerSelector}`);
             return;
         }
+        
+        // Sorting state
+        this.currentKanjiData = null;
+        this.sortingConfigs = [];
+        this.currentSortMode = 'frequency'; // 'frequency' or config filename
+        
+        // Initialize sorting if enabled
+        if (this.config.enableSorting) {
+            this.initializeSorting();
+        }
+    }
+    
+    /**
+     * Initialize sorting functionality
+     */
+    async initializeSorting() {
+        try {
+            // Load saved preference
+            this.currentSortMode = this.loadSortPreference();
+            
+            // Fetch available sorting configs
+            await this.loadSortingConfigs();
+            
+            // Create dropdown UI
+            this.createSortDropdown();
+        } catch (error) {
+            console.error('Failed to initialize sorting:', error);
+        }
+    }
+    
+    /**
+     * Load available sorting configurations from API
+     */
+    async loadSortingConfigs() {
+        try {
+            const response = await fetch('/api/kanji-sorting-configs');
+            const data = await response.json();
+            this.sortingConfigs = data.configs || [];
+        } catch (error) {
+            console.error('Failed to load sorting configs:', error);
+            this.sortingConfigs = [];
+        }
+    }
+    
+    /**
+     * Create and insert the sort dropdown UI
+     */
+    createSortDropdown() {
+        // Create dropdown container
+        const dropdownContainer = document.createElement('div');
+        dropdownContainer.className = 'kanji-sort-dropdown-container';
+        
+        const label = document.createElement('label');
+        label.textContent = 'Sort by: ';
+        label.className = 'kanji-sort-label';
+        
+        const select = document.createElement('select');
+        select.className = 'kanji-sort-dropdown';
+        select.id = 'kanjiSortDropdown';
+        
+        // Add "Frequency (default)" option
+        const freqOption = document.createElement('option');
+        freqOption.value = 'frequency';
+        freqOption.textContent = 'Frequency (default)';
+        select.appendChild(freqOption);
+        
+        // Add options from loaded configs
+        this.sortingConfigs.forEach(config => {
+            const option = document.createElement('option');
+            option.value = config.filename;
+            option.textContent = config.name;
+            select.appendChild(option);
+        });
+        
+        // Set current value
+        select.value = this.currentSortMode;
+        
+        // Add change handler
+        select.addEventListener('change', (e) => this.handleSortChange(e.target.value));
+        
+        dropdownContainer.appendChild(label);
+        dropdownContainer.appendChild(select);
+        
+        // Insert at the top of the container
+        this.container.parentElement.insertBefore(dropdownContainer, this.container);
+    }
+    
+    /**
+     * Handle sort mode change
+     * @param {string} sortMode - Selected sort mode
+     */
+    async handleSortChange(sortMode) {
+        this.currentSortMode = sortMode;
+        this.saveSortPreference(sortMode);
+        
+        // Re-render with current data
+        if (this.currentKanjiData) {
+            await this.render(this.currentKanjiData);
+        }
+    }
+    
+    /**
+     * Save sort preference to localStorage
+     * @param {string} sortMode - Sort mode to save
+     */
+    saveSortPreference(sortMode) {
+        try {
+            localStorage.setItem('kanjiGridSortMode', sortMode);
+        } catch (error) {
+            console.error('Failed to save sort preference:', error);
+        }
+    }
+    
+    /**
+     * Load sort preference from localStorage
+     * @returns {string} Saved sort mode or 'frequency' as default
+     */
+    loadSortPreference() {
+        try {
+            return localStorage.getItem('kanjiGridSortMode') || 'frequency';
+        } catch (error) {
+            console.error('Failed to load sort preference:', error);
+            return 'frequency';
+        }
     }
     
     /**
      * Render the kanji grid with provided data
      * @param {Object|Array} kanjiData - Kanji data to render
      */
-    render(kanjiData) {
+    async render(kanjiData) {
         if (!kanjiData) {
             this.renderEmpty();
             return;
         }
+        
+        // Store current data for re-rendering
+        this.currentKanjiData = kanjiData;
         
         // Handle different data formats
         let kanjiList = [];
@@ -62,14 +190,149 @@ class KanjiGridRenderer {
             this.counter.textContent = kanjiList.length;
         }
         
-        // Clear existing grid
+        // Clear existing grid and reset classes
         this.container.innerHTML = '';
+        this.container.classList.remove('flat-mode');
         
-        // Render kanji cells
+        // Render based on current sort mode
+        if (this.currentSortMode === 'frequency') {
+            this.renderFlat(kanjiList);
+        } else {
+            await this.renderGrouped(kanjiList, this.currentSortMode);
+        }
+    }
+    
+    /**
+     * Render kanji in flat/frequency mode
+     * @param {Array} kanjiList - List of kanji items
+     */
+    renderFlat(kanjiList) {
+        // Add flat-mode class for CSS Grid layout
+        this.container.classList.add('flat-mode');
+        
         kanjiList.forEach(item => {
             const cell = this.createKanjiCell(item);
             this.container.appendChild(cell);
         });
+    }
+    
+    /**
+     * Render kanji in grouped mode based on JSON configuration
+     * @param {Array} kanjiList - List of kanji items
+     * @param {string} configFilename - Configuration filename
+     */
+    async renderGrouped(kanjiList, configFilename) {
+        // Remove flat-mode class for block layout
+        this.container.classList.remove('flat-mode');
+        
+        try {
+            // Fetch the sorting configuration
+            const response = await fetch(`/api/kanji-sorting-config/${configFilename}`);
+            if (!response.ok) {
+                console.error('Failed to load sorting config, falling back to frequency');
+                this.renderFlat(kanjiList);
+                return;
+            }
+            
+            const config = await response.json();
+            let groups = config.groups || [];
+            
+            // Create a map for quick kanji lookup
+            const kanjiMap = new Map();
+            kanjiList.forEach(item => {
+                kanjiMap.set(item.kanji, item);
+            });
+            
+            // Handle leftover kanji (add as additional group if exists)
+            if (config.leftover_group) {
+                const leftoverKanji = Array.from(kanjiMap.values()).filter(item => {
+                    return !groups.some(group =>
+                        group.characters && group.characters.includes(item.kanji)
+                    );
+                });
+                
+                if (leftoverKanji.length > 0) {
+                    groups = [...groups, {
+                        name: config.leftover_group,
+                        characters: leftoverKanji.map(item => item.kanji).join('')
+                    }];
+                }
+            }
+            
+            // Render each group in stacked layout
+            groups.forEach(group => {
+                const groupSection = this.createGroupSection(group, kanjiMap);
+                this.container.appendChild(groupSection);
+            });
+            
+        } catch (error) {
+            console.error('Error rendering grouped kanji:', error);
+            this.renderFlat(kanjiList);
+        }
+    }
+    
+    /**
+     * Create a group section with header and kanji grid
+     * @param {Object} group - Group configuration {name, characters}
+     * @param {Map} kanjiMap - Map of kanji character to kanji data
+     * @returns {HTMLElement} Group section element
+     */
+    createGroupSection(group, kanjiMap) {
+        const section = document.createElement('div');
+        section.className = 'kanji-group-section';
+        
+        const characters = group.characters || '';
+        
+        // Calculate statistics
+        const totalInGroup = characters.length;
+        let knownInGroup = 0;
+        let foundInGroup = 0;
+        
+        for (const char of characters) {
+            if (kanjiMap.has(char)) {
+                foundInGroup++;
+                knownInGroup++; // For now, found = known
+            }
+        }
+        
+        const foundPercentage = totalInGroup > 0 ? ((foundInGroup / totalInGroup) * 100).toFixed(2) : 0;
+        const knownPercentage = totalInGroup > 0 ? ((knownInGroup / totalInGroup) * 100).toFixed(2) : 0;
+        
+        // Create header
+        const header = document.createElement('h3');
+        header.className = 'kanji-group-header';
+        header.textContent = group.name;
+        section.appendChild(header);
+        
+        // Create stats line
+        const stats = document.createElement('div');
+        stats.className = 'kanji-group-stats';
+        stats.textContent = `${foundInGroup} of ${totalInGroup} Found - ${foundPercentage}%, ${knownInGroup} of ${totalInGroup} Known - ${knownPercentage}%`;
+        section.appendChild(stats);
+        
+        // Create grid for kanji
+        const grid = document.createElement('div');
+        grid.className = 'kanji-group-grid';
+        
+        // Render all characters in the group
+        for (const char of characters) {
+            const kanjiData = kanjiMap.get(char);
+            if (kanjiData) {
+                const cell = this.createKanjiCell(kanjiData);
+                grid.appendChild(cell);
+            } else {
+                const cell = this.createKanjiCell({
+                    kanji: char,
+                    frequency: 0,
+                    color: '#ebedf0'
+                });
+                grid.appendChild(cell);
+            }
+        }
+        
+        section.appendChild(grid);
+        
+        return section;
     }
     
     /**
@@ -126,7 +389,7 @@ class KanjiGridRenderer {
      * @returns {string} - CSS color value
      */
     getFrequencyColor(frequency) {
-        if (frequency > 500) return '#2ee6e0';  // Cyan for very frequent
+        if (frequency > 300) return '#2ee6e0';  // Cyan for very frequent
         else if (frequency > 100) return '#3be62f';  // Green for frequent
         else if (frequency > 30) return '#e6dc2e';   // Yellow for moderate
         else if (frequency > 10) return '#e6342e';   // Red for occasional

@@ -16,6 +16,10 @@
 
     <!-- Include shared CSS -->
     <link rel="stylesheet" href="/static/css/shared.css">
+    
+    <!-- Include shared dashboard and popup CSS -->
+    <link rel="stylesheet" href="/static/css/dashboard-shared.css">
+    <link rel="stylesheet" href="/static/css/popups-shared.css">
 
     <!-- Include overview-specific CSS -->
     <link rel="stylesheet" href="/static/css/overview.css">
@@ -212,97 +216,6 @@
                     <span class="dashboard-stat-value" id="todayCharsPerHour">-</span>
                     <span class="dashboard-stat-label">Chars/Hour</span>
                 </div>
-            </div>
-        </div>
-
-        <!-- Goal Progress Chart -->
-        <div class="dashboard-card goal-progress-chart" id="goalProgressChart" style="margin-bottom: 30px;">
-            <div class="dashboard-card-header">
-                <h3 class="dashboard-card-title">
-                    <span class="dashboard-card-icon">🎯</span>
-                    Goal Progress Chart
-                </h3>
-                <p class="dashboard-card-subtitle">Track your reading goals and projected completion dates</p>
-            </div>
-
-            <div class="goal-progress-grid">
-                <!-- Reading Hours Goal -->
-                <div class="goal-progress-item">
-                    <div class="goal-progress-header">
-                        <div class="goal-progress-label">
-                            <span class="goal-icon">⏱️</span>
-                            Reading Hours
-                        </div>
-                        <div class="goal-progress-values">
-                            <span class="goal-current" id="goalHoursCurrent">-</span>
-                            <span class="goal-separator">/</span>
-                            <span class="goal-target" id="goalHoursTarget">-</span>
-                        </div>
-                    </div>
-                    <div class="goal-progress-bar">
-                        <div class="goal-progress-fill" id="goalHoursProgress" data-percentage="0"></div>
-                    </div>
-                    <div class="goal-progress-info">
-                        <span class="goal-percentage" id="goalHoursPercentage">0%</span>
-                        <span class="goal-projection" id="goalHoursProjection">-</span>
-                    </div>
-                </div>
-
-                <!-- Character Count Goal -->
-                <div class="goal-progress-item">
-                    <div class="goal-progress-header">
-                        <div class="goal-progress-label">
-                            <span class="goal-icon">📖</span>
-                            Characters Read
-                        </div>
-                        <div class="goal-progress-values">
-                            <span class="goal-current" id="goalCharsCurrent">-</span>
-                            <span class="goal-separator">/</span>
-                            <span class="goal-target" id="goalCharsTarget">-</span>
-                        </div>
-                    </div>
-                    <div class="goal-progress-bar">
-                        <div class="goal-progress-fill" id="goalCharsProgress" data-percentage="0"></div>
-                    </div>
-                    <div class="goal-progress-info">
-                        <span class="goal-percentage" id="goalCharsPercentage">0%</span>
-                        <span class="goal-projection" id="goalCharsProjection">-</span>
-                    </div>
-                </div>
-
-                <!-- Games Goal -->
-                <div class="goal-progress-item">
-                    <div class="goal-progress-header">
-                        <div class="goal-progress-label">
-                            <span class="goal-icon">🎮</span>
-                            Games
-                        </div>
-                        <div class="goal-progress-values">
-                            <span class="goal-current" id="goalGamesCurrent">-</span>
-                            <span class="goal-separator">/</span>
-                            <span class="goal-target" id="goalGamesTarget">-</span>
-                        </div>
-                    </div>
-                    <div class="goal-progress-bar">
-                        <div class="goal-progress-fill" id="goalGamesProgress" data-percentage="0"></div>
-                    </div>
-                    <div class="goal-progress-info">
-                        <span class="goal-percentage" id="goalGamesPercentage">0%</span>
-                        <span class="goal-projection" id="goalGamesProjection">-</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Loading/Error states -->
-            <div class="goal-progress-loading" id="goalProgressLoading" style="display: none;">
-                <div class="spinner"></div>
-                <span>Loading goal progress...</span>
-            </div>
-
-            <div class="goal-progress-error" id="goalProgressError" style="display: none;">
-                <div class="goal-progress-error-icon">⚠️</div>
-                <div class="goal-progress-error-message">Failed to load goal progress</div>
-                <button class="retry-btn" onclick="loadGoalProgress()">Retry</button>
             </div>
         </div>
 
