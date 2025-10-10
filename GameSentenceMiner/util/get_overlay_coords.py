@@ -188,6 +188,7 @@ class OverlayProcessor:
         For primary monitor, excludes taskbar. For others, returns full monitor area.
         monitor_index: 0 = primary monitor, 1+ = others (as in mss.monitors).
         """
+        set_dpi_awareness()
         with mss.mss() as sct:
             monitors = sct.monitors[1:]
             return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]

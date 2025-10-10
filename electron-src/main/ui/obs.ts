@@ -272,7 +272,7 @@ export async function registerOBSIPC() {
                     capture_mode: 'window',
                     window: window.value,
                     capture_audio: true,
-                    cursor: false,
+                    capture_cursor: false,
                 }
             };
 

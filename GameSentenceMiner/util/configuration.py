@@ -864,10 +864,11 @@ class Config:
         # Add a way to migrate certain things based on version if needed, also help with better defaults
         if self.version:
             if self.version != get_current_version():
+                from packaging import version
                 logger.info(f"Config version mismatch detected: {self.version} != {get_current_version()}")
                 # Handle version mismatch
                 changed = False
-                if self.version < "2.18.0":
+                if version.parse(self.version) < version.parse("2.18.0"):
                     changed = True
                     # Example, doesn't need to be done
                     for profile in self.configs.values():
