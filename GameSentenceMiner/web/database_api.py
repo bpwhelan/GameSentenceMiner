@@ -218,6 +218,54 @@ def register_database_api_routes(app):
             logger.error(f"Error fetching games list: {e}", exc_info=True)
             return jsonify({'error': 'Failed to fetch games list'}), 500
 
+    @app.route('/api/delete-sentence-lines', methods=['POST'])
+    def api_delete_sentence_lines():
+        """
+        Delete specific sentence lines by their IDs.
+        """
+        try:
+            data = request.get_json()
+            line_ids = data.get('line_ids', [])
+            
+            if not line_ids:
+                return jsonify({'error': 'No line IDs provided'}), 400
+            
+            if not isinstance(line_ids, list):
+                return jsonify({'error': 'line_ids must be a list'}), 400
+            
+            # Delete the lines
+            deleted_count = 0
+            failed_ids = []
+            
+            for line_id in line_ids:
+                try:
+                    GameLinesTable._db.execute(
+                        f"DELETE FROM {GameLinesTable._table} WHERE id=?",
+                        (line_id,),
+                        commit=True
+                    )
+                    deleted_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to delete line {line_id}: {e}")
+                    failed_ids.append(line_id)
+            
+            logger.info(f"Deleted {deleted_count} sentence lines out of {len(line_ids)} requested")
+            
+            response_data = {
+                'deleted_count': deleted_count,
+                'message': f'Successfully deleted {deleted_count} sentence{" " if deleted_count == 1 else "s"}'
+            }
+            
+            if failed_ids:
+                response_data['warning'] = f'{len(failed_ids)} lines failed to delete'
+                response_data['failed_ids'] = failed_ids
+            
+            return jsonify(response_data), 200
+            
+        except Exception as e:
+            logger.error(f"Error in sentence line deletion: {e}")
+            return jsonify({'error': f'Failed to delete sentences: {str(e)}'}), 500
+
     @app.route('/api/delete-games', methods=['POST'])
     def api_delete_games():
         """
