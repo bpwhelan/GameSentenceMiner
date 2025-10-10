@@ -111,7 +111,7 @@ If you encounter issues, please ask for help in my [Discord](https://discord.gg/
 
 * https://github.com/Saplling/transparent-texthooker-overlay
 
-* [ExStatic for stats](https://github.com/KamWithK/exSTATic)
+* [exSTATic](https://github.com/KamWithK/exSTATic) for inspiration for GSM's Stats.
 
 * [Kanji Grid](https://github.com/Kuuuube/kanjigrid)
 
