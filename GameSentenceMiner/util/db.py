@@ -605,7 +605,7 @@ class StatsRollupTable(SQLiteDBTable):
         stats.anki_cards_created += anki_cards_created
         stats.time_spent_mining += time_spent_mining
         stats.save()
-        
+
 # Ensure database directory exists and return path
 def get_db_directory(test=False, delete_test=False) -> str:
     if platform == 'win32':  # Windows
@@ -659,7 +659,10 @@ if os.path.exists(db_path):
 
 gsm_db = SQLiteDB(db_path)
 
-for cls in [AIModelsTable, GameLinesTable]:
+# Import GamesTable after gsm_db is created to avoid circular import
+from GameSentenceMiner.util.games_table import GamesTable
+
+for cls in [AIModelsTable, GameLinesTable, GamesTable]:
     cls.set_db(gsm_db)
     # Uncomment to start fresh every time
     # cls.drop()
@@ -680,9 +683,25 @@ def check_and_run_migrations():
             # Copy and cast data from old column to new column
             GameLinesTable.alter_column_type('timestamp_old', 'timestamp', 'REAL')
             logger.info("Migrated 'timestamp' column to REAL type in GameLinesTable.")
+    
+    def migrate_add_game_id_column():
+        """Add game_id column to game_lines table for linking to games table."""
+        if not GameLinesTable.has_column('game_id'):
+            GameLinesTable._db.execute(
+                "ALTER TABLE game_lines ADD COLUMN game_id TEXT",
+                commit=True
+            )
+            logger.info("Added game_id column to game_lines table")
             
+            # Create index for fast lookups
+            GameLinesTable._db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_game_lines_game_id ON game_lines(game_id)",
+                commit=True
+            )
+            logger.info("Created index on game_lines.game_id")
             
     migrate_timestamp()
+    migrate_add_game_id_column()
         
 check_and_run_migrations()
     
