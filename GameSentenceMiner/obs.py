@@ -158,8 +158,8 @@ class OBSConnectionManager(threading.Thread):
         if not buffer_seconds:
             errors.append(error_message)
             return errors
-        
-        self.NO_OUTPUT_SHUTDOWN_SECONDS = max(300, buffer_seconds * 1.10)  # At least 5 minutes or 10% more than buffer
+
+        self.NO_OUTPUT_SHUTDOWN_SECONDS = min(max(300, buffer_seconds * 1.10), 1800)  # At least 5 minutes or 10% more than buffer, but no more than 30 minutes
 
         current_status = get_replay_buffer_status()
 
@@ -554,8 +554,6 @@ def get_replay_buffer_max_time_seconds():
             # For v5, we get settings for the 'replay_buffer' output
             response = client.get_output_settings(name='Replay Buffer')
             
-            print(response.output_settings)
-
             # The response object contains a dict of the actual settings
             if response:
                 # The key for replay buffer length in seconds is 'max_time_sec'
