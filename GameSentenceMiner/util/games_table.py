@@ -9,7 +9,8 @@ class GamesTable(SQLiteDBTable):
     _table = 'games'
     _fields = [
         'id', 'deck_id', 'title_original', 'title_romaji', 'title_english',
-        'description', 'image', 'character_count', 'difficulty', 'links', 'completed'
+        'description', 'image', 'character_count', 'difficulty', 'links', 'completed',
+        'manual_overrides'
     ]
     _types = [
         str,      # id (primary key)
@@ -22,7 +23,8 @@ class GamesTable(SQLiteDBTable):
         int,      # character_count
         int,      # difficulty
         list,     # links (stored as JSON)
-        bool      # completed
+        bool,     # completed
+        list      # manual_overrides (stored as JSON)
     ]
     _pk = 'id'
     _auto_increment = False  # UUID-based primary key
@@ -39,7 +41,8 @@ class GamesTable(SQLiteDBTable):
         character_count: int = 0,
         difficulty: Optional[int] = None,
         links: Optional[List[Dict]] = None,
-        completed: bool = False
+        completed: bool = False,
+        manual_overrides: Optional[List[str]] = None
     ):
         self.id = id if id else str(uuid.uuid4())
         self.deck_id = deck_id
@@ -52,6 +55,7 @@ class GamesTable(SQLiteDBTable):
         self.difficulty = difficulty
         self.links = links if links else []
         self.completed = completed
+        self.manual_overrides = manual_overrides if manual_overrides else []
 
     @classmethod
     def get_by_deck_id(cls, deck_id: int) -> Optional['GamesTable']:
@@ -137,6 +141,29 @@ class GamesTable(SQLiteDBTable):
         )
         return result[0] if result and result[0] else None
 
+    def is_field_manual(self, field_name: str) -> bool:
+        """
+        Check if a field has been manually edited and should not be auto-updated.
+        
+        Args:
+            field_name: The name of the field to check
+            
+        Returns:
+            True if the field is manually overridden, False otherwise
+        """
+        return field_name in self.manual_overrides
+    
+    def mark_field_manual(self, field_name: str):
+        """
+        Mark a field as manually edited so it won't be auto-updated.
+        
+        Args:
+            field_name: The name of the field to mark as manual
+        """
+        if field_name not in self.manual_overrides and field_name in self._fields:
+            self.manual_overrides.append(field_name)
+            logger.debug(f"Marked field '{field_name}' as manually overridden for game {self.id}")
+
     def update_all_fields(
         self,
         deck_id: Optional[int] = None,
@@ -152,6 +179,7 @@ class GamesTable(SQLiteDBTable):
     ):
         """
         Update all fields of the game at once. Only provided fields will be updated.
+        Fields that are updated will be automatically marked as manually overridden.
         
         Args:
             deck_id: jiten.moe deck ID
@@ -167,24 +195,34 @@ class GamesTable(SQLiteDBTable):
         """
         if deck_id is not None:
             self.deck_id = deck_id
+            self.mark_field_manual('deck_id')
         if title_original is not None:
             self.title_original = title_original
+            self.mark_field_manual('title_original')
         if title_romaji is not None:
             self.title_romaji = title_romaji
+            self.mark_field_manual('title_romaji')
         if title_english is not None:
             self.title_english = title_english
+            self.mark_field_manual('title_english')
         if description is not None:
             self.description = description
+            self.mark_field_manual('description')
         if image is not None:
             self.image = image
+            self.mark_field_manual('image')
         if character_count is not None:
             self.character_count = character_count
+            self.mark_field_manual('character_count')
         if difficulty is not None:
             self.difficulty = difficulty
+            self.mark_field_manual('difficulty')
         if links is not None:
             self.links = links
+            self.mark_field_manual('links')
         if completed is not None:
             self.completed = completed
+            self.mark_field_manual('completed')
         
         self.save()
         logger.info(f"Updated game {self.id} ({self.title_original})")
