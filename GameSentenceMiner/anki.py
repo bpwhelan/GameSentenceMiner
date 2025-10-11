@@ -773,10 +773,6 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
             # Get review history for all cards in this game
             reviews_data = invoke("getReviewsOfCards", cards=card_ids)
             
-            # Reuse card_to_note mapping we already created above
-            # Filter to only include cards for this game
-            game_card_to_note = {cid: card_to_note[str(cid)] for cid in card_ids if str(cid) in card_to_note}
-            
             # Group reviews by note ID and calculate per-note retention
             # This matches the reference implementation's approach
             note_stats = {}  # {note_id: {'passed': count, 'failed': count, 'total_time': ms}}
@@ -785,7 +781,7 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
                 if not reviews:
                     continue
                 
-                note_id = game_card_to_note.get(int(card_id_str))
+                note_id = card_to_note.get(card_id_str)
                 if not note_id:
                     continue
                 
