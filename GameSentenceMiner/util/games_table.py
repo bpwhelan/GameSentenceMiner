@@ -154,6 +154,58 @@ class GamesTable(SQLiteDBTable):
             game.character_count = total_chars
             game.save()
 
+    def update_all_fields(
+        self,
+        deck_id: Optional[int] = None,
+        title_original: Optional[str] = None,
+        title_romaji: Optional[str] = None,
+        title_english: Optional[str] = None,
+        description: Optional[str] = None,
+        image: Optional[str] = None,
+        character_count: Optional[int] = None,
+        difficulty: Optional[int] = None,
+        links: Optional[List[Dict]] = None,
+        completed: Optional[bool] = None
+    ):
+        """
+        Update all fields of the game at once. Only provided fields will be updated.
+        
+        Args:
+            deck_id: jiten.moe deck ID
+            title_original: Original Japanese title
+            title_romaji: Romanized title
+            title_english: English translated title
+            description: Game description
+            image: Base64-encoded image data
+            character_count: Total character count
+            difficulty: Difficulty rating
+            links: List of link objects
+            completed: Whether the game is completed
+        """
+        if deck_id is not None:
+            self.deck_id = deck_id
+        if title_original is not None:
+            self.title_original = title_original
+        if title_romaji is not None:
+            self.title_romaji = title_romaji
+        if title_english is not None:
+            self.title_english = title_english
+        if description is not None:
+            self.description = description
+        if image is not None:
+            self.image = image
+        if character_count is not None:
+            self.character_count = character_count
+        if difficulty is not None:
+            self.difficulty = difficulty
+        if links is not None:
+            self.links = links
+        if completed is not None:
+            self.completed = completed
+        
+        self.save()
+        logger.info(f"Updated game {self.id} ({self.title_original})")
+
     def add_link(self, link_type: int, url: str, link_id: Optional[int] = None):
         """
         Add a link to the game's links array.
