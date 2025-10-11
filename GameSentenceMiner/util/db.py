@@ -606,7 +606,6 @@ class StatsRollupTable(SQLiteDBTable):
         stats.time_spent_mining += time_spent_mining
         stats.save()
 
-        
 # Ensure database directory exists and return path
 def get_db_directory(test=False, delete_test=False) -> str:
     if platform == 'win32':  # Windows
