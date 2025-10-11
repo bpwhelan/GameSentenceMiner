@@ -89,12 +89,18 @@
             
             <div class="dashboard-progress-section">
                 <div id="gameStatsTableContainer">
+                    <div id="gameStatsLoading" class="dashboard-loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>Loading game statistics...</span>
+                    </div>
                     <table id="gameStatsTable" class="stats-table">
                         <thead>
                             <tr>
                                 <th>Game Name</th>
                                 <th>Avg Time/Card</th>
-                                <th>Retention</th>
+                                <th>Overall Retention</th>
+                                <th>Young Card Retention</th>
+                                <th>Mature Card Retention</th>
                             </tr>
                         </thead>
                         <tbody id="gameStatsTableBody">

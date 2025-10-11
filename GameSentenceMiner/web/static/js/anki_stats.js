@@ -170,9 +170,15 @@ document.addEventListener('DOMContentLoaded', function () {
     
     // Game Stats functionality
     async function loadGameStats(start_timestamp = null, end_timestamp = null) {
-        console.log('[GAME STATS] Loading game stats with timestamps:', start_timestamp, end_timestamp);
-        const gameStatsTable = document.getElementById('gameStatsTableBody');
+        const gameStatsLoading = document.getElementById('gameStatsLoading');
+        const gameStatsTable = document.getElementById('gameStatsTable');
+        const gameStatsTableBody = document.getElementById('gameStatsTableBody');
         const gameStatsEmpty = document.getElementById('gameStatsEmpty');
+        
+        // Show loading spinner
+        gameStatsLoading.style.display = 'flex';
+        gameStatsTable.style.display = 'none';
+        gameStatsEmpty.style.display = 'none';
         
         try {
             // Build URL with optional query params
@@ -181,31 +187,30 @@ document.addEventListener('DOMContentLoaded', function () {
             if (end_timestamp) params.append('end_timestamp', end_timestamp);
             const url = '/api/anki_game_stats' + (params.toString() ? `?${params.toString()}` : '');
 
-            console.log('[GAME STATS] Fetching from:', url);
             const resp = await fetch(url);
-            console.log('[GAME STATS] Response status:', resp.status, resp.statusText);
             if (!resp.ok) {
-                const errorText = await resp.text();
-                console.error('[GAME STATS] Response error:', errorText);
                 throw new Error('Failed to load game stats: ' + resp.statusText);
             }
             const data = await resp.json();
-            console.log('[GAME STATS] Received game stats data:', data);
             renderGameStatsTable(data);
         } catch (e) {
-            console.error('[GAME STATS] Error loading game stats:', e);
-            gameStatsTable.innerHTML = '';
+            console.error('Error loading game stats:', e);
+            gameStatsTableBody.innerHTML = '';
             gameStatsEmpty.style.display = 'block';
             gameStatsEmpty.textContent = 'Failed to load game statistics. Make sure Anki is running with AnkiConnect.';
+        } finally {
+            // Hide loading spinner
+            gameStatsLoading.style.display = 'none';
+            gameStatsTable.style.display = 'table';
         }
     }
     
     function renderGameStatsTable(gameStats) {
-        const gameStatsTable = document.getElementById('gameStatsTableBody');
+        const gameStatsTableBody = document.getElementById('gameStatsTableBody');
         const gameStatsEmpty = document.getElementById('gameStatsEmpty');
         
         if (!gameStats || gameStats.length === 0) {
-            gameStatsTable.innerHTML = '';
+            gameStatsTableBody.innerHTML = '';
             gameStatsEmpty.style.display = 'block';
             return;
         }
@@ -213,7 +218,7 @@ document.addEventListener('DOMContentLoaded', function () {
         gameStatsEmpty.style.display = 'none';
         
         // Clear existing rows
-        gameStatsTable.innerHTML = '';
+        gameStatsTableBody.innerHTML = '';
         
         // Populate table with game stats
         gameStats.forEach(game => {
@@ -229,21 +234,36 @@ document.addEventListener('DOMContentLoaded', function () {
             timeCell.textContent = formatTime(game.avg_time_per_card);
             row.appendChild(timeCell);
             
-            // Retention percentage cell
+            // Overall retention percentage cell
             const retentionCell = document.createElement('td');
             retentionCell.textContent = game.retention_pct + '%';
-            // Add color coding for retention
-            if (game.retention_pct >= 90) {
-                retentionCell.style.color = 'var(--success-color, #2ecc71)';
-            } else if (game.retention_pct >= 80) {
-                retentionCell.style.color = 'var(--warning-color, #f39c12)';
-            } else {
-                retentionCell.style.color = 'var(--danger-color, #e74c3c)';
-            }
+            retentionCell.style.color = getRetentionColor(game.retention_pct);
             row.appendChild(retentionCell);
             
-            gameStatsTable.appendChild(row);
+            // Young card retention cell
+            const youngRetentionCell = document.createElement('td');
+            youngRetentionCell.textContent = game.young_retention + '%';
+            youngRetentionCell.style.color = getRetentionColor(game.young_retention);
+            row.appendChild(youngRetentionCell);
+            
+            // Mature card retention cell
+            const matureRetentionCell = document.createElement('td');
+            matureRetentionCell.textContent = game.mature_retention + '%';
+            matureRetentionCell.style.color = getRetentionColor(game.mature_retention);
+            row.appendChild(matureRetentionCell);
+            
+            gameStatsTableBody.appendChild(row);
         });
+    }
+    
+    function getRetentionColor(retention) {
+        if (retention >= 90) {
+            return 'var(--success-color, #2ecc71)';
+        } else if (retention >= 80) {
+            return 'var(--warning-color, #f39c12)';
+        } else {
+            return 'var(--danger-color, #e74c3c)';
+        }
     }
     
     function formatTime(seconds) {
@@ -259,15 +279,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     
     // Load game stats when dates are set
-    console.log('[GAME STATS] Setting up datesSetAnki event listener');
     document.addEventListener("datesSetAnki", () => {
-        console.log('[GAME STATS] datesSetAnki event fired!');
         const fromDate = sessionStorage.getItem("fromDateAnki");
         const toDate = sessionStorage.getItem("toDateAnki");
-        console.log('[GAME STATS] Date range:', fromDate, 'to', toDate);
         const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDate, toDate);
-        console.log('[GAME STATS] Calling loadGameStats with timestamps:', startTimestamp, endTimestamp);
-        
         loadGameStats(startTimestamp, endTimestamp);
     });
     
@@ -275,12 +290,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const fromDate = sessionStorage.getItem("fromDateAnki");
     const toDate = sessionStorage.getItem("toDateAnki");
     if (fromDate && toDate) {
-        console.log('[GAME STATS] Dates found in sessionStorage, loading game stats immediately');
         const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDate, toDate);
         loadGameStats(startTimestamp, endTimestamp);
-    } else {
-        console.log('[GAME STATS] No dates in sessionStorage yet, will wait for datesSetAnki event');
     }
-    
-    console.log('[GAME STATS] JavaScript initialization complete');
 });
