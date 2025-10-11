@@ -763,19 +763,25 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
             # Get review history for all cards in this game
             reviews_data = invoke("getReviewsOfCards", cards=card_ids)
             
-            total_time = 0
-            total_reviews = 0
-            successful_reviews = 0
+            # Get card to note mapping
+            cards_info = invoke("cardsInfo", cards=card_ids)
+            card_to_note = {str(card['cardId']): card['note'] for card in cards_info}
             
-            # Process reviews for each card
+            # Group reviews by note ID and calculate per-note retention
+            # This matches the reference implementation's approach
+            note_stats = {}  # {note_id: {'passed': count, 'failed': count, 'total_time': ms}}
+            
             for card_id_str, reviews in reviews_data.items():
                 if not reviews:
+                    continue
+                
+                note_id = card_to_note.get(card_id_str)
+                if not note_id:
                     continue
                 
                 # Filter reviews by timestamp if provided
                 filtered_reviews = reviews
                 if start_timestamp and end_timestamp:
-                    # Review timestamps are in milliseconds
                     filtered_reviews = [
                         r for r in reviews
                         if start_timestamp <= r['id'] <= end_timestamp
@@ -788,26 +794,48 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
                     if review_type != 1:
                         continue
                     
-                    total_reviews += 1
-                    total_time += review['time']  # time in milliseconds
+                    if note_id not in note_stats:
+                        note_stats[note_id] = {'passed': 0, 'failed': 0, 'total_time': 0}
+                    
+                    note_stats[note_id]['total_time'] += review['time']
                     
                     # Ease: 1=Again, 2=Hard, 3=Good, 4=Easy
-                    # Retention = reviews with ease >= 2 (Hard or better)
-                    if review['ease'] >= 2:
-                        successful_reviews += 1
+                    if review['ease'] == 1:
+                        note_stats[note_id]['failed'] += 1
+                    else:
+                        note_stats[note_id]['passed'] += 1
             
-            # Calculate averages
-            if total_reviews > 0:
-                avg_time_ms = total_time / total_reviews
-                avg_time_seconds = avg_time_ms / 1000.0
-                retention_pct = (successful_reviews / total_reviews) * 100
+            if not note_stats:
+                continue
+            
+            # Calculate per-note retention and average them
+            retention_sum = 0
+            total_time = 0
+            total_reviews = 0
+            
+            for note_id, stats in note_stats.items():
+                passed = stats['passed']
+                failed = stats['failed']
+                total = passed + failed
                 
-                game_stats.append({
-                    'game_name': game_name,
-                    'avg_time_per_card': round(avg_time_seconds, 2),
-                    'retention_pct': round(retention_pct, 1),
-                    'total_reviews': total_reviews
-                })
+                if total > 0:
+                    # Calculate retention for this note
+                    note_retention = passed / total
+                    retention_sum += note_retention
+                    total_time += stats['total_time']
+                    total_reviews += total
+            
+            # Average retention across all notes (not reviews)
+            note_count = len(note_stats)
+            avg_retention = (retention_sum / note_count) * 100 if note_count > 0 else 0
+            avg_time_seconds = (total_time / total_reviews / 1000.0) if total_reviews > 0 else 0
+            
+            game_stats.append({
+                'game_name': game_name,
+                'avg_time_per_card': round(avg_time_seconds, 2),
+                'retention_pct': round(avg_retention, 1),
+                'total_reviews': total_reviews
+            })
         
         # Sort by game name
         game_stats.sort(key=lambda x: x['game_name'])
