@@ -245,9 +245,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     
     function getRetentionColor(retention) {
-        if (retention >= 90) {
+        if (retention >= 80) {
             return 'var(--success-color, #2ecc71)';
-        } else if (retention >= 80) {
+        } else if (retention >= 70) {
             return 'var(--warning-color, #f39c12)';
         } else {
             return 'var(--danger-color, #e74c3c)';
