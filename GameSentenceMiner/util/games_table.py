@@ -191,12 +191,15 @@ class GamesTable(SQLiteDBTable):
 
     def add_link(self, link_type: int, url: str, link_id: Optional[int] = None):
         """
-        Add a link to the game's links array.
+        Add a link to the game's links array and persist to database.
         
         Args:
             link_type: Type of link (e.g., 4 for AniList, 5 for MyAnimeList)
             url: URL of the link
             link_id: Optional link ID
+            
+        Note:
+            Changes are automatically saved to the database.
         """
         new_link = {
             'linkType': link_type,
@@ -207,6 +210,7 @@ class GamesTable(SQLiteDBTable):
             new_link['linkId'] = link_id
         
         self.links.append(new_link)
+        self.save()
 
     def get_lines(self) -> List['GameLinesTable']:
         """Get all lines associated with this game."""
