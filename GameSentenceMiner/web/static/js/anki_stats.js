@@ -13,6 +13,43 @@ document.addEventListener('DOMContentLoaded', function () {
     const fromDateInput = document.getElementById('fromDate');
     const toDateInput = document.getElementById('toDate');
     
+    // Initialize heatmap renderer with mining-specific configuration
+    const miningHeatmapRenderer = new HeatmapRenderer({
+        containerId: 'miningHeatmapContainer',
+        metricName: 'sentences',
+        metricLabel: 'sentences mined'
+    });
+    
+    // Function to create GitHub-style heatmap for mining activity using shared component
+    function createMiningHeatmap(heatmapData) {
+        miningHeatmapRenderer.render(heatmapData);
+    }
+    
+    // Function to load mining heatmap data
+    async function loadMiningHeatmap(start_timestamp = null, end_timestamp = null) {
+        try {
+            const params = new URLSearchParams();
+            if (start_timestamp) params.append('start', start_timestamp);
+            if (end_timestamp) params.append('end', end_timestamp);
+            const url = '/api/mining_heatmap' + (params.toString() ? `?${params.toString()}` : '');
+            
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error('Failed to load mining heatmap');
+            const data = await resp.json();
+            
+            if (Object.keys(data).length > 0) {
+                createMiningHeatmap(data);
+            } else {
+                const container = document.getElementById('miningHeatmapContainer');
+                container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">No mining data available for the selected date range.</p>';
+            }
+        } catch (e) {
+            console.error('Failed to load mining heatmap:', e);
+            const container = document.getElementById('miningHeatmapContainer');
+            container.innerHTML = '<p style="text-align: center; color: var(--danger-color); padding: 20px;">Failed to load mining heatmap.</p>';
+        }
+    }
+    
     console.log('Found DOM elements:', {
         loading, error, missingKanjiGrid, missingKanjiCount,
         ankiTotalKanji, gsmTotalKanji, ankiCoverage
@@ -106,6 +143,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDate, toDate);
         
         loadStats(startTimestamp, endTimestamp);
+        loadMiningHeatmap(startTimestamp / 1000, endTimestamp / 1000); // Convert from ms to seconds
     });
 
     function initializeDates() {
@@ -160,7 +198,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDateStr, toDateStr);
 
-        loadStats(startTimestamp, endTimestamp)
+        loadStats(startTimestamp, endTimestamp);
+        loadMiningHeatmap(startTimestamp / 1000, endTimestamp / 1000); // Convert from ms to seconds
     }
 
     fromDateInput.addEventListener("change", handleDateChange);

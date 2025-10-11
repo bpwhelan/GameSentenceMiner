@@ -74,6 +74,22 @@
         </div>
     </div>
 
+    <!-- Mining Heatmap Card (Full Width) -->
+    <div class="dashboard-card all-games" id="miningHeatmapCard" style="margin-bottom: 24px;">
+        <div class="dashboard-card-header">
+            <h3 class="dashboard-card-title">
+                <span class="dashboard-card-icon">📊</span>
+                Mining Heatmap
+            </h3>
+            <p class="dashboard-card-subtitle">Track your daily sentence mining progress</p>
+        </div>
+        
+        <div class="dashboard-progress-section">
+            <div class="dashboard-progress-title">Activity Heatmap</div>
+            <div id="miningHeatmapContainer"></div>
+        </div>
+    </div>
+
     <!-- Dashboard Statistics Sections -->
     <div class="dashboard-container">
         <!-- Missing High-Frequency Kanji Card -->
@@ -243,6 +259,7 @@
 
 <!-- Include shared JavaScript first (required dependency for anki_stats.js) -->
 <script src="/static/js/shared.js"></script>
+<script src="/static/js/heatmap.js"></script>
 <script src="/static/js/kanji-grid.js"></script>
 <script src="/static/js/anki_stats.js"></script>
 
