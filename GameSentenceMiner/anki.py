@@ -719,7 +719,7 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
             logger.warning("[GAME STATS] No cards found with Game:: tag")
             return []
         
-        # Get card info to filter by date and extract tags
+        # Get card info to filter by date and extract tags (single call for all cards)
         cards_info = invoke("cardsInfo", cards=card_ids)
         
         # Filter cards by timestamp if provided
@@ -733,12 +733,22 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
         if not cards_info:
             return []
         
+        # Get all unique note IDs and fetch note info in one batch call
+        note_ids = list(set(card['note'] for card in cards_info))
+        notes_info_list = invoke("notesInfo", notes=note_ids)
+        notes_info = {note['noteId']: note for note in notes_info_list}
+        
+        # Create card-to-note mapping for later use
+        card_to_note = {str(card['cardId']): card['note'] for card in cards_info}
+        
         # Group cards by game (extract game name from tags)
         game_cards = {}
         for card in cards_info:
             note_id = card['note']
-            # Get note info to access tags
-            note_info = invoke("notesInfo", notes=[note_id])[0]
+            note_info = notes_info.get(note_id)
+            if not note_info:
+                continue
+            
             tags = note_info.get('tags', [])
             
             # Find game tag (format: Game::GameName)
@@ -763,9 +773,9 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
             # Get review history for all cards in this game
             reviews_data = invoke("getReviewsOfCards", cards=card_ids)
             
-            # Get card to note mapping
-            cards_info = invoke("cardsInfo", cards=card_ids)
-            card_to_note = {str(card['cardId']): card['note'] for card in cards_info}
+            # Reuse card_to_note mapping we already created above
+            # Filter to only include cards for this game
+            game_card_to_note = {cid: card_to_note[str(cid)] for cid in card_ids if str(cid) in card_to_note}
             
             # Group reviews by note ID and calculate per-note retention
             # This matches the reference implementation's approach
@@ -775,7 +785,7 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
                 if not reviews:
                     continue
                 
-                note_id = card_to_note.get(card_id_str)
+                note_id = game_card_to_note.get(int(card_id_str))
                 if not note_id:
                     continue
                 
