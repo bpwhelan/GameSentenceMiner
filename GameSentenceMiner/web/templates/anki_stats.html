@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Anki vs GSM Kanji Stats</title>
+    <title>Anki and GSM Kanji Stats</title>
     
     <!-- Include html2canvas for screenshot functionality -->
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -74,7 +74,42 @@
         </div>
     </div>
 
-    <!-- Dashboard Statistics Sections -->
+    <!-- Anki Game Stats Section -->
+    <div class="dashboard-container">
+        <div class="dashboard-card current-game" id="gameStatsCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">🎮</span>
+                        Anki Game Stats
+                    </h3>
+                    <p class="dashboard-card-subtitle">Review performance statistics by game</p>
+                </div>
+            </div>
+            
+            <div class="dashboard-progress-section">
+                <div id="gameStatsTableContainer">
+                    <table id="gameStatsTable" class="stats-table">
+                        <thead>
+                            <tr>
+                                <th>Game Name</th>
+                                <th>Avg Time/Card</th>
+                                <th>Retention</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gameStatsTableBody">
+                            <!-- Data will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                    <div id="gameStatsEmpty" class="empty-message" style="display: none;">
+                        No game statistics available for the selected date range.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Missing High-Frequency Kanji Section -->
     <div class="dashboard-container">
         <!-- Missing High-Frequency Kanji Card -->
         <div class="dashboard-card current-game" id="missingKanjiCard">

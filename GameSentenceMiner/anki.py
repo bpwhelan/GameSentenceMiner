@@ -695,5 +695,123 @@ def get_all_anki_first_field_kanji(start_timestamp = None, end_timestamp = None)
         return set()
 
 
+def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
+    """
+    Fetch game statistics from Anki for cards tagged with 'Game::*'.
+    
+    Args:
+        start_timestamp: Start timestamp in milliseconds (optional)
+        end_timestamp: End timestamp in milliseconds (optional)
+    
+    Returns:
+        List of dicts with game_name, avg_time_per_card, retention_pct
+    """
+    try:
+        logger.info(f"[GAME STATS] get_anki_game_stats called with timestamps: {start_timestamp} to {end_timestamp}")
+        
+        # Find all cards with Game:: parent tag (capital G)
+        query = "tag:Game::*"
+        logger.info(f"[GAME STATS] Querying Anki with: {query}")
+        card_ids = invoke("findCards", query=query)
+        logger.info(f"[GAME STATS] Found {len(card_ids) if card_ids else 0} cards")
+        
+        if not card_ids:
+            logger.warning("[GAME STATS] No cards found with Game:: tag")
+            return []
+        
+        # Get card info to filter by date and extract tags
+        cards_info = invoke("cardsInfo", cards=card_ids)
+        
+        # Filter cards by timestamp if provided
+        if start_timestamp and end_timestamp:
+            # Card IDs in Anki are timestamps, filter by card creation time
+            cards_info = [
+                card for card in cards_info
+                if start_timestamp <= card['cardId'] <= end_timestamp
+            ]
+        
+        if not cards_info:
+            return []
+        
+        # Group cards by game (extract game name from tags)
+        game_cards = {}
+        for card in cards_info:
+            note_id = card['note']
+            # Get note info to access tags
+            note_info = invoke("notesInfo", notes=[note_id])[0]
+            tags = note_info.get('tags', [])
+            
+            # Find game tag (format: Game::GameName)
+            # Only get first-level subtags (Game::X, not Game::X::Y)
+            game_tag = None
+            for tag in tags:
+                if tag.startswith('Game::'):
+                    # Extract just the game name (first level after Game::)
+                    tag_parts = tag.split('::')
+                    if len(tag_parts) >= 2:
+                        game_tag = tag_parts[1]  # Get the first subtag
+                        break
+            
+            if game_tag:
+                if game_tag not in game_cards:
+                    game_cards[game_tag] = []
+                game_cards[game_tag].append(card['cardId'])
+        
+        # Calculate statistics for each game
+        game_stats = []
+        for game_name, card_ids in game_cards.items():
+            # Get review history for all cards in this game
+            reviews_data = invoke("getReviewsOfCards", cards=card_ids)
+            
+            total_time = 0
+            total_reviews = 0
+            successful_reviews = 0
+            
+            # Process reviews for each card
+            for card_id_str, reviews in reviews_data.items():
+                if not reviews:
+                    continue
+                
+                # Filter reviews by timestamp if provided
+                filtered_reviews = reviews
+                if start_timestamp and end_timestamp:
+                    # Review timestamps are in milliseconds
+                    filtered_reviews = [
+                        r for r in reviews
+                        if start_timestamp <= r['id'] <= end_timestamp
+                    ]
+                
+                for review in filtered_reviews:
+                    total_reviews += 1
+                    total_time += review['time']  # time in milliseconds
+                    
+                    # Ease: 1=Again, 2=Hard, 3=Good, 4=Easy
+                    # Retention = reviews with ease >= 2 (Hard or better)
+                    if review['ease'] >= 2:
+                        successful_reviews += 1
+            
+            # Calculate averages
+            if total_reviews > 0:
+                avg_time_ms = total_time / total_reviews
+                avg_time_seconds = avg_time_ms / 1000.0
+                retention_pct = (successful_reviews / total_reviews) * 100
+                
+                game_stats.append({
+                    'game_name': game_name,
+                    'avg_time_per_card': round(avg_time_seconds, 2),
+                    'retention_pct': round(retention_pct, 1),
+                    'total_reviews': total_reviews
+                })
+        
+        # Sort by game name
+        game_stats.sort(key=lambda x: x['game_name'])
+        
+        return game_stats
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch game stats from Anki: {e}")
+        return []
+
+
 if __name__ == "__main__":
     print(invoke("getIntervals", cards=["1754694986036"]))

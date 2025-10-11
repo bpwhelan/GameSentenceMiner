@@ -354,6 +354,24 @@ def api_anki_stats():
         "coverage_percent": round(coverage_percent, 1)
     })
 
+@app.route('/api/anki_game_stats')
+def api_anki_game_stats():
+    """
+    API endpoint to provide per-game Anki statistics.
+    Returns game name, average review time, and retention percentage.
+    """
+    from GameSentenceMiner.anki import get_anki_game_stats
+    
+    start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
+    end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
+    
+    try:
+        game_stats = get_anki_game_stats(start_timestamp, end_timestamp)
+        return jsonify(game_stats)
+    except Exception as e:
+        logger.error(f"Error fetching game stats: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/search')
 def search():
     """Renders the search page."""

@@ -167,4 +167,120 @@ document.addEventListener('DOMContentLoaded', function () {
     toDateInput.addEventListener("change", handleDateChange);
 
     initializeDates();
+    
+    // Game Stats functionality
+    async function loadGameStats(start_timestamp = null, end_timestamp = null) {
+        console.log('[GAME STATS] Loading game stats with timestamps:', start_timestamp, end_timestamp);
+        const gameStatsTable = document.getElementById('gameStatsTableBody');
+        const gameStatsEmpty = document.getElementById('gameStatsEmpty');
+        
+        try {
+            // Build URL with optional query params
+            const params = new URLSearchParams();
+            if (start_timestamp) params.append('start_timestamp', start_timestamp);
+            if (end_timestamp) params.append('end_timestamp', end_timestamp);
+            const url = '/api/anki_game_stats' + (params.toString() ? `?${params.toString()}` : '');
+
+            console.log('[GAME STATS] Fetching from:', url);
+            const resp = await fetch(url);
+            console.log('[GAME STATS] Response status:', resp.status, resp.statusText);
+            if (!resp.ok) {
+                const errorText = await resp.text();
+                console.error('[GAME STATS] Response error:', errorText);
+                throw new Error('Failed to load game stats: ' + resp.statusText);
+            }
+            const data = await resp.json();
+            console.log('[GAME STATS] Received game stats data:', data);
+            renderGameStatsTable(data);
+        } catch (e) {
+            console.error('[GAME STATS] Error loading game stats:', e);
+            gameStatsTable.innerHTML = '';
+            gameStatsEmpty.style.display = 'block';
+            gameStatsEmpty.textContent = 'Failed to load game statistics. Make sure Anki is running with AnkiConnect.';
+        }
+    }
+    
+    function renderGameStatsTable(gameStats) {
+        const gameStatsTable = document.getElementById('gameStatsTableBody');
+        const gameStatsEmpty = document.getElementById('gameStatsEmpty');
+        
+        if (!gameStats || gameStats.length === 0) {
+            gameStatsTable.innerHTML = '';
+            gameStatsEmpty.style.display = 'block';
+            return;
+        }
+        
+        gameStatsEmpty.style.display = 'none';
+        
+        // Clear existing rows
+        gameStatsTable.innerHTML = '';
+        
+        // Populate table with game stats
+        gameStats.forEach(game => {
+            const row = document.createElement('tr');
+            
+            // Game name cell
+            const nameCell = document.createElement('td');
+            nameCell.textContent = game.game_name;
+            row.appendChild(nameCell);
+            
+            // Average time per card cell
+            const timeCell = document.createElement('td');
+            timeCell.textContent = formatTime(game.avg_time_per_card);
+            row.appendChild(timeCell);
+            
+            // Retention percentage cell
+            const retentionCell = document.createElement('td');
+            retentionCell.textContent = game.retention_pct + '%';
+            // Add color coding for retention
+            if (game.retention_pct >= 90) {
+                retentionCell.style.color = 'var(--success-color, #2ecc71)';
+            } else if (game.retention_pct >= 80) {
+                retentionCell.style.color = 'var(--warning-color, #f39c12)';
+            } else {
+                retentionCell.style.color = 'var(--danger-color, #e74c3c)';
+            }
+            row.appendChild(retentionCell);
+            
+            gameStatsTable.appendChild(row);
+        });
+    }
+    
+    function formatTime(seconds) {
+        if (seconds < 1) {
+            return (seconds * 1000).toFixed(0) + 'ms';
+        } else if (seconds < 60) {
+            return seconds.toFixed(1) + 's';
+        } else {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.floor(seconds % 60);
+            return `${minutes}m ${remainingSeconds}s`;
+        }
+    }
+    
+    // Load game stats when dates are set
+    console.log('[GAME STATS] Setting up datesSetAnki event listener');
+    document.addEventListener("datesSetAnki", () => {
+        console.log('[GAME STATS] datesSetAnki event fired!');
+        const fromDate = sessionStorage.getItem("fromDateAnki");
+        const toDate = sessionStorage.getItem("toDateAnki");
+        console.log('[GAME STATS] Date range:', fromDate, 'to', toDate);
+        const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDate, toDate);
+        console.log('[GAME STATS] Calling loadGameStats with timestamps:', startTimestamp, endTimestamp);
+        
+        loadGameStats(startTimestamp, endTimestamp);
+    });
+    
+    // Load game stats immediately if dates already exist in sessionStorage
+    const fromDate = sessionStorage.getItem("fromDateAnki");
+    const toDate = sessionStorage.getItem("toDateAnki");
+    if (fromDate && toDate) {
+        console.log('[GAME STATS] Dates found in sessionStorage, loading game stats immediately');
+        const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDate, toDate);
+        loadGameStats(startTimestamp, endTimestamp);
+    } else {
+        console.log('[GAME STATS] No dates in sessionStorage yet, will wait for datesSetAnki event');
+    }
+    
+    console.log('[GAME STATS] JavaScript initialization complete');
 });
