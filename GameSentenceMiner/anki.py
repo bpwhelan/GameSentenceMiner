@@ -767,12 +767,6 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
             total_reviews = 0
             successful_reviews = 0
             
-            # Separate tracking for young and mature cards
-            young_total = 0
-            young_successful = 0
-            mature_total = 0
-            mature_successful = 0
-            
             # Process reviews for each card
             for card_id_str, reviews in reviews_data.items():
                 if not reviews:
@@ -788,26 +782,19 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
                     ]
                 
                 for review in filtered_reviews:
+                    # Only count review-type entries (type=1), not learning/relearning
+                    # type: 0=learning, 1=review, 2=relearning, 3=cram
+                    review_type = review.get('type', -1)
+                    if review_type != 1:
+                        continue
+                    
                     total_reviews += 1
                     total_time += review['time']  # time in milliseconds
                     
                     # Ease: 1=Again, 2=Hard, 3=Good, 4=Easy
                     # Retention = reviews with ease >= 2 (Hard or better)
-                    is_successful = review['ease'] >= 2
-                    if is_successful:
+                    if review['ease'] >= 2:
                         successful_reviews += 1
-                    
-                    # Categorize by interval: young (<21 days) vs mature (>=21 days)
-                    # ivl is the new interval in days (negative if in learning phase)
-                    interval = review.get('ivl', 0)
-                    if abs(interval) < 21:
-                        young_total += 1
-                        if is_successful:
-                            young_successful += 1
-                    else:
-                        mature_total += 1
-                        if is_successful:
-                            mature_successful += 1
             
             # Calculate averages
             if total_reviews > 0:
@@ -815,16 +802,10 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
                 avg_time_seconds = avg_time_ms / 1000.0
                 retention_pct = (successful_reviews / total_reviews) * 100
                 
-                # Calculate young and mature retention
-                young_retention = (young_successful / young_total * 100) if young_total > 0 else 0
-                mature_retention = (mature_successful / mature_total * 100) if mature_total > 0 else 0
-                
                 game_stats.append({
                     'game_name': game_name,
                     'avg_time_per_card': round(avg_time_seconds, 2),
                     'retention_pct': round(retention_pct, 1),
-                    'young_retention': round(young_retention, 1),
-                    'mature_retention': round(mature_retention, 1),
                     'total_reviews': total_reviews
                 })
         

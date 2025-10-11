@@ -234,23 +234,11 @@ document.addEventListener('DOMContentLoaded', function () {
             timeCell.textContent = formatTime(game.avg_time_per_card);
             row.appendChild(timeCell);
             
-            // Overall retention percentage cell
+            // Retention percentage cell
             const retentionCell = document.createElement('td');
             retentionCell.textContent = game.retention_pct + '%';
             retentionCell.style.color = getRetentionColor(game.retention_pct);
             row.appendChild(retentionCell);
-            
-            // Young card retention cell
-            const youngRetentionCell = document.createElement('td');
-            youngRetentionCell.textContent = game.young_retention + '%';
-            youngRetentionCell.style.color = getRetentionColor(game.young_retention);
-            row.appendChild(youngRetentionCell);
-            
-            // Mature card retention cell
-            const matureRetentionCell = document.createElement('td');
-            matureRetentionCell.textContent = game.mature_retention + '%';
-            matureRetentionCell.style.color = getRetentionColor(game.mature_retention);
-            row.appendChild(matureRetentionCell);
             
             gameStatsTableBody.appendChild(row);
         });
