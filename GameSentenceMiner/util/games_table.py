@@ -8,7 +8,7 @@ from GameSentenceMiner.util.configuration import logger
 class GamesTable(SQLiteDBTable):
     _table = 'games'
     _fields = [
-        'deck_id', 'title_original', 'title_romaji', 'title_english',
+        'id', 'deck_id', 'title_original', 'title_romaji', 'title_english',
         'description', 'image', 'character_count', 'difficulty', 'links', 'completed'
     ]
     _types = [
@@ -136,23 +136,6 @@ class GamesTable(SQLiteDBTable):
             (game_id,)
         )
         return result[0] if result and result[0] else None
-
-    @classmethod
-    def update_character_count(cls, game_id: str):
-        """
-        Update the total character count for a game based on all its lines.
-        """
-        from GameSentenceMiner.util.db import GameLinesTable
-        result = GameLinesTable._db.fetchone(
-            f"SELECT SUM(LENGTH(line_text)) FROM {GameLinesTable._table} WHERE game_id=?",
-            (game_id,)
-        )
-        total_chars = result[0] if result and result[0] else 0
-        
-        game = cls.get(game_id)
-        if game:
-            game.character_count = total_chars
-            game.save()
 
     def update_all_fields(
         self,
