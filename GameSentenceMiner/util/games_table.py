@@ -168,7 +168,7 @@ class GamesTable(SQLiteDBTable):
             self.manual_overrides.append(field_name)
             logger.debug(f"Marked field '{field_name}' as manually overridden for game {self.id}")
 
-    def update_all_fields_manaual(
+    def update_all_fields_manual(
         self,
         deck_id: Optional[int] = None,
         title_original: Optional[str] = None,
