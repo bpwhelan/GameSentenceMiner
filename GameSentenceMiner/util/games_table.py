@@ -251,7 +251,6 @@ class GamesTable(SQLiteDBTable):
     ):
         """
         Update all fields of the game at once. Only provided fields will be updated.
-        Fields that are updated will be automatically marked as manually overridden.
         
         Args:
             deck_id: jiten.moe deck ID
