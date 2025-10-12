@@ -9,6 +9,7 @@ class GamesTable(SQLiteDBTable):
     _table = 'games'
     _fields = [
         'id', 'deck_id', 'title_original', 'title_romaji', 'title_english',
+        'type',
         'description', 'image', 'character_count', 'difficulty', 'links', 'completed',
         'manual_overrides'
     ]
@@ -18,6 +19,7 @@ class GamesTable(SQLiteDBTable):
         str,      # title_original
         str,      # title_romaji
         str,      # title_english
+        str,      # type (string)
         str,      # description
         str,      # image (base64)
         int,      # character_count
@@ -36,6 +38,7 @@ class GamesTable(SQLiteDBTable):
         title_original: Optional[str] = None,
         title_romaji: Optional[str] = None,
         title_english: Optional[str] = None,
+        type: Optional[str] = None,
         description: Optional[str] = None,
         image: Optional[str] = None,
         character_count: int = 0,
@@ -49,6 +52,7 @@ class GamesTable(SQLiteDBTable):
         self.title_original = title_original if title_original else ''
         self.title_romaji = title_romaji if title_romaji else ''
         self.title_english = title_english if title_english else ''
+        self.type = type if type else ''
         self.description = description if description else ''
         self.image = image if image else ''
         self.character_count = character_count
@@ -164,12 +168,13 @@ class GamesTable(SQLiteDBTable):
             self.manual_overrides.append(field_name)
             logger.debug(f"Marked field '{field_name}' as manually overridden for game {self.id}")
 
-    def update_all_fields(
+    def update_all_fields_manaual(
         self,
         deck_id: Optional[int] = None,
         title_original: Optional[str] = None,
         title_romaji: Optional[str] = None,
         title_english: Optional[str] = None,
+        type: Optional[str] = None,
         description: Optional[str] = None,
         image: Optional[str] = None,
         character_count: Optional[int] = None,
@@ -205,6 +210,9 @@ class GamesTable(SQLiteDBTable):
         if title_english is not None:
             self.title_english = title_english
             self.mark_field_manual('title_english')
+        if type is not None:
+            self.type = type
+            self.mark_field_manual('type')
         if description is not None:
             self.description = description
             self.mark_field_manual('description')
@@ -227,8 +235,63 @@ class GamesTable(SQLiteDBTable):
         self.save()
         logger.info(f"Updated game {self.id} ({self.title_original})")
 
-    def add_link(self, link_type: int, url: str, link_id: Optional[int] = None):
+    def update_all_fields_from_jiten(
+        self,
+        deck_id: Optional[int] = None,
+        title_original: Optional[str] = None,
+        title_romaji: Optional[str] = None,
+        title_english: Optional[str] = None,
+        type: Optionasl[str] = None,
+        description: Optional[str] = None,
+        image: Optional[str] = None,
+        character_count: Optional[int] = None,
+        difficulty: Optional[int] = None,
+        links: Optional[List[Dict]] = None,
+        completed: Optional[bool] = None
+    ):
         """
+        Update all fields of the game at once. Only provided fields will be updated.
+        Fields that are updated will be automatically marked as manually overridden.
+        
+        Args:
+            deck_id: jiten.moe deck ID
+            title_original: Original Japanese title
+            title_romaji: Romanized title
+            title_english: English translated title
+            description: Game description
+            image: Base64-encoded image data
+            character_count: Total character count
+            difficulty: Difficulty rating
+            links: List of link objects
+            completed: Whether the game is completed
+        """
+        if deck_id is not None:
+            self.deck_id = deck_id
+        if title_original is not None:
+            self.title_original = title_original
+        if title_romaji is not None:
+            self.title_romaji = title_romaji
+        if title_english is not None:
+            self.title_english = title_english
+        if type is not None:
+            self.type = type
+        if description is not None:
+            self.description = description
+        if image is not None:
+            self.image = image
+        if character_count is not None:
+            self.character_count = character_count
+        if difficulty is not None:
+            self.difficulty = difficulty
+        if links is not None:
+            self.links = links
+        if completed is not None:
+            self.completed = completed        
+        self.save()
+        logger.info(f"Updated game {self.id} ({self.title_original})")
+
+    def add_link(self, link_type: int, url: str, link_id: Optional[int] = None):
+        """s
         Add a link to the game's links array and persist to database.
         
         Args:
@@ -250,7 +313,7 @@ class GamesTable(SQLiteDBTable):
         self.links.append(new_link)
         self.save()
 
-    def get_lines(self) -> List['GameLinesTable']:
+    def get_lines(self) -> List:
         """Get all lines associated with this game."""
         from GameSentenceMiner.util.db import GameLinesTable
         rows = GameLinesTable._db.fetchall(
