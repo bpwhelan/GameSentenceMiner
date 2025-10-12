@@ -4,6 +4,7 @@ from PIL import Image, ImageTk
 
 import ttkbootstrap as ttk
 from GameSentenceMiner.util.configuration import get_config, logger, gsm_state
+from GameSentenceMiner.util.audio_player import AudioPlayer
 
 import platform
 import subprocess
@@ -20,6 +21,10 @@ class AnkiConfirmationDialog(tk.Toplevel):
         
         # Initialize screenshot_path here, will be updated by button if needed
         self.screenshot_path = screenshot_path 
+
+        # Audio player management
+        self.audio_player = AudioPlayer(finished_callback=self._audio_finished)
+        self.audio_button = None  # Store reference to audio button
 
         self.title("Confirm Anki Card Details")
         self.result = None  # This will store the user's choice
@@ -55,6 +60,10 @@ class AnkiConfirmationDialog(tk.Toplevel):
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
         self.attributes('-topmost', True)
+        
+        # Ensure audio cleanup on window close
+        self.protocol("WM_DELETE_WINDOW", self._cleanup_and_close)
+        
         self.wait_window(self)
 
     def _create_widgets(self, expression, sentence, screenshot_path, audio_path, translation):
@@ -76,13 +85,14 @@ class AnkiConfirmationDialog(tk.Toplevel):
         self.sentence_text = sentence_text
         row += 1
 
-        # Translation
-        ttk.Label(main_frame, text=f"{get_config().ai.anki_field}:", font=("-weight bold")).grid(row=row, column=0, sticky="ne", padx=5, pady=2)
-        translation_text = scrolledtext.ScrolledText(main_frame, height=4, width=50, wrap=tk.WORD)
-        translation_text.insert(tk.END, translation)
-        translation_text.grid(row=row, column=1, sticky="w", padx=5, pady=2)
-        self.translation_text = translation_text
-        row += 1
+        if translation:
+            # Translation
+            ttk.Label(main_frame, text=f"{get_config().ai.anki_field}:", font=("-weight bold")).grid(row=row, column=0, sticky="ne", padx=5, pady=2)
+            translation_text = scrolledtext.ScrolledText(main_frame, height=4, width=50, wrap=tk.WORD)
+            translation_text.insert(tk.END, translation)
+            translation_text.grid(row=row, column=1, sticky="w", padx=5, pady=2)
+            self.translation_text = translation_text
+            row += 1
 
         # Screenshot
         ttk.Label(main_frame, text=f"{get_config().anki.picture_field}:", font=("-weight bold")).grid(row=row, column=0, sticky="ne", padx=5, pady=2)
@@ -109,12 +119,20 @@ class AnkiConfirmationDialog(tk.Toplevel):
         row += 1
         
         # Audio Path
-        ttk.Label(main_frame, text="Audio Path:", font=("-weight bold")).grid(row=row, column=0, sticky="ne", padx=5, pady=2)
-        ttk.Label(main_frame, text=audio_path if audio_path else "No Audio", wraplength=400, justify="left").grid(row=row, column=1, sticky="w", padx=5, pady=2)
         if audio_path and os.path.isfile(audio_path):
-            ttk.Button(main_frame, text="Play Audio", command=lambda: self._play_audio(audio_path)).grid(row=row, column=2, sticky="w", padx=5, pady=2)
-            
-        row += 1
+            ttk.Label(main_frame, text="Audio Path:", font=("-weight bold")).grid(row=row, column=0, sticky="ne", padx=5, pady=2)
+            ttk.Label(main_frame, text=audio_path if audio_path else "No Audio", wraplength=400, justify="left").grid(row=row, column=1, sticky="w", padx=5, pady=2)
+            if audio_path and os.path.isfile(audio_path):
+                self.audio_button = ttk.Button(
+                    main_frame, 
+                    text="▶", 
+                    command=lambda: self._play_audio(audio_path),
+                    bootstyle="outline-info",
+                    width=12
+                )
+                self.audio_button.grid(row=row, column=2, sticky="w", padx=5, pady=2)
+
+            row += 1
 
         # Action Buttons
         button_frame = ttk.Frame(main_frame)
@@ -161,22 +179,59 @@ class AnkiConfirmationDialog(tk.Toplevel):
         if not os.path.isfile(audio_path):
             print(f"Audio file does not exist: {audio_path}")
             return
+        
         try:
-            if platform.system() == "Windows":
-                os.startfile(audio_path)
-            elif platform.system() == "Darwin":
-                subprocess.run(["open", audio_path])
+            # Check if we have a configuration for external audio player
+            if get_config().advanced.audio_player_path:
+                # Use external audio player
+                import platform
+                import subprocess
+                if platform.system() == "Windows":
+                    os.startfile(audio_path)
+                elif platform.system() == "Darwin":
+                    subprocess.run(["open", audio_path])
+                else:
+                    subprocess.run(["xdg-open", audio_path])
             else:
-                subprocess.run(["xdg-open", audio_path])
+                # Use internal audio player
+                success = self.audio_player.play_audio_file(audio_path)
+                if success:
+                    self._update_audio_button()
+                
         except Exception as e:
             print(f"Failed to play audio: {e}")
+    
+    def _audio_finished(self):
+        """Called when audio playback finishes"""
+        self._update_audio_button()
+    
+    def _update_audio_button(self):
+        """Update the audio button text and style based on playing state"""
+        if self.audio_button:
+            if self.audio_player.is_playing:
+                self.audio_button.config(text="⏹ Stop", bootstyle="outline-warning")
+            else:
+                self.audio_button.config(text="▶ Play Audio", bootstyle="outline-info")
+        
+    def _cleanup_audio(self):
+        """Clean up audio stream resources"""
+        self.audio_player.cleanup()
+    
+    def _cleanup_and_close(self):
+        """Clean up resources and close dialog"""
+        self._cleanup_audio()
+        self._on_cancel()
         
     def _on_voice(self):
+        # Clean up audio before closing
+        self._cleanup_audio()
         # The screenshot_path is now correctly updated if the user chose a new one
         self.result = (True, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip(), self.screenshot_path)
         self.destroy()
 
     def _on_no_voice(self):
+        # Clean up audio before closing
+        self._cleanup_audio()
         self.result = (False, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip(), self.screenshot_path)
         self.destroy()
         

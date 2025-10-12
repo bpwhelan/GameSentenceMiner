@@ -48,6 +48,7 @@ import { getOBSConnection, openOBSWindow, registerOBSIPC, setOBSScene } from './
 import { registerSettingsIPC, window_transparency_process } from './ui/settings.js';
 import { registerOCRUtilsIPC, startOCR } from './ui/ocr.js';
 import * as fs from 'node:fs';
+import archiver from 'archiver';
 import { registerFrontPageIPC } from './ui/front.js';
 import { registerPythonIPC } from './ui/python.js';
 import { execFile } from 'node:child_process';
@@ -84,6 +85,8 @@ function registerIPC() {
     registerFrontPageIPC();
     registerPythonIPC();
 }
+
+
 
 async function autoUpdate() {
     const autoUpdater = getAutoUpdater();
@@ -290,6 +293,7 @@ async function createWindow() {
                 { label: 'Update GSM', click: () => update(true, true) },
                 { label: 'Restart Python App', click: () => restartGSM() },
                 { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
+                { label: 'Export Logs', click: () => zipLogs() },
                 { type: 'separator' },
                 { label: 'Quit', click: async () => await quit() },
             ],
@@ -722,6 +726,88 @@ export async function stopScripts(): Promise<void> {
         setTimeout(() => {
             window_transparency_process.kill();
         }, 1000);
+    }
+}
+
+async function zipLogs(): Promise<void> {
+    try {
+        // Get the logs directory path
+        const logsDir = isWindows() 
+            ? path.join(process.env.APPDATA || '', 'GameSentenceMiner', 'logs')
+            : path.join(process.env.HOME || '', '.config', 'GameSentenceMiner', 'logs');
+
+        // Check if logs directory exists
+        if (!fs.existsSync(logsDir)) {
+            dialog.showErrorBox('No Logs Found', 'No logs directory found. No logs have been generated yet.');
+            return;
+        }
+
+        // Read all files in logs directory
+        const logFiles = fs.readdirSync(logsDir).filter(file => 
+            file.endsWith('.log') || file.endsWith('.txt')
+        );
+
+        if (logFiles.length === 0) {
+            dialog.showErrorBox('No Log Files', 'No log files found in the logs directory.');
+            return;
+        }
+
+        // Show save dialog
+        const downloadsDir = app.getPath('downloads');
+        const result = await dialog.showSaveDialog(mainWindow!, {
+            title: 'Save GSM Logs Archive',
+            defaultPath: path.join(downloadsDir, `GSM_Logs_${new Date().toISOString().slice(0, 10)}.zip`),
+            filters: [
+            { name: 'ZIP Archive', extensions: ['zip'] }
+            ]
+        });
+
+        if (result.canceled || !result.filePath) {
+            return;
+        }
+
+        // Create archive
+        const output = fs.createWriteStream(result.filePath);
+        const archive = archiver('zip', {
+            zlib: { level: 9 } // Sets the compression level
+        });
+
+        // Handle archive events
+        output.on('close', () => {
+            console.log(`Archive created successfully: ${archive.pointer()} total bytes`);
+            dialog.showMessageBox(mainWindow!, {
+                type: 'info',
+                title: 'Logs Exported',
+                message: `Logs successfully exported to:\n${result.filePath}`,
+                buttons: ['OK', 'Open Folder']
+            }).then((response) => {
+                if (response.response === 1) {
+                    // Open folder containing the zip file
+                    shell.showItemInFolder(result.filePath!);
+                }
+            });
+        });
+
+        archive.on('error', (err: Error) => {
+            console.error('Archive error:', err);
+            dialog.showErrorBox('Export Failed', `Failed to create logs archive: ${err.message}`);
+        });
+
+        // Pipe archive data to the file
+        archive.pipe(output);
+
+        // Add all log files to the archive
+        logFiles.forEach(file => {
+            const filePath = path.join(logsDir, file);
+            archive.file(filePath, { name: file });
+        });
+
+        // Finalize the archive
+        await archive.finalize();
+
+    } catch (error) {
+        console.error('Error zipping logs:', error);
+        dialog.showErrorBox('Export Failed', `Failed to export logs: ${(error as Error).message}`);
     }
 }
 

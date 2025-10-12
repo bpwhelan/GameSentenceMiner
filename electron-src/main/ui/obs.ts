@@ -69,7 +69,7 @@ async function connectOBSWebSocket(retries = 5, delay = 2000): Promise<void> {
 
 
 export async function getOBSConnection(): Promise<void> {
-    if (connectionPromise) {
+if (connectionPromise) {
         return connectionPromise;
     }
 
@@ -357,8 +357,6 @@ export async function registerOBSIPC() {
                 if (inputProperties.inputSettings?.window) {
                     const windowValue = inputProperties.inputSettings.window as string;
 
-                    console.log(windowValue);
-
                     return windowValue.split(':').at(-1)?.trim();
                 }
             }
@@ -383,8 +381,6 @@ export async function registerOBSIPC() {
                 const inputProperties = await obs.call('GetInputSettings', {inputUuid: item.sourceUuid as string});
                 if (inputProperties.inputSettings?.window) {
                     const windowValue = inputProperties.inputSettings.window as string;
-
-                    console.log(windowValue);
 
                     return windowValue.split(':').at(0)?.trim();
                 }

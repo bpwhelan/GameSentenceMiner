@@ -144,8 +144,8 @@
         });
 
         function getScenes() {
-            document.getElementById('sceneSelect').innerHTML = '';
             ipcRenderer.invoke('obs.getScenes').then(scenes => {
+                document.getElementById('sceneSelect').innerHTML = '';
                 const sceneSelect = document.getElementById('sceneSelect');
                 scenes.forEach(scene => {
                     const option = document.createElement('option');
@@ -166,9 +166,11 @@
             });
         }
 
-        function getWindows() {
+        function getWindows(showLoading = true) {
             const windowSelect = document.getElementById('windowSelect');
-            windowSelect.innerHTML = '<option>Loading...</option>'; // Set "Loading..." message
+            if (showLoading) {
+                windowSelect.innerHTML = '<option>Loading...</option>'; // Set "Loading..." message
+            }
             ipcRenderer.invoke('obs.getWindows').then(windows => {
                 windowSelect.innerHTML = '';
                 windows.forEach(window => {
@@ -349,9 +351,15 @@
             });
         }, 200);
 
-        // Initial calls to populate scenes and windows
-        getWindows();
-        getScenes();
+        function refreshScenesAndWindows(showLoading = true) {
+            if (showLoading)
+                document.getElementById('sceneSelect').innerHTML = '<option>Loading...</option>';
+            getScenes();
+            getWindows(showLoading);
+        }
+
+        refreshScenesAndWindows(true);
+        setInterval(() => refreshScenesAndWindows(false), 5000);
     </script>
 </body>
 

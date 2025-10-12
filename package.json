@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.12.15",
+  "version": "1.12.16",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -73,12 +73,15 @@
   "author": "Beangate",
   "license": "LGPL-3.0-only",
   "devDependencies": {
+    "@types/archiver": "^6.0.3",
+    "@types/tmp": "^0.2.6",
     "@types/ws": "^8.18.0",
     "electron": "^35.0.1",
     "electron-builder": "^25.1.8",
     "typescript": "^5.8.2"
   },
   "dependencies": {
+    "archiver": "^7.0.1",
     "axios": "^1.8.1",
     "detect-port": "^2.1.0",
     "electron-log": "^5.3.2",

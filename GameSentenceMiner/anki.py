@@ -234,7 +234,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         sentence = note['fields'].get(config.anki.sentence_field, last_note.get_field(config.anki.sentence_field))
         
         use_voice, sentence, translation, new_ss_path = config_app.show_anki_confirmation_dialog(
-            tango, sentence, assets.screenshot_path, assets.audio_path, translation, ss_time
+            tango, sentence, assets.screenshot_path, assets.audio_path if update_audio_flag else None, translation, ss_time
         )
         note['fields'][config.anki.sentence_field] = sentence
         note['fields'][config.ai.anki_field] = translation
@@ -279,7 +279,8 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
             sentence_in_anki=game_line.text if game_line else '',
             multi_line=bool(selected_lines and len(selected_lines) > 1),
             video_in_anki=assets.video_in_anki or '',
-            word_path=word_path
+            word_path=word_path,
+            word=tango
         )
     
     # 9. Update the local application database with final paths
@@ -554,14 +555,17 @@ def update_new_card():
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         gsm_state.last_mined_line = game_line
-        card_queue.append((last_card, datetime.now(), lines))
-        texthooking_page.reset_checked_lines()
-        try:
-            obs.save_replay_buffer()
-        except Exception as e:
-            card_queue.pop(0)
-            logger.error(f"Error saving replay buffer: {e}")
-            return
+        queue_card_for_processing(last_card, lines)
+        
+def queue_card_for_processing(last_card, lines):
+    card_queue.append((last_card, datetime.now(), lines))
+    texthooking_page.reset_checked_lines()
+    try:
+        obs.save_replay_buffer()
+    except Exception as e:
+        card_queue.pop(0)
+        logger.error(f"Error saving replay buffer: {e}")
+        return
 
 def update_card_from_same_sentence(last_card, lines, game_line):
     time_elapsed = 0
@@ -570,16 +574,15 @@ def update_card_from_same_sentence(last_card, lines, game_line):
         time_elapsed += 0.5
         if time_elapsed > 15:
             logger.info(f"Timed out waiting for Anki update for card {last_card.noteId}, retrieving new audio")
-            card_queue.append((last_card, datetime.now(), lines))
-            texthooking_page.reset_checked_lines()
-            try:
-                obs.save_replay_buffer()
-            except Exception as e:
-                card_queue.pop(0)
-                logger.error(f"Error saving replay buffer: {e}")
-                return
+            queue_card_for_processing(last_card, lines)
             return
     anki_result = anki_results[game_line.id]
+    
+    if anki_result.word == last_card.get_field(get_config().anki.word_field):
+        logger.info(f"Same word detected, attempting to get new audio for card {last_card.noteId}")
+        queue_card_for_processing(last_card, lines)
+        return
+    
     if anki_result.success:
         note, last_card = get_initial_card_info(last_card, lines)
         tango = last_card.get_field(get_config().anki.word_field)

@@ -773,6 +773,49 @@ document.addEventListener('DOMContentLoaded', function () {
     fromDateInput.addEventListener("change", handleDateChange);
     toDateInput.addEventListener("change", handleDateChange);
 
+    // Session navigation button handlers
+    const prevSessionBtn = document.querySelector('.prev-session-btn');
+    const nextSessionBtn = document.querySelector('.next-session-btn');
+
+    function updateSessionNavigationButtons() {
+        if (!window.todaySessionDetails || window.todaySessionDetails.length === 0) {
+            prevSessionBtn.disabled = true;
+            nextSessionBtn.disabled = true;
+            return;
+        }
+        prevSessionBtn.disabled = window.currentSessionIndex <= 0;
+        nextSessionBtn.disabled = window.currentSessionIndex >= window.todaySessionDetails.length - 1;
+    }
+
+    function showSessionAtIndex(index) {
+        if (!window.todaySessionDetails || window.todaySessionDetails.length === 0) return;
+        if (index < 0 || index >= window.todaySessionDetails.length) return;
+        window.currentSessionIndex = index;
+        updateCurrentSessionOverview(window.todaySessionDetails, index);
+        updateSessionNavigationButtons();
+    }
+
+    prevSessionBtn.addEventListener('click', () => {
+        if (!window.todaySessionDetails) return;
+        let idx = window.currentSessionIndex || 0;
+        if (idx > 0) {
+            showSessionAtIndex(idx - 1);
+        }
+    });
+
+    nextSessionBtn.addEventListener('click', () => {
+        if (!window.todaySessionDetails) return;
+        let idx = window.currentSessionIndex || 0;
+        if (idx < window.todaySessionDetails.length - 1) {
+            showSessionAtIndex(idx + 1);
+        }
+    });
+
+    // Update navigation buttons whenever sessions are loaded
+    document.addEventListener('datesSet', () => {
+        setTimeout(updateSessionNavigationButtons, 1200);
+    });
+
     initializeDates();
 
     // Popup close button
@@ -821,6 +864,61 @@ document.addEventListener('DOMContentLoaded', function () {
     window.loadStatsData = loadStatsData;
     window.loadGoalProgress = loadGoalProgress;
 
+    function updateCurrentSessionOverview(sessionDetails, index = sessionDetails.length - 1) {
+        window.currentSessionIndex = index; // Store globally for potential future use
+        console.log('Updating current session overview:', sessionDetails);
+        // Get the session at index
+        const lastSession = sessionDetails && sessionDetails.length > 0 ? sessionDetails[index] : null;
+
+        if (!lastSession) {
+            // No current session
+            document.getElementById('currentSessionStatus').textContent = 'No active session';
+            document.getElementById('currentSessionTotalHours').textContent = '-';
+            document.getElementById('currentSessionTotalChars').textContent = '-';
+            document.getElementById('currentSessionStartTime').textContent = '-';
+            document.getElementById('currentSessionEndTime').textContent = '-';
+            document.getElementById('currentSessionCharsPerHour').textContent = '-';
+            return;
+        }
+
+        // Update session status (show game name if available)
+        const statusText = lastSession.gameName ? `Playing: ${lastSession.gameName}` : 'Active session';
+        document.getElementById('currentSessionStatus').textContent = statusText;
+
+        // Format session duration
+        let hoursDisplay = '-';
+        const sessionHours = lastSession.totalSeconds / 3600;
+        if (sessionHours > 0) {
+            const h = Math.floor(sessionHours);
+            const m = Math.round((sessionHours - h) * 60);
+            hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
+        }
+
+        // Format start time
+        const startTimeDisplay = new Date(lastSession.startTime * 1000).toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+
+        const endTimeDisplay = new Date(lastSession.endTime * 1000).toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+
+        // Update the DOM elements
+        document.getElementById('currentSessionTotalHours').textContent = hoursDisplay;
+        document.getElementById('currentSessionTotalChars').textContent = lastSession.totalChars.toLocaleString();
+        document.getElementById('currentSessionStartTime').textContent = startTimeDisplay;
+        if (index === sessionDetails.length - 1) {
+            document.getElementById('currentSessionEndTime').textContent = 'Now';
+        } else {
+            document.getElementById('currentSessionEndTime').textContent = endTimeDisplay;
+        }
+        document.getElementById('currentSessionCharsPerHour').textContent = lastSession.readSpeed !== '-' ? lastSession.readSpeed.toLocaleString() : '-';
+    }
+
     // Dashboard functionality
     function loadDashboardData(data = null, end_timestamp = null) {
         function updateTodayOverview(allLinesData) {
@@ -849,26 +947,83 @@ document.addEventListener('DOMContentLoaded', function () {
             // Calculate sessions (count gaps > session threshold as new sessions)
             let sessions = 0;
             let sessionGap = window.statsConfig ? window.statsConfig.sessionGapSeconds : 3600;
-            if (todayLines.length > 0 && todayLines[0].session_id !== undefined) {
-                const sessionSet = new Set(todayLines.map(l => l.session_id));
-                sessions = sessionSet.size;
-            } else {
-                // Use timestamp gap logic
-                const timestamps = todayLines
-                    .map(l => parseFloat(l.timestamp))
-                    .filter(ts => !isNaN(ts))
-                    .sort((a, b) => a - b);
-                if (timestamps.length > 0) {
-                    sessions = 1;
-                    for (let i = 1; i < timestamps.length; i++) {
-                        if (timestamps[i] - timestamps[i - 1] > sessionGap) {
-                            sessions += 1;
+            let minimumSessionLength = 300; // 5 minutes minimum session length
+            let sessionDetails = [];
+            if (todayLines.length > 0) {
+                // Sort lines by timestamp
+                const sortedLines = todayLines.slice().sort((a, b) => parseFloat(a.timestamp) - parseFloat(b.timestamp));
+                let currentSession = null;
+                let lastTimestamp = null;
+                let lastGameName = null;
+
+                for (let i = 0; i < sortedLines.length; i++) {
+                    const line = sortedLines[i];
+                    const ts = parseFloat(line.timestamp);
+                    const gameName = line.game_name || '';
+                    const chars = Number(line.characters) || 0;
+
+                    // Determine if new session: gap or new game
+                    const isNewSession =
+                        (lastTimestamp !== null && ts - lastTimestamp > sessionGap) ||
+                        (lastGameName !== null && gameName !== lastGameName);
+
+                    if (!currentSession || isNewSession) {
+                        // Finish previous session
+                        if (currentSession) {
+                            // Calculate read speed for session
+                            if (currentSession.totalSeconds > 0) {
+                                currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
+                            } else {
+                                currentSession.readSpeed = '-';
+                            }
+                            // Only add session if it meets minimum length requirement
+                            if (currentSession.totalSeconds >= minimumSessionLength) {
+                                sessionDetails.push(currentSession);
+                            }
+                        }
+                        // Start new session
+                        currentSession = {
+                            startTime: ts,
+                            endTime: ts,
+                            gameName: gameName,
+                            totalChars: chars,
+                            totalSeconds: 0,
+                            lines: [line]
+                        };
+                    } else {
+                        // Continue current session
+                        currentSession.endTime = ts;
+                        currentSession.totalChars += chars;
+                        currentSession.lines.push(line);
+                        if (lastTimestamp !== null) {
+                            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
+                            currentSession.totalSeconds += Math.min(ts - lastTimestamp, afkTimerSeconds);
                         }
                     }
-                } else {
-                    sessions = 0;
+
+                    lastTimestamp = ts;
+                    lastGameName = gameName;
                 }
+
+                // Push last session
+                if (currentSession) {
+                    if (currentSession.totalSeconds > 0) {
+                        currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
+                    } else {
+                        currentSession.readSpeed = '-';
+                    }
+                    sessionDetails.push(currentSession);
+                }
+
+                sessions = sessionDetails.length;
+            } else {
+                sessions = 0;
+                sessionDetails = [];
             }
+
+            // Optionally, you can expose sessionDetails for debugging or further UI use:
+            console.log(sessionDetails);
+            window.todaySessionDetails = sessionDetails;
 
             // Calculate total reading time (reuse AFK logic from calculateHeatmapStreaks)
             let totalSeconds = 0;
@@ -908,6 +1063,9 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('todayTotalChars').textContent = totalChars.toLocaleString();
             document.getElementById('todaySessions').textContent = sessions;
             document.getElementById('todayCharsPerHour').textContent = charsPerHour;
+
+            // Update current session overview with the last session
+            showSessionAtIndex(sessionDetails.length - 1);
         }
 
         function updateOverviewForEndDay(allLinesData, endTimestamp) {
@@ -936,28 +1094,88 @@ document.addEventListener('DOMContentLoaded', function () {
                 return sum + (isNaN(chars) ? 0 : chars);
             }, 0);
 
-            // Determine session gap (from settings or default)
-            let sessionGap = window.statsConfig?.sessionGapSeconds || 3600;
-
-            // Calculate sessions
             let sessions = 0;
-            if (targetLines.length > 0 && targetLines[0].session_id !== undefined) {
-                const sessionSet = new Set(targetLines.map(l => l.session_id));
-                sessions = sessionSet.size;
-            } else {
-                const timestamps = targetLines
-                    .map(l => parseFloat(l.timestamp))
-                    .filter(ts => !isNaN(ts))
-                    .sort((a, b) => a - b);
-                if (timestamps.length > 0) {
-                    sessions = 1;
-                    for (let i = 1; i < timestamps.length; i++) {
-                        if (timestamps[i] - timestamps[i - 1] > sessionGap) {
-                            sessions += 1;
+            let sessionGap = window.statsConfig ? window.statsConfig.sessionGapSeconds : 3600;
+            let minimumSessionLength = 300; // 5 minutes minimum session length
+            let sessionDetails = [];
+            if (targetLines.length > 0) {
+                // Sort lines by timestamp
+                const sortedLines = targetLines.slice().sort((a, b) => parseFloat(a.timestamp) - parseFloat(b.timestamp));
+                let currentSession = null;
+                let lastTimestamp = null;
+                let lastGameName = null;
+
+                for (let i = 0; i < sortedLines.length; i++) {
+                    const line = sortedLines[i];
+                    const ts = parseFloat(line.timestamp);
+                    const gameName = line.game_name || '';
+                    const chars = Number(line.characters) || 0;
+
+                    // Determine if new session: gap or new game
+                    const isNewSession =
+                        (lastTimestamp !== null && ts - lastTimestamp > sessionGap) ||
+                        (lastGameName !== null && gameName !== lastGameName);
+
+                    if (!currentSession || isNewSession) {
+                        // Finish previous session
+                        if (currentSession) {
+                            // Calculate read speed for session
+                            if (currentSession.totalSeconds > 0) {
+                                currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
+                            } else {
+                                currentSession.readSpeed = '-';
+                            }
+                            // Only add session if it meets minimum length requirement
+                            if (currentSession.totalSeconds >= minimumSessionLength) {
+                                sessionDetails.push(currentSession);
+                            }
+                        }
+                        // Start new session
+                        currentSession = {
+                            startTime: ts,
+                            endTime: ts,
+                            gameName: gameName,
+                            totalChars: chars,
+                            totalSeconds: 0,
+                            lines: [line]
+                        };
+                    } else {
+                        // Continue current session
+                        currentSession.endTime = ts;
+                        currentSession.totalChars += chars;
+                        currentSession.lines.push(line);
+                        if (lastTimestamp !== null) {
+                            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
+                            currentSession.totalSeconds += Math.min(ts - lastTimestamp, afkTimerSeconds);
                         }
                     }
+
+                    lastTimestamp = ts;
+                    lastGameName = gameName;
                 }
+
+                // Push last session
+                if (currentSession) {
+                    if (currentSession.totalSeconds > 0) {
+                        currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
+                    } else {
+                        currentSession.readSpeed = '-';
+                    }
+                    // Only add session if it meets minimum length requirement
+                    if (currentSession.totalSeconds >= minimumSessionLength) {
+                        sessionDetails.push(currentSession);
+                    }
+                }
+
+                sessions = sessionDetails.length;
+            } else {
+                sessions = 0;
+                sessionDetails = [];
             }
+
+            // Optionally, you can expose sessionDetails for debugging or further UI use:
+            console.log(sessionDetails);
+            window.todaySessionDetails = sessionDetails;
 
             // Calculate total reading time
             let totalSeconds = 0;
@@ -999,6 +1217,8 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('todayTotalChars').textContent = totalChars.toLocaleString();
             document.getElementById('todaySessions').textContent = sessions;
             document.getElementById('todayCharsPerHour').textContent = charsPerHour;
+
+            showSessionAtIndex(sessionDetails.length - 1);
         }
 
         if (data && data.currentGameStats && data.allGamesStats) {

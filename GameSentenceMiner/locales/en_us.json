@@ -497,11 +497,11 @@
           },
           "texthooker_comm_port": {
             "label": "Texthooker Communication WebSocket Port:",
-            "tooltip": "Port for GSM Texthooker WebSocket communication. Does nothing right now, hardcoded to 55001"
+            "tooltip": "Port for GSM Texthooker WebSocket communication. "
           },
           "plaintext_export_port": {
-            "label": "Plaintext Websocket Export Port:",
-            "tooltip": "Port for GSM Plaintext WebSocket Export communication. Does nothing right now, hardcoded to 55002"
+            "label": "Plaintext/JL Websocket Export Port:",
+            "tooltip": "Port that GSM will send plaintext to. Useful for integrating with other tools like JL."
           },
           "reset_line_hotkey": {
             "label": "Reset Line Hotkey:",

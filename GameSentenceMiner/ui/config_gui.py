@@ -698,7 +698,7 @@ class ConfigApp:
             ),
             overlay=Overlay(
                 websocket_port=int(self.overlay_websocket_port_value.get()),
-                monitor_to_capture=self.overlay_monitor.current() if self.monitors else 0,
+                monitor_to_capture=int(self.overlay_monitor.current() if self.monitors else 0),
                 engine=OverlayEngine(self.overlay_engine_value.get()).value if self.overlay_engine_value.get() else OverlayEngine.LENS.value,
                 scan_delay=float(self.scan_delay_value.get()),
                 periodic=float(self.periodic_value.get()),
@@ -732,6 +732,7 @@ class ConfigApp:
             self.master_config.set_config_for_profile(current_profile, config)
             
         self.master_config.locale = Locale[self.locale_value.get()].value
+        self.master_config.overlay = config.overlay
 
 
         config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
@@ -875,6 +876,14 @@ class ConfigApp:
                              tooltip=port_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
         ttk.Entry(self.general_tab, textvariable=self.texthooker_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+        
+        advanced_i18n = self.i18n.get('tabs', {}).get('advanced', {})
+        export_port_i18n = advanced_i18n.get('plaintext_export_port', {})
+        HoverInfoLabelWidget(self.general_tab, text=export_port_i18n.get('label', '...'),
+                             tooltip=export_port_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Entry(self.general_tab, textvariable=self.plaintext_websocket_export_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
         
         # locale_i18n = general_i18n.get('locale', {})
@@ -2047,13 +2056,6 @@ class ConfigApp:
         ttk.Entry(advanced_frame, textvariable=self.texthooker_communication_websocket_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
-        export_port_i18n = advanced_i18n.get('plaintext_export_port', {})
-        HoverInfoLabelWidget(advanced_frame, text=export_port_i18n.get('label', '...'),
-                             tooltip=export_port_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Entry(advanced_frame, textvariable=self.plaintext_websocket_export_port_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        self.current_row += 1
-
         reset_hotkey_i18n = advanced_i18n.get('reset_line_hotkey', {})
         HoverInfoLabelWidget(advanced_frame, text=reset_hotkey_i18n.get('label', '...'),
                              tooltip=reset_hotkey_i18n.get('tooltip', '...'), row=self.current_row, column=0)
@@ -2342,13 +2344,14 @@ class ConfigApp:
         
         overlay_monitor_i18n = overlay_i18n.get('overlay_monitor', {})
         HoverInfoLabelWidget(overlay_frame, text=overlay_monitor_i18n.get('label', '...'),
-                             tooltip=overlay_monitor_i18n.get('tooltip', '...'),
-                                row=self.current_row, column=0)
-        self.overlay_monitor = ttk.Combobox(overlay_frame, values=self.monitors, state="readonly")
+                     tooltip=overlay_monitor_i18n.get('tooltip', '...'),
+                    row=self.current_row, column=0)
+        self.overlay_monitor = ttk.Combobox(overlay_frame, values=self.monitors)
         self.overlay_monitor.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         # disable selection for now, default to value 1
-        self.overlay_monitor.current(0)
-        self.overlay_monitor.config(state="disabled")
+        if self.settings.overlay.monitor_to_capture >= len(self.monitors):
+            self.settings.overlay.monitor_to_capture = 0
+        self.overlay_monitor.current(self.settings.overlay.monitor_to_capture)
         self.current_row += 1
 
         # Overlay Engine Selection

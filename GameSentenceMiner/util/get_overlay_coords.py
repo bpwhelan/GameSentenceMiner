@@ -13,7 +13,7 @@ from rapidfuzz import fuzz
 
 # Local application imports
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
-from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_temporary_directory, is_windows, is_beangate, logger
+from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_overlay_config, get_temporary_directory, is_windows, is_beangate, logger
 from GameSentenceMiner.util.electron_config import get_ocr_language
 from GameSentenceMiner.obs import get_screenshot_PIL
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
@@ -135,6 +135,7 @@ class OverlayProcessor:
         self.ready = False
         self.last_oneocr_result = None
         self.last_lens_result = None
+        self.current_task = None  # Track current running task
 
         try:
             if self.config.overlay.websocket_port and all([GoogleLens, get_regex]):
@@ -163,8 +164,22 @@ class OverlayProcessor:
     async def find_box_and_send_to_overlay(self, sentence_to_check: str = None):
         """
         Sends the detected text boxes to the overlay via WebSocket.
+        Cancels any running OCR task before starting a new one.
         """
-        await self.find_box_for_sentence(sentence_to_check)
+        # Cancel any existing task
+        if self.current_task and not self.current_task.done():
+            self.current_task.cancel()
+            try:
+                await self.current_task
+            except asyncio.CancelledError:
+                logger.info("Previous OCR task was cancelled")
+        
+        # Start new task
+        self.current_task = asyncio.create_task(self.find_box_for_sentence(sentence_to_check))
+        try:
+            await self.current_task
+        except asyncio.CancelledError:
+            logger.info("OCR task was cancelled")
         # logger.info(f"Sending {len(boxes)} boxes to overlay.")
         # await send_word_coordinates_to_overlay(boxes)
 
@@ -191,38 +206,46 @@ class OverlayProcessor:
         # set_dpi_awareness()
         with mss.mss() as sct:
             monitors = sct.monitors[1:]
-            # return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
-            if is_windows() and monitor_index == 0:
-                from ctypes import wintypes
-                import ctypes
-                # Get work area for primary monitor (ignores taskbar)
-                SPI_GETWORKAREA = 0x0030
-                rect = wintypes.RECT()
-                res = ctypes.windll.user32.SystemParametersInfoW(
-                    SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
-                )
-                if not res:
-                    raise ctypes.WinError()
+            monitor = monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
+            # Return monitor but the Y is 1 less to avoid taskbar on Windows
+            return {
+                "left": monitor["left"],
+                "top": monitor["top"],
+                "width": monitor["width"],
+                "height": monitor["height"] - 1
+            }
+            # # return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
+            # if is_windows() and monitor_index == 0:
+            #     from ctypes import wintypes
+            #     import ctypes
+            #     # Get work area for primary monitor (ignores taskbar)
+            #     SPI_GETWORKAREA = 0x0030
+            #     rect = wintypes.RECT()
+            #     res = ctypes.windll.user32.SystemParametersInfoW(
+            #         SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
+            #     )
+            #     if not res:
+            #         raise ctypes.WinError()
                 
-                return {
-                    "left": rect.left,
-                    "top": rect.top,
-                    "width": rect.right - rect.left,
-                    "height": rect.bottom - rect.top,
-                }
-            elif is_windows() and monitor_index > 0:
-                # Secondary monitors: just return with a guess of how tall the taskbar is
-                taskbar_height_guess = 48  # A common taskbar height, may vary
-                mon = monitors[monitor_index]
-                return {
-                    "left": mon["left"],
-                    "top": mon["top"],
-                    "width": mon["width"],
-                    "height": mon["height"] - taskbar_height_guess
-                }
-            else:
-                # For non-Windows systems or unspecified monitors, return the monitor area as-is
-                return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
+            #     return {
+            #         "left": rect.left,
+            #         "top": rect.top,
+            #         "width": rect.right - rect.left,
+            #         "height": rect.bottom - rect.top,
+            #     }
+            # elif is_windows() and monitor_index > 0:
+            #     # Secondary monitors: just return with a guess of how tall the taskbar is
+            #     taskbar_height_guess = 48  # A common taskbar height, may vary
+            #     mon = monitors[monitor_index]
+            #     return {
+            #         "left": mon["left"],
+            #         "top": mon["top"],
+            #         "width": mon["width"],
+            #         "height": mon["height"] - taskbar_height_guess
+            #     }
+            # else:
+            #     # For non-Windows systems or unspecified monitors, return the monitor area as-is
+            #     return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
 
 
     def _get_full_screenshot(self) -> Tuple[Image.Image | None, int, int]:
@@ -230,7 +253,8 @@ class OverlayProcessor:
         if not mss:
             raise RuntimeError("MSS screenshot library is not installed.")
         with mss.mss() as sct:
-            monitor = self.get_monitor_workarea(0)  # Get primary monitor work area
+            logger.info(get_overlay_config())
+            monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)  # Get primary monitor work area
             sct_img = sct.grab(monitor)
             img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
             
@@ -281,19 +305,32 @@ class OverlayProcessor:
         return composite_img
 
     async def _do_work(self, sentence_to_check: str = None) -> Tuple[List[Dict[str, Any]], int]:
-        """The main OCR workflow."""
+        """The main OCR workflow with cancellation support."""
         if not self.lens:
             logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
             return []
         
         if get_config().overlay.scan_delay > 0:
-            await asyncio.sleep(get_config().overlay.scan_delay)
+            try:
+                await asyncio.sleep(get_config().overlay.scan_delay)
+            except asyncio.CancelledError:
+                logger.info("OCR task cancelled during scan delay")
+                raise
+
+        # Check for cancellation before taking screenshot
+        if asyncio.current_task().cancelled():
+            raise asyncio.CancelledError()
 
         # 1. Get screenshot
         full_screenshot, monitor_width, monitor_height = self._get_full_screenshot()
         if not full_screenshot:
             logger.warning("Failed to get a screenshot.")
             return []
+            
+        # Check for cancellation after screenshot
+        if asyncio.current_task().cancelled():
+            raise asyncio.CancelledError()
+            
         if self.oneocr:
             # 2. Use OneOCR to find general text areas (fast)
             res, text, oneocr_results, crop_coords_list = self.oneocr(
@@ -303,6 +340,10 @@ class OverlayProcessor:
                 return_one_box=False,
                 furigana_filter_sensitivity=None, # Disable furigana filtering
             )
+            
+            # Check for cancellation after OneOCR
+            if asyncio.current_task().cancelled():
+                raise asyncio.CancelledError()
             
             text_str = "".join([text for text in text if self.regex.match(text)])
             
@@ -325,6 +366,10 @@ class OverlayProcessor:
                 logger.info("Sent %d text boxes to overlay.", len(oneocr_results))
                 return
 
+            # Check for cancellation before creating composite image
+            if asyncio.current_task().cancelled():
+                raise asyncio.CancelledError()
+
             # 3. Create a composite image with only the detected text regions
             composite_image = self._create_composite_image(
                 full_screenshot, 
@@ -335,12 +380,20 @@ class OverlayProcessor:
         else:
             composite_image = full_screenshot
         
+        # Check for cancellation before Google Lens processing
+        if asyncio.current_task().cancelled():
+            raise asyncio.CancelledError()
+        
         # 4. Use Google Lens on the cleaner composite image for higher accuracy
         res = self.lens(
             composite_image,
             return_coords=True,
             furigana_filter_sensitivity=None # Disable furigana filtering
         )
+        
+        # Check for cancellation after Google Lens
+        if asyncio.current_task().cancelled():
+            raise asyncio.CancelledError()
         
         if len(res) != 3:
             return
@@ -359,6 +412,10 @@ class OverlayProcessor:
 
         if not success or not coords:
             return
+        
+        # Check for cancellation before final processing
+        if asyncio.current_task().cancelled():
+            raise asyncio.CancelledError()
         
         # 5. Process the high-accuracy results into the desired format
         extracted_data = self._extract_text_with_pixel_boxes(

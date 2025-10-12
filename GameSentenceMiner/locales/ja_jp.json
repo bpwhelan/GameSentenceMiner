@@ -495,12 +495,12 @@
             "tooltip": "OCR WebSocket通信用のポート。GSMもこのポートで待機します。"
           },
           "texthooker_comm_port": {
-            "label": "Texthooker通信ポート:",
-            "tooltip": "GSM Texthooker通信用のWebSocketポート（現在未使用）。"
+            "label": "Texthooker通信WebSocketポート:",
+            "tooltip": "GSM Texthooker WebSocket通信用のポート。"
           },
           "plaintext_export_port": {
-            "label": "平文エクスポートポート:",
-            "tooltip": "GSM平文エクスポート用のWebSocketポート（現在未使用）。"
+            "label": "平文/JL Websocketエクスポートポート:",
+            "tooltip": "GSMが平文を送信するポート。JLなどの他のツールとの統合に便利です。"
           },
           "reset_line_hotkey": {
             "label": "行リセットホットキー:",

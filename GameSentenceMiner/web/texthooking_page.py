@@ -179,7 +179,10 @@ def get_screenshot():
     event_id = data.get('id')
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
-    gsm_state.line_for_screenshot = get_line_by_id(event_id)
+    line = get_line_by_id(event_id)
+    if not line:
+        return jsonify({'error': 'Invalid id'}), 400
+    gsm_state.line_for_screenshot = line
     if gsm_state.previous_line_for_screenshot and gsm_state.line_for_screenshot == gsm_state.previous_line_for_screenshot or gsm_state.previous_line_for_audio and gsm_state.line_for_screenshot == gsm_state.previous_line_for_audio:
         handle_texthooker_button(gsm_state.previous_replay)
     else:
@@ -195,7 +198,10 @@ def play_audio():
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
     print(f"Playing audio for event ID: {event_id}")
-    gsm_state.line_for_audio = get_line_by_id(event_id)
+    line = get_line_by_id(event_id)
+    if not line:
+        return jsonify({'error': 'Invalid id'}), 400
+    gsm_state.line_for_audio = line
     print(f"gsm_state.line_for_audio: {gsm_state.line_for_audio}")
     if gsm_state.previous_line_for_audio and gsm_state.line_for_audio == gsm_state.previous_line_for_audio or gsm_state.previous_line_for_screenshot and gsm_state.line_for_audio == gsm_state.previous_line_for_screenshot:
         handle_texthooker_button(gsm_state.previous_replay)
@@ -212,6 +218,8 @@ def translate_line():
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
     line = get_line_by_id(event_id)
+    if line is None:
+        return jsonify({'error': 'Invalid id'}), 400
     line_to_translate = text if text else line.text
     translation = get_ai_prompt_result(get_all_lines(), line_to_translate,
                                        line, get_current_game())
@@ -383,6 +391,13 @@ def reset_checked_lines():
             'event': 'reset_checkboxes',
         })
     event_manager.reset_checked_lines()
+    asyncio.run(send_reset_message())
+    
+def reset_buttons():
+    async def send_reset_message():
+        await websocket_server_thread.send_text({
+            'event': 'reset_buttons',
+        })
     asyncio.run(send_reset_message())
 
 

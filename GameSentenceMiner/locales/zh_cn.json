@@ -497,11 +497,11 @@
           },
           "texthooker_comm_port": {
             "label": "Texthooker 通信 WebSocket 端口:",
-            "tooltip": "GSM Texthooker WebSocket 通信的端口。目前不起作用，硬编码为 55001。"
+            "tooltip": "GSM Texthooker WebSocket 通信的端口。"
           },
           "plaintext_export_port": {
-            "label": "纯文本 WebSocket 导出端口:",
-            "tooltip": "GSM 纯文本 WebSocket 导出通信的端口。目前不起作用，硬编码为 55002。"
+            "label": "纯文本/JL Websocket 导出端口:",
+            "tooltip": "GSM 将纯文本发送到的端口。对于与 JL 等其他工具集成很有用。"
           },
           "reset_line_hotkey": {
             "label": "重置行热键:",

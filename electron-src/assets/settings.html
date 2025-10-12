@@ -147,7 +147,7 @@
         const windowTransparencyTargetInput = document.getElementById('window-transparency-target');
         const runWindowTransparencyToolBtn = document.getElementById('runWindowTransparencyToolBtn');
         // const autoRunWindowTransparencyToolCheckbox = document.getElementById('autoRunWindowTransparencyTool');
-        const pullPreReleasesCheckbox = document.getElementById('pullPreReleases');
+        // const pullPreReleasesCheckbox = document.getElementById('pullPreReleases');
         const obsSceneSelector = document.getElementById('obs-ocr-scene-selector');
 
         const setHotkey = (event, inputElement) => {
@@ -184,7 +184,7 @@
                 windowTransparencyToolHotkeyInput.value = settings.windowTransparencyToolHotkey || 'Ctrl+Alt+Y';
                 windowTransparencyTargetInput.value = settings.windowTransparencyTarget || '';
                 // autoRunWindowTransparencyToolCheckbox.checked = settings.autoRunWindowTransparencyTool || false;
-                pullPreReleasesCheckbox.checked = settings.pullPreReleases || false;
+                // pullPreReleasesCheckbox.checked = settings.pullPreReleases || false;
             }
             ipcRenderer.invoke('obs.getScenes').then(scenes => {
                 const obsSceneSelector = document.getElementById('obs-ocr-scene-selector');
@@ -215,7 +215,7 @@
                 windowTransparencyToolHotkey: windowTransparencyToolHotkeyInput.value,
                 windowTransparencyTarget: windowTransparencyTargetInput.value.trim(),
                 // autoRunWindowTransparencyTool: autoRunWindowTransparencyToolCheckbox.checked,
-                pullPreReleases: pullPreReleasesCheckbox.checked,
+                // pullPreReleases: pullPreReleasesCheckbox.checked,
                 obsOcrScenes: Array.from(obsSceneSelector.selectedOptions).map(option => option.value)
             };
             await ipcRenderer.invoke('settings.saveSettings', settings);
@@ -227,7 +227,6 @@
             customPythonPackageInput,
             showYuzuTab,
             windowTransparencyToolHotkeyInput,
-            pullPreReleasesCheckbox,
             startConsoleMinimizedCheckbox
         ].forEach(element => {
             element.addEventListener('change', async () => {

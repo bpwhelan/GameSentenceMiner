@@ -103,6 +103,10 @@ class VADProcessor(ABC):
 
     def process_audio(self, input_audio, output_audio, game_line, text_mined):
         voice_activity = self._detect_voice_activity(input_audio, text_mined)
+        text_similarity = 0
+
+        if voice_activity and isinstance(voice_activity, tuple):
+            voice_activity, text_similarity = voice_activity
 
         if not voice_activity:
             logger.info("No voice activity detected in the audio.")
@@ -117,16 +121,17 @@ class VADProcessor(ABC):
             if 0 > audio_length - voice_activity[-1]['start'] + get_config().audio.beginning_offset:
                 end_time = voice_activity[-2]['end']
 
-        # if detected text is much shorter than game_line.text, if no text, guess based on length
-        if 'text' in voice_activity[0]:
-            dectected_text = ''.join([item['text'] for item in voice_activity])
-            if game_line and game_line.text and len(dectected_text) < len(game_line.text) / 2:
-                logger.info(f"Detected text '{dectected_text}' is much shorter than expected '{game_line.text}', skipping.")
-                return VADResult(False, 0, 0, self.vad_system_name)
-        else:
-            if game_line and game_line.text and (end_time - start_time) < max(0.5, len(game_line.text) * 0.05):
-                logger.info(f"Detected audio length {end_time - start_time} is much shorter than expected for text '{game_line.text}', skipping.")
-                return VADResult(False, 0, 0, self.vad_system_name)
+        # if detected text is much shorter than game_line.text, if no text, guess based on length, only check if text_similarity is low
+        if text_similarity < 50:
+            if 'text' in voice_activity[0]:
+                detected_text = ''.join([item['text'] for item in voice_activity])
+                if game_line and game_line.text and len(detected_text) < len(game_line.text) / 4:
+                    logger.info(f"Detected text '{detected_text}' is much shorter than expected '{game_line.text}', skipping.")
+                    return VADResult(False, 0, 0, self.vad_system_name)
+            else:
+                if game_line and game_line.text and (end_time - start_time) < max(0.5, len(game_line.text) * 0.05):
+                    logger.info(f"Detected audio length {end_time - start_time} is much shorter than expected for text '{game_line.text}', skipping.")
+                    return VADResult(False, 0, 0, self.vad_system_name)
 
         if get_config().vad.cut_and_splice_segments:
             self.extract_audio_and_combine_segments(input_audio, voice_activity, output_audio, padding=get_config().vad.splice_padding)
@@ -185,13 +190,14 @@ class WhisperVADProcessor(VADProcessor):
         logger.debug(json.dumps(result.to_dict()))
         
         text = result.text.strip()
+        text_similarity = 0
         
         # If both mined text and Whisper transcription are available, compare their similarity
         if text_mined and text:
             from rapidfuzz import fuzz
             similarity = fuzz.partial_ratio(text_mined, text)
             logger.info(f"Whisper transcription: '{text}' | Mined text: '{text_mined}' | Partial similarity: {similarity:.1f}")
-            # If similarity is very low, treat as no voice activity detected
+            text_similarity = similarity
             if similarity < 20:
                 logger.info(f"Partial similarity {similarity:.1f} is below threshold, skipping voice activity.")
                 return []
@@ -247,7 +253,7 @@ class WhisperVADProcessor(VADProcessor):
 
             previous_segment = segment
         # Return the detected voice activity and the total duration
-        return voice_activity
+        return voice_activity, text_similarity
 
 # Add a new class for Vosk-based VAD
 # class VoskVADProcessor(VADProcessor):

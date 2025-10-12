@@ -666,7 +666,17 @@ class Overlay:
     def __post_init__(self):
         if self.monitor_to_capture == -1:
             self.monitor_to_capture = 0  # Default to the first monitor if not set
-
+            
+        try:
+            import mss as mss
+            monitors = [f"Monitor {i}: width: {monitor['width']}, height: {monitor['height']}" for i, monitor in enumerate(mss.mss().monitors[1:], start=1)]
+            if len(monitors) == 0:
+                monitors = [1]
+            self.monitors = monitors
+        except ImportError:
+            self.monitors = []
+        if self.monitor_to_capture >= len(self.monitors):
+            self.monitor_to_capture = 0  # Reset to first monitor if out of range
 
 @dataclass_json
 @dataclass
@@ -823,6 +833,7 @@ class Config:
     switch_to_default_if_not_found: bool = True
     locale: str = Locale.English.value
     stats: StatsConfig = field(default_factory=StatsConfig)
+    overlay: Overlay = field(default_factory=Overlay)
     version: str = ""
 
     @classmethod
@@ -865,7 +876,7 @@ class Config:
         if self.version:
             if self.version != get_current_version():
                 from packaging import version
-                logger.info(f"Config version mismatch detected: {self.version} != {get_current_version()}")
+                logger.info(f"New Config Found: {self.version} != {get_current_version()}")
                 # Handle version mismatch
                 changed = False
                 if version.parse(self.version) < version.parse("2.18.0"):
@@ -879,6 +890,7 @@ class Config:
 
                 if changed:
                     self.save()
+        self.overlay = self.get_config().overlay
 
         self.version = get_current_version()
 
@@ -1160,6 +1172,11 @@ def get_config():
     # print(config_instance.get_config())
     return config_instance.get_config()
 
+def get_overlay_config():
+    global config_instance
+    if config_instance is None:
+        config_instance = load_config()
+    return config_instance.overlay
 
 def reload_config():
     global config_instance
@@ -1284,6 +1301,7 @@ class GsmAppState:
         self.recording_started_time = None
         self.current_srt = None
         self.srt_index = 1
+        self.current_audio_stream = None
 
 
 @dataclass_json
@@ -1297,10 +1315,11 @@ class AnkiUpdateResult:
     multi_line: bool = False
     video_in_anki: str = ''
     word_path: str = ''
+    word: str = ''
 
     @staticmethod
     def failure():
-        return AnkiUpdateResult(success=False, audio_in_anki='', screenshot_in_anki='', prev_screenshot_in_anki='', sentence_in_anki='', multi_line=False, video_in_anki='', word_path='')
+        return AnkiUpdateResult(success=False, audio_in_anki='', screenshot_in_anki='', prev_screenshot_in_anki='', sentence_in_anki='', multi_line=False, video_in_anki='', word_path='', word='')
 
 
 @dataclass_json

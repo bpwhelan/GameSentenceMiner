@@ -1094,8 +1094,9 @@
                     });
                 }
 
-                function getWindows() {
-                    windowSelect.innerHTML = '<option>Loading...</option>';
+                function getWindows(showLoading = true) {
+                    if (showLoading)
+                        windowSelect.innerHTML = '<option>Loading...</option>';
                     ipcRenderer.invoke('ocr.getWindows').then(windowsRes => {
                         windows = windowsRes;
                         windowSelect.innerHTML = '';
@@ -1117,11 +1118,12 @@
                     });
                 }
 
-                function refreshScenesAndWindows() {
-                    sceneSelect.innerHTML = '';
-                    getWindows();
+                function refreshScenesAndWindows(showLoading = true) {
+                    if (showLoading)
+                        sceneSelect.innerHTML = '<option>Loading...</option>';
                     ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
                         scenes = obsScenes;
+                        sceneSelect.innerHTML = '';
                         scenes.forEach(scene => {
                             const option = document.createElement('option');
                             option.value = scene.id;
@@ -1137,7 +1139,7 @@
                             }
                             if (scene) sceneSelect.value = scene.id;
                         });
-                        getWindows();
+                        getWindows(showLoading);
                     });
                 }
 
@@ -1207,6 +1209,7 @@
                         areaSelectOCRHotkeyInput.value = ocr_settings.areaSelectOcrHotkey || 'Ctrl+Shift+O';
                     }
                     refreshScenesAndWindows();
+                    setInterval(() => refreshScenesAndWindows(false), 5000);
                 }
 
                 // document.getElementById('furigana-filter-label').addEventListener('click', () => {
