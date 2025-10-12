@@ -291,7 +291,7 @@ class GamesTable(SQLiteDBTable):
         logger.info(f"Updated game {self.id} ({self.title_original})")
 
     def add_link(self, link_type: int, url: str, link_id: Optional[int] = None):
-        """s
+        """
         Add a link to the game's links array and persist to database.
         
         Args:
