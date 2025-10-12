@@ -241,7 +241,7 @@ class GamesTable(SQLiteDBTable):
         title_original: Optional[str] = None,
         title_romaji: Optional[str] = None,
         title_english: Optional[str] = None,
-        type: Optionasl[str] = None,
+    type: Optional[str] = None,
         description: Optional[str] = None,
         image: Optional[str] = None,
         character_count: Optional[int] = None,

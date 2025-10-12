@@ -450,18 +450,15 @@ class AIModelsTable(SQLiteDBTable):
 
 class GameLinesTable(SQLiteDBTable):
     _table = 'game_lines'
-    # Keep `game_name` for backward compatibility/display, but add `game_id` (string)
-    _fields = ['game_name', 'game_id', 'line_text', 'screenshot_in_anki',
+    _fields = ['game_name', 'line_text', 'screenshot_in_anki',
                'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp', 'original_game_name']
-    _types = [str,  # game_name
-              str,  # game_id (string UUID referencing games.id)
-              str, str, str, str, str, str, str, float, str]
+    _types = [str,  # Includes primary key type
+              str, str, str, str, str, str, str, str, float, str]
     _pk = 'id'
     _auto_increment = False  # Use string IDs
 
     def __init__(self, id: Optional[str] = None,
                  game_name: Optional[str] = None,
-                 game_id: Optional[str] = None,
                  line_text: Optional[str] = None,
                  context: Optional[str] = None,
                  timestamp: Optional[float] = None,
@@ -473,8 +470,7 @@ class GameLinesTable(SQLiteDBTable):
                  translation: Optional[str] = None,
                  original_game_name: Optional[str] = None):
         self.id = id
-        self.game_name = game_name if game_name is not None else ''
-        self.game_id = game_id if game_id is not None else ''
+        self.game_name = game_name
         self.line_text = line_text
         self.context = context
         self.timestamp = float(timestamp) if timestamp is not None else datetime.now().timestamp()
@@ -502,31 +498,6 @@ class GameLinesTable(SQLiteDBTable):
         line = cls.get(line_id)
         if not line:
             logger.warning(f"GameLine with id {line_id} not found for update.")
-
-    @classmethod
-    def backfill_game_ids(cls):
-        """Backfill `game_id` for existing game_lines by mapping `game_name` -> GamesTable (creating games as needed).
-
-        Usage: call this once after deploying the schema change. It will set `game_id` for lines that don't have it.
-        """
-        from GameSentenceMiner.util.games_table import GamesTable
-        rows = cls.all()
-        updated = 0
-        for row in rows:
-            try:
-                # If already populated, skip
-                if getattr(row, 'game_id', None):
-                    continue
-                if not getattr(row, 'game_name', None):
-                    continue
-                game = GamesTable.get_or_create_by_name(row.game_name)
-                if game:
-                    row.game_id = game.id
-                    row.save()
-                    updated += 1
-            except Exception as e:
-                logger.error(f"Failed to backfill game_id for line {getattr(row, 'id', None)}: {e}")
-        logger.info(f"Backfilled game_id for {updated} game_lines")
             return
         if screenshot_path is not None:
             line.screenshot_path = screenshot_path
