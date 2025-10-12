@@ -451,9 +451,9 @@ class AIModelsTable(SQLiteDBTable):
 class GameLinesTable(SQLiteDBTable):
     _table = 'game_lines'
     _fields = ['game_name', 'line_text', 'screenshot_in_anki',
-               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp', 'original_game_name']
+               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp', 'original_game_name', 'game_id']
     _types = [str,  # Includes primary key type
-              str, str, str, str, str, str, str, str, float, str]
+              str, str, str, str, str, str, str, str, float, str, str]
     _pk = 'id'
     _auto_increment = False  # Use string IDs
 
@@ -468,7 +468,8 @@ class GameLinesTable(SQLiteDBTable):
                  audio_path: Optional[str] = None,
                  replay_path: Optional[str] = None,
                  translation: Optional[str] = None,
-                 original_game_name: Optional[str] = None):
+                 original_game_name: Optional[str] = None,
+                 game_id: Optional[str] = None):
         self.id = id
         self.game_name = game_name
         self.line_text = line_text
@@ -481,6 +482,7 @@ class GameLinesTable(SQLiteDBTable):
         self.replay_path = replay_path if replay_path is not None else ''
         self.translation = translation if translation is not None else ''
         self.original_game_name = original_game_name if original_game_name is not None else ''
+        self.game_id = game_id if game_id is not None else ''
 
     @classmethod
     def get_all_lines_for_scene(cls, game_name: str) -> List['GameLinesTable']:
@@ -684,24 +686,7 @@ def check_and_run_migrations():
             GameLinesTable.alter_column_type('timestamp_old', 'timestamp', 'REAL')
             logger.info("Migrated 'timestamp' column to REAL type in GameLinesTable.")
     
-    def migrate_add_game_id_column():
-        """Add game_id column to game_lines table for linking to games table."""
-        if not GameLinesTable.has_column('game_id'):
-            GameLinesTable._db.execute(
-                "ALTER TABLE game_lines ADD COLUMN game_id TEXT",
-                commit=True
-            )
-            logger.info("Added game_id column to game_lines table")
-            
-            # Create index for fast lookups
-            GameLinesTable._db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_game_lines_game_id ON game_lines(game_id)",
-                commit=True
-            )
-            logger.info("Created index on game_lines.game_id")
-            
     migrate_timestamp()
-    migrate_add_game_id_column()
         
 check_and_run_migrations()
     
