@@ -18,6 +18,8 @@ class AnkiConfirmationDialog(tk.Toplevel):
         super().__init__(parent)
         self.config_app = config_app
         self.screenshot_timestamp = screenshot_timestamp
+        self.translation_text = None
+        self.sentence_text = None
         
         # Initialize screenshot_path here, will be updated by button if needed
         self.screenshot_path = screenshot_path 
@@ -226,13 +228,13 @@ class AnkiConfirmationDialog(tk.Toplevel):
         # Clean up audio before closing
         self._cleanup_audio()
         # The screenshot_path is now correctly updated if the user chose a new one
-        self.result = (True, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip(), self.screenshot_path)
+        self.result = (True, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip() if self.translation_text else None, self.screenshot_path)
         self.destroy()
 
     def _on_no_voice(self):
         # Clean up audio before closing
         self._cleanup_audio()
-        self.result = (False, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip(), self.screenshot_path)
+        self.result = (False, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip() if self.translation_text else None, self.screenshot_path)
         self.destroy()
         
     def _on_cancel(self):
