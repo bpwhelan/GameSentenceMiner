@@ -4,8 +4,9 @@ from tkinter import messagebox
 from PIL import Image, ImageTk
 
 import ttkbootstrap as ttk
-from GameSentenceMiner.util.configuration import get_config, logger, gsm_state
+from GameSentenceMiner.util.configuration import get_config, logger, gsm_state, get_temporary_directory
 from GameSentenceMiner.util.audio_player import AudioPlayer
+from GameSentenceMiner.util.gsm_utils import make_unique_file_name
 
 import platform
 import subprocess
@@ -35,6 +36,7 @@ class AnkiConfirmationDialog(tk.Toplevel):
         self.audio_button = None  # Store reference to audio button
         self.audio_path_label = None  # Store reference to audio path label
         self.tts_button = None  # Store reference to TTS button
+        self.tts_status_label = None  # Store reference to TTS status label
 
         self.title("Confirm Anki Card Details")
         self.result = None  # This will store the user's choice
@@ -155,6 +157,11 @@ class AnkiConfirmationDialog(tk.Toplevel):
                     width=20
                 )
                 self.tts_button.grid(row=row, column=1, sticky="w", padx=5, pady=2)
+                
+                # TTS Status Label
+                self.tts_status_label = ttk.Label(main_frame, text="", foreground="green")
+                self.tts_status_label.grid(row=row, column=2, sticky="w", padx=5, pady=2)
+                
                 row += 1
 
         # Action Buttons
@@ -263,10 +270,14 @@ class AnkiConfirmationDialog(tk.Toplevel):
                 messagebox.showerror("TTS Error", f"{error_msg}\n\nIs your TTS service running?")
                 return
             
-            # Save TTS audio to a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".opus") as tmpfile:
-                tmpfile.write(response.content)
-                tts_audio_path = tmpfile.name
+            # Save TTS audio to GSM temporary directory with game name
+            game_name = gsm_state.current_game if gsm_state.current_game else "tts"
+            filename = f"{game_name}_tts_audio.opus"
+            tts_audio_path = make_unique_file_name(
+                os.path.join(get_temporary_directory(), filename)
+            )
+            with open(tts_audio_path, 'wb') as f:
+                f.write(response.content)
             
             logger.info(f"TTS audio saved to: {tts_audio_path}")
             
@@ -281,8 +292,9 @@ class AnkiConfirmationDialog(tk.Toplevel):
             if self.audio_button:
                 self.audio_button.config(command=lambda: self._play_audio(self.audio_path))
             
-            # Show success message
-            messagebox.showinfo("TTS Success", "TTS audio generated successfully!\nYou can now play it using the play button.")
+            # Update status label to show success
+            if self.tts_status_label:
+                self.tts_status_label.config(text="✓ TTS Audio Generated", foreground="green")
             
         except requests.exceptions.Timeout:
             error_msg = "TTS request timed out. Please check if your TTS service is running."
