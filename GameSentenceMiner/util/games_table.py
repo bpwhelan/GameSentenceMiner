@@ -168,7 +168,7 @@ class GamesTable(SQLiteDBTable):
             self.manual_overrides.append(field_name)
             logger.debug(f"Marked field '{field_name}' as manually overridden for game {self.id}")
 
-    def update_all_fields_manaual(
+    def update_all_fields_manual(
         self,
         deck_id: Optional[int] = None,
         title_original: Optional[str] = None,
@@ -241,7 +241,7 @@ class GamesTable(SQLiteDBTable):
         title_original: Optional[str] = None,
         title_romaji: Optional[str] = None,
         title_english: Optional[str] = None,
-    type: Optional[str] = None,
+        type: Optional[str] = None,
         description: Optional[str] = None,
         image: Optional[str] = None,
         character_count: Optional[int] = None,
@@ -251,7 +251,6 @@ class GamesTable(SQLiteDBTable):
     ):
         """
         Update all fields of the game at once. Only provided fields will be updated.
-        Fields that are updated will be automatically marked as manually overridden.
         
         Args:
             deck_id: jiten.moe deck ID
@@ -291,7 +290,7 @@ class GamesTable(SQLiteDBTable):
         logger.info(f"Updated game {self.id} ({self.title_original})")
 
     def add_link(self, link_type: int, url: str, link_id: Optional[int] = None):
-        """s
+        """
         Add a link to the game's links array and persist to database.
         
         Args:
