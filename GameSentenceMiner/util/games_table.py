@@ -8,7 +8,7 @@ from GameSentenceMiner.util.configuration import logger
 class GamesTable(SQLiteDBTable):
     _table = 'games'
     _fields = [
-        'id', 'deck_id', 'title_original', 'title_romaji', 'title_english',
+        'deck_id', 'title_original', 'title_romaji', 'title_english',
         'type',
         'description', 'image', 'character_count', 'difficulty', 'links', 'completed',
         'manual_overrides'
