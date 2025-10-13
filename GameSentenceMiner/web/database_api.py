@@ -20,7 +20,7 @@ from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency, calculate_heatmap_data, calculate_total_chars_per_game,
     calculate_reading_time_per_game, calculate_reading_speed_per_game,
     calculate_current_game_stats, calculate_all_games_stats, calculate_daily_reading_time,
-    calculate_time_based_streak, calculate_actual_reading_time
+    calculate_time_based_streak, calculate_actual_reading_time, calculate_hourly_activity
 )
 
 
@@ -1168,6 +1168,13 @@ def register_database_api_routes(app):
                 logger.error(f"Error preparing all lines data: {e}")
                 all_lines_data = []
 
+            # 8. Calculate hourly activity pattern
+            try:
+                hourly_activity_data = calculate_hourly_activity(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating hourly activity: {e}")
+                hourly_activity_data = [0] * 24
+
             return jsonify({
                 "labels": sorted_days,
                 "datasets": datasets,
@@ -1178,7 +1185,8 @@ def register_database_api_routes(app):
                 "readingSpeedPerGame": reading_speed_per_game_data,
                 "currentGameStats": current_game_stats,
                 "allGamesStats": all_games_stats,
-                "allLinesData": all_lines_data
+                "allLinesData": all_lines_data,
+                "hourlyActivityData": hourly_activity_data
             })
             
         except Exception as e:

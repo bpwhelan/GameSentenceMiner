@@ -515,6 +515,24 @@ def calculate_average_daily_reading_time(all_lines):
     
     return average_hours
 
+def calculate_hourly_activity(all_lines):
+    """
+    Calculate reading activity aggregated by hour of day (0-23).
+    Returns character count for each hour across all days.
+    """
+    if not all_lines:
+        return [0] * 24
+    
+    hourly_chars = [0] * 24
+    
+    for line in all_lines:
+        # Get hour from timestamp (0-23)
+        hour = datetime.datetime.fromtimestamp(float(line.timestamp)).hour
+        char_count = len(line.line_text) if line.line_text else 0
+        hourly_chars[hour] += char_count
+    
+    return hourly_chars
+
 def calculate_all_games_stats(all_lines):
     """Calculate aggregate statistics for all games combined."""
     if not all_lines:

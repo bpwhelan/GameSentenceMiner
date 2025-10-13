@@ -527,6 +527,163 @@ document.addEventListener('DOMContentLoaded', function () {
         return `Speed: ${charsPerHour.toLocaleString()} chars/hour`;
     }
 
+    // Function to create hourly activity polar chart
+    function createHourlyActivityChart(canvasId, hourlyData) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !hourlyData || !Array.isArray(hourlyData)) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        // Create simplified hour labels (0-23) for better visibility
+        const hourLabels = [];
+        for (let i = 0; i < 24; i++) {
+            const hour12 = i === 0 ? 12 : i > 12 ? i - 12 : i;
+            const ampm = i < 12 ? 'AM' : 'PM';
+            hourLabels.push(`${hour12}${ampm}`);
+        }
+        
+        // Find max value for scaling
+        const maxValue = Math.max(...hourlyData);
+        
+        // Use consistent professional color for all data points
+        const singlePointColor = getCurrentTheme() === 'dark' ? 'rgba(59, 130, 246, 0.9)' : 'rgba(30, 64, 175, 0.9)';
+        const pointColors = hourlyData.map(() => singlePointColor);
+        
+        // Create a sophisticated, professional gradient for the radar fill
+        const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 200);
+        if (getCurrentTheme() === 'dark') {
+            gradient.addColorStop(0, 'rgba(37, 99, 235, 0.5)'); // Deep steel blue center
+            gradient.addColorStop(0.5, 'rgba(59, 130, 246, 0.3)'); // Professional blue middle
+            gradient.addColorStop(1, 'rgba(96, 165, 250, 0.15)'); // Light steel blue edge
+        } else {
+            gradient.addColorStop(0, 'rgba(30, 64, 175, 0.4)'); // Rich navy center
+            gradient.addColorStop(0.5, 'rgba(37, 99, 235, 0.25)'); // Deep blue middle
+            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.1)'); // Professional blue edge
+        }
+
+        // Professional border color that maintains prominence
+        const borderColor = getCurrentTheme() === 'dark' ? 'rgba(59, 130, 246, 1)' : 'rgba(30, 64, 175, 1)';
+
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: hourLabels,
+                datasets: [{
+                    label: 'Characters Read',
+                    data: hourlyData,
+                    backgroundColor: gradient,
+                    borderColor: borderColor,
+                    borderWidth: 5, // Much thicker border for prominence
+                    pointBackgroundColor: pointColors,
+                    pointBorderColor: getCurrentTheme() === 'dark' ? 'rgba(255, 255, 255, 1)' : 'rgba(0, 0, 0, 0.8)',
+                    pointBorderWidth: 3, // Thicker point borders
+                    pointRadius: 8, // Much larger points
+                    pointHoverRadius: 12, // Even larger on hover
+                    fill: true,
+                    tension: 0.2 // Slightly more curved for smoother appearance
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                aspectRatio: 1.2,
+                plugins: {
+                    legend: {
+                        display: false // Hide legend for cleaner look
+                    },
+                    title: {
+                        display: true,
+                        text: 'Reading Activity by Hour of Day',
+                        color: getThemeTextColor(),
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        },
+                        padding: {
+                            top: 10,
+                            bottom: 20
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const hourIndex = context[0].dataIndex;
+                                const hour24 = hourIndex;
+                                const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+                                const ampm = hour24 < 12 ? 'AM' : 'PM';
+                                return `${hour12}:00 ${ampm} (${hour24}:00)`;
+                            },
+                            label: function(context) {
+                                const value = context.parsed.r;
+                                return `Characters: ${value.toLocaleString()}`;
+                            },
+                            afterLabel: function(context) {
+                                const value = context.parsed.r;
+                                const total = hourlyData.reduce((sum, val) => sum + val, 0);
+                                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                return `${percentage}% of total activity`;
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true,
+                        usePointStyle: true
+                    }
+                },
+                scales: {
+                    r: {
+                        beginAtZero: true,
+                        max: Math.max(...hourlyData) * 1.1, // Add 10% padding to max value
+                        ticks: {
+                            display: false, // Hide radial ticks for cleaner look
+                            stepSize: Math.max(...hourlyData) / 4 // Only 4 grid circles
+                        },
+                        grid: {
+                            color: getCurrentTheme() === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)', // Much more subtle grid
+                            lineWidth: 1
+                        },
+                        angleLines: {
+                            color: getCurrentTheme() === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)', // Very subtle angle lines
+                            lineWidth: 1
+                        },
+                        pointLabels: {
+                            display: true,
+                            color: getCurrentTheme() === 'dark' ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)', // Slightly muted labels
+                            font: {
+                                size: 12, // Slightly smaller to be less prominent
+                                weight: 'normal' // Less bold to reduce competition with data
+                            },
+                            padding: 25, // More padding to separate from data
+                            backdropColor: getCurrentTheme() === 'dark' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.6)', // More subtle backdrop
+                            backdropPadding: 2
+                        }
+                    }
+                },
+                animation: {
+                    animateRotate: true,
+                    animateScale: true,
+                    duration: 1500, // Slightly longer animation to show off the bold styling
+                    easing: 'easeOutQuart'
+                },
+                interaction: {
+                    intersect: false,
+                    mode: 'nearest'
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
     // Initialize Kanji Grid Renderer (using shared component)
     const kanjiGridRenderer = new KanjiGridRenderer({
         containerSelector: '#kanjiGrid',
@@ -616,6 +773,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Create reading speed per game chart if data exists (with trendline)
                 if (data.readingSpeedPerGame) {
                     createGameBarChartWithCustomFormat('readingSpeedPerGameChart', data.readingSpeedPerGame, 'Reading Speed Improvement', 'Speed (chars/hour)', formatSpeed, true);
+                }
+
+                // Create hourly activity polar chart if data exists
+                if (data.hourlyActivityData) {
+                    createHourlyActivityChart('hourlyActivityChart', data.hourlyActivityData);
                 }
 
                 // Create kanji grid if data exists
