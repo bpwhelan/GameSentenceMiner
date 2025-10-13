@@ -732,9 +732,17 @@ export async function stopScripts(): Promise<void> {
 async function zipLogs(): Promise<void> {
     try {
         // Get the logs directory path
-        const logsDir = isWindows() 
-            ? path.join(process.env.APPDATA || '', 'GameSentenceMiner', 'logs')
-            : path.join(process.env.HOME || '', '.config', 'GameSentenceMiner', 'logs');
+        const logsDir = path.join(BASE_DIR, 'logs');
+
+        // Pop dialog to ask if they want to include temp files like OCR Screenshots, Anki Screenshots, Anki Audio, etc.
+        const { response } = await dialog.showMessageBox(mainWindow!, {
+            type: 'question',
+            title: 'Include Temporary Files?',
+            message: 'Do you want to include temporary files like OCR Screenshots, GSM-Created Screenshots, GSM-Created Audio, etc. in the export? This may help with debugging but will increase the size of the export.\n\nPlease be aware of the privacy implications of including these files. They should mostly just be screenshots of your game or application, but please review them if you have any concerns.',
+            buttons: ['Yes', 'No']
+        });
+
+        const tempDir = path.join(BASE_DIR, 'temp');
 
         // Check if logs directory exists
         if (!fs.existsSync(logsDir)) {
@@ -743,11 +751,17 @@ async function zipLogs(): Promise<void> {
         }
 
         // Read all files in logs directory
-        const logFiles = fs.readdirSync(logsDir).filter(file => 
-            file.endsWith('.log') || file.endsWith('.txt')
+        const files = fs.readdirSync(logsDir).filter(file => 
+            file.includes('.log') || file.includes('.txt')
         );
 
-        if (logFiles.length === 0) {
+        // Read all files in temp directory
+        let tempFiles: string[] = [];
+        if (fs.existsSync(tempDir) && response === 0) {
+            tempFiles = fs.readdirSync(tempDir).filter(file => fs.statSync(path.join(tempDir, file)).isFile());
+        }
+
+        if (files.length === 0) {
             dialog.showErrorBox('No Log Files', 'No log files found in the logs directory.');
             return;
         }
@@ -797,9 +811,14 @@ async function zipLogs(): Promise<void> {
         archive.pipe(output);
 
         // Add all log files to the archive
-        logFiles.forEach(file => {
+        files.forEach(file => {
             const filePath = path.join(logsDir, file);
             archive.file(filePath, { name: file });
+        });
+
+        tempFiles.forEach(file => {
+            const filePath = path.join(tempDir, file);
+            archive.file(filePath, { name: `temp/${file}` });
         });
 
         // Finalize the archive

@@ -1,17 +1,16 @@
 // electron-src/main/launchers/obs.ts
-import {BrowserWindow, dialog, ipcMain} from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
 import path from 'path';
-import {BASE_DIR, getAssetsDir, isWindows, isWindows10OrHigher} from '../util.js';
-import {isQuitting} from '../main.js';
-import {exec} from 'child_process';
+import { BASE_DIR, getAssetsDir, isWindows, isWindows10OrHigher } from '../util.js';
+import { isQuitting } from '../main.js';
+import { exec } from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
-import Store from "electron-store";
-import * as fs from "node:fs";
-import {webSocketManager} from "../communication/websocket.js";
+import Store from 'electron-store';
+import * as fs from 'node:fs';
+import { webSocketManager } from '../communication/websocket.js';
 import axios from 'axios';
 import { getObsOcrScenes } from '../store.js';
 import { startOCR } from './ocr.js';
-
 
 interface ObsConfig {
     host: string;
@@ -28,14 +27,14 @@ export let pythonConfig: Store | null = null;
 try {
     pythonConfig = new Store();
 } catch (error) {
-    console.error("Failed to load pythonConfig store, using empty config.", error);
+    console.error('Failed to load pythonConfig store, using empty config.', error);
     // pythonConfig = new Store({defaults: {}});
 }
 
-let obsConfig: ObsConfig = pythonConfig?.get('configs.Default.obs') as ObsConfig || {
+let obsConfig: ObsConfig = (pythonConfig?.get('configs.Default.obs') as ObsConfig) || {
     host: 'localhost',
     port: 7274,
-    password: ''
+    password: '',
 };
 
 const OBS_CONFIG_PATH = path.join(BASE_DIR, 'obs-studio');
@@ -48,6 +47,155 @@ const GAME_WINDOW_INPUT = 'game_window_getter';
 let sceneSwitcherRegistered = false;
 
 let connectionPromise: Promise<void> | null = null;
+
+// Utility function to escape regex special characters in window titles
+function escapeRegexCharacters(str: string): string {
+    // Escape all regex special characters that could break the auto scene switcher
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Generate a random fallback window name
+function generateFallbackWindowName(): string {
+    const now = new Date();
+    const dateStr = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    return `Scene-${dateStr}`;
+}
+
+// Shared scene creation logic
+async function createSceneWithCapture(window: any, captureType: 'window' | 'game'): Promise<void> {
+    await getOBSConnection();
+
+    const windowTitle = window.title;
+
+    // Create a new scene using the original window title
+    const sceneName = `${window.sceneName}`;
+    await obs.call('CreateScene', { sceneName });
+
+    // Set the new scene as the current program scene
+    await obs.call('SetCurrentProgramScene', { sceneName });
+
+    // Configure input settings based on capture type
+    let request: any = {
+        sceneName,
+        inputName: `${windowTitle} - ${captureType === 'window' ? 'Capture' : 'Game Capture'}`,
+        inputKind: captureType === 'window' ? 'window_capture' : 'game_capture',
+        inputSettings: {
+            window: window.value,
+            capture_audio: true,
+        },
+    };
+
+    if (captureType === 'window') {
+        request.inputSettings.mode = 'window';
+        request.inputSettings.cursor = false;
+
+        if (isWindows10OrHigher()) {
+            request.inputSettings.method = 2;
+        }
+    } else {
+        request.inputSettings.capture_mode = 'window';
+        request.inputSettings.capture_cursor = false;
+    }
+
+    await obs.call('CreateInput', request);
+
+    // Configure auto scene switcher with escaped window title
+    await modifyAutoSceneSwitcherInJSON(sceneName, windowTitle);
+
+    console.log(`Scene and ${captureType} capture setup for window: ${windowTitle}`);
+}
+
+async function modifyAutoSceneSwitcherInJSON(
+    sceneName: string,
+    windowTitle: string
+): Promise<void> {
+    try {
+        await getOBSConnection();
+        await webSocketManager.sendQuitOBS();
+        const currentSceneCollection = await obs.call('GetSceneCollectionList');
+        const sceneCollectionName = currentSceneCollection.currentSceneCollectionName;
+
+        const sceneCollectionPath = path.join(
+            SCENE_CONFIG_PATH,
+            `${sceneCollectionName}.json`.replace(' ', '_')
+        );
+
+        const fileContent = await fs.promises.readFile(sceneCollectionPath, 'utf-8');
+        const sceneCollection = JSON.parse(fileContent);
+
+        let autoSceneSwitcher = sceneCollection['modules']['auto-scene-switcher'];
+
+        if (!autoSceneSwitcher) {
+            sceneCollection['modules']['auto-scene-switcher'] = {
+                interval: 300,
+                non_matching_scene: '',
+                switch_if_not_matching: false,
+                active: true,
+                switches: [],
+            };
+            autoSceneSwitcher = sceneCollection['modules']['auto-scene-switcher'];
+        }
+
+        // Escape regex special characters in the window title
+        const escapedWindowTitle = escapeRegexCharacters(windowTitle);
+
+        if (!autoSceneSwitcher.active) {
+            dialog
+                .showMessageBox(obsWindow!, {
+                    type: 'question',
+                    buttons: ['Yes', 'No'],
+                    defaultId: 0,
+                    title: 'Enable Auto Scene Switcher',
+                    message: 'Do you want to enable the auto scene switcher?',
+                })
+                .then(async (response) => {
+                    if (response.response === 0) {
+                        autoSceneSwitcher.active = true;
+                    }
+                    autoSceneSwitcher.switches.push({
+                        scene: sceneName,
+                        window_title: escapedWindowTitle,
+                    });
+
+                    sceneCollection['modules']['auto-scene-switcher'] = autoSceneSwitcher;
+
+                    const updatedContent = JSON.stringify(sceneCollection, null, 2);
+                    await fs.promises.writeFile(sceneCollectionPath, updatedContent, 'utf-8');
+                    await fs.promises.writeFile(
+                        path.join(BASE_DIR, 'scene_config.json'),
+                        updatedContent,
+                        'utf-8'
+                    );
+
+                    console.log(`Auto-scene-switcher settings updated for "${sceneName}" in JSON.`);
+                    webSocketManager.sendStartOBS();
+                    await connectOBSWebSocket();
+                });
+        } else {
+            autoSceneSwitcher.switches.push({
+                scene: sceneName,
+                window_title: escapedWindowTitle,
+            });
+
+            sceneCollection['modules']['auto-scene-switcher'] = autoSceneSwitcher;
+
+            const updatedContent = JSON.stringify(sceneCollection, null, 2);
+            await fs.promises.writeFile(sceneCollectionPath, updatedContent, 'utf-8');
+            await fs.promises.writeFile(
+                path.join(BASE_DIR, 'scene_config.json'),
+                updatedContent,
+                'utf-8'
+            );
+
+            console.log(`Auto-scene-switcher settings updated for "${sceneName}" in JSON.`);
+            webSocketManager.sendStartOBS();
+            await connectOBSWebSocket();
+        }
+    } catch (error: any) {
+        console.error(`Error modifying auto-scene-switcher settings:`, error.message);
+        throw error;
+    }
+}
 
 async function connectOBSWebSocket(retries = 5, delay = 2000): Promise<void> {
     await obs.connect(`ws://${obsConfig.host}:${obsConfig.port}`, obsConfig.password);
@@ -67,9 +215,8 @@ async function connectOBSWebSocket(retries = 5, delay = 2000): Promise<void> {
     return;
 }
 
-
 export async function getOBSConnection(): Promise<void> {
-if (connectionPromise) {
+    if (connectionPromise) {
         return connectionPromise;
     }
 
@@ -77,7 +224,7 @@ if (connectionPromise) {
     connectionPromise = new Promise(async (resolve, reject) => {
         try {
             // Try to connect immediately
-            await obs.call("GetVersion");
+            await obs.call('GetVersion');
             connectionPromise = null;
             resolve();
             return;
@@ -87,20 +234,19 @@ if (connectionPromise) {
 
         const interval = setInterval(async () => {
             try {
-                await obs.call("GetVersion");
+                await obs.call('GetVersion');
                 clearInterval(interval);
                 connectionPromise = null;
                 resolve();
             } catch (error) {
                 try {
-                    obsConfig = pythonConfig?.get('configs.Default.obs') as ObsConfig || {
+                    obsConfig = (pythonConfig?.get('configs.Default.obs') as ObsConfig) || {
                         host: 'localhost',
                         port: 7274,
-                        password: ''
-                    }
+                        password: '',
+                    };
                     await connectOBSWebSocket();
-                } catch (connectError) {
-                }
+                } catch (connectError) {}
             }
         }, 1000);
     });
@@ -184,7 +330,7 @@ export async function registerOBSIPC() {
     ipcMain.handle('obs.switchScene', async (_, sceneName) => {
         try {
             await getOBSConnection();
-            await obs.call('SetCurrentProgramScene', {sceneName});
+            await obs.call('SetCurrentProgramScene', { sceneName });
         } catch (error) {
             console.error('Error switching scene:', error);
         }
@@ -193,7 +339,7 @@ export async function registerOBSIPC() {
     ipcMain.handle('obs.switchScene.id', async (_, sceneUuid) => {
         try {
             await getOBSConnection();
-            await obs.call('SetCurrentProgramScene', {sceneUuid});
+            await obs.call('SetCurrentProgramScene', { sceneUuid });
         } catch (error) {
             console.error('Error switching scene:', error);
         }
@@ -220,68 +366,15 @@ export async function registerOBSIPC() {
 
     ipcMain.handle('obs.createScene', async (_, window) => {
         try {
-            await getOBSConnection();
-            // Create a new scene
-            const sceneName = `${window.sceneName}`;
-            await obs.call('CreateScene', {sceneName});
-
-            // Set the new scene as the current program scene
-            await obs.call('SetCurrentProgramScene', {sceneName});
-
-            let request: any = {
-                sceneName,
-                inputName: `${window.title} - Capture`,
-                inputKind: 'window_capture',
-                inputSettings: {
-                    mode: 'window',
-                    window: window.value,
-                    capture_audio: true,
-                    cursor: false,
-                }
-            };
-
-            if (isWindows10OrHigher()) {
-                request.inputSettings.method = 2;
-            }
-
-            await obs.call('CreateInput', request);
-
-            await modifyAutoSceneSwitcherInJSON(sceneName, window.title)
-
-            console.log(`Scene and game capture setup for window: ${window.title}`);
+            await createSceneWithCapture(window, 'window');
         } catch (error) {
-            console.error('Error setting up scene and game capture:', error);
+            console.error('Error setting up scene and window capture:', error);
         }
     });
 
     ipcMain.handle('obs.createScene.Game', async (_, window) => {
         try {
-            await getOBSConnection();
-            // Create a new scene
-            const sceneName = `${window.sceneName}`;
-            await obs.call('CreateScene', {sceneName});
-
-            // Set the new scene as the current program scene
-            await obs.call('SetCurrentProgramScene', {sceneName});
-
-            let request: any = {
-                sceneName,
-                inputName: `${window.title} - Game Capture`,
-                inputKind: 'game_capture',
-                inputSettings: {
-                    capture_mode: 'window',
-                    window: window.value,
-                    capture_audio: true,
-                    capture_cursor: false,
-                }
-            };
-
-            // Add a game capture source to the new scene
-            await obs.call('CreateInput', request);
-
-            await modifyAutoSceneSwitcherInJSON(sceneName, window.title)
-
-            console.log(`Scene and game capture setup for window: ${window.title}`);
+            await createSceneWithCapture(window, 'game');
         } catch (error) {
             console.error('Error setting up scene and game capture:', error);
         }
@@ -297,9 +390,10 @@ export async function registerOBSIPC() {
                 message: 'Are you sure you want to remove this scene?',
             });
 
-            if (response.response === 0) { // User clicked 'Yes'
+            if (response.response === 0) {
+                // User clicked 'Yes'
                 await getOBSConnection();
-                await obs.call('RemoveScene', {sceneUuid});
+                await obs.call('RemoveScene', { sceneUuid });
             }
         } catch (error) {
             console.error('Error removing scene:', error);
@@ -318,7 +412,7 @@ export async function registerOBSIPC() {
             console.error('Error getting active window from current scene:', error);
             return null;
         }
-    })
+    });
 
     ipcMain.handle('obs.getExecutableNameFromSource', async (_, obsSceneID: string) => {
         try {
@@ -331,7 +425,8 @@ export async function registerOBSIPC() {
 
     ipcMain.handle('get_gsm_status', async () => {
         try {
-            const texthookerPort = pythonConfig?.get('configs.Default.general.texthooker_port') || 55000;
+            const texthookerPort =
+                pythonConfig?.get('configs.Default.general.texthooker_port') || 55000;
             const response = await axios.get(`http://localhost:${texthookerPort}/get_status`);
             return response.data;
         } catch (error) {
@@ -344,16 +439,20 @@ export async function registerOBSIPC() {
         webSocketManager.sendStartOBS();
     });
 
-    async function getExecutableNameFromSource(obsSceneID: string): Promise<string | undefined | null> {
+    async function getExecutableNameFromSource(
+        obsSceneID: string
+    ): Promise<string | undefined | null> {
         try {
             await getOBSConnection();
 
             // Get the list of scene items for the given scene
-            const sceneItems = await obs.call('GetSceneItemList', {sceneUuid: obsSceneID});
+            const sceneItems = await obs.call('GetSceneItemList', { sceneUuid: obsSceneID });
 
             // Find the first input source with a window property
             for (const item of sceneItems.sceneItems) {
-                const inputProperties = await obs.call('GetInputSettings', {inputUuid: item.sourceUuid as string});
+                const inputProperties = await obs.call('GetInputSettings', {
+                    inputUuid: item.sourceUuid as string,
+                });
                 if (inputProperties.inputSettings?.window) {
                     const windowValue = inputProperties.inputSettings.window as string;
 
@@ -364,21 +463,28 @@ export async function registerOBSIPC() {
             console.warn(`No window input found in scene: ${obsSceneID}`);
             return null;
         } catch (error: any) {
-            console.error(`Error getting executable name from source in scene "${obsSceneID}":`, error.message);
+            console.error(
+                `Error getting executable name from source in scene "${obsSceneID}":`,
+                error.message
+            );
             throw error;
         }
     }
 
-    async function getWindowTitleFromSource(obsSceneID: string): Promise<string | undefined | null> {
+    async function getWindowTitleFromSource(
+        obsSceneID: string
+    ): Promise<string | undefined | null> {
         try {
             await getOBSConnection();
 
             // Get the list of scene items for the given scene
-            const sceneItems = await obs.call('GetSceneItemList', {sceneUuid: obsSceneID});
+            const sceneItems = await obs.call('GetSceneItemList', { sceneUuid: obsSceneID });
 
             // Find the first input source with a window property
             for (const item of sceneItems.sceneItems) {
-                const inputProperties = await obs.call('GetInputSettings', {inputUuid: item.sourceUuid as string});
+                const inputProperties = await obs.call('GetInputSettings', {
+                    inputUuid: item.sourceUuid as string,
+                });
                 if (inputProperties.inputSettings?.window) {
                     const windowValue = inputProperties.inputSettings.window as string;
 
@@ -389,59 +495,82 @@ export async function registerOBSIPC() {
             console.warn(`No window input found in scene: ${obsSceneID}`);
             return null;
         } catch (error: any) {
-            console.error(`Error getting executable name from source in scene "${obsSceneID}":`, error.message);
+            console.error(
+                `Error getting executable name from source in scene "${obsSceneID}":`,
+                error.message
+            );
             throw error;
         }
     }
 
+    // Only allow one getWindowsFromSource to run at a time
+    let getWindowsFromSourcePromise: Promise<any[]> | null = null;
 
     async function getWindowsFromSource(sourceName: string, capture_mode: string): Promise<any[]> {
-        try {
-            await getOBSConnection();
-            const response = await obs.call('GetInputPropertiesListPropertyItems', {
-                inputName: sourceName,
-                propertyName: 'window',
-            });
-            return response.propertyItems;
-        } catch (error: any) {
-            if (error.message.includes('No source was found')) {
-                try {
-                    await obs.call('GetSceneItemList', {sceneName: HELPER_SCENE});
-                } catch (sceneError: any) {
-                    if (sceneError.message.includes('No source was found')) {
-                        await obs.call('CreateScene', {sceneName: HELPER_SCENE});
-                    }
-                }
-
-                // Create the 'window_getter' input
-                await obs.call('CreateInput', {
-                    sceneName: HELPER_SCENE,
-                    inputName: sourceName,
-                    inputKind: capture_mode,
-                    inputSettings: {},
-                });
-
-                // Retry getting the window list
-                const retryResponse = await obs.call('GetInputPropertiesListPropertyItems', {
+        if (getWindowsFromSourcePromise) {
+            return getWindowsFromSourcePromise;
+        }
+        getWindowsFromSourcePromise = (async () => {
+            try {
+                await getOBSConnection();
+                const response = await obs.call('GetInputPropertiesListPropertyItems', {
                     inputName: sourceName,
                     propertyName: 'window',
                 });
-                return retryResponse.propertyItems;
-            } else {
-                throw error;
+                return response.propertyItems;
+            } catch (error: any) {
+                if (error.message.includes('No source was found')) {
+                    try {
+                        await obs.call('GetSceneItemList', { sceneName: HELPER_SCENE });
+                    } catch (sceneError: any) {
+                        if (sceneError.message.includes('No source was found')) {
+                            await obs.call('CreateScene', { sceneName: HELPER_SCENE });
+                        }
+                    }
+
+                    // Create the 'window_getter' input
+                    await obs.call('CreateInput', {
+                        sceneName: HELPER_SCENE,
+                        inputName: sourceName,
+                        inputKind: capture_mode,
+                        inputSettings: {},
+                    });
+
+                    // Retry getting the window list
+                    const retryResponse = await obs.call('GetInputPropertiesListPropertyItems', {
+                        inputName: sourceName,
+                        propertyName: 'window',
+                    });
+                    return retryResponse.propertyItems;
+                } else {
+                    throw error;
+                }
             }
+        })();
+
+        try {
+            return await getWindowsFromSourcePromise;
+        } finally {
+            getWindowsFromSourcePromise = null;
         }
     }
 
     async function getWindowList(): Promise<any[]> {
         try {
-            const windowCaptureWindows = await getWindowsFromSource(WINDOW_GETTER_INPUT, "window_capture");
-            const gameCaptureWindows = await getWindowsFromSource(GAME_WINDOW_INPUT, "game_capture");
+            const windowCaptureWindows = await getWindowsFromSource(
+                WINDOW_GETTER_INPUT,
+                'window_capture'
+            );
+            const gameCaptureWindows = await getWindowsFromSource(
+                GAME_WINDOW_INPUT,
+                'game_capture'
+            );
             return [
                 ...windowCaptureWindows.filter(
-                    (windowCapture) => !gameCaptureWindows.some(
-                        (gameWindow) => gameWindow.value === windowCapture.value
-                    )
+                    (windowCapture) =>
+                        !gameCaptureWindows.some(
+                            (gameWindow) => gameWindow.value === windowCapture.value
+                        )
                 ),
                 ...gameCaptureWindows,
             ].sort((a, b) => a.itemName.localeCompare(b.itemName));
@@ -451,90 +580,13 @@ export async function registerOBSIPC() {
         }
     }
 
-    async function modifyAutoSceneSwitcherInJSON(sceneName: string, windowTitle: string): Promise<void> {
-        try {
-            await getOBSConnection();
-            await webSocketManager.sendQuitOBS();
-            const currentSceneCollection = await obs.call('GetSceneCollectionList');
-            const sceneCollectionName = currentSceneCollection.currentSceneCollectionName;
-
-            const sceneCollectionPath = path.join(SCENE_CONFIG_PATH, `${sceneCollectionName}.json`.replace(' ', '_'));
-
-            const fileContent = await fs.promises.readFile(sceneCollectionPath, 'utf-8');
-            const sceneCollection = JSON.parse(fileContent);
-
-            let autoSceneSwitcher = sceneCollection["modules"]["auto-scene-switcher"];
-
-            if (!autoSceneSwitcher) {
-                sceneCollection["modules"]["auto-scene-switcher"] = {
-                    interval: 300,
-                    non_matching_scene: "",
-                    switch_if_not_matching: false,
-                    active: true,
-                    switches: [],
-                };
-            }
-
-
-            if (!autoSceneSwitcher.active) {
-                dialog.showMessageBox(obsWindow!, {
-                    type: 'question',
-                    buttons: ['Yes', 'No'],
-                    defaultId: 0,
-                    title: 'Enable Auto Scene Switcher',
-                    message: 'Do you want to enable the auto scene switcher?',
-                }).then(async (response) => {
-                    if (response.response === 0) {
-                        autoSceneSwitcher.active = true;
-                    }
-                    autoSceneSwitcher.switches.push({
-                        scene: sceneName,
-                        window_title: windowTitle,
-                    });
-
-                    sceneCollection["modules"]["auto-scene-switcher"] = autoSceneSwitcher;
-
-
-                    const updatedContent = JSON.stringify(sceneCollection, null, 2);
-                    await fs.promises.writeFile(sceneCollectionPath, updatedContent, 'utf-8');
-                    await fs.promises.writeFile(path.join(BASE_DIR, "scene_config.json"), updatedContent, 'utf-8');
-
-                    console.log(`Auto-scene-switcher settings updated for "${sceneName}" in JSON.`);
-                    webSocketManager.sendStartOBS();
-                    await connectOBSWebSocket();
-                });
-            } else {
-                autoSceneSwitcher.switches.push({
-                    scene: sceneName,
-                    window_title: windowTitle,
-                });
-
-                sceneCollection["modules"]["auto-scene-switcher"] = autoSceneSwitcher;
-
-
-                const updatedContent = JSON.stringify(sceneCollection, null, 2);
-                await fs.promises.writeFile(sceneCollectionPath, updatedContent, 'utf-8');
-                await fs.promises.writeFile(path.join(BASE_DIR, "scene_config.json"), updatedContent, 'utf-8');
-
-                console.log(`Auto-scene-switcher settings updated for "${sceneName}" in JSON.`);
-                webSocketManager.sendStartOBS();
-                await connectOBSWebSocket();
-            }
-
-
-        } catch (error: any) {
-            console.error(`Error modifying auto-scene-switcher settings:`, error.message);
-            throw error;
-        }
-    }
-
     ipcMain.handle('obs.getWindows', async () => {
         try {
             await getOBSConnection();
             const response = await getWindowList();
             return response.map((item: any) => ({
                 title: item.itemName.split(':').slice(1).join(':').trim(),
-                value: item.itemValue
+                value: item.itemValue,
             }));
         } catch (error) {
             console.error('Error getting windows:', error);
@@ -547,18 +599,18 @@ export async function registerOBSIPC() {
 
 export async function setOBSScene(sceneName: string): Promise<void> {
     await getOBSConnection();
-    await obs.call('SetCurrentProgramScene', {sceneName});
+    await obs.call('SetCurrentProgramScene', { sceneName });
 }
 
 export async function getOBSScenes(): Promise<ObsScene[]> {
-    const {scenes} = await obs.call('GetSceneList');
+    const { scenes } = await obs.call('GetSceneList');
     return scenes
-        .filter((scene: any) => scene.sceneName.toLowerCase() !== "gsm helper")
-        .map((scene: any) => ({name: scene.sceneName, id: scene.sceneUuid} as ObsScene));
+        .filter((scene: any) => scene.sceneName.toLowerCase() !== 'gsm helper')
+        .map((scene: any) => ({ name: scene.sceneName, id: scene.sceneUuid } as ObsScene));
 }
 
 export async function getCurrentScene(): Promise<ObsScene> {
     await getOBSConnection();
     const response = await obs.call('GetCurrentProgramScene');
-    return {name: response.sceneName, id: response.sceneUuid};
+    return { name: response.sceneName, id: response.sceneUuid };
 }

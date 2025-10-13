@@ -106,10 +106,10 @@ class OverlayThread(threading.Thread):
         while True:
             if overlay_server_thread.has_clients():
                 if get_config().overlay.periodic:
-                    await self.overlay_processor.find_box_and_send_to_overlay('')
+                    await self.overlay_processor.find_box_and_send_to_overlay('', True)
                     await asyncio.sleep(get_config().overlay.periodic_interval)
                 elif self.first_time_run:
-                    await self.overlay_processor.find_box_and_send_to_overlay('')
+                    await self.overlay_processor.find_box_and_send_to_overlay('', False)
                     self.first_time_run = False
                 else:
                     await asyncio.sleep(3)
@@ -161,7 +161,7 @@ class OverlayProcessor:
             self.lens = None
             self.regex = None
             
-    async def find_box_and_send_to_overlay(self, sentence_to_check: str = None):
+    async def find_box_and_send_to_overlay(self, sentence_to_check: str = None, check_against_last: bool = False):
         """
         Sends the detected text boxes to the overlay via WebSocket.
         Cancels any running OCR task before starting a new one.
@@ -175,7 +175,7 @@ class OverlayProcessor:
                 logger.info("Previous OCR task was cancelled")
         
         # Start new task
-        self.current_task = asyncio.create_task(self.find_box_for_sentence(sentence_to_check))
+        self.current_task = asyncio.create_task(self.find_box_for_sentence(sentence_to_check, check_against_last))
         try:
             await self.current_task
         except asyncio.CancelledError:
@@ -183,7 +183,7 @@ class OverlayProcessor:
         # logger.info(f"Sending {len(boxes)} boxes to overlay.")
         # await send_word_coordinates_to_overlay(boxes)
 
-    async def find_box_for_sentence(self, sentence_to_check: str = None) -> List[Dict[str, Any]]:
+    async def find_box_for_sentence(self, sentence_to_check: str = None, check_against_last: bool = False) -> List[Dict[str, Any]]:
         """
         Public method to perform OCR and find text boxes for a given sentence.
         
@@ -191,7 +191,7 @@ class OverlayProcessor:
         error handling.
         """
         try:
-            return await self._do_work(sentence_to_check)
+            return await self._do_work(sentence_to_check, check_against_last=check_against_last)
         except Exception as e:
             logger.error(f"Error during OCR processing: {e}", exc_info=True)
             return []
@@ -304,7 +304,7 @@ class OverlayProcessor:
         
         return composite_img
 
-    async def _do_work(self, sentence_to_check: str = None) -> Tuple[List[Dict[str, Any]], int]:
+    async def _do_work(self, sentence_to_check: str = None, check_against_last: bool = False) -> Tuple[List[Dict[str, Any]], int]:
         """The main OCR workflow with cancellation support."""
         if not self.lens:
             logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
@@ -348,7 +348,7 @@ class OverlayProcessor:
             text_str = "".join([text for text in text if self.regex.match(text)])
             
             # RapidFuzz fuzzy match 90% to not send the same results repeatedly
-            if self.last_oneocr_result:
+            if self.last_oneocr_result and check_against_last:
                 
                 score = fuzz.ratio(text_str, self.last_oneocr_result)
                 if score >= 80:
@@ -403,7 +403,7 @@ class OverlayProcessor:
         text_str = "".join([text for text in text_list if self.regex.match(text)])
         
         # RapidFuzz fuzzy match 90% to not send the same results repeatedly
-        if self.last_lens_result:
+        if self.last_lens_result and check_against_last:
             score = fuzz.ratio(text_str, self.last_lens_result)
             if score >= 80:
                 logger.info("Google Lens results are similar to the last results (score: %d). Skipping overlay update.", score)
@@ -596,7 +596,7 @@ async def main_run_ocr():
     """
     overlay_processor = OverlayProcessor()
     while True:
-        await overlay_processor.find_box_and_send_to_overlay('')
+        await overlay_processor.find_box_and_send_to_overlay('', False)
         await asyncio.sleep(10)
 
 
