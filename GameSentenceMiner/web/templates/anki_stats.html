@@ -1,32 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Anki vs GSM Kanji Stats</title>
-    
-    <!-- Include html2canvas for screenshot functionality -->
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    
-    <!-- Include Chart.js from a CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
-    <!-- Include shared theme styles -->
-    {% include 'components/theme-styles.html' %}
-    
-    <!-- Include shared CSS -->
-    <link rel="stylesheet" href="/static/css/shared.css">
-    
-    <!-- Include shared dashboard and popup CSS -->
-    <link rel="stylesheet" href="/static/css/dashboard-shared.css">
-    <link rel="stylesheet" href="/static/css/popups-shared.css">
-    
-    <!-- Include stats-specific CSS -->
-    <link rel="stylesheet" href="/static/css/stats.css">
-    
-    <!-- Include shared kanji grid CSS -->
-    <link rel="stylesheet" href="/static/css/kanji-grid.css">
-</head>
+
+{% set page_title = 'Anki vs GSM Kanji Stats' %}
+{% set page_specific_css = 'stats.css' %}
+{% set include_kanji_grid_css = true %}
+{% include 'components/html-head.html' %}
 <body>
 
 <div class="container">
@@ -38,41 +16,11 @@
     <!-- Include shared navigation -->
     {% include 'components/navigation.html' %}
 
-    <div class="dashboard-card date-range">
-        <div class="dashboard-card-header">
-            <h3 class="dashboard-card-title">
-                <span class="dashboard-card-icon">📅</span>
-                Date Range
-            </h3>
-        </div>
+    <!-- Include shared date range component -->
+    {% include 'components/date-range.html' %}
 
-        <div class="dashboard-date-range">
-            <div class="dashboard-date-item tooltip" data-tooltip="Select the start date for your stats">
-                <label for="fromDate">From</label>
-                <input type="date" id="fromDate" class="dashboard-date-input">
-            </div>
-            <div class="dashboard-date-item tooltip" data-tooltip="Select the end date for your stats">
-                <label for="toDate">To</label>
-                <input type="date" id="toDate" class="dashboard-date-input">
-            </div>
-        </div>
-    </div>
-
-
-    <div id="dateErrorPopup" class="dashboard-popup hidden">
-        <div class="dashboard-popup-content">
-            <div class="dashboard-popup-icon">⚠️</div>
-            <div class="dashboard-popup-message">"From" date cannot be later than "To" date.</div>
-            <button id="closePopupBtn" class="dashboard-popup-btn">OK</button>
-        </div>
-    </div>
-
-    <div id="noDataPopup" class="no-data-popup hidden">
-        <div class="no-data-content">
-            <p>No data found for the selected range.</p>
-            <button id="closeNoDataPopup">OK</button>
-        </div>
-    </div>
+    <!-- Include shared popup components -->
+    {% include 'components/popups.html' %}
 
     <!-- Dashboard Statistics Sections -->
     <div class="dashboard-container">
@@ -241,10 +189,10 @@
     </div>
 </div>
 
-<!-- Include shared JavaScript first (required dependency for anki_stats.js) -->
-<script src="/static/js/shared.js"></script>
-<script src="/static/js/kanji-grid.js"></script>
-<script src="/static/js/anki_stats.js"></script>
+<!-- Include shared JavaScript configuration -->
+{% set include_kanji_grid_js = true %}
+{% set page_specific_js = 'anki_stats.js' %}
+{% include 'components/js-config.html' %}
 
 </body>
 </html>

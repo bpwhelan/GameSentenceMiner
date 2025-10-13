@@ -1,0 +1,233 @@
+<!-- Settings Modal Component -->
+<div id="{{ modal_id | default('settingsModal') }}" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>{{ title | default('Statistics Settings') }}</h3>
+            <span class="close-btn" id="{{ close_btn_id | default('closeSettingsModal') }}">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                {{ description | default('Configure how reading time and sessions are calculated for your statistics.') }}
+            </p>
+            <form id="{{ form_id | default('settingsForm') }}">
+                {% if show_timezone_section | default(false) %}
+                <!-- Timezone Section (commented out in original) -->
+                <!-- <div style="margin-bottom: 20px;">
+                    <label for="timezone-select"
+                        style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                        Timezone
+                    </label>
+                    <div style="display: flex; gap: 8px;">
+                        <select id="timezone-select" name="timezone"
+                            style="flex-grow: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                        </select>
+                        <button id="set-local-timezone-btn"
+                            style="padding: 10px; border: none; border-radius: 5px; background: var(--primary-color); color: white; font-size: 14px; cursor: pointer;">
+                            Set to Local
+                        </button>
+                    </div>
+                    <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                        Select the timezone to base your statistics on
+                    </small>
+                </div> -->
+                {% endif %}
+
+                {% if show_basic_settings | default(true) %}
+                <div style="margin-bottom: 20px;">
+                    <label for="{{ afk_timer_id | default('afkTimer') }}"
+                        style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                        AFK Timer (seconds)
+                    </label>
+                    <input type="number" id="{{ afk_timer_id | default('afkTimer') }}" name="afk_timer_seconds"
+                        style="padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                        placeholder="120">
+                    <small
+                        style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                        Maximum time between activities that still counts as active reading
+                    </small>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label for="{{ session_gap_id | default('sessionGap') }}"
+                        style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                        Session Gap (seconds)
+                    </label>
+                    <input type="number" id="{{ session_gap_id | default('sessionGap') }}" name="session_gap_seconds"
+                        style="padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                        placeholder="3600">
+                    <small
+                        style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                        Time gap that triggers a new reading session
+                    </small>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label for="{{ streak_req_id | default('streakRequirement') }}"
+                        style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                        Streak Requirement (hours)
+                    </label>
+                    <input type="number" id="{{ streak_req_id | default('streakRequirement') }}" name="streak_requirement_hours" min="0.01"
+                        max="24" step="0.01"
+                        style="padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                        placeholder="1.0">
+                    <small
+                        style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                        Minimum hours of reading activity required to maintain streak (0.01-24 hours)
+                    </small>
+                </div>
+                {% endif %}
+
+                {% if show_goals_section | default(true) %}
+                <!-- Reading Goals Section -->
+                <div style="margin-bottom: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+                    <label
+                        style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                        Reading Goals Configuration
+                    </label>
+                    <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                        Set your long-term reading targets for tracking progress and projections.
+                    </p>
+
+                    <div style="margin-bottom: 15px;">
+                        <label for="{{ hours_target_id | default('readingHoursTarget') }}"
+                            style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Reading Hours Target
+                        </label>
+                        <input type="number" id="{{ hours_target_id | default('readingHoursTarget') }}" name="reading_hours_target" min="1"
+                            max="10000"
+                            style="padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            placeholder="1500">
+                        <small
+                            style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Total reading hours goal (1-10,000 hours) - Default: 1500 hours based on TMW N1
+                            achievement
+                        </small>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label for="{{ chars_target_id | default('characterCountTarget') }}"
+                            style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Character Count Target
+                        </label>
+                        <input type="number" id="{{ chars_target_id | default('characterCountTarget') }}" name="character_count_target" min="1000"
+                            max="1000000000"
+                            style="padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            placeholder="25000000">
+                        <small
+                            style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Total characters read goal (1,000-1,000,000,000) - Default: 25 million characters
+                        </small>
+                    </div>
+
+                    {% if show_target_dates | default(true) %}
+                    <div style="margin-bottom: 15px;">
+                        <label for="{{ hours_date_id | default('readingHoursTargetDate') }}"
+                            style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Reading Hours Target Date
+                        </label>
+                        <input type="date" id="{{ hours_date_id | default('readingHoursTargetDate') }}" name="reading_hours_target_date"
+                            style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            data-date-format="yyyy-mm-dd">
+                        <small
+                            style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Target date to achieve your reading hours goal
+                        </small>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label for="{{ chars_date_id | default('characterCountTargetDate') }}"
+                            style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Character Count Target Date
+                        </label>
+                        <input type="date" id="{{ chars_date_id | default('characterCountTargetDate') }}" name="character_count_target_date"
+                            style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            data-date-format="yyyy-mm-dd">
+                        <small
+                            style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Target date to achieve your character count goal
+                        </small>
+                    </div>
+                    {% endif %}
+
+                    <div style="margin-bottom: 15px;">
+                        <label for="{{ games_target_id | default('gamesTarget') }}"
+                            style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Games/Visual Novels Target
+                        </label>
+                        <input type="number" id="{{ games_target_id | default('gamesTarget') }}" name="games_target" min="1" max="1000"
+                            style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            placeholder="100">
+                        <small
+                            style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Number of games/visual novels to complete (1-1,000) - Default: 100 based on Refold
+                            standards
+                        </small>
+                    </div>
+
+                    {% if show_target_dates | default(true) %}
+                    <div style="margin-bottom: 15px;">
+                        <label for="{{ games_date_id | default('gamesTargetDate') }}"
+                            style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                            Games/Visual Novels Target Date
+                        </label>
+                        <input type="date" id="{{ games_date_id | default('gamesTargetDate') }}" name="games_target_date"
+                            style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                            data-date-format="yyyy-mm-dd">
+                        <small
+                            style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Target date to achieve your games goal
+                        </small>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                {% if show_exstatic_section | default(true) %}
+                <!-- Import ExStatic Lines Section -->
+                <div style="margin-bottom: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+                    <label
+                        style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                        Import ExStatic Lines
+                    </label>
+                    <div style="margin-bottom: 10px;">
+                        <input type="file" id="{{ exstatic_file_id | default('exstaticFile') }}" accept=".csv"
+                            style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                        <small
+                            style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            Select an ExStatic CSV file to import reading data into GSM
+                        </small>
+                    </div>
+                    <button type="button" id="{{ import_btn_id | default('importExstaticBtn') }}"
+                        style="width: 90%; padding: 10px; background: #666; color: white; border: none; border-radius: 5px; font-size: 14px; cursor: not-allowed; margin-bottom: 10px;"
+                        disabled>
+                        Import ExStatic Lines
+                    </button>
+                    <div id="{{ import_progress_id | default('importProgress') }}" style="display: none; margin-bottom: 10px;">
+                        <div
+                            style="background: var(--bg-tertiary); border-radius: 5px; overflow: hidden; height: 20px; position: relative;">
+                            <div id="{{ import_progress_bar_id | default('importProgressBar') }}"
+                                style="background: var(--primary-color); height: 100%; width: 0%; transition: width 0.3s ease;">
+                            </div>
+                            <span id="{{ import_progress_text_id | default('importProgressText') }}"
+                                style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; color: var(--text-primary);">0%</span>
+                        </div>
+                    </div>
+                    <div id="{{ import_status_id | default('importStatus') }}"
+                        style="display: none; padding: 10px; border-radius: 5px; font-size: 14px;"></div>
+                </div>
+                {% endif %}
+            </form>
+
+            <div id="{{ error_id | default('settingsError') }}"
+                style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+            </div>
+            <div id="{{ success_id | default('settingsSuccess') }}"
+                style="display: none; background: var(--success-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="{{ cancel_btn_id | default('cancelSettingsBtn') }}" class="cancel-btn">Cancel</button>
+            <button id="{{ save_btn_id | default('saveSettingsBtn') }}" class="confirm-delete-btn">Save Settings</button>
+        </div>
+    </div>
+</div>

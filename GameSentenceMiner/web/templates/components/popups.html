@@ -1,0 +1,15 @@
+<!-- Shared Popup Components -->
+<div id="{{ date_error_id | default('dateErrorPopup') }}" class="dashboard-popup hidden">
+    <div class="dashboard-popup-content">
+        <div class="dashboard-popup-icon">⚠️</div>
+        <div class="dashboard-popup-message">{{ date_error_message | default('"From" date cannot be later than "To" date.') }}</div>
+        <button id="{{ date_error_btn_id | default('closePopupBtn') }}" class="dashboard-popup-btn">OK</button>
+    </div>
+</div>
+
+<div id="{{ no_data_id | default('noDataPopup') }}" class="no-data-popup hidden">
+    <div class="no-data-content">
+        <p>{{ no_data_message | default('No data found for the selected range.') }}</p>
+        <button id="{{ no_data_btn_id | default('closeNoDataPopup') }}">OK</button>
+    </div>
+</div>

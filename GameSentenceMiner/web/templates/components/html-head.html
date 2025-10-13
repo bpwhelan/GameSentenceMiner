@@ -1,0 +1,45 @@
+<!-- HTML Head Component -->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title | default('GSM Dashboard') }}</title>
+    
+    {% if include_chartjs | default(true) %}
+    <!-- Include Chart.js from a CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    {% endif %}
+
+    {% if include_html2canvas | default(true) %}
+    <!-- Include html2canvas for screenshot functionality -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    {% endif %}
+
+    <!-- Include shared theme styles -->
+    {% include 'components/theme-styles.html' %}
+
+    <!-- Include shared CSS -->
+    <link rel="stylesheet" href="/static/css/shared.css">
+    
+    {% if include_dashboard_css | default(true) %}
+    <!-- Include shared dashboard and popup CSS -->
+    <link rel="stylesheet" href="/static/css/dashboard-shared.css">
+    <link rel="stylesheet" href="/static/css/popups-shared.css">
+    {% endif %}
+
+    {% if page_specific_css %}
+    <!-- Include page-specific CSS -->
+    <link rel="stylesheet" href="/static/css/{{ page_specific_css }}">
+    {% endif %}
+
+    {% if include_kanji_grid_css | default(false) %}
+    <!-- Include shared kanji grid CSS -->
+    <link rel="stylesheet" href="/static/css/kanji-grid.css">
+    {% endif %}
+
+    {% if additional_css %}
+    <!-- Additional CSS files -->
+    {% for css_file in additional_css %}
+    <link rel="stylesheet" href="/static/css/{{ css_file }}">
+    {% endfor %}
+    {% endif %}
+</head>
