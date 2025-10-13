@@ -20,6 +20,33 @@
         <!-- Include shared popup components -->
         {% include 'components/popups.html' %}
 
+        <div class="dashboard-card peak-stats">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">🏆</span>
+                    Peak Statistics
+                </h3>
+            </div>
+            <div class="dashboard-stats-grid">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Maximum characters read in a single day">
+                    <span class="dashboard-stat-value" id="maxDailyChars">-</span>
+                    <span class="dashboard-stat-label">Most Chars/Day</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Maximum hours studied in a single day">
+                    <span class="dashboard-stat-value" id="maxDailyHours">-</span>
+                    <span class="dashboard-stat-label">Most Hours/Day</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Longest continuous reading session">
+                    <span class="dashboard-stat-value" id="longestSession">-</span>
+                    <span class="dashboard-stat-label">Longest Session</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Maximum characters read in a single session">
+                    <span class="dashboard-stat-value" id="maxSessionChars">-</span>
+                    <span class="dashboard-stat-label">Most Chars/Session</span>
+                </div>
+            </div>
+        </div>
+        <br>
         <div class="chart-container">
             <h2>Lines Received Over Time</h2>
             <canvas id="linesChart"></canvas>
@@ -54,34 +81,6 @@
             <h2>Hourly Reading Speed</h2>
             <canvas id="hourlyReadingSpeedChart"></canvas>
         </div>
-
-                <div class="dashboard-card peak-stats">
-            <div class="dashboard-card-header">
-                <h3 class="dashboard-card-title">
-                    <span class="dashboard-card-icon">🏆</span>
-                    Peak Statistics
-                </h3>
-            </div>
-            <div class="dashboard-stats-grid">
-                <div class="dashboard-stat-item tooltip" data-tooltip="Maximum characters read in a single day">
-                    <span class="dashboard-stat-value" id="maxDailyChars">-</span>
-                    <span class="dashboard-stat-label">Most Chars/Day</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Maximum hours studied in a single day">
-                    <span class="dashboard-stat-value" id="maxDailyHours">-</span>
-                    <span class="dashboard-stat-label">Most Hours/Day</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Longest continuous reading session">
-                    <span class="dashboard-stat-value" id="longestSession">-</span>
-                    <span class="dashboard-stat-label">Longest Session</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Maximum characters read in a single session">
-                    <span class="dashboard-stat-value" id="maxSessionChars">-</span>
-                    <span class="dashboard-stat-label">Most Chars/Session</span>
-                </div>
-            </div>
-        </div>
-        <br>
 
         <div class="chart-container">
             <h2>Kanji Grid</h2>
