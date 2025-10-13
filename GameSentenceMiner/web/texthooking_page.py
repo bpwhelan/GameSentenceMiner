@@ -358,19 +358,77 @@ def api_anki_stats():
 def api_anki_game_stats():
     """
     API endpoint to provide per-game Anki statistics.
-    Returns game name, average review time, and retention percentage.
+    Returns game name, average review time, retention percentage, and mined lines count.
     """
     from GameSentenceMiner.anki import get_anki_game_stats
+    from GameSentenceMiner.util.db import GameLinesTable
+    from collections import defaultdict
     
     start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
     end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
     
     try:
+        # Get Anki game stats
         game_stats = get_anki_game_stats(start_timestamp, end_timestamp)
+        
+        # TODO: Calculate mined lines per game
+        # Currently commented out due to game name mismatch between Anki tags and database
+        # Anki strips spaces from tag names (e.g., "NEKOPARA vol.3" becomes "NEKOPARAvol.3")
+        # This will be fixed in a future update with proper game name normalization
+        
+        # # Fetch all lines filtered by timestamp
+        # try:
+        #     all_lines = (
+        #         GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000, end_timestamp / 1000)
+        #         if start_timestamp is not None and end_timestamp is not None
+        #         else GameLinesTable.all()
+        #     )
+        # except Exception as e:
+        #     logger.warning(f"Failed to filter lines by timestamp: {e}, fetching all lines instead")
+        #     all_lines = GameLinesTable.all()
+        #
+        # # Count mined lines per game (lines with screenshot_in_anki OR audio_in_anki)
+        # mined_lines_per_game = defaultdict(int)
+        # for line in all_lines:
+        #     has_screenshot = line.screenshot_in_anki and line.screenshot_in_anki.strip()
+        #     has_audio = line.audio_in_anki and line.audio_in_anki.strip()
+        #
+        #     if has_screenshot or has_audio:
+        #         game_name = line.game_name or "Unknown Game"
+        #         mined_lines_per_game[game_name] += 1
+        #
+        # # Add mined_lines count to each game stat
+        # for game_stat in game_stats:
+        #     game_name = game_stat['game_name']
+        #     game_stat['mined_lines'] = mined_lines_per_game.get(game_name, 0)
+        
+        # Set mined_lines to 0 for all games until proper name matching is implemented
+        for game_stat in game_stats:
+            game_stat['mined_lines'] = 0
+        
         return jsonify(game_stats)
     except Exception as e:
         logger.error(f"Error fetching game stats: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/anki_nsfw_sfw_retention')
+def api_anki_nsfw_sfw_retention():
+    """
+    API endpoint to provide NSFW vs SFW retention statistics.
+    Returns retention percentages and review counts for both categories.
+    """
+    from GameSentenceMiner.anki import get_anki_nsfw_sfw_retention
+    
+    start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
+    end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
+    
+    try:
+        retention_stats = get_anki_nsfw_sfw_retention(start_timestamp, end_timestamp)
+        return jsonify(retention_stats)
+    except Exception as e:
+        logger.error(f"Error fetching NSFW/SFW retention stats: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/search')
 def search():

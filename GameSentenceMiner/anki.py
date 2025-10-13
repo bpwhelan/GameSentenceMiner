@@ -852,6 +852,175 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
         logger.error(f"Failed to fetch game stats from Anki: {e}")
         return []
 
+def get_anki_nsfw_sfw_retention(start_timestamp=None, end_timestamp=None):
+    """
+    Fetch NSFW vs SFW retention statistics from Anki.
+    
+    NSFW cards: tagged with both 'Games' AND 'NSFW'
+    SFW cards: tagged with 'Games' but NOT 'NSFW'
+    
+    Args:
+        start_timestamp: Start timestamp in milliseconds (optional)
+        end_timestamp: End timestamp in milliseconds (optional)
+    
+    Returns:
+        Dict with nsfw_retention, sfw_retention, nsfw_reviews, sfw_reviews
+    """
+    try:
+        logger.info(f"[NSFW/SFW STATS] get_anki_nsfw_sfw_retention called with timestamps: {start_timestamp} to {end_timestamp}")
+        
+        # Query for NSFW cards (must have both Game and NSFW tags)
+        nsfw_query = "tag:Game tag:NSFW"
+        logger.info(f"[NSFW/SFW STATS] Querying NSFW cards with: {nsfw_query}")
+        nsfw_card_ids = invoke("findCards", query=nsfw_query)
+        logger.info(f"[NSFW/SFW STATS] Found {len(nsfw_card_ids) if nsfw_card_ids else 0} NSFW cards")
+        
+        # Query for SFW cards (must have Game tag but NOT NSFW tag)
+        sfw_query = "tag:Game -tag:NSFW"
+        logger.info(f"[NSFW/SFW STATS] Querying SFW cards with: {sfw_query}")
+        sfw_card_ids = invoke("findCards", query=sfw_query)
+        logger.info(f"[NSFW/SFW STATS] Found {len(sfw_card_ids) if sfw_card_ids else 0} SFW cards")
+        
+        # Calculate retention for NSFW cards
+        nsfw_retention, nsfw_reviews, nsfw_avg_time = _calculate_retention_for_cards(
+            nsfw_card_ids, start_timestamp, end_timestamp, "NSFW"
+        )
+        
+        # Calculate retention for SFW cards
+        sfw_retention, sfw_reviews, sfw_avg_time = _calculate_retention_for_cards(
+            sfw_card_ids, start_timestamp, end_timestamp, "SFW"
+        )
+        
+        return {
+            'nsfw_retention': round(nsfw_retention, 1),
+            'sfw_retention': round(sfw_retention, 1),
+            'nsfw_reviews': nsfw_reviews,
+            'sfw_reviews': sfw_reviews,
+            'nsfw_avg_time': round(nsfw_avg_time, 2),
+            'sfw_avg_time': round(sfw_avg_time, 2)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch NSFW/SFW retention stats from Anki: {e}")
+        return {
+            'nsfw_retention': 0,
+            'sfw_retention': 0,
+            'nsfw_reviews': 0,
+            'sfw_reviews': 0,
+            'nsfw_avg_time': 0,
+            'sfw_avg_time': 0
+        }
+
+
+def _calculate_retention_for_cards(card_ids, start_timestamp, end_timestamp, label):
+    """
+    Helper function to calculate retention for a set of cards.
+    Uses the same per-note averaging logic as get_anki_game_stats.
+    
+    Args:
+        card_ids: List of card IDs to calculate retention for
+        start_timestamp: Start timestamp in milliseconds (optional)
+        end_timestamp: End timestamp in milliseconds (optional)
+        label: Label for logging (e.g., "NSFW" or "SFW")
+    
+    Returns:
+        Tuple of (retention_percentage, total_reviews, avg_time_seconds)
+    """
+    if not card_ids:
+        logger.info(f"[{label}] No cards found")
+        return 0.0, 0, 0.0
+    
+    # Get card info to filter by date
+    cards_info = invoke("cardsInfo", cards=card_ids)
+    
+    # Filter cards by timestamp if provided
+    if start_timestamp and end_timestamp:
+        cards_info = [
+            card for card in cards_info
+            if start_timestamp <= card['cardId'] <= end_timestamp
+        ]
+    
+    if not cards_info:
+        logger.info(f"[{label}] No cards in date range")
+        return 0.0, 0, 0.0
+    
+    # Get all unique note IDs
+    note_ids = list(set(card['note'] for card in cards_info))
+    
+    # Create card-to-note mapping
+    card_to_note = {str(card['cardId']): card['note'] for card in cards_info}
+    
+    # Get review history for all cards
+    reviews_data = invoke("getReviewsOfCards", cards=card_ids)
+    
+    # Group reviews by note ID and calculate per-note retention
+    note_stats = {}  # {note_id: {'passed': count, 'failed': count, 'total_time': ms}}
+    
+    for card_id_str, reviews in reviews_data.items():
+        if not reviews:
+            continue
+        
+        note_id = card_to_note.get(card_id_str)
+        if not note_id:
+            continue
+        
+        # Filter reviews by timestamp if provided
+        filtered_reviews = reviews
+        if start_timestamp and end_timestamp:
+            filtered_reviews = [
+                r for r in reviews
+                if start_timestamp <= r['id'] <= end_timestamp
+            ]
+        
+        for review in filtered_reviews:
+            # Only count review-type entries (type=1), not learning/relearning
+            # type: 0=learning, 1=review, 2=relearning, 3=cram
+            review_type = review.get('type', -1)
+            if review_type != 1:
+                continue
+            
+            if note_id not in note_stats:
+                note_stats[note_id] = {'passed': 0, 'failed': 0, 'total_time': 0}
+            
+            note_stats[note_id]['total_time'] += review['time']
+            
+            # Ease: 1=Again, 2=Hard, 3=Good, 4=Easy
+            if review['ease'] == 1:
+                note_stats[note_id]['failed'] += 1
+            else:
+                note_stats[note_id]['passed'] += 1
+    
+    if not note_stats:
+        logger.info(f"[{label}] No review data found")
+        return 0.0, 0, 0.0
+    
+    # Calculate per-note retention and average them
+    retention_sum = 0
+    total_reviews = 0
+    total_time = 0
+    
+    for note_id, stats in note_stats.items():
+        passed = stats['passed']
+        failed = stats['failed']
+        total = passed + failed
+        
+        if total > 0:
+            # Calculate retention for this note
+            note_retention = passed / total
+            retention_sum += note_retention
+            total_reviews += total
+            total_time += stats['total_time']
+    
+    # Average retention across all notes (not reviews)
+    note_count = len(note_stats)
+    avg_retention = (retention_sum / note_count) * 100 if note_count > 0 else 0
+    avg_time_seconds = (total_time / total_reviews / 1000.0) if total_reviews > 0 else 0
+    
+    logger.info(f"[{label}] Calculated retention: {avg_retention:.1f}% from {total_reviews} reviews across {note_count} notes, avg time: {avg_time_seconds:.2f}s")
+    
+    return avg_retention, total_reviews, avg_time_seconds
+
+
 
 if __name__ == "__main__":
     print(invoke("getIntervals", cards=["1754694986036"]))
