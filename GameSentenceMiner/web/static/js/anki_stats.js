@@ -410,17 +410,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
     
-    // Load NSFW/SFW retention stats when dates are set
-    document.addEventListener("datesSetAnki", () => {
-        const fromDate = sessionStorage.getItem("fromDateAnki");
-        const toDate = sessionStorage.getItem("toDateAnki");
-        const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDate, toDate);
-        loadNsfwSfwRetention(startTimestamp, endTimestamp);
-    });
-    
-    // Load NSFW/SFW retention stats immediately if dates already exist in sessionStorage
-    if (fromDate && toDate) {
-        const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDate, toDate);
-        loadNsfwSfwRetention(startTimestamp, endTimestamp);
-    }
+    // Note: NSFW/SFW retention stats are now loaded via the unified loadAllStats function
+    // which is triggered by the "datesSetAnki" event listener above (line 218-225)
 });
