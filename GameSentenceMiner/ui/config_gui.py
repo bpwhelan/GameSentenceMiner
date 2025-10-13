@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import time
+import re
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, scrolledtext, font
 from PIL import Image, ImageTk
@@ -318,7 +319,39 @@ class ConfigApp:
         
         print(dialog.selected_path)
         return dialog.selected_path
-        
+    
+    
+    # IMPLEMENT LATER,FOR NOW JUST RUN THE FILE
+    # def show_furigana_filter_selector(self, current_sensitivity):
+    #     """
+    #     Displays a modal dialog for the user to select the furigana filter sensitivity.
+
+    #     Args:
+    #         current_sensitivity (int): The current sensitivity setting.
+    #     Returns: int: The selected sensitivity setting, or None if canceled.
+    #     """
+    #     dialog = FuriganaFilterSelectorDialog(self.window,
+    #                                           self,
+    #                                           current_sensitivity=current_sensitivity)
+    #     return dialog.selected_sensitivity
+
+    def show_minimum_character_size_selector(self, current_size):
+        """
+        Opens an external tool for selecting the minimum character size.
+
+        Args:
+            current_sensitivity (int): The current sensitivity setting.
+        Returns: int: The selected sensitivity setting, or None if canceled.
+        """
+        # Run the file directly with the current python interpreter and get stdout
+        result = subprocess.run([sys.executable, '-m', 'GameSentenceMiner.tools.furigana_filter_preview', str(current_size), 'overlay'], capture_output=True, text=True)
+        if result.returncode == 0:
+            # Parse the output for RESULT:[value]
+            match = re.search(r"RESULT:\[(\d+)\]", result.stdout)
+            if match:
+                return int(match.group(1))
+        return None
+
     def create_vars(self):
         """
         Initializes all the tkinter variables used in the configuration GUI.
@@ -462,6 +495,7 @@ class ConfigApp:
         self.periodic_value = tk.BooleanVar(value=self.settings.overlay.periodic)
         self.periodic_interval_value = tk.StringVar(value=str(self.settings.overlay.periodic_interval))
         self.scan_delay_value = tk.StringVar(value=str(self.settings.overlay.scan_delay))
+        self.overlay_minimum_character_size_value = tk.StringVar(value=str(self.settings.overlay.minimum_character_size))
         
         # Master Config Settings
         self.switch_to_default_if_not_found_value = tk.BooleanVar(value=self.master_config.switch_to_default_if_not_found)
@@ -703,6 +737,7 @@ class ConfigApp:
                 scan_delay=float(self.scan_delay_value.get()),
                 periodic=float(self.periodic_value.get()),
                 periodic_interval=float(self.periodic_interval_value.get()),
+                minimum_character_size=int(self.overlay_minimum_character_size_value.get()),
             )
             # wip=WIP(
             #     overlay_websocket_port=int(self.overlay_websocket_port_value.get()),
@@ -2387,6 +2422,19 @@ class ConfigApp:
         ttk.Entry(overlay_frame, textvariable=self.periodic_interval_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
+        # Minimum Character Size
+        minimum_character_size_i18n = overlay_i18n.get('minimum_character_size', {})
+        HoverInfoLabelWidget(overlay_frame, text=minimum_character_size_i18n.get('label', 'Minimum Character Size:'),
+                             tooltip=minimum_character_size_i18n.get('tooltip', 'Minimum size of characters to be detected.'),
+                             row=self.current_row, column=0)
+        ttk.Entry(overlay_frame, textvariable=self.overlay_minimum_character_size_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        # button to open minimum character size Finder
+        ttk.Button(overlay_frame, text=overlay_i18n.get('minimum_character_size_finder_button', 
+                                                        'Minimum Character Size Finder'), 
+                   command=lambda: self.open_minimum_character_size_selector(self.overlay_minimum_character_size_value.get()), bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
+
+        self.current_row += 1
+
         if self.monitors:
             # Ensure the index is valid
             monitor_index = self.settings.overlay.monitor_to_capture
@@ -2396,6 +2444,10 @@ class ConfigApp:
                 self.overlay_monitor.current(0)
         
         self.add_reset_button(overlay_frame, "overlay", self.current_row, 0, self.create_overlay_tab)
+
+    def open_minimum_character_size_selector(self, size):
+        new_size = self.show_minimum_character_size_selector(size)
+        self.overlay_minimum_character_size_value.set(new_size)
 
     @new_tab
     def create_wip_tab(self):

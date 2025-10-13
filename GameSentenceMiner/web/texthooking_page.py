@@ -217,6 +217,9 @@ def translate_line():
     text = data.get('text', '').strip()
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
+    
+    if not get_config().ai_translation.is_configured():
+        return jsonify({'error': 'AI translation is not properly configured. Please check your settings in the "AI" Tab.'}), 400
     line = get_line_by_id(event_id)
     if line is None:
         return jsonify({'error': 'Invalid id'}), 400
