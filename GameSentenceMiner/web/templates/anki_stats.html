@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
-
 {% set page_title = 'Anki vs GSM Kanji Stats' %}
 {% set page_specific_css = 'stats.css' %}
 {% set include_kanji_grid_css = true %}
+{% set include_chart_js = true %}
+{% set include_html2canvas = true %}
 {% include 'components/html-head.html' %}
 <body>
 
@@ -21,6 +22,124 @@
 
     <!-- Include shared popup components -->
     {% include 'components/popups.html' %}
+
+    <!-- AnkiConnect Warning Banner -->
+    <div id="ankiConnectWarning" class="dashboard-card" style="display: none; background: var(--warning-bg, #fff3cd); border-left: 4px solid var(--warning-color, #f39c12); margin-bottom: 20px;">
+        <div style="padding: 16px; display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 24px;">⚠️</span>
+            <div style="flex: 1;">
+                <strong style="color: var(--warning-color, #f39c12); display: block; margin-bottom: 4px;">AnkiConnect Not Detected</strong>
+                <p style="margin: 0; color: var(--text-primary); font-size: 14px;">
+                    Unable to connect to Anki. Please ensure Anki is running and <a href="https://ankiweb.net/shared/info/2055492159" target="_blank" style="color: var(--primary-color); text-decoration: underline;">AnkiConnect</a> is installed.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Anki Game Stats Section -->
+    <div class="dashboard-container">
+        <div class="dashboard-card current-game" id="gameStatsCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">🎮</span>
+                        Anki Game Stats
+                    </h3>
+                    <p class="dashboard-card-subtitle">Review Anki statistics by game</p>
+                </div>
+            </div>
+            
+            <div class="dashboard-progress-section">
+                <div id="gameStatsTableContainer">
+                    <div id="gameStatsLoading" class="dashboard-loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>Loading game statistics...</span>
+                    </div>
+                    <table id="gameStatsTable" class="stats-table">
+                        <thead>
+                            <tr>
+                                <th>Game Name</th>
+                                <th>Avg Time/Card</th>
+                                <th>Retention</th>
+                                <!-- <th>Mined Lines</th> -->
+                            </tr>
+                        </thead>
+                        <tbody id="gameStatsTableBody">
+                            <!-- Data will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                    <div id="gameStatsEmpty" class="empty-message" style="display: none;">
+                        No game statistics available for the selected date range.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NSFW vs SFW Retention Section -->
+    <div class="dashboard-container">
+        <div class="dashboard-card current-game" id="nsfwSfwRetentionCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">🔞</span>
+                        Retention of NSFW vs SFW
+                    </h3>
+                    <p class="dashboard-card-subtitle">Compare retention rates between NSFW and SFW game content</p>
+                </div>
+            </div>
+            
+            <div class="dashboard-stats-grid" id="nsfwSfwRetentionStats">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Retention rate for NSFW tagged cards">
+                    <span class="dashboard-stat-value" id="nsfwRetention" style="color: var(--text-secondary);">-</span>
+                    <span class="dashboard-stat-label">NSFW Retention</span>
+                    <span class="dashboard-stat-sublabel" id="nsfwReviews" style="font-size: 0.75rem; color: var(--text-tertiary);"></span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Retention rate for SFW tagged cards">
+                    <span class="dashboard-stat-value" id="sfwRetention" style="color: var(--text-secondary);">-</span>
+                    <span class="dashboard-stat-label">SFW Retention</span>
+                    <span class="dashboard-stat-sublabel" id="sfwReviews" style="font-size: 0.75rem; color: var(--text-tertiary);"></span>
+                </div>
+            </div>
+            
+            <div class="dashboard-stats-grid" style="margin-top: 20px;">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Average time per card for NSFW tagged cards">
+                    <span class="dashboard-stat-value" id="nsfwAvgTime" style="color: var(--text-secondary);">-</span>
+                    <span class="dashboard-stat-label">NSFW Avg Time</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Average time per card for SFW tagged cards">
+                    <span class="dashboard-stat-value" id="sfwAvgTime" style="color: var(--text-secondary);">-</span>
+                    <span class="dashboard-stat-label">SFW Avg Time</span>
+                </div>
+            </div>
+            
+            <div id="nsfwSfwRetentionLoading" class="dashboard-loading" style="display: none;">
+                <div class="spinner"></div>
+                <span>Loading retention statistics...</span>
+            </div>
+            
+            <div id="nsfwSfwRetentionEmpty" class="empty-message" style="display: none;">
+                No NSFW/SFW retention data available for the selected date range.
+            </div>
+        </div>
+    </div>
+
+    <!-- Missing High-Frequency Kanji Section -->
+    <!-- Mining Heatmap Card (Full Width) -->
+    <div class="dashboard-card all-games" id="miningHeatmapCard" style="margin-bottom: 24px;">
+        <div class="dashboard-card-header">
+            <h3 class="dashboard-card-title">
+                <span class="dashboard-card-icon">📊</span>
+                Mining Heatmap
+            </h3>
+            <p class="dashboard-card-subtitle">Track your daily sentence mining progress</p>
+        </div>
+        
+        <div class="dashboard-progress-section">
+            <div class="dashboard-progress-title">Activity Heatmap</div>
+            <div id="miningHeatmapContainer"></div>
+        </div>
+    </div>
 
     <!-- Dashboard Statistics Sections -->
     <div class="dashboard-container">
@@ -191,6 +310,7 @@
 
 <!-- Include shared JavaScript configuration -->
 {% set include_kanji_grid_js = true %}
+{% set include_heatmap_js = true %}
 {% set page_specific_js = 'anki_stats.js' %}
 {% include 'components/js-config.html' %}
 

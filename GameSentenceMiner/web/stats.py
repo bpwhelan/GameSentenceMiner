@@ -139,6 +139,34 @@ def calculate_heatmap_data(all_lines, filter_year=None):
     return dict(heatmap_data)
 
 
+def calculate_mining_heatmap_data(all_lines, filter_year=None):
+    """
+    Calculate heatmap data for mining activity.
+    Counts lines where screenshot_in_anki OR audio_in_anki is not empty.
+    """
+    heatmap_data = defaultdict(lambda: defaultdict(int))
+    
+    for line in all_lines:
+        # Check if line has been mined (either screenshot or audio in Anki)
+        has_screenshot = line.screenshot_in_anki and line.screenshot_in_anki.strip()
+        has_audio = line.audio_in_anki and line.audio_in_anki.strip()
+        
+        if not (has_screenshot or has_audio):
+            continue  # Skip lines that haven't been mined
+            
+        date_obj = datetime.date.fromtimestamp(float(line.timestamp))
+        year = str(date_obj.year)
+        
+        # Filter by year if specified
+        if filter_year and year != filter_year:
+            continue
+            
+        date_str = date_obj.strftime('%Y-%m-%d')
+        heatmap_data[year][date_str] += 1  # Count mined lines, not characters
+    
+    return dict(heatmap_data)
+
+
 def calculate_total_chars_per_game(all_lines):
     """Calculate total characters read per game."""
     game_data = defaultdict(lambda: {'total_chars': 0, 'first_time': None})

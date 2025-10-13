@@ -17,8 +17,8 @@ from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.configuration import get_stats_config, logger, get_config, save_current_config, save_stats_config
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web.stats import (
-    calculate_kanji_frequency, calculate_heatmap_data, calculate_total_chars_per_game,
-    calculate_reading_time_per_game, calculate_reading_speed_per_game,
+    calculate_kanji_frequency, calculate_heatmap_data, calculate_mining_heatmap_data,
+    calculate_total_chars_per_game, calculate_reading_time_per_game, calculate_reading_speed_per_game,
     calculate_current_game_stats, calculate_all_games_stats, calculate_daily_reading_time,
     calculate_time_based_streak, calculate_actual_reading_time, calculate_hourly_activity,
     calculate_hourly_reading_speed, calculate_peak_daily_stats, calculate_peak_session_stats
@@ -1151,6 +1151,41 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Unexpected error in api_stats: {e}", exc_info=True)
             return jsonify({'error': 'Failed to generate statistics'}), 500
+
+    @app.route('/api/mining_heatmap')
+    def api_mining_heatmap():
+        """
+        Provides mining heatmap data showing daily mining activity.
+        Counts lines where screenshot_in_anki OR audio_in_anki is not empty.
+        Accepts optional 'start' and 'end' timestamp parameters for filtering.
+        """
+        try:
+            # Get optional timestamp filter parameters
+            start_timestamp = request.args.get('start', None)
+            end_timestamp = request.args.get('end', None)
+            
+            # Convert timestamps to float if provided
+            start_timestamp = float(start_timestamp) if start_timestamp else None
+            end_timestamp = float(end_timestamp) if end_timestamp else None
+            
+            # Fetch lines filtered by timestamp
+            all_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=start_timestamp, end=end_timestamp)
+            
+            if not all_lines:
+                return jsonify({}), 200
+            
+            # Calculate mining heatmap data
+            try:
+                heatmap_data = calculate_mining_heatmap_data(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating mining heatmap data: {e}")
+                return jsonify({'error': 'Failed to calculate mining heatmap'}), 500
+            
+            return jsonify(heatmap_data), 200
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in api_mining_heatmap: {e}", exc_info=True)
+            return jsonify({'error': 'Failed to generate mining heatmap'}), 500
 
     @app.route('/api/goals-today', methods=['GET'])
     def api_goals_today():
