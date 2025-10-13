@@ -342,8 +342,13 @@ def api_anki_stats_combined():
         
         # Get earliest date
         try:
-            note_ids = invoke("findCards", query="")
-            earliest_date = min(note_ids) if note_ids else 0
+            card_ids = invoke("findCards", query="")
+            if card_ids:
+                cards_info = invoke("cardsInfo", cards=card_ids)
+                created_times = [card.get("created", 0) for card in cards_info if "created" in card]
+                earliest_date = min(created_times) if created_times else 0
+            else:
+                earliest_date = 0
         except Exception as e:
             logger.error(f"Failed to fetch earliest date from Anki: {e}")
             earliest_date = 0
@@ -353,23 +358,29 @@ def api_anki_stats_combined():
             note_ids = invoke("findNotes", query="")
             anki_kanji_set = set()
             if note_ids:
-                # Filter note IDs by timestamp if provided
-                if start_timestamp and end_timestamp:
-                    note_ids = [nid for nid in note_ids if int(start_timestamp) <= nid <= int(end_timestamp)]
-                
-                if note_ids:
-                    batch_size = 1000
-                    for i in range(0, len(note_ids), batch_size):
-                        batch_ids = note_ids[i:i+batch_size]
-                        notes_info = invoke("notesInfo", notes=batch_ids)
-                        for note in notes_info:
-                            fields = note.get("fields", {})
-                            first_field = next(iter(fields.values()), None)
-                            if first_field and "value" in first_field:
-                                first_field_value = first_field["value"]
-                                for char in first_field_value:
-                                    if is_kanji(char):
-                                        anki_kanji_set.add(char)
+                # Filter notes by creation time if provided
+                batch_size = 1000
+                for i in range(0, len(note_ids), batch_size):
+                    batch_ids = note_ids[i:i+batch_size]
+                    notes_info = invoke("notesInfo", notes=batch_ids)
+                    for note in notes_info:
+                        # Anki note creation time is in the 'mod' or 'created' field (in ms or s)
+                        note_created = note.get("created", None) or note.get("mod", None)
+                        # Anki's 'created' is in ms, 'mod' is in ms; timestamps are in ms, so compare directly
+                        if start_timestamp and end_timestamp and note_created is not None:
+                            # Ensure all are integers
+                            note_created_int = int(note_created)
+                            start_ts = int(start_timestamp)
+                            end_ts = int(end_timestamp)
+                            if not (start_ts <= note_created_int <= end_ts):
+                                continue
+                        fields = note.get("fields", {})
+                        first_field = next(iter(fields.values()), None)
+                        if first_field and "value" in first_field:
+                            first_field_value = first_field["value"]
+                            for char in first_field_value:
+                                if is_kanji(char):
+                                    anki_kanji_set.add(char)
         except Exception as e:
             logger.error(f"Failed to fetch kanji from Anki: {e}")
             anki_kanji_set = set()
@@ -413,7 +424,7 @@ def api_anki_stats_combined():
                 if start_timestamp and end_timestamp:
                     cards_info = [
                         card for card in cards_info
-                        if start_timestamp <= card['cardId'] <= end_timestamp
+                        if start_timestamp <= card.get('created', 0) <= end_timestamp
                     ]
                 
                 if cards_info:
@@ -470,7 +481,7 @@ def api_anki_stats_combined():
                             if start_timestamp and end_timestamp:
                                 filtered_reviews = [
                                     r for r in reviews
-                                    if start_timestamp <= r['id'] <= end_timestamp
+                                    if start_timestamp <= r.get('time', 0) <= end_timestamp
                                 ]
                             
                             for review in filtered_reviews:
@@ -537,11 +548,11 @@ def api_anki_stats_combined():
                 # Get card info to filter by date
                 cards_info = invoke("cardsInfo", cards=card_ids)
                 
-                # Filter cards by timestamp if provided
+                # Use card['created'] (milliseconds since epoch) for date filtering
                 if start_timestamp and end_timestamp:
                     cards_info = [
                         card for card in cards_info
-                        if start_timestamp <= card['cardId'] <= end_timestamp
+                        if start_timestamp <= card.get('created', 0) <= end_timestamp
                     ]
                 
                 if not cards_info:
@@ -569,7 +580,7 @@ def api_anki_stats_combined():
                     if start_timestamp and end_timestamp:
                         filtered_reviews = [
                             r for r in reviews
-                            if start_timestamp <= r['id'] <= end_timestamp
+                            if start_timestamp <= r.get('time', 0) <= end_timestamp
                         ]
                     
                     for review in filtered_reviews:

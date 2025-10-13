@@ -769,7 +769,8 @@ document.addEventListener('DOMContentLoaded', function () {
                                 const speed = context.parsed.y;
                                 if (speed === 0) return '';
                                 
-                                const avgSpeed = hourlySpeedData.filter(s => s > 0).reduce((sum, s) => sum + s, 0) / hourlySpeedData.filter(s => s > 0).length;
+                                const nonZeroSpeeds = hourlySpeedData.filter(s => s > 0);
+                                const avgSpeed = nonZeroSpeeds.reduce((sum, s) => sum + s, 0) / nonZeroSpeeds.length;
                                 const comparison = speed > avgSpeed ? 'above' : speed < avgSpeed ? 'below' : 'at';
                                 const percentage = avgSpeed > 0 ? Math.abs(((speed - avgSpeed) / avgSpeed) * 100).toFixed(1) : '0';
                                 
