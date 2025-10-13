@@ -1012,73 +1012,8 @@ def register_database_api_routes(app):
             for i, game in enumerate(game_names):
                 color = colors[i % len(colors)]
             
-            # 1. Fetch all lines and sort them chronologically
-            try:
-                all_lines = sorted(GameLinesTable.all(), key=lambda line: line.timestamp)
-            except Exception as e:
-                logger.error(f"Error fetching lines from database: {e}")
-                return jsonify({'error': 'Failed to fetch data from database'}), 500
-            
-            if not all_lines:
-                return jsonify({"labels": [], "datasets": []})
-
-            # 2. Process data into daily totals for each game
-            # Structure: daily_data[date_str][game_name] = {'lines': N, 'chars': N}
-            daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0}))
-
-            try:
-                # start_time = time.perf_counter()
-                # for line in all_lines:
-                #     day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
-                #     game = line.game_name or "Unknown Game"
-                #     daily_data[day_str][game]['lines'] += 1
-                #     daily_data[day_str][game]['chars'] += len(line.line_text) if line.line_text else 0
-                # end_time = time.perf_counter()
-                # logger.info(f"Without Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
-
-                # start_time = time.perf_counter()
-                wrong_instance_found = False
-                for line in all_lines:
-                    day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
-                    game = line.game_name or "Unknown Game"
-                    # Remove punctuation and symbols from line text before counting characters
-                    clean_text = punctionation_regex.sub('', str(line.line_text)) if line.line_text else ''
-                    if not isinstance(clean_text, str) and not wrong_instance_found:
-                        logger.info(f"Non-string line_text encountered: {clean_text} (type: {type(clean_text)})")
-                        wrong_instance_found = True
-
-                    line.line_text = clean_text  # Update line text to cleaned version for future use
-                    daily_data[day_str][game]['lines'] += 1
-                    daily_data[day_str][game]['chars'] += len(clean_text)
-                # end_time = time.perf_counter()
-                # logger.info(f"With Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
-            except Exception as e:
-                logger.error(f"Error processing daily data: {e}")
-                return jsonify({'error': 'Failed to process daily data'}), 500
-
-            # 3. Create cumulative datasets for Chart.js
-            try:
-                sorted_days = sorted(daily_data.keys())
-                game_names = GameLinesTable.get_all_games_with_lines()
-                
-                # Keep track of the running total for each metric for each game
-                cumulative_totals = defaultdict(lambda: {'lines': 0, 'chars': 0})
-                
-                # Structure for final data: final_data[game_name][metric] = [day1_val, day2_val, ...]
-                final_data = defaultdict(lambda: defaultdict(list))
-
-                for day in sorted_days:
-                    for game in game_names:
-                        # Add the day's total to the cumulative total
-                        cumulative_totals[game]['lines'] += daily_data[day][game]['lines']
-                        cumulative_totals[game]['chars'] += daily_data[day][game]['chars']
-                        
-                        # Append the new cumulative total to the list for that day
-                        final_data[game]['lines'].append(cumulative_totals[game]['lines'])
-                        final_data[game]['chars'].append(cumulative_totals[game]['chars'])
-            except Exception as e:
-                logger.error(f"Error creating cumulative datasets: {e}")
-                return jsonify({'error': 'Failed to create datasets'}), 500
+            # Note: We already have filtered data in all_lines from line 965, so we don't need to fetch again
+            # The duplicate data fetching that was here has been removed to fix the date range filtering issue
             
             # 4. Format into Chart.js dataset structure
             try:
