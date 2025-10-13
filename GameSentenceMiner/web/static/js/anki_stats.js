@@ -71,8 +71,13 @@ document.addEventListener('DOMContentLoaded', function () {
             missingKanjiCount
         });
         
-        if (ankiTotalKanji) ankiTotalKanji.textContent = data.anki_kanji_count;
-        if (gsmTotalKanji) gsmTotalKanji.textContent = data.gsm_kanji_count;
+        // Remove loading skeletons and update values
+        if (ankiTotalKanji) {
+            ankiTotalKanji.innerHTML = data.anki_kanji_count;
+        }
+        if (gsmTotalKanji) {
+            gsmTotalKanji.innerHTML = data.gsm_kanji_count;
+        }
         if (ankiCoverage) {
             const gsmCount = Number(data.gsm_kanji_count);
             const missingCount = Array.isArray(data.missing_kanji) ? data.missing_kanji.length : 0;
@@ -80,7 +85,11 @@ document.addEventListener('DOMContentLoaded', function () {
             if (gsmCount > 0) {
                 percent = ((gsmCount - missingCount) / gsmCount) * 100;
             }
-            ankiCoverage.textContent = percent.toFixed(1) + '%';
+            ankiCoverage.innerHTML = percent.toFixed(1) + '%';
+        }
+        if (missingKanjiCount) {
+            const missingCount = Array.isArray(data.missing_kanji) ? data.missing_kanji.length : 0;
+            missingKanjiCount.innerHTML = missingCount;
         }
         renderKanjiGrid(data.missing_kanji);
     }
@@ -98,9 +107,9 @@ document.addEventListener('DOMContentLoaded', function () {
         return { startTimestamp, endTimestamp };
     }
 
-    // New unified data loading function
+    // Progressive data loading function - loads each section independently
     async function loadAllStats(start_timestamp = null, end_timestamp = null) {
-        console.log('Loading all Anki stats with unified endpoint...');
+        console.log('Loading Anki stats with progressive loading...');
         showLoading(true);
         showError(false);
         
@@ -110,51 +119,30 @@ document.addEventListener('DOMContentLoaded', function () {
         if (gameStatsLoading) gameStatsLoading.style.display = 'flex';
         if (nsfwSfwRetentionLoading) nsfwSfwRetentionLoading.style.display = 'flex';
         
+        // Build query parameters
+        const params = new URLSearchParams();
+        if (start_timestamp) params.append('start_timestamp', start_timestamp);
+        if (end_timestamp) params.append('end_timestamp', end_timestamp);
+        const queryString = params.toString() ? `?${params.toString()}` : '';
+        
+        // Load sections progressively and concurrently
+        const loadPromises = [
+            loadKanjiStats(queryString),
+            loadGameStats(queryString),
+            loadNsfwSfwRetention(queryString),
+            loadMiningHeatmap(queryString)
+        ];
+        
+        // Wait for all sections to complete
         try {
-            // Build URL with optional query params
-            const params = new URLSearchParams();
-            if (start_timestamp) params.append('start_timestamp', start_timestamp);
-            if (end_timestamp) params.append('end_timestamp', end_timestamp);
-            const url = '/api/anki_stats_combined' + (params.toString() ? `?${params.toString()}` : '');
-
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error('Failed to load combined stats');
-            const data = await resp.json();
-            console.log('Received combined data:', data);
-            
-            // Update all sections with the combined data
-            updateStats(data.kanji_stats);
-            renderGameStatsTable(data.game_stats);
-            renderNsfwSfwRetention(data.nsfw_sfw_retention);
-            
-            // Update mining heatmap
-            if (data.mining_heatmap && Object.keys(data.mining_heatmap).length > 0) {
-                createMiningHeatmap(data.mining_heatmap);
-            } else {
-                const container = document.getElementById('miningHeatmapContainer');
-                container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">No mining data available for the selected date range.</p>';
-            }
-            
-            showAnkiConnectWarning(false); // Hide warning on success
+            await Promise.allSettled(loadPromises);
+            showAnkiConnectWarning(false);
         } catch (e) {
-            console.error('Failed to load combined Anki stats:', e);
-            showError(true);
-            showAnkiConnectWarning(true); // Show warning on failure
-            
-            // Show error messages in individual sections
-            const gameStatsEmpty = document.getElementById('gameStatsEmpty');
-            const nsfwSfwRetentionEmpty = document.getElementById('nsfwSfwRetentionEmpty');
-            if (gameStatsEmpty) {
-                gameStatsEmpty.style.display = 'block';
-                gameStatsEmpty.textContent = 'Failed to load statistics. Make sure Anki is running with AnkiConnect.';
-            }
-            if (nsfwSfwRetentionEmpty) {
-                nsfwSfwRetentionEmpty.style.display = 'block';
-                nsfwSfwRetentionEmpty.textContent = 'Failed to load statistics. Make sure Anki is running with AnkiConnect.';
-            }
+            console.error('Some stats failed to load:', e);
+            showAnkiConnectWarning(true);
         } finally {
             showLoading(false);
-            // Hide all loading spinners
+            // Hide loading spinners
             if (gameStatsLoading) gameStatsLoading.style.display = 'none';
             if (nsfwSfwRetentionLoading) nsfwSfwRetentionLoading.style.display = 'none';
             
@@ -163,6 +151,76 @@ document.addEventListener('DOMContentLoaded', function () {
             const nsfwSfwRetentionStats = document.getElementById('nsfwSfwRetentionStats');
             if (gameStatsTable) gameStatsTable.style.display = 'table';
             if (nsfwSfwRetentionStats) nsfwSfwRetentionStats.style.display = 'grid';
+        }
+    }
+    
+    // Individual loading functions for each section
+    async function loadKanjiStats(queryString) {
+        try {
+            const resp = await fetch(`/api/anki_kanji_stats${queryString}`);
+            if (!resp.ok) throw new Error('Failed to load kanji stats');
+            const data = await resp.json();
+            console.log('Received kanji data:', data);
+            updateStats(data);
+        } catch (e) {
+            console.error('Failed to load kanji stats:', e);
+            // Show error in kanji section
+            const missingKanjiCount = document.getElementById('missingKanjiCount');
+            if (missingKanjiCount) missingKanjiCount.textContent = 'Error';
+        }
+    }
+    
+    async function loadGameStats(queryString) {
+        try {
+            const resp = await fetch(`/api/anki_game_stats${queryString}`);
+            if (!resp.ok) throw new Error('Failed to load game stats');
+            const data = await resp.json();
+            console.log('Received game stats data:', data);
+            renderGameStatsTable(data);
+        } catch (e) {
+            console.error('Failed to load game stats:', e);
+            const gameStatsEmpty = document.getElementById('gameStatsEmpty');
+            if (gameStatsEmpty) {
+                gameStatsEmpty.style.display = 'block';
+                gameStatsEmpty.textContent = 'Failed to load game statistics. Make sure Anki is running with AnkiConnect.';
+            }
+        }
+    }
+    
+    async function loadNsfwSfwRetention(queryString) {
+        try {
+            const resp = await fetch(`/api/anki_nsfw_sfw_retention${queryString}`);
+            if (!resp.ok) throw new Error('Failed to load NSFW/SFW retention');
+            const data = await resp.json();
+            console.log('Received NSFW/SFW retention data:', data);
+            renderNsfwSfwRetention(data);
+        } catch (e) {
+            console.error('Failed to load NSFW/SFW retention:', e);
+            const nsfwSfwRetentionEmpty = document.getElementById('nsfwSfwRetentionEmpty');
+            if (nsfwSfwRetentionEmpty) {
+                nsfwSfwRetentionEmpty.style.display = 'block';
+                nsfwSfwRetentionEmpty.textContent = 'Failed to load retention statistics. Make sure Anki is running with AnkiConnect.';
+            }
+        }
+    }
+    
+    async function loadMiningHeatmap(queryString) {
+        try {
+            const resp = await fetch(`/api/anki_mining_heatmap${queryString}`);
+            if (!resp.ok) throw new Error('Failed to load mining heatmap');
+            const data = await resp.json();
+            console.log('Received mining heatmap data:', data);
+            
+            if (data && Object.keys(data).length > 0) {
+                createMiningHeatmap(data);
+            } else {
+                const container = document.getElementById('miningHeatmapContainer');
+                container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">No mining data available for the selected date range.</p>';
+            }
+        } catch (e) {
+            console.error('Failed to load mining heatmap:', e);
+            const container = document.getElementById('miningHeatmapContainer');
+            container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">Failed to load mining heatmap.</p>';
         }
     }
 
@@ -184,8 +242,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (!(fromDate && toDate)) {
             try {
-                // Fetch earliest date from the combined endpoint
-                const resp = await fetch('/api/anki_stats_combined');
+                // Fetch earliest date from the dedicated endpoint
+                const resp = await fetch('/api/anki_earliest_date');
                 const data = await resp.json();
                 
                 // Get first date in ms from API
@@ -330,33 +388,33 @@ document.addEventListener('DOMContentLoaded', function () {
         
         nsfwSfwRetentionEmpty.style.display = 'none';
         
-        // Update NSFW retention
+        // Update NSFW retention (remove skeleton and set content)
         if (data.nsfw_reviews > 0) {
-            nsfwRetentionEl.textContent = data.nsfw_retention + '%';
+            nsfwRetentionEl.innerHTML = data.nsfw_retention + '%';
             nsfwRetentionEl.style.color = getRetentionColor(data.nsfw_retention);
             nsfwReviewsEl.textContent = data.nsfw_reviews + ' reviews';
-            nsfwAvgTimeEl.textContent = formatTime(data.nsfw_avg_time);
+            nsfwAvgTimeEl.innerHTML = formatTime(data.nsfw_avg_time);
             nsfwAvgTimeEl.style.color = 'var(--text-primary)';
         } else {
-            nsfwRetentionEl.textContent = 'N/A';
+            nsfwRetentionEl.innerHTML = 'N/A';
             nsfwRetentionEl.style.color = 'var(--text-tertiary)';
             nsfwReviewsEl.textContent = 'No reviews';
-            nsfwAvgTimeEl.textContent = 'N/A';
+            nsfwAvgTimeEl.innerHTML = 'N/A';
             nsfwAvgTimeEl.style.color = 'var(--text-tertiary)';
         }
         
-        // Update SFW retention
+        // Update SFW retention (remove skeleton and set content)
         if (data.sfw_reviews > 0) {
-            sfwRetentionEl.textContent = data.sfw_retention + '%';
+            sfwRetentionEl.innerHTML = data.sfw_retention + '%';
             sfwRetentionEl.style.color = getRetentionColor(data.sfw_retention);
             sfwReviewsEl.textContent = data.sfw_reviews + ' reviews';
-            sfwAvgTimeEl.textContent = formatTime(data.sfw_avg_time);
+            sfwAvgTimeEl.innerHTML = formatTime(data.sfw_avg_time);
             sfwAvgTimeEl.style.color = 'var(--text-primary)';
         } else {
-            sfwRetentionEl.textContent = 'N/A';
+            sfwRetentionEl.innerHTML = 'N/A';
             sfwRetentionEl.style.color = 'var(--text-tertiary)';
             sfwReviewsEl.textContent = 'No reviews';
-            sfwAvgTimeEl.textContent = 'N/A';
+            sfwAvgTimeEl.innerHTML = 'N/A';
             sfwAvgTimeEl.style.color = 'var(--text-tertiary)';
         }
     }

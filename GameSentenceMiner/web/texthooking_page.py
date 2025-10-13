@@ -46,6 +46,10 @@ app = flask.Flask(__name__)
 # Register database API routes
 register_database_api_routes(app)
 
+# Register Anki API routes
+from GameSentenceMiner.web.anki_api_endpoints import register_anki_api_endpoints
+register_anki_api_endpoints(app)
+
 # Load data from the JSON file
 def load_data_from_file():
     if os.path.exists(TEXT_REPLACEMENTS_FILE):
