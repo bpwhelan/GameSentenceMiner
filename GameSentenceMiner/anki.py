@@ -707,16 +707,11 @@ def get_anki_game_stats(start_timestamp=None, end_timestamp=None):
         List of dicts with game_name, avg_time_per_card, retention_pct
     """
     try:
-        logger.info(f"[GAME STATS] get_anki_game_stats called with timestamps: {start_timestamp} to {end_timestamp}")
-        
         # Find all cards with Game:: parent tag (capital G)
         query = "tag:Game::*"
-        logger.info(f"[GAME STATS] Querying Anki with: {query}")
         card_ids = invoke("findCards", query=query)
-        logger.info(f"[GAME STATS] Found {len(card_ids) if card_ids else 0} cards")
         
         if not card_ids:
-            logger.warning("[GAME STATS] No cards found with Game:: tag")
             return []
         
         # Get card info to filter by date and extract tags (single call for all cards)
@@ -867,19 +862,13 @@ def get_anki_nsfw_sfw_retention(start_timestamp=None, end_timestamp=None):
         Dict with nsfw_retention, sfw_retention, nsfw_reviews, sfw_reviews
     """
     try:
-        logger.info(f"[NSFW/SFW STATS] get_anki_nsfw_sfw_retention called with timestamps: {start_timestamp} to {end_timestamp}")
-        
         # Query for NSFW cards (must have both Game and NSFW tags)
         nsfw_query = "tag:Game tag:NSFW"
-        logger.info(f"[NSFW/SFW STATS] Querying NSFW cards with: {nsfw_query}")
         nsfw_card_ids = invoke("findCards", query=nsfw_query)
-        logger.info(f"[NSFW/SFW STATS] Found {len(nsfw_card_ids) if nsfw_card_ids else 0} NSFW cards")
         
         # Query for SFW cards (must have Game tag but NOT NSFW tag)
         sfw_query = "tag:Game -tag:NSFW"
-        logger.info(f"[NSFW/SFW STATS] Querying SFW cards with: {sfw_query}")
         sfw_card_ids = invoke("findCards", query=sfw_query)
-        logger.info(f"[NSFW/SFW STATS] Found {len(sfw_card_ids) if sfw_card_ids else 0} SFW cards")
         
         # Calculate retention for NSFW cards
         nsfw_retention, nsfw_reviews, nsfw_avg_time = _calculate_retention_for_cards(
@@ -927,7 +916,6 @@ def _calculate_retention_for_cards(card_ids, start_timestamp, end_timestamp, lab
         Tuple of (retention_percentage, total_reviews, avg_time_seconds)
     """
     if not card_ids:
-        logger.info(f"[{label}] No cards found")
         return 0.0, 0, 0.0
     
     # Get card info to filter by date
@@ -941,7 +929,6 @@ def _calculate_retention_for_cards(card_ids, start_timestamp, end_timestamp, lab
         ]
     
     if not cards_info:
-        logger.info(f"[{label}] No cards in date range")
         return 0.0, 0, 0.0
     
     # Get all unique note IDs
@@ -991,7 +978,6 @@ def _calculate_retention_for_cards(card_ids, start_timestamp, end_timestamp, lab
                 note_stats[note_id]['passed'] += 1
     
     if not note_stats:
-        logger.info(f"[{label}] No review data found")
         return 0.0, 0, 0.0
     
     # Calculate per-note retention and average them
@@ -1015,8 +1001,6 @@ def _calculate_retention_for_cards(card_ids, start_timestamp, end_timestamp, lab
     note_count = len(note_stats)
     avg_retention = (retention_sum / note_count) * 100 if note_count > 0 else 0
     avg_time_seconds = (total_time / total_reviews / 1000.0) if total_reviews > 0 else 0
-    
-    logger.info(f"[{label}] Calculated retention: {avg_retention:.1f}% from {total_reviews} reviews across {note_count} notes, avg time: {avg_time_seconds:.2f}s")
     
     return avg_retention, total_reviews, avg_time_seconds
 
