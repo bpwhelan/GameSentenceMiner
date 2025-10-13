@@ -295,148 +295,6 @@ def goals():
                          master_config=get_master_config(),
                          stats_config=get_stats_config())
 
-@app.route('/api/anki_earliest_date')
-def anki_earliest_date():
-    """Returns the timestamp of earliest available card in anki collection."""
-    from GameSentenceMiner.anki import get_anki_earliest_date
-    earliest_card = get_anki_earliest_date()
-    return jsonify({
-        "earliest_card": earliest_card
-    })
-
-@app.route('/api/anki_stats')
-def api_anki_stats():
-    """
-    API endpoint to provide Anki vs GSM kanji stats for the frontend.
-    Returns:
-        {
-            "missing_kanji": [ { "kanji": "漢", "frequency": 42 }, ... ],
-            "anki_kanji_count": 123,
-            "gsm_kanji_count": 456,
-            "coverage_percent": 27.0
-        }
-    """
-    from GameSentenceMiner.anki import get_all_anki_first_field_kanji
-    from GameSentenceMiner.web.stats import calculate_kanji_frequency, is_kanji
-    from GameSentenceMiner.util.db import GameLinesTable
-
-    start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
-    end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
-
-    # Get GSM lines and calculate kanji frequency
-    try:
-        all_lines = (
-            GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000, end_timestamp / 1000)
-            if start_timestamp is not None and end_timestamp is not None
-            else GameLinesTable.all()
-        )
-    except Exception as e:
-        logger.warning(f"Failed to filter lines by timestamp: {e}, fetching all lines instead")
-        all_lines = GameLinesTable.all()
-
-    gsm_kanji_stats = calculate_kanji_frequency(all_lines)
-    gsm_kanji_list = gsm_kanji_stats.get("kanji_data", [])
-    gsm_kanji_set = set([k["kanji"] for k in gsm_kanji_list])
-
-    # Get all kanji in Anki (first field only)
-    anki_kanji_set = get_all_anki_first_field_kanji(start_timestamp, end_timestamp)
-
-    # Find missing kanji (in GSM but not in Anki)
-    missing_kanji = [
-        {"kanji": k["kanji"], "frequency": k["frequency"]}
-        for k in gsm_kanji_list if k["kanji"] not in anki_kanji_set
-    ]
-
-    # Sort missing kanji by frequency descending
-    missing_kanji.sort(key=lambda x: x["frequency"], reverse=True)
-
-    # Coverage stats
-    anki_kanji_count = len(anki_kanji_set)
-    gsm_kanji_count = len(gsm_kanji_set)
-    coverage_percent = (anki_kanji_count / gsm_kanji_count * 100) if gsm_kanji_count else 0.0
-
-    return jsonify({
-        "missing_kanji": missing_kanji,
-        "anki_kanji_count": anki_kanji_count,
-        "gsm_kanji_count": gsm_kanji_count,
-        "coverage_percent": round(coverage_percent, 1)
-    })
-
-@app.route('/api/anki_game_stats')
-def api_anki_game_stats():
-    """
-    API endpoint to provide per-game Anki statistics.
-    Returns game name, average review time, retention percentage, and mined lines count.
-    """
-    from GameSentenceMiner.anki import get_anki_game_stats
-    from GameSentenceMiner.util.db import GameLinesTable
-    from collections import defaultdict
-    
-    start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
-    end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
-    
-    try:
-        # Get Anki game stats
-        game_stats = get_anki_game_stats(start_timestamp, end_timestamp)
-        
-        # TODO: Calculate mined lines per game
-        # Currently commented out due to game name mismatch between Anki tags and database
-        # Anki strips spaces from tag names (e.g., "NEKOPARA vol.3" becomes "NEKOPARAvol.3")
-        # This will be fixed in a future update with proper game name normalization
-        
-        # # Fetch all lines filtered by timestamp
-        # try:
-        #     all_lines = (
-        #         GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000, end_timestamp / 1000)
-        #         if start_timestamp is not None and end_timestamp is not None
-        #         else GameLinesTable.all()
-        #     )
-        # except Exception as e:
-        #     logger.warning(f"Failed to filter lines by timestamp: {e}, fetching all lines instead")
-        #     all_lines = GameLinesTable.all()
-        #
-        # # Count mined lines per game (lines with screenshot_in_anki OR audio_in_anki)
-        # mined_lines_per_game = defaultdict(int)
-        # for line in all_lines:
-        #     has_screenshot = line.screenshot_in_anki and line.screenshot_in_anki.strip()
-        #     has_audio = line.audio_in_anki and line.audio_in_anki.strip()
-        #
-        #     if has_screenshot or has_audio:
-        #         game_name = line.game_name or "Unknown Game"
-        #         mined_lines_per_game[game_name] += 1
-        #
-        # # Add mined_lines count to each game stat
-        # for game_stat in game_stats:
-        #     game_name = game_stat['game_name']
-        #     game_stat['mined_lines'] = mined_lines_per_game.get(game_name, 0)
-        
-        # Set mined_lines to 0 for all games until proper name matching is implemented
-        for game_stat in game_stats:
-            game_stat['mined_lines'] = 0
-        
-        return jsonify(game_stats)
-    except Exception as e:
-        logger.error(f"Error fetching game stats: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/anki_nsfw_sfw_retention')
-def api_anki_nsfw_sfw_retention():
-    """
-    API endpoint to provide NSFW vs SFW retention statistics.
-    Returns retention percentages and review counts for both categories.
-    """
-    from GameSentenceMiner.anki import get_anki_nsfw_sfw_retention
-    
-    start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
-    end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
-    
-    try:
-        retention_stats = get_anki_nsfw_sfw_retention(start_timestamp, end_timestamp)
-        return jsonify(retention_stats)
-    except Exception as e:
-        logger.error(f"Error fetching NSFW/SFW retention stats: {e}")
-        return jsonify({"error": str(e)}), 500
-
 
 @app.route('/api/anki_stats_combined')
 def api_anki_stats_combined():
@@ -453,13 +311,8 @@ def api_anki_stats_combined():
             "earliest_date": int
         }
     """
-    from GameSentenceMiner.anki import (
-        get_all_anki_first_field_kanji,
-        get_anki_game_stats,
-        get_anki_nsfw_sfw_retention,
-        get_anki_earliest_date
-    )
-    from GameSentenceMiner.web.stats import calculate_kanji_frequency, calculate_mining_heatmap_data
+    from GameSentenceMiner.anki import invoke
+    from GameSentenceMiner.web.stats import calculate_kanji_frequency, calculate_mining_heatmap_data, is_kanji
     from GameSentenceMiner.util.db import GameLinesTable
     from collections import defaultdict
     import concurrent.futures
@@ -487,19 +340,39 @@ def api_anki_stats_combined():
             logger.warning(f"Failed to filter lines by timestamp: {e}, fetching all lines instead")
             all_lines = GameLinesTable.all()
         
-        # Use ThreadPoolExecutor to fetch Anki data in parallel
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            # Submit all Anki API calls concurrently
-            future_kanji = executor.submit(get_all_anki_first_field_kanji, start_timestamp, end_timestamp)
-            future_game_stats = executor.submit(get_anki_game_stats, start_timestamp, end_timestamp)
-            future_nsfw_sfw = executor.submit(get_anki_nsfw_sfw_retention, start_timestamp, end_timestamp)
-            future_earliest = executor.submit(get_anki_earliest_date)
-            
-            # Wait for all futures to complete and get results
-            anki_kanji_set = future_kanji.result()
-            game_stats = future_game_stats.result()
-            nsfw_sfw_stats = future_nsfw_sfw.result()
-            earliest_date = future_earliest.result()
+        # Get earliest date
+        try:
+            note_ids = invoke("findCards", query="")
+            earliest_date = min(note_ids) if note_ids else 0
+        except Exception as e:
+            logger.error(f"Failed to fetch earliest date from Anki: {e}")
+            earliest_date = 0
+        
+        # Get all kanji from Anki first field
+        try:
+            note_ids = invoke("findNotes", query="")
+            anki_kanji_set = set()
+            if note_ids:
+                # Filter note IDs by timestamp if provided
+                if start_timestamp and end_timestamp:
+                    note_ids = [nid for nid in note_ids if int(start_timestamp) <= nid <= int(end_timestamp)]
+                
+                if note_ids:
+                    batch_size = 1000
+                    for i in range(0, len(note_ids), batch_size):
+                        batch_ids = note_ids[i:i+batch_size]
+                        notes_info = invoke("notesInfo", notes=batch_ids)
+                        for note in notes_info:
+                            fields = note.get("fields", {})
+                            first_field = next(iter(fields.values()), None)
+                            if first_field and "value" in first_field:
+                                first_field_value = first_field["value"]
+                                for char in first_field_value:
+                                    if is_kanji(char):
+                                        anki_kanji_set.add(char)
+        except Exception as e:
+            logger.error(f"Failed to fetch kanji from Anki: {e}")
+            anki_kanji_set = set()
         
         # Calculate kanji statistics
         gsm_kanji_stats = calculate_kanji_frequency(all_lines)
@@ -525,12 +398,259 @@ def api_anki_stats_combined():
             "coverage_percent": round(coverage_percent, 1)
         }
         
-        combined_response["game_stats"] = game_stats
-        combined_response["nsfw_sfw_retention"] = nsfw_sfw_stats
+        # Get game stats
+        try:
+            # Find all cards with Game:: parent tag (capital G)
+            query = "tag:Game::*"
+            card_ids = invoke("findCards", query=query)
+            game_stats = []
+            
+            if card_ids:
+                # Get card info to filter by date and extract tags
+                cards_info = invoke("cardsInfo", cards=card_ids)
+                
+                # Filter cards by timestamp if provided
+                if start_timestamp and end_timestamp:
+                    cards_info = [
+                        card for card in cards_info
+                        if start_timestamp <= card['cardId'] <= end_timestamp
+                    ]
+                
+                if cards_info:
+                    # Get all unique note IDs and fetch note info in one batch call
+                    note_ids = list(set(card['note'] for card in cards_info))
+                    notes_info_list = invoke("notesInfo", notes=note_ids)
+                    notes_info = {note['noteId']: note for note in notes_info_list}
+                    
+                    # Create card-to-note mapping for later use
+                    card_to_note = {str(card['cardId']): card['note'] for card in cards_info}
+                    
+                    # Group cards by game (extract game name from tags)
+                    game_cards = {}
+                    for card in cards_info:
+                        note_id = card['note']
+                        note_info = notes_info.get(note_id)
+                        if not note_info:
+                            continue
+                        
+                        tags = note_info.get('tags', [])
+                        
+                        # Find game tag (format: Game::GameName)
+                        game_tag = None
+                        for tag in tags:
+                            if tag.startswith('Game::'):
+                                tag_parts = tag.split('::')
+                                if len(tag_parts) >= 2:
+                                    game_tag = tag_parts[1]
+                                    break
+                        
+                        if game_tag:
+                            if game_tag not in game_cards:
+                                game_cards[game_tag] = []
+                            game_cards[game_tag].append(card['cardId'])
+                    
+                    # Calculate statistics for each game
+                    for game_name, card_ids in game_cards.items():
+                        # Get review history for all cards in this game
+                        reviews_data = invoke("getReviewsOfCards", cards=card_ids)
+                        
+                        # Group reviews by note ID and calculate per-note retention
+                        note_stats = {}
+                        
+                        for card_id_str, reviews in reviews_data.items():
+                            if not reviews:
+                                continue
+                            
+                            note_id = card_to_note.get(card_id_str)
+                            if not note_id:
+                                continue
+                            
+                            # Filter reviews by timestamp if provided
+                            filtered_reviews = reviews
+                            if start_timestamp and end_timestamp:
+                                filtered_reviews = [
+                                    r for r in reviews
+                                    if start_timestamp <= r['id'] <= end_timestamp
+                                ]
+                            
+                            for review in filtered_reviews:
+                                # Only count review-type entries (type=1)
+                                review_type = review.get('type', -1)
+                                if review_type != 1:
+                                    continue
+                                
+                                if note_id not in note_stats:
+                                    note_stats[note_id] = {'passed': 0, 'failed': 0, 'total_time': 0}
+                                
+                                note_stats[note_id]['total_time'] += review['time']
+                                
+                                # Ease: 1=Again, 2=Hard, 3=Good, 4=Easy
+                                if review['ease'] == 1:
+                                    note_stats[note_id]['failed'] += 1
+                                else:
+                                    note_stats[note_id]['passed'] += 1
+                        
+                        if note_stats:
+                            # Calculate per-note retention and average them
+                            retention_sum = 0
+                            total_time = 0
+                            total_reviews = 0
+                            
+                            for note_id, stats in note_stats.items():
+                                passed = stats['passed']
+                                failed = stats['failed']
+                                total = passed + failed
+                                
+                                if total > 0:
+                                    note_retention = passed / total
+                                    retention_sum += note_retention
+                                    total_time += stats['total_time']
+                                    total_reviews += total
+                            
+                            # Average retention across all notes
+                            note_count = len(note_stats)
+                            avg_retention = (retention_sum / note_count) * 100 if note_count > 0 else 0
+                            avg_time_seconds = (total_time / total_reviews / 1000.0) if total_reviews > 0 else 0
+                            
+                            game_stats.append({
+                                'game_name': game_name,
+                                'avg_time_per_card': round(avg_time_seconds, 2),
+                                'retention_pct': round(avg_retention, 1),
+                                'total_reviews': total_reviews,
+                                'mined_lines': 0  # Set to 0 until proper name matching is implemented
+                            })
+                    
+                    # Sort by game name
+                    game_stats.sort(key=lambda x: x['game_name'])
+            
+            combined_response["game_stats"] = game_stats
+        except Exception as e:
+            logger.error(f"Failed to fetch game stats from Anki: {e}")
+            combined_response["game_stats"] = []
+        
+        # Get NSFW/SFW retention
+        try:
+            def calculate_retention_for_cards(card_ids, start_timestamp, end_timestamp):
+                if not card_ids:
+                    return 0.0, 0, 0.0
+                
+                # Get card info to filter by date
+                cards_info = invoke("cardsInfo", cards=card_ids)
+                
+                # Filter cards by timestamp if provided
+                if start_timestamp and end_timestamp:
+                    cards_info = [
+                        card for card in cards_info
+                        if start_timestamp <= card['cardId'] <= end_timestamp
+                    ]
+                
+                if not cards_info:
+                    return 0.0, 0, 0.0
+                
+                # Create card-to-note mapping
+                card_to_note = {str(card['cardId']): card['note'] for card in cards_info}
+                
+                # Get review history for all cards
+                reviews_data = invoke("getReviewsOfCards", cards=card_ids)
+                
+                # Group reviews by note ID and calculate per-note retention
+                note_stats = {}
+                
+                for card_id_str, reviews in reviews_data.items():
+                    if not reviews:
+                        continue
+                    
+                    note_id = card_to_note.get(card_id_str)
+                    if not note_id:
+                        continue
+                    
+                    # Filter reviews by timestamp if provided
+                    filtered_reviews = reviews
+                    if start_timestamp and end_timestamp:
+                        filtered_reviews = [
+                            r for r in reviews
+                            if start_timestamp <= r['id'] <= end_timestamp
+                        ]
+                    
+                    for review in filtered_reviews:
+                        # Only count review-type entries (type=1)
+                        review_type = review.get('type', -1)
+                        if review_type != 1:
+                            continue
+                        
+                        if note_id not in note_stats:
+                            note_stats[note_id] = {'passed': 0, 'failed': 0, 'total_time': 0}
+                        
+                        note_stats[note_id]['total_time'] += review['time']
+                        
+                        # Ease: 1=Again, 2=Hard, 3=Good, 4=Easy
+                        if review['ease'] == 1:
+                            note_stats[note_id]['failed'] += 1
+                        else:
+                            note_stats[note_id]['passed'] += 1
+                
+                if not note_stats:
+                    return 0.0, 0, 0.0
+                
+                # Calculate per-note retention and average them
+                retention_sum = 0
+                total_reviews = 0
+                total_time = 0
+                
+                for note_id, stats in note_stats.items():
+                    passed = stats['passed']
+                    failed = stats['failed']
+                    total = passed + failed
+                    
+                    if total > 0:
+                        note_retention = passed / total
+                        retention_sum += note_retention
+                        total_reviews += total
+                        total_time += stats['total_time']
+                
+                # Average retention across all notes
+                note_count = len(note_stats)
+                avg_retention = (retention_sum / note_count) * 100 if note_count > 0 else 0
+                avg_time_seconds = (total_time / total_reviews / 1000.0) if total_reviews > 0 else 0
+                
+                return avg_retention, total_reviews, avg_time_seconds
+            
+            # Query for NSFW cards (must have both Game and NSFW tags)
+            nsfw_query = "tag:Game tag:NSFW"
+            nsfw_card_ids = invoke("findCards", query=nsfw_query)
+            
+            # Query for SFW cards (must have Game tag but NOT NSFW tag)
+            sfw_query = "tag:Game -tag:NSFW"
+            sfw_card_ids = invoke("findCards", query=sfw_query)
+            
+            # Calculate retention for both categories
+            nsfw_retention, nsfw_reviews, nsfw_avg_time = calculate_retention_for_cards(
+                nsfw_card_ids, start_timestamp, end_timestamp
+            )
+            sfw_retention, sfw_reviews, sfw_avg_time = calculate_retention_for_cards(
+                sfw_card_ids, start_timestamp, end_timestamp
+            )
+            
+            combined_response["nsfw_sfw_retention"] = {
+                'nsfw_retention': round(nsfw_retention, 1),
+                'sfw_retention': round(sfw_retention, 1),
+                'nsfw_reviews': nsfw_reviews,
+                'sfw_reviews': sfw_reviews,
+                'nsfw_avg_time': round(nsfw_avg_time, 2),
+                'sfw_avg_time': round(sfw_avg_time, 2)
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch NSFW/SFW retention stats from Anki: {e}")
+            combined_response["nsfw_sfw_retention"] = {
+                'nsfw_retention': 0,
+                'sfw_retention': 0,
+                'nsfw_reviews': 0,
+                'sfw_reviews': 0,
+                'nsfw_avg_time': 0,
+                'sfw_avg_time': 0
+            }
         
         # Calculate mining heatmap
-        start_seconds = start_timestamp / 1000 if start_timestamp else None
-        end_seconds = end_timestamp / 1000 if end_timestamp else None
         mining_heatmap = calculate_mining_heatmap_data(all_lines)
         combined_response["mining_heatmap"] = mining_heatmap
         
