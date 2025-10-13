@@ -21,7 +21,7 @@ from GameSentenceMiner.web.stats import (
     calculate_reading_time_per_game, calculate_reading_speed_per_game,
     calculate_current_game_stats, calculate_all_games_stats, calculate_daily_reading_time,
     calculate_time_based_streak, calculate_actual_reading_time, calculate_hourly_activity,
-    calculate_peak_daily_stats, calculate_peak_session_stats
+    calculate_hourly_reading_speed, calculate_peak_daily_stats, calculate_peak_session_stats
 )
 
 
@@ -1176,6 +1176,13 @@ def register_database_api_routes(app):
                 logger.error(f"Error calculating hourly activity: {e}")
                 hourly_activity_data = [0] * 24
 
+            # 8.5. Calculate hourly reading speed pattern
+            try:
+                hourly_reading_speed_data = calculate_hourly_reading_speed(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating hourly reading speed: {e}")
+                hourly_reading_speed_data = [0] * 24
+
             # 9. Calculate peak statistics
             try:
                 peak_daily_stats = calculate_peak_daily_stats(all_lines)
@@ -1201,6 +1208,7 @@ def register_database_api_routes(app):
                 "allGamesStats": all_games_stats,
                 "allLinesData": all_lines_data,
                 "hourlyActivityData": hourly_activity_data,
+                "hourlyReadingSpeedData": hourly_reading_speed_data,
                 "peakDailyStats": peak_daily_stats,
                 "peakSessionStats": peak_session_stats
             })

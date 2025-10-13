@@ -684,6 +684,154 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];
     }
 
+    // Function to create hourly reading speed bar chart
+    function createHourlyReadingSpeedChart(canvasId, hourlySpeedData) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !hourlySpeedData || !Array.isArray(hourlySpeedData)) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        // Create hour labels (0-23)
+        const hourLabels = [];
+        for (let i = 0; i < 24; i++) {
+            const hour12 = i === 0 ? 12 : i > 12 ? i - 12 : i;
+            const ampm = i < 12 ? 'AM' : 'PM';
+            hourLabels.push(`${hour12}${ampm}`);
+        }
+        
+        // Generate gradient colors for bars based on speed values
+        const maxSpeed = Math.max(...hourlySpeedData.filter(speed => speed > 0));
+        const minSpeed = Math.min(...hourlySpeedData.filter(speed => speed > 0));
+        
+        const barColors = hourlySpeedData.map(speed => {
+            if (speed === 0) {
+                return getCurrentTheme() === 'dark' ? 'rgba(100, 100, 100, 0.3)' : 'rgba(200, 200, 200, 0.3)';
+            }
+            
+            // Create color gradient from red (slow) to green (fast)
+            const normalizedSpeed = maxSpeed > minSpeed ? (speed - minSpeed) / (maxSpeed - minSpeed) : 0.5;
+            const hue = normalizedSpeed * 120; // 0 = red, 120 = green
+            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        });
+        
+        const borderColors = hourlySpeedData.map(speed => {
+            if (speed === 0) {
+                return getCurrentTheme() === 'dark' ? 'rgba(100, 100, 100, 0.6)' : 'rgba(200, 200, 200, 0.6)';
+            }
+            
+            const normalizedSpeed = maxSpeed > minSpeed ? (speed - minSpeed) / (maxSpeed - minSpeed) : 0.5;
+            const hue = normalizedSpeed * 120;
+            return `hsla(${hue}, 70%, 40%, 1)`;
+        });
+
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: hourLabels,
+                datasets: [{
+                    label: 'Average Reading Speed',
+                    data: hourlySpeedData,
+                    backgroundColor: barColors,
+                    borderColor: borderColors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false // Hide legend for cleaner look
+                    },
+                    title: {
+                        display: true,
+                        text: 'Average Reading Speed by Hour',
+                        color: getThemeTextColor(),
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        },
+                        padding: {
+                            top: 10,
+                            bottom: 20
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const hourIndex = context[0].dataIndex;
+                                const hour24 = hourIndex;
+                                const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+                                const ampm = hour24 < 12 ? 'AM' : 'PM';
+                                return `${hour12}:00 ${ampm} (${hour24}:00)`;
+                            },
+                            label: function(context) {
+                                const speed = context.parsed.y;
+                                if (speed === 0) {
+                                    return 'No reading activity';
+                                }
+                                return `Speed: ${speed.toLocaleString()} chars/hour`;
+                            },
+                            afterLabel: function(context) {
+                                const speed = context.parsed.y;
+                                if (speed === 0) return '';
+                                
+                                const avgSpeed = hourlySpeedData.filter(s => s > 0).reduce((sum, s) => sum + s, 0) / hourlySpeedData.filter(s => s > 0).length;
+                                const comparison = speed > avgSpeed ? 'above' : speed < avgSpeed ? 'below' : 'at';
+                                const percentage = avgSpeed > 0 ? Math.abs(((speed - avgSpeed) / avgSpeed) * 100).toFixed(1) : '0';
+                                
+                                return `${percentage}% ${comparison} average`;
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Characters per Hour',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Hour of Day',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
     // Initialize Kanji Grid Renderer (using shared component)
     const kanjiGridRenderer = new KanjiGridRenderer({
         containerSelector: '#kanjiGrid',
@@ -838,6 +986,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Create hourly activity polar chart if data exists
                 if (data.hourlyActivityData) {
                     createHourlyActivityChart('hourlyActivityChart', data.hourlyActivityData);
+                }
+
+                // Create hourly reading speed chart if data exists
+                if (data.hourlyReadingSpeedData) {
+                    createHourlyReadingSpeedChart('hourlyReadingSpeedChart', data.hourlyReadingSpeedData);
                 }
 
                 // Create kanji grid if data exists

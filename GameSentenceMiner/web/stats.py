@@ -533,6 +533,42 @@ def calculate_hourly_activity(all_lines):
     
     return hourly_chars
 
+def calculate_hourly_reading_speed(all_lines):
+    """
+    Calculate average reading speed (chars/hour) aggregated by hour of day (0-23).
+    Returns average reading speed for each hour across all days.
+    """
+    if not all_lines:
+        return [0] * 24
+    
+    # Group lines by hour and collect timestamps for each hour
+    hourly_data = defaultdict(lambda: {'chars': 0, 'timestamps': []})
+    
+    for line in all_lines:
+        hour = datetime.datetime.fromtimestamp(float(line.timestamp)).hour
+        char_count = len(line.line_text) if line.line_text else 0
+        
+        hourly_data[hour]['chars'] += char_count
+        hourly_data[hour]['timestamps'].append(float(line.timestamp))
+    
+    # Calculate average reading speed for each hour
+    hourly_speeds = [0] * 24
+    
+    for hour in range(24):
+        if hour in hourly_data and len(hourly_data[hour]['timestamps']) >= 2:
+            chars = hourly_data[hour]['chars']
+            timestamps = hourly_data[hour]['timestamps']
+            
+            # Calculate actual reading time for this hour across all days
+            reading_time_seconds = calculate_actual_reading_time(timestamps)
+            reading_time_hours = reading_time_seconds / 3600
+            
+            # Calculate speed (chars per hour)
+            if reading_time_hours > 0:
+                hourly_speeds[hour] = int(chars / reading_time_hours)
+    
+    return hourly_speeds
+
 def calculate_peak_daily_stats(all_lines):
     """
     Calculate peak daily statistics: most chars read in a day and most hours studied in a day.
