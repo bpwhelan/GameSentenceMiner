@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import scrolledtext
+from tkinter import messagebox
 from PIL import Image, ImageTk
 
 import ttkbootstrap as ttk
@@ -9,6 +10,9 @@ from GameSentenceMiner.util.audio_player import AudioPlayer
 import platform
 import subprocess
 import os
+import tempfile
+import requests
+from urllib.parse import quote
 
 class AnkiConfirmationDialog(tk.Toplevel):
     """
@@ -20,13 +24,17 @@ class AnkiConfirmationDialog(tk.Toplevel):
         self.screenshot_timestamp = screenshot_timestamp
         self.translation_text = None
         self.sentence_text = None
+        self.sentence = sentence  # Store sentence text for TTS
         
         # Initialize screenshot_path here, will be updated by button if needed
-        self.screenshot_path = screenshot_path 
+        self.screenshot_path = screenshot_path
+        self.audio_path = audio_path  # Store audio path so it can be updated
 
         # Audio player management
         self.audio_player = AudioPlayer(finished_callback=self._audio_finished)
         self.audio_button = None  # Store reference to audio button
+        self.audio_path_label = None  # Store reference to audio path label
+        self.tts_button = None  # Store reference to TTS button
 
         self.title("Confirm Anki Card Details")
         self.result = None  # This will store the user's choice
@@ -123,18 +131,31 @@ class AnkiConfirmationDialog(tk.Toplevel):
         # Audio Path
         if audio_path and os.path.isfile(audio_path):
             ttk.Label(main_frame, text="Audio Path:", font=("-weight bold")).grid(row=row, column=0, sticky="ne", padx=5, pady=2)
-            ttk.Label(main_frame, text=audio_path if audio_path else "No Audio", wraplength=400, justify="left").grid(row=row, column=1, sticky="w", padx=5, pady=2)
+            self.audio_path_label = ttk.Label(main_frame, text=audio_path if audio_path else "No Audio", wraplength=400, justify="left")
+            self.audio_path_label.grid(row=row, column=1, sticky="w", padx=5, pady=2)
             if audio_path and os.path.isfile(audio_path):
                 self.audio_button = ttk.Button(
-                    main_frame, 
-                    text="▶", 
-                    command=lambda: self._play_audio(audio_path),
+                    main_frame,
+                    text="▶",
+                    command=lambda: self._play_audio(self.audio_path),
                     bootstyle="outline-info",
                     width=12
                 )
                 self.audio_button.grid(row=row, column=2, sticky="w", padx=5, pady=2)
 
             row += 1
+            
+            # TTS Button - only show if TTS is enabled in config
+            if get_config().vad.use_tts_as_fallback and sentence:
+                self.tts_button = ttk.Button(
+                    main_frame,
+                    text="🔊 Generate TTS Audio",
+                    command=self._generate_tts_audio,
+                    bootstyle="info",
+                    width=20
+                )
+                self.tts_button.grid(row=row, column=1, sticky="w", padx=5, pady=2)
+                row += 1
 
         # Action Buttons
         button_frame = ttk.Frame(main_frame)
@@ -215,6 +236,67 @@ class AnkiConfirmationDialog(tk.Toplevel):
             else:
                 self.audio_button.config(text="▶ Play Audio", bootstyle="outline-info")
         
+    def _generate_tts_audio(self):
+        """Generate TTS audio from the sentence text"""
+        try:
+            # Get the current sentence text from the widget
+            sentence_text = self.sentence_text.get("1.0", tk.END).strip()
+            
+            if not sentence_text:
+                messagebox.showerror("TTS Error", "No sentence text available for TTS generation.")
+                return
+            
+            # URL-encode the sentence text
+            encoded_text = quote(sentence_text)
+            
+            # Build the TTS URL by replacing $s with the encoded text
+            tts_url = get_config().vad.tts_url.replace("$s", encoded_text)
+            
+            logger.info(f"Fetching TTS audio from: {tts_url}")
+            
+            # Fetch TTS audio from the URL
+            response = requests.get(tts_url, timeout=10)
+            
+            if not response.ok:
+                error_msg = f"Failed to fetch TTS audio: HTTP {response.status_code}"
+                logger.error(error_msg)
+                messagebox.showerror("TTS Error", f"{error_msg}\n\nIs your TTS service running?")
+                return
+            
+            # Save TTS audio to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".opus") as tmpfile:
+                tmpfile.write(response.content)
+                tts_audio_path = tmpfile.name
+            
+            logger.info(f"TTS audio saved to: {tts_audio_path}")
+            
+            # Update the audio path
+            self.audio_path = tts_audio_path
+            
+            # Update the audio path label
+            if self.audio_path_label:
+                self.audio_path_label.config(text=tts_audio_path)
+            
+            # Update the audio button command to use the new path
+            if self.audio_button:
+                self.audio_button.config(command=lambda: self._play_audio(self.audio_path))
+            
+            # Show success message
+            messagebox.showinfo("TTS Success", "TTS audio generated successfully!\nYou can now play it using the play button.")
+            
+        except requests.exceptions.Timeout:
+            error_msg = "TTS request timed out. Please check if your TTS service is running."
+            logger.error(error_msg)
+            messagebox.showerror("TTS Error", error_msg)
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Failed to connect to TTS service: {str(e)}"
+            logger.error(error_msg)
+            messagebox.showerror("TTS Error", f"{error_msg}\n\nPlease check your TTS URL configuration.")
+        except Exception as e:
+            error_msg = f"Unexpected error generating TTS: {str(e)}"
+            logger.error(error_msg)
+            messagebox.showerror("TTS Error", error_msg)
+    
     def _cleanup_audio(self):
         """Clean up audio stream resources"""
         self.audio_player.cleanup()
