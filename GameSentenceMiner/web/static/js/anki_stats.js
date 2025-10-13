@@ -147,43 +147,123 @@ document.addEventListener('DOMContentLoaded', function () {
         return { startTimestamp, endTimestamp };
     }
 
+    // New unified data loading function
+    async function loadAllStats(start_timestamp = null, end_timestamp = null) {
+        console.log('Loading all Anki stats with unified endpoint...');
+        showLoading(true);
+        showError(false);
+        
+        // Show all loading spinners
+        const gameStatsLoading = document.getElementById('gameStatsLoading');
+        const nsfwSfwRetentionLoading = document.getElementById('nsfwSfwRetentionLoading');
+        if (gameStatsLoading) gameStatsLoading.style.display = 'flex';
+        if (nsfwSfwRetentionLoading) nsfwSfwRetentionLoading.style.display = 'flex';
+        
+        try {
+            // Build URL with optional query params
+            const params = new URLSearchParams();
+            if (start_timestamp) params.append('start_timestamp', start_timestamp);
+            if (end_timestamp) params.append('end_timestamp', end_timestamp);
+            const url = '/api/anki_stats_combined' + (params.toString() ? `?${params.toString()}` : '');
+
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error('Failed to load combined stats');
+            const data = await resp.json();
+            console.log('Received combined data:', data);
+            
+            // Update all sections with the combined data
+            updateStats(data.kanji_stats);
+            renderGameStatsTable(data.game_stats);
+            renderNsfwSfwRetention(data.nsfw_sfw_retention);
+            
+            // Update mining heatmap
+            if (data.mining_heatmap && Object.keys(data.mining_heatmap).length > 0) {
+                createMiningHeatmap(data.mining_heatmap);
+            } else {
+                const container = document.getElementById('miningHeatmapContainer');
+                container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">No mining data available for the selected date range.</p>';
+            }
+            
+            showAnkiConnectWarning(false); // Hide warning on success
+        } catch (e) {
+            console.error('Failed to load combined Anki stats:', e);
+            showError(true);
+            showAnkiConnectWarning(true); // Show warning on failure
+            
+            // Show error messages in individual sections
+            const gameStatsEmpty = document.getElementById('gameStatsEmpty');
+            const nsfwSfwRetentionEmpty = document.getElementById('nsfwSfwRetentionEmpty');
+            if (gameStatsEmpty) {
+                gameStatsEmpty.style.display = 'block';
+                gameStatsEmpty.textContent = 'Failed to load statistics. Make sure Anki is running with AnkiConnect.';
+            }
+            if (nsfwSfwRetentionEmpty) {
+                nsfwSfwRetentionEmpty.style.display = 'block';
+                nsfwSfwRetentionEmpty.textContent = 'Failed to load statistics. Make sure Anki is running with AnkiConnect.';
+            }
+        } finally {
+            showLoading(false);
+            // Hide all loading spinners
+            if (gameStatsLoading) gameStatsLoading.style.display = 'none';
+            if (nsfwSfwRetentionLoading) nsfwSfwRetentionLoading.style.display = 'none';
+            
+            // Show tables/grids
+            const gameStatsTable = document.getElementById('gameStatsTable');
+            const nsfwSfwRetentionStats = document.getElementById('nsfwSfwRetentionStats');
+            if (gameStatsTable) gameStatsTable.style.display = 'table';
+            if (nsfwSfwRetentionStats) nsfwSfwRetentionStats.style.display = 'grid';
+        }
+    }
+
     document.addEventListener("datesSetAnki", () => {
         const fromDate = sessionStorage.getItem("fromDateAnki");
         const toDate = sessionStorage.getItem("toDateAnki");
         const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDate, toDate);
         
-        loadStats(startTimestamp, endTimestamp);
-        loadMiningHeatmap(startTimestamp / 1000, endTimestamp / 1000); // Convert from ms to seconds
+        // Use unified endpoint instead of multiple calls
+        loadAllStats(startTimestamp, endTimestamp);
     });
 
-    function initializeDates() {
+    async function initializeDates() {
         const fromDateInput = document.getElementById('fromDate');
         const toDateInput = document.getElementById('toDate');
 
         const fromDate = sessionStorage.getItem("fromDateAnki");
-        const toDate = sessionStorage.getItem("toDateAnki"); 
+        const toDate = sessionStorage.getItem("toDateAnki");
 
         if (!(fromDate && toDate)) {
-            fetch('/api/anki_earliest_date')
-                .then(response => response.json())
-                .then(response_json => {
-                    // Get first date in ms from API
-                    const firstDateinMs = response_json.earliest_card;
-                    const firstDateObject = new Date(firstDateinMs);
-                    const fromDate = firstDateObject.toLocaleDateString('en-CA');
-                    fromDateInput.value = fromDate;
+            try {
+                // Fetch earliest date from the combined endpoint
+                const resp = await fetch('/api/anki_stats_combined');
+                const data = await resp.json();
+                
+                // Get first date in ms from API
+                const firstDateinMs = data.earliest_date;
+                const firstDateObject = new Date(firstDateinMs);
+                const fromDate = firstDateObject.toLocaleDateString('en-CA');
+                fromDateInput.value = fromDate;
 
-                    // Get today's date
-                    const today = new Date();
-                    const toDate = today.toLocaleDateString('en-CA');
-                    toDateInput.value = toDate;
+                // Get today's date
+                const today = new Date();
+                const toDate = today.toLocaleDateString('en-CA');
+                toDateInput.value = toDate;
 
-                    // Save in sessionStorage
-                    sessionStorage.setItem("fromDateAnki", fromDate);
-                    sessionStorage.setItem("toDateAnki", toDate);
+                // Save in sessionStorage
+                sessionStorage.setItem("fromDateAnki", fromDate);
+                sessionStorage.setItem("toDateAnki", toDate);
 
-                    document.dispatchEvent(new Event("datesSetAnki"));
-                });
+                document.dispatchEvent(new Event("datesSetAnki"));
+            } catch (e) {
+                console.error('Failed to initialize dates:', e);
+                // Fallback to today if API fails
+                const today = new Date();
+                const todayStr = today.toLocaleDateString('en-CA');
+                fromDateInput.value = todayStr;
+                toDateInput.value = todayStr;
+                sessionStorage.setItem("fromDateAnki", todayStr);
+                sessionStorage.setItem("toDateAnki", todayStr);
+                document.dispatchEvent(new Event("datesSetAnki"));
+            }
         } else {
             // If values already in sessionStorage, set inputs from there
             fromDateInput.value = fromDate;
@@ -208,53 +288,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDateStr, toDateStr);
 
-        loadStats(startTimestamp, endTimestamp);
-        loadMiningHeatmap(startTimestamp / 1000, endTimestamp / 1000); // Convert from ms to seconds
+        // Use unified endpoint instead of multiple calls
+        loadAllStats(startTimestamp, endTimestamp);
     }
 
     fromDateInput.addEventListener("change", handleDateChange);
     toDateInput.addEventListener("change", handleDateChange);
 
     initializeDates();
-    
-    // Game Stats functionality
-    async function loadGameStats(start_timestamp = null, end_timestamp = null) {
-        const gameStatsLoading = document.getElementById('gameStatsLoading');
-        const gameStatsTable = document.getElementById('gameStatsTable');
-        const gameStatsTableBody = document.getElementById('gameStatsTableBody');
-        const gameStatsEmpty = document.getElementById('gameStatsEmpty');
-        
-        // Show loading spinner
-        gameStatsLoading.style.display = 'flex';
-        gameStatsTable.style.display = 'none';
-        gameStatsEmpty.style.display = 'none';
-        
-        try {
-            // Build URL with optional query params
-            const params = new URLSearchParams();
-            if (start_timestamp) params.append('start_timestamp', start_timestamp);
-            if (end_timestamp) params.append('end_timestamp', end_timestamp);
-            const url = '/api/anki_game_stats' + (params.toString() ? `?${params.toString()}` : '');
-
-            const resp = await fetch(url);
-            if (!resp.ok) {
-                throw new Error('Failed to load game stats: ' + resp.statusText);
-            }
-            const data = await resp.json();
-            renderGameStatsTable(data);
-            showAnkiConnectWarning(false); // Hide warning on success
-        } catch (e) {
-            console.error('Error loading game stats:', e);
-            gameStatsTableBody.innerHTML = '';
-            gameStatsEmpty.style.display = 'block';
-            gameStatsEmpty.textContent = 'Failed to load game statistics. Make sure Anki is running with AnkiConnect.';
-            showAnkiConnectWarning(true); // Show warning on failure
-        } finally {
-            // Hide loading spinner
-            gameStatsLoading.style.display = 'none';
-            gameStatsTable.style.display = 'table';
-        }
-    }
     
     function renderGameStatsTable(gameStats) {
         const gameStatsTableBody = document.getElementById('gameStatsTableBody');
@@ -291,11 +332,6 @@ document.addEventListener('DOMContentLoaded', function () {
             retentionCell.style.color = getRetentionColor(game.retention_pct);
             row.appendChild(retentionCell);
             
-            // Mined lines cell
-            const minedLinesCell = document.createElement('td');
-            minedLinesCell.textContent = game.mined_lines || 0;
-            row.appendChild(minedLinesCell);
-            
             gameStatsTableBody.appendChild(row);
         });
     }
@@ -322,58 +358,8 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
     
-    // Load game stats when dates are set
-    document.addEventListener("datesSetAnki", () => {
-        const fromDate = sessionStorage.getItem("fromDateAnki");
-        const toDate = sessionStorage.getItem("toDateAnki");
-        const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDate, toDate);
-        loadGameStats(startTimestamp, endTimestamp);
-    });
-    
-    // Load game stats immediately if dates already exist in sessionStorage
-    const fromDate = sessionStorage.getItem("fromDateAnki");
-    const toDate = sessionStorage.getItem("toDateAnki");
-    if (fromDate && toDate) {
-        const { startTimestamp, endTimestamp } = getUnixTimestampsInMilliseconds(fromDate, toDate);
-        loadGameStats(startTimestamp, endTimestamp);
-    }
-    
-    // NSFW vs SFW Retention functionality
-    async function loadNsfwSfwRetention(start_timestamp = null, end_timestamp = null) {
-        const nsfwSfwRetentionLoading = document.getElementById('nsfwSfwRetentionLoading');
-        const nsfwSfwRetentionStats = document.getElementById('nsfwSfwRetentionStats');
-        const nsfwSfwRetentionEmpty = document.getElementById('nsfwSfwRetentionEmpty');
-        
-        // Show loading spinner
-        nsfwSfwRetentionLoading.style.display = 'flex';
-        nsfwSfwRetentionStats.style.display = 'none';
-        nsfwSfwRetentionEmpty.style.display = 'none';
-        
-        try {
-            // Build URL with optional query params
-            const params = new URLSearchParams();
-            if (start_timestamp) params.append('start_timestamp', start_timestamp);
-            if (end_timestamp) params.append('end_timestamp', end_timestamp);
-            const url = '/api/anki_nsfw_sfw_retention' + (params.toString() ? `?${params.toString()}` : '');
-
-            const resp = await fetch(url);
-            if (!resp.ok) {
-                throw new Error('Failed to load NSFW/SFW retention stats: ' + resp.statusText);
-            }
-            const data = await resp.json();
-            renderNsfwSfwRetention(data);
-            showAnkiConnectWarning(false); // Hide warning on success
-        } catch (e) {
-            console.error('Error loading NSFW/SFW retention stats:', e);
-            nsfwSfwRetentionEmpty.style.display = 'block';
-            nsfwSfwRetentionEmpty.textContent = 'Failed to load NSFW/SFW retention statistics. Make sure Anki is running with AnkiConnect.';
-            showAnkiConnectWarning(true); // Show warning on failure
-        } finally {
-            // Hide loading spinner
-            nsfwSfwRetentionLoading.style.display = 'none';
-            nsfwSfwRetentionStats.style.display = 'grid';
-        }
-    }
+    // Note: Old individual loading functions (loadGameStats, loadNsfwSfwRetention, loadStats, loadMiningHeatmap)
+    // have been replaced by the unified loadAllStats function for better performance
     
     function renderNsfwSfwRetention(data) {
         const nsfwRetentionEl = document.getElementById('nsfwRetention');

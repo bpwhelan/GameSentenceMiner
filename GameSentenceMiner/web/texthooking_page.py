@@ -430,6 +430,112 @@ def api_anki_nsfw_sfw_retention():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/anki_stats_combined')
+def api_anki_stats_combined():
+    """
+    Unified API endpoint that combines all Anki statistics in a single response.
+    This reduces page load time by eliminating multiple HTTP requests.
+    
+    Returns:
+        {
+            "kanji_stats": {...},
+            "game_stats": [...],
+            "nsfw_sfw_retention": {...},
+            "mining_heatmap": {...},
+            "earliest_date": int
+        }
+    """
+    from GameSentenceMiner.anki import (
+        get_all_anki_first_field_kanji,
+        get_anki_game_stats,
+        get_anki_nsfw_sfw_retention,
+        get_anki_earliest_date
+    )
+    from GameSentenceMiner.web.stats import calculate_kanji_frequency, calculate_mining_heatmap_data
+    from GameSentenceMiner.util.db import GameLinesTable
+    from collections import defaultdict
+    import concurrent.futures
+    
+    start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
+    end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
+    
+    combined_response = {
+        "kanji_stats": {},
+        "game_stats": [],
+        "nsfw_sfw_retention": {},
+        "mining_heatmap": {},
+        "earliest_date": 0
+    }
+    
+    try:
+        # Fetch GSM lines once (used by multiple calculations)
+        try:
+            all_lines = (
+                GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000, end_timestamp / 1000)
+                if start_timestamp is not None and end_timestamp is not None
+                else GameLinesTable.all()
+            )
+        except Exception as e:
+            logger.warning(f"Failed to filter lines by timestamp: {e}, fetching all lines instead")
+            all_lines = GameLinesTable.all()
+        
+        # Use ThreadPoolExecutor to fetch Anki data in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            # Submit all Anki API calls concurrently
+            future_kanji = executor.submit(get_all_anki_first_field_kanji, start_timestamp, end_timestamp)
+            future_game_stats = executor.submit(get_anki_game_stats, start_timestamp, end_timestamp)
+            future_nsfw_sfw = executor.submit(get_anki_nsfw_sfw_retention, start_timestamp, end_timestamp)
+            future_earliest = executor.submit(get_anki_earliest_date)
+            
+            # Wait for all futures to complete and get results
+            anki_kanji_set = future_kanji.result()
+            game_stats = future_game_stats.result()
+            nsfw_sfw_stats = future_nsfw_sfw.result()
+            earliest_date = future_earliest.result()
+        
+        # Calculate kanji statistics
+        gsm_kanji_stats = calculate_kanji_frequency(all_lines)
+        gsm_kanji_list = gsm_kanji_stats.get("kanji_data", [])
+        gsm_kanji_set = set([k["kanji"] for k in gsm_kanji_list])
+        
+        # Find missing kanji
+        missing_kanji = [
+            {"kanji": k["kanji"], "frequency": k["frequency"]}
+            for k in gsm_kanji_list if k["kanji"] not in anki_kanji_set
+        ]
+        missing_kanji.sort(key=lambda x: x["frequency"], reverse=True)
+        
+        # Calculate coverage
+        anki_kanji_count = len(anki_kanji_set)
+        gsm_kanji_count = len(gsm_kanji_set)
+        coverage_percent = (anki_kanji_count / gsm_kanji_count * 100) if gsm_kanji_count else 0.0
+        
+        combined_response["kanji_stats"] = {
+            "missing_kanji": missing_kanji,
+            "anki_kanji_count": anki_kanji_count,
+            "gsm_kanji_count": gsm_kanji_count,
+            "coverage_percent": round(coverage_percent, 1)
+        }
+        
+        combined_response["game_stats"] = game_stats
+        combined_response["nsfw_sfw_retention"] = nsfw_sfw_stats
+        
+        # Calculate mining heatmap
+        start_seconds = start_timestamp / 1000 if start_timestamp else None
+        end_seconds = end_timestamp / 1000 if end_timestamp else None
+        mining_heatmap = calculate_mining_heatmap_data(all_lines)
+        combined_response["mining_heatmap"] = mining_heatmap
+        
+        combined_response["earliest_date"] = earliest_date
+        
+        return jsonify(combined_response)
+        
+    except Exception as e:
+        logger.error(f"Error fetching combined Anki stats: {e}")
+        logger.error(f"Error details: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/search')
 def search():
     """Renders the search page."""
