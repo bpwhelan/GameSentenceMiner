@@ -527,7 +527,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return `Speed: ${charsPerHour.toLocaleString()} chars/hour`;
     }
 
-    // Function to create hourly activity polar chart
+    // Function to create hourly activity bar chart
     function createHourlyActivityChart(canvasId, hourlyData) {
         const canvas = document.getElementById(canvasId);
         if (!canvas || !hourlyData || !Array.isArray(hourlyData)) return null;
@@ -539,7 +539,7 @@ document.addEventListener('DOMContentLoaded', function () {
             window.myCharts[canvasId].destroy();
         }
         
-        // Create simplified hour labels (0-23) for better visibility
+        // Create hour labels (0-23)
         const hourLabels = [];
         for (let i = 0; i < 24; i++) {
             const hour12 = i === 0 ? 12 : i > 12 ? i - 12 : i;
@@ -547,51 +547,45 @@ document.addEventListener('DOMContentLoaded', function () {
             hourLabels.push(`${hour12}${ampm}`);
         }
         
-        // Find max value for scaling
-        const maxValue = Math.max(...hourlyData);
+        // Generate gradient colors for bars based on activity values
+        const maxActivity = Math.max(...hourlyData.filter(activity => activity > 0));
+        const minActivity = Math.min(...hourlyData.filter(activity => activity > 0));
         
-        // Use consistent professional color for all data points
-        const singlePointColor = getCurrentTheme() === 'dark' ? 'rgba(59, 130, 246, 0.9)' : 'rgba(30, 64, 175, 0.9)';
-        const pointColors = hourlyData.map(() => singlePointColor);
+        const barColors = hourlyData.map(activity => {
+            if (activity === 0) {
+                return getCurrentTheme() === 'dark' ? 'rgba(100, 100, 100, 0.3)' : 'rgba(200, 200, 200, 0.3)';
+            }
+            
+            // Create color gradient from red (low activity) to green (high activity)
+            const normalizedActivity = maxActivity > minActivity ? (activity - minActivity) / (maxActivity - minActivity) : 0.5;
+            const hue = normalizedActivity * 120; // 0 = red, 120 = green
+            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        });
         
-        // Create a sophisticated, professional gradient for the radar fill
-        const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 200);
-        if (getCurrentTheme() === 'dark') {
-            gradient.addColorStop(0, 'rgba(37, 99, 235, 0.5)'); // Deep steel blue center
-            gradient.addColorStop(0.5, 'rgba(59, 130, 246, 0.3)'); // Professional blue middle
-            gradient.addColorStop(1, 'rgba(96, 165, 250, 0.15)'); // Light steel blue edge
-        } else {
-            gradient.addColorStop(0, 'rgba(30, 64, 175, 0.4)'); // Rich navy center
-            gradient.addColorStop(0.5, 'rgba(37, 99, 235, 0.25)'); // Deep blue middle
-            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.1)'); // Professional blue edge
-        }
-
-        // Professional border color that maintains prominence
-        const borderColor = getCurrentTheme() === 'dark' ? 'rgba(59, 130, 246, 1)' : 'rgba(30, 64, 175, 1)';
+        const borderColors = hourlyData.map(activity => {
+            if (activity === 0) {
+                return getCurrentTheme() === 'dark' ? 'rgba(100, 100, 100, 0.6)' : 'rgba(200, 200, 200, 0.6)';
+            }
+            
+            const normalizedActivity = maxActivity > minActivity ? (activity - minActivity) / (maxActivity - minActivity) : 0.5;
+            const hue = normalizedActivity * 120;
+            return `hsla(${hue}, 70%, 40%, 1)`;
+        });
 
         window.myCharts[canvasId] = new Chart(ctx, {
-            type: 'radar',
+            type: 'bar',
             data: {
                 labels: hourLabels,
                 datasets: [{
                     label: 'Characters Read',
                     data: hourlyData,
-                    backgroundColor: gradient,
-                    borderColor: borderColor,
-                    borderWidth: 5, // Much thicker border for prominence
-                    pointBackgroundColor: pointColors,
-                    pointBorderColor: getCurrentTheme() === 'dark' ? 'rgba(255, 255, 255, 1)' : 'rgba(0, 0, 0, 0.8)',
-                    pointBorderWidth: 3, // Thicker point borders
-                    pointRadius: 8, // Much larger points
-                    pointHoverRadius: 12, // Even larger on hover
-                    fill: true,
-                    tension: 0.2 // Slightly more curved for smoother appearance
+                    backgroundColor: barColors,
+                    borderColor: borderColors,
+                    borderWidth: 2
                 }]
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: true,
-                aspectRatio: 1.2,
                 plugins: {
                     legend: {
                         display: false // Hide legend for cleaner look
@@ -619,13 +613,18 @@ document.addEventListener('DOMContentLoaded', function () {
                                 return `${hour12}:00 ${ampm} (${hour24}:00)`;
                             },
                             label: function(context) {
-                                const value = context.parsed.r;
-                                return `Characters: ${value.toLocaleString()}`;
+                                const activity = context.parsed.y;
+                                if (activity === 0) {
+                                    return 'No reading activity';
+                                }
+                                return `Characters: ${activity.toLocaleString()}`;
                             },
                             afterLabel: function(context) {
-                                const value = context.parsed.r;
+                                const activity = context.parsed.y;
+                                if (activity === 0) return '';
+                                
                                 const total = hourlyData.reduce((sum, val) => sum + val, 0);
-                                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                const percentage = total > 0 ? ((activity / total) * 100).toFixed(1) : '0.0';
                                 return `${percentage}% of total activity`;
                             }
                         },
@@ -635,48 +634,38 @@ document.addEventListener('DOMContentLoaded', function () {
                         borderColor: 'rgba(255, 255, 255, 0.2)',
                         borderWidth: 1,
                         cornerRadius: 8,
-                        displayColors: true,
-                        usePointStyle: true
+                        displayColors: true
                     }
                 },
                 scales: {
-                    r: {
+                    y: {
                         beginAtZero: true,
-                        max: Math.max(...hourlyData) * 1.1, // Add 10% padding to max value
-                        ticks: {
-                            display: false, // Hide radial ticks for cleaner look
-                            stepSize: Math.max(...hourlyData) / 4 // Only 4 grid circles
-                        },
-                        grid: {
-                            color: getCurrentTheme() === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)', // Much more subtle grid
-                            lineWidth: 1
-                        },
-                        angleLines: {
-                            color: getCurrentTheme() === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)', // Very subtle angle lines
-                            lineWidth: 1
-                        },
-                        pointLabels: {
+                        title: {
                             display: true,
-                            color: getCurrentTheme() === 'dark' ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)', // Slightly muted labels
-                            font: {
-                                size: 12, // Slightly smaller to be less prominent
-                                weight: 'normal' // Less bold to reduce competition with data
-                            },
-                            padding: 25, // More padding to separate from data
-                            backdropColor: getCurrentTheme() === 'dark' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.6)', // More subtle backdrop
-                            backdropPadding: 2
+                            text: 'Characters Read',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Hour of Day',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
                         }
                     }
                 },
                 animation: {
-                    animateRotate: true,
-                    animateScale: true,
-                    duration: 1500, // Slightly longer animation to show off the bold styling
+                    duration: 1000,
                     easing: 'easeOutQuart'
-                },
-                interaction: {
-                    intersect: false,
-                    mode: 'nearest'
                 }
             }
         });
