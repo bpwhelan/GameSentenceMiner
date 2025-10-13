@@ -11,7 +11,6 @@ from GameSentenceMiner.util.gsm_utils import make_unique_file_name
 import platform
 import subprocess
 import os
-import tempfile
 import requests
 from urllib.parse import quote
 
