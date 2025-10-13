@@ -33,30 +33,6 @@ document.addEventListener('DOMContentLoaded', function () {
         miningHeatmapRenderer.render(heatmapData);
     }
     
-    // Function to load mining heatmap data
-    async function loadMiningHeatmap(start_timestamp = null, end_timestamp = null) {
-        try {
-            const params = new URLSearchParams();
-            if (start_timestamp) params.append('start', start_timestamp);
-            if (end_timestamp) params.append('end', end_timestamp);
-            const url = '/api/mining_heatmap' + (params.toString() ? `?${params.toString()}` : '');
-            
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error('Failed to load mining heatmap');
-            const data = await resp.json();
-            
-            if (Object.keys(data).length > 0) {
-                createMiningHeatmap(data);
-            } else {
-                const container = document.getElementById('miningHeatmapContainer');
-                container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">No mining data available for the selected date range.</p>';
-            }
-        } catch (e) {
-            console.error('Failed to load mining heatmap:', e);
-            const container = document.getElementById('miningHeatmapContainer');
-            container.innerHTML = '<p style="text-align: center; color: var(--danger-color); padding: 20px;">Failed to load mining heatmap.</p>';
-        }
-    }
     
     console.log('Found DOM elements:', {
         loading, error, missingKanjiGrid, missingKanjiCount,
@@ -109,31 +85,6 @@ document.addEventListener('DOMContentLoaded', function () {
         renderKanjiGrid(data.missing_kanji);
     }
 
-    async function loadStats(start_timestamp = null, end_timestamp = null) {
-        console.log('Loading Anki stats...');
-        showLoading(true);
-        showError(false);
-        try {
-            // Build URL with optional query params
-            const params = new URLSearchParams();
-            if (start_timestamp) params.append('start_timestamp', start_timestamp);
-            if (end_timestamp) params.append('end_timestamp', end_timestamp);
-            const url = '/api/anki_stats' + (params.toString() ? `?${params.toString()}` : '');
-
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error('Failed to load');
-            const data = await resp.json();
-            console.log('Received data:', data);
-            updateStats(data);
-            showAnkiConnectWarning(false); // Hide warning on success
-        } catch (e) {
-            console.error('Failed to load Anki stats:', e);
-            showError(true);
-            showAnkiConnectWarning(true); // Show warning on failure
-        } finally {
-            showLoading(false);
-        }
-    }
 
     function getUnixTimestampsInMilliseconds(startDate, endDate) {
         // Parse the start date and create a Date object at the beginning of the day
