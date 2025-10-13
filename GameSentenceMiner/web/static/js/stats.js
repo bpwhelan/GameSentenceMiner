@@ -697,10 +697,70 @@ document.addEventListener('DOMContentLoaded', function () {
         kanjiGridRenderer.render(kanjiData);
     }
 
+    // Function to update peak statistics display
+    function updatePeakStatistics(peakDailyStats, peakSessionStats) {
+        // Helper function to format large numbers
+        function formatLargeNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            } else {
+                return num.toString();
+            }
+        }
+
+        // Helper function to format time in human-readable format
+        function formatTimeHuman(hours) {
+            if (hours < 1) {
+                const minutes = Math.round(hours * 60);
+                return minutes + 'm';
+            } else if (hours < 24) {
+                const wholeHours = Math.floor(hours);
+                const minutes = Math.round((hours - wholeHours) * 60);
+                if (minutes > 0) {
+                    return wholeHours + 'h ' + minutes + 'm';
+                } else {
+                    return wholeHours + 'h';
+                }
+            } else {
+                const days = Math.floor(hours / 24);
+                const remainingHours = Math.floor(hours % 24);
+                if (remainingHours > 0) {
+                    return days + 'd ' + remainingHours + 'h';
+                } else {
+                    return days + 'd';
+                }
+            }
+        }
+
+        // Update the display elements
+        const maxDailyCharsEl = document.getElementById('maxDailyChars');
+        const maxDailyHoursEl = document.getElementById('maxDailyHours');
+        const longestSessionEl = document.getElementById('longestSession');
+        const maxSessionCharsEl = document.getElementById('maxSessionChars');
+
+        if (maxDailyCharsEl) {
+            maxDailyCharsEl.textContent = formatLargeNumber(peakDailyStats.max_daily_chars || 0);
+        }
+
+        if (maxDailyHoursEl) {
+            maxDailyHoursEl.textContent = formatTimeHuman(peakDailyStats.max_daily_hours || 0);
+        }
+
+        if (longestSessionEl) {
+            longestSessionEl.textContent = formatTimeHuman(peakSessionStats.longest_session_hours || 0);
+        }
+
+        if (maxSessionCharsEl) {
+            maxSessionCharsEl.textContent = formatLargeNumber(peakSessionStats.max_session_chars || 0);
+        }
+    }
+
     function showNoDataPopup() {
         const popup = document.getElementById("noDataPopup");
         if (popup) popup.classList.remove("hidden");
-    }   
+    }
 
     const closeNoDataPopup = document.getElementById("closeNoDataPopup");
     if (closeNoDataPopup) {
@@ -783,6 +843,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Create kanji grid if data exists
                 if (data.kanjiGridData) {
                     createKanjiGrid(data.kanjiGridData);
+                }
+
+                // Update peak statistics if data exists
+                if (data.peakDailyStats && data.peakSessionStats) {
+                    updatePeakStatistics(data.peakDailyStats, data.peakSessionStats);
                 }
 
                 return data;

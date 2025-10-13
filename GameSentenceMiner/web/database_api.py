@@ -20,7 +20,8 @@ from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency, calculate_heatmap_data, calculate_total_chars_per_game,
     calculate_reading_time_per_game, calculate_reading_speed_per_game,
     calculate_current_game_stats, calculate_all_games_stats, calculate_daily_reading_time,
-    calculate_time_based_streak, calculate_actual_reading_time, calculate_hourly_activity
+    calculate_time_based_streak, calculate_actual_reading_time, calculate_hourly_activity,
+    calculate_peak_daily_stats, calculate_peak_session_stats
 )
 
 
@@ -1175,6 +1176,19 @@ def register_database_api_routes(app):
                 logger.error(f"Error calculating hourly activity: {e}")
                 hourly_activity_data = [0] * 24
 
+            # 9. Calculate peak statistics
+            try:
+                peak_daily_stats = calculate_peak_daily_stats(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating peak daily stats: {e}")
+                peak_daily_stats = {'max_daily_chars': 0, 'max_daily_hours': 0.0}
+                
+            try:
+                peak_session_stats = calculate_peak_session_stats(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating peak session stats: {e}")
+                peak_session_stats = {'longest_session_hours': 0.0, 'max_session_chars': 0}
+
             return jsonify({
                 "labels": sorted_days,
                 "datasets": datasets,
@@ -1186,7 +1200,9 @@ def register_database_api_routes(app):
                 "currentGameStats": current_game_stats,
                 "allGamesStats": all_games_stats,
                 "allLinesData": all_lines_data,
-                "hourlyActivityData": hourly_activity_data
+                "hourlyActivityData": hourly_activity_data,
+                "peakDailyStats": peak_daily_stats,
+                "peakSessionStats": peak_session_stats
             })
             
         except Exception as e:
