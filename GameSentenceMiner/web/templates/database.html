@@ -231,11 +231,21 @@
                 </small>
             </div>
             
-            <div class="form-group">
+            <div class="form-group" id="timeWindowGroup">
                 <label class="form-label">Time Window (minutes):</label>
-                <input type="number" id="timeWindow" class="form-input" min="1" max="1440" value="5" placeholder="5">
+                <input type="number" id="timeWindow" class="form-input" min="1" value="5" placeholder="5">
                 <small style="color: var(--text-tertiary); font-size: 12px;">
-                    Only remove duplicates that appear within this many minutes of each other (1-1440 minutes).
+                    Only remove duplicates that appear within this many minutes of each other (minimum 1 minute, no maximum limit).
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <div class="checkbox-container">
+                    <input type="checkbox" id="ignoreTimeWindow" class="checkbox-input">
+                    <label for="ignoreTimeWindow" class="checkbox-label">Entire Game (ignore time window)</label>
+                </div>
+                <small style="color: var(--text-tertiary); font-size: 12px; margin-left: 25px; display: block;">
+                    Remove ALL duplicates within each game regardless of when they occurred.
                 </small>
             </div>
             

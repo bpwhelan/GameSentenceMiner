@@ -642,6 +642,7 @@ def register_database_api_routes(app):
     def api_preview_deduplication():
         """
         Preview duplicate sentences that would be removed based on time window and game selection.
+        Supports ignore_time_window parameter to find all duplicates regardless of time.
         """
         try:
             data = request.get_json()
@@ -651,6 +652,7 @@ def register_database_api_routes(app):
             games = data.get('games', [])
             time_window_minutes = data.get('time_window_minutes', 5)
             case_sensitive = data.get('case_sensitive', False)
+            ignore_time_window = data.get('ignore_time_window', False)
             
             if not games:
                 return jsonify({'error': 'At least one game must be selected'}), 400
@@ -681,24 +683,19 @@ def register_database_api_routes(app):
             duplicate_samples = {}
             time_window_seconds = time_window_minutes * 60
             
-            # Find duplicates within time window for each game
+            # Find duplicates for each game
             for game_name, lines in game_lines.items():
-                text_timeline = []
-                
-                for line in lines:
-                    if not line.line_text or not line.line_text.strip():
-                        continue
-                        
-                    line_text = line.line_text if case_sensitive else line.line_text.lower()
-                    timestamp = float(line.timestamp)
-                    
-                    # Check for duplicates within time window
-                    for prev_text, prev_timestamp, prev_line_id in reversed(text_timeline):
-                        if timestamp - prev_timestamp > time_window_seconds:
-                            break  # Outside time window
+                if ignore_time_window:
+                    # Find all duplicates regardless of time
+                    seen_texts = {}
+                    for line in lines:
+                        if not line.line_text or not line.line_text.strip():
+                            continue
                             
-                        if prev_text == line_text:
-                            # Found duplicate within time window
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
+                        
+                        if line_text in seen_texts:
+                            # Found duplicate
                             duplicates_to_remove.append(line.id)
                             
                             # Store sample for preview
@@ -708,9 +705,38 @@ def register_database_api_routes(app):
                                     'occurrences': 1
                                 }
                             duplicate_samples[line_text]['occurrences'] += 1
-                            break
+                        else:
+                            seen_texts[line_text] = line.id
+                else:
+                    # Find duplicates within time window (original logic)
+                    text_timeline = []
                     
-                    text_timeline.append((line_text, timestamp, line.id))
+                    for line in lines:
+                        if not line.line_text or not line.line_text.strip():
+                            continue
+                            
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
+                        timestamp = float(line.timestamp)
+                        
+                        # Check for duplicates within time window
+                        for prev_text, prev_timestamp, prev_line_id in reversed(text_timeline):
+                            if timestamp - prev_timestamp > time_window_seconds:
+                                break  # Outside time window
+                                
+                            if prev_text == line_text:
+                                # Found duplicate within time window
+                                duplicates_to_remove.append(line.id)
+                                
+                                # Store sample for preview
+                                if line_text not in duplicate_samples:
+                                    duplicate_samples[line_text] = {
+                                        'text': line.line_text,  # Original case
+                                        'occurrences': 1
+                                    }
+                                duplicate_samples[line_text]['occurrences'] += 1
+                                break
+                        
+                        text_timeline.append((line_text, timestamp, line.id))
             
             # Calculate statistics
             duplicates_count = len(duplicates_to_remove)
@@ -735,6 +761,7 @@ def register_database_api_routes(app):
     def api_deduplicate():
         """
         Remove duplicate sentences from database based on time window and game selection.
+        Supports ignore_time_window parameter to remove all duplicates regardless of time.
         """
         try:
             data = request.get_json()
@@ -745,6 +772,7 @@ def register_database_api_routes(app):
             time_window_minutes = data.get('time_window_minutes', 5)
             case_sensitive = data.get('case_sensitive', False)
             preserve_newest = data.get('preserve_newest', False)
+            ignore_time_window = data.get('ignore_time_window', False)
             
             if not games:
                 return jsonify({'error': 'At least one game must be selected'}), 400
@@ -774,40 +802,62 @@ def register_database_api_routes(app):
             duplicates_to_remove = []
             time_window_seconds = time_window_minutes * 60
             
-            # Find duplicates within time window for each game
+            # Find duplicates for each game
             for game_name, lines in game_lines.items():
-                text_timeline = []
-                
-                for line in lines:
-                    if not line.line_text or not line.line_text.strip():
-                        continue
-                        
-                    line_text = line.line_text if case_sensitive else line.line_text.lower()
-                    timestamp = float(line.timestamp)
-                    
-                    # Check for duplicates within time window
-                    duplicate_found = False
-                    for i, (prev_text, prev_timestamp, prev_line_id) in enumerate(reversed(text_timeline)):
-                        if timestamp - prev_timestamp > time_window_seconds:
-                            break  # Outside time window
+                if ignore_time_window:
+                    # Find all duplicates regardless of time
+                    seen_texts = {}
+                    for line in lines:
+                        if not line.line_text or not line.line_text.strip():
+                            continue
                             
-                        if prev_text == line_text:
-                            # Found duplicate within time window
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
+                        
+                        if line_text in seen_texts:
+                            # Found duplicate
                             if preserve_newest:
                                 # Remove the older one (previous)
-                                duplicates_to_remove.append(prev_line_id)
-                                # Update timeline to replace old entry with new one
-                                timeline_index = len(text_timeline) - 1 - i
-                                text_timeline[timeline_index] = (line_text, timestamp, line.id)
+                                duplicates_to_remove.append(seen_texts[line_text])
+                                seen_texts[line_text] = line.id  # Update to keep newest
                             else:
                                 # Remove the newer one (current)
                                 duplicates_to_remove.append(line.id)
-                            
-                            duplicate_found = True
-                            break
+                        else:
+                            seen_texts[line_text] = line.id
+                else:
+                    # Find duplicates within time window (original logic)
+                    text_timeline = []
                     
-                    if not duplicate_found:
-                        text_timeline.append((line_text, timestamp, line.id))
+                    for line in lines:
+                        if not line.line_text or not line.line_text.strip():
+                            continue
+                            
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
+                        timestamp = float(line.timestamp)
+                        
+                        # Check for duplicates within time window
+                        duplicate_found = False
+                        for i, (prev_text, prev_timestamp, prev_line_id) in enumerate(reversed(text_timeline)):
+                            if timestamp - prev_timestamp > time_window_seconds:
+                                break  # Outside time window
+                                
+                            if prev_text == line_text:
+                                # Found duplicate within time window
+                                if preserve_newest:
+                                    # Remove the older one (previous)
+                                    duplicates_to_remove.append(prev_line_id)
+                                    # Update timeline to replace old entry with new one
+                                    timeline_index = len(text_timeline) - 1 - i
+                                    text_timeline[timeline_index] = (line_text, timestamp, line.id)
+                                else:
+                                    # Remove the newer one (current)
+                                    duplicates_to_remove.append(line.id)
+                                
+                                duplicate_found = True
+                                break
+                        
+                        if not duplicate_found:
+                            text_timeline.append((line_text, timestamp, line.id))
             
             # Delete the duplicate lines
             deleted_count = 0
@@ -822,7 +872,8 @@ def register_database_api_routes(app):
                 except Exception as e:
                     logger.warning(f"Failed to delete duplicate line {line_id}: {e}")
             
-            logger.info(f"Deduplication completed: removed {deleted_count} duplicate sentences from {len(games)} games with {time_window_minutes}min window")
+            mode_desc = "entire game" if ignore_time_window else f"{time_window_minutes}min window"
+            logger.info(f"Deduplication completed: removed {deleted_count} duplicate sentences from {len(games)} games with {mode_desc}")
             
             return jsonify({
                 'deleted_count': deleted_count,
@@ -832,6 +883,27 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error in deduplication: {e}")
             return jsonify({'error': f'Deduplication failed: {str(e)}'}), 500
+
+    @app.route('/api/deduplicate-entire-game', methods=['POST'])
+    def api_deduplicate_entire_game():
+        """
+        Remove duplicate sentences from database across entire games without time window restrictions.
+        This is a convenience endpoint that calls the main deduplicate function with ignore_time_window=True.
+        """
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            # Add ignore_time_window=True to the request data
+            data['ignore_time_window'] = True
+            
+            # Call the main deduplication function
+            return api_deduplicate()
+            
+        except Exception as e:
+            logger.error(f"Error in entire game deduplication: {e}")
+            return jsonify({'error': f'Entire game deduplication failed: {str(e)}'}), 500
 
     @app.route('/api/merge_games', methods=['POST'])
     def api_merge_games():
