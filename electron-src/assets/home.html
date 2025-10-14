@@ -151,6 +151,7 @@
 
             if (showLoading)
                 windowSelect.innerHTML = '<option>Loading...</option>';
+
             ipcRenderer.invoke('obs.getWindows').then(windowsRes => {
                 windows = windowsRes;
                 windowSelect.innerHTML = '';
@@ -161,8 +162,8 @@
                     windowSelect.appendChild(option);
                 });
 
-                // Restore previous selection if it still exists in the list
-                if (previousSelection && windows.includes(previousSelection)) {
+                // Restore previous selection if it still exists in the list (compare by value)
+                if (previousSelection && windows.some(w => w.value === previousSelection)) {
                     windowSelect.value = previousSelection;
                 }
             });
@@ -170,7 +171,6 @@
 
         function refreshScenesAndWindows(showLoading = true) {
             // Remember the previously selected scene
-            const previousSceneSelection = sceneSelect.value;
 
             if (showLoading)
                 sceneSelect.innerHTML = '<option>Loading...</option>';
@@ -189,13 +189,6 @@
                         option.value = scene.id;
                         option.textContent = scene.name;
                         sceneSelect.appendChild(option);
-                    }
-
-                    // Restore previous selection if it still exists, otherwise use active scene
-                    if (previousSceneSelection && scenes.some(s => s.id === previousSceneSelection)) {
-                        sceneSelect.value = previousSceneSelection;
-                    } else if (scene) {
-                        sceneSelect.value = scene.id;
                     }
                 });
                 getWindows(showLoading);
