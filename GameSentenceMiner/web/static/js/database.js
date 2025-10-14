@@ -1,6 +1,59 @@
 // Database Management JavaScript
 // Dependencies: shared.js (provides utility functions like escapeHtml, openModal, closeModal)
 
+// Database Popup Functions
+function showDatabaseSuccessPopup(message) {
+    const popup = document.getElementById('databaseSuccessPopup');
+    const messageEl = document.getElementById('databaseSuccessMessage');
+    if (popup && messageEl) {
+        messageEl.textContent = message;
+        popup.classList.remove('hidden');
+    }
+}
+
+function showDatabaseErrorPopup(message) {
+    const popup = document.getElementById('databaseErrorPopup');
+    const messageEl = document.getElementById('databaseErrorMessage');
+    if (popup && messageEl) {
+        messageEl.textContent = message;
+        popup.classList.remove('hidden');
+    }
+}
+
+function showDatabaseConfirmPopup(message, onConfirm) {
+    const popup = document.getElementById('databaseConfirmPopup');
+    const messageEl = document.getElementById('databaseConfirmMessage');
+    const yesBtn = document.getElementById('databaseConfirmYesBtn');
+    const noBtn = document.getElementById('databaseConfirmNoBtn');
+    
+    if (popup && messageEl && yesBtn && noBtn) {
+        messageEl.textContent = message;
+        popup.classList.remove('hidden');
+        
+        // Remove old event listeners and add new ones
+        const newYesBtn = yesBtn.cloneNode(true);
+        const newNoBtn = noBtn.cloneNode(true);
+        yesBtn.parentNode.replaceChild(newYesBtn, yesBtn);
+        noBtn.parentNode.replaceChild(newNoBtn, noBtn);
+        
+        newYesBtn.addEventListener('click', () => {
+            popup.classList.add('hidden');
+            if (onConfirm) onConfirm();
+        });
+        
+        newNoBtn.addEventListener('click', () => {
+            popup.classList.add('hidden');
+        });
+    }
+}
+
+function closeDatabasePopups() {
+    ['databaseSuccessPopup', 'databaseErrorPopup', 'databaseConfirmPopup'].forEach(id => {
+        const popup = document.getElementById(id);
+        if (popup) popup.classList.add('hidden');
+    });
+}
+
 // Database Management Class
 class DatabaseManager {
     constructor() {
@@ -91,6 +144,28 @@ class DatabaseManager {
             removeDuplicatesBtn.addEventListener('click', removeDuplicates);
         }
 
+        // Game data management handlers
+        const openGameDataBtn = document.querySelector('[data-action="openGameDataModal"]');
+        if (openGameDataBtn) {
+            openGameDataBtn.addEventListener('click', openGameDataModal);
+        }
+
+        const jitenSearchBtn = document.getElementById('jitenSearchBtn');
+        if (jitenSearchBtn) {
+            jitenSearchBtn.addEventListener('click', searchJitenMoe);
+        }
+
+        const confirmLinkBtn = document.getElementById('confirmLinkBtn');
+        if (confirmLinkBtn) {
+            confirmLinkBtn.addEventListener('click', confirmLinkGame);
+        }
+
+        // Game data filter buttons
+        const filterButtons = document.querySelectorAll('.game-data-filters button');
+        filterButtons.forEach(btn => {
+            btn.addEventListener('click', (event) => filterGames(event.target.dataset.filter));
+        });
+
         // Add event listener for the ignore time window checkbox
         const ignoreTimeWindowCheckbox = document.getElementById('ignoreTimeWindow');
         if (ignoreTimeWindowCheckbox) {
@@ -100,20 +175,51 @@ class DatabaseManager {
     
     async loadDashboardStats() {
         try {
+            // Load general stats
             const response = await fetch('/api/games-list');
             const data = await response.json();
             
             if (response.ok && data.games) {
                 const totalGames = data.games.length;
                 const totalSentences = data.games.reduce((sum, game) => sum + game.sentence_count, 0);
+                const totalCharacters = data.games.reduce((sum, game) => sum + game.total_characters, 0);
                 
                 document.getElementById('totalGamesCount').textContent = totalGames.toLocaleString();
                 document.getElementById('totalSentencesCount').textContent = totalSentences.toLocaleString();
+                document.getElementById('totalCharactersCount').textContent = totalCharacters.toLocaleString();
             }
+            
+            // Load game management stats
+            await this.loadGameManagementStats();
         } catch (error) {
             console.error('Error loading dashboard stats:', error);
             document.getElementById('totalGamesCount').textContent = 'Error';
             document.getElementById('totalSentencesCount').textContent = 'Error';
+        }
+    }
+
+    async loadGameManagementStats() {
+        try {
+            const gamesResponse = await fetch('/api/games-management');
+            const gamesData = await gamesResponse.json();
+            
+            if (gamesResponse.ok && gamesData.summary) {
+                const linkedElement = document.getElementById('linkedGamesCount');
+                const unlinkedElement = document.getElementById('unlinkedGamesCount');
+                
+                if (linkedElement) {
+                    linkedElement.textContent = gamesData.summary.linked_games.toLocaleString();
+                }
+                if (unlinkedElement) {
+                    unlinkedElement.textContent = gamesData.summary.unlinked_games.toLocaleString();
+                }
+            }
+        } catch (error) {
+            console.error('Error loading game management stats:', error);
+            const linkedElement = document.getElementById('linkedGamesCount');
+            const unlinkedElement = document.getElementById('unlinkedGamesCount');
+            if (linkedElement) linkedElement.textContent = 'Error';
+            if (unlinkedElement) unlinkedElement.textContent = 'Error';
         }
     }
 }
@@ -262,30 +368,31 @@ async function deleteSelectedGames() {
     
     if (gameNames.length === 0) return;
     
-    if (!confirm(`Are you sure you want to delete ${gameNames.length} game(s)? This action cannot be undone.`)) {
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/delete-games', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ game_names: gameNames })
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            alert(`Successfully deleted ${result.successful_games.length} games!`);
-            closeModal('gamesDeletionModal');
-            await databaseManager.loadDashboardStats();
-        } else {
-            alert(`Error: ${result.error}`);
+    showDatabaseConfirmPopup(
+        `Are you sure you want to delete ${gameNames.length} game(s)? This action cannot be undone.`,
+        async () => {
+            try {
+                const response = await fetch('/api/delete-games', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ game_names: gameNames })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showDatabaseSuccessPopup(`Successfully deleted ${result.successful_games.length} games!`);
+                    closeModal('gamesDeletionModal');
+                    await databaseManager.loadDashboardStats();
+                } else {
+                    showDatabaseErrorPopup(`Error: ${result.error}`);
+                }
+            } catch (error) {
+                console.error('Error deleting games:', error);
+                showDatabaseErrorPopup('Failed to delete games');
+            }
         }
-    } catch (error) {
-        console.error('Error deleting games:', error);
-        alert('Failed to delete games');
-    }
+    );
 }
 
 // Text Lines Functions
@@ -406,42 +513,40 @@ async function deleteTextLines() {
         return;
     }
     
-    if (!confirm('This will permanently delete the selected text lines. Continue?')) {
-        return;
-    }
-    
-    try {
-        const requestData = {
-            regex_pattern: customRegex.trim() || null,
-            exact_text: textToDelete.trim() ? textToDelete.split('\n').filter(line => line.trim()) : null,
-            case_sensitive: caseSensitive,
-            use_regex: useRegex,
-            preview_only: false
-        };
-        
-        const response = await fetch('/api/delete-text-lines', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            successDiv.textContent = `Successfully deleted ${result.deleted_count} text lines!`;
+    showDatabaseConfirmPopup('This will permanently delete the selected text lines. Continue?', async () => {
+        try {
+            const requestData = {
+                regex_pattern: customRegex.trim() || null,
+                exact_text: textToDelete.trim() ? textToDelete.split('\n').filter(line => line.trim()) : null,
+                case_sensitive: caseSensitive,
+                use_regex: useRegex,
+                preview_only: false
+            };
+            
+            const response = await fetch('/api/delete-text-lines', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok) {
+                successDiv.textContent = `Successfully deleted ${result.deleted_count} text lines!`;
+                successDiv.style.display = 'block';
+                // Refresh dashboard stats
+                await databaseManager.loadDashboardStats();
+            } else {
+                errorDiv.textContent = result.error || 'Failed to delete text lines';
+                errorDiv.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Error deleting text lines:', error);
+            // Placeholder for development
+            successDiv.textContent = 'Text line deletion feature ready - backend endpoint needed';
             successDiv.style.display = 'block';
-            // Refresh dashboard stats
-            await databaseManager.loadDashboardStats();
-        } else {
-            errorDiv.textContent = result.error || 'Failed to delete text lines';
-            errorDiv.style.display = 'block';
         }
-    } catch (error) {
-        console.error('Error deleting text lines:', error);
-        // Placeholder for development
-        successDiv.textContent = 'Text line deletion feature ready - backend endpoint needed';
-        successDiv.style.display = 'block';
-    }
+    });
 }
 
 // Deduplication Functions
@@ -598,49 +703,47 @@ async function removeDuplicates() {
     const ignoreTimeWindow = document.getElementById('ignoreTimeWindow').checked;
     
     const modeText = ignoreTimeWindow ? 'ALL duplicate sentences across entire games' : 'duplicate sentences within the time window';
-    if (!confirm(`This will permanently remove ${modeText}. Continue?`)) {
-        return;
-    }
-    
-    try {
-        const requestData = {
-            games: selectedGames,
-            time_window_minutes: timeWindow,
-            case_sensitive: caseSensitive,
-            preserve_newest: preserveNewest,
-            ignore_time_window: ignoreTimeWindow,
-            preview_only: false
-        };
-        
-        const response = await fetch('/api/deduplicate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
+    showDatabaseConfirmPopup(`This will permanently remove ${modeText}. Continue?`, async () => {
+        try {
+            const requestData = {
+                games: selectedGames,
+                time_window_minutes: timeWindow,
+                case_sensitive: caseSensitive,
+                preserve_newest: preserveNewest,
+                ignore_time_window: ignoreTimeWindow,
+                preview_only: false
+            };
+            
+            const response = await fetch('/api/deduplicate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok) {
+                const successDiv = document.getElementById('deduplicationSuccess');
+                const resultModeText = ignoreTimeWindow ? 'across entire games' : `within ${timeWindow} minute time window`;
+                successDiv.textContent = `Successfully removed ${result.deleted_count} duplicate sentences ${resultModeText}!`;
+                successDiv.style.display = 'block';
+                document.getElementById('removeDuplicatesBtn').disabled = true;
+                // Refresh dashboard stats
+                await databaseManager.loadDashboardStats();
+            } else {
+                const errorDiv = document.getElementById('deduplicationError');
+                errorDiv.textContent = result.error || 'Failed to remove duplicates';
+                errorDiv.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Error removing duplicates:', error);
+            // Placeholder for development
             const successDiv = document.getElementById('deduplicationSuccess');
-            const resultModeText = ignoreTimeWindow ? 'across entire games' : `within ${timeWindow} minute time window`;
-            successDiv.textContent = `Successfully removed ${result.deleted_count} duplicate sentences ${resultModeText}!`;
+            successDiv.textContent = 'Deduplication feature ready - backend endpoint needed';
             successDiv.style.display = 'block';
             document.getElementById('removeDuplicatesBtn').disabled = true;
-            // Refresh dashboard stats
-            await databaseManager.loadDashboardStats();
-        } else {
-            const errorDiv = document.getElementById('deduplicationError');
-            errorDiv.textContent = result.error || 'Failed to remove duplicates';
-            errorDiv.style.display = 'block';
         }
-    } catch (error) {
-        console.error('Error removing duplicates:', error);
-        // Placeholder for development
-        const successDiv = document.getElementById('deduplicationSuccess');
-        successDiv.textContent = 'Deduplication feature ready - backend endpoint needed';
-        successDiv.style.display = 'block';
-        document.getElementById('removeDuplicatesBtn').disabled = true;
-    }
+    });
 }
 
 
@@ -650,7 +753,7 @@ async function openGameMergeModal() {
     const gameNames = Array.from(selectedCheckboxes).map(cb => cb.dataset.game);
     
     if (gameNames.length < 2) {
-        alert('Please select at least 2 games to merge.');
+        showDatabaseErrorPopup('Please select at least 2 games to merge.');
         return;
     }
     
@@ -711,7 +814,7 @@ async function openGameMergeModal() {
         }
     } catch (error) {
         console.error('Error loading game data for merge:', error);
-        alert('Failed to load game data for merge');
+        showDatabaseErrorPopup('Failed to load game data for merge');
     }
 }
 
@@ -719,7 +822,7 @@ async function confirmGameMerge() {
     const gameNames = window.selectedGamesForMerge;
     
     if (!gameNames || gameNames.length < 2) {
-        alert('Invalid game selection for merge');
+        showDatabaseErrorPopup('Invalid game selection for merge');
         return;
     }
     
@@ -775,8 +878,631 @@ async function confirmGameMerge() {
     }
 }
 
+// Game Data Management Functions
+let currentGames = [];
+let currentGameForSearch = null;
+let selectedJitenGame = null;
+let jitenSearchResults = []; // Global storage for search results
+
+async function openGameDataModal() {
+    openModal('gameDataModal');
+    await loadGamesForDataManagement();
+}
+
+async function loadGamesForDataManagement() {
+    const loadingIndicator = document.getElementById('gameDataLoadingIndicator');
+    const content = document.getElementById('gameDataContent');
+    const gamesList = document.getElementById('gameDataList');
+    
+    loadingIndicator.style.display = 'flex';
+    content.style.display = 'none';
+    
+    try {
+        const gamesResponse = await fetch('/api/games-management');
+        const gamesData = await gamesResponse.json();
+        
+        if (gamesResponse.ok) {
+            currentGames = gamesData.games || [];
+            
+            // Validate that all games have IDs
+            const gamesWithoutIds = currentGames.filter(game => !game.id);
+            if (gamesWithoutIds.length > 0) {
+                console.error(`Found ${gamesWithoutIds.length} games without IDs:`, gamesWithoutIds);
+                showDatabaseErrorPopup(`Warning: ${gamesWithoutIds.length} games are missing IDs. Please refresh the page.`);
+            }
+            
+            console.log(`Loaded ${currentGames.length} games`);
+            
+            // Update game management stats
+            await databaseManager.loadGameManagementStats();
+            
+            renderGamesList(currentGames);
+            content.style.display = 'block';
+        } else {
+            const errorMsg = gamesData.error || 'Failed to load games';
+            gamesList.innerHTML = `<p class="error-text">${escapeHtml(errorMsg)}</p>`;
+            content.style.display = 'block';
+            console.error('Failed to load games:', gamesData);
+        }
+    } catch (error) {
+        console.error('Error loading games for data management:', error);
+        gamesList.innerHTML = `<p class="error-text">Network error: ${escapeHtml(error.message)}</p>`;
+        content.style.display = 'block';
+    } finally {
+        loadingIndicator.style.display = 'none';
+    }
+}
+
+function renderGamesList(games, filter = 'all') {
+    const gamesList = document.getElementById('gameDataList');
+    
+    // Filter games based on selection
+    let filteredGames = games;
+    if (filter === 'linked') {
+        filteredGames = games.filter(game => game.is_linked);
+    } else if (filter === 'unlinked') {
+        filteredGames = games.filter(game => !game.is_linked);
+    }
+    
+    // Update filter button states
+    document.querySelectorAll('.game-data-filters button').forEach(btn => {
+        btn.classList.remove('primary');
+        btn.classList.add('action-btn');
+    });
+    const activeBtn = document.getElementById(`filter${filter.charAt(0).toUpperCase() + filter.slice(1)}`);
+    if (activeBtn) {
+        activeBtn.classList.add('primary');
+        activeBtn.classList.remove('action-btn');
+    }
+    
+    gamesList.innerHTML = '';
+    
+    // Render existing games first
+    if (filteredGames.length > 0) {
+        filteredGames.forEach(game => {
+            const gameItem = document.createElement('div');
+            gameItem.className = 'game-data-item';
+            
+            // Create status indicators
+            const statusIndicators = [];
+            if (game.is_linked) {
+                statusIndicators.push('<span class="status-badge linked">✅ Linked</span>');
+            } else {
+                statusIndicators.push('<span class="status-badge unlinked">🔍 Not Linked</span>');
+            }
+            
+            if (game.has_manual_overrides) {
+                statusIndicators.push('<span class="status-badge manual">📝 Manual Edits</span>');
+            }
+            
+            if (game.completed) {
+                statusIndicators.push('<span class="status-badge completed">🏁 Completed</span>');
+            }
+            
+            // Format dates
+            const startDate = game.start_date ? new Date(game.start_date * 1000).toLocaleDateString() : 'Unknown';
+            const lastPlayed = game.last_played ? new Date(game.last_played * 1000).toLocaleDateString() : 'Unknown';
+            
+            gameItem.innerHTML = `
+                <div class="game-header">
+                    ${game.image ? `<img src="data:image/png;base64,${game.image}" class="game-thumbnail" alt="Game cover">` : '<div class="game-thumbnail-placeholder">🎮</div>'}
+                    <div class="game-info">
+                        <h4 class="game-title">${escapeHtml(game.title_original)}</h4>
+                        ${game.title_english ? `<p class="game-title-en">${escapeHtml(game.title_english)}</p>` : ''}
+                        ${game.title_romaji ? `<p class="game-title-rom">${escapeHtml(game.title_romaji)}</p>` : ''}
+                        <div class="game-type-difficulty">
+                            ${game.type ? `<span class="game-type">${escapeHtml(game.type)}</span>` : ''}
+                            ${game.difficulty ? `<span class="game-difficulty">Difficulty: ${game.difficulty}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="game-status">
+                        ${statusIndicators.join('')}
+                    </div>
+                </div>
+                ${game.line_count > 0 ? `
+                <div class="game-stats">
+                    <span class="stat-item">${game.line_count.toLocaleString()} lines</span>
+                    <span class="stat-item">${game.character_count.toLocaleString()} characters</span>
+                    <span class="stat-item">Started: ${startDate}</span>
+                    <span class="stat-item">Last: ${lastPlayed}</span>
+                </div>
+                ` : ''}
+                <div class="game-actions">
+                    ${!game.is_linked ? `<button class="action-btn primary" onclick="openJitenSearch('${game.id}', '${escapeHtml(game.title_original)}')">🔍 Search jiten.moe</button>` : ''}
+                    <button class="action-btn" onclick="editGame('${game.id}')">📝 Edit</button>
+                    ${!game.completed ? `<button class="action-btn success" onclick="markGameCompleted('${game.id}')">🏁 Mark Complete</button>` : ''}
+                </div>
+                ${game.description ? `<div class="game-description">${escapeHtml(game.description)}</div>` : ''}
+            `;
+            
+            gamesList.appendChild(gameItem);
+        });
+    }
+    
+    // Show empty state if no games
+    if (filteredGames.length === 0) {
+        gamesList.innerHTML = `
+            <div style="text-align: center; color: var(--text-secondary); padding: 40px;">
+                <p>No games found.</p>
+                <p>Start playing games to see them appear here!</p>
+            </div>
+        `;
+    }
+}
+
+function filterGames(filter) {
+    renderGamesList(currentGames, filter);
+}
+
+function openJitenSearch(gameId, gameTitle) {
+    // Validate gameId
+    if (!gameId || gameId === 'undefined' || gameId === 'null') {
+        showDatabaseErrorPopup(`Cannot link game: Invalid game ID. Please refresh the page and try again.`);
+        console.error(`Invalid gameId provided to openJitenSearch: ${gameId}`);
+        return;
+    }
+    
+    currentGameForSearch = currentGames.find(game => game.id === gameId);
+    if (!currentGameForSearch) {
+        showDatabaseErrorPopup(`Cannot find game with ID: ${gameId}. Please refresh the page and try again.`);
+        console.error(`Game not found in currentGames: ${gameId}`);
+        return;
+    }
+    
+    // Additional validation
+    if (!currentGameForSearch.id) {
+        showDatabaseErrorPopup(`Game data is incomplete (missing ID). Please refresh the page and try again.`);
+        console.error(`Game found but has no ID:`, currentGameForSearch);
+        return;
+    }
+    
+    document.getElementById('searchingForGame').textContent = gameTitle;
+    document.getElementById('jitenSearchInput').value = gameTitle;
+    document.getElementById('jitenSearchResults').style.display = 'none';
+    document.getElementById('jitenSearchError').style.display = 'none';
+    
+    openModal('jitenSearchModal');
+}
+
+async function searchJitenMoe() {
+    const searchInput = document.getElementById('jitenSearchInput');
+    const resultsDiv = document.getElementById('jitenSearchResults');
+    const resultsListDiv = document.getElementById('jitenResultsList');
+    const errorDiv = document.getElementById('jitenSearchError');
+    const loadingDiv = document.getElementById('jitenSearchLoading');
+    
+    const searchTerm = searchInput.value.trim();
+    if (!searchTerm) {
+        errorDiv.textContent = 'Please enter a search term';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    errorDiv.style.display = 'none';
+    resultsDiv.style.display = 'none';
+    loadingDiv.style.display = 'flex';
+    
+    try {
+        const response = await fetch(`/api/jiten-search?title=${encodeURIComponent(searchTerm)}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+            if (data.results && data.results.length > 0) {
+                renderJitenResults(data.results);
+                resultsDiv.style.display = 'block';
+            } else {
+                errorDiv.textContent = 'No results found. Try a different search term.';
+                errorDiv.style.display = 'block';
+            }
+        } else {
+            errorDiv.textContent = data.error || 'Search failed';
+            errorDiv.style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Error searching jiten.moe:', error);
+        errorDiv.textContent = 'Search failed. Please try again.';
+        errorDiv.style.display = 'block';
+    } finally {
+        loadingDiv.style.display = 'none';
+    }
+}
+
+function renderJitenResults(results) {
+    const resultsListDiv = document.getElementById('jitenResultsList');
+    
+    // Store results globally for easy access
+    jitenSearchResults = results;
+    
+    resultsListDiv.innerHTML = '';
+    
+    results.forEach((result, index) => {
+        const resultItem = document.createElement('div');
+        resultItem.className = 'jiten-result-item';
+        
+        const mediaTypeMap = {1: 'Anime', 7: 'Visual Novel', 2: 'Manga'};
+        const mediaTypeText = mediaTypeMap[result.media_type] || 'Unknown';
+        
+        resultItem.innerHTML = `
+            <div class="jiten-result-header">
+                ${result.cover_name ? `<img src="${result.cover_name}" class="jiten-thumbnail" alt="Cover">` : '<div class="jiten-thumbnail-placeholder">🎮</div>'}
+                <div class="jiten-info">
+                    <h5 class="jiten-title">${escapeHtml(result.title_original)}</h5>
+                    ${result.title_english ? `<p class="jiten-title-en">${escapeHtml(result.title_english)}</p>` : ''}
+                    ${result.title_romaji ? `<p class="jiten-title-rom">${escapeHtml(result.title_romaji)}</p>` : ''}
+                    <div class="jiten-meta">
+                        <span class="jiten-type">${mediaTypeText}</span>
+                        ${result.difficulty ? `<span class="jiten-difficulty">Difficulty: ${result.difficulty}</span>` : ''}
+                        <span class="jiten-chars">${result.character_count.toLocaleString()} chars</span>
+                    </div>
+                </div>
+                <div class="jiten-actions">
+                    <button class="action-btn primary" onclick="selectJitenGame(${index})">Select</button>
+                </div>
+            </div>
+            ${result.description ? `<div class="jiten-description">${escapeHtml(result.description.substring(0, 200))}${result.description.length > 200 ? '...' : ''}</div>` : ''}
+        `;
+        
+        resultsListDiv.appendChild(resultItem);
+    });
+}
+
+function selectJitenGame(resultIndex) {
+    selectedJitenGame = jitenSearchResults[resultIndex];
+    
+    // Check if we're linking an existing game or creating from potential
+    if (window.currentPotentialGame) {
+        showPotentialGameLinkConfirmation();
+    } else {
+        showLinkConfirmation();
+    }
+}
+
+function showLinkConfirmation() {
+    if (!currentGameForSearch || !selectedJitenGame) return;
+    
+    // Populate current game preview
+    const currentGamePreview = document.getElementById('currentGamePreview');
+    currentGamePreview.innerHTML = `
+        <div class="preview-header">
+            <h5>${escapeHtml(currentGameForSearch.title_original)}</h5>
+            <div class="preview-stats">
+                ${currentGameForSearch.line_count.toLocaleString()} lines,
+                ${currentGameForSearch.character_count.toLocaleString()} characters
+            </div>
+        </div>
+    `;
+    
+    // Populate jiten game preview
+    const jitenGamePreview = document.getElementById('jitenGamePreview');
+    const mediaTypeMap = {1: 'Anime', 7: 'Visual Novel', 2: 'Manga'};
+    jitenGamePreview.innerHTML = `
+        <div class="preview-header">
+            ${selectedJitenGame.cover_name ? `<img src="${selectedJitenGame.cover_name}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px; margin-right: 10px;">` : ''}
+            <div>
+                <h5>${escapeHtml(selectedJitenGame.title_original)}</h5>
+                ${selectedJitenGame.title_english ? `<p>${escapeHtml(selectedJitenGame.title_english)}</p>` : ''}
+                <div class="preview-stats">
+                    ${mediaTypeMap[selectedJitenGame.media_type] || 'Unknown'} |
+                    Deck ID: ${selectedJitenGame.deck_id} |
+                    Difficulty: ${selectedJitenGame.difficulty}
+                </div>
+            </div>
+        </div>
+        ${selectedJitenGame.description ? `<div style="margin-top: 10px; color: var(--text-secondary); font-size: 14px;">${escapeHtml(selectedJitenGame.description.substring(0, 150))}${selectedJitenGame.description.length > 150 ? '...' : ''}</div>` : ''}
+    `;
+    
+    // Show manual overrides warning if any
+    const warningDiv = document.getElementById('manualOverridesWarning');
+    const overriddenFieldsList = document.getElementById('overriddenFieldsList');
+    
+    if (currentGameForSearch.has_manual_overrides && currentGameForSearch.manual_overrides.length > 0) {
+        overriddenFieldsList.innerHTML = `<div>Fields: ${currentGameForSearch.manual_overrides.join(', ')}</div>`;
+        warningDiv.style.display = 'block';
+    } else {
+        warningDiv.style.display = 'none';
+    }
+    
+    // Close search modal and open confirmation modal
+    closeModal('jitenSearchModal');
+    openModal('gameLinkConfirmModal');
+}
+
+async function confirmLinkGame() {
+    if (!currentGameForSearch || !selectedJitenGame) {
+        showDatabaseErrorPopup('Missing game or jiten data. Please try again.');
+        return;
+    }
+    
+    // Validate game ID before making API call
+    if (!currentGameForSearch.id || currentGameForSearch.id === 'undefined' || currentGameForSearch.id === 'null') {
+        showDatabaseErrorPopup(`Cannot link game: Invalid game ID (${currentGameForSearch.id}). Please refresh the page and try again.`);
+        console.error('Invalid game ID in confirmLinkGame:', currentGameForSearch);
+        return;
+    }
+    
+    const errorDiv = document.getElementById('linkConfirmError');
+    const loadingDiv = document.getElementById('linkConfirmLoading');
+    const confirmBtn = document.getElementById('confirmLinkBtn');
+    
+    errorDiv.style.display = 'none';
+    loadingDiv.style.display = 'flex';
+    confirmBtn.disabled = true;
+    
+    try {
+        const apiUrl = `/api/games/${currentGameForSearch.id}/link-jiten`;
+        console.log(`Linking game to jiten.moe: ${apiUrl}`);
+        
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                deck_id: selectedJitenGame.deck_id,
+                jiten_data: selectedJitenGame
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Success! Close modal and refresh game list
+            closeModal('gameLinkConfirmModal');
+            await loadGamesForDataManagement();
+            await databaseManager.loadGameManagementStats();
+            
+            // Show success message with line count
+            const lineCount = result.lines_linked || currentGameForSearch.line_count || 0;
+            showDatabaseSuccessPopup(`Successfully linked "${currentGameForSearch.title_original}" to jiten.moe! ${lineCount} lines linked.`);
+        } else {
+            const errorMessage = result.error || 'Failed to link game';
+            errorDiv.textContent = errorMessage;
+            errorDiv.style.display = 'block';
+            confirmBtn.disabled = false;
+            console.error('Link game API error:', result);
+        }
+    } catch (error) {
+        console.error('Error linking game:', error);
+        errorDiv.textContent = `Network error: ${error.message || 'Failed to connect to server'}`;
+        errorDiv.style.display = 'block';
+        confirmBtn.disabled = false;
+    } finally {
+        loadingDiv.style.display = 'none';
+    }
+}
+
+async function markGameCompleted(gameId) {
+    showDatabaseConfirmPopup('Mark this game as completed?', async () => {
+        try {
+            const response = await fetch(`/api/games/${gameId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ completed: true })
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok) {
+                await loadGamesForDataManagement();
+                showDatabaseSuccessPopup('Game marked as completed!');
+            } else {
+                showDatabaseErrorPopup(`Error: ${result.error}`);
+            }
+        } catch (error) {
+            console.error('Error marking game as completed:', error);
+            showDatabaseErrorPopup('Failed to mark game as completed');
+        }
+    });
+}
+
+function editGame(gameId) {
+    const game = currentGames.find(g => g.id === gameId);
+    if (!game) {
+        showDatabaseErrorPopup('Game not found');
+        return;
+    }
+    
+    openEditGameModal(game);
+}
+
+function openEditGameModal(game) {
+    // Populate form fields with current game data
+    document.getElementById('editGameId').value = game.id;
+    document.getElementById('editTitleOriginal').value = game.title_original || '';
+    document.getElementById('editTitleRomaji').value = game.title_romaji || '';
+    document.getElementById('editTitleEnglish').value = game.title_english || '';
+    document.getElementById('editType').value = game.type || '';
+    document.getElementById('editDescription').value = game.description || '';
+    document.getElementById('editDifficulty').value = game.difficulty || '';
+    document.getElementById('editDeckId').value = game.deck_id || '';
+    document.getElementById('editCharacterCount').value = game.character_count || '';
+    document.getElementById('editCompleted').checked = game.completed || false;
+    
+    // Handle links JSON
+    if (game.links && game.links.length > 0) {
+        document.getElementById('editLinks').value = JSON.stringify(game.links, null, 2);
+    } else {
+        document.getElementById('editLinks').value = '';
+    }
+    
+    // Handle image preview
+    const imagePreview = document.getElementById('editImagePreview');
+    const imagePreviewImg = document.getElementById('editImagePreviewImg');
+    if (game.image) {
+        imagePreviewImg.src = `data:image/png;base64,${game.image}`;
+        imagePreview.style.display = 'block';
+    } else {
+        imagePreview.style.display = 'none';
+    }
+    
+    // Reset file input
+    document.getElementById('editImageUpload').value = '';
+    
+    // Reset error display
+    document.getElementById('editGameError').style.display = 'none';
+    
+    // Open the modal
+    openModal('editGameModal');
+}
+
+// Handle image upload preview
+document.addEventListener('DOMContentLoaded', function() {
+    const imageUpload = document.getElementById('editImageUpload');
+    if (imageUpload) {
+        imageUpload.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const imagePreview = document.getElementById('editImagePreview');
+                    const imagePreviewImg = document.getElementById('editImagePreviewImg');
+                    imagePreviewImg.src = event.target.result;
+                    imagePreview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }
+});
+
+async function saveGameEdits() {
+    const gameId = document.getElementById('editGameId').value;
+    const errorDiv = document.getElementById('editGameError');
+    const loadingDiv = document.getElementById('editGameLoading');
+    const saveBtn = document.getElementById('saveGameEditsBtn');
+    
+    // Reset error display
+    errorDiv.style.display = 'none';
+    
+    // Validate required fields
+    const titleOriginal = document.getElementById('editTitleOriginal').value.trim();
+    if (!titleOriginal) {
+        errorDiv.textContent = 'Original title is required';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    // Validate links JSON if provided
+    const linksText = document.getElementById('editLinks').value.trim();
+    let linksArray = [];
+    if (linksText) {
+        try {
+            linksArray = JSON.parse(linksText);
+            if (!Array.isArray(linksArray)) {
+                errorDiv.textContent = 'Links must be a JSON array';
+                errorDiv.style.display = 'block';
+                return;
+            }
+        } catch (e) {
+            errorDiv.textContent = 'Invalid JSON format for links';
+            errorDiv.style.display = 'block';
+            return;
+        }
+    }
+    
+    // Validate difficulty
+    const difficulty = document.getElementById('editDifficulty').value;
+    if (difficulty && (parseInt(difficulty) < 1 || parseInt(difficulty) > 5)) {
+        errorDiv.textContent = 'Difficulty must be between 1 and 5';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    // Show loading state
+    loadingDiv.style.display = 'flex';
+    saveBtn.disabled = true;
+    
+    try {
+        // Prepare update data
+        const updateData = {
+            title_original: titleOriginal,
+            title_romaji: document.getElementById('editTitleRomaji').value.trim(),
+            title_english: document.getElementById('editTitleEnglish').value.trim(),
+            type: document.getElementById('editType').value,
+            description: document.getElementById('editDescription').value.trim(),
+            completed: document.getElementById('editCompleted').checked
+        };
+        
+        // Add optional numeric fields
+        const deckId = document.getElementById('editDeckId').value;
+        if (deckId) {
+            updateData.deck_id = parseInt(deckId);
+        }
+        
+        if (difficulty) {
+            updateData.difficulty = parseInt(difficulty);
+        }
+        
+        const characterCount = document.getElementById('editCharacterCount').value;
+        if (characterCount) {
+            updateData.character_count = parseInt(characterCount);
+        }
+        
+        // Add links if provided
+        if (linksArray.length > 0) {
+            updateData.links = linksArray;
+        }
+        
+        // Handle image upload
+        const imageFile = document.getElementById('editImageUpload').files[0];
+        if (imageFile) {
+            const reader = new FileReader();
+            const imageBase64 = await new Promise((resolve, reject) => {
+                reader.onload = (e) => {
+                    // Extract base64 data (remove data:image/...;base64, prefix)
+                    const base64 = e.target.result.split(',')[1];
+                    resolve(base64);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(imageFile);
+            });
+            updateData.image = imageBase64;
+        }
+        
+        // Send update request
+        const response = await fetch(`/api/games/${gameId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updateData)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Success! Close modal and refresh
+            closeModal('editGameModal');
+            await loadGamesForDataManagement();
+            showDatabaseSuccessPopup('Game updated successfully! All edited fields marked as manual overrides.');
+        } else {
+            errorDiv.textContent = result.error || 'Failed to update game';
+            errorDiv.style.display = 'block';
+            saveBtn.disabled = false;
+        }
+    } catch (error) {
+        console.error('Error saving game edits:', error);
+        errorDiv.textContent = `Error: ${error.message}`;
+        errorDiv.style.display = 'block';
+        saveBtn.disabled = false;
+    } finally {
+        loadingDiv.style.display = 'none';
+    }
+}
+
 // Initialize page when DOM loads
 let databaseManager;
 document.addEventListener('DOMContentLoaded', function() {
     databaseManager = new DatabaseManager();
+    
+    // Initialize popup close button event listeners
+    const closeDatabaseSuccessBtn = document.getElementById('closeDatabaseSuccessBtn');
+    if (closeDatabaseSuccessBtn) {
+        closeDatabaseSuccessBtn.addEventListener('click', () => {
+            document.getElementById('databaseSuccessPopup').classList.add('hidden');
+        });
+    }
+    
+    const closeDatabaseErrorBtn = document.getElementById('closeDatabaseErrorBtn');
+    if (closeDatabaseErrorBtn) {
+        closeDatabaseErrorBtn.addEventListener('click', () => {
+            document.getElementById('databaseErrorPopup').classList.add('hidden');
+        });
+    }
 });

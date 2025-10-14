@@ -101,7 +101,7 @@ class GamesTable(SQLiteDBTable):
             difficulty=None,
             completed=False
         )
-        new_game.save()
+        new_game.add()  # Use add() instead of save() for new records with UUID primary keys
         logger.info(f"Auto-created new game record: {game_name} (id={new_game.id})")
         return new_game
 

@@ -1812,6 +1812,464 @@ def register_database_api_routes(app):
             logger.error(f"Error fetching config {filename}: {e}")
             return jsonify({'error': 'Failed to fetch configuration'}), 500
 
+    @app.route('/api/games-management', methods=['GET'])
+    def api_games_management():
+        """
+        Get all games with their jiten.moe linking status and statistics.
+        Automatically creates game records for orphaned game_lines.
+        """
+        try:
+            from GameSentenceMiner.util.games_table import GamesTable
+            
+            # First, auto-create games for any orphaned game_lines
+            # Get all distinct game names from game_lines
+            game_names_from_lines = GameLinesTable._db.fetchall(
+                f"SELECT DISTINCT game_name FROM {GameLinesTable._table} "
+                f"WHERE game_name IS NOT NULL AND game_name != ''"
+            )
+            
+            # Get existing game titles
+            existing_games_rows = GamesTable._db.fetchall(
+                f"SELECT title_original FROM {GamesTable._table}"
+            )
+            existing_titles = {row[0] for row in existing_games_rows}
+            
+            # Auto-create games for orphaned game_lines
+            for row in game_names_from_lines:
+                game_name = row[0]
+                if game_name not in existing_titles:
+                    # Create a new game record
+                    new_game = GamesTable(title_original=game_name)
+                    new_game.add()  # Use add() instead of save() for new records with UUID primary keys
+                    
+                    # Link the game_lines to this new game
+                    GameLinesTable._db.execute(
+                        f"UPDATE {GameLinesTable._table} SET game_id = ? WHERE game_name = ? AND (game_id IS NULL OR game_id = '')",
+                        (new_game.id, game_name),
+                        commit=True
+                    )
+                    
+                    logger.info(f"Auto-created game record for: {game_name} (id={new_game.id})")
+                    existing_titles.add(game_name)
+            
+            # Get all games from the games table
+            all_games = GamesTable.all()
+            
+            games_data = []
+            for game in all_games:
+                # Get line count and character count for this game
+                lines = game.get_lines()
+                line_count = len(lines)
+                
+                # Calculate actual character count from lines if not set
+                actual_char_count = sum(len(line.line_text) if line.line_text else 0 for line in lines)
+                if game.character_count != actual_char_count:
+                    game.character_count = actual_char_count
+                    game.save()
+                
+                # Determine linking status
+                is_linked = bool(game.deck_id)
+                has_manual_overrides = len(game.manual_overrides) > 0
+                
+                # Get start and end dates
+                start_date = GamesTable.get_start_date(game.id)
+                last_played = GamesTable.get_last_played_date(game.id)
+                
+                games_data.append({
+                    'id': game.id,
+                    'title_original': game.title_original,
+                    'title_romaji': game.title_romaji,
+                    'title_english': game.title_english,
+                    'type': game.type,
+                    'description': game.description,
+                    'image': game.image,
+                    'deck_id': game.deck_id,
+                    'difficulty': game.difficulty,
+                    'completed': game.completed,
+                    'is_linked': is_linked,
+                    'has_manual_overrides': has_manual_overrides,
+                    'manual_overrides': game.manual_overrides,
+                    'line_count': line_count,
+                    'character_count': actual_char_count,
+                    'start_date': start_date,
+                    'last_played': last_played,
+                    'links': game.links
+                })
+            
+            # Sort by character count (most active games first)
+            games_data.sort(key=lambda x: x['character_count'], reverse=True)
+            
+            # Calculate summary statistics
+            total_games = len(games_data)
+            linked_games = sum(1 for game in games_data if game['is_linked'])
+            unlinked_games = total_games - linked_games
+            
+            return jsonify({
+                'games': games_data,
+                'summary': {
+                    'total_games': total_games,
+                    'linked_games': linked_games,
+                    'unlinked_games': unlinked_games
+                }
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error fetching games management data: {e}", exc_info=True)
+            return jsonify({'error': 'Failed to fetch games data'}), 500
+
+    @app.route('/api/jiten-search', methods=['GET'])
+    def api_jiten_search():
+        """
+        Search jiten.moe media decks by title.
+        """
+        try:
+            import requests
+            
+            title_filter = request.args.get('title', '').strip()
+            if not title_filter:
+                return jsonify({'error': 'Title parameter is required'}), 400
+            
+            # Call jiten.moe API
+            jiten_url = 'https://api.jiten.moe/api/media-deck/get-media-decks'
+            params = {
+                'titleFilter': title_filter,
+                'sortBy': 'title',
+                'sortOrder': 0,
+                'offset': 0
+            }
+            
+            response = requests.get(jiten_url, params=params, timeout=10)
+            
+            if response.status_code != 200:
+                return jsonify({'error': f'jiten.moe API returned status {response.status_code}'}), 500
+            
+            data = response.json()
+            
+            # Process and format the results
+            results = []
+            for item in data.get('data', []):
+                results.append({
+                    'deck_id': item.get('deckId'),
+                    'title_original': item.get('originalTitle', ''),
+                    'title_romaji': item.get('romajiTitle', ''),
+                    'title_english': item.get('englishTitle', ''),
+                    'description': item.get('description', ''),
+                    'cover_name': item.get('coverName', ''),
+                    'media_type': item.get('mediaType'),
+                    'character_count': item.get('characterCount', 0),
+                    'difficulty': item.get('difficulty', 0),
+                    'difficulty_raw': item.get('difficultyRaw', 0),
+                    'links': item.get('links', []),
+                    'aliases': item.get('aliases', [])
+                })
+            
+            return jsonify({
+                'results': results,
+                'total_items': data.get('totalItems', 0)
+            }), 200
+            
+        except requests.RequestException as e:
+            logger.error(f"Error calling jiten.moe API: {e}")
+            return jsonify({'error': 'Failed to search jiten.moe database'}), 500
+        except Exception as e:
+            logger.error(f"Error in jiten search: {e}")
+            return jsonify({'error': 'Search failed'}), 500
+
+    @app.route('/api/games/<game_id>/link-jiten', methods=['POST'])
+    def api_link_game_to_jiten(game_id):
+        """
+        Link a game to jiten.moe data, respecting manual overrides.
+        """
+        try:
+            from GameSentenceMiner.util.games_table import GamesTable
+            import requests
+            
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            deck_id = data.get('deck_id')
+            if not deck_id:
+                return jsonify({'error': 'deck_id is required'}), 400
+            
+            # Get the game
+            game = GamesTable.get(game_id)
+            if not game:
+                return jsonify({'error': 'Game not found'}), 404
+            
+            # Get jiten.moe data to ensure it's valid
+            jiten_data = data.get('jiten_data', {})
+            
+            # Update game with jiten.moe data, respecting manual overrides
+            update_fields = {}
+            
+            # Only update fields that are not manually overridden
+            if 'deck_id' not in game.manual_overrides:
+                update_fields['deck_id'] = deck_id
+            
+            if 'title_romaji' not in game.manual_overrides and jiten_data.get('title_romaji'):
+                update_fields['title_romaji'] = jiten_data['title_romaji']
+            
+            if 'title_english' not in game.manual_overrides and jiten_data.get('title_english'):
+                update_fields['title_english'] = jiten_data['title_english']
+            
+            if 'type' not in game.manual_overrides and jiten_data.get('media_type'):
+                # Map media type to string
+                media_type_map = {1: 'Anime', 7: 'Visual Novel', 2: 'Manga'}
+                update_fields['type'] = media_type_map.get(jiten_data['media_type'], 'Unknown')
+            
+            if 'description' not in game.manual_overrides and jiten_data.get('description'):
+                update_fields['description'] = jiten_data['description']
+            
+            if 'difficulty' not in game.manual_overrides and jiten_data.get('difficulty') is not None:
+                difficulty_value = jiten_data['difficulty']
+                logger.info(f"Setting difficulty for game {game_id}: {difficulty_value} (type: {type(difficulty_value)})")
+                update_fields['difficulty'] = difficulty_value
+            
+            if 'character_count' not in game.manual_overrides and jiten_data.get('character_count') is not None:
+                update_fields['character_count'] = jiten_data['character_count']
+            
+            if 'links' not in game.manual_overrides and jiten_data.get('links'):
+                update_fields['links'] = jiten_data['links']
+            
+            # Download and encode image if not manually overridden
+            if 'image' not in game.manual_overrides and jiten_data.get('cover_name'):
+                try:
+                    import base64
+                    img_response = requests.get(jiten_data['cover_name'], timeout=10)
+                    if img_response.status_code == 200:
+                        img_base64 = base64.b64encode(img_response.content).decode('utf-8')
+                        update_fields['image'] = img_base64
+                except Exception as img_error:
+                    logger.warning(f"Failed to download image for game {game_id}: {img_error}")
+            
+            # Update the game using the jiten update method (doesn't mark as manual)
+            game.update_all_fields_from_jiten(**update_fields)
+            
+            logger.info(f"Successfully linked game {game_id} to jiten.moe deck {deck_id}")
+            
+            return jsonify({
+                'success': True,
+                'message': f'Game linked to jiten.moe deck {deck_id}',
+                'updated_fields': list(update_fields.keys()),
+                'manual_overrides': game.manual_overrides
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error linking game to jiten: {e}")
+            return jsonify({'error': f'Failed to link game: {str(e)}'}), 500
+
+    @app.route('/api/games/<game_id>', methods=['PUT'])
+    def api_update_game(game_id):
+        """
+        Update game information manually (marks fields as manually overridden).
+        Supports all game fields including image, deck_id, character_count, and links.
+        """
+        try:
+            from GameSentenceMiner.util.games_table import GamesTable
+            
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            # Get the game
+            game = GamesTable.get(game_id)
+            if not game:
+                return jsonify({'error': 'Game not found'}), 404
+            
+            # Update fields using manual update method (marks as manual override)
+            update_fields = {}
+            
+            # All allowed fields for manual editing
+            allowed_fields = [
+                'title_original', 'title_romaji', 'title_english', 'type',
+                'description', 'difficulty', 'completed', 'deck_id',
+                'character_count', 'image', 'links'
+            ]
+            
+            for field in allowed_fields:
+                if field in data:
+                    value = data[field]
+                    # Handle empty strings for optional fields
+                    if field in ['title_romaji', 'title_english', 'type', 'description', 'image'] and value == '':
+                        update_fields[field] = ''
+                    # Handle None values for numeric fields
+                    elif field in ['difficulty', 'deck_id', 'character_count'] and value == '':
+                        update_fields[field] = None
+                    # Handle boolean
+                    elif field == 'completed':
+                        update_fields[field] = bool(value)
+                    # Handle lists
+                    elif field == 'links':
+                        if isinstance(value, list):
+                            update_fields[field] = value
+                        elif value == '':
+                            update_fields[field] = []
+                    else:
+                        update_fields[field] = value
+            
+            if update_fields:
+                game.update_all_fields_manual(**update_fields)
+                
+                logger.info(f"Manually updated game {game_id} fields: {list(update_fields.keys())}")
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Game updated successfully',
+                    'updated_fields': list(update_fields.keys()),
+                    'manual_overrides': game.manual_overrides
+                }), 200
+            else:
+                return jsonify({'error': 'No valid fields to update'}), 400
+                
+        except Exception as e:
+            logger.error(f"Error updating game: {e}", exc_info=True)
+            return jsonify({'error': f'Failed to update game: {str(e)}'}), 500
+
+    @app.route('/api/orphaned-games', methods=['GET'])
+    def api_orphaned_games():
+        """
+        Get game names from game_lines that don't have corresponding games records.
+        Returns potential games that users can choose to create.
+        """
+        try:
+            from GameSentenceMiner.util.games_table import GamesTable
+            
+            # Get all distinct game names from game_lines
+            game_names_from_lines = GameLinesTable._db.fetchall(
+                f"SELECT DISTINCT game_name, COUNT(*) as line_count, SUM(LENGTH(line_text)) as char_count "
+                f"FROM {GameLinesTable._table} "
+                f"WHERE game_name IS NOT NULL AND game_name != '' "
+                f"GROUP BY game_name"
+            )
+            
+            # Get all existing game titles from games table
+            existing_games = GamesTable._db.fetchall(
+                f"SELECT title_original FROM {GamesTable._table}"
+            )
+            existing_titles = {row[0] for row in existing_games}
+            
+            # Find orphaned games (in game_lines but not in games table)
+            orphaned_games = []
+            for row in game_names_from_lines:
+                game_name, line_count, char_count = row
+                if game_name not in existing_titles:
+                    # Get date range for this game
+                    date_range = GameLinesTable._db.fetchone(
+                        f"SELECT MIN(timestamp), MAX(timestamp) FROM {GameLinesTable._table} WHERE game_name=?",
+                        (game_name,)
+                    )
+                    min_timestamp, max_timestamp = date_range if date_range else (None, None)
+                    
+                    orphaned_games.append({
+                        'game_name': game_name,
+                        'line_count': line_count,
+                        'character_count': char_count or 0,
+                        'first_seen': min_timestamp,
+                        'last_seen': max_timestamp
+                    })
+            
+            # Sort by character count (most active first)
+            orphaned_games.sort(key=lambda x: x['character_count'], reverse=True)
+            
+            return jsonify({
+                'orphaned_games': orphaned_games,
+                'total_orphaned': len(orphaned_games),
+                'total_managed': len(existing_titles)
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error fetching orphaned games: {e}")
+            return jsonify({'error': 'Failed to fetch orphaned games'}), 500
+
+    @app.route('/api/games', methods=['POST'])
+    def api_create_game():
+        """
+        Create a new game record (custom or from jiten.moe data).
+        Links orphaned game_lines to the newly created game.
+        """
+        try:
+            from GameSentenceMiner.util.games_table import GamesTable
+            
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            # Required field
+            title_original = data.get('title_original', '').strip()
+            if not title_original:
+                return jsonify({'error': 'title_original is required'}), 400
+            
+            # Check if game already exists
+            existing_game = GamesTable.get_by_title(title_original)
+            if existing_game:
+                return jsonify({'error': f'Game with title "{title_original}" already exists'}), 400
+            
+            # Create new game with provided data
+            game_data = {
+                'title_original': title_original,
+                'title_romaji': data.get('title_romaji', ''),
+                'title_english': data.get('title_english', ''),
+                'type': data.get('type', ''),
+                'description': data.get('description', ''),
+                'image': data.get('image', ''),
+                'difficulty': data.get('difficulty'),
+                'links': data.get('links', []),
+                'completed': data.get('completed', False)
+            }
+            
+            # Create the game
+            new_game = GamesTable(**game_data)
+            new_game.add()  # Use add() instead of save() for new records with UUID primary keys
+            
+            # Link orphaned game_lines to this new game
+            lines_updated = 0
+            try:
+                GameLinesTable._db.execute(
+                    f"UPDATE {GameLinesTable._table} SET game_id = ? WHERE game_name = ? AND (game_id IS NULL OR game_id = '')",
+                    (new_game.id, title_original),
+                    commit=True
+                )
+                
+                # Count how many lines were updated
+                updated_count = GameLinesTable._db.fetchone(
+                    f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE game_id = ?",
+                    (new_game.id,)
+                )
+                lines_updated = updated_count[0] if updated_count else 0
+                
+                # Update character count based on linked lines
+                if lines_updated > 0:
+                    char_count_result = GameLinesTable._db.fetchone(
+                        f"SELECT SUM(LENGTH(line_text)) FROM {GameLinesTable._table} WHERE game_id = ?",
+                        (new_game.id,)
+                    )
+                    new_game.character_count = char_count_result[0] if char_count_result and char_count_result[0] else 0
+                    new_game.save()
+                
+            except Exception as link_error:
+                logger.warning(f"Failed to link orphaned lines to new game {new_game.id}: {link_error}")
+            
+            logger.info(f"Created new game: {title_original} (id={new_game.id}, linked {lines_updated} lines)")
+            
+            return jsonify({
+                'success': True,
+                'message': f'Game "{title_original}" created successfully',
+                'game': {
+                    'id': new_game.id,
+                    'title_original': new_game.title_original,
+                    'title_romaji': new_game.title_romaji,
+                    'title_english': new_game.title_english,
+                    'type': new_game.type,
+                    'character_count': new_game.character_count,
+                    'lines_linked': lines_updated
+                }
+            }), 201
+            
+        except Exception as e:
+            logger.error(f"Error creating game: {e}")
+            return jsonify({'error': f'Failed to create game: {str(e)}'}), 500
+
     @app.route('/api/debug-db', methods=['GET'])
     def api_debug_db():
         """Debug endpoint to check database structure and content."""

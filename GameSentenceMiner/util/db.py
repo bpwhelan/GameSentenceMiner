@@ -259,6 +259,12 @@ class SQLiteDBTable:
                 raise ValueError(
                     f"Primary key {self._pk} must be set for non-auto-increment tables.")
             else:
+                # Serialize list and dict fields to JSON (same as save() method)
+                for field in self._fields:
+                    field_value = getattr(self, field)
+                    if isinstance(field_value, (list, dict)):
+                        setattr(self, field, json.dumps(field_value))
+                
                 keys = ', '.join(self._fields + [self._pk])
                 placeholders = ', '.join(['?'] * (len(self._fields) + 1))
                 values = tuple(getattr(self, field)
@@ -517,9 +523,10 @@ class GameLinesTable(SQLiteDBTable):
         logger.debug(f"Updated GameLine id={line_id} paths.")
 
     @classmethod
-    def add_line(cls, gameline: GameLine):
+    def add_line(cls, gameline: GameLine, game_id: Optional[str] = None):
         new_line = cls(id=gameline.id, game_name=gameline.scene,
-                       line_text=gameline.text, timestamp=gameline.time.timestamp())
+                       line_text=gameline.text, timestamp=gameline.time.timestamp(),
+                       game_id=game_id if game_id else '')
         # logger.info("Adding GameLine to DB: %s", new_line)
         new_line.add()
         return new_line

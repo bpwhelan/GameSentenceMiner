@@ -28,7 +28,7 @@
         <div class="management-card games">
             <div class="card-header">
                 <div class="card-icon">🗑️</div>
-                <h2 class="card-title">Games Management</h2>
+                <h2 class="card-title">Manage Game Lines</h2>
             </div>
             <p class="card-description">
                 Manage your game data by viewing statistics and selectively deleting games and their associated sentences.
@@ -40,6 +40,10 @@
             <div class="stats-row">
                 <span class="stats-label">Total Sentences:</span>
                 <span class="stats-value" id="totalSentencesCount">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Total Characters:</span>
+                <span class="stats-value" id="totalCharactersCount">Loading...</span>
             </div>
             <div class="card-actions">
                 <button class="action-btn danger" data-action="openGameDeletionModal">
@@ -65,6 +69,30 @@
             <div class="card-actions">
                 <button class="action-btn warning" data-action="openTextLinesModal">
                     Manage Text Lines
+                </button>
+            </div>
+        </div>
+
+        <!-- Manage Game Data Card -->
+        <div class="management-card game-data">
+            <div class="card-header">
+                <div class="card-icon">🎮</div>
+                <h2 class="card-title">Manage Game Data</h2>
+            </div>
+            <p class="card-description">
+                Link your games to jiten.moe database for enhanced metadata, difficulty ratings, and cover images.
+            </p>
+            <div class="stats-row">
+                <span class="stats-label">Linked Games:</span>
+                <span class="stats-value" id="linkedGamesCount">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Unlinked Games:</span>
+                <span class="stats-value" id="unlinkedGamesCount">Loading...</span>
+            </div>
+            <div class="card-actions">
+                <button class="action-btn primary" data-action="openGameDataModal">
+                    Manage Game Data
                 </button>
             </div>
         </div>
@@ -291,6 +319,234 @@
     </div>
 </div>
 
+<!-- Game Data Management Modal -->
+<div id="gameDataModal" class="modal">
+    <div class="modal-content" style="max-width: 900px;">
+        <div class="modal-header">
+            <h3>Manage Game Data</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="gameDataModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p class="info-text">Link your games to jiten.moe database for enhanced metadata, difficulty ratings, and cover images.</p>
+            
+            <div id="gameDataLoadingIndicator" class="loading-indicator">
+                <div class="spinner"></div>
+                <span>Loading games...</span>
+            </div>
+            
+            <div id="gameDataContent" style="display: none;">
+                <div class="game-data-filters" style="margin-bottom: 20px;">
+                    <button class="action-btn primary" data-filter="all" id="filterAll">All Games</button>
+                    <button class="action-btn" data-filter="linked" id="filterLinked">Linked</button>
+                    <button class="action-btn" data-filter="unlinked" id="filterUnlinked">Unlinked</button>
+                </div>
+                
+                <div id="gameDataList" style="max-height: 500px; overflow-y: auto;">
+                    <!-- Games will be populated here -->
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="gameDataModal">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Jiten.moe Search Modal -->
+<div id="jitenSearchModal" class="modal">
+    <div class="modal-content" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3>Search jiten.moe Database</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="jitenSearchModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="search-info" style="margin-bottom: 20px;">
+                <p><strong>Searching for:</strong> <span id="searchingForGame"></span></p>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Search Term:</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="jitenSearchInput" class="form-input" placeholder="Enter game title to search...">
+                    <button class="action-btn primary" id="jitenSearchBtn">Search</button>
+                </div>
+                <small style="color: var(--text-tertiary); font-size: 12px;">
+                    Search supports Japanese, romaji, and English titles.
+                </small>
+            </div>
+            
+            <div id="jitenSearchResults" style="display: none;">
+                <h4>Search Results:</h4>
+                <div id="jitenResultsList" style="max-height: 400px; overflow-y: auto; margin-top: 15px;">
+                    <!-- Search results will be populated here -->
+                </div>
+            </div>
+            
+            <div id="jitenSearchError" class="error-text" style="display: none;"></div>
+            <div id="jitenSearchLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Searching jiten.moe...</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="jitenSearchModal">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Game Link Confirmation Modal -->
+<div id="gameLinkConfirmModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3>Confirm Game Link</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="gameLinkConfirmModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="link-preview">
+                <div class="current-game" style="margin-bottom: 20px;">
+                    <h4>Your Game:</h4>
+                    <div id="currentGamePreview" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px;">
+                        <!-- Current game info will be populated here -->
+                    </div>
+                </div>
+                
+                <div class="jiten-game" style="margin-bottom: 20px;">
+                    <h4>jiten.moe Match:</h4>
+                    <div id="jitenGamePreview" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px;">
+                        <!-- Jiten game info will be populated here -->
+                    </div>
+                </div>
+                
+                <div class="manual-overrides-warning" id="manualOverridesWarning" style="display: none; background: var(--warning-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                    <strong>⚠️ Manual Overrides Detected:</strong>
+                    <div id="overriddenFieldsList"></div>
+                    <small>These manually edited fields will NOT be overwritten.</small>
+                </div>
+            </div>
+            
+            <div id="linkConfirmError" class="error-text" style="display: none;"></div>
+            <div id="linkConfirmLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Linking game...</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="gameLinkConfirmModal">Cancel</button>
+            <button class="action-btn success" id="confirmLinkBtn">Link Game</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Game Modal -->
+<div id="editGameModal" class="modal">
+    <div class="modal-content" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3>Edit Game</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="editGameModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p class="info-text">Edit game information. All changes will be marked as manual overrides and won't be overwritten by jiten.moe linking.</p>
+            
+            <form id="editGameForm">
+                <input type="hidden" id="editGameId" value="">
+                
+                <div class="form-group">
+                    <label class="form-label">Original Title (Japanese) *</label>
+                    <input type="text" id="editTitleOriginal" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Romaji Title</label>
+                    <input type="text" id="editTitleRomaji" class="form-input">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">English Title</label>
+                    <input type="text" id="editTitleEnglish" class="form-input">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Type</label>
+                    <select id="editType" class="form-input">
+                        <option value="">Select type...</option>
+                        <option value="Visual Novel">Visual Novel</option>
+                        <option value="Anime">Anime</option>
+                        <option value="Manga">Manga</option>
+                        <option value="Game">Game</option>
+                        <option value="Light Novel">Light Novel</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea id="editDescription" class="form-textarea" rows="4"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Difficulty (1-5)</label>
+                    <input type="number" id="editDifficulty" class="form-input" min="1" max="5">
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        1 = Easiest, 5 = Hardest
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Deck ID (jiten.moe)</label>
+                    <input type="number" id="editDeckId" class="form-input">
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        The jiten.moe deck identifier
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Character Count</label>
+                    <input type="number" id="editCharacterCount" class="form-input" min="0">
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        Total character count (usually auto-calculated)
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Cover Image</label>
+                    <div id="editImagePreview" style="margin-bottom: 10px; display: none;">
+                        <img id="editImagePreviewImg" style="max-width: 200px; max-height: 200px; border-radius: 8px; border: 1px solid var(--border-color);" alt="Cover preview">
+                    </div>
+                    <input type="file" id="editImageUpload" class="form-input" accept="image/*">
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        Upload a new cover image (will be converted to base64)
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Links (JSON Array)</label>
+                    <textarea id="editLinks" class="form-textarea" rows="4" placeholder='[{"linkType": 4, "url": "https://example.com", "deckId": 123}]'></textarea>
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        JSON array of link objects. Leave empty for no links.
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="editCompleted" class="checkbox-input">
+                        <label for="editCompleted" class="checkbox-label">Mark as completed</label>
+                    </div>
+                </div>
+            </form>
+            
+            <div id="editGameError" class="error-text" style="display: none;"></div>
+            <div id="editGameLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Saving changes...</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="editGameModal">Cancel</button>
+            <button class="action-btn success" id="saveGameEditsBtn" onclick="saveGameEdits()">Save Changes</button>
+        </div>
+    </div>
+</div>
+
 <!-- Game Merge Confirmation Modal -->
 <div id="gameMergeModal" class="modal">
     <div class="modal-content" style="max-width: 700px;">
@@ -350,6 +606,34 @@
             <button class="action-btn warning" id="confirmMergeBtn" data-action="confirmGameMerge">
                 🔀 Confirm Merge
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- Database Management Success/Error Popups -->
+<div id="databaseSuccessPopup" class="dashboard-popup hidden">
+    <div class="dashboard-popup-content">
+        <div class="dashboard-popup-icon">✅</div>
+        <div class="dashboard-popup-message" id="databaseSuccessMessage">Operation completed successfully!</div>
+        <button id="closeDatabaseSuccessBtn" class="dashboard-popup-btn">OK</button>
+    </div>
+</div>
+
+<div id="databaseErrorPopup" class="dashboard-popup hidden">
+    <div class="dashboard-popup-content">
+        <div class="dashboard-popup-icon">❌</div>
+        <div class="dashboard-popup-message" id="databaseErrorMessage">An error occurred!</div>
+        <button id="closeDatabaseErrorBtn" class="dashboard-popup-btn">OK</button>
+    </div>
+</div>
+
+<div id="databaseConfirmPopup" class="dashboard-popup hidden">
+    <div class="dashboard-popup-content">
+        <div class="dashboard-popup-icon">❓</div>
+        <div class="dashboard-popup-message" id="databaseConfirmMessage">Are you sure?</div>
+        <div style="display: flex; gap: 10px; margin-top: 15px;">
+            <button id="databaseConfirmYesBtn" class="dashboard-popup-btn" style="background: var(--danger-color);">Yes</button>
+            <button id="databaseConfirmNoBtn" class="dashboard-popup-btn">Cancel</button>
         </div>
     </div>
 </div>
