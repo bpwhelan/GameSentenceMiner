@@ -5,6 +5,7 @@ These endpoints replace the monolithic /api/anki_stats_combined endpoint.
 
 import concurrent.futures
 from flask import request, jsonify
+from GameSentenceMiner.util.configuration import get_config
 from GameSentenceMiner.anki import invoke
 from GameSentenceMiner.web.stats import calculate_kanji_frequency, calculate_mining_heatmap_data, is_kanji
 from GameSentenceMiner.util.db import GameLinesTable
@@ -126,10 +127,11 @@ def register_anki_api_endpoints(app):
         """Get game-specific Anki statistics."""
         start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
         end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
+        parent_tag = get_config().anki.parent_tag.strip() or "Game"
         
         try:
             # Find all cards with Game:: parent tag
-            query = "tag:Game::*"
+            query = f"tag:{parent_tag}::*"
             card_ids = invoke("findCards", query=query)
             game_stats = []
             
@@ -169,7 +171,7 @@ def register_anki_api_endpoints(app):
                 # Find game tag (format: Game::GameName)
                 game_tag = None
                 for tag in tags:
-                    if tag.startswith('Game::'):
+                    if tag.startswith(f'{parent_tag}::'):
                         tag_parts = tag.split('::')
                         if len(tag_parts) >= 2:
                             game_tag = tag_parts[1]
