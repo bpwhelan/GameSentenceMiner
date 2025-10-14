@@ -451,9 +451,9 @@ class AIModelsTable(SQLiteDBTable):
 class GameLinesTable(SQLiteDBTable):
     _table = 'game_lines'
     _fields = ['game_name', 'line_text', 'screenshot_in_anki',
-               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp', 'original_game_name']
+               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp', 'original_game_name', 'game_id']
     _types = [str,  # Includes primary key type
-              str, str, str, str, str, str, str, str, float, str]
+              str, str, str, str, str, str, str, str, float, str, str]
     _pk = 'id'
     _auto_increment = False  # Use string IDs
 
@@ -468,7 +468,8 @@ class GameLinesTable(SQLiteDBTable):
                  audio_path: Optional[str] = None,
                  replay_path: Optional[str] = None,
                  translation: Optional[str] = None,
-                 original_game_name: Optional[str] = None):
+                 original_game_name: Optional[str] = None,
+                 game_id: Optional[str] = None):
         self.id = id
         self.game_name = game_name
         self.line_text = line_text
@@ -481,6 +482,7 @@ class GameLinesTable(SQLiteDBTable):
         self.replay_path = replay_path if replay_path is not None else ''
         self.translation = translation if translation is not None else ''
         self.original_game_name = original_game_name if original_game_name is not None else ''
+        self.game_id = game_id if game_id is not None else ''
 
     @classmethod
     def get_all_lines_for_scene(cls, game_name: str) -> List['GameLinesTable']:
@@ -605,7 +607,7 @@ class StatsRollupTable(SQLiteDBTable):
         stats.anki_cards_created += anki_cards_created
         stats.time_spent_mining += time_spent_mining
         stats.save()
-        
+
 # Ensure database directory exists and return path
 def get_db_directory(test=False, delete_test=False) -> str:
     if platform == 'win32':  # Windows
@@ -659,7 +661,10 @@ if os.path.exists(db_path):
 
 gsm_db = SQLiteDB(db_path)
 
-for cls in [AIModelsTable, GameLinesTable]:
+# Import GamesTable after gsm_db is created to avoid circular import
+from GameSentenceMiner.util.games_table import GamesTable
+
+for cls in [AIModelsTable, GameLinesTable, GamesTable]:
     cls.set_db(gsm_db)
     # Uncomment to start fresh every time
     # cls.drop()
@@ -680,8 +685,7 @@ def check_and_run_migrations():
             # Copy and cast data from old column to new column
             GameLinesTable.alter_column_type('timestamp_old', 'timestamp', 'REAL')
             logger.info("Migrated 'timestamp' column to REAL type in GameLinesTable.")
-            
-            
+    
     migrate_timestamp()
         
 check_and_run_migrations()
