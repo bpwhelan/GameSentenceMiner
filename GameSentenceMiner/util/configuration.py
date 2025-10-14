@@ -619,6 +619,7 @@ class Advanced:
 @dataclass
 class Ai:
     enabled: bool = False
+    add_to_anki: bool = False
     anki_field: str = ''
     provider: str = AI_GEMINI
     gemini_model: str = 'gemini-2.5-flash-lite'
@@ -645,19 +646,21 @@ class Ai:
             self.gemini_model = 'gemini-2.5-flash-lite'
         if self.groq_model in ['RECOMMENDED', 'OTHER']:
             self.groq_model = 'meta-llama/llama-4-scout-17b-16e-instruct'
+            
+        if self.enabled:
+            self.add_to_anki = True
 
         # Change Legacy Model Name
         if self.gemini_model == 'gemini-2.5-flash-lite-preview-06-17':
             self.gemini_model = 'gemini-2.5-flash-lite'
             
     def is_configured(self) -> bool:
-        if self.enabled:
-            if self.provider == AI_GEMINI and self.gemini_api_key and self.gemini_model:
-                return True
-            if self.provider == AI_GROQ and self.groq_api_key and self.groq_model:
-                return True
-            if self.provider == AI_OPENAI and self.open_ai_api_key and self.open_ai_model and self.open_ai_url:
-                return True
+        if self.provider == AI_GEMINI and self.gemini_api_key and self.gemini_model:
+            return True
+        if self.provider == AI_GROQ and self.groq_api_key and self.groq_model:
+            return True
+        if self.provider == AI_OPENAI and self.open_ai_api_key and self.open_ai_model and self.open_ai_url:
+            return True
         return False
 
 

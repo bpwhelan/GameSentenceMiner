@@ -235,14 +235,19 @@ def translate_multiple():
     event_ids = data.get('ids', [])
     if not event_ids:
         return jsonify({'error': 'Missing ids'}), 400
+    
+    if not get_config().ai.is_configured():
+        return jsonify({'error': 'AI translation is not properly configured. Please check your settings in the "AI" Tab.'}), 400
 
     lines = [get_line_by_id(event_id) for event_id in event_ids if get_line_by_id(event_id) is not None]
 
     text = "\n".join(line.text for line in lines)
     
+    language = get_config().general.get_native_language_name() if get_config().general.native_language else "English"
+    
     translate_multiple_lines_prompt = f"""
 **Professional Game Localization Task**
-Translate the following lines of game dialogue into natural-sounding, context-aware {get_config().general.get_native_language_name()}:
+Translate the following lines of game dialogue into natural-sounding, context-aware {language}:
 
 **Output Requirements**
 - Maintain the original tone and style of the dialogue.

@@ -473,7 +473,7 @@ class ConfigApp:
         self.localhost_bind_address_value = tk.StringVar(value=self.settings.advanced.localhost_bind_address)
         
         # AI Settings
-        self.ai_enabled_value = tk.BooleanVar(value=self.settings.ai.enabled)
+        self.ai_enabled_value = tk.BooleanVar(value=self.settings.ai.add_to_anki)
         self.ai_provider_value = tk.StringVar(value=self.settings.ai.provider)
         self.gemini_model_value = tk.StringVar(value=self.settings.ai.gemini_model)
         self.use_cpu_for_inference_value = tk.BooleanVar(value=self.settings.vad.use_cpu_for_inference)
@@ -714,7 +714,7 @@ class ConfigApp:
                 localhost_bind_address=self.localhost_bind_address_value.get(),
             ),
             ai=Ai(
-                enabled=self.ai_enabled_value.get(),
+                add_to_anki=self.ai_enabled_value.get(),
                 provider=self.ai_provider_value.get(),
                 gemini_model=self.gemini_model_value.get(),
                 groq_model=self.groq_model_value.get(),
