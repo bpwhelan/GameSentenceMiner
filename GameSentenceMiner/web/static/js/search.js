@@ -14,6 +14,7 @@ class SentenceSearchApp {
         this.searchStats = document.getElementById('searchStats');
         this.searchTime = document.getElementById('searchTime');
         this.regexCheckbox = document.getElementById('regexCheckbox');
+        this.deleteLinesBtn = document.getElementById('deleteLinesBtn');
         
         this.currentPage = 1;
         this.pageSize = 20;
@@ -21,6 +22,7 @@ class SentenceSearchApp {
         this.currentQuery = '';
         this.totalResults = 0;
         this.currentUseRegex = false;
+        this.selectedLineIds = new Set();
 
         // Move initialization logic to async method
         this.initialize();
@@ -73,6 +75,13 @@ class SentenceSearchApp {
         if (this.regexCheckbox) {
             this.regexCheckbox.addEventListener('change', () => {
                 this.performSearch();
+            });
+        }
+
+        // Delete button click handler
+        if (this.deleteLinesBtn) {
+            this.deleteLinesBtn.addEventListener('click', () => {
+                this.showDeleteConfirmation();
             });
         }
     }
@@ -180,6 +189,26 @@ class SentenceSearchApp {
     createResultElement(result) {
         const div = document.createElement('div');
         div.className = 'search-result';
+        div.style.display = 'flex';
+        div.style.alignItems = 'flex-start';
+        div.style.gap = '12px';
+        
+        // Create checkbox
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'line-checkbox';
+        checkbox.dataset.lineId = result.id;
+        checkbox.checked = this.selectedLineIds.has(result.id);
+        
+        // Add checkbox change handler
+        checkbox.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                this.selectedLineIds.add(result.id);
+            } else {
+                this.selectedLineIds.delete(result.id);
+            }
+            this.updateDeleteButtonState();
+        });
         
         // Highlight search terms
         const highlightedText = this.highlightSearchTerms(result.sentence, this.currentQuery);
@@ -188,7 +217,10 @@ class SentenceSearchApp {
         const date = new Date(result.timestamp * 1000);
         const formattedDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${date.toTimeString().split(' ')[0]}`;
         
-        div.innerHTML = `
+        // Create content container
+        const contentDiv = document.createElement('div');
+        contentDiv.style.flex = '1';
+        contentDiv.innerHTML = `
             <div class="result-sentence">${highlightedText}</div>
             <div class="result-metadata">
                 <div class="metadata-item">
@@ -206,6 +238,9 @@ class SentenceSearchApp {
                 ` : ''}
             </div>
         `;
+        
+        div.appendChild(checkbox);
+        div.appendChild(contentDiv);
         
         return div;
     }
@@ -289,9 +324,93 @@ class SentenceSearchApp {
         this.searchResults.style.display = 'none';
         document.getElementById('pagination').style.display = 'none';
     }
+
+    updateDeleteButtonState() {
+        if (this.deleteLinesBtn) {
+            const selectedCount = this.selectedLineIds.size;
+            this.deleteLinesBtn.disabled = selectedCount === 0;
+            this.deleteLinesBtn.textContent = selectedCount > 0
+                ? `Delete Selected (${selectedCount})`
+                : 'Delete Selected';
+        }
+    }
+
+    showDeleteConfirmation() {
+        const count = this.selectedLineIds.size;
+        if (count === 0) return;
+
+        const message = `Are you sure you want to delete ${count} selected sentence${count > 1 ? 's' : ''}? This action cannot be undone.`;
+        
+        // Show confirmation modal
+        document.getElementById('deleteConfirmationMessage').textContent = message;
+        openModal('deleteConfirmationModal');
+    }
+
+    async deleteSelectedLines() {
+        if (this.selectedLineIds.size === 0) return;
+
+        const lineIds = Array.from(this.selectedLineIds);
+        
+        try {
+            // Show loading state
+            this.showLoadingState();
+            
+            const response = await fetch('/api/delete-sentence-lines', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ line_ids: lineIds })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to delete sentences');
+            }
+
+            // Clear selections
+            this.selectedLineIds.clear();
+            this.updateDeleteButtonState();
+
+            // Refresh search results
+            await this.performSearch();
+
+            // Show success message using modal
+            this.showMessage('Success', `Successfully deleted ${data.deleted_count} sentence${data.deleted_count > 1 ? 's' : ''}`);
+
+        } catch (error) {
+            this.showErrorState(`Failed to delete sentences: ${error.message}`);
+            console.error('Delete error:', error);
+        }
+    }
+
+    showMessage(title, message) {
+        document.getElementById('messageModalTitle').textContent = title;
+        document.getElementById('messageModalText').textContent = message;
+        openModal('messageModal');
+    }
 }
 
 // Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    new SentenceSearchApp();
+    const app = new SentenceSearchApp();
+    
+    // Add modal close button handlers
+    const closeButtons = document.querySelectorAll('[data-action="closeModal"]');
+    closeButtons.forEach(btn => {
+        const modalId = btn.getAttribute('data-modal');
+        if (modalId) {
+            btn.addEventListener('click', () => closeModal(modalId));
+        }
+    });
+    
+    // Add confirm delete button handler
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+    if (confirmDeleteBtn) {
+        confirmDeleteBtn.addEventListener('click', () => {
+            closeModal('deleteConfirmationModal');
+            app.deleteSelectedLines();
+        });
+    }
 });

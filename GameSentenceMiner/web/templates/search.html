@@ -67,6 +67,7 @@
         <div class="search-stats">
             <span id="searchStats">Ready to search</span>
             <span id="searchTime"></span>
+            <button id="deleteLinesBtn" class="delete-btn" style="margin-left: auto;" disabled>Delete Selected</button>
         </div>
     </div>
     
@@ -99,6 +100,39 @@
             <button id="prevPage" class="page-btn">« Previous</button>
             <span id="pageInfo"></span>
             <button id="nextPage" class="page-btn">Next »</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="deleteConfirmationModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Confirm Deletion</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="deleteConfirmationModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p class="warning-text" id="deleteConfirmationMessage"></p>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn cancel-btn" data-action="closeModal" data-modal="deleteConfirmationModal">Cancel</button>
+            <button class="action-btn danger" id="confirmDeleteBtn">Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- Message Modal (for success/info messages) -->
+<div id="messageModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="messageModalTitle">Message</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="messageModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p id="messageModalText"></p>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn ok-btn" data-action="closeModal" data-modal="messageModal">OK</button>
         </div>
     </div>
 </div>
