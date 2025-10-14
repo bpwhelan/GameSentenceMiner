@@ -184,7 +184,7 @@ export function registerYuzuIPC() {
         try {
             return getYuzuGames(getYuzuRomsPath()) // Convert JSON string to array of YuzuGame
         } catch (error) {
-            console.error("Error fetching games:", error);
+            // console.error("Error fetching games:", error);
             return [];
         }
     });

@@ -1089,7 +1089,7 @@ def register_database_api_routes(app):
                     color = colors[i % len(colors)]
                     
                     datasets.append({
-                        "label": f"{game} - Lines Received",
+                        "label": f"{game}",
                         "data": final_data[game]['lines'],
                         "borderColor": color,
                         "backgroundColor": f"{color}33", # Semi-transparent for fill
@@ -1098,7 +1098,7 @@ def register_database_api_routes(app):
                         "for": "Lines Received"
                     })
                     datasets.append({
-                        "label": f"{game} - Characters Read",
+                        "label": f"{game}",
                         "data": final_data[game]['chars'],
                         "borderColor": color,
                         "backgroundColor": f"{color}33",

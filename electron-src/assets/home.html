@@ -151,13 +151,13 @@
 
             if (showLoading)
                 windowSelect.innerHTML = '<option>Loading...</option>';
-            ipcRenderer.invoke('ocr.getWindows').then(windowsRes => {
+            ipcRenderer.invoke('obs.getWindows').then(windowsRes => {
                 windows = windowsRes;
                 windowSelect.innerHTML = '';
                 windows.forEach(window => {
                     const option = document.createElement('option');
-                    option.value = window;
-                    option.textContent = window;
+                    option.value = window.value;
+                    option.textContent = window.title;
                     windowSelect.appendChild(option);
                 });
 
@@ -165,9 +165,6 @@
                 if (previousSelection && windows.includes(previousSelection)) {
                     windowSelect.value = previousSelection;
                 }
-
-                getOBSWindows();
-                refreshActiveOCRWindow();
             });
         }
 
