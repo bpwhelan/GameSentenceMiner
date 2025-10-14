@@ -5,6 +5,7 @@ import os
 import shutil
 import threading
 import inspect
+import re
 
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
@@ -409,7 +410,6 @@ class General:
         except ValueError:
             return "Unknown"
 
-
 @dataclass_json
 @dataclass
 class Paths:
@@ -424,9 +424,11 @@ class Paths:
 
     def __post_init__(self):
         if self.folder_to_watch:
-            self.folder_to_watch = os.path.normpath(self.folder_to_watch)
+            self.folder_to_watch = os.path.normpath(self.folder_to_watch).replace("\\", "/")
+            self.folder_to_watch = re.sub(r'/+', '/', self.folder_to_watch)
         if self.output_folder:
-            self.output_folder = os.path.normpath(self.output_folder)
+            self.output_folder = os.path.normpath(self.output_folder).replace("\\", "/")
+            self.output_folder = re.sub(r'/+', '/', self.output_folder)
 
 
 @dataclass_json
@@ -617,6 +619,7 @@ class Advanced:
 @dataclass
 class Ai:
     enabled: bool = False
+    add_to_anki: bool = False
     anki_field: str = ''
     provider: str = AI_GEMINI
     gemini_model: str = 'gemini-2.5-flash-lite'
@@ -643,10 +646,22 @@ class Ai:
             self.gemini_model = 'gemini-2.5-flash-lite'
         if self.groq_model in ['RECOMMENDED', 'OTHER']:
             self.groq_model = 'meta-llama/llama-4-scout-17b-16e-instruct'
+            
+        if self.enabled:
+            self.add_to_anki = True
 
         # Change Legacy Model Name
         if self.gemini_model == 'gemini-2.5-flash-lite-preview-06-17':
             self.gemini_model = 'gemini-2.5-flash-lite'
+            
+    def is_configured(self) -> bool:
+        if self.provider == AI_GEMINI and self.gemini_api_key and self.gemini_model:
+            return True
+        if self.provider == AI_GROQ and self.groq_api_key and self.groq_model:
+            return True
+        if self.provider == AI_OPENAI and self.open_ai_api_key and self.open_ai_model and self.open_ai_url:
+            return True
+        return False
 
 
 class OverlayEngine(str, Enum):
@@ -662,6 +677,7 @@ class Overlay:
     periodic: bool = False
     periodic_interval: float = 1.0
     scan_delay: float = 0.25
+    minimum_character_size: int = 0
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:

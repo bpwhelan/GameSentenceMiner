@@ -444,10 +444,10 @@
             "label": "最小回放大小 (KB):",
             "tooltip": "OBS 录像回放的最小大小（KB）。如果回放小于此大小，将不抓取音频/截图。"
           },
-            "turn_off_replay_buffer_management": {
+          "turn_off_replay_buffer_management": {
             "label": "关闭回放缓冲区管理:",
             "tooltip": "禁用 OBS 回放缓冲区管理。如果您想在 OBS 中手动管理回放缓冲区，这将很有用。"
-            }
+          }
         },
         "profiles": {
           "title": "配置文件",
@@ -515,8 +515,8 @@
         "ai": {
           "title": "AI",
           "enabled": {
-            "label": "启用:",
-            "tooltip": "启用或禁用 AI 集成。"
+            "label": "添加到 Anki:",
+            "tooltip": "启用或禁用将 AI 结果添加到 Anki。"
           },
           "provider": {
             "label": "提供商:",

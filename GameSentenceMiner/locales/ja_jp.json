@@ -513,10 +513,10 @@
         },
         "ai": {
           "title": "AI",
-          "enabled": {
-            "label": "有効化:",
-            "tooltip": "AI連携を有効化します。"
-          },
+            "enabled": {
+            "label": "Ankiに追加:",
+            "tooltip": "AI結果をAnkiに追加するかどうかを有効化します。"
+            },
           "provider": {
             "label": "プロバイダー:",
             "tooltip": "AIプロバイダーを選択。"

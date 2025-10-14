@@ -134,7 +134,7 @@ def _prepare_anki_note_fields(note: Dict, last_note: 'AnkiCard', assets: MediaAs
     if game_name_field := config.anki.game_name_field:
         note['fields'][game_name_field] = get_current_game()
 
-    if config.ai.enabled:
+    if config.ai.add_to_anki:
         sentence_field = note['fields'].get(config.anki.sentence_field, {})
         sentence_to_translate = sentence_field or last_note.get_field(config.anki.sentence_field)
         translation = get_ai_prompt_result(get_all_lines(), sentence_to_translate, game_line, get_current_game())
