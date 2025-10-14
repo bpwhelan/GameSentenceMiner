@@ -714,7 +714,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('currentSessionTotalChars').textContent = lastSession.totalChars.toLocaleString();
         document.getElementById('currentSessionStartTime').textContent = startTimeDisplay;
         if (index === sessionDetails.length - 1) {
-            document.getElementById('currentSessionEndTime').textContent = 'Now';
+            document.getElementById('currentSessionEndTime').textContent = 'Unknown';
         } else {
             document.getElementById('currentSessionEndTime').textContent = endTimeDisplay;
         }
