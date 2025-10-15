@@ -561,8 +561,7 @@ def get_replay_buffer_max_time_seconds():
                 if settings and 'max_time_sec' in settings:
                     return settings['max_time_sec']
                 else:
-                    logger.warning("Replay buffer settings received, but 'max_time_sec' key was not found.")
-                    return 0
+                    return 300
             else:
                 logger.warning(f"get_output_settings for replay_buffer failed: {response.status}")
                 return 0

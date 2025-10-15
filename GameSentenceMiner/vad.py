@@ -195,11 +195,11 @@ class WhisperVADProcessor(VADProcessor):
         # If both mined text and Whisper transcription are available, compare their similarity
         if text_mined and text:
             from rapidfuzz import fuzz
-            similarity = fuzz.partial_ratio(text_mined, text)
-            logger.info(f"Whisper transcription: '{text}' | Mined text: '{text_mined}' | Partial similarity: {similarity:.1f}")
+            similarity = fuzz.ratio(text_mined, text)
+            logger.info(f"Whisper transcription: '{text}' | Mined text: '{text_mined}' | Full similarity: {similarity:.1f}")
             text_similarity = similarity
             if similarity < 20:
-                logger.info(f"Partial similarity {similarity:.1f} is below threshold, skipping voice activity.")
+                logger.info(f"Full similarity {similarity:.1f} is below threshold, skipping voice activity.")
                 return []
 
         # Process the segments to extract tokens, timestamps, and confidence
