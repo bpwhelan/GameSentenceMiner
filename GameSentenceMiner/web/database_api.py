@@ -48,7 +48,7 @@ def register_database_api_routes(app):
             
             if page < 1:
                 page = 1
-            if page_size < 1 or page_size > 100:
+            if page_size < 1 or page_size > 200:
                 page_size = 20
 
             if use_regex:
