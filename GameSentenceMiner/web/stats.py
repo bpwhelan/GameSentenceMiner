@@ -139,6 +139,34 @@ def calculate_heatmap_data(all_lines, filter_year=None):
     return dict(heatmap_data)
 
 
+def calculate_mining_heatmap_data(all_lines, filter_year=None):
+    """
+    Calculate heatmap data for mining activity.
+    Counts lines where screenshot_in_anki OR audio_in_anki is not empty.
+    """
+    heatmap_data = defaultdict(lambda: defaultdict(int))
+    
+    for line in all_lines:
+        # Check if line has been mined (either screenshot or audio in Anki)
+        has_screenshot = line.screenshot_in_anki and line.screenshot_in_anki.strip()
+        has_audio = line.audio_in_anki and line.audio_in_anki.strip()
+        
+        if not (has_screenshot or has_audio):
+            continue  # Skip lines that haven't been mined
+            
+        date_obj = datetime.date.fromtimestamp(float(line.timestamp))
+        year = str(date_obj.year)
+        
+        # Filter by year if specified
+        if filter_year and year != filter_year:
+            continue
+            
+        date_str = date_obj.strftime('%Y-%m-%d')
+        heatmap_data[year][date_str] += 1  # Count mined lines, not characters
+    
+    return dict(heatmap_data)
+
+
 def calculate_total_chars_per_game(all_lines):
     """Calculate total characters read per game."""
     game_data = defaultdict(lambda: {'total_chars': 0, 'first_time': None})
@@ -514,6 +542,166 @@ def calculate_average_daily_reading_time(all_lines):
     average_hours = total_hours / len(active_days)
     
     return average_hours
+
+def calculate_hourly_activity(all_lines):
+    """
+    Calculate reading activity aggregated by hour of day (0-23).
+    Returns character count for each hour across all days.
+    """
+    if not all_lines:
+        return [0] * 24
+    
+    hourly_chars = [0] * 24
+    
+    for line in all_lines:
+        # Get hour from timestamp (0-23)
+        hour = datetime.datetime.fromtimestamp(float(line.timestamp)).hour
+        char_count = len(line.line_text) if line.line_text else 0
+        hourly_chars[hour] += char_count
+    
+    return hourly_chars
+
+def calculate_hourly_reading_speed(all_lines):
+    """
+    Calculate average reading speed (chars/hour) aggregated by hour of day (0-23).
+    Returns average reading speed for each hour across all days.
+    """
+    if not all_lines:
+        return [0] * 24
+    
+    # Group lines by hour and collect timestamps for each hour
+    hourly_data = defaultdict(lambda: {'chars': 0, 'timestamps': []})
+    
+    for line in all_lines:
+        hour = datetime.datetime.fromtimestamp(float(line.timestamp)).hour
+        char_count = len(line.line_text) if line.line_text else 0
+        
+        hourly_data[hour]['chars'] += char_count
+        hourly_data[hour]['timestamps'].append(float(line.timestamp))
+    
+    # Calculate average reading speed for each hour
+    hourly_speeds = [0] * 24
+    
+    for hour in range(24):
+        if hour in hourly_data and len(hourly_data[hour]['timestamps']) >= 2:
+            chars = hourly_data[hour]['chars']
+            timestamps = hourly_data[hour]['timestamps']
+            
+            # Calculate actual reading time for this hour across all days
+            reading_time_seconds = calculate_actual_reading_time(timestamps)
+            reading_time_hours = reading_time_seconds / 3600
+            
+            # Calculate speed (chars per hour)
+            if reading_time_hours > 0:
+                hourly_speeds[hour] = int(chars / reading_time_hours)
+    
+    return hourly_speeds
+
+def calculate_peak_daily_stats(all_lines):
+    """
+    Calculate peak daily statistics: most chars read in a day and most hours studied in a day.
+    
+    Args:
+        all_lines: List of game lines
+    
+    Returns:
+        dict: Dictionary containing max_daily_chars and max_daily_hours
+    """
+    if not all_lines:
+        return {
+            'max_daily_chars': 0,
+            'max_daily_hours': 0.0
+        }
+    
+    # Calculate daily reading time using existing function
+    daily_reading_time = calculate_daily_reading_time(all_lines)
+    
+    # Calculate daily character counts
+    daily_chars = defaultdict(int)
+    for line in all_lines:
+        date_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
+        char_count = len(line.line_text) if line.line_text else 0
+        daily_chars[date_str] += char_count
+    
+    # Find maximums
+    max_daily_chars = max(daily_chars.values()) if daily_chars else 0
+    max_daily_hours = max(daily_reading_time.values()) if daily_reading_time else 0.0
+    
+    return {
+        'max_daily_chars': max_daily_chars,
+        'max_daily_hours': max_daily_hours
+    }
+
+def calculate_peak_session_stats(all_lines):
+    """
+    Calculate peak session statistics: longest session and most chars in a session.
+    
+    Args:
+        all_lines: List of game lines
+    
+    Returns:
+        dict: Dictionary containing longest_session_hours and max_session_chars
+    """
+    if not all_lines:
+        return {
+            'longest_session_hours': 0.0,
+            'max_session_chars': 0
+        }
+    
+    # Sort lines by timestamp
+    sorted_lines = sorted(all_lines, key=lambda line: float(line.timestamp))
+    
+    # Get session gap from config
+    session_gap = get_stats_config().session_gap_seconds
+    
+    # Group lines into sessions
+    sessions = []
+    current_session = []
+    
+    for line in sorted_lines:
+        if not current_session:
+            current_session = [line]
+        else:
+            # Check if this line belongs to the current session
+            time_gap = float(line.timestamp) - float(current_session[-1].timestamp)
+            if time_gap <= session_gap:
+                current_session.append(line)
+            else:
+                # Start a new session
+                if current_session:
+                    sessions.append(current_session)
+                current_session = [line]
+    
+    # Don't forget the last session
+    if current_session:
+        sessions.append(current_session)
+    
+    # Calculate session statistics
+    longest_session_hours = 0.0
+    max_session_chars = 0
+    
+    for session in sessions:
+        if len(session) >= 2:
+            # Calculate session duration using actual reading time
+            timestamps = [float(line.timestamp) for line in session]
+            session_time_seconds = calculate_actual_reading_time(timestamps)
+            session_hours = session_time_seconds / 3600
+            
+            # Calculate session character count
+            session_chars = sum(len(line.line_text) if line.line_text else 0 for line in session)
+            
+            # Update maximums
+            longest_session_hours = max(longest_session_hours, session_hours)
+            max_session_chars = max(max_session_chars, session_chars)
+        elif len(session) == 1:
+            # Single line session - count characters but no time
+            session_chars = len(session[0].line_text) if session[0].line_text else 0
+            max_session_chars = max(max_session_chars, session_chars)
+    
+    return {
+        'longest_session_hours': longest_session_hours,
+        'max_session_chars': max_session_chars
+    }
 
 def calculate_all_games_stats(all_lines):
     """Calculate aggregate statistics for all games combined."""

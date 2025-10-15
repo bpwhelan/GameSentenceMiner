@@ -36,6 +36,9 @@ class AnkiConfirmationDialog(tk.Toplevel):
         self.audio_path_label = None  # Store reference to audio path label
         self.tts_button = None  # Store reference to TTS button
         self.tts_status_label = None  # Store reference to TTS status label
+        
+        # NSFW tag option
+        self.nsfw_tag_var = tk.BooleanVar(value=False)
 
         self.title("Confirm Anki Card Details")
         self.result = None  # This will store the user's choice
@@ -151,6 +154,17 @@ class AnkiConfirmationDialog(tk.Toplevel):
                 self.tts_status_label.grid(row=row, column=2, sticky="w", padx=5, pady=2)
                 
                 row += 1
+
+        # NSFW Tag Option
+        nsfw_frame = ttk.Frame(main_frame)
+        nsfw_frame.grid(row=row, column=0, columnspan=2, pady=10)
+        ttk.Checkbutton(
+            nsfw_frame,
+            text="Add NSFW tag?",
+            variable=self.nsfw_tag_var,
+            bootstyle="round-toggle"
+        ).pack(side="left", padx=5)
+        row += 1
 
         # Action Buttons
         button_frame = ttk.Frame(main_frame)
@@ -310,13 +324,13 @@ class AnkiConfirmationDialog(tk.Toplevel):
         # Clean up audio before closing
         self._cleanup_audio()
         # The screenshot_path is now correctly updated if the user chose a new one
-        self.result = (True, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip() if self.translation_text else None, self.screenshot_path)
+        self.result = (True, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip() if self.translation_text else None, self.screenshot_path, self.nsfw_tag_var.get())
         self.destroy()
 
     def _on_no_voice(self):
         # Clean up audio before closing
         self._cleanup_audio()
-        self.result = (False, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip() if self.translation_text else None, self.screenshot_path)
+        self.result = (False, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip() if self.translation_text else None, self.screenshot_path, self.nsfw_tag_var.get())
         self.destroy()
         
     def _on_cancel(self):

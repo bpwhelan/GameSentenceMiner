@@ -233,12 +233,16 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         config_app: 'ConfigApp' = gsm_state.config_app
         sentence = note['fields'].get(config.anki.sentence_field, last_note.get_field(config.anki.sentence_field))
         
-        use_voice, sentence, translation, new_ss_path = config_app.show_anki_confirmation_dialog(
+        use_voice, sentence, translation, new_ss_path, add_nsfw_tag = config_app.show_anki_confirmation_dialog(
             tango, sentence, assets.screenshot_path, assets.audio_path if update_audio_flag else None, translation, ss_time
         )
         note['fields'][config.anki.sentence_field] = sentence
         note['fields'][config.ai.anki_field] = translation
         assets.screenshot_path = new_ss_path or assets.screenshot_path
+        
+        # Add NSFW tag if checkbox was selected
+        if add_nsfw_tag:
+            tags.append("NSFW")
 
     # 5. If creating new media, store files in Anki's collection. Then update note fields.
     if not use_existing_files:
@@ -643,59 +647,10 @@ def start_monitoring_anki():
     obs_thread.start()
 
 
-# --- Anki Stats Kanji Extraction Utilities ---
+# --- Anki Stats Utilities ---
+# Note: Individual query functions have been removed in favor of the combined endpoint
+# All Anki statistics are now fetched through /api/anki_stats_combined
 
-def get_anki_earliest_date():
-    """
-    Fetches the earliest Anki card ID.
-    """
-    try:
-        note_ids = invoke("findCards", query="")
-        if not note_ids:
-            return 0
-        
-        # Return the first card ID as the "earliest"
-        # return note_ids[0]
-        return min(note_ids)
-        
-    except Exception as e:
-        logger.error(f"Failed to fetch kanji from Anki: {e}")
-        return 0
-
-def get_all_anki_first_field_kanji(start_timestamp = None, end_timestamp = None):
-    """
-    Fetch all notes from Anki and extract unique kanji from the first field of each note.
-    Returns a set of kanji characters.
-    Optional filtering by start_timestamp and end_timestamp on note IDs.
-    """
-    from GameSentenceMiner.web.stats import is_kanji
-    try:
-        note_ids = invoke("findNotes", query="")
-        if not note_ids:
-            return set()
-        
-        # Filter note IDs by start and end timestamps if provided
-        if (start_timestamp and end_timestamp):
-            note_ids = [nid for nid in note_ids if int(start_timestamp) <= nid <= int(end_timestamp)]
-            if not note_ids:
-                return set()
-        kanji_set = set()
-        batch_size = 1000
-        for i in range(0, len(note_ids), batch_size):
-            batch_ids = note_ids[i:i+batch_size]
-            notes_info = invoke("notesInfo", notes=batch_ids)
-            for note in notes_info:
-                fields = note.get("fields", {})
-                first_field = next(iter(fields.values()), None)
-                if first_field and "value" in first_field:
-                    first_field_value = first_field["value"]
-                    for char in first_field_value:
-                        if is_kanji(char):
-                            kanji_set.add(char)
-        return kanji_set
-    except Exception as e:
-        logger.error(f"Failed to fetch kanji from Anki: {e}")
-        return set()
 
 
 if __name__ == "__main__":

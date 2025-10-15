@@ -22,32 +22,8 @@ function getThemeTextColor() {
 
 document.addEventListener('DOMContentLoaded', function () {
     
-    // Helper function to get week number of year (GitHub style - week starts on Sunday)
-    function getWeekOfYear(date) {
-        const yearStart = new Date(date.getFullYear(), 0, 1);
-        const dayOfYear = Math.floor((date - yearStart) / (24 * 60 * 60 * 1000)) + 1;
-        const dayOfWeek = yearStart.getDay(); // 0 = Sunday
-        
-        // Calculate week number (1-indexed)
-        const weekNum = Math.ceil((dayOfYear + dayOfWeek) / 7);
-        return Math.min(53, weekNum); // Cap at 53 weeks
-    }
-    
-    // Helper function to get day of week (0 = Sunday, 6 = Saturday)
-    function getDayOfWeek(date) {
-        return date.getDay();
-    }
-    
-    // Helper function to get the first Sunday of the year (or before)
-    function getFirstSunday(year) {
-        const jan1 = new Date(year, 0, 1);
-        const dayOfWeek = jan1.getDay();
-        const firstSunday = new Date(year, 0, 1 - dayOfWeek);
-        return firstSunday;
-    }
-    
-    // Function to calculate heatmap streaks and average daily time
-    function calculateHeatmapStreaks(grid, yearData, allLinesForYear = []) {
+    // Custom streak calculation function for activity heatmap (includes average daily time)
+    function calculateActivityStreaks(grid, yearData, allLinesForYear = []) {
         const dates = [];
         
         // Collect all dates in chronological order
@@ -160,194 +136,20 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
         
-        return { longestStreak, currentStreak, avgDailyTime };
+        return { longestStreak, currentStreak, avgDaily: avgDailyTime };
     }
-
-    // Function to create GitHub-style heatmap
+    
+    // Initialize heatmap renderer with custom configuration for activity tracking
+    const activityHeatmapRenderer = new HeatmapRenderer({
+        containerId: 'heatmapContainer',
+        metricName: 'characters',
+        metricLabel: 'characters',
+        calculateStreaks: calculateActivityStreaks
+    });
+    
+    // Function to create GitHub-style heatmap using shared component
     function createHeatmap(heatmapData) {
-        const container = document.getElementById('heatmapContainer');
-        
-        Object.keys(heatmapData).sort().forEach(year => {
-            const yearData = heatmapData[year];
-            const yearDiv = document.createElement('div');
-            yearDiv.className = 'heatmap-year';
-            
-            const yearTitle = document.createElement('h3');
-            yearTitle.textContent = year;
-            yearDiv.appendChild(yearTitle);
-            
-            // Find maximum activity value for this year to scale colors
-            const maxActivity = Math.max(...Object.values(yearData));
-            
-            // Create main wrapper to center everything
-            const mainWrapper = document.createElement('div');
-            mainWrapper.className = 'heatmap-wrapper';
-            
-            // Create container wrapper for labels and grid
-            const containerWrapper = document.createElement('div');
-            containerWrapper.className = 'heatmap-container-wrapper';
-            
-            // Create day labels (S, M, T, W, T, F, S)
-            const dayLabels = document.createElement('div');
-            dayLabels.className = 'heatmap-day-labels';
-            const dayNames = ['S', '', 'M', '', 'W', '', 'F']; // Only show some labels for space
-            dayNames.forEach(dayName => {
-                const dayLabel = document.createElement('div');
-                dayLabel.className = 'heatmap-day-label';
-                dayLabel.textContent = dayName;
-                dayLabels.appendChild(dayLabel);
-            });
-            
-            // Create grid container
-            const gridContainer = document.createElement('div');
-            
-            // Create month labels
-            const monthLabels = document.createElement('div');
-            monthLabels.className = 'heatmap-month-labels';
-            
-            // Create the main grid
-            const gridDiv = document.createElement('div');
-            gridDiv.className = 'heatmap-grid';
-            
-            // Initialize 7x53 grid with empty cells
-            const grid = Array(7).fill(null).map(() => Array(53).fill(null));
-            
-            // Get the first Sunday of the year (start of week 1)
-            const firstSunday = getFirstSunday(parseInt(year));
-            
-            // Populate grid with dates for the entire year
-            for (let week = 0; week < 53; week++) {
-                for (let day = 0; day < 7; day++) {
-                    const currentDate = new Date(firstSunday);
-                    currentDate.setDate(firstSunday.getDate() + (week * 7) + day);
-                    
-                    // Only include dates that belong to the current year
-                    if (currentDate.getFullYear() === parseInt(year)) {
-                        grid[day][week] = currentDate;
-                    }
-                }
-            }
-            
-            // Create month labels based on grid positions
-            const monthTracker = new Set();
-            for (let week = 0; week < 53; week++) {
-                const dateInWeek = grid[0][week] || grid[1][week] || grid[2][week] ||
-                                 grid[3][week] || grid[4][week] || grid[5][week] || grid[6][week];
-                
-                if (dateInWeek) {
-                    const month = dateInWeek.getMonth();
-                    const monthName = dateInWeek.toLocaleDateString('en', { month: 'short' });
-                    
-                    // Add month label if it's the first week of the month
-                    if (!monthTracker.has(month) && dateInWeek.getDate() <= 7) {
-                        const monthLabel = document.createElement('div');
-                        monthLabel.className = 'heatmap-month-label';
-                        monthLabel.style.gridColumn = `${week + 1}`;
-                        monthLabel.textContent = monthName;
-                        monthLabels.appendChild(monthLabel);
-                        monthTracker.add(month);
-                    }
-                }
-            }
-            
-            // Create cells for the grid
-            for (let day = 0; day < 7; day++) {
-                for (let week = 0; week < 53; week++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'heatmap-cell';
-                    
-                    const date = grid[day][week];
-                    if (date) {
-                        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-                        const activity = yearData[dateStr] || 0;
-                        
-                        if (activity > 0 && maxActivity > 0) {
-                            // Calculate percentage of maximum activity
-                            const percentage = (activity / maxActivity) * 100;
-                            
-                            // Assign discrete color levels based on percentage thresholds
-                            let colorLevel;
-                            if (percentage <= 25) {
-                                colorLevel = 1; // Light green
-                            } else if (percentage <= 50) {
-                                colorLevel = 2; // Medium green
-                            } else if (percentage <= 75) {
-                                colorLevel = 3; // Dark green
-                            } else {
-                                colorLevel = 4; // Darkest green
-                            }
-                            
-                            // Define discrete colors for each level
-                            const colors = {
-                                1: '#c6e48b', // Light green (1-25%)
-                                2: '#7bc96f', // Medium green (26-50%)
-                                3: '#239a3b', // Dark green (51-75%)
-                                4: '#196127'  // Darkest green (76-100%)
-                            };
-                            
-                            cell.style.backgroundColor = colors[colorLevel];
-                        }
-                        
-                        cell.title = `${dateStr}: ${activity} characters`;
-                    } else {
-                        // Empty cell for dates outside the year
-                        cell.style.backgroundColor = 'transparent';
-                        cell.style.cursor = 'default';
-                    }
-                    
-                    gridDiv.appendChild(cell);
-                }
-            }
-            
-            gridContainer.appendChild(monthLabels);
-            gridContainer.appendChild(gridDiv);
-            containerWrapper.appendChild(dayLabels);
-            containerWrapper.appendChild(gridContainer);
-            mainWrapper.appendChild(containerWrapper);
-            
-            // Calculate and display streaks with average daily time
-            const yearLines = window.allLinesData ? window.allLinesData.filter(line => {
-                if (!line.timestamp) return false;
-                const lineYear = new Date(parseFloat(line.timestamp) * 1000).getFullYear();
-                return lineYear === parseInt(year);
-            }) : [];
-            
-            const streaks = calculateHeatmapStreaks(grid, yearData, yearLines);
-            const streaksDiv = document.createElement('div');
-            streaksDiv.className = 'heatmap-streaks';
-            streaksDiv.innerHTML = `
-                <div class="heatmap-streak-item">
-                    <div class="heatmap-streak-number">${streaks.longestStreak}</div>
-                    <div class="heatmap-streak-label">Longest Streak</div>
-                </div>
-                <div class="heatmap-streak-item">
-                    <div class="heatmap-streak-number">${streaks.currentStreak}</div>
-                    <div class="heatmap-streak-label">Current Streak</div>
-                </div>
-                <div class="heatmap-streak-item">
-                    <div class="heatmap-streak-number">${streaks.avgDailyTime}</div>
-                    <div class="heatmap-streak-label">Avg Daily Time</div>
-                </div>
-            `;
-            mainWrapper.appendChild(streaksDiv);
-            yearDiv.appendChild(mainWrapper);
-            
-            // Add legend with discrete colors
-            const legend = document.createElement('div');
-            legend.className = 'heatmap-legend';
-            legend.innerHTML = `
-                <span>Less</span>
-                <div class="heatmap-legend-item" style="background-color: #ebedf0;" title="No activity"></div>
-                <div class="heatmap-legend-item" style="background-color: #c6e48b;" title="1-25% of max activity"></div>
-                <div class="heatmap-legend-item" style="background-color: #7bc96f;" title="26-50% of max activity"></div>
-                <div class="heatmap-legend-item" style="background-color: #239a3b;" title="51-75% of max activity"></div>
-                <div class="heatmap-legend-item" style="background-color: #196127;" title="76-100% of max activity"></div>
-                <span>More</span>
-            `;
-            yearDiv.appendChild(legend);
-            
-            container.appendChild(yearDiv);
-        });
+        activityHeatmapRenderer.render(heatmapData, window.allLinesData || []);
     }
 
     function showNoDataPopup() {
@@ -911,11 +713,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('currentSessionTotalHours').textContent = hoursDisplay;
         document.getElementById('currentSessionTotalChars').textContent = lastSession.totalChars.toLocaleString();
         document.getElementById('currentSessionStartTime').textContent = startTimeDisplay;
-        if (index === sessionDetails.length - 1) {
-            document.getElementById('currentSessionEndTime').textContent = 'Now';
-        } else {
-            document.getElementById('currentSessionEndTime').textContent = endTimeDisplay;
-        }
+        document.getElementById('currentSessionEndTime').textContent = endTimeDisplay;
         document.getElementById('currentSessionCharsPerHour').textContent = lastSession.readSpeed !== '-' ? lastSession.readSpeed.toLocaleString() : '-';
     }
 
@@ -926,6 +724,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const today = new Date();
             const pad = n => n.toString().padStart(2, '0');
             const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+            const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             document.getElementById('todayDate').textContent = todayStr;
 
             // Filter lines for today
@@ -992,11 +791,10 @@ document.addEventListener('DOMContentLoaded', function () {
                         };
                     } else {
                         // Continue current session
-                        currentSession.endTime = ts;
+                        currentSession.endTime = ts + afkTimerSeconds;
                         currentSession.totalChars += chars;
                         currentSession.lines.push(line);
                         if (lastTimestamp !== null) {
-                            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
                             currentSession.totalSeconds += Math.min(ts - lastTimestamp, afkTimerSeconds);
                         }
                     }
@@ -1022,7 +820,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             // Optionally, you can expose sessionDetails for debugging or further UI use:
-            console.log(sessionDetails);
+            // console.log(sessionDetails);
             window.todaySessionDetails = sessionDetails;
 
             // Calculate total reading time (reuse AFK logic from calculateHeatmapStreaks)
@@ -1032,7 +830,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 .filter(ts => !isNaN(ts))
                 .sort((a, b) => a - b);
             // Get AFK timer from settings modal if available
-            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             if (timestamps.length >= 2) {
                 for (let i = 1; i < timestamps.length; i++) {
                     const gap = timestamps[i] - timestamps[i-1];
@@ -1076,6 +873,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Determine target date string (YYYY-MM-DD) from the end timestamp
             const endDateObj = new Date(endTimestamp * 1000);
             const targetDateStr = `${endDateObj.getFullYear()}-${pad(endDateObj.getMonth() + 1)}-${pad(endDateObj.getDate())}`;
+            const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             document.getElementById('todayDate').textContent = targetDateStr;
 
             // Filter lines that fall on the target date
@@ -1141,7 +939,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         };
                     } else {
                         // Continue current session
-                        currentSession.endTime = ts;
+                        currentSession.endTime = ts + afkTimerSeconds;
                         currentSession.totalChars += chars;
                         currentSession.lines.push(line);
                         if (lastTimestamp !== null) {
@@ -1183,8 +981,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 .map(l => parseFloat(l.timestamp))
                 .filter(ts => !isNaN(ts))
                 .sort((a, b) => a - b);
-
-            let afkTimerSeconds = window.statsConfig?.afkTimerSeconds || 120;
 
             if (timestamps.length >= 2) {
                 for (let i = 1; i < timestamps.length; i++) {

@@ -1,29 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GSM - Goals</title>
-    <!-- Include Chart.js from a CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-    <!-- Include html2canvas for screenshot functionality -->
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-
-    <!-- Include shared theme styles -->
-    {% include 'components/theme-styles.html' %}
-
-    <!-- Include shared CSS -->
-    <link rel="stylesheet" href="/static/css/shared.css">
-    
-    <!-- Include shared dashboard and popup CSS -->
-    <link rel="stylesheet" href="/static/css/dashboard-shared.css">
-    <link rel="stylesheet" href="/static/css/popups-shared.css">
-
-    <!-- Include stats-specific CSS for goals -->
-    <link rel="stylesheet" href="/static/css/stats.css">
-</head>
+{% set page_title = 'GSM - Goals' %}
+{% set page_specific_css = 'stats.css' %}
+{% include 'components/html-head.html' %}
 
 <body>
 
@@ -354,7 +334,7 @@
     {% set chars_target_date = stats_config.character_count_target_date | default('') %}
     {% set games_target_date = stats_config.games_target_date | default('') %}
 
-    {% set stats_config = {
+    {% set stats_config_vars = {
         'readingHoursTarget': hours_target,
         'characterCountTarget': chars_target,
         'gamesTarget': games_target,
@@ -363,13 +343,11 @@
         'gamesTargetDate': games_target_date
     } %}
 
-    <!-- Inject stats config values for frontend -->
-    <script>
-      window.statsConfig = {{ stats_config | tojson }};
-    </script>
-    <!-- Include shared JavaScript first (required dependency for goals.js) -->
-    <script src="/static/js/shared.js"></script>
-    <script src="/static/js/goals.js"></script>
+    <!-- Include shared JavaScript configuration -->
+    {% set config_vars = stats_config_vars %}
+    {% set config_object_name = 'statsConfig' %}
+    {% set page_specific_js = 'goals.js' %}
+    {% include 'components/js-config.html' %}
 
 </body>
 

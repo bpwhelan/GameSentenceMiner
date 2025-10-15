@@ -830,3 +830,79 @@
         margin-left: 3px;
     }
 }
+
+/* ================================
+   Game Stats Table Styling
+================================ */
+.stats-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.stats-table thead {
+    background: var(--bg-secondary);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.stats-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stats-table tbody tr {
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s ease;
+}
+
+.stats-table tbody tr:hover {
+    background: var(--bg-secondary);
+}
+
+.stats-table td {
+    padding: 12px 16px;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.stats-table td:first-child {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.empty-message {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-tertiary);
+    font-style: italic;
+}
+
+#gameStatsTableContainer {
+    min-height: 100px;
+}
+
+/* Responsive design for game stats table */
+@media (max-width: 768px) {
+    .stats-table th,
+    .stats-table td {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 480px) {
+    .stats-table th,
+    .stats-table td {
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+    
+    .stats-table th {
+        font-size: 11px;
+    }
+}

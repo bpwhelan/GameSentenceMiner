@@ -46,6 +46,10 @@ app = flask.Flask(__name__)
 # Register database API routes
 register_database_api_routes(app)
 
+# Register Anki API routes
+from GameSentenceMiner.web.anki_api_endpoints import register_anki_api_endpoints
+register_anki_api_endpoints(app)
+
 # Load data from the JSON file
 def load_data_from_file():
     if os.path.exists(TEXT_REPLACEMENTS_FILE):
@@ -303,72 +307,6 @@ def goals():
                          master_config=get_master_config(),
                          stats_config=get_stats_config())
 
-@app.route('/api/anki_earliest_date')
-def anki_earliest_date():
-    """Returns the timestamp of earliest available card in anki collection."""
-    from GameSentenceMiner.anki import get_anki_earliest_date
-    earliest_card = get_anki_earliest_date()
-    return jsonify({
-        "earliest_card": earliest_card
-    })
-
-@app.route('/api/anki_stats')
-def api_anki_stats():
-    """
-    API endpoint to provide Anki vs GSM kanji stats for the frontend.
-    Returns:
-        {
-            "missing_kanji": [ { "kanji": "漢", "frequency": 42 }, ... ],
-            "anki_kanji_count": 123,
-            "gsm_kanji_count": 456,
-            "coverage_percent": 27.0
-        }
-    """
-    from GameSentenceMiner.anki import get_all_anki_first_field_kanji
-    from GameSentenceMiner.web.stats import calculate_kanji_frequency, is_kanji
-    from GameSentenceMiner.util.db import GameLinesTable
-
-    start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
-    end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
-
-    # Get GSM lines and calculate kanji frequency
-    try:
-        all_lines = (
-            GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000, end_timestamp / 1000)
-            if start_timestamp is not None and end_timestamp is not None
-            else GameLinesTable.all()
-        )
-    except Exception as e:
-        logger.warning(f"Failed to filter lines by timestamp: {e}, fetching all lines instead")
-        all_lines = GameLinesTable.all()
-
-    gsm_kanji_stats = calculate_kanji_frequency(all_lines)
-    gsm_kanji_list = gsm_kanji_stats.get("kanji_data", [])
-    gsm_kanji_set = set([k["kanji"] for k in gsm_kanji_list])
-
-    # Get all kanji in Anki (first field only)
-    anki_kanji_set = get_all_anki_first_field_kanji(start_timestamp, end_timestamp)
-
-    # Find missing kanji (in GSM but not in Anki)
-    missing_kanji = [
-        {"kanji": k["kanji"], "frequency": k["frequency"]}
-        for k in gsm_kanji_list if k["kanji"] not in anki_kanji_set
-    ]
-
-    # Sort missing kanji by frequency descending
-    missing_kanji.sort(key=lambda x: x["frequency"], reverse=True)
-
-    # Coverage stats
-    anki_kanji_count = len(anki_kanji_set)
-    gsm_kanji_count = len(gsm_kanji_set)
-    coverage_percent = (anki_kanji_count / gsm_kanji_count * 100) if gsm_kanji_count else 0.0
-
-    return jsonify({
-        "missing_kanji": missing_kanji,
-        "anki_kanji_count": anki_kanji_count,
-        "gsm_kanji_count": gsm_kanji_count,
-        "coverage_percent": round(coverage_percent, 1)
-    })
 
 @app.route('/search')
 def search():

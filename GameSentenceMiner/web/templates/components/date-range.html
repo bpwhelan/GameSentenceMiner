@@ -1,0 +1,19 @@
+<!-- Date Range Component -->
+<div class="dashboard-card date-range">
+    <div class="dashboard-card-header">
+        <h3 class="dashboard-card-title">
+            <span class="dashboard-card-icon">📅</span>
+            Date Range
+        </h3>
+    </div>
+    <div class="dashboard-date-range">
+        <div class="dashboard-date-item tooltip" data-tooltip="{{ from_tooltip | default('Select the start date for your stats') }}">
+            <label for="{{ from_id | default('fromDate') }}">From</label>
+            <input type="date" id="{{ from_id | default('fromDate') }}" class="dashboard-date-input">
+        </div>
+        <div class="dashboard-date-item tooltip" data-tooltip="{{ to_tooltip | default('Select the end date for your stats') }}">
+            <label for="{{ to_id | default('toDate') }}">To</label>
+            <input type="date" id="{{ to_id | default('toDate') }}" class="dashboard-date-input">
+        </div>
+    </div>
+</div>

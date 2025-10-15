@@ -90,6 +90,12 @@ class DatabaseManager {
         if (removeDuplicatesBtn) {
             removeDuplicatesBtn.addEventListener('click', removeDuplicates);
         }
+
+        // Add event listener for the ignore time window checkbox
+        const ignoreTimeWindowCheckbox = document.getElementById('ignoreTimeWindow');
+        if (ignoreTimeWindowCheckbox) {
+            ignoreTimeWindowCheckbox.addEventListener('change', toggleTimeWindowVisibility);
+        }
     }
     
     async loadDashboardStats() {
@@ -444,8 +450,28 @@ async function openDeduplicationModal() {
     await loadGamesForDeduplication();
     // Reset modal state
     document.getElementById('timeWindow').value = '5';
+    document.getElementById('ignoreTimeWindow').checked = false;
     document.getElementById('deduplicationStats').style.display = 'none';
     document.getElementById('removeDuplicatesBtn').disabled = true;
+    document.getElementById('deduplicationError').style.display = 'none';
+    document.getElementById('deduplicationSuccess').style.display = 'none';
+    // Ensure time window is visible on modal open
+    toggleTimeWindowVisibility();
+}
+
+function toggleTimeWindowVisibility() {
+    const ignoreTimeWindow = document.getElementById('ignoreTimeWindow').checked;
+    const timeWindowGroup = document.getElementById('timeWindowGroup');
+    
+    if (ignoreTimeWindow) {
+        timeWindowGroup.style.opacity = '0.5';
+        timeWindowGroup.style.pointerEvents = 'none';
+        document.getElementById('timeWindow').disabled = true;
+    } else {
+        timeWindowGroup.style.opacity = '1';
+        timeWindowGroup.style.pointerEvents = 'auto';
+        document.getElementById('timeWindow').disabled = false;
+    }
 }
 
 async function loadGamesForDeduplication() {
@@ -474,6 +500,7 @@ async function scanForDuplicates() {
     const selectedGames = Array.from(document.getElementById('gameSelection').selectedOptions).map(option => option.value);
     const timeWindow = parseInt(document.getElementById('timeWindow').value);
     const caseSensitive = document.getElementById('caseSensitiveDedup').checked;
+    const ignoreTimeWindow = document.getElementById('ignoreTimeWindow').checked;
     const statsDiv = document.getElementById('deduplicationStats');
     const errorDiv = document.getElementById('deduplicationError');
     const successDiv = document.getElementById('deduplicationSuccess');
@@ -491,8 +518,9 @@ async function scanForDuplicates() {
         return;
     }
     
-    if (isNaN(timeWindow) || timeWindow < 1 || timeWindow > 1440) {
-        errorDiv.textContent = 'Time window must be between 1 and 1440 minutes';
+    // Only validate time window if not ignoring it
+    if (!ignoreTimeWindow && (isNaN(timeWindow) || timeWindow < 1)) {
+        errorDiv.textContent = 'Time window must be at least 1 minute';
         errorDiv.style.display = 'block';
         return;
     }
@@ -502,6 +530,7 @@ async function scanForDuplicates() {
             games: selectedGames,
             time_window_minutes: timeWindow,
             case_sensitive: caseSensitive,
+            ignore_time_window: ignoreTimeWindow,
             preview_only: true
         };
         
@@ -533,10 +562,12 @@ async function scanForDuplicates() {
             removeBtn.disabled = result.duplicates_count === 0;
             
             if (result.duplicates_count > 0) {
-                successDiv.textContent = `Found ${result.duplicates_count} duplicate sentences ready for removal.`;
+                const modeText = ignoreTimeWindow ? 'across entire games' : `within ${timeWindow} minute time window`;
+                successDiv.textContent = `Found ${result.duplicates_count} duplicate sentences ${modeText} ready for removal.`;
                 successDiv.style.display = 'block';
             } else {
-                successDiv.textContent = 'No duplicates found in the selected games within the specified time window.';
+                const modeText = ignoreTimeWindow ? 'across entire games' : 'within the specified time window';
+                successDiv.textContent = `No duplicates found in the selected games ${modeText}.`;
                 successDiv.style.display = 'block';
             }
         } else {
@@ -553,7 +584,8 @@ async function scanForDuplicates() {
         
         statsDiv.style.display = 'block';
         removeBtn.disabled = false;
-        successDiv.textContent = `Preview feature ready - found ${duplicatesFound} potential duplicates (backend endpoint needed)`;
+        const modeText = ignoreTimeWindow ? 'across entire games' : 'with time window';
+        successDiv.textContent = `Preview feature ready - found ${duplicatesFound} potential duplicates ${modeText} (backend endpoint needed)`;
         successDiv.style.display = 'block';
     }
 }
@@ -563,8 +595,10 @@ async function removeDuplicates() {
     const timeWindow = parseInt(document.getElementById('timeWindow').value);
     const caseSensitive = document.getElementById('caseSensitiveDedup').checked;
     const preserveNewest = document.getElementById('preserveNewest').checked;
+    const ignoreTimeWindow = document.getElementById('ignoreTimeWindow').checked;
     
-    if (!confirm('This will permanently remove duplicate sentences. Continue?')) {
+    const modeText = ignoreTimeWindow ? 'ALL duplicate sentences across entire games' : 'duplicate sentences within the time window';
+    if (!confirm(`This will permanently remove ${modeText}. Continue?`)) {
         return;
     }
     
@@ -574,6 +608,7 @@ async function removeDuplicates() {
             time_window_minutes: timeWindow,
             case_sensitive: caseSensitive,
             preserve_newest: preserveNewest,
+            ignore_time_window: ignoreTimeWindow,
             preview_only: false
         };
         
@@ -587,7 +622,8 @@ async function removeDuplicates() {
         
         if (response.ok) {
             const successDiv = document.getElementById('deduplicationSuccess');
-            successDiv.textContent = `Successfully removed ${result.deleted_count} duplicate sentences!`;
+            const resultModeText = ignoreTimeWindow ? 'across entire games' : `within ${timeWindow} minute time window`;
+            successDiv.textContent = `Successfully removed ${result.deleted_count} duplicate sentences ${resultModeText}!`;
             successDiv.style.display = 'block';
             document.getElementById('removeDuplicatesBtn').disabled = true;
             // Refresh dashboard stats
@@ -606,6 +642,7 @@ async function removeDuplicates() {
         document.getElementById('removeDuplicatesBtn').disabled = true;
     }
 }
+
 
 // Game Merge Functions
 async function openGameMergeModal() {

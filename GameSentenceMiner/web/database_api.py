@@ -17,10 +17,11 @@ from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.configuration import get_stats_config, logger, get_config, save_current_config, save_stats_config
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web.stats import (
-    calculate_kanji_frequency, calculate_heatmap_data, calculate_total_chars_per_game,
-    calculate_reading_time_per_game, calculate_reading_speed_per_game,
+    calculate_kanji_frequency, calculate_heatmap_data, calculate_mining_heatmap_data,
+    calculate_total_chars_per_game, calculate_reading_time_per_game, calculate_reading_speed_per_game,
     calculate_current_game_stats, calculate_all_games_stats, calculate_daily_reading_time,
-    calculate_time_based_streak, calculate_actual_reading_time
+    calculate_time_based_streak, calculate_actual_reading_time, calculate_hourly_activity,
+    calculate_hourly_reading_speed, calculate_peak_daily_stats, calculate_peak_session_stats
 )
 
 
@@ -217,6 +218,54 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error fetching games list: {e}", exc_info=True)
             return jsonify({'error': 'Failed to fetch games list'}), 500
+
+    @app.route('/api/delete-sentence-lines', methods=['POST'])
+    def api_delete_sentence_lines():
+        """
+        Delete specific sentence lines by their IDs.
+        """
+        try:
+            data = request.get_json()
+            line_ids = data.get('line_ids', [])
+            
+            if not line_ids:
+                return jsonify({'error': 'No line IDs provided'}), 400
+            
+            if not isinstance(line_ids, list):
+                return jsonify({'error': 'line_ids must be a list'}), 400
+            
+            # Delete the lines
+            deleted_count = 0
+            failed_ids = []
+            
+            for line_id in line_ids:
+                try:
+                    GameLinesTable._db.execute(
+                        f"DELETE FROM {GameLinesTable._table} WHERE id=?",
+                        (line_id,),
+                        commit=True
+                    )
+                    deleted_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to delete line {line_id}: {e}")
+                    failed_ids.append(line_id)
+            
+            logger.info(f"Deleted {deleted_count} sentence lines out of {len(line_ids)} requested")
+            
+            response_data = {
+                'deleted_count': deleted_count,
+                'message': f'Successfully deleted {deleted_count} {"sentence" if deleted_count == 1 else "sentences"}'
+            }
+            
+            if failed_ids:
+                response_data['warning'] = f'{len(failed_ids)} lines failed to delete'
+                response_data['failed_ids'] = failed_ids
+            
+            return jsonify(response_data), 200
+            
+        except Exception as e:
+            logger.error(f"Error in sentence line deletion: {e}")
+            return jsonify({'error': f'Failed to delete sentences: {str(e)}'}), 500
 
     @app.route('/api/delete-games', methods=['POST'])
     def api_delete_games():
@@ -641,6 +690,7 @@ def register_database_api_routes(app):
     def api_preview_deduplication():
         """
         Preview duplicate sentences that would be removed based on time window and game selection.
+        Supports ignore_time_window parameter to find all duplicates regardless of time.
         """
         try:
             data = request.get_json()
@@ -650,6 +700,7 @@ def register_database_api_routes(app):
             games = data.get('games', [])
             time_window_minutes = data.get('time_window_minutes', 5)
             case_sensitive = data.get('case_sensitive', False)
+            ignore_time_window = data.get('ignore_time_window', False)
             
             if not games:
                 return jsonify({'error': 'At least one game must be selected'}), 400
@@ -680,24 +731,19 @@ def register_database_api_routes(app):
             duplicate_samples = {}
             time_window_seconds = time_window_minutes * 60
             
-            # Find duplicates within time window for each game
+            # Find duplicates for each game
             for game_name, lines in game_lines.items():
-                text_timeline = []
-                
-                for line in lines:
-                    if not line.line_text or not line.line_text.strip():
-                        continue
-                        
-                    line_text = line.line_text if case_sensitive else line.line_text.lower()
-                    timestamp = float(line.timestamp)
-                    
-                    # Check for duplicates within time window
-                    for prev_text, prev_timestamp, prev_line_id in reversed(text_timeline):
-                        if timestamp - prev_timestamp > time_window_seconds:
-                            break  # Outside time window
+                if ignore_time_window:
+                    # Find all duplicates regardless of time
+                    seen_texts = {}
+                    for line in lines:
+                        if not line.line_text or not line.line_text.strip():
+                            continue
                             
-                        if prev_text == line_text:
-                            # Found duplicate within time window
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
+                        
+                        if line_text in seen_texts:
+                            # Found duplicate
                             duplicates_to_remove.append(line.id)
                             
                             # Store sample for preview
@@ -707,9 +753,38 @@ def register_database_api_routes(app):
                                     'occurrences': 1
                                 }
                             duplicate_samples[line_text]['occurrences'] += 1
-                            break
+                        else:
+                            seen_texts[line_text] = line.id
+                else:
+                    # Find duplicates within time window (original logic)
+                    text_timeline = []
                     
-                    text_timeline.append((line_text, timestamp, line.id))
+                    for line in lines:
+                        if not line.line_text or not line.line_text.strip():
+                            continue
+                            
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
+                        timestamp = float(line.timestamp)
+                        
+                        # Check for duplicates within time window
+                        for prev_text, prev_timestamp, prev_line_id in reversed(text_timeline):
+                            if timestamp - prev_timestamp > time_window_seconds:
+                                break  # Outside time window
+                                
+                            if prev_text == line_text:
+                                # Found duplicate within time window
+                                duplicates_to_remove.append(line.id)
+                                
+                                # Store sample for preview
+                                if line_text not in duplicate_samples:
+                                    duplicate_samples[line_text] = {
+                                        'text': line.line_text,  # Original case
+                                        'occurrences': 1
+                                    }
+                                duplicate_samples[line_text]['occurrences'] += 1
+                                break
+                        
+                        text_timeline.append((line_text, timestamp, line.id))
             
             # Calculate statistics
             duplicates_count = len(duplicates_to_remove)
@@ -734,6 +809,7 @@ def register_database_api_routes(app):
     def api_deduplicate():
         """
         Remove duplicate sentences from database based on time window and game selection.
+        Supports ignore_time_window parameter to remove all duplicates regardless of time.
         """
         try:
             data = request.get_json()
@@ -744,6 +820,7 @@ def register_database_api_routes(app):
             time_window_minutes = data.get('time_window_minutes', 5)
             case_sensitive = data.get('case_sensitive', False)
             preserve_newest = data.get('preserve_newest', False)
+            ignore_time_window = data.get('ignore_time_window', False)
             
             if not games:
                 return jsonify({'error': 'At least one game must be selected'}), 400
@@ -773,40 +850,62 @@ def register_database_api_routes(app):
             duplicates_to_remove = []
             time_window_seconds = time_window_minutes * 60
             
-            # Find duplicates within time window for each game
+            # Find duplicates for each game
             for game_name, lines in game_lines.items():
-                text_timeline = []
-                
-                for line in lines:
-                    if not line.line_text or not line.line_text.strip():
-                        continue
-                        
-                    line_text = line.line_text if case_sensitive else line.line_text.lower()
-                    timestamp = float(line.timestamp)
-                    
-                    # Check for duplicates within time window
-                    duplicate_found = False
-                    for i, (prev_text, prev_timestamp, prev_line_id) in enumerate(reversed(text_timeline)):
-                        if timestamp - prev_timestamp > time_window_seconds:
-                            break  # Outside time window
+                if ignore_time_window:
+                    # Find all duplicates regardless of time
+                    seen_texts = {}
+                    for line in lines:
+                        if not line.line_text or not line.line_text.strip():
+                            continue
                             
-                        if prev_text == line_text:
-                            # Found duplicate within time window
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
+                        
+                        if line_text in seen_texts:
+                            # Found duplicate
                             if preserve_newest:
                                 # Remove the older one (previous)
-                                duplicates_to_remove.append(prev_line_id)
-                                # Update timeline to replace old entry with new one
-                                timeline_index = len(text_timeline) - 1 - i
-                                text_timeline[timeline_index] = (line_text, timestamp, line.id)
+                                duplicates_to_remove.append(seen_texts[line_text])
+                                seen_texts[line_text] = line.id  # Update to keep newest
                             else:
                                 # Remove the newer one (current)
                                 duplicates_to_remove.append(line.id)
-                            
-                            duplicate_found = True
-                            break
+                        else:
+                            seen_texts[line_text] = line.id
+                else:
+                    # Find duplicates within time window (original logic)
+                    text_timeline = []
                     
-                    if not duplicate_found:
-                        text_timeline.append((line_text, timestamp, line.id))
+                    for line in lines:
+                        if not line.line_text or not line.line_text.strip():
+                            continue
+                            
+                        line_text = line.line_text if case_sensitive else line.line_text.lower()
+                        timestamp = float(line.timestamp)
+                        
+                        # Check for duplicates within time window
+                        duplicate_found = False
+                        for i, (prev_text, prev_timestamp, prev_line_id) in enumerate(reversed(text_timeline)):
+                            if timestamp - prev_timestamp > time_window_seconds:
+                                break  # Outside time window
+                                
+                            if prev_text == line_text:
+                                # Found duplicate within time window
+                                if preserve_newest:
+                                    # Remove the older one (previous)
+                                    duplicates_to_remove.append(prev_line_id)
+                                    # Update timeline to replace old entry with new one
+                                    timeline_index = len(text_timeline) - 1 - i
+                                    text_timeline[timeline_index] = (line_text, timestamp, line.id)
+                                else:
+                                    # Remove the newer one (current)
+                                    duplicates_to_remove.append(line.id)
+                                
+                                duplicate_found = True
+                                break
+                        
+                        if not duplicate_found:
+                            text_timeline.append((line_text, timestamp, line.id))
             
             # Delete the duplicate lines
             deleted_count = 0
@@ -821,7 +920,8 @@ def register_database_api_routes(app):
                 except Exception as e:
                     logger.warning(f"Failed to delete duplicate line {line_id}: {e}")
             
-            logger.info(f"Deduplication completed: removed {deleted_count} duplicate sentences from {len(games)} games with {time_window_minutes}min window")
+            mode_desc = "entire game" if ignore_time_window else f"{time_window_minutes}min window"
+            logger.info(f"Deduplication completed: removed {deleted_count} duplicate sentences from {len(games)} games with {mode_desc}")
             
             return jsonify({
                 'deleted_count': deleted_count,
@@ -831,6 +931,27 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error in deduplication: {e}")
             return jsonify({'error': f'Deduplication failed: {str(e)}'}), 500
+
+    @app.route('/api/deduplicate-entire-game', methods=['POST'])
+    def api_deduplicate_entire_game():
+        """
+        Remove duplicate sentences from database across entire games without time window restrictions.
+        This is a convenience endpoint that calls the main deduplicate function with ignore_time_window=True.
+        """
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            # Add ignore_time_window=True to the request data
+            data['ignore_time_window'] = True
+            
+            # Call the main deduplication function
+            return api_deduplicate()
+            
+        except Exception as e:
+            logger.error(f"Error in entire game deduplication: {e}")
+            return jsonify({'error': f'Entire game deduplication failed: {str(e)}'}), 500
 
     @app.route('/api/merge_games', methods=['POST'])
     def api_merge_games():
@@ -1011,73 +1132,8 @@ def register_database_api_routes(app):
             for i, game in enumerate(game_names):
                 color = colors[i % len(colors)]
             
-            # 1. Fetch all lines and sort them chronologically
-            try:
-                all_lines = sorted(GameLinesTable.all(), key=lambda line: line.timestamp)
-            except Exception as e:
-                logger.error(f"Error fetching lines from database: {e}")
-                return jsonify({'error': 'Failed to fetch data from database'}), 500
-            
-            if not all_lines:
-                return jsonify({"labels": [], "datasets": []})
-
-            # 2. Process data into daily totals for each game
-            # Structure: daily_data[date_str][game_name] = {'lines': N, 'chars': N}
-            daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0}))
-
-            try:
-                # start_time = time.perf_counter()
-                # for line in all_lines:
-                #     day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
-                #     game = line.game_name or "Unknown Game"
-                #     daily_data[day_str][game]['lines'] += 1
-                #     daily_data[day_str][game]['chars'] += len(line.line_text) if line.line_text else 0
-                # end_time = time.perf_counter()
-                # logger.info(f"Without Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
-
-                # start_time = time.perf_counter()
-                wrong_instance_found = False
-                for line in all_lines:
-                    day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
-                    game = line.game_name or "Unknown Game"
-                    # Remove punctuation and symbols from line text before counting characters
-                    clean_text = punctionation_regex.sub('', str(line.line_text)) if line.line_text else ''
-                    if not isinstance(clean_text, str) and not wrong_instance_found:
-                        logger.info(f"Non-string line_text encountered: {clean_text} (type: {type(clean_text)})")
-                        wrong_instance_found = True
-
-                    line.line_text = clean_text  # Update line text to cleaned version for future use
-                    daily_data[day_str][game]['lines'] += 1
-                    daily_data[day_str][game]['chars'] += len(clean_text)
-                # end_time = time.perf_counter()
-                # logger.info(f"With Punctuation removal and daily aggregation took {end_time - start_time:.4f} seconds for {len(all_lines)} lines")
-            except Exception as e:
-                logger.error(f"Error processing daily data: {e}")
-                return jsonify({'error': 'Failed to process daily data'}), 500
-
-            # 3. Create cumulative datasets for Chart.js
-            try:
-                sorted_days = sorted(daily_data.keys())
-                game_names = GameLinesTable.get_all_games_with_lines()
-                
-                # Keep track of the running total for each metric for each game
-                cumulative_totals = defaultdict(lambda: {'lines': 0, 'chars': 0})
-                
-                # Structure for final data: final_data[game_name][metric] = [day1_val, day2_val, ...]
-                final_data = defaultdict(lambda: defaultdict(list))
-
-                for day in sorted_days:
-                    for game in game_names:
-                        # Add the day's total to the cumulative total
-                        cumulative_totals[game]['lines'] += daily_data[day][game]['lines']
-                        cumulative_totals[game]['chars'] += daily_data[day][game]['chars']
-                        
-                        # Append the new cumulative total to the list for that day
-                        final_data[game]['lines'].append(cumulative_totals[game]['lines'])
-                        final_data[game]['chars'].append(cumulative_totals[game]['chars'])
-            except Exception as e:
-                logger.error(f"Error creating cumulative datasets: {e}")
-                return jsonify({'error': 'Failed to create datasets'}), 500
+            # Note: We already have filtered data in all_lines from line 965, so we don't need to fetch again
+            # The duplicate data fetching that was here has been removed to fix the date range filtering issue
             
             # 4. Format into Chart.js dataset structure
             try:
@@ -1168,6 +1224,33 @@ def register_database_api_routes(app):
                 logger.error(f"Error preparing all lines data: {e}")
                 all_lines_data = []
 
+            # 8. Calculate hourly activity pattern
+            try:
+                hourly_activity_data = calculate_hourly_activity(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating hourly activity: {e}")
+                hourly_activity_data = [0] * 24
+
+            # 8.5. Calculate hourly reading speed pattern
+            try:
+                hourly_reading_speed_data = calculate_hourly_reading_speed(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating hourly reading speed: {e}")
+                hourly_reading_speed_data = [0] * 24
+
+            # 9. Calculate peak statistics
+            try:
+                peak_daily_stats = calculate_peak_daily_stats(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating peak daily stats: {e}")
+                peak_daily_stats = {'max_daily_chars': 0, 'max_daily_hours': 0.0}
+                
+            try:
+                peak_session_stats = calculate_peak_session_stats(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating peak session stats: {e}")
+                peak_session_stats = {'longest_session_hours': 0.0, 'max_session_chars': 0}
+
             return jsonify({
                 "labels": sorted_days,
                 "datasets": datasets,
@@ -1178,12 +1261,51 @@ def register_database_api_routes(app):
                 "readingSpeedPerGame": reading_speed_per_game_data,
                 "currentGameStats": current_game_stats,
                 "allGamesStats": all_games_stats,
-                "allLinesData": all_lines_data
+                "allLinesData": all_lines_data,
+                "hourlyActivityData": hourly_activity_data,
+                "hourlyReadingSpeedData": hourly_reading_speed_data,
+                "peakDailyStats": peak_daily_stats,
+                "peakSessionStats": peak_session_stats
             })
             
         except Exception as e:
             logger.error(f"Unexpected error in api_stats: {e}", exc_info=True)
             return jsonify({'error': 'Failed to generate statistics'}), 500
+
+    @app.route('/api/mining_heatmap')
+    def api_mining_heatmap():
+        """
+        Provides mining heatmap data showing daily mining activity.
+        Counts lines where screenshot_in_anki OR audio_in_anki is not empty.
+        Accepts optional 'start' and 'end' timestamp parameters for filtering.
+        """
+        try:
+            # Get optional timestamp filter parameters
+            start_timestamp = request.args.get('start', None)
+            end_timestamp = request.args.get('end', None)
+            
+            # Convert timestamps to float if provided
+            start_timestamp = float(start_timestamp) if start_timestamp else None
+            end_timestamp = float(end_timestamp) if end_timestamp else None
+            
+            # Fetch lines filtered by timestamp
+            all_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=start_timestamp, end=end_timestamp)
+            
+            if not all_lines:
+                return jsonify({}), 200
+            
+            # Calculate mining heatmap data
+            try:
+                heatmap_data = calculate_mining_heatmap_data(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating mining heatmap data: {e}")
+                return jsonify({'error': 'Failed to calculate mining heatmap'}), 500
+            
+            return jsonify(heatmap_data), 200
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in api_mining_heatmap: {e}", exc_info=True)
+            return jsonify({'error': 'Failed to generate mining heatmap'}), 500
 
     @app.route('/api/goals-today', methods=['GET'])
     def api_goals_today():
