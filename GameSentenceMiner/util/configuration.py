@@ -888,15 +888,16 @@ class Config:
                 if profile.advanced.streak_requirement_hours != default_stats.streak_requirement_hours:
                     self.stats.streak_requirement_hours = profile.advanced.streak_requirement_hours
         
+        self.overlay = self.get_config().overlay
+        
         # Add a way to migrate certain things based on version if needed, also help with better defaults
         if self.version:
-            if self.version != get_current_version():
+            current_version = get_current_version()
+            if self.version != current_version:
                 from packaging import version
-                logger.info(f"New Config Found: {self.version} != {get_current_version()}")
+                logger.info(f"New Config Found: {self.version} != {current_version}")
                 # Handle version mismatch
-                changed = False
                 if version.parse(self.version) < version.parse("2.18.0"):
-                    changed = True
                     # Example, doesn't need to be done
                     for profile in self.configs.values():
                         profile.obs.get_game_from_scene = True
@@ -904,11 +905,7 @@ class Config:
                         if profile.vad.selected_vad_model == WHISPER and profile.vad.backup_vad_model == SILERO:
                             profile.vad.backup_vad_model = OFF
 
-                if changed:
-                    self.save()
-        self.overlay = self.get_config().overlay
-
-        self.version = get_current_version()
+                self.save()
 
     def save(self):
         with open(get_config_path(), 'w') as file:
