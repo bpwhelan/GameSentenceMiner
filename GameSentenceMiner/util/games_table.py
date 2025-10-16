@@ -39,7 +39,7 @@ class GamesTable(SQLiteDBTable):
         title_original: Optional[str] = None,
         title_romaji: Optional[str] = None,
         title_english: Optional[str] = None,
-        type: Optional[str] = None,
+        game_type: Optional[str] = None,
         description: Optional[str] = None,
         image: Optional[str] = None,
         character_count: int = 0,
@@ -54,7 +54,7 @@ class GamesTable(SQLiteDBTable):
         self.title_original = title_original if title_original else ''
         self.title_romaji = title_romaji if title_romaji else ''
         self.title_english = title_english if title_english else ''
-        self.type = type if type else ''
+        self.type = game_type if game_type else ''
         self.description = description if description else ''
         self.image = image if image else ''
         self.character_count = character_count
@@ -177,7 +177,7 @@ class GamesTable(SQLiteDBTable):
         title_original: Optional[str] = None,
         title_romaji: Optional[str] = None,
         title_english: Optional[str] = None,
-        type: Optional[str] = None,
+        game_type: Optional[str] = None,
         description: Optional[str] = None,
         image: Optional[str] = None,
         character_count: Optional[int] = None,
@@ -195,6 +195,7 @@ class GamesTable(SQLiteDBTable):
             title_original: Original Japanese title
             title_romaji: Romanized title
             title_english: English translated title
+            game_type: Game type (string)
             description: Game description
             image: Base64-encoded image data
             character_count: Total character count
@@ -215,8 +216,8 @@ class GamesTable(SQLiteDBTable):
         if title_english is not None:
             self.title_english = title_english
             self.mark_field_manual('title_english')
-        if type is not None:
-            self.type = type
+        if game_type is not None:
+            self.type = game_type
             self.mark_field_manual('type')
         if description is not None:
             self.description = description
@@ -249,7 +250,7 @@ class GamesTable(SQLiteDBTable):
         title_original: Optional[str] = None,
         title_romaji: Optional[str] = None,
         title_english: Optional[str] = None,
-        type: Optional[str] = None,
+        game_type: Optional[str] = None,
         description: Optional[str] = None,
         image: Optional[str] = None,
         character_count: Optional[int] = None,
@@ -266,7 +267,7 @@ class GamesTable(SQLiteDBTable):
             title_original: Original Japanese title
             title_romaji: Romanized title
             title_english: English translated title
-            type: Game type (string)
+            game_type: Game type (string)
             description: Game description
             image: Base64-encoded image data
             character_count: Total character count
@@ -283,8 +284,8 @@ class GamesTable(SQLiteDBTable):
             self.title_romaji = title_romaji
         if title_english is not None:
             self.title_english = title_english
-        if type is not None:
-            self.type = type
+        if game_type is not None:
+            self.type = game_type
         if description is not None:
             self.description = description
         if image is not None:

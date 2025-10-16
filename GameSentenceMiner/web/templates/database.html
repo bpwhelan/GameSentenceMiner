@@ -795,8 +795,20 @@
     </div>
 </div>
 
-<!-- Include shared JavaScript first (required dependency for database.js) -->
+<!-- Include shared JavaScript first (required dependency for all database modules) -->
 <script src="/static/js/shared.js"></script>
+
+<!-- Load database modules in dependency order -->
+<script src="/static/js/database-helpers.js"></script>
+<script src="/static/js/database-popups.js"></script>
+<script src="/static/js/database-tabs.js"></script>
+<script src="/static/js/database-game-data.js"></script>
+<script src="/static/js/database-bulk-operations.js"></script>
+<script src="/static/js/database-text-management.js"></script>
+<script src="/static/js/database-jiten-integration.js"></script>
+<script src="/static/js/database-game-operations.js"></script>
+
+<!-- Load main database.js last (orchestrator) -->
 <script src="/static/js/database.js"></script>
 
 </body>

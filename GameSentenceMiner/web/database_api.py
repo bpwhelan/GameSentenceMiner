@@ -2028,7 +2028,7 @@ def register_database_api_routes(app):
             if 'type' not in game.manual_overrides and jiten_data.get('media_type'):
                 # Map media type to string
                 media_type_map = {1: 'Anime', 7: 'Visual Novel', 2: 'Manga'}
-                update_fields['type'] = media_type_map.get(jiten_data['media_type'], 'Unknown')
+                update_fields['game_type'] = media_type_map.get(jiten_data['media_type'], 'Unknown')
             
             if 'description' not in game.manual_overrides and jiten_data.get('description'):
                 update_fields['description'] = jiten_data['description']
@@ -2293,8 +2293,8 @@ def register_database_api_routes(app):
             if 'type' not in manual_overrides and jiten_data.get('media_type'):
                 # Map media type to string
                 media_type_map = {1: 'Anime', 7: 'Visual Novel', 2: 'Manga'}
-                update_fields['type'] = media_type_map.get(jiten_data['media_type'], 'Unknown')
-                logger.debug(f"📝 Will update type: {update_fields['type']}")
+                update_fields['game_type'] = media_type_map.get(jiten_data['media_type'], 'Unknown')
+                logger.debug(f"📝 Will update type: {update_fields['game_type']}")
             elif 'type' in manual_overrides:
                 skipped_fields.append('type')
                 logger.debug(f"⏭️ Skipping type (manual override)")
@@ -2520,7 +2520,7 @@ def register_database_api_routes(app):
                 'title_original': title_original,
                 'title_romaji': data.get('title_romaji', ''),
                 'title_english': data.get('title_english', ''),
-                'type': data.get('type', ''),
+                'game_type': data.get('type', ''),
                 'description': data.get('description', ''),
                 'image': data.get('image', ''),
                 'difficulty': data.get('difficulty'),

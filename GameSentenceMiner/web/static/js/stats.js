@@ -909,8 +909,6 @@ document.addEventListener('DOMContentLoaded', function () {
             // Update release date
             document.getElementById('oldestGameReleaseYear').textContent = game.release_date || 'Unknown';
             
-            // Update first played date
-            document.getElementById('oldestGameFirstPlayed').textContent = game.first_played || 'Unknown';
             
             oldestCard.style.display = 'flex';
         }
@@ -972,8 +970,6 @@ document.addEventListener('DOMContentLoaded', function () {
             // Update release date
             document.getElementById('newestGameReleaseYear').textContent = game.release_date || 'Unknown';
             
-            // Update first played date
-            document.getElementById('newestGameFirstPlayed').textContent = game.first_played || 'Unknown';
             
             newestCard.style.display = 'flex';
         }

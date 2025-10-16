@@ -745,45 +745,36 @@ def calculate_peak_session_stats(all_lines):
         'max_session_chars': max_session_chars
     }
 
-def calculate_game_milestones(all_lines):
+def calculate_game_milestones(all_lines=None):
     """
-    Calculate oldest and newest played games by release year.
-    Returns games with earliest and latest release dates that have been played.
+    Calculate oldest and newest games by release year from the games table.
+    Returns games with earliest and latest release dates from all games in the database.
     
     Args:
-        all_lines: List of game lines
+        all_lines: Unused parameter (kept for API compatibility)
     
     Returns:
         dict: Dictionary containing oldest_game and newest_game data, or None if no games with release dates
     """
-    if not all_lines:
-        return None
-    
     from GameSentenceMiner.util.games_table import GamesTable
     
-    # Get unique game_ids from lines that have them, and fallback to game_names
-    games_to_check = set()
+    # Get all games from the games table
+    all_games = GamesTable.all()
     
-    # First collect all game_ids that exist
-    for line in all_lines:
-        if hasattr(line, 'game_id') and line.game_id and line.game_id.strip():
-            games_to_check.add(('id', line.game_id))
-        elif line.game_name:
-            games_to_check.add(('name', line.game_name))
-    
-    if not games_to_check:
+    if not all_games:
+        logger.debug("[MILESTONES] No games found in games table")
         return None
     
-    # Get game records with release dates
+    logger.debug(f"[MILESTONES] Found {len(all_games)} total games in database")
+    
+    # Filter games that have valid release dates
     games_with_dates = []
-    for lookup_type, lookup_value in games_to_check:
-        if lookup_type == 'id':
-            game = GamesTable.get(lookup_value)
-        else:  # lookup_type == 'name'
-            game = GamesTable.get_by_title(lookup_value)
+    
+    for game in all_games:
+        if game.release_date and game.release_date.strip():
+            logger.debug(f"[MILESTONES] Adding game: {game.title_original} (release: {game.release_date})")
             
-        if game and game.release_date and game.release_date.strip():
-            # Get first played date for this game
+            # Get first played date for this game (if any)
             first_played = GamesTable.get_start_date(game.id)
             
             games_with_dates.append({
@@ -799,7 +790,10 @@ def calculate_game_milestones(all_lines):
             })
     
     if not games_with_dates:
+        logger.debug("[MILESTONES] No games with release dates found")
         return None
+    
+    logger.debug(f"[MILESTONES] Found {len(games_with_dates)} games with release dates")
     
     # Sort by release date to find oldest and newest
     # Parse release dates for sorting (handle ISO format: "2009-10-15T00:00:00")
@@ -813,8 +807,21 @@ def calculate_game_milestones(all_lines):
     
     games_with_dates.sort(key=parse_release_date)
     
+    # Log sorted games for debugging
+    for i, game in enumerate(games_with_dates):
+        logger.debug(f"[MILESTONES] Sorted game {i}: {game['title_original']} ({parse_release_date(game)})")
+    
     oldest_game = games_with_dates[0] if games_with_dates else None
     newest_game = games_with_dates[-1] if games_with_dates else None
+    
+    # Ensure we don't return the same game for both oldest and newest if we have multiple games
+    if len(games_with_dates) > 1 and oldest_game and newest_game and oldest_game['id'] == newest_game['id']:
+        logger.warning(f"[MILESTONES] Same game detected for oldest and newest: {oldest_game['title_original']}")
+        # This shouldn't happen, but just in case
+        newest_game = games_with_dates[-2] if len(games_with_dates) > 1 else oldest_game
+    
+    logger.debug(f"[MILESTONES] Oldest: {oldest_game['title_original'] if oldest_game else 'None'} ({parse_release_date(oldest_game) if oldest_game else 'None'})")
+    logger.debug(f"[MILESTONES] Newest: {newest_game['title_original'] if newest_game else 'None'} ({parse_release_date(newest_game) if newest_game else 'None'})")
     
     # Format the release dates for display (extract date in YYYY-MM-DD format)
     def format_release_date(release_date_str):
