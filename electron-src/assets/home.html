@@ -67,7 +67,7 @@
             </span>
             <button class="status-button card" id="obs-status" title="OBS Status: Indicates whether OBS is running."
                 style="pointer-events: auto; cursor: pointer;">
-            <span class="icon">📹</span> <span>OBS</span> <span></span>
+                <span class="icon">📹</span> <span>OBS</span> <span></span>
             </button>
             <button class="status-button card" id="anki-status"
                 title="Anki Status: Indicates whether Anki is connected.">
@@ -113,6 +113,8 @@
         const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
         const runOverlayBtn = document.getElementById('runOverlayBtn');
         const obsStatusBtn = document.getElementById('obs-status');
+        const sceneSelect = document.getElementById('sceneSelect');
+        const windowSelect = document.getElementById('windowSelect');
 
 
         obsStatusBtn.addEventListener('click', async () => {
@@ -143,35 +145,15 @@
             await ipcRenderer.invoke('runOverlay');
         });
 
-        function getScenes() {
-            ipcRenderer.invoke('obs.getScenes').then(scenes => {
-                document.getElementById('sceneSelect').innerHTML = '';
-                const sceneSelect = document.getElementById('sceneSelect');
-                scenes.forEach(scene => {
-                    const option = document.createElement('option');
-                    option.value = scene.id;
-                    option.textContent = scene.name;
-                    sceneSelect.appendChild(option);
-                });
-
-                ipcRenderer.invoke('obs.getActiveScene').then(scene => {
-                    if (scene && !scenes.some(scene2 => scene2.id === scene.id)) {
-                        const option = document.createElement('option');
-                        option.value = scene.id;
-                        option.textContent = scene.name;
-                        sceneSelect.appendChild(option);
-                    }
-                    sceneSelect.value = scene.id; // Set the selected value
-                });
-            });
-        }
-
         function getWindows(showLoading = true) {
-            const windowSelect = document.getElementById('windowSelect');
-            if (showLoading) {
-                windowSelect.innerHTML = '<option>Loading...</option>'; // Set "Loading..." message
-            }
-            ipcRenderer.invoke('obs.getWindows').then(windows => {
+            // Remember the previously selected window
+            const previousSelection = windowSelect.value;
+
+            if (showLoading)
+                windowSelect.innerHTML = '<option>Loading...</option>';
+
+            ipcRenderer.invoke('obs.getWindows').then(windowsRes => {
+                windows = windowsRes;
                 windowSelect.innerHTML = '';
                 windows.forEach(window => {
                     const option = document.createElement('option');
@@ -179,6 +161,37 @@
                     option.textContent = window.title;
                     windowSelect.appendChild(option);
                 });
+
+                // Restore previous selection if it still exists in the list (compare by value)
+                if (previousSelection && windows.some(w => w.value === previousSelection)) {
+                    windowSelect.value = previousSelection;
+                }
+            });
+        }
+
+        function refreshScenesAndWindows(showLoading = true) {
+            // Remember the previously selected scene
+
+            if (showLoading)
+                sceneSelect.innerHTML = '<option>Loading...</option>';
+            ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
+                scenes = obsScenes;
+                sceneSelect.innerHTML = '';
+                scenes.forEach(scene => {
+                    const option = document.createElement('option');
+                    option.value = scene.id;
+                    option.textContent = scene.name;
+                    sceneSelect.appendChild(option);
+                });
+                ipcRenderer.invoke('obs.getActiveScene').then(scene => {
+                    if (scene && !scenes.some(s => s.id === scene.id)) {
+                        const option = document.createElement('option');
+                        option.value = scene.id;
+                        option.textContent = scene.name;
+                        sceneSelect.appendChild(option);
+                    }
+                });
+                getWindows(showLoading);
             });
         }
 
@@ -351,12 +364,11 @@
             });
         }, 200);
 
-        function refreshScenesAndWindows(showLoading = true) {
-            if (showLoading)
-                document.getElementById('sceneSelect').innerHTML = '<option>Loading...</option>';
-            getScenes();
-            getWindows(showLoading);
-        }
+        // function refreshScenesAndWindows(showLoading = true) {
+        //     if (showLoading)
+        //         document.getElementById('sceneSelect').innerHTML = '<option>Loading...</option>';
+        //     getWindows(showLoading);
+        // }
 
         refreshScenesAndWindows(true);
         setInterval(() => refreshScenesAndWindows(false), 5000);

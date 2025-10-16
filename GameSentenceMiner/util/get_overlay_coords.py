@@ -141,8 +141,8 @@ class OverlayProcessor:
             if self.config.overlay.websocket_port and all([GoogleLens, get_regex]):
                 logger.info("Initializing OCR engines...")
                 if OneOCR:
-                    self.oneocr = OneOCR(lang=get_ocr_language())
-                self.lens = GoogleLens(lang=get_ocr_language())
+                    self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+                self.lens = GoogleLens(lang=get_ocr_language(), get_furigana_sens_from_file=False)
                 self.ocr_language = get_ocr_language()
                 self.regex = get_regex(self.ocr_language)
                 logger.info("OCR engines initialized.")
@@ -253,7 +253,6 @@ class OverlayProcessor:
         if not mss:
             raise RuntimeError("MSS screenshot library is not installed.")
         with mss.mss() as sct:
-            logger.info(get_overlay_config())
             monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)  # Get primary monitor work area
             sct_img = sct.grab(monitor)
             img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
@@ -338,8 +337,11 @@ class OverlayProcessor:
                 return_coords=True,
                 multiple_crop_coords=True,
                 return_one_box=False,
-                furigana_filter_sensitivity=None, # Disable furigana filtering
+                furigana_filter_sensitivity=get_overlay_config().minimum_character_size,
             )
+            
+            if not crop_coords_list:
+                return        
             
             # Check for cancellation after OneOCR
             if asyncio.current_task().cancelled():
@@ -388,7 +390,7 @@ class OverlayProcessor:
         res = self.lens(
             composite_image,
             return_coords=True,
-            furigana_filter_sensitivity=None # Disable furigana filtering
+            furigana_filter_sensitivity=get_overlay_config().minimum_character_size
         )
         
         # Check for cancellation after Google Lens
@@ -455,6 +457,8 @@ class OverlayProcessor:
 
         for para in paragraphs:
             for line in para.get("lines", []):
+                # if not self.regex.match(line.get("plain_text", "")):
+                #     continue
                 line_text_parts = []
                 word_list = []
 
@@ -541,6 +545,9 @@ class OverlayProcessor:
         """
         converted_results = []
         for item in oneocr_results:
+            # Check Regex
+            # if not self.regex.match(item.get("text", "")):
+            #     continue
             bbox = item.get("bounding_rect", {})
             if not bbox:
                 continue

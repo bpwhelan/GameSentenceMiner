@@ -129,7 +129,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const loadPromises = [
             loadKanjiStats(queryString),
             loadGameStats(queryString),
-            loadNsfwSfwRetention(queryString),
+            // loadNsfwSfwRetention(queryString),
             loadMiningHeatmap(queryString)
         ];
         
@@ -364,7 +364,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const minutes = Math.floor(seconds / 60);
             const remainingSeconds = Math.floor(seconds % 60);
             return `${minutes}m ${remainingSeconds}s`;
-        }
+    }
     }
     
     // Note: Old individual loading functions (loadGameStats, loadNsfwSfwRetention, loadStats, loadMiningHeatmap)

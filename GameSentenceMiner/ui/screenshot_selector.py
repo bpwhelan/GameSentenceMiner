@@ -169,30 +169,17 @@ class ScreenshotSelectorDialog(tk.Toplevel):
 
     def _center_window(self):
         """
-        Smarter centering logic. Centers on the parent if it's visible,
-        otherwise centers on the screen.
+        Centers the dialog on the screen regardless of parent state.
         """
         self.update_idletasks()
         
-        parent = self.parent_window
         dialog_width = self.winfo_width()
         dialog_height = self.winfo_height()
-
-        if parent.state() == 'withdrawn':
-            # PARENT IS HIDDEN: Center the dialog on the screen
-            screen_width = self.winfo_screenwidth()
-            screen_height = self.winfo_screenheight()
-            x = (screen_width // 2) - (dialog_width // 2)
-            y = (screen_height // 2) - (dialog_height // 2)
-        else:
-            # PARENT IS VISIBLE: Center relative to the parent window
-            self.transient(parent) # Associate dialog with its parent
-            parent_x = parent.winfo_x()
-            parent_y = parent.winfo_y()
-            parent_width = parent.winfo_width()
-            parent_height = parent.winfo_height()
-            x = parent_x + (parent_width // 2) - (dialog_width // 2)
-            y = parent_y + (parent_height // 2) - (dialog_height // 2)
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        
+        x = (screen_width // 2) - (dialog_width // 2)
+        y = (screen_height // 2) - (dialog_height // 2)
         
         self.geometry(f'+{x}+{y}')
 

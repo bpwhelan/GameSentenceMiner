@@ -15,10 +15,14 @@ import uuid
 import pytz
 from datetime import timedelta
 
+import regex
+
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.util.configuration import get_stats_config, logger, is_dev
 import gzip
 
+# Matches any Unicode punctuation (\p{P}), symbol (\p{S}), or separator (\p{Z}); \p{Z} includes whitespace/separator chars
+punctuation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
 
 class SQLiteDB:
     """
@@ -136,7 +140,7 @@ class SQLiteDBTable:
         return cls.from_row(row) if row else None
 
     @classmethod
-    def from_row(cls: Type[T], row: Tuple) -> T:
+    def from_row(cls: Type[T], row: Tuple, clean_columns: list = []) -> T:
         if not row:
             return None
         obj = cls()
@@ -161,6 +165,9 @@ class SQLiteDBTable:
                 expected_pos = column_mapping[actual_pos]
                 field = expected_fields[expected_pos]
                 field_type = cls._types[expected_pos]
+                
+                if field in clean_columns and isinstance(row_value, str):
+                    row_value = punctuation_regex.sub('', row_value).strip() 
                 
                 cls._set_field_value(obj, field, field_type, row_value, expected_pos == 0 and field == cls._pk)
                 
@@ -489,6 +496,12 @@ class GameLinesTable(SQLiteDBTable):
         self.translation = translation if translation is not None else ''
         self.original_game_name = original_game_name if original_game_name is not None else ''
         self.game_id = game_id if game_id is not None else ''
+        
+    @classmethod
+    def all(cls, for_stats: bool = False) -> List['GameLinesTable']:
+        rows = cls._db.fetchall(f"SELECT * FROM {cls._table}")
+        clean_columns = ['line_text'] if for_stats else []
+        return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
 
     @classmethod
     def get_all_lines_for_scene(cls, game_name: str) -> List['GameLinesTable']:
@@ -546,7 +559,7 @@ class GameLinesTable(SQLiteDBTable):
         )
         
     @classmethod
-    def get_lines_filtered_by_timestamp(cls, start: Optional[float] = None, end: Optional[float] = None) -> List['GameLinesTable']:
+    def get_lines_filtered_by_timestamp(cls, start: Optional[float] = None, end: Optional[float] = None, for_stats=False) -> List['GameLinesTable']:
         """
         Fetches all lines optionally filtered by start and end timestamps.
         If start or end is None, that bound is ignored.
@@ -572,8 +585,9 @@ class GameLinesTable(SQLiteDBTable):
 
         # Execute the query
         rows = cls._db.fetchall(query, tuple(params))
-        return [cls.from_row(row) for row in rows]
-        
+        clean_columns = ['line_text'] if for_stats else []
+        return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+
 class StatsRollupTable(SQLiteDBTable):
     _table = 'stats_rollup'
     _fields = ['date', 'games_played', 'lines_mined', 'anki_cards_created', 'time_spent_mining']

@@ -49,28 +49,17 @@ class AnkiConfirmationDialog(tk.Toplevel):
         # --- Create and lay out widgets ---
         self._create_widgets(expression, sentence, screenshot_path, audio_path, translation)
 
-        # --- Smarter Centering Logic ---
+        # --- Center the dialog on screen ---
         self.update_idletasks()
 
-        if parent.state() == 'withdrawn':
-            screen_width = self.winfo_screenwidth()
-            screen_height = self.winfo_screenheight()
-            dialog_width = self.winfo_width()
-            dialog_height = self.winfo_height()
-            x = (screen_width // 2) - (dialog_width // 2)
-            y = (screen_height // 2) - (dialog_height // 2)
-            self.geometry(f'+{x}+{y}')
-        else:
-            self.transient(parent)
-            parent_x = parent.winfo_x()
-            parent_y = parent.winfo_y()
-            parent_width = parent.winfo_width()
-            parent_height = parent.winfo_height()
-            dialog_width = self.winfo_width()
-            dialog_height = self.winfo_height()
-            x = parent_x + (parent_width // 2) - (dialog_width // 2)
-            y = parent_y + (parent_height // 2) - (dialog_height // 2)
-            self.geometry(f'+{x}+{y}')
+        dialog_width = self.winfo_width()
+        dialog_height = self.winfo_height()
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        
+        x = (screen_width // 2) - (dialog_width // 2)
+        y = (screen_height // 2) - (dialog_height // 2)
+        self.geometry(f'+{x}+{y}')
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
         self.attributes('-topmost', True)

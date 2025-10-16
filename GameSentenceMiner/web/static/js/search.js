@@ -1,6 +1,3 @@
-// Search Page JavaScript
-// Dependencies: shared.js (provides utility functions like escapeHtml, escapeRegex)
-
 class SentenceSearchApp {
     constructor() {
         this.searchInput = document.getElementById('searchInput');
@@ -15,6 +12,8 @@ class SentenceSearchApp {
         this.searchTime = document.getElementById('searchTime');
         this.regexCheckbox = document.getElementById('regexCheckbox');
         this.deleteLinesBtn = document.getElementById('deleteLinesBtn');
+        this.selectAllBtn = document.getElementById('selectAllBtn');
+        this.pageSizeFilter = document.getElementById('pageSizeFilter');
         
         this.currentPage = 1;
         this.pageSize = 20;
@@ -22,31 +21,31 @@ class SentenceSearchApp {
         this.currentQuery = '';
         this.totalResults = 0;
         this.currentUseRegex = false;
-        this.selectedLineIds = new Set();
-
-        // Move initialization logic to async method
         this.initialize();
     }
 
     async initialize() {
-        // Check for ?q= parameter and pre-fill input
         const urlParams = new URLSearchParams(window.location.search);
         const qParam = urlParams.get('q');
         if (qParam) {
             this.searchInput.value = qParam;
         }
 
+        if (this.pageSizeFilter) {
+            this.pageSizeFilter.value = this.pageSize.toString();
+        } else {
+            console.error('Page size filter element not found!');
+        }
+
         this.initializeEventListeners();
         await this.loadGamesList();
 
-        // Trigger search after games list loads if q param is present
         if (qParam) {
             this.performSearch();
         }
     }
     
     initializeEventListeners() {
-        // Debounced search input
         this.searchInput.addEventListener('input', (e) => {
             clearTimeout(this.searchTimeout);
             this.searchTimeout = setTimeout(() => {
@@ -54,11 +53,17 @@ class SentenceSearchApp {
             }, 300);
         });
         
-        // Filter changes
         this.gameFilter.addEventListener('change', () => this.performSearch());
         this.sortFilter.addEventListener('change', () => this.performSearch());
         
-        // Pagination
+        if (this.pageSizeFilter) {
+            this.pageSizeFilter.addEventListener('change', () => {
+                this.pageSize = parseInt(this.pageSizeFilter.value);
+                this.currentPage = 1;
+                this.performSearch();
+            });
+        }
+        
         document.getElementById('prevPage').addEventListener('click', () => {
             if (this.currentPage > 1) {
                 this.currentPage--;
@@ -71,17 +76,21 @@ class SentenceSearchApp {
             this.performSearch();
         });
 
-        // Regex checkbox toggle triggers search
         if (this.regexCheckbox) {
             this.regexCheckbox.addEventListener('change', () => {
                 this.performSearch();
             });
         }
 
-        // Delete button click handler
         if (this.deleteLinesBtn) {
             this.deleteLinesBtn.addEventListener('click', () => {
                 this.showDeleteConfirmation();
+            });
+        }
+
+        if (this.selectAllBtn) {
+            this.selectAllBtn.addEventListener('click', () => {
+                this.toggleSelectAll();
             });
         }
     }
@@ -93,7 +102,6 @@ class SentenceSearchApp {
             
             if (response.ok && data.games) {
                 const gameSelect = this.gameFilter;
-                // Clear existing options except "All Games"
                 gameSelect.innerHTML = '<option value="">All Games</option>';
                 
                 data.games.forEach(game => {
@@ -114,14 +122,12 @@ class SentenceSearchApp {
         const sortBy = this.sortFilter.value;
         const useRegex = this.regexCheckbox && this.regexCheckbox.checked;
 
-        // Reset to first page for new searches or regex toggle
         if (query !== this.currentQuery || useRegex !== this.currentUseRegex) {
             this.currentPage = 1;
         }
         this.currentQuery = query;
         this.currentUseRegex = useRegex;
 
-        // Show appropriate state
         if (!query) {
             this.showEmptyState();
             return;
@@ -165,7 +171,6 @@ class SentenceSearchApp {
         this.hideAllStates();
         this.totalResults = data.total;
         
-        // Update stats
         const resultText = data.total === 1 ? 'result' : 'results';
         this.searchStats.textContent = `${data.total.toLocaleString()} ${resultText} found`;
         this.searchTime.textContent = `Search completed in ${searchTime}ms`;
@@ -174,8 +179,7 @@ class SentenceSearchApp {
             this.showNoResultsState();
             return;
         }
-        
-        // Render results
+
         this.searchResults.innerHTML = '';
         data.results.forEach(result => {
             const resultElement = this.createResultElement(result);
@@ -184,6 +188,7 @@ class SentenceSearchApp {
         
         this.updatePagination(data);
         this.searchResults.style.display = 'block';
+        this.updateDeleteButtonState();
     }
     
     createResultElement(result) {
@@ -193,31 +198,26 @@ class SentenceSearchApp {
         div.style.alignItems = 'flex-start';
         div.style.gap = '12px';
         
-        // Create checkbox
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.className = 'line-checkbox';
         checkbox.dataset.lineId = result.id;
-        checkbox.checked = this.selectedLineIds.has(result.id);
+        checkbox.checked = false;
         
-        // Add checkbox change handler
-        checkbox.addEventListener('change', (e) => {
-            if (e.target.checked) {
-                this.selectedLineIds.add(result.id);
-            } else {
-                this.selectedLineIds.delete(result.id);
-            }
+        checkbox.addEventListener('change', () => {
             this.updateDeleteButtonState();
         });
+
+        if (typeof result.sentence !== 'string') {
+            console.warn('Unexpected sentence format:', result.sentence);
+            result.sentence = JSON.stringify(result.sentence);
+        }
         
-        // Highlight search terms
         const highlightedText = this.highlightSearchTerms(result.sentence, this.currentQuery);
         
-        // Format timestamp to ISO format
         const date = new Date(result.timestamp * 1000);
         const formattedDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${date.toTimeString().split(' ')[0]}`;
         
-        // Create content container
         const contentDiv = document.createElement('div');
         contentDiv.style.flex = '1';
         contentDiv.innerHTML = `
@@ -256,7 +256,6 @@ class SentenceSearchApp {
                 const pattern = new RegExp(query, 'gi');
                 return escapedText.replace(pattern, '<span class="search-highlight">$&</span>');
             } catch (e) {
-                // If invalid regex, just return escaped text
                 return escapedText;
             }
         } else {
@@ -323,36 +322,91 @@ class SentenceSearchApp {
         this.errorMessage.style.display = 'none';
         this.searchResults.style.display = 'none';
         document.getElementById('pagination').style.display = 'none';
+        
+        if (this.selectAllBtn) {
+            this.selectAllBtn.disabled = true;
+            this.selectAllBtn.textContent = 'Select All';
+        }
     }
 
     updateDeleteButtonState() {
+        const selectedCount = this.getSelectedCount();
+        
         if (this.deleteLinesBtn) {
-            const selectedCount = this.selectedLineIds.size;
             this.deleteLinesBtn.disabled = selectedCount === 0;
             this.deleteLinesBtn.textContent = selectedCount > 0
                 ? `Delete Selected (${selectedCount})`
                 : 'Delete Selected';
         }
+
+        if (this.selectAllBtn) {
+            const totalVisible = document.querySelectorAll('.line-checkbox').length;
+            
+            if (totalVisible === 0) {
+                this.selectAllBtn.disabled = true;
+                this.selectAllBtn.textContent = 'Select All';
+            } else {
+                this.selectAllBtn.disabled = false;
+                if (this.areAllVisibleSelected()) {
+                    this.selectAllBtn.textContent = 'Deselect All';
+                } else {
+                    this.selectAllBtn.textContent = 'Select All';
+                }
+            }
+        }
+    }
+
+    getSelectedLineIds() {
+        const selectedIds = [];
+        const checkboxes = document.querySelectorAll('.line-checkbox:checked');
+        
+        checkboxes.forEach(checkbox => {
+            const lineId = checkbox.dataset.lineId;
+            selectedIds.push(lineId);
+        });
+        
+        return selectedIds;
+    }
+
+    getSelectedCount() {
+        return document.querySelectorAll('.line-checkbox:checked').length;
+    }
+
+    areAllVisibleSelected() {
+        const allCheckboxes = document.querySelectorAll('.line-checkbox');
+        const selectedCheckboxes = document.querySelectorAll('.line-checkbox:checked');
+        return allCheckboxes.length > 0 && allCheckboxes.length === selectedCheckboxes.length;
+    }
+
+    toggleSelectAll() {
+        const visibleCheckboxes = document.querySelectorAll('.line-checkbox');
+        const shouldSelect = !this.areAllVisibleSelected();
+        
+        visibleCheckboxes.forEach(checkbox => {
+            checkbox.checked = shouldSelect;
+        });
+        
+        this.updateDeleteButtonState();
     }
 
     showDeleteConfirmation() {
-        const count = this.selectedLineIds.size;
+        const count = this.getSelectedCount();
         if (count === 0) return;
 
         const message = `Are you sure you want to delete ${count} selected sentence${count > 1 ? 's' : ''}? This action cannot be undone.`;
         
-        // Show confirmation modal
         document.getElementById('deleteConfirmationMessage').textContent = message;
         openModal('deleteConfirmationModal');
     }
 
     async deleteSelectedLines() {
-        if (this.selectedLineIds.size === 0) return;
-
-        const lineIds = Array.from(this.selectedLineIds);
+        const lineIds = this.getSelectedLineIds();
+        
+        if (lineIds.length === 0) {
+            return;
+        }
         
         try {
-            // Show loading state
             this.showLoadingState();
             
             const response = await fetch('/api/delete-sentence-lines', {
@@ -369,14 +423,11 @@ class SentenceSearchApp {
                 throw new Error(data.error || 'Failed to delete sentences');
             }
 
-            // Clear selections
-            this.selectedLineIds.clear();
+            document.querySelectorAll('.line-checkbox:checked').forEach(cb => cb.checked = false);
             this.updateDeleteButtonState();
 
-            // Refresh search results
             await this.performSearch();
 
-            // Show success message using modal
             this.showMessage('Success', `Successfully deleted ${data.deleted_count} sentence${data.deleted_count > 1 ? 's' : ''}`);
 
         } catch (error) {
@@ -392,11 +443,9 @@ class SentenceSearchApp {
     }
 }
 
-// Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     const app = new SentenceSearchApp();
     
-    // Add modal close button handlers
     const closeButtons = document.querySelectorAll('[data-action="closeModal"]');
     closeButtons.forEach(btn => {
         const modalId = btn.getAttribute('data-modal');
@@ -405,7 +454,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // Add confirm delete button handler
     const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
     if (confirmDeleteBtn) {
         confirmDeleteBtn.addEventListener('click', () => {

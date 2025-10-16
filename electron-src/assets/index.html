@@ -1094,7 +1094,17 @@
                     });
                 }
 
+                function getOBSWindows() {
+                    ipcRenderer.invoke('obs.getSceneActiveWindow').then(activeWindow => {
+                        const matchingWindow = windows.find(window => window === activeWindow);
+                        if (matchingWindow) windowSelect.value = matchingWindow;
+                    });
+                }
+
                 function getWindows(showLoading = true) {
+                    // Remember the previously selected window
+                    const previousSelection = windowSelect.value;
+                    
                     if (showLoading)
                         windowSelect.innerHTML = '<option>Loading...</option>';
                     ipcRenderer.invoke('ocr.getWindows').then(windowsRes => {
@@ -1106,19 +1116,21 @@
                             option.textContent = window;
                             windowSelect.appendChild(option);
                         });
+                        
+                        // Restore previous selection if it still exists in the list
+                        if (previousSelection && windows.includes(previousSelection)) {
+                            windowSelect.value = previousSelection;
+                        }
+                        
                         getOBSWindows();
                         refreshActiveOCRWindow();
                     });
                 }
 
-                function getOBSWindows() {
-                    ipcRenderer.invoke('obs.getSceneActiveWindow').then(activeWindow => {
-                        const matchingWindow = windows.find(window => window === activeWindow);
-                        if (matchingWindow) windowSelect.value = matchingWindow;
-                    });
-                }
-
                 function refreshScenesAndWindows(showLoading = true) {
+                    // Remember the previously selected scene
+                    const previousSceneSelection = sceneSelect.value;
+                    
                     if (showLoading)
                         sceneSelect.innerHTML = '<option>Loading...</option>';
                     ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
@@ -1137,7 +1149,13 @@
                                 option.textContent = scene.name;
                                 sceneSelect.appendChild(option);
                             }
-                            if (scene) sceneSelect.value = scene.id;
+                            
+                            // Restore previous selection if it still exists, otherwise use active scene
+                            if (previousSceneSelection && scenes.some(s => s.id === previousSceneSelection)) {
+                                sceneSelect.value = previousSceneSelection;
+                            } else if (scene) {
+                                sceneSelect.value = scene.id;
+                            }
                         });
                         getWindows(showLoading);
                     });

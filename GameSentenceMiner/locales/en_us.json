@@ -515,8 +515,8 @@
         "ai": {
           "title": "AI",
           "enabled": {
-            "label": "Enabled:",
-            "tooltip": "Enable or disable AI integration."
+            "label": "Add To Anki:",
+            "tooltip": "Enable or disable Adding AI Result to Anki."
           },
           "provider": {
             "label": "Provider:",

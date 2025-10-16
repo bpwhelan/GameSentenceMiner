@@ -713,11 +713,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('currentSessionTotalHours').textContent = hoursDisplay;
         document.getElementById('currentSessionTotalChars').textContent = lastSession.totalChars.toLocaleString();
         document.getElementById('currentSessionStartTime').textContent = startTimeDisplay;
-        if (index === sessionDetails.length - 1) {
-            document.getElementById('currentSessionEndTime').textContent = 'Unknown';
-        } else {
-            document.getElementById('currentSessionEndTime').textContent = endTimeDisplay;
-        }
+        document.getElementById('currentSessionEndTime').textContent = endTimeDisplay;
         document.getElementById('currentSessionCharsPerHour').textContent = lastSession.readSpeed !== '-' ? lastSession.readSpeed.toLocaleString() : '-';
     }
 
@@ -728,6 +724,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const today = new Date();
             const pad = n => n.toString().padStart(2, '0');
             const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+            const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             document.getElementById('todayDate').textContent = todayStr;
 
             // Filter lines for today
@@ -794,11 +791,10 @@ document.addEventListener('DOMContentLoaded', function () {
                         };
                     } else {
                         // Continue current session
-                        currentSession.endTime = ts;
+                        currentSession.endTime = ts + afkTimerSeconds;
                         currentSession.totalChars += chars;
                         currentSession.lines.push(line);
                         if (lastTimestamp !== null) {
-                            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
                             currentSession.totalSeconds += Math.min(ts - lastTimestamp, afkTimerSeconds);
                         }
                     }
@@ -824,7 +820,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             // Optionally, you can expose sessionDetails for debugging or further UI use:
-            console.log(sessionDetails);
+            // console.log(sessionDetails);
             window.todaySessionDetails = sessionDetails;
 
             // Calculate total reading time (reuse AFK logic from calculateHeatmapStreaks)
@@ -834,7 +830,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 .filter(ts => !isNaN(ts))
                 .sort((a, b) => a - b);
             // Get AFK timer from settings modal if available
-            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             if (timestamps.length >= 2) {
                 for (let i = 1; i < timestamps.length; i++) {
                     const gap = timestamps[i] - timestamps[i-1];
@@ -878,6 +873,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Determine target date string (YYYY-MM-DD) from the end timestamp
             const endDateObj = new Date(endTimestamp * 1000);
             const targetDateStr = `${endDateObj.getFullYear()}-${pad(endDateObj.getMonth() + 1)}-${pad(endDateObj.getDate())}`;
+            const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             document.getElementById('todayDate').textContent = targetDateStr;
 
             // Filter lines that fall on the target date
@@ -943,7 +939,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         };
                     } else {
                         // Continue current session
-                        currentSession.endTime = ts;
+                        currentSession.endTime = ts + afkTimerSeconds;
                         currentSession.totalChars += chars;
                         currentSession.lines.push(line);
                         if (lastTimestamp !== null) {
@@ -985,8 +981,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 .map(l => parseFloat(l.timestamp))
                 .filter(ts => !isNaN(ts))
                 .sort((a, b) => a - b);
-
-            let afkTimerSeconds = window.statsConfig?.afkTimerSeconds || 120;
 
             if (timestamps.length >= 2) {
                 for (let i = 1; i < timestamps.length; i++) {

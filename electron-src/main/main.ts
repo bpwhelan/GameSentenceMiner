@@ -528,15 +528,15 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
         return await runGSM(pythonPath, ['-m', getGSMModulePath()]);
     } catch (err) {
         console.error('Failed to start GameSentenceMiner:', err);
-        if (isDev && retry > 0) {
-            console.log('Retrying installation of GameSentenceMiner...');
+        if (!isDev && retry > 0) {
+            console.log('Looks like something\'s broken with GSM, attempting to repair the installation...');
             await runCommand(
                 pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--force-reinstall', '--no-config', '--prerelease=allow', PACKAGE_NAME],
+                ['-m', 'uv', 'pip', 'install', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
                 true,
                 true
             );
-            console.log('after run command');
+            console.log('reinstall complete, retrying to start GSM...');
             await ensureAndRunGSM(pythonPath, retry - 1);
         }
         await new Promise((resolve) => setTimeout(resolve, 2000));

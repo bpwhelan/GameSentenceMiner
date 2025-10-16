@@ -7,8 +7,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.18.9"
-description = "A tool for mining sentences from games. Update: Overlay?"
+version = "2.18.18"
+description = "A tool for mining sentences from games. Fix Goals Char Count"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT License" }
