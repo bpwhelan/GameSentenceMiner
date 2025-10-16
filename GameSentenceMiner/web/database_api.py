@@ -24,7 +24,6 @@ from GameSentenceMiner.web.stats import (
     calculate_hourly_reading_speed, calculate_peak_daily_stats, calculate_peak_session_stats
 )
 
-
 def register_database_api_routes(app):
     """Register all database API routes with the Flask app."""
     
@@ -1069,7 +1068,6 @@ def register_database_api_routes(app):
         Accepts optional 'year' parameter to filter heatmap data.
         """
         try:
-            punctionation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
             # Get optional year filter parameter
             filter_year = request.args.get('year', None)
 
@@ -1082,7 +1080,7 @@ def register_database_api_routes(app):
             end_timestamp = float(end_timestamp) if end_timestamp else None
 
             # 1. Fetch all lines and sort them chronologically
-            all_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=start_timestamp, end=end_timestamp)
+            all_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=start_timestamp, end=end_timestamp, for_stats=True)
             
             if not all_lines:
                 return jsonify({"labels": [], "datasets": []})
@@ -1095,14 +1093,12 @@ def register_database_api_routes(app):
                 day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
                 game = line.game_name or "Unknown Game"
                 # Remove punctuation and symbols from line text before counting characters
-                clean_text = punctionation_regex.sub('', str(line.line_text)) if line.line_text else ''
-                if not isinstance(clean_text, str) and not wrong_instance_found:
-                    logger.info(f"Non-string line_text encountered: {clean_text} (type: {type(clean_text)})")
+                if not isinstance(line.line_text, str) and not wrong_instance_found:
+                    logger.info(f"Non-string line_text encountered: {line.line_text} (type: {type(line.line_text)})")
                     wrong_instance_found = True
 
-                line.line_text = clean_text  # Update line text to cleaned version for future use
                 daily_data[day_str][game]['lines'] += 1
-                daily_data[day_str][game]['chars'] += len(clean_text)
+                daily_data[day_str][game]['chars'] += len(line.line_text)
 
             # 3. Create cumulative datasets for Chart.js
             sorted_days = sorted(daily_data.keys())
@@ -1318,7 +1314,7 @@ def register_database_api_routes(app):
             today = datetime.date.today()
             
             # Get all lines for overall progress
-            all_lines = GameLinesTable.all()
+            all_lines = GameLinesTable.all(for_stats=True)
             if not all_lines:
                 return jsonify({
                     'hours': {'required': 0, 'progress': 0, 'has_target': False},
@@ -1428,7 +1424,7 @@ def register_database_api_routes(app):
             thirty_days_ago = today - datetime.timedelta(days=30)
             
             # Get all lines
-            all_lines = GameLinesTable.all()
+            all_lines = GameLinesTable.all(for_stats=True)
             if not all_lines:
                 return jsonify({
                     'hours': {'projection': 0, 'daily_average': 0},
