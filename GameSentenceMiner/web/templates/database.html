@@ -171,52 +171,8 @@
         <div class="modal-body">
             <p class="warning-text">Remove specific lines of text from all games using preset patterns or custom regex. This operation cannot be undone.</p>
             
-            <div class="form-group">
-                <label class="form-label">Preset Patterns:</label>
-                <select id="presetPatterns" class="form-input">
-                    <option value="">Select a preset pattern...</option>
-                    <option value="lines_over_50">Lines over 50 characters</option>
-                    <option value="lines_over_100">Lines over 100 characters</option>
-                    <option value="non_japanese">Non-Japanese text</option>
-                    <option value="ascii_only">ASCII-only lines</option>
-                    <option value="empty_lines">Empty or whitespace-only lines</option>
-                    <option value="numbers_only">Lines with numbers only</option>
-                    <option value="single_char">Single character lines</option>
-                    <option value="repeated_chars">Lines with repeated characters (3+ times)</option>
-                </select>
-                <small style="color: var(--text-tertiary); font-size: 12px;">
-                    Select a common pattern or create a custom regex below.
-                </small>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Custom Regex Pattern:</label>
-                <input type="text" id="customRegex" class="form-input" placeholder="Enter custom regex pattern (e.g., ^.{0,10}$ for lines 10 chars or less)">
-                <small style="color: var(--text-tertiary); font-size: 12px;">
-                    Use regex syntax. Leave empty to use exact text matching below.
-                </small>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Exact Text to Delete:</label>
-                <textarea id="textToDelete" class="form-textarea" rows="4" placeholder="Enter exact text lines to delete, one per line..."></textarea>
-                <small style="color: var(--text-tertiary); font-size: 12px;">
-                    Each line will be treated as an exact match. Only used if no regex pattern is provided.
-                </small>
-            </div>
-            
-            <div class="form-group">
-                <div class="checkbox-container">
-                    <input type="checkbox" id="caseSensitiveDelete" class="checkbox-input">
-                    <label for="caseSensitiveDelete" class="checkbox-label">Case sensitive matching</label>
-                </div>
-            </div>
-            
-            <div class="form-group">
-                <div class="checkbox-container">
-                    <input type="checkbox" id="useRegexDelete" class="checkbox-input">
-                    <label for="useRegexDelete" class="checkbox-label">Treat custom pattern as regex</label>
-                </div>
+            <div id="textLinesRegexComponent" data-show-exact-text="true">
+                {% include 'components/regex-input.html' %}
             </div>
             
             <div id="previewDeleteResults" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 5px; margin: 15px 0;">

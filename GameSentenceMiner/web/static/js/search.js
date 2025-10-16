@@ -10,7 +10,13 @@ class SentenceSearchApp {
         this.errorMessage = document.getElementById('errorMessage');
         this.searchStats = document.getElementById('searchStats');
         this.searchTime = document.getElementById('searchTime');
-        this.regexCheckbox = document.getElementById('regexCheckbox');
+        
+        // Regex component elements
+        this.regexPresetSelect = document.querySelector('.regex-preset-select');
+        this.regexCustomInput = document.querySelector('.regex-custom-input');
+        this.regexCaseCheckbox = document.querySelector('.regex-case-checkbox');
+        this.regexModeCheckbox = document.querySelector('.regex-mode-checkbox');
+        
         this.deleteLinesBtn = document.getElementById('deleteLinesBtn');
         this.selectAllBtn = document.getElementById('selectAllBtn');
         this.pageSizeFilter = document.getElementById('pageSizeFilter');
@@ -76,8 +82,24 @@ class SentenceSearchApp {
             this.performSearch();
         });
 
-        if (this.regexCheckbox) {
-            this.regexCheckbox.addEventListener('change', () => {
+        // Regex component event listeners
+        if (this.regexCustomInput) {
+            this.regexCustomInput.addEventListener('input', () => {
+                clearTimeout(this.searchTimeout);
+                this.searchTimeout = setTimeout(() => {
+                    this.performSearch();
+                }, 300);
+            });
+        }
+        
+        if (this.regexModeCheckbox) {
+            this.regexModeCheckbox.addEventListener('change', () => {
+                this.performSearch();
+            });
+        }
+        
+        if (this.regexCaseCheckbox) {
+            this.regexCaseCheckbox.addEventListener('change', () => {
                 this.performSearch();
             });
         }
@@ -120,15 +142,22 @@ class SentenceSearchApp {
         const query = this.searchInput.value.trim();
         const gameFilter = this.gameFilter.value;
         const sortBy = this.sortFilter.value;
-        const useRegex = this.regexCheckbox && this.regexCheckbox.checked;
+        
+        // Get regex settings from component
+        const customRegex = this.regexCustomInput ? this.regexCustomInput.value.trim() : '';
+        const useRegex = this.regexModeCheckbox ? this.regexModeCheckbox.checked : false;
+        const caseSensitive = this.regexCaseCheckbox ? this.regexCaseCheckbox.checked : false;
+        
+        // Use custom regex if provided and regex mode is enabled, otherwise use search query
+        const searchPattern = (useRegex && customRegex) ? customRegex : query;
 
-        if (query !== this.currentQuery || useRegex !== this.currentUseRegex) {
+        if (searchPattern !== this.currentQuery || useRegex !== this.currentUseRegex) {
             this.currentPage = 1;
         }
-        this.currentQuery = query;
+        this.currentQuery = searchPattern;
         this.currentUseRegex = useRegex;
 
-        if (!query) {
+        if (!searchPattern && !query) {
             this.showEmptyState();
             return;
         }
@@ -138,7 +167,7 @@ class SentenceSearchApp {
 
         try {
             const params = new URLSearchParams({
-                q: query,
+                q: searchPattern || query,
                 page: this.currentPage,
                 page_size: this.pageSize,
                 sort: sortBy
@@ -149,6 +178,9 @@ class SentenceSearchApp {
             }
             if (useRegex) {
                 params.append('use_regex', 'true');
+            }
+            if (caseSensitive) {
+                params.append('case_sensitive', 'true');
             }
 
             const response = await fetch(`/api/search-sentences?${params}`);
@@ -248,12 +280,15 @@ class SentenceSearchApp {
     highlightSearchTerms(text, query) {
         if (!query) return escapeHtml(text);
 
-        const useRegex = this.regexCheckbox && this.regexCheckbox.checked;
+        const useRegex = this.regexModeCheckbox ? this.regexModeCheckbox.checked : false;
+        const customRegex = this.regexCustomInput ? this.regexCustomInput.value.trim() : '';
+        const caseSensitive = this.regexCaseCheckbox ? this.regexCaseCheckbox.checked : false;
         const escapedText = escapeHtml(text);
 
-        if (useRegex) {
+        if (useRegex && customRegex) {
             try {
-                const pattern = new RegExp(query, 'gi');
+                const flags = caseSensitive ? 'g' : 'gi';
+                const pattern = new RegExp(customRegex, flags);
                 return escapedText.replace(pattern, '<span class="search-highlight">$&</span>');
             } catch (e) {
                 return escapedText;
@@ -262,7 +297,8 @@ class SentenceSearchApp {
             const searchTerms = query.split(' ').filter(term => term.length > 0);
             let result = escapedText;
             searchTerms.forEach(term => {
-                const regex = new RegExp(`(${escapeRegex(term)})`, 'gi');
+                const flags = caseSensitive ? 'g' : 'gi';
+                const regex = new RegExp(`(${escapeRegex(term)})`, flags);
                 result = result.replace(regex, '<span class="search-highlight">$1</span>');
             });
             return result;

@@ -119,10 +119,8 @@ class DatabaseManager {
             confirmMergeBtn.addEventListener('click', confirmGameMerge);
         }
 
-        const presetPatternsSelect = document.getElementById('presetPatterns');
-        if (presetPatternsSelect) {
-            presetPatternsSelect.addEventListener('change', applyPresetPattern);
-        }
+        // Preset pattern handling is now done by the regex-input component
+        // No need to attach event listeners here
 
         const previewDeleteBtn = document.querySelector('[data-action="previewTextDeletion"]');
         if (previewDeleteBtn) {
@@ -398,45 +396,39 @@ async function deleteSelectedGames() {
 // Text Lines Functions
 function openTextLinesModal() {
     openModal('textLinesModal');
-    // Reset the modal state
-    document.getElementById('presetPatterns').value = '';
-    document.getElementById('customRegex').value = '';
-    document.getElementById('textToDelete').value = '';
+    // Reset the modal state using regex component elements
+    const component = document.getElementById('textLinesRegexComponent');
+    if (component) {
+        const presetSelect = component.querySelector('.regex-preset-select');
+        const customInput = component.querySelector('.regex-custom-input');
+        const exactTextarea = component.querySelector('.regex-exact-textarea');
+        const caseCheckbox = component.querySelector('.regex-case-checkbox');
+        const regexCheckbox = component.querySelector('.regex-mode-checkbox');
+        
+        if (presetSelect) presetSelect.value = '';
+        if (customInput) customInput.value = '';
+        if (exactTextarea) exactTextarea.value = '';
+        if (caseCheckbox) caseCheckbox.checked = false;
+        if (regexCheckbox) regexCheckbox.checked = false;
+        
+        // Show exact text input for deletion use case
+        const exactTextGroup = component.querySelector('.regex-exact-text-group');
+        if (exactTextGroup) exactTextGroup.style.display = 'block';
+    }
     document.getElementById('previewDeleteResults').style.display = 'none';
     document.getElementById('executeDeleteBtn').disabled = true;
 }
 
-// Preset pattern definitions
-const presetPatterns = {
-    'lines_over_50': '.{51,}',
-    'lines_over_100': '.{101,}',
-    'non_japanese': '^[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]*$',
-    'ascii_only': '^[\x00-\x7F]*$',
-    'empty_lines': '^\s*$',
-    'numbers_only': '^\d+$',
-    'single_char': '^.{1}$',
-    'repeated_chars': '(.)\\1{2,}'
-};
-
-function applyPresetPattern() {
-    const selectedPattern = document.getElementById('presetPatterns').value;
-    const customRegexInput = document.getElementById('customRegex');
-    const useRegexCheckbox = document.getElementById('useRegexDelete');
-    
-    if (selectedPattern && presetPatterns[selectedPattern]) {
-        customRegexInput.value = presetPatterns[selectedPattern];
-        useRegexCheckbox.checked = true;
-        // Clear preview when pattern changes
-        document.getElementById('previewDeleteResults').style.display = 'none';
-        document.getElementById('executeDeleteBtn').disabled = true;
-    }
-}
+// Preset patterns are now handled by the regex-input component
+// The component automatically populates the custom regex input when a preset is selected
 
 async function previewTextDeletion() {
-    const customRegex = document.getElementById('customRegex').value;
-    const textToDelete = document.getElementById('textToDelete').value;
-    const caseSensitive = document.getElementById('caseSensitiveDelete').checked;
-    const useRegex = document.getElementById('useRegexDelete').checked;
+    // Get values from regex component
+    const component = document.getElementById('textLinesRegexComponent');
+    const customRegex = component.querySelector('.regex-custom-input').value;
+    const textToDelete = component.querySelector('.regex-exact-textarea').value;
+    const caseSensitive = component.querySelector('.regex-case-checkbox').checked;
+    const useRegex = component.querySelector('.regex-mode-checkbox').checked;
     const errorDiv = document.getElementById('textLinesError');
     const previewDiv = document.getElementById('previewDeleteResults');
     
@@ -497,10 +489,12 @@ async function previewTextDeletion() {
 }
 
 async function deleteTextLines() {
-    const customRegex = document.getElementById('customRegex').value;
-    const textToDelete = document.getElementById('textToDelete').value;
-    const caseSensitive = document.getElementById('caseSensitiveDelete').checked;
-    const useRegex = document.getElementById('useRegexDelete').checked;
+    // Get values from regex component
+    const component = document.getElementById('textLinesRegexComponent');
+    const customRegex = component.querySelector('.regex-custom-input').value;
+    const textToDelete = component.querySelector('.regex-exact-textarea').value;
+    const caseSensitive = component.querySelector('.regex-case-checkbox').checked;
+    const useRegex = component.querySelector('.regex-mode-checkbox').checked;
     const errorDiv = document.getElementById('textLinesError');
     const successDiv = document.getElementById('textLinesSuccess');
     
