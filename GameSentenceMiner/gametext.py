@@ -17,7 +17,7 @@ from GameSentenceMiner.util.gsm_utils import add_srt_line
 from GameSentenceMiner.util.text_log import add_line, get_text_log
 from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, overlay_server_thread
 
-from GameSentenceMiner.util.get_overlay_coords import OverlayProcessor
+from GameSentenceMiner.util.get_overlay_coords import overlay_processor
 
 
 current_line = ''
@@ -33,7 +33,6 @@ last_clipboard = ''
 
 reconnecting = False
 websocket_connected = {}
-overlay_processor = None
 
 async def monitor_clipboard():
     global current_line, last_clipboard
@@ -67,6 +66,13 @@ async def listen_websockets():
         global current_line, current_line_time, reconnecting, websocket_connected
         try_other = False
         websocket_connected[uri] = False
+        websocket_names = {
+            "9002": "GSM OCR",
+            "9001": "Agent or TextractorSender",
+            "6677": "textractor_websocket",
+            "2333": "LunaTranslator"
+        }
+        likely_websocket_name = next((f" ({name})" for port, name in websocket_names.items() if port in uri), "")
         while True:
             if not get_config().general.use_websocket:
                 await asyncio.sleep(1)
@@ -76,10 +82,9 @@ async def listen_websockets():
                 websocket_url = f'ws://{uri}/api/ws/text/origin'
             try:
                 async with websockets.connect(websocket_url, ping_interval=None) as websocket:
-                    logger.info(f"TextHooker Websocket {uri} Connected!")
                     gsm_status.websockets_connected.append(websocket_url)
                     if reconnecting:
-                        logger.info(f"Texthooker WebSocket {uri} connected Successfully!" + " Disabling Clipboard Monitor." if (get_config().general.use_clipboard and not get_config().general.use_both_clipboard_and_websocket) else "")
+                        logger.info(f"Texthooker WebSocket {uri}{likely_websocket_name} connected Successfully!" + " Disabling Clipboard Monitor." if (get_config().general.use_clipboard and not get_config().general.use_both_clipboard_and_websocket) else "")
                         reconnecting = False
                     websocket_connected[uri] = True
                     line_time = None
@@ -110,13 +115,13 @@ async def listen_websockets():
                 if isinstance(e, InvalidStatus):
                     e: InvalidStatus
                     if e.response.status_code == 404:
-                        logger.info(f"Texthooker WebSocket: {uri} connection failed. Attempting some fixes...")
+                        logger.info(f"Texthooker WebSocket: {uri}{likely_websocket_name} connection failed. Attempting some fixes...")
                         try_other = True
                 elif websocket_connected[uri]:
                     if not (isinstance(e, ConnectionResetError) or isinstance(e, ConnectionError) or isinstance(e, InvalidStatus) or isinstance(e, websockets.ConnectionClosed)):
-                        logger.debug(f"Unexpected error in Texthooker WebSocket {uri} connection: {e}, Can be ignored")
+                        logger.debug(f"Unexpected error in Texthooker WebSocket {uri}{likely_websocket_name} connection: {e}, Can be ignored")
                     else:
-                        logger.warning(f"Texthooker WebSocket {uri} disconnected. Attempting to reconnect...")
+                        logger.warning(f"Texthooker WebSocket {uri}{likely_websocket_name} disconnected. Attempting to reconnect...")
                     websocket_connected[uri] = False
                     await asyncio.sleep(1)
 
@@ -184,8 +189,6 @@ async def handle_new_text_event(current_clipboard, line_time=None):
 
                 
 async def add_line_to_text_log(line, line_time=None):
-    global overlay_processor
-    
     if get_config().general.texthook_replacement_regex:
         current_line_after_regex = re.sub(get_config().general.texthook_replacement_regex, '', line)
     else:
@@ -198,12 +201,11 @@ async def add_line_to_text_log(line, line_time=None):
     if len(get_text_log().values) > 0:
         await add_event_to_texthooker(get_text_log()[-1])
     if get_config().overlay.websocket_port and overlay_server_thread.has_clients():
-        if not overlay_processor:
-            overlay_processor = OverlayProcessor()
         if overlay_processor.ready:
             await overlay_processor.find_box_and_send_to_overlay(current_line_after_regex)
     add_srt_line(line_time, new_line)
-    GameLinesTable.add_line(get_text_log()[-1])
+    if 'nostatspls' not in new_line.scene.lower():
+        GameLinesTable.add_line(new_line)
 
 def reset_line_hotkey_pressed():
     global current_line_time

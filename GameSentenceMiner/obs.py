@@ -35,6 +35,8 @@ class OBSConnectionPool:
         self._locks = [threading.Lock() for _ in range(self.size)]
         self._next_idx = 0
         self._idx_lock = threading.Lock()
+        self.connected_once = False
+        self.last_error_shown = [None] * self.size
         logger.info(f"Initialized OBSConnectionPool with size {self.size}")
 
     def connect_all(self):
@@ -42,8 +44,12 @@ class OBSConnectionPool:
         for i in range(self.size):
             try:
                 self._clients[i] = obs.ReqClient(**self.connection_kwargs)
+                self.connected_once = True
             except Exception as e:
+                if str(e) == self.last_error_shown[i]:
+                    continue
                 logger.error(f"Failed to create client {i} in pool: {e}")
+                self.last_error_shown[i] = str(e)
         return True
 
     def disconnect_all(self):
@@ -154,6 +160,8 @@ class OBSConnectionManager(threading.Thread):
             return errors
 
         buffer_seconds, error_message = self.check_replay_buffer_enabled()
+        
+        gsm_state.replay_buffer_length = buffer_seconds or 300
 
         if not buffer_seconds:
             errors.append(error_message)

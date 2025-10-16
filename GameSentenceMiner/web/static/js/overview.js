@@ -578,6 +578,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Session navigation button handlers
     const prevSessionBtn = document.querySelector('.prev-session-btn');
     const nextSessionBtn = document.querySelector('.next-session-btn');
+    const deleteSessionBtn = document.querySelector('.delete-session-btn');
 
     function updateSessionNavigationButtons() {
         if (!window.todaySessionDetails || window.todaySessionDetails.length === 0) {
@@ -597,6 +598,32 @@ document.addEventListener('DOMContentLoaded', function () {
         updateSessionNavigationButtons();
     }
 
+    function deleteSession(session) {
+        const line_ids = session.lines.map(line => line.id);
+        fetch('/api/delete-sentence-lines', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ line_ids })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Remove the session from the list
+                window.todaySessionDetails = window.todaySessionDetails.filter(s => s !== session);
+                // Update the UI
+                updateCurrentSessionOverview(window.todaySessionDetails, window.currentSessionIndex);
+                updateSessionNavigationButtons();
+            } else {
+                console.error('Failed to delete session:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting session:', error);
+        });
+    }
+
     prevSessionBtn.addEventListener('click', () => {
         if (!window.todaySessionDetails) return;
         let idx = window.currentSessionIndex || 0;
@@ -611,6 +638,24 @@ document.addEventListener('DOMContentLoaded', function () {
         if (idx < window.todaySessionDetails.length - 1) {
             showSessionAtIndex(idx + 1);
         }
+    });
+
+    deleteSessionBtn.addEventListener('click', () => {
+        if (!window.todaySessionDetails || window.todaySessionDetails.length === 0) return;
+        const idx = window.currentSessionIndex || 0;
+        const sessionToDelete = window.todaySessionDetails[idx];
+        if (!sessionToDelete) return;
+
+        // Confirm deletion
+        const confirm1 = confirm(`Are you sure you want to delete the session starting at ${new Date(sessionToDelete.startTime * 1000).toLocaleString()}? This will delete ${sessionToDelete.lines.length} lines. This action cannot be undone.`);
+        if (!confirm1) return;
+        const confirm2 = confirm("Are you REALLY sure? This cannot be undone.");
+        if (!confirm2) return;
+        const confirm3 = confirm("Final warning: Delete this session permanently?");
+        if (!confirm3) return;
+
+        // Call the delete function
+        deleteSession(sessionToDelete);
     });
 
     // Update navigation buttons whenever sessions are loaded

@@ -227,6 +227,8 @@ def register_database_api_routes(app):
             data = request.get_json()
             line_ids = data.get('line_ids', [])
             
+            logger.debug(f"Request to delete line IDs: {line_ids}")
+            
             if not line_ids:
                 return jsonify({'error': 'No line IDs provided'}), 400
             
@@ -1214,7 +1216,8 @@ def register_database_api_routes(app):
                     all_lines_data.append({
                         'timestamp': float(line.timestamp),
                         'game_name': line.game_name or 'Unknown Game',
-                        'characters': len(line.line_text) if line.line_text else 0
+                        'characters': len(line.line_text) if line.line_text else 0,
+                        'id': line.id
                     })
             except Exception as e:
                 logger.error(f"Error preparing all lines data: {e}")

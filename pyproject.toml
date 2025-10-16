@@ -7,8 +7,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.18.19"
-description = "A tool for mining sentences from games. Fix Goals Char Count"
+version = "2.18.18"
+description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT License" }
@@ -22,43 +22,42 @@ classifiers = [
   "Operating System :: OS Independent"
 ]
 dependencies = [
-  "requests~=2.32.3",
-  "watchdog~=5.0.2",
-  "DateTime~=5.5",
-  "pyperclip~=1.9.0",
-  "soundfile~=0.12.1",
-  "toml~=0.10.2",
-  "psutil~=7.1.0",
-  "rapidfuzz~=3.9.7",
-  "plyer~=2.1.0",
-  "keyboard~=0.13.5",
-  "websockets~=15.0.1",
-  "openai-whisper==20240930; sys_platform == 'win32'",
-  "openai-whisper; sys_platform != 'win32'",
-  "stable-ts-whisperless",
-  "silero-vad~=5.1.2",
-  "ttkbootstrap~=1.10.1",
-  "dataclasses_json~=0.6.7",
-  "win10toast; sys_platform == 'win32'",
-  "pystray",
-  "pywin32; sys_platform == 'win32'",
-  "pygetwindow; sys_platform == 'win32'",
-  "flask",
-  "groq",
-  "matplotlib",
-  "sounddevice",
-  "google-genai",
-  "owocr",
-  "oneocr",
-  "openai",
-  "scikit-image",
-  "opencv-python",
+  "requests>=2.32.3",
+  "watchdog>=5.0.2",
+  "DateTime>=5.5",
+  "pyperclip>=1.9.0",
+  "soundfile>=0.12.1",
+  "toml>=0.10.2",
+  "psutil>=7.1.0",
+  "rapidfuzz>=3.9.7",
+  "plyer>=2.1.0",
+  "keyboard>=0.13.5",
+  "websockets>=15.0.1",
+  "ttkbootstrap>=1.10.1",
+  "dataclasses_json>=0.6.7",
   "betterproto==2.0.0b7",
-  "obsws-python~=1.7.2",
+  "obsws-python>=1.7.2",
   "numpy==2.2.6",
-  "regex",
-  "faster-whisper~=1.2.0",
-  "torchaudio==2.8.0"
+  "faster-whisper>=1.2.0",
+  "silero-vad>=6.0.0",
+  "regex>=2025.9.18",
+  "opencv-python>=4.12.0.88",
+  "scikit-image>=0.25.2",
+  "openai>=1.108.0",
+  "owocr>=1.9.1",
+  "oneocr>=1.0.10",
+  "google-genai>=1.38.0",
+  "sounddevice>=0.5.2",
+  "matplotlib>=3.10.6",
+  "groq>=0.31.1",
+  "flask>=3.1.2",
+  "pystray>=0.19.5",
+  "pygetwindow>=0.0.9; sys_platform == 'win32'",
+  "pywin32>=311; sys_platform == 'win32'",
+  "win10toast>=0.9; sys_platform == 'win32'",
+  "stable-ts>=2.19.1",
+  "torchcodec>=0.7.0",
+  "torchaudio>=2.8.0",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
