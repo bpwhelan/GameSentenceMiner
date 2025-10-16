@@ -996,7 +996,8 @@ function renderGamesList(games, filter = 'all') {
                 ${game.line_count > 0 ? `
                 <div class="game-stats">
                     <span class="stat-item">${game.line_count.toLocaleString()} lines</span>
-                    <span class="stat-item">${game.character_count.toLocaleString()} characters</span>
+                    <span class="stat-item">${game.mined_character_count.toLocaleString()} mined chars</span>
+                    ${game.jiten_character_count > 0 ? `<span class="stat-item">Total: ${game.jiten_character_count.toLocaleString()} chars (${((game.mined_character_count / game.jiten_character_count) * 100).toFixed(1)}%)</span>` : ''}
                     <span class="stat-item">Started: ${startDate}</span>
                     <span class="stat-item">Last: ${lastPlayed}</span>
                 </div>
@@ -1126,7 +1127,7 @@ function renderJitenResults(results) {
                     <div class="jiten-meta">
                         <span class="jiten-type">${mediaTypeText}</span>
                         ${result.difficulty ? `<span class="jiten-difficulty">Difficulty: ${result.difficulty}</span>` : ''}
-                        <span class="jiten-chars">${result.character_count.toLocaleString()} chars</span>
+                        <span class="jiten-chars">Total: ${result.character_count.toLocaleString()} chars</span>
                     </div>
                 </div>
                 <div class="jiten-actions">
@@ -1161,7 +1162,8 @@ function showLinkConfirmation() {
             <h5>${escapeHtml(currentGameForSearch.title_original)}</h5>
             <div class="preview-stats">
                 ${currentGameForSearch.line_count.toLocaleString()} lines,
-                ${currentGameForSearch.character_count.toLocaleString()} characters
+                ${currentGameForSearch.mined_character_count.toLocaleString()} mined characters
+                ${currentGameForSearch.jiten_character_count > 0 ? `<br>Game Total: ${currentGameForSearch.jiten_character_count.toLocaleString()} chars` : ''}
             </div>
         </div>
     `;

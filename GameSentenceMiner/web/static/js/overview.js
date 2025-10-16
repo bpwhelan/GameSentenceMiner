@@ -1052,6 +1052,59 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // Helper function to extract and format domain names from URLs
+    function extractDomainName(url) {
+        if (!url) return 'Link';
+        
+        try {
+            // Parse the URL
+            const urlObj = new URL(url);
+            let domain = urlObj.hostname;
+            
+            // Remove 'www.' prefix if present
+            domain = domain.replace(/^www\./, '');
+            
+            // Map common domains to friendly names
+            const domainMap = {
+                'vndb.org': 'VNDB',
+                'myanimelist.net': 'MAL',
+                'anilist.co': 'AniList',
+                'anime-planet.com': 'Anime-Planet',
+                'kitsu.io': 'Kitsu',
+                'anidb.net': 'AniDB',
+                'mangaupdates.com': 'MangaUpdates',
+                'novelupdates.com': 'NovelUpdates',
+                'wikipedia.org': 'Wikipedia',
+                'fandom.com': 'Fandom',
+                'steam.com': 'Steam',
+                'steampowered.com': 'Steam',
+                'gog.com': 'GOG',
+                'epicgames.com': 'Epic Games',
+                'nintendo.com': 'Nintendo',
+                'playstation.com': 'PlayStation',
+                'xbox.com': 'Xbox'
+            };
+            
+            // Check if we have a friendly name for this domain
+            if (domainMap[domain]) {
+                return domainMap[domain];
+            }
+            
+            // Otherwise, capitalize the main domain name
+            const parts = domain.split('.');
+            if (parts.length >= 2) {
+                // Get the second-to-last part (e.g., 'example' from 'example.com')
+                const mainPart = parts[parts.length - 2];
+                return mainPart.charAt(0).toUpperCase() + mainPart.slice(1);
+            }
+            
+            return domain;
+        } catch (e) {
+            // If URL parsing fails, return a generic label
+            return 'Link';
+        }
+    }
+
     function updateCurrentGameDashboard(stats) {
         if (!stats) {
             showNoDashboardData('currentGameCard', 'No current game data available');
@@ -1060,6 +1113,144 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Update game name and subtitle
         document.getElementById('currentGameName').textContent = stats.game_name;
+
+        // Always show game metadata section
+        const gameContentGrid = document.getElementById('gameContentGrid');
+        const gamePhotoSection = document.getElementById('gamePhotoSection');
+        const gamePhoto = document.getElementById('gamePhoto');
+        
+        // Always display the content grid
+        gameContentGrid.style.display = 'flex';
+        
+        // Update game photo with proper error handling
+        console.log('[DEBUG] Game photo data:', {
+            hasImage: !!stats.image,
+            imageLength: stats.image ? stats.image.length : 0,
+            imagePrefix: stats.image ? stats.image.substring(0, 50) : 'none',
+            imageTrimmed: stats.image ? stats.image.trim().substring(0, 50) : 'none'
+        });
+        
+        if (stats.image && stats.image.trim()) {
+            let imageSrc = stats.image.trim();
+            
+            // Check if it's a base64 image or URL
+            if (imageSrc.startsWith('data:image')) {
+                console.log('[DEBUG] Setting base64 image with data URI');
+                gamePhoto.src = imageSrc;
+                gamePhotoSection.style.display = 'block';
+                gamePhoto.style.display = 'block';
+            } else if (imageSrc.startsWith('http')) {
+                console.log('[DEBUG] Setting URL image:', imageSrc);
+                gamePhoto.src = imageSrc;
+                gamePhotoSection.style.display = 'block';
+                gamePhoto.style.display = 'block';
+            } else if (imageSrc.startsWith('/9j/') || imageSrc.startsWith('iVBOR')) {
+                // Raw base64 data without data URI prefix - add it
+                // /9j/ is JPEG, iVBOR is PNG
+                const mimeType = imageSrc.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
+                imageSrc = `data:${mimeType};base64,${imageSrc}`;
+                console.log('[DEBUG] Added data URI prefix to raw base64 data');
+                gamePhoto.src = imageSrc;
+                gamePhotoSection.style.display = 'block';
+                gamePhoto.style.display = 'block';
+            } else {
+                // Invalid image format, hide photo section
+                console.log('[DEBUG] Invalid image format, hiding photo section');
+                gamePhotoSection.style.display = 'none';
+            }
+        } else {
+            console.log('[DEBUG] No image data, hiding photo section');
+            gamePhotoSection.style.display = 'none';
+        }
+            
+            // Update game titles
+            const titleOriginal = document.getElementById('gameTitleOriginal');
+            const titleRomaji = document.getElementById('gameTitleRomaji');
+            const titleEnglish = document.getElementById('gameTitleEnglish');
+            
+            if (stats.title_original) {
+                titleOriginal.textContent = stats.title_original;
+                titleOriginal.style.display = 'block';
+            } else {
+                titleOriginal.style.display = 'none';
+            }
+            
+            if (stats.title_romaji) {
+                titleRomaji.textContent = stats.title_romaji;
+                titleRomaji.style.display = 'block';
+            } else {
+                titleRomaji.style.display = 'none';
+            }
+            
+            if (stats.title_english) {
+                titleEnglish.textContent = stats.title_english;
+                titleEnglish.style.display = 'block';
+            } else {
+                titleEnglish.style.display = 'none';
+            }
+            
+            // Update game type badge
+            const typeBadge = document.getElementById('gameTypeBadge');
+            if (stats.type) {
+                typeBadge.textContent = stats.type;
+                typeBadge.style.display = 'inline-block';
+            } else {
+                typeBadge.style.display = 'none';
+            }
+            
+            // Update game description
+            const description = document.getElementById('gameDescription');
+            const expandBtn = document.getElementById('descriptionExpandBtn');
+            if (stats.description) {
+                description.textContent = stats.description;
+                // Show expand button if description is long (more than ~150 characters)
+                if (stats.description.length > 150) {
+                    expandBtn.style.display = 'block';
+                } else {
+                    expandBtn.style.display = 'none';
+                }
+            } else {
+                description.textContent = '';
+                expandBtn.style.display = 'none';
+            }
+            
+            // Update game links
+            const linksContainer = document.getElementById('gameLinksContainer');
+            const linksPills = document.getElementById('gameLinksPills');
+            if (stats.links && stats.links.length > 0) {
+                // Clear existing pills
+                linksPills.innerHTML = '';
+                
+                // Create a pill for each link
+                stats.links.forEach(link => {
+                    if (link.url) {
+                        const pill = document.createElement('a');
+                        pill.href = link.url;
+                        pill.target = '_blank';
+                        pill.rel = 'noopener noreferrer';
+                        pill.className = 'game-link-pill';
+                        pill.textContent = extractDomainName(link.url);
+                        linksPills.appendChild(pill);
+                    }
+                });
+                
+                // Show the links container
+                linksContainer.style.display = 'flex';
+            } else {
+                // Hide the links container if no links
+                linksContainer.style.display = 'none';
+            }
+            
+            // Update progress bar
+            const progressContainer = document.getElementById('gameProgressContainer');
+            if (stats.game_character_count > 0) {
+                const percentage = stats.progress_percentage || 0;
+                document.getElementById('gameProgressPercentage').textContent = Math.floor(percentage) + '%';
+                document.getElementById('gameProgressFill').style.width = percentage + '%';
+                progressContainer.style.display = 'block';
+            } else {
+                progressContainer.style.display = 'none';
+            }
 
         // Update main statistics
         document.getElementById('currentTotalChars').textContent = stats.total_characters_formatted;
@@ -1189,4 +1380,26 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Global function to retry dashboard loading
     window.loadDashboardData = loadDashboardData;
+    
+    // Description expand/collapse functionality
+    const descriptionExpandBtn = document.getElementById('descriptionExpandBtn');
+    if (descriptionExpandBtn) {
+        descriptionExpandBtn.addEventListener('click', function() {
+            const description = document.getElementById('gameDescription');
+            const expandText = this.querySelector('.expand-text');
+            const collapseText = this.querySelector('.collapse-text');
+            
+            if (description.classList.contains('expanded')) {
+                // Collapse
+                description.classList.remove('expanded');
+                expandText.style.display = 'inline';
+                collapseText.style.display = 'none';
+            } else {
+                // Expand
+                description.classList.add('expanded');
+                expandText.style.display = 'none';
+                collapseText.style.display = 'inline';
+            }
+        });
+    }
 });

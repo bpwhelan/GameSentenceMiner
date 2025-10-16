@@ -454,6 +454,10 @@ def calculate_current_game_stats(all_lines):
     if not current_game_lines:
         return None
     
+    # Fetch game metadata from games table
+    from GameSentenceMiner.util.games_table import GamesTable
+    game_metadata = GamesTable.get_by_title(current_game_name)
+    
     # Calculate basic statistics
     total_characters = sum(len(line.line_text) if line.line_text else 0 for line in current_game_lines)
     total_sentences = len(current_game_lines)
@@ -494,7 +498,14 @@ def calculate_current_game_stats(all_lines):
     # Calculate reading streak using time-based requirements
     current_streak = calculate_time_based_streak(current_game_lines)
     
-    return {
+    # Calculate progress percentage if game metadata is available
+    # game_metadata.character_count should contain jiten.moe's total character count
+    progress_percentage = 0
+    if game_metadata and game_metadata.character_count and game_metadata.character_count > 0:
+        progress_percentage = min(100, (total_characters / game_metadata.character_count) * 100)
+    
+    # Build result dictionary with game metadata
+    result = {
         'game_name': current_game_name,
         'total_characters': total_characters,
         'total_characters_formatted': format_large_number(total_characters),
@@ -509,8 +520,38 @@ def calculate_current_game_stats(all_lines):
         'current_streak': current_streak,
         'first_date': datetime.date.fromtimestamp(min_timestamp).strftime('%Y-%m-%d'),
         'last_date': datetime.date.fromtimestamp(max_timestamp).strftime('%Y-%m-%d'),
-        'daily_activity': dict(daily_activity)
+        'daily_activity': dict(daily_activity),
+        'progress_percentage': round(progress_percentage, 1)
     }
+    
+    # Add game metadata if available
+    if game_metadata:
+        result['title_original'] = game_metadata.title_original or ''
+        result['title_romaji'] = game_metadata.title_romaji or ''
+        result['title_english'] = game_metadata.title_english or ''
+        result['type'] = game_metadata.type or ''
+        result['description'] = game_metadata.description or ''
+        result['image'] = game_metadata.image or ''
+        result['game_character_count'] = game_metadata.character_count or 0  # Jiten.moe total
+        result['links'] = game_metadata.links or []  # Add links array
+        
+        # Debug logging for image data
+        logger.debug(f"[DEBUG] Game metadata for '{current_game_name}':")
+        logger.debug(f"  - Has image: {bool(game_metadata.image)}")
+        logger.debug(f"  - Image length: {len(game_metadata.image) if game_metadata.image else 0}")
+        logger.debug(f"  - Image prefix: {game_metadata.image[:50] if game_metadata.image else 'None'}")
+    else:
+        result['title_original'] = ''
+        result['title_romaji'] = ''
+        result['title_english'] = ''
+        result['type'] = ''
+        result['description'] = ''
+        result['image'] = ''
+        result['game_character_count'] = 0  # No jiten data available
+        result['links'] = []  # Empty links array when no metadata
+        logger.debug(f"[DEBUG] No game metadata found for '{current_game_name}'")
+    
+    return result
 
 def calculate_average_daily_reading_time(all_lines):
     """

@@ -1857,11 +1857,8 @@ def register_database_api_routes(app):
                 lines = game.get_lines()
                 line_count = len(lines)
                 
-                # Calculate actual character count from lines if not set
+                # Calculate actual mined character count from lines (don't store it)
                 actual_char_count = sum(len(line.line_text) if line.line_text else 0 for line in lines)
-                if game.character_count != actual_char_count:
-                    game.character_count = actual_char_count
-                    game.save()
                 
                 # Determine linking status
                 is_linked = bool(game.deck_id)
@@ -1886,14 +1883,15 @@ def register_database_api_routes(app):
                     'has_manual_overrides': has_manual_overrides,
                     'manual_overrides': game.manual_overrides,
                     'line_count': line_count,
-                    'character_count': actual_char_count,
+                    'mined_character_count': actual_char_count,  # Mined count (calculated from lines)
+                    'jiten_character_count': game.character_count,  # Jiten total (from jiten.moe)
                     'start_date': start_date,
                     'last_played': last_played,
                     'links': game.links
                 })
             
-            # Sort by character count (most active games first)
-            games_data.sort(key=lambda x: x['character_count'], reverse=True)
+            # Sort by mined character count (most active games first)
+            games_data.sort(key=lambda x: x['mined_character_count'], reverse=True)
             
             # Calculate summary statistics
             total_games = len(games_data)
@@ -2022,7 +2020,9 @@ def register_database_api_routes(app):
                 logger.info(f"Setting difficulty for game {game_id}: {difficulty_value} (type: {type(difficulty_value)})")
                 update_fields['difficulty'] = difficulty_value
             
+            # Frontend sends snake_case (character_count) from the search endpoint
             if 'character_count' not in game.manual_overrides and jiten_data.get('character_count') is not None:
+                logger.info(f"Setting character_count for game {game_id}: {jiten_data['character_count']}")
                 update_fields['character_count'] = jiten_data['character_count']
             
             if 'links' not in game.manual_overrides and jiten_data.get('links'):
@@ -2034,8 +2034,34 @@ def register_database_api_routes(app):
                     import base64
                     img_response = requests.get(jiten_data['cover_name'], timeout=10)
                     if img_response.status_code == 200:
+                        # Encode image to base64
                         img_base64 = base64.b64encode(img_response.content).decode('utf-8')
-                        update_fields['image'] = img_base64
+                        
+                        # Detect image format from content-type header or magic bytes
+                        content_type = img_response.headers.get('content-type', '').lower()
+                        if 'png' in content_type:
+                            mime_type = 'image/png'
+                        elif 'jpeg' in content_type or 'jpg' in content_type:
+                            mime_type = 'image/jpeg'
+                        elif 'gif' in content_type:
+                            mime_type = 'image/gif'
+                        elif 'webp' in content_type:
+                            mime_type = 'image/webp'
+                        else:
+                            # Fallback: detect from magic bytes
+                            if img_base64.startswith('iVBOR'):
+                                mime_type = 'image/png'
+                            elif img_base64.startswith('/9j/'):
+                                mime_type = 'image/jpeg'
+                            elif img_base64.startswith('R0lGOD'):
+                                mime_type = 'image/gif'
+                            else:
+                                # Default to JPEG if unknown
+                                mime_type = 'image/jpeg'
+                        
+                        # Store with proper data URI prefix
+                        update_fields['image'] = f'data:{mime_type};base64,{img_base64}'
+                        logger.debug(f"Downloaded and encoded image for game {game_id} as {mime_type}")
                 except Exception as img_error:
                     logger.warning(f"Failed to download image for game {game_id}: {img_error}")
             
@@ -2234,14 +2260,8 @@ def register_database_api_routes(app):
                 )
                 lines_updated = updated_count[0] if updated_count else 0
                 
-                # Update character count based on linked lines
-                if lines_updated > 0:
-                    char_count_result = GameLinesTable._db.fetchone(
-                        f"SELECT SUM(LENGTH(line_text)) FROM {GameLinesTable._table} WHERE game_id = ?",
-                        (new_game.id,)
-                    )
-                    new_game.character_count = char_count_result[0] if char_count_result and char_count_result[0] else 0
-                    new_game.save()
+                # Don't update character_count - it should only store jiten.moe's total
+                # Mined character count is calculated on-the-fly from game_lines
                 
             except Exception as link_error:
                 logger.warning(f"Failed to link orphaned lines to new game {new_game.id}: {link_error}")
@@ -2257,7 +2277,7 @@ def register_database_api_routes(app):
                     'title_romaji': new_game.title_romaji,
                     'title_english': new_game.title_english,
                     'type': new_game.type,
-                    'character_count': new_game.character_count,
+                    'jiten_character_count': new_game.character_count,  # Jiten total (if linked)
                     'lines_linked': lines_updated
                 }
             }), 201
