@@ -21,7 +21,8 @@ from GameSentenceMiner.web.stats import (
     calculate_total_chars_per_game, calculate_reading_time_per_game, calculate_reading_speed_per_game,
     calculate_current_game_stats, calculate_all_games_stats, calculate_daily_reading_time,
     calculate_time_based_streak, calculate_actual_reading_time, calculate_hourly_activity,
-    calculate_hourly_reading_speed, calculate_peak_daily_stats, calculate_peak_session_stats
+    calculate_hourly_reading_speed, calculate_peak_daily_stats, calculate_peak_session_stats,
+    calculate_game_milestones
 )
 
 def register_database_api_routes(app):
@@ -1247,6 +1248,13 @@ def register_database_api_routes(app):
                 logger.error(f"Error calculating peak session stats: {e}")
                 peak_session_stats = {'longest_session_hours': 0.0, 'max_session_chars': 0}
 
+            # 10. Calculate game milestones (oldest/newest by release year)
+            try:
+                game_milestones = calculate_game_milestones(all_lines)
+            except Exception as e:
+                logger.error(f"Error calculating game milestones: {e}")
+                game_milestones = None
+
             return jsonify({
                 "labels": sorted_days,
                 "datasets": datasets,
@@ -1261,7 +1269,8 @@ def register_database_api_routes(app):
                 "hourlyActivityData": hourly_activity_data,
                 "hourlyReadingSpeedData": hourly_reading_speed_data,
                 "peakDailyStats": peak_daily_stats,
-                "peakSessionStats": peak_session_stats
+                "peakSessionStats": peak_session_stats,
+                "gameMilestones": game_milestones
             })
             
         except Exception as e:
@@ -1887,7 +1896,8 @@ def register_database_api_routes(app):
                     'jiten_character_count': game.character_count,  # Jiten total (from jiten.moe)
                     'start_date': start_date,
                     'last_played': last_played,
-                    'links': game.links
+                    'links': game.links,
+                    'release_date': game.release_date  # Add release date to API response
                 })
             
             # Sort by mined character count (most active games first)
@@ -1942,6 +1952,9 @@ def register_database_api_routes(app):
             # Process and format the results
             results = []
             for item in data.get('data', []):
+                release_date = item.get('releaseDate', '')
+                logger.info(f"🔍 Jiten search result for '{item.get('originalTitle', 'Unknown')}': release_date = '{release_date}' (type: {type(release_date)})")
+                
                 results.append({
                     'deck_id': item.get('deckId'),
                     'title_original': item.get('originalTitle', ''),
@@ -1954,7 +1967,8 @@ def register_database_api_routes(app):
                     'difficulty': item.get('difficulty', 0),
                     'difficulty_raw': item.get('difficultyRaw', 0),
                     'links': item.get('links', []),
-                    'aliases': item.get('aliases', [])
+                    'aliases': item.get('aliases', []),
+                    'release_date': release_date
                 })
             
             return jsonify({
@@ -1993,6 +2007,7 @@ def register_database_api_routes(app):
             
             # Get jiten.moe data to ensure it's valid
             jiten_data = data.get('jiten_data', {})
+            logger.info(f"🔍 Link-jiten API received jiten_data for game {game_id}: release_date = '{jiten_data.get('release_date', 'NOT_FOUND')}' (type: {type(jiten_data.get('release_date'))})")
             
             # Update game with jiten.moe data, respecting manual overrides
             update_fields = {}
@@ -2000,6 +2015,9 @@ def register_database_api_routes(app):
             # Only update fields that are not manually overridden
             if 'deck_id' not in game.manual_overrides:
                 update_fields['deck_id'] = deck_id
+            
+            if 'title_original' not in game.manual_overrides and jiten_data.get('title_original'):
+                update_fields['title_original'] = jiten_data['title_original']
             
             if 'title_romaji' not in game.manual_overrides and jiten_data.get('title_romaji'):
                 update_fields['title_romaji'] = jiten_data['title_romaji']
@@ -2027,6 +2045,12 @@ def register_database_api_routes(app):
             
             if 'links' not in game.manual_overrides and jiten_data.get('links'):
                 update_fields['links'] = jiten_data['links']
+            
+            if 'release_date' not in game.manual_overrides and jiten_data.get('release_date'):
+                logger.info(f"📅 Processing release_date for game {game_id}: '{jiten_data['release_date']}' (manual_overrides: {game.manual_overrides})")
+                update_fields['release_date'] = jiten_data['release_date']
+            else:
+                logger.info(f"⏭️ Skipping release_date for game {game_id}: manual_override={('release_date' in game.manual_overrides)}, has_data={bool(jiten_data.get('release_date'))}")
             
             # Download and encode image if not manually overridden
             if 'image' not in game.manual_overrides and jiten_data.get('cover_name'):
@@ -2106,14 +2130,14 @@ def register_database_api_routes(app):
             allowed_fields = [
                 'title_original', 'title_romaji', 'title_english', 'type',
                 'description', 'difficulty', 'completed', 'deck_id',
-                'character_count', 'image', 'links'
+                'character_count', 'image', 'links', 'release_date'
             ]
             
             for field in allowed_fields:
                 if field in data:
                     value = data[field]
                     # Handle empty strings for optional fields
-                    if field in ['title_romaji', 'title_english', 'type', 'description', 'image'] and value == '':
+                    if field in ['title_romaji', 'title_english', 'type', 'description', 'image', 'release_date'] and value == '':
                         update_fields[field] = ''
                     # Handle None values for numeric fields
                     elif field in ['difficulty', 'deck_id', 'character_count'] and value == '':
@@ -2147,6 +2171,270 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error updating game: {e}", exc_info=True)
             return jsonify({'error': f'Failed to update game: {str(e)}'}), 500
+
+    @app.route('/api/games/<game_id>/repull-jiten', methods=['POST'])
+    def api_repull_game_from_jiten(game_id):
+        """
+        Repull jiten.moe data for a game, respecting manual overrides.
+        Only updates fields that are not in the manually edited fields list.
+        """
+        try:
+            from GameSentenceMiner.util.games_table import GamesTable
+            import requests
+            
+            logger.info(f"🔄 Starting repull operation for game ID: {game_id}")
+            
+            # Get the game
+            game = GamesTable.get(game_id)
+            if not game:
+                logger.error(f"❌ Game not found: {game_id}")
+                return jsonify({'error': 'Game not found'}), 404
+            
+            logger.info(f"📋 Game found: {game.title_original} (deck_id: {game.deck_id})")
+            logger.info(f"🔒 Manual overrides: {game.manual_overrides}")
+            
+            # Check if game is linked to jiten.moe
+            if not game.deck_id:
+                logger.error(f"❌ Game {game_id} is not linked to jiten.moe")
+                return jsonify({'error': 'Game is not linked to jiten.moe. Please link it first.'}), 400
+            
+            # Fetch fresh data from jiten.moe API
+            try:
+                logger.info(f"📡 Fetching data from jiten.moe for deck_id: {game.deck_id}")
+                jiten_url = 'https://api.jiten.moe/api/media-deck/get-media-decks'
+                params = {
+                    'titleFilter': game.title_original,
+                    'sortBy': 'title',
+                    'sortOrder': 0,
+                    'offset': 0
+                }
+                
+                response = requests.get(jiten_url, params=params, timeout=10)
+                logger.info(f"📥 jiten.moe API response: {response.status_code}")
+                
+                if response.status_code != 200:
+                    logger.error(f"❌ jiten.moe API error: {response.status_code}")
+                    return jsonify({'error': f'jiten.moe API returned status {response.status_code}'}), 500
+                
+                data = response.json()
+                logger.info(f"📊 jiten.moe returned {len(data.get('data', []))} results")
+                
+                # Find the specific deck by deck_id
+                jiten_data = None
+                for item in data.get('data', []):
+                    if item.get('deckId') == game.deck_id:
+                        jiten_data = {
+                            'deck_id': item.get('deckId'),
+                            'title_original': item.get('originalTitle', ''),
+                            'title_romaji': item.get('romajiTitle', ''),
+                            'title_english': item.get('englishTitle', ''),
+                            'description': item.get('description', ''),
+                            'cover_name': item.get('coverName', ''),
+                            'media_type': item.get('mediaType'),
+                            'character_count': item.get('characterCount', 0),
+                            'difficulty': item.get('difficulty', 0),
+                            'difficulty_raw': item.get('difficultyRaw', 0),
+                            'links': item.get('links', []),
+                            'aliases': item.get('aliases', []),
+                            'release_date': item.get('releaseDate', '')
+                        }
+                        logger.info(f"✅ Found matching deck: {jiten_data['title_original']} - release_date: '{jiten_data['release_date']}'")
+                        break
+                
+                if not jiten_data:
+                    logger.error(f"❌ Deck {game.deck_id} not found in jiten.moe results")
+                    return jsonify({'error': f'Game with deck_id {game.deck_id} not found on jiten.moe'}), 404
+                
+            except requests.RequestException as e:
+                logger.error(f"💥 jiten.moe API request failed: {e}")
+                return jsonify({'error': 'Failed to fetch data from jiten.moe'}), 500
+            
+            # Update game with fresh jiten.moe data, respecting manual overrides
+            update_fields = {}
+            skipped_fields = []
+            
+            # Ensure manual_overrides is always a list
+            manual_overrides = game.manual_overrides if game.manual_overrides is not None else []
+            if not isinstance(manual_overrides, list):
+                logger.warning(f"⚠️ manual_overrides is not a list: {type(manual_overrides)} - {manual_overrides}")
+                manual_overrides = []
+            
+            logger.info(f"🔍 Checking fields for updates (manual overrides: {manual_overrides})")
+            
+            # Only update fields that are not manually overridden
+            if 'deck_id' not in manual_overrides:
+                update_fields['deck_id'] = jiten_data['deck_id']
+                logger.debug(f"📝 Will update deck_id: {jiten_data['deck_id']}")
+            else:
+                skipped_fields.append('deck_id')
+                logger.debug(f"⏭️ Skipping deck_id (manual override)")
+            
+            if 'title_original' not in manual_overrides and jiten_data.get('title_original'):
+                update_fields['title_original'] = jiten_data['title_original']
+                logger.debug(f"📝 Will update title_original: {jiten_data['title_original']}")
+            elif 'title_original' in manual_overrides:
+                skipped_fields.append('title_original')
+                logger.debug(f"⏭️ Skipping title_original (manual override)")
+            
+            if 'title_romaji' not in manual_overrides and jiten_data.get('title_romaji'):
+                update_fields['title_romaji'] = jiten_data['title_romaji']
+                logger.debug(f"📝 Will update title_romaji: {jiten_data['title_romaji']}")
+            elif 'title_romaji' in manual_overrides:
+                skipped_fields.append('title_romaji')
+                logger.debug(f"⏭️ Skipping title_romaji (manual override)")
+            
+            if 'title_english' not in manual_overrides and jiten_data.get('title_english'):
+                update_fields['title_english'] = jiten_data['title_english']
+                logger.debug(f"📝 Will update title_english: {jiten_data['title_english']}")
+            elif 'title_english' in manual_overrides:
+                skipped_fields.append('title_english')
+                logger.debug(f"⏭️ Skipping title_english (manual override)")
+            
+            if 'type' not in manual_overrides and jiten_data.get('media_type'):
+                # Map media type to string
+                media_type_map = {1: 'Anime', 7: 'Visual Novel', 2: 'Manga'}
+                update_fields['type'] = media_type_map.get(jiten_data['media_type'], 'Unknown')
+                logger.debug(f"📝 Will update type: {update_fields['type']}")
+            elif 'type' in manual_overrides:
+                skipped_fields.append('type')
+                logger.debug(f"⏭️ Skipping type (manual override)")
+            
+            if 'description' not in manual_overrides and jiten_data.get('description'):
+                update_fields['description'] = jiten_data['description']
+                logger.debug(f"📝 Will update description: {jiten_data['description'][:50]}...")
+            elif 'description' in manual_overrides:
+                skipped_fields.append('description')
+                logger.debug(f"⏭️ Skipping description (manual override)")
+            
+            if 'difficulty' not in manual_overrides and jiten_data.get('difficulty') is not None:
+                update_fields['difficulty'] = jiten_data['difficulty']
+                logger.debug(f"📝 Will update difficulty: {jiten_data['difficulty']}")
+            elif 'difficulty' in manual_overrides:
+                skipped_fields.append('difficulty')
+                logger.debug(f"⏭️ Skipping difficulty (manual override)")
+            
+            if 'character_count' not in manual_overrides and jiten_data.get('character_count') is not None:
+                update_fields['character_count'] = jiten_data['character_count']
+                logger.debug(f"📝 Will update character_count: {jiten_data['character_count']}")
+            elif 'character_count' in manual_overrides:
+                skipped_fields.append('character_count')
+                logger.debug(f"⏭️ Skipping character_count (manual override)")
+            
+            if 'links' not in manual_overrides and jiten_data.get('links'):
+                update_fields['links'] = jiten_data['links']
+                logger.debug(f"📝 Will update links: {len(jiten_data['links'])} links")
+            elif 'links' in manual_overrides:
+                skipped_fields.append('links')
+                logger.debug(f"⏭️ Skipping links (manual override)")
+            
+            if 'release_date' not in manual_overrides and jiten_data.get('release_date'):
+                update_fields['release_date'] = jiten_data['release_date']
+                logger.info(f"📅 Repull: Will update release_date for game {game_id}: '{jiten_data['release_date']}'")
+            elif 'release_date' in manual_overrides:
+                skipped_fields.append('release_date')
+                logger.info(f"⏭️ Repull: Skipping release_date (manual override) for game {game_id}")
+            else:
+                logger.info(f"⏭️ Repull: Skipping release_date (no data) for game {game_id}: '{jiten_data.get('release_date', 'NONE')}'")
+            
+            # Download and encode image if not manually overridden
+            if 'image' not in manual_overrides and jiten_data.get('cover_name'):
+                try:
+                    import base64
+                    logger.debug(f"🖼️ Downloading image: {jiten_data['cover_name']}")
+                    img_response = requests.get(jiten_data['cover_name'], timeout=10)
+                    if img_response.status_code == 200:
+                        # Encode image to base64
+                        img_base64 = base64.b64encode(img_response.content).decode('utf-8')
+                        update_fields['image'] = img_base64
+                        logger.info(f"✅ Downloaded and encoded image for game {game_id}")
+                    else:
+                        logger.warning(f"⚠️ Failed to download image: HTTP {img_response.status_code}")
+                except Exception as img_error:
+                    logger.warning(f"⚠️ Failed to download image for game {game_id}: {img_error}")
+            elif 'image' in manual_overrides:
+                skipped_fields.append('image')
+                logger.debug(f"⏭️ Skipping image (manual override)")
+            
+            logger.info(f"📊 Update summary - Fields to update: {len(update_fields)}, Fields to skip: {len(skipped_fields)}")
+            logger.info(f"📝 Fields to update: {list(update_fields.keys())}")
+            logger.info(f"⏭️ Fields to skip: {skipped_fields}")
+            
+            # Update the game using the jiten update method (doesn't mark as manual)
+            if update_fields:
+                game.update_all_fields_from_jiten(**update_fields)
+                logger.info(f"✅ Successfully repulled jiten.moe data for game {game_id} ({game.title_original})")
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'Successfully repulled data from jiten.moe for "{game.title_original}"',
+                    'updated_fields': list(update_fields.keys()),
+                    'skipped_fields': skipped_fields,  # Always return as list
+                    'deck_id': game.deck_id
+                }), 200
+            else:
+                logger.info(f"ℹ️ No fields updated - all fields are manually overridden for game {game_id}")
+                return jsonify({
+                    'success': True,
+                    'message': f'No fields updated - all fields are manually overridden for "{game.title_original}"',
+                    'updated_fields': [],
+                    'skipped_fields': skipped_fields,  # Always return as list
+                    'deck_id': game.deck_id
+                }), 200
+            
+        except Exception as e:
+            logger.error(f"💥 Error repulling jiten data for game {game_id}: {e}")
+            logger.error(f"💥 Error stack trace:", exc_info=True)
+            return jsonify({'error': f'Failed to repull jiten data: {str(e)}'}), 500
+
+    @app.route('/api/games/<game_id>', methods=['DELETE'])
+    def api_delete_individual_game(game_id):
+        """
+        Delete (unlink) an individual game from the games table.
+        This removes the game record but preserves all game_lines data by setting game_id to NULL.
+        """
+        try:
+            from GameSentenceMiner.util.games_table import GamesTable
+            
+            # Get the game to verify it exists
+            game = GamesTable.get(game_id)
+            if not game:
+                return jsonify({'error': 'Game not found'}), 404
+            
+            game_name = game.title_original
+            
+            # Get count of lines that will be unlinked
+            lines_count = GameLinesTable._db.fetchone(
+                f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE game_id=?",
+                (game_id,)
+            )
+            unlinked_lines = lines_count[0] if lines_count else 0
+            
+            # Unlink game_lines by setting game_id to NULL
+            GameLinesTable._db.execute(
+                f"UPDATE {GameLinesTable._table} SET game_id = NULL WHERE game_id = ?",
+                (game_id,),
+                commit=True
+            )
+            
+            # Delete the game record from games table
+            GameLinesTable._db.execute(
+                f"DELETE FROM {GamesTable._table} WHERE id = ?",
+                (game_id,),
+                commit=True
+            )
+            
+            logger.info(f"Unlinked game '{game_name}' (id={game_id}): removed game record, unlinked {unlinked_lines} lines")
+            
+            return jsonify({
+                'success': True,
+                'message': f'Game "{game_name}" has been unlinked successfully',
+                'game_name': game_name,
+                'unlinked_lines': unlinked_lines
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error unlinking game {game_id}: {e}", exc_info=True)
+            return jsonify({'error': f'Failed to unlink game: {str(e)}'}), 500
 
     @app.route('/api/orphaned-games', methods=['GET'])
     def api_orphaned_games():

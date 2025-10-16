@@ -1,5 +1,25 @@
 // Database Management JavaScript
-// Dependencies: shared.js (provides utility functions like escapeHtml, openModal, closeModal)
+// Dependencies: shared.js (provides utility functions like escapeHtml, openModal, closeModal, safeJoinArray, logApiResponse)
+
+// Helper function to format release date
+function formatReleaseDate(releaseDate) {
+    if (!releaseDate) return 'Unknown';
+    
+    try {
+        // Handle ISO format like "2009-10-15T00:00:00"
+        const date = new Date(releaseDate);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    } catch (error) {
+        console.warn('Error formatting release date:', releaseDate, error);
+        return 'Invalid Date';
+    }
+}
 
 // Database Popup Functions
 function showDatabaseSuccessPopup(message) {
@@ -69,11 +89,6 @@ class DatabaseManager {
     
     attachEventHandlers() {
         // Attach event handlers for buttons that were using onclick
-        const openGameDeletionBtn = document.querySelector('[data-action="openGameDeletionModal"]');
-        if (openGameDeletionBtn) {
-            openGameDeletionBtn.addEventListener('click', openGameDeletionModal);
-        }
-
         const openTextLinesBtn = document.querySelector('[data-action="openTextLinesModal"]');
         if (openTextLinesBtn) {
             openTextLinesBtn.addEventListener('click', openTextLinesModal);
@@ -93,7 +108,13 @@ class DatabaseManager {
             }
         });
 
-        // Other action buttons
+        // Tab navigation handlers
+        const tabButtons = document.querySelectorAll('.tab-btn');
+        tabButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => switchTab(e.target.dataset.tab));
+        });
+
+        // Bulk operations handlers (moved from old gamesDeletionModal)
         const selectAllBtn = document.querySelector('[data-action="selectAllGames"]');
         if (selectAllBtn) {
             selectAllBtn.addEventListener('click', selectAllGames);
@@ -222,16 +243,147 @@ class DatabaseManager {
     }
 }
 
-// Games Management Functions
-async function openGameDeletionModal() {
-    openModal('gamesDeletionModal');
-    await loadGamesForDeletion();
+// Tab Management Functions
+function switchTab(tabName) {
+    // Hide all tab contents
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+        tab.style.display = 'none';
+    });
+    
+    // Remove active class from all tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Show selected tab content
+    const selectedTab = document.getElementById(tabName + 'Tab');
+    const selectedBtn = document.querySelector(`[data-tab="${tabName}"]`);
+    
+    if (selectedTab && selectedBtn) {
+        selectedTab.classList.add('active');
+        selectedTab.style.display = 'block';
+        selectedBtn.classList.add('active');
+        
+        // Load content based on tab
+        if (tabName === 'linkGames') {
+            loadGamesForDataManagement();
+        } else if (tabName === 'manageGames') {
+            loadGamesForManagement();
+        } else if (tabName === 'bulkOperations') {
+            loadGamesForBulkOperations();
+        }
+    }
 }
 
-async function loadGamesForDeletion() {
-    const loadingIndicator = document.getElementById('gamesLoadingIndicator');
-    const content = document.getElementById('gamesContent');
-    const gamesList = document.getElementById('gamesList');
+// Updated Game Data Modal Opening
+async function openGameDataModal() {
+    openModal('gameDataModal');
+    // Default to Link Games tab
+    switchTab('linkGames');
+}
+
+// Load games for the Manage Games tab
+async function loadGamesForManagement() {
+    const loadingIndicator = document.getElementById('manageGamesLoadingIndicator');
+    const content = document.getElementById('manageGamesContent');
+    const gamesList = document.getElementById('manageGamesList');
+    
+    loadingIndicator.style.display = 'flex';
+    content.style.display = 'none';
+    
+    try {
+        const gamesResponse = await fetch('/api/games-management');
+        const gamesData = await gamesResponse.json();
+        
+        if (gamesResponse.ok) {
+            const games = gamesData.games || [];
+            gamesList.innerHTML = '';
+            
+            games.forEach(game => {
+                const gameItem = document.createElement('div');
+                gameItem.className = 'manage-game-item';
+                
+                // Create status indicators
+                const statusIndicators = [];
+                if (game.is_linked) {
+                    statusIndicators.push('<span class="status-badge linked">✅ Linked</span>');
+                } else {
+                    statusIndicators.push('<span class="status-badge unlinked">🔍 Not Linked</span>');
+                }
+                
+                if (game.has_manual_overrides) {
+                    statusIndicators.push('<span class="status-badge manual">📝 Manual Edits</span>');
+                }
+                
+                if (game.completed) {
+                    statusIndicators.push('<span class="status-badge completed">🏁 Completed</span>');
+                }
+                
+                // Format dates
+                const startDate = game.start_date ? new Date(game.start_date * 1000).toLocaleDateString() : 'Unknown';
+                const lastPlayed = game.last_played ? new Date(game.last_played * 1000).toLocaleDateString() : 'Unknown';
+                
+                gameItem.innerHTML = `
+                    <div class="game-header">
+                        ${game.image ? `<img src="data:image/png;base64,${game.image}" class="game-thumbnail" alt="Game cover">` : '<div class="game-thumbnail-placeholder">🎮</div>'}
+                        <div class="game-info">
+                            <h4 class="game-title">${escapeHtml(game.title_original)}</h4>
+                            ${game.title_english ? `<p class="game-title-en">${escapeHtml(game.title_english)}</p>` : ''}
+                            ${game.title_romaji ? `<p class="game-title-rom">${escapeHtml(game.title_romaji)}</p>` : ''}
+                            <div class="game-type-difficulty">
+                                ${game.type ? `<span class="game-type">${escapeHtml(game.type)}</span>` : ''}
+                                ${game.difficulty ? `<span class="game-difficulty">Difficulty: ${game.difficulty}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="game-status">
+                            ${statusIndicators.join('')}
+                        </div>
+                    </div>
+                    ${game.line_count > 0 ? `
+                    <div class="game-stats">
+                        <span class="stat-item">${game.line_count.toLocaleString()} lines</span>
+                        <span class="stat-item">${game.mined_character_count.toLocaleString()} mined chars</span>
+                        ${game.jiten_character_count > 0 ? `<span class="stat-item">Total: ${game.jiten_character_count.toLocaleString()} chars (${((game.mined_character_count / game.jiten_character_count) * 100).toFixed(1)}%)</span>` : ''}
+                        <span class="stat-item">Started: ${startDate}</span>
+                        <span class="stat-item">Last: ${lastPlayed}</span>
+                        ${game.release_date ? `<span class="stat-item">Released: ${formatReleaseDate(game.release_date)}</span>` : ''}
+                    </div>
+                    ` : ''}
+                    <div class="individual-game-actions">
+                        ${game.is_linked ? `<button class="action-btn unlink-btn" onclick="openIndividualGameUnlinkModal('${game.id}', '${escapeHtml(game.title_original)}', ${game.line_count}, ${game.mined_character_count})">🔗 Unlink Game</button>` : ''}
+                        <button class="action-btn delete-lines-btn" onclick="openIndividualGameDeleteModal('${game.id}', '${escapeHtml(game.title_original)}', ${game.line_count}, ${game.mined_character_count})">🗑️ Delete Game Lines</button>
+                        ${!game.is_linked ? `<button class="action-btn primary" onclick="openJitenSearch('${game.id}', '${escapeHtml(game.title_original)}')">🔍 Search jiten.moe</button>` : ''}
+                        ${game.is_linked ? `<button class="action-btn warning" onclick="repullJitenData('${game.id}', '${escapeHtml(game.title_original)}')">🔄 Repull from Jiten</button>` : ''}
+                        <button class="action-btn" onclick="editGame('${game.id}')">📝 Edit</button>
+                        ${!game.completed ? `<button class="action-btn success" onclick="markGameCompleted('${game.id}')">🏁 Mark Complete</button>` : ''}
+                    </div>
+                    ${game.description ? `<div class="game-description">${escapeHtml(game.description)}</div>` : ''}
+                `;
+                
+                gamesList.appendChild(gameItem);
+            });
+            
+            content.style.display = 'block';
+        } else {
+            const errorMsg = gamesData.error || 'Failed to load games';
+            gamesList.innerHTML = `<p class="error-text">${escapeHtml(errorMsg)}</p>`;
+            content.style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Error loading games for management:', error);
+        gamesList.innerHTML = `<p class="error-text">Network error: ${escapeHtml(error.message)}</p>`;
+        content.style.display = 'block';
+    } finally {
+        loadingIndicator.style.display = 'none';
+    }
+}
+
+// Load games for bulk operations tab
+async function loadGamesForBulkOperations() {
+    const loadingIndicator = document.getElementById('bulkGamesLoadingIndicator');
+    const content = document.getElementById('bulkGamesContent');
+    const gamesList = document.getElementById('bulkGamesList');
     
     loadingIndicator.style.display = 'flex';
     content.style.display = 'none';
@@ -1000,10 +1152,12 @@ function renderGamesList(games, filter = 'all') {
                     ${game.jiten_character_count > 0 ? `<span class="stat-item">Total: ${game.jiten_character_count.toLocaleString()} chars (${((game.mined_character_count / game.jiten_character_count) * 100).toFixed(1)}%)</span>` : ''}
                     <span class="stat-item">Started: ${startDate}</span>
                     <span class="stat-item">Last: ${lastPlayed}</span>
+                    ${game.release_date ? `<span class="stat-item">Released: ${formatReleaseDate(game.release_date)}</span>` : ''}
                 </div>
                 ` : ''}
                 <div class="game-actions">
                     ${!game.is_linked ? `<button class="action-btn primary" onclick="openJitenSearch('${game.id}', '${escapeHtml(game.title_original)}')">🔍 Search jiten.moe</button>` : ''}
+                    ${game.is_linked ? `<button class="action-btn warning" onclick="repullJitenData('${game.id}', '${escapeHtml(game.title_original)}')">🔄 Repull from Jiten</button>` : ''}
                     <button class="action-btn" onclick="editGame('${game.id}')">📝 Edit</button>
                     ${!game.completed ? `<button class="action-btn success" onclick="markGameCompleted('${game.id}')">🏁 Mark Complete</button>` : ''}
                 </div>
@@ -1191,9 +1345,14 @@ function showLinkConfirmation() {
     const warningDiv = document.getElementById('manualOverridesWarning');
     const overriddenFieldsList = document.getElementById('overriddenFieldsList');
     
-    if (currentGameForSearch.has_manual_overrides && currentGameForSearch.manual_overrides.length > 0) {
-        overriddenFieldsList.innerHTML = `<div>Fields: ${currentGameForSearch.manual_overrides.join(', ')}</div>`;
-        warningDiv.style.display = 'block';
+    if (currentGameForSearch.has_manual_overrides && currentGameForSearch.manual_overrides) {
+        const overridesStr = safeJoinArray(currentGameForSearch.manual_overrides, ', ');
+        if (overridesStr) {
+            overriddenFieldsList.innerHTML = `<div>Fields: ${overridesStr}</div>`;
+            warningDiv.style.display = 'block';
+        } else {
+            warningDiv.style.display = 'none';
+        }
     } else {
         warningDiv.style.display = 'none';
     }
@@ -1245,8 +1404,12 @@ async function confirmLinkGame() {
             await loadGamesForDataManagement();
             await databaseManager.loadGameManagementStats();
             
+            // Log the complete API response for debugging
+            logApiResponse('Link Game to Jiten', response, result);
+            
             // Show success message with line count
             const lineCount = result.lines_linked || currentGameForSearch.line_count || 0;
+            console.log(`✅ Game linking successful: ${lineCount} lines linked`);
             showDatabaseSuccessPopup(`Successfully linked "${currentGameForSearch.title_original}" to jiten.moe! ${lineCount} lines linked.`);
         } else {
             const errorMessage = result.error || 'Failed to link game';
@@ -1311,6 +1474,23 @@ function openEditGameModal(game) {
     document.getElementById('editDeckId').value = game.deck_id || '';
     document.getElementById('editCharacterCount').value = game.character_count || '';
     document.getElementById('editCompleted').checked = game.completed || false;
+    
+    // Handle release date - convert ISO format to date input format (YYYY-MM-DD)
+    if (game.release_date) {
+        try {
+            const date = new Date(game.release_date);
+            if (!isNaN(date.getTime())) {
+                document.getElementById('editReleaseDate').value = date.toISOString().split('T')[0];
+            } else {
+                document.getElementById('editReleaseDate').value = '';
+            }
+        } catch (error) {
+            console.warn('Error parsing release date:', game.release_date, error);
+            document.getElementById('editReleaseDate').value = '';
+        }
+    } else {
+        document.getElementById('editReleaseDate').value = '';
+    }
     
     // Handle links JSON
     if (game.links && game.links.length > 0) {
@@ -1417,6 +1597,13 @@ async function saveGameEdits() {
             completed: document.getElementById('editCompleted').checked
         };
         
+        // Add release date if provided
+        const releaseDate = document.getElementById('editReleaseDate').value;
+        if (releaseDate) {
+            // Convert date input (YYYY-MM-DD) to ISO format for storage
+            updateData.release_date = releaseDate + 'T00:00:00';
+        }
+        
         // Add optional numeric fields
         const deckId = document.getElementById('editDeckId').value;
         if (deckId) {
@@ -1482,6 +1669,261 @@ async function saveGameEdits() {
     }
 }
 
+// Repull Jiten Data Function
+async function repullJitenData(gameId, gameName) {
+    console.log(`🔄 Starting repull operation for game: ${gameName} (ID: ${gameId})`);
+    
+    showDatabaseConfirmPopup(
+        `Repull data from jiten.moe for "${gameName}"? This will update all non-manually edited fields with fresh data from jiten.moe.`,
+        async () => {
+            console.log(`✅ User confirmed repull for ${gameName}`);
+            
+            try {
+                console.log(`📡 Making API request to /api/games/${gameId}/repull-jiten`);
+                
+                const response = await fetch(`/api/games/${gameId}/repull-jiten`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                console.log(`📥 Received response:`, {
+                    status: response.status,
+                    statusText: response.statusText,
+                    ok: response.ok,
+                    headers: Object.fromEntries(response.headers.entries())
+                });
+                
+                const result = await response.json();
+                
+                // Log the complete API response for debugging
+                logApiResponse('Repull Jiten Data', response, result);
+                
+                if (response.ok) {
+                    console.log(`✅ Repull operation successful for ${gameName}`);
+                    
+                    let message = result.message || 'Repull completed successfully';
+                    
+                    // Safe handling of updated_fields
+                    if (result.updated_fields) {
+                        const updatedFieldsStr = safeJoinArray(result.updated_fields, ', ');
+                        if (updatedFieldsStr) {
+                            message += ` Updated fields: ${updatedFieldsStr}.`;
+                            console.log(`📝 Updated fields: ${updatedFieldsStr}`);
+                        }
+                    }
+                    
+                    // Safe handling of skipped_fields - THIS IS THE FIX FOR THE ORIGINAL ERROR
+                    if (result.skipped_fields) {
+                        const skippedFieldsStr = safeJoinArray(result.skipped_fields, ', ');
+                        if (skippedFieldsStr) {
+                            message += ` Skipped (manually edited): ${skippedFieldsStr}.`;
+                            console.log(`⏭️ Skipped fields: ${skippedFieldsStr}`);
+                        }
+                    }
+                    
+                    console.log(`📢 Final success message: ${message}`);
+                    showDatabaseSuccessPopup(message);
+                    
+                    // Refresh the current tab to show updated data
+                    console.log(`🔄 Refreshing current tab to show updated data`);
+                    const activeTab = document.querySelector('.tab-btn.active');
+                    if (activeTab) {
+                        console.log(`🔄 Switching to tab: ${activeTab.dataset.tab}`);
+                        switchTab(activeTab.dataset.tab);
+                    }
+                    
+                    // Update dashboard stats
+                    console.log(`📊 Updating dashboard stats`);
+                    await databaseManager.loadDashboardStats();
+                    
+                    console.log(`✅ Repull operation completed successfully for ${gameName}`);
+                } else {
+                    console.error(`❌ Repull operation failed for ${gameName}:`, result);
+                    const errorMessage = result.error || 'Unknown error occurred';
+                    showDatabaseErrorPopup(`Error: ${errorMessage}`);
+                }
+            } catch (error) {
+                console.error(`💥 Exception during repull operation for ${gameName}:`, error);
+                console.error('Error stack:', error.stack);
+                showDatabaseErrorPopup('Failed to repull data from jiten.moe');
+            }
+        }
+    );
+}
+
+// Individual Game Operations Functions
+let currentGameToUnlink = null;
+let currentGameToDelete = null;
+
+// Individual Game Unlink Modal
+function openIndividualGameUnlinkModal(gameId, gameName, sentenceCount, characterCount) {
+    // Find the game in currentGames to get release_date
+    const game = currentGames.find(g => g.id === gameId);
+    
+    currentGameToUnlink = {
+        id: gameId,
+        name: gameName,
+        sentenceCount: sentenceCount,
+        characterCount: characterCount,
+        releaseDate: game ? game.release_date : null
+    };
+    
+    // Populate modal with game information
+    document.getElementById('unlinkGameName').textContent = gameName;
+    document.getElementById('unlinkGameSentences').textContent = sentenceCount.toLocaleString();
+    document.getElementById('unlinkGameCharacters').textContent = characterCount.toLocaleString();
+    document.getElementById('unlinkGameReleaseDate').textContent = formatReleaseDate(currentGameToUnlink.releaseDate);
+    
+    // Reset modal state
+    document.getElementById('individualUnlinkError').style.display = 'none';
+    document.getElementById('individualUnlinkLoading').style.display = 'none';
+    document.getElementById('confirmIndividualUnlinkBtn').disabled = false;
+    
+    // Open the modal
+    openModal('individualGameUnlinkModal');
+}
+
+async function confirmIndividualGameUnlink() {
+    if (!currentGameToUnlink) {
+        showDatabaseErrorPopup('No game selected for unlinking');
+        return;
+    }
+    
+    const errorDiv = document.getElementById('individualUnlinkError');
+    const loadingDiv = document.getElementById('individualUnlinkLoading');
+    const confirmBtn = document.getElementById('confirmIndividualUnlinkBtn');
+    
+    // Reset state
+    errorDiv.style.display = 'none';
+    
+    // Show loading state
+    loadingDiv.style.display = 'flex';
+    confirmBtn.disabled = true;
+    
+    try {
+        // Call the unlink API (DELETE removes jiten.moe link but preserves sentences)
+        const response = await fetch(`/api/games/${currentGameToUnlink.id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Success! Close modal and show success message
+            closeModal('individualGameUnlinkModal');
+            showDatabaseSuccessPopup(`Game "${result.game_name}" has been unlinked successfully. ${result.unlinked_lines} sentences preserved.`);
+            
+            // Refresh the current tab
+            const activeTab = document.querySelector('.tab-btn.active');
+            if (activeTab) {
+                switchTab(activeTab.dataset.tab);
+            }
+            
+            // Update dashboard stats
+            await databaseManager.loadDashboardStats();
+            
+            // Clear the current game
+            currentGameToUnlink = null;
+        } else {
+            // Show error message
+            errorDiv.textContent = result.error || 'Failed to unlink game';
+            errorDiv.style.display = 'block';
+            confirmBtn.disabled = false;
+        }
+    } catch (error) {
+        console.error('Error unlinking game:', error);
+        errorDiv.textContent = `Error: ${error.message}`;
+        errorDiv.style.display = 'block';
+        confirmBtn.disabled = false;
+    } finally {
+        loadingDiv.style.display = 'none';
+    }
+}
+
+// Individual Game Delete Lines Modal
+function openIndividualGameDeleteModal(gameId, gameName, sentenceCount, characterCount) {
+    currentGameToDelete = {
+        id: gameId,
+        name: gameName,
+        sentenceCount: sentenceCount,
+        characterCount: characterCount
+    };
+    
+    // Populate modal with game information
+    document.getElementById('deleteGameName').textContent = gameName;
+    document.getElementById('deleteGameSentences').textContent = sentenceCount.toLocaleString();
+    document.getElementById('deleteGameCharacters').textContent = characterCount.toLocaleString();
+    
+    // Reset modal state
+    document.getElementById('individualDeleteError').style.display = 'none';
+    document.getElementById('individualDeleteLoading').style.display = 'none';
+    document.getElementById('confirmIndividualDeleteBtn').disabled = false;
+    
+    // Open the modal
+    openModal('individualGameDeleteModal');
+}
+
+async function confirmIndividualGameDelete() {
+    if (!currentGameToDelete) {
+        showDatabaseErrorPopup('No game selected for deletion');
+        return;
+    }
+    
+    const errorDiv = document.getElementById('individualDeleteError');
+    const loadingDiv = document.getElementById('individualDeleteLoading');
+    const confirmBtn = document.getElementById('confirmIndividualDeleteBtn');
+    
+    // Reset state
+    errorDiv.style.display = 'none';
+    
+    // Show loading state
+    loadingDiv.style.display = 'flex';
+    confirmBtn.disabled = true;
+    
+    try {
+        // Call the delete lines API - this should be a different endpoint that actually deletes sentences
+        // For now, we'll use the same endpoint but add a parameter to indicate permanent deletion
+        const response = await fetch(`/api/games/${currentGameToDelete.id}/delete-lines`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ permanent: true })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Success! Close modal and show success message
+            closeModal('individualGameDeleteModal');
+            showDatabaseSuccessPopup(`Game lines for "${result.game_name}" have been PERMANENTLY DELETED. ${result.deleted_lines} sentences removed forever.`);
+            
+            // Refresh the current tab
+            const activeTab = document.querySelector('.tab-btn.active');
+            if (activeTab) {
+                switchTab(activeTab.dataset.tab);
+            }
+            
+            // Update dashboard stats
+            await databaseManager.loadDashboardStats();
+            
+            // Clear the current game
+            currentGameToDelete = null;
+        } else {
+            // Show error message
+            errorDiv.textContent = result.error || 'Failed to delete game lines';
+            errorDiv.style.display = 'block';
+            confirmBtn.disabled = false;
+        }
+    } catch (error) {
+        console.error('Error deleting game lines:', error);
+        errorDiv.textContent = `Error: ${error.message}`;
+        errorDiv.style.display = 'block';
+        confirmBtn.disabled = false;
+    } finally {
+        loadingDiv.style.display = 'none';
+    }
+}
+
 // Initialize page when DOM loads
 let databaseManager;
 document.addEventListener('DOMContentLoaded', function() {
@@ -1500,5 +1942,16 @@ document.addEventListener('DOMContentLoaded', function() {
         closeDatabaseErrorBtn.addEventListener('click', () => {
             document.getElementById('databaseErrorPopup').classList.add('hidden');
         });
+    }
+    
+    // Initialize individual game operation confirmation buttons
+    const confirmIndividualUnlinkBtn = document.getElementById('confirmIndividualUnlinkBtn');
+    if (confirmIndividualUnlinkBtn) {
+        confirmIndividualUnlinkBtn.addEventListener('click', confirmIndividualGameUnlink);
+    }
+    
+    const confirmIndividualDeleteBtn = document.getElementById('confirmIndividualDeleteBtn');
+    if (confirmIndividualDeleteBtn) {
+        confirmIndividualDeleteBtn.addEventListener('click', confirmIndividualGameDelete);
     }
 });

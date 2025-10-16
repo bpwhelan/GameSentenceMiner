@@ -1025,6 +1025,23 @@ input[type="date"].dashboard-date-input:hover {
     padding: 8px;
     border-radius: 6px;
     transition: all 0.3s ease;
+    gap: 10px;
+}
+
+/* Individual delete button styling */
+.individual-delete-btn {
+    opacity: 0.7;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.individual-delete-btn:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+}
+
+.checkbox-container:hover .individual-delete-btn {
+    opacity: 1;
 }
 
 .checkbox-container.merge-target {
@@ -1514,6 +1531,132 @@ input[type="date"].dashboard-date-input:hover {
         padding: 0 15px;
         font-size: 13px;
     }
+}
+
+/* Tab Interface Styles */
+.modal-tabs {
+    display: flex;
+    border-bottom: 2px solid var(--border-color);
+    background: var(--bg-tertiary);
+    margin: 0;
+    padding: 0;
+}
+
+.tab-btn {
+    flex: 1;
+    padding: 15px 20px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border-bottom: 3px solid transparent;
+    position: relative;
+}
+
+.tab-btn:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.tab-btn.active {
+    background: var(--bg-secondary);
+    color: var(--accent-color);
+    border-bottom-color: var(--accent-color);
+}
+
+.tab-btn.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--accent-color);
+}
+
+.tab-content {
+    display: none;
+    padding: 0;
+    margin: 0;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Large Modal Styles */
+.modal-content[style*="95vw"] {
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-content[style*="95vw"] .modal-body {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.modal-content[style*="95vw"] .tab-content {
+    padding: 20px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* Individual Game Action Buttons */
+.individual-game-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.individual-game-actions .action-btn {
+    font-size: 12px;
+    padding: 8px 12px;
+    flex: 1;
+}
+
+.unlink-btn {
+    background-color: var(--warning-color);
+    color: #333;
+    border: 2px solid var(--warning-color);
+}
+
+.unlink-btn:hover {
+    background-color: #e0a800;
+    transform: translateY(-1px);
+}
+
+.delete-lines-btn {
+    background-color: var(--danger-color);
+    color: white;
+    border: 2px solid var(--danger-color);
+    font-weight: 700;
+}
+
+.delete-lines-btn:hover {
+    background-color: #c82333;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+}
+
+/* Enhanced Game Data Item for Manage Tab */
+.manage-game-item {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 15px;
+    transition: all 0.3s ease;
+}
+
+.manage-game-item:hover {
+    box-shadow: 0 4px 12px var(--shadow-color);
+    border-color: var(--accent-color);
 }
 
 /* Dashboard Popup Styles */

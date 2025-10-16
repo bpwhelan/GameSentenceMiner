@@ -517,6 +517,58 @@ function escapeRegex(string) {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function safeJoinArray(arr, separator = ', ') {
+    /**
+     * Safely join an array with proper type checking and fallbacks.
+     * Handles various data types that might be returned from API responses.
+     *
+     * @param {*} arr - The value to join (should be an array, but handles other types)
+     * @param {string} separator - The separator to use for joining
+     * @returns {string} - The joined string or appropriate fallback
+     */
+    if (!arr) {
+        return '';
+    }
+    
+    if (Array.isArray(arr)) {
+        return arr.join(separator);
+    }
+    
+    if (typeof arr === 'string') {
+        return arr;
+    }
+    
+    // Handle other types by converting to string
+    return String(arr);
+}
+
+function logApiResponse(operation, response, result) {
+    /**
+     * Log API response details for debugging purposes.
+     *
+     * @param {string} operation - The operation being performed
+     * @param {Response} response - The fetch response object
+     * @param {*} result - The parsed JSON result
+     */
+    console.group(`🔍 API Response Debug: ${operation}`);
+    console.log('Response status:', response.status, response.statusText);
+    console.log('Response OK:', response.ok);
+    console.log('Result object:', result);
+    
+    if (result && typeof result === 'object') {
+        Object.keys(result).forEach(key => {
+            const value = result[key];
+            console.log(`${key}:`, {
+                value,
+                type: typeof value,
+                isArray: Array.isArray(value),
+                length: Array.isArray(value) ? value.length : 'N/A'
+            });
+        });
+    }
+    console.groupEnd();
+}
+
 // Screenshot functionality
 function initializeScreenshotButton() {
     const screenshotButton = document.getElementById('screenshotToggle');

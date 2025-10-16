@@ -835,6 +835,150 @@ document.addEventListener('DOMContentLoaded', function () {
         kanjiGridRenderer.render(kanjiData);
     }
 
+    // Function to update game milestones display
+    function updateGameMilestones(gameMilestones) {
+        const oldestCard = document.getElementById('oldestGameCard');
+        const newestCard = document.getElementById('newestGameCard');
+        const noDataMsg = document.getElementById('milestonesNoData');
+        
+        if (!gameMilestones || (!gameMilestones.oldest_game && !gameMilestones.newest_game)) {
+            // No milestone data available
+            if (oldestCard) oldestCard.style.display = 'none';
+            if (newestCard) newestCard.style.display = 'none';
+            if (noDataMsg) noDataMsg.style.display = 'block';
+            return;
+        }
+        
+        // Hide no data message
+        if (noDataMsg) noDataMsg.style.display = 'none';
+        
+        // Update oldest game card
+        if (gameMilestones.oldest_game && oldestCard) {
+            const game = gameMilestones.oldest_game;
+            
+            // Update image with proper base64 handling
+            const imageEl = document.getElementById('oldestGameImage');
+            if (game.image && game.image.trim()) {
+                let imageSrc = game.image.trim();
+                
+                // Check if it's a base64 image or URL
+                if (imageSrc.startsWith('data:image')) {
+                    console.log('[DEBUG] Setting base64 image with data URI for oldest game');
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else if (imageSrc.startsWith('http')) {
+                    console.log('[DEBUG] Setting URL image for oldest game:', imageSrc);
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else if (imageSrc.startsWith('/9j/') || imageSrc.startsWith('iVBOR')) {
+                    // Raw base64 data without data URI prefix - add it
+                    // /9j/ is JPEG, iVBOR is PNG
+                    const mimeType = imageSrc.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
+                    imageSrc = `data:${mimeType};base64,${imageSrc}`;
+                    console.log('[DEBUG] Added data URI prefix to raw base64 data for oldest game');
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else {
+                    // Invalid image format, use placeholder
+                    console.log('[DEBUG] Invalid image format for oldest game, using placeholder');
+                    imageEl.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+                }
+                
+                imageEl.onerror = function() {
+                    this.style.display = 'none';
+                    this.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+                };
+            } else {
+                console.log('[DEBUG] No image data for oldest game, using placeholder');
+                imageEl.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+            }
+            
+            // Update title
+            document.getElementById('oldestGameTitle').textContent = game.title_original || 'Unknown Game';
+            
+            // Update subtitle (romaji or english)
+            const subtitle = game.title_romaji || game.title_english || '';
+            const subtitleEl = document.getElementById('oldestGameSubtitle');
+            if (subtitle) {
+                subtitleEl.textContent = subtitle;
+                subtitleEl.style.display = 'block';
+            } else {
+                subtitleEl.style.display = 'none';
+            }
+            
+            // Update release date
+            document.getElementById('oldestGameReleaseYear').textContent = game.release_date || 'Unknown';
+            
+            // Update first played date
+            document.getElementById('oldestGameFirstPlayed').textContent = game.first_played || 'Unknown';
+            
+            oldestCard.style.display = 'flex';
+        }
+        
+        // Update newest game card
+        if (gameMilestones.newest_game && newestCard) {
+            const game = gameMilestones.newest_game;
+            
+            // Update image with proper base64 handling
+            const imageEl = document.getElementById('newestGameImage');
+            if (game.image && game.image.trim()) {
+                let imageSrc = game.image.trim();
+                
+                // Check if it's a base64 image or URL
+                if (imageSrc.startsWith('data:image')) {
+                    console.log('[DEBUG] Setting base64 image with data URI for newest game');
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else if (imageSrc.startsWith('http')) {
+                    console.log('[DEBUG] Setting URL image for newest game:', imageSrc);
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else if (imageSrc.startsWith('/9j/') || imageSrc.startsWith('iVBOR')) {
+                    // Raw base64 data without data URI prefix - add it
+                    // /9j/ is JPEG, iVBOR is PNG
+                    const mimeType = imageSrc.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
+                    imageSrc = `data:${mimeType};base64,${imageSrc}`;
+                    console.log('[DEBUG] Added data URI prefix to raw base64 data for newest game');
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else {
+                    // Invalid image format, use placeholder
+                    console.log('[DEBUG] Invalid image format for newest game, using placeholder');
+                    imageEl.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+                }
+                
+                imageEl.onerror = function() {
+                    this.style.display = 'none';
+                    this.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+                };
+            } else {
+                console.log('[DEBUG] No image data for newest game, using placeholder');
+                imageEl.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+            }
+            
+            // Update title
+            document.getElementById('newestGameTitle').textContent = game.title_original || 'Unknown Game';
+            
+            // Update subtitle (romaji or english)
+            const subtitle = game.title_romaji || game.title_english || '';
+            const subtitleEl = document.getElementById('newestGameSubtitle');
+            if (subtitle) {
+                subtitleEl.textContent = subtitle;
+                subtitleEl.style.display = 'block';
+            } else {
+                subtitleEl.style.display = 'none';
+            }
+            
+            // Update release date
+            document.getElementById('newestGameReleaseYear').textContent = game.release_date || 'Unknown';
+            
+            // Update first played date
+            document.getElementById('newestGameFirstPlayed').textContent = game.first_played || 'Unknown';
+            
+            newestCard.style.display = 'flex';
+        }
+    }
+
     // Function to update peak statistics display
     function updatePeakStatistics(peakDailyStats, peakSessionStats) {
         // Helper function to format large numbers
@@ -991,6 +1135,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Update peak statistics if data exists
                 if (data.peakDailyStats && data.peakSessionStats) {
                     updatePeakStatistics(data.peakDailyStats, data.peakSessionStats);
+                }
+
+                // Update game milestones if data exists
+                if (data.gameMilestones) {
+                    updateGameMilestones(data.gameMilestones);
                 }
 
                 return data;

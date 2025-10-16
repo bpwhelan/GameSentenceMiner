@@ -11,7 +11,7 @@ class GamesTable(SQLiteDBTable):
         'deck_id', 'title_original', 'title_romaji', 'title_english',
         'type',
         'description', 'image', 'character_count', 'difficulty', 'links', 'completed',
-        'manual_overrides'
+        'release_date', 'manual_overrides'
     ]
     _types = [
         str,      # id (primary key)
@@ -26,6 +26,7 @@ class GamesTable(SQLiteDBTable):
         int,      # difficulty
         list,     # links (stored as JSON)
         bool,     # completed
+        str,      # release_date (ISO date string)
         list      # manual_overrides (stored as JSON)
     ]
     _pk = 'id'
@@ -45,6 +46,7 @@ class GamesTable(SQLiteDBTable):
         difficulty: Optional[int] = None,
         links: Optional[List[Dict]] = None,
         completed: bool = False,
+        release_date: Optional[str] = None,
         manual_overrides: Optional[List[str]] = None
     ):
         self.id = id if id else str(uuid.uuid4())
@@ -59,6 +61,7 @@ class GamesTable(SQLiteDBTable):
         self.difficulty = difficulty
         self.links = links if links else []
         self.completed = completed
+        self.release_date = release_date if release_date else ''
         self.manual_overrides = manual_overrides if manual_overrides else []
 
     @classmethod
@@ -180,7 +183,8 @@ class GamesTable(SQLiteDBTable):
         character_count: Optional[int] = None,
         difficulty: Optional[int] = None,
         links: Optional[List[Dict]] = None,
-        completed: Optional[bool] = None
+        completed: Optional[bool] = None,
+        release_date: Optional[str] = None
     ):
         """
         Update all fields of the game at once. Only provided fields will be updated.
@@ -197,6 +201,7 @@ class GamesTable(SQLiteDBTable):
             difficulty: Difficulty rating
             links: List of link objects
             completed: Whether the game is completed
+            release_date: Release date (ISO format string)
         """
         if deck_id is not None:
             self.deck_id = deck_id
@@ -231,6 +236,9 @@ class GamesTable(SQLiteDBTable):
         if completed is not None:
             self.completed = completed
             self.mark_field_manual('completed')
+        if release_date is not None:
+            self.release_date = release_date
+            self.mark_field_manual('release_date')
         
         self.save()
         logger.info(f"Updated game {self.id} ({self.title_original})")
@@ -247,7 +255,8 @@ class GamesTable(SQLiteDBTable):
         character_count: Optional[int] = None,
         difficulty: Optional[int] = None,
         links: Optional[List[Dict]] = None,
-        completed: Optional[bool] = None
+        completed: Optional[bool] = None,
+        release_date: Optional[str] = None
     ):
         """
         Update all fields of the game at once. Only provided fields will be updated.
@@ -257,12 +266,14 @@ class GamesTable(SQLiteDBTable):
             title_original: Original Japanese title
             title_romaji: Romanized title
             title_english: English translated title
+            type: Game type (string)
             description: Game description
             image: Base64-encoded image data
             character_count: Total character count
             difficulty: Difficulty rating
             links: List of link objects
             completed: Whether the game is completed
+            release_date: Release date (ISO format string)
         """
         if deck_id is not None:
             self.deck_id = deck_id
@@ -285,9 +296,14 @@ class GamesTable(SQLiteDBTable):
         if links is not None:
             self.links = links
         if completed is not None:
-            self.completed = completed        
+            self.completed = completed
+        if release_date is not None:
+            logger.info(f"📅 GamesTable.update_all_fields_from_jiten: Setting release_date for game {self.id} to '{release_date}' (type: {type(release_date)})")
+            self.release_date = release_date
+        else:
+            logger.info(f"⏭️ GamesTable.update_all_fields_from_jiten: release_date is None for game {self.id}")
         self.save()
-        logger.info(f"Updated game {self.id} ({self.title_original})")
+        logger.info(f"Updated game {self.id} ({self.title_original}) - final release_date: '{self.release_date}'")
 
     def add_link(self, link_type: int, url: str, link_id: Optional[int] = None):
         """
@@ -318,3 +334,29 @@ class GamesTable(SQLiteDBTable):
         rows = GameLinesTable._db.fetchall(
             f"SELECT * FROM {GameLinesTable._table} WHERE game_id=?", (self.id,))
         return [GameLinesTable.from_row(row) for row in rows]
+
+    @classmethod
+    def get_by_game_line(cls, game_line) -> Optional['GamesTable']:
+        """
+        Get game metadata from a game_line record using the game_id relationship.
+        Falls back to name-based lookup if game_id is missing or invalid.
+        
+        Args:
+            game_line: A GameLinesTable record
+            
+        Returns:
+            GamesTable: The game record, or None if not found
+        """
+        # First try using game_id relationship if it exists
+        if hasattr(game_line, 'game_id') and game_line.game_id and game_line.game_id.strip():
+            game = cls.get(game_line.game_id)
+            if game:
+                return game
+            else:
+                logger.warning(f"game_id '{game_line.game_id}' not found in games table, falling back to name lookup")
+        
+        # Fallback to name-based lookup
+        if hasattr(game_line, 'game_name') and game_line.game_name:
+            return cls.get_by_title(game_line.game_name)
+        
+        return None

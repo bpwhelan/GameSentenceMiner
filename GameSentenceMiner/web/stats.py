@@ -445,8 +445,9 @@ def calculate_current_game_stats(all_lines):
     # Sort lines by timestamp to find the most recent
     sorted_lines = sorted(all_lines, key=lambda line: float(line.timestamp))
     
-    # Get the current game (game with most recent entry)
-    current_game_name = sorted_lines[-1].game_name or "Unknown Game"
+    # Get the current game line (most recent entry)
+    current_game_line = sorted_lines[-1]
+    current_game_name = current_game_line.game_name or "Unknown Game"
     
     # Filter lines for current game
     current_game_lines = [line for line in all_lines if (line.game_name or "Unknown Game") == current_game_name]
@@ -454,9 +455,9 @@ def calculate_current_game_stats(all_lines):
     if not current_game_lines:
         return None
     
-    # Fetch game metadata from games table
+    # Fetch game metadata from games table using game_id relationship
     from GameSentenceMiner.util.games_table import GamesTable
-    game_metadata = GamesTable.get_by_title(current_game_name)
+    game_metadata = GamesTable.get_by_game_line(current_game_line)
     
     # Calculate basic statistics
     total_characters = sum(len(line.line_text) if line.line_text else 0 for line in current_game_lines)
@@ -743,6 +744,121 @@ def calculate_peak_session_stats(all_lines):
         'longest_session_hours': longest_session_hours,
         'max_session_chars': max_session_chars
     }
+
+def calculate_game_milestones(all_lines):
+    """
+    Calculate oldest and newest played games by release year.
+    Returns games with earliest and latest release dates that have been played.
+    
+    Args:
+        all_lines: List of game lines
+    
+    Returns:
+        dict: Dictionary containing oldest_game and newest_game data, or None if no games with release dates
+    """
+    if not all_lines:
+        return None
+    
+    from GameSentenceMiner.util.games_table import GamesTable
+    
+    # Get unique game_ids from lines that have them, and fallback to game_names
+    games_to_check = set()
+    
+    # First collect all game_ids that exist
+    for line in all_lines:
+        if hasattr(line, 'game_id') and line.game_id and line.game_id.strip():
+            games_to_check.add(('id', line.game_id))
+        elif line.game_name:
+            games_to_check.add(('name', line.game_name))
+    
+    if not games_to_check:
+        return None
+    
+    # Get game records with release dates
+    games_with_dates = []
+    for lookup_type, lookup_value in games_to_check:
+        if lookup_type == 'id':
+            game = GamesTable.get(lookup_value)
+        else:  # lookup_type == 'name'
+            game = GamesTable.get_by_title(lookup_value)
+            
+        if game and game.release_date and game.release_date.strip():
+            # Get first played date for this game
+            first_played = GamesTable.get_start_date(game.id)
+            
+            games_with_dates.append({
+                'id': game.id,
+                'title_original': game.title_original,
+                'title_romaji': game.title_romaji,
+                'title_english': game.title_english,
+                'type': game.type,
+                'image': game.image,
+                'release_date': game.release_date,
+                'first_played': first_played,
+                'difficulty': game.difficulty
+            })
+    
+    if not games_with_dates:
+        return None
+    
+    # Sort by release date to find oldest and newest
+    # Parse release dates for sorting (handle ISO format: "2009-10-15T00:00:00")
+    def parse_release_date(game):
+        try:
+            # Extract just the date part (YYYY-MM-DD)
+            date_str = game['release_date'].split('T')[0]
+            return date_str
+        except:
+            return '9999-12-31'  # Put invalid dates at the end
+    
+    games_with_dates.sort(key=parse_release_date)
+    
+    oldest_game = games_with_dates[0] if games_with_dates else None
+    newest_game = games_with_dates[-1] if games_with_dates else None
+    
+    # Format the release dates for display (extract date in YYYY-MM-DD format)
+    def format_release_date(release_date_str):
+        try:
+            # Extract date part from "2009-10-15T00:00:00" -> "2009-10-15"
+            return release_date_str.split('T')[0]
+        except:
+            return 'Unknown'
+    
+    # Format first played dates
+    def format_first_played(timestamp):
+        if timestamp:
+            return datetime.date.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+        return 'Unknown'
+    
+    result = {}
+    
+    if oldest_game:
+        result['oldest_game'] = {
+            'title_original': oldest_game['title_original'],
+            'title_romaji': oldest_game['title_romaji'],
+            'title_english': oldest_game['title_english'],
+            'type': oldest_game['type'],
+            'image': oldest_game['image'],
+            'release_date': format_release_date(oldest_game['release_date']),
+            'release_date_full': oldest_game['release_date'],
+            'first_played': format_first_played(oldest_game['first_played']),
+            'difficulty': oldest_game['difficulty']
+        }
+    
+    if newest_game:
+        result['newest_game'] = {
+            'title_original': newest_game['title_original'],
+            'title_romaji': newest_game['title_romaji'],
+            'title_english': newest_game['title_english'],
+            'type': newest_game['type'],
+            'image': newest_game['image'],
+            'release_date': format_release_date(newest_game['release_date']),
+            'release_date_full': newest_game['release_date'],
+            'first_played': format_first_played(newest_game['first_played']),
+            'difficulty': newest_game['difficulty']
+        }
+    
+    return result if result else None
 
 def calculate_all_games_stats(all_lines):
     """Calculate aggregate statistics for all games combined."""

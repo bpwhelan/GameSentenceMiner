@@ -47,6 +47,70 @@
             </div>
         </div>
         <br>
+
+        <div class="dashboard-card game-milestones">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">🎮</span>
+                    Game Milestones
+                </h3>
+            </div>
+            <div class="game-milestones-grid" id="gameMilestonesGrid">
+                <!-- Oldest game card -->
+                <div class="milestone-game-card" id="oldestGameCard" style="display: none;">
+                    <div class="milestone-game-image-container">
+                        <img id="oldestGameImage" class="milestone-game-image" alt="Game Cover">
+                    </div>
+                    <div class="milestone-game-info">
+                        <div class="milestone-label oldest">📜 OLDEST PLAYED</div>
+                        <div class="milestone-game-title" id="oldestGameTitle">-</div>
+                        <div class="milestone-game-subtitle" id="oldestGameSubtitle"></div>
+                        <div class="milestone-game-details">
+                            <div class="milestone-detail-row">
+                                <span class="milestone-detail-icon">📅</span>
+                                <span class="milestone-detail-label">Released:</span>
+                                <span class="milestone-detail-value" id="oldestGameReleaseYear">-</span>
+                            </div>
+                            <div class="milestone-detail-row">
+                                <span class="milestone-detail-icon">🎯</span>
+                                <span class="milestone-detail-label">First Played:</span>
+                                <span class="milestone-detail-value" id="oldestGameFirstPlayed">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Newest game card -->
+                <div class="milestone-game-card" id="newestGameCard" style="display: none;">
+                    <div class="milestone-game-image-container">
+                        <img id="newestGameImage" class="milestone-game-image" alt="Game Cover">
+                    </div>
+                    <div class="milestone-game-info">
+                        <div class="milestone-label newest">✨ NEWEST PLAYED</div>
+                        <div class="milestone-game-title" id="newestGameTitle">-</div>
+                        <div class="milestone-game-subtitle" id="newestGameSubtitle"></div>
+                        <div class="milestone-game-details">
+                            <div class="milestone-detail-row">
+                                <span class="milestone-detail-icon">📅</span>
+                                <span class="milestone-detail-label">Released:</span>
+                                <span class="milestone-detail-value" id="newestGameReleaseYear">-</span>
+                            </div>
+                            <div class="milestone-detail-row">
+                                <span class="milestone-detail-icon">🎯</span>
+                                <span class="milestone-detail-label">First Played:</span>
+                                <span class="milestone-detail-value" id="newestGameFirstPlayed">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- No data message -->
+                <div class="milestone-no-data" id="milestonesNoData" style="display: none;">
+                    No games with release dates found. Link games to jiten.moe to see milestones.
+                </div>
+            </div>
+        </div>
+        <br>
         <div class="chart-container">
             <h2>Lines Received Over Time</h2>
             <canvas id="linesChart"></canvas>
