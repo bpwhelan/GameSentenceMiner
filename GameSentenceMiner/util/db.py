@@ -211,7 +211,25 @@ class SQLiteDBTable:
         elif field_type is int:
             setattr(obj, field, int(row_value) if row_value is not None else None)
         elif field_type is float:
-            setattr(obj, field, float(row_value) if row_value is not None else None)
+            if row_value is None:
+                setattr(obj, field, None)
+            elif isinstance(row_value, str):
+                # Try to parse datetime strings to Unix timestamp
+                try:
+                    # First try direct float conversion
+                    setattr(obj, field, float(row_value))
+                except ValueError:
+                    # If that fails, try parsing as datetime string
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(row_value.replace(' ', 'T'))
+                        setattr(obj, field, dt.timestamp())
+                    except (ValueError, AttributeError):
+                        # If all parsing fails, set to None
+                        logger.warning(f"Could not convert '{row_value}' to float or datetime, setting to None")
+                        setattr(obj, field, None)
+            else:
+                setattr(obj, field, float(row_value))
         elif field_type is bool:
             # Convert from SQLite: 0/1 (int), '0'/'1' (str), or None -> bool
             # Default to False for None/empty, True only for 1 or '1'
@@ -757,6 +775,75 @@ def check_and_run_migrations():
         else:
             logger.debug("obs_scene_name column already exists in games table, skipping migration.")
     
+    def migrate_cron_timestamps():
+        """
+        Convert datetime strings in cron_table to Unix timestamps.
+        This migration handles legacy data that may have datetime strings instead of floats.
+        """
+        try:
+            # Get all rows directly from database to check for datetime strings
+            rows = CronTable._db.fetchall(f"SELECT id, last_run, next_run, created_at FROM {CronTable._table}")
+            
+            updates_needed = []
+            for row in rows:
+                cron_id, last_run, next_run, created_at = row
+                needs_update = False
+                new_last_run = last_run
+                new_next_run = next_run
+                new_created_at = created_at
+                
+                # Check and convert last_run
+                if last_run and isinstance(last_run, str) and not last_run.replace('.', '', 1).isdigit():
+                    try:
+                        dt = datetime.fromisoformat(last_run.replace(' ', 'T'))
+                        new_last_run = dt.timestamp()
+                        needs_update = True
+                    except (ValueError, AttributeError):
+                        logger.warning(f"Could not parse last_run '{last_run}' for cron id={cron_id}")
+                        new_last_run = None
+                        needs_update = True
+                
+                # Check and convert next_run
+                if next_run and isinstance(next_run, str) and not next_run.replace('.', '', 1).isdigit():
+                    try:
+                        dt = datetime.fromisoformat(next_run.replace(' ', 'T'))
+                        new_next_run = dt.timestamp()
+                        needs_update = True
+                    except (ValueError, AttributeError):
+                        logger.warning(f"Could not parse next_run '{next_run}' for cron id={cron_id}")
+                        new_next_run = time.time()
+                        needs_update = True
+                
+                # Check and convert created_at
+                if created_at and isinstance(created_at, str) and not created_at.replace('.', '', 1).isdigit():
+                    try:
+                        dt = datetime.fromisoformat(created_at.replace(' ', 'T'))
+                        new_created_at = dt.timestamp()
+                        needs_update = True
+                    except (ValueError, AttributeError):
+                        logger.warning(f"Could not parse created_at '{created_at}' for cron id={cron_id}")
+                        new_created_at = time.time()
+                        needs_update = True
+                
+                if needs_update:
+                    updates_needed.append((new_last_run, new_next_run, new_created_at, cron_id))
+            
+            # Apply updates
+            if updates_needed:
+                logger.info(f"Migrating {len(updates_needed)} cron entries with datetime strings to Unix timestamps...")
+                for new_last_run, new_next_run, new_created_at, cron_id in updates_needed:
+                    CronTable._db.execute(
+                        f"UPDATE {CronTable._table} SET last_run=?, next_run=?, created_at=? WHERE id=?",
+                        (new_last_run, new_next_run, new_created_at, cron_id),
+                        commit=True
+                    )
+                logger.info(f"✅ Migrated {len(updates_needed)} cron entries to Unix timestamps")
+            else:
+                logger.debug("No cron timestamp migration needed")
+                
+        except Exception as e:
+            logger.error(f"Error during cron timestamp migration: {e}")
+    
     def migrate_jiten_cron_job():
         """
         Create the monthly jiten.moe update cron job if it doesn't exist.
@@ -775,7 +862,7 @@ def check_and_run_migrations():
             CronTable.create_cron_entry(
                 name='jiten_sync',
                 description='Automatically update all linked games from jiten.moe database (respects manual overrides)',
-                next_run=next_month,
+                next_run=next_month.timestamp(),
                 schedule='monthly'
             )
             logger.info(f"✅ Created jiten_sync cron job - next run: {next_month.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -784,6 +871,7 @@ def check_and_run_migrations():
     
     migrate_timestamp()
     migrate_obs_scene_name()
+    # migrate_cron_timestamps()  # Disabled - user will manually clean up data
     migrate_jiten_cron_job()
         
 check_and_run_migrations()

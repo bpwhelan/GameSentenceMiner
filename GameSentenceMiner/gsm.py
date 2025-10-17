@@ -676,6 +676,15 @@ def initialize(reloading=False):
             if shutil.which("ffmpeg") is None:
                 os.environ["PATH"] += os.pathsep + \
                     os.path.dirname(get_ffmpeg_path())
+        
+        # Check for due cron jobs on startup
+        try:
+            from GameSentenceMiner.util.cron.run_crons import run_due_crons
+            logger.info("Checking for due cron jobs...")
+            run_due_crons()
+        except Exception as e:
+            logger.warning(f"Failed to check cron jobs on startup: {e}")
+        
         if get_config().obs.open_obs:
             obs_process = obs.start_obs()
             # obs.connect_to_obs(start_replay=True)
