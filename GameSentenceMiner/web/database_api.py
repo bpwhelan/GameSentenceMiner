@@ -1088,51 +1088,57 @@ def register_database_api_routes(app):
             if not all_lines:
                 return jsonify({"labels": [], "datasets": []})
 
-            # 2. Process data into daily totals for each game
-            # Structure: daily_data[date_str][game_name] = {'lines': N, 'chars': N}
+            # 1.5. Build a mapping of game_name -> display_name (title_original if available)
+            from GameSentenceMiner.util.games_table import GamesTable
+            game_name_to_display = {}
+            unique_game_names = set(line.game_name or "Unknown Game" for line in all_lines)
+            
+            for game_name in unique_game_names:
+                # Find any line with this game_name to get game_id
+                sample_line = next((line for line in all_lines if (line.game_name or "Unknown Game") == game_name), None)
+                if sample_line:
+                    game_metadata = GamesTable.get_by_game_line(sample_line)
+                    if game_metadata and game_metadata.title_original:
+                        game_name_to_display[game_name] = game_metadata.title_original
+                    else:
+                        game_name_to_display[game_name] = game_name
+
+            # 2. Process data into daily totals for each game (using display names)
+            # Structure: daily_data[date_str][display_name] = {'lines': N, 'chars': N}
             daily_data = defaultdict(lambda: defaultdict(lambda: {'lines': 0, 'chars': 0}))
             wrong_instance_found = False
             for line in all_lines:
                 day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
-                game = line.game_name or "Unknown Game"
+                game_name = line.game_name or "Unknown Game"
+                display_name = game_name_to_display.get(game_name, game_name)
                 # Remove punctuation and symbols from line text before counting characters
                 if not isinstance(line.line_text, str) and not wrong_instance_found:
                     logger.info(f"Non-string line_text encountered: {line.line_text} (type: {type(line.line_text)})")
                     wrong_instance_found = True
 
-                daily_data[day_str][game]['lines'] += 1
-                daily_data[day_str][game]['chars'] += len(line.line_text)
+                daily_data[day_str][display_name]['lines'] += 1
+                daily_data[day_str][display_name]['chars'] += len(line.line_text)
 
             # 3. Create cumulative datasets for Chart.js
             sorted_days = sorted(daily_data.keys())
-            game_names = GameLinesTable.get_all_games_with_lines()
+            # Use display names instead of raw game_names
+            display_names = sorted(set(game_name_to_display.values()))
             
             # Keep track of the running total for each metric for each game
             cumulative_totals = defaultdict(lambda: {'lines': 0, 'chars': 0})
             
-            # Structure for final data: final_data[game_name][metric] = [day1_val, day2_val, ...]
+            # Structure for final data: final_data[display_name][metric] = [day1_val, day2_val, ...]
             final_data = defaultdict(lambda: defaultdict(list))
 
             for day in sorted_days:
-                for game in game_names:
+                for display_name in display_names:
                     # Add the day's total to the cumulative total
-                    cumulative_totals[game]['lines'] += daily_data[day][game]['lines']
-                    cumulative_totals[game]['chars'] += daily_data[day][game]['chars']
+                    cumulative_totals[display_name]['lines'] += daily_data[day][display_name]['lines']
+                    cumulative_totals[display_name]['chars'] += daily_data[day][display_name]['chars']
                     
                     # Append the new cumulative total to the list for that day
-                    final_data[game]['lines'].append(cumulative_totals[game]['lines'])
-                    final_data[game]['chars'].append(cumulative_totals[game]['chars'])
-            
-            # 4. Format into Chart.js dataset structure
-            datasets = []
-            # A simple color palette for the chart lines
-            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22']
-            
-            for i, game in enumerate(game_names):
-                color = colors[i % len(colors)]
-            
-            # Note: We already have filtered data in all_lines from line 965, so we don't need to fetch again
-            # The duplicate data fetching that was here has been removed to fix the date range filtering issue
+                    final_data[display_name]['lines'].append(cumulative_totals[display_name]['lines'])
+                    final_data[display_name]['chars'].append(cumulative_totals[display_name]['chars'])
             
             # 4. Format into Chart.js dataset structure
             try:
@@ -1140,12 +1146,12 @@ def register_database_api_routes(app):
                 # A simple color palette for the chart lines
                 colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22']
                 
-                for i, game in enumerate(game_names):
+                for i, display_name in enumerate(display_names):
                     color = colors[i % len(colors)]
                     
                     datasets.append({
-                        "label": f"{game}",
-                        "data": final_data[game]['lines'],
+                        "label": f"{display_name}",
+                        "data": final_data[display_name]['lines'],
                         "borderColor": color,
                         "backgroundColor": f"{color}33", # Semi-transparent for fill
                         "fill": False,
@@ -1153,8 +1159,8 @@ def register_database_api_routes(app):
                         "for": "Lines Received"
                     })
                     datasets.append({
-                        "label": f"{game}",
-                        "data": final_data[game]['chars'],
+                        "label": f"{display_name}",
+                        "data": final_data[display_name]['chars'],
                         "borderColor": color,
                         "backgroundColor": f"{color}33",
                         "fill": False,

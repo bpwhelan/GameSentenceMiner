@@ -3,6 +3,7 @@ from collections import defaultdict
 
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.configuration import get_stats_config, logger, get_config
+from GameSentenceMiner.util.games_table import GamesTable
 
 
 def is_kanji(char):
@@ -169,17 +170,32 @@ def calculate_mining_heatmap_data(all_lines, filter_year=None):
 
 def calculate_total_chars_per_game(all_lines):
     """Calculate total characters read per game."""
+    # Build a mapping of game_name -> display_name (title_original if available)
+    game_name_to_display = {}
+    unique_game_names = set(line.game_name or "Unknown Game" for line in all_lines)
+    
+    for game_name in unique_game_names:
+        # Find any line with this game_name to get game_id
+        sample_line = next((line for line in all_lines if (line.game_name or "Unknown Game") == game_name), None)
+        if sample_line:
+            game_metadata = GamesTable.get_by_game_line(sample_line)
+            if game_metadata and game_metadata.title_original:
+                game_name_to_display[game_name] = game_metadata.title_original
+            else:
+                game_name_to_display[game_name] = game_name
+    
     game_data = defaultdict(lambda: {'total_chars': 0, 'first_time': None})
     
     for line in all_lines:
-        game = line.game_name or "Unknown Game"
+        game_name = line.game_name or "Unknown Game"
+        display_name = game_name_to_display.get(game_name, game_name)
         timestamp = float(line.timestamp)
         char_count = len(line.line_text) if line.line_text else 0
         
-        game_data[game]['total_chars'] += char_count
+        game_data[display_name]['total_chars'] += char_count
         
-        if game_data[game]['first_time'] is None:
-            game_data[game]['first_time'] = timestamp
+        if game_data[display_name]['first_time'] is None:
+            game_data[display_name]['first_time'] = timestamp
     
     # Sort by first appearance time and filter out games with no characters
     char_data = []
@@ -197,15 +213,30 @@ def calculate_total_chars_per_game(all_lines):
 
 def calculate_reading_time_per_game(all_lines):
     """Calculate total reading time per game in hours using AFK timer logic."""
+    # Build a mapping of game_name -> display_name (title_original if available)
+    game_name_to_display = {}
+    unique_game_names = set(line.game_name or "Unknown Game" for line in all_lines)
+    
+    for game_name in unique_game_names:
+        # Find any line with this game_name to get game_id
+        sample_line = next((line for line in all_lines if (line.game_name or "Unknown Game") == game_name), None)
+        if sample_line:
+            game_metadata = GamesTable.get_by_game_line(sample_line)
+            if game_metadata and game_metadata.title_original:
+                game_name_to_display[game_name] = game_metadata.title_original
+            else:
+                game_name_to_display[game_name] = game_name
+    
     game_data = defaultdict(lambda: {'timestamps': [], 'first_time': None})
     
     for line in all_lines:
-        game = line.game_name or "Unknown Game"
+        game_name = line.game_name or "Unknown Game"
+        display_name = game_name_to_display.get(game_name, game_name)
         timestamp = float(line.timestamp)
         
-        game_data[game]['timestamps'].append(timestamp)
-        if game_data[game]['first_time'] is None:
-            game_data[game]['first_time'] = timestamp
+        game_data[display_name]['timestamps'].append(timestamp)
+        if game_data[display_name]['first_time'] is None:
+            game_data[display_name]['first_time'] = timestamp
     
     # Calculate actual reading time for each game
     time_data = []
@@ -227,18 +258,33 @@ def calculate_reading_time_per_game(all_lines):
 
 def calculate_reading_speed_per_game(all_lines):
     """Calculate average reading speed per game (chars/hour) using AFK timer logic."""
+    # Build a mapping of game_name -> display_name (title_original if available)
+    game_name_to_display = {}
+    unique_game_names = set(line.game_name or "Unknown Game" for line in all_lines)
+    
+    for game_name in unique_game_names:
+        # Find any line with this game_name to get game_id
+        sample_line = next((line for line in all_lines if (line.game_name or "Unknown Game") == game_name), None)
+        if sample_line:
+            game_metadata = GamesTable.get_by_game_line(sample_line)
+            if game_metadata and game_metadata.title_original:
+                game_name_to_display[game_name] = game_metadata.title_original
+            else:
+                game_name_to_display[game_name] = game_name
+    
     game_data = defaultdict(lambda: {'chars': 0, 'timestamps': [], 'first_time': None})
     
     for line in all_lines:
-        game = line.game_name or "Unknown Game"
+        game_name = line.game_name or "Unknown Game"
+        display_name = game_name_to_display.get(game_name, game_name)
         timestamp = float(line.timestamp)
         char_count = len(line.line_text) if line.line_text else 0
         
-        game_data[game]['chars'] += char_count
-        game_data[game]['timestamps'].append(timestamp)
+        game_data[display_name]['chars'] += char_count
+        game_data[display_name]['timestamps'].append(timestamp)
         
-        if game_data[game]['first_time'] is None:
-            game_data[game]['first_time'] = timestamp
+        if game_data[display_name]['first_time'] is None:
+            game_data[display_name]['first_time'] = timestamp
     
     # Calculate speeds using actual reading time
     speed_data = []
