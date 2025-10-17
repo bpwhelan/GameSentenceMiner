@@ -555,6 +555,10 @@ function logApiResponse(operation, response, result) {
     console.log('Response OK:', response.ok);
     console.log('Result object:', result);
     
+    // Print FULL API response as formatted JSON
+    console.log('%c📋 FULL API RESPONSE (JSON):', 'color: #00ff00; font-weight: bold; font-size: 14px;');
+    console.log(JSON.stringify(result, null, 2));
+    
     if (result && typeof result === 'object') {
         Object.keys(result).forEach(key => {
             const value = result[key];

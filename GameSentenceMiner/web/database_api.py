@@ -1842,22 +1842,22 @@ def register_database_api_routes(app):
             )
             existing_titles = {row[0] for row in existing_games_rows}
             
-            # Auto-create games for orphaned game_lines
+            # Auto-create games for orphaned game_lines using get_or_create_by_name
+            # This will reuse existing game_id mappings instead of creating duplicates
             for row in game_names_from_lines:
                 game_name = row[0]
                 if game_name not in existing_titles:
-                    # Create a new game record
-                    new_game = GamesTable(title_original=game_name)
-                    new_game.add()  # Use add() instead of save() for new records with UUID primary keys
+                    # Use get_or_create_by_name which checks for existing mappings
+                    game = GamesTable.get_or_create_by_name(game_name)
                     
-                    # Link the game_lines to this new game
+                    # Link any orphaned game_lines to this game
                     GameLinesTable._db.execute(
                         f"UPDATE {GameLinesTable._table} SET game_id = ? WHERE game_name = ? AND (game_id IS NULL OR game_id = '')",
-                        (new_game.id, game_name),
+                        (game.id, game_name),
                         commit=True
                     )
                     
-                    logger.info(f"Auto-created game record for: {game_name} (id={new_game.id})")
+                    logger.info(f"Auto-linked game_lines for: {game_name} -> game_id={game.id}")
                     existing_titles.add(game_name)
             
             # Get all games from the games table
@@ -1951,6 +1951,13 @@ def register_database_api_routes(app):
                 return jsonify({'error': f'jiten.moe API returned status {response.status_code}'}), 500
             
             data = response.json()
+            
+            # Print FULL jiten.moe API response
+            logger.info("=" * 80)
+            logger.info("📋 FULL JITEN.MOE API RESPONSE (SEARCH)")
+            logger.info("=" * 80)
+            logger.info(json.dumps(data, indent=2, ensure_ascii=False))
+            logger.info("=" * 80)
             
             # Process and format the results
             results = []
@@ -2092,8 +2099,39 @@ def register_database_api_routes(app):
                 except Exception as img_error:
                     logger.warning(f"Failed to download image for game {game_id}: {img_error}")
             
+            # CRITICAL: Store the original game_name BEFORE updating the game
+            # This is the OBS scene name (e.g., "君と彼女と彼女の恋。　ver1.00")
+            # After update_all_fields_from_jiten(), title_original will be the jiten title (e.g., "君と彼女と彼女の恋。")
+            original_game_name = game.title_original
+            logger.info(f"📝 Storing original game_name before jiten update: '{original_game_name}'")
+            
             # Update the game using the jiten update method (doesn't mark as manual)
             game.update_all_fields_from_jiten(**update_fields)
+            logger.info(f"📝 After jiten update, title_original is now: '{game.title_original}'")
+            
+            # Update ALL game_lines with the ORIGINAL game_name to point to this game_id
+            # This creates the explicit mapping: OBS scene name -> game_id
+            # When a user links a game to jiten.moe, they're saying "this OBS scene name maps to this jiten game"
+            lines_updated = 0
+            try:
+                # Use the stored original_game_name (OBS scene name) to find and update game_lines
+                # This will OVERWRITE any existing game_id values
+                GameLinesTable._db.execute(
+                    f"UPDATE {GameLinesTable._table} SET game_id = ? WHERE game_name = ?",
+                    (game_id, original_game_name),
+                    commit=True
+                )
+                
+                # Count how many lines were updated
+                updated_count = GameLinesTable._db.fetchone(
+                    f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE game_id = ?",
+                    (game_id,)
+                )
+                lines_updated = updated_count[0] if updated_count else 0
+                logger.info(f"✓ Linked {lines_updated} game_lines with game_name='{original_game_name}' to game_id={game_id}")
+                
+            except Exception as link_error:
+                logger.warning(f"Failed to update game_lines for game {game_id}: {link_error}")
             
             logger.info(f"Successfully linked game {game_id} to jiten.moe deck {deck_id}")
             
@@ -2101,7 +2139,8 @@ def register_database_api_routes(app):
                 'success': True,
                 'message': f'Game linked to jiten.moe deck {deck_id}',
                 'updated_fields': list(update_fields.keys()),
-                'manual_overrides': game.manual_overrides
+                'manual_overrides': game.manual_overrides,
+                'lines_updated': lines_updated
             }), 200
             
         except Exception as e:
@@ -2221,6 +2260,13 @@ def register_database_api_routes(app):
                 
                 data = response.json()
                 logger.info(f"📊 jiten.moe returned {len(data.get('data', []))} results")
+                
+                # Print FULL jiten.moe API response
+                logger.info("=" * 80)
+                logger.info("📋 FULL JITEN.MOE API RESPONSE (REPULL)")
+                logger.info("=" * 80)
+                logger.info(json.dumps(data, indent=2, ensure_ascii=False))
+                logger.info("=" * 80)
                 
                 # Find the specific deck by deck_id
                 jiten_data = None
@@ -2372,7 +2418,8 @@ def register_database_api_routes(app):
                     'message': f'Successfully repulled data from jiten.moe for "{game.title_original}"',
                     'updated_fields': list(update_fields.keys()),
                     'skipped_fields': skipped_fields,  # Always return as list
-                    'deck_id': game.deck_id
+                    'deck_id': game.deck_id,
+                    'jiten_raw_response': jiten_data  # Include full jiten.moe data
                 }), 200
             else:
                 logger.info(f"ℹ️ No fields updated - all fields are manually overridden for game {game_id}")
@@ -2381,7 +2428,8 @@ def register_database_api_routes(app):
                     'message': f'No fields updated - all fields are manually overridden for "{game.title_original}"',
                     'updated_fields': [],
                     'skipped_fields': skipped_fields,  # Always return as list
-                    'deck_id': game.deck_id
+                    'deck_id': game.deck_id,
+                    'jiten_raw_response': jiten_data  # Include full jiten.moe data
                 }), 200
             
         except Exception as e:

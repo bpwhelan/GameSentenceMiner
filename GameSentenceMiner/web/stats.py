@@ -457,7 +457,12 @@ def calculate_current_game_stats(all_lines):
     
     # Fetch game metadata from games table using game_id relationship
     from GameSentenceMiner.util.games_table import GamesTable
+    logger.info(f"[CURRENT_GAME_STATS] Current game line: game_name='{current_game_line.game_name}', game_id='{current_game_line.game_id}'")
     game_metadata = GamesTable.get_by_game_line(current_game_line)
+    if game_metadata:
+        logger.info(f"[CURRENT_GAME_STATS] Found game metadata: id={game_metadata.id}, title_original='{game_metadata.title_original}', deck_id={game_metadata.deck_id}, has_image={bool(game_metadata.image)}")
+    else:
+        logger.warning(f"[CURRENT_GAME_STATS] No game metadata found for game_name='{current_game_name}'")
     
     # Calculate basic statistics
     total_characters = sum(len(line.line_text) if line.line_text else 0 for line in current_game_lines)
@@ -504,6 +509,9 @@ def calculate_current_game_stats(all_lines):
     progress_percentage = 0
     if game_metadata and game_metadata.character_count and game_metadata.character_count > 0:
         progress_percentage = min(100, (total_characters / game_metadata.character_count) * 100)
+        logger.info(f"[PROGRESS] Game: {current_game_name}, Mined: {total_characters}, Total: {game_metadata.character_count}, Progress: {progress_percentage}%")
+    else:
+        logger.info(f"[PROGRESS] Game: {current_game_name}, No character_count available (metadata={bool(game_metadata)}, count={game_metadata.character_count if game_metadata else 'N/A'})")
     
     # Build result dictionary with game metadata
     result = {

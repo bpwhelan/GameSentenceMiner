@@ -85,17 +85,50 @@ class GamesTable(SQLiteDBTable):
         This is the primary method for automatically linking game_lines to games.
         
         Args:
-            game_name: The original game name (from game_lines.game_name)
+            game_name: The original game name (from game_lines.game_name / OBS scene name)
             
         Returns:
             GamesTable: The existing or newly created game record
         """
-        # Try to find existing game
+        logger.info(f"[GET_OR_CREATE] Looking up game: '{game_name}'")
+        
+        # Try exact match on title_original first
         existing = cls.get_by_title(game_name)
         if existing:
+            logger.info(f"[GET_OR_CREATE] Found exact match in games table: id={existing.id}, deck_id={existing.deck_id}")
             return existing
         
-        # Create new game with minimal info
+        logger.info(f"[GET_OR_CREATE] No exact match found, checking game_lines for existing mapping...")
+        
+        # Check if existing game_lines already have this game_name mapped to a game_id
+        # This handles cases where OBS scene name != game title_original
+        from GameSentenceMiner.util.db import GameLinesTable
+        
+        # First, let's see what game_names exist in game_lines
+        all_game_names = GameLinesTable._db.fetchall(
+            f"SELECT DISTINCT game_name FROM {GameLinesTable._table} LIMIT 10"
+        )
+        logger.info(f"[GET_OR_CREATE] Sample game_names in game_lines: {[row[0] for row in all_game_names]}")
+        
+        # Now try to find our specific game_name
+        existing_line = GameLinesTable._db.fetchone(
+            f"SELECT game_id FROM {GameLinesTable._table} WHERE game_name=? AND game_id IS NOT NULL AND game_id != '' LIMIT 1",
+            (game_name,)
+        )
+        
+        if existing_line and existing_line[0]:
+            game_id = existing_line[0]
+            logger.info(f"[GET_OR_CREATE] Found existing mapping in game_lines: '{game_name}' -> game_id={game_id}")
+            existing_game = cls.get(game_id)
+            if existing_game:
+                logger.info(f"[GET_OR_CREATE] ✓ Reusing existing game: '{game_name}' -> game_id={game_id} ('{existing_game.title_original}', deck_id={existing_game.deck_id})")
+                return existing_game
+            else:
+                logger.warning(f"[GET_OR_CREATE] game_id {game_id} found in game_lines but not in games table!")
+        else:
+            logger.info(f"[GET_OR_CREATE] No existing mapping found in game_lines for '{game_name}'")
+        
+        # No existing mapping found - create new game with minimal info
         new_game = cls(
             title_original=game_name,
             title_romaji='',
@@ -105,7 +138,7 @@ class GamesTable(SQLiteDBTable):
             completed=False
         )
         new_game.add()  # Use add() instead of save() for new records with UUID primary keys
-        logger.info(f"Auto-created new game record: {game_name} (id={new_game.id})")
+        logger.info(f"[GET_OR_CREATE] ✗ Created new game record: '{game_name}' (id={new_game.id})")
         return new_game
 
     @classmethod
@@ -348,16 +381,29 @@ class GamesTable(SQLiteDBTable):
         Returns:
             GamesTable: The game record, or None if not found
         """
+        logger.info(f"[GET_BY_GAME_LINE] Looking up game for line with game_name='{game_line.game_name if hasattr(game_line, 'game_name') else 'N/A'}', game_id='{game_line.game_id if hasattr(game_line, 'game_id') else 'N/A'}'")
+        
         # First try using game_id relationship if it exists
         if hasattr(game_line, 'game_id') and game_line.game_id and game_line.game_id.strip():
+            logger.info(f"[GET_BY_GAME_LINE] Attempting lookup by game_id: '{game_line.game_id}'")
             game = cls.get(game_line.game_id)
             if game:
+                logger.info(f"[GET_BY_GAME_LINE] ✓ Found game by game_id: title_original='{game.title_original}', deck_id={game.deck_id}, has_image={bool(game.image)}")
                 return game
             else:
-                logger.warning(f"game_id '{game_line.game_id}' not found in games table, falling back to name lookup")
+                logger.warning(f"[GET_BY_GAME_LINE] game_id '{game_line.game_id}' not found in games table, falling back to name lookup")
+        else:
+            logger.info(f"[GET_BY_GAME_LINE] No valid game_id, falling back to name lookup")
         
         # Fallback to name-based lookup
         if hasattr(game_line, 'game_name') and game_line.game_name:
-            return cls.get_by_title(game_line.game_name)
+            logger.info(f"[GET_BY_GAME_LINE] Attempting lookup by game_name: '{game_line.game_name}'")
+            game = cls.get_by_title(game_line.game_name)
+            if game:
+                logger.info(f"[GET_BY_GAME_LINE] ✓ Found game by name: title_original='{game.title_original}', deck_id={game.deck_id}, has_image={bool(game.image)}")
+            else:
+                logger.info(f"[GET_BY_GAME_LINE] ✗ No game found by name: '{game_line.game_name}'")
+            return game
         
+        logger.warning(f"[GET_BY_GAME_LINE] ✗ No game found for line (no game_id or game_name)")
         return None
