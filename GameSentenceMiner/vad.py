@@ -151,7 +151,7 @@ class SileroVADProcessor(VADProcessor):
         temp_wav = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(), suffix='.wav').name
         ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
         wav = read_audio(temp_wav)
-        speech_timestamps = get_speech_timestamps(wav, self.vad_model, return_seconds=True, threshold=0.2)
+        speech_timestamps = get_speech_timestamps(wav, self.vad_model, return_seconds=True)
         logger.debug(speech_timestamps)
         return speech_timestamps
 
@@ -166,9 +166,11 @@ class WhisperVADProcessor(VADProcessor):
         import torch
         if not self.vad_model:
             self.device = "cpu" if get_config().vad.use_cpu_for_inference else "cuda" if torch.cuda.is_available() else "cpu"
+            compute_type = "float32" if torch.cuda.is_available() else "int8"
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                self.vad_model = whisper.load_faster_whisper(get_config().vad.whisper_model, device=self.device)
+                logger.info(f"Loading Whisper model '{get_config().vad.whisper_model}' on device '{self.device}'...")
+                self.vad_model = whisper.load_faster_whisper(get_config().vad.whisper_model, device=self.device, compute_type=compute_type)
             logger.info(f"Whisper model '{get_config().vad.whisper_model}' loaded.")
         return self.vad_model
 
@@ -429,13 +431,13 @@ def test_vad_processors():
         out_path = os.path.join(output_dir, out_name.replace("after_splice_", "after_trim_"))
         if os.path.exists(out_path):
             os.remove(out_path)
-        result = processor.process_audio(test_audio, out_path, None)
+        result = processor.process_audio(test_audio, out_path, None, "")
         print(result)
         
     vad_system = VADSystem()
     vad_system.init()
     
-    result = vad_system.trim_audio_with_vad(test_audio, os.path.join(output_dir, "after_vad.opus"), None)
+    result = vad_system.trim_audio_with_vad(test_audio, os.path.join(output_dir, "after_vad.opus"), None, full_text="")
     print(result)
 
 

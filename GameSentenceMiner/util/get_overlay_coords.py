@@ -568,6 +568,8 @@ class OverlayProcessor:
                     }
         # logger.info(f"Converted OneOCR results to percentages: {converted_results}")
         return converted_results
+    
+overlay_processor = OverlayProcessor()
 
 async def main_test_screenshot():
     """
@@ -596,7 +598,7 @@ async def main_test_screenshot():
     
     new_img.paste(img, (left, top))
     new_img.show()
-
+    
 async def main_run_ocr():
     """
     Main function to demonstrate running the full OCR process.

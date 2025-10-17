@@ -905,6 +905,7 @@ class Config:
                         if profile.vad.selected_vad_model == WHISPER and profile.vad.backup_vad_model == SILERO:
                             profile.vad.backup_vad_model = OFF
 
+                self.version = current_version
                 self.save()
 
     def save(self):
@@ -1315,6 +1316,7 @@ class GsmAppState:
         self.current_srt = None
         self.srt_index = 1
         self.current_audio_stream = None
+        self.replay_buffer_length = 0
 
 
 @dataclass_json
