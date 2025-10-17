@@ -162,3 +162,10 @@ Before implementing new features:
 7. Open a pull request with a clear description
 
 Thank you for contributing to GameSentenceMiner! Your efforts help make language learning through games more accessible for everyone. 🎮📚
+
+# Logging
+
+In Python:
+* info() is sent to the console
+* Debug() is sent to a file
+
