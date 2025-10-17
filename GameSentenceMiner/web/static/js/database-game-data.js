@@ -133,17 +133,38 @@ function renderGamesList(games, filter = 'all') {
                 </div>
                 ` : ''}
                 <div class="game-actions">
-                    ${!game.is_linked ? `<button class="action-btn primary" onclick="openJitenSearch('${game.id}', '${escapeHtml(game.title_original)}')">🔍 Search jiten.moe</button>` : ''}
-                    ${game.is_linked ? `<button class="action-btn warning" onclick="repullJitenData('${game.id}', '${escapeHtml(game.title_original)}')">🔄 Repull from Jiten</button>` : ''}
-                    <button class="action-btn" onclick="editGame('${game.id}')">📝 Edit</button>
-                    ${!game.completed ? `<button class="action-btn success" onclick="markGameCompleted('${game.id}')">🏁 Mark Complete</button>` : ''}
+                    ${!game.is_linked ? `<button class="action-btn primary jiten-search-btn" data-game-id="${game.id}" data-title="${escapeHtml(game.title_original)}">🔍 Search jiten.moe</button>` : ''}
+                    ${game.is_linked ? `<button class="action-btn warning repull-jiten-btn" data-game-id="${game.id}" data-title="${escapeHtml(game.title_original)}">🔄 Repull from Jiten</button>` : ''}
+                    <button class="action-btn edit-game-btn" data-game-id="${game.id}">📝 Edit</button>
+                    ${!game.completed ? `<button class="action-btn success mark-complete-btn" data-game-id="${game.id}">🏁 Mark Complete</button>` : ''}
                 </div>
                 ${game.description ? `<div class="game-description">${escapeHtml(game.description)}</div>` : ''}
             `;
             
             gamesList.appendChild(gameItem);
         });
-    }
+
+        // Attach event listeners to action buttons
+        gamesList.querySelectorAll('.jiten-search-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                openJitenSearch(btn.getAttribute('data-game-id'), btn.getAttribute('data-title'));
+            });
+        });
+        gamesList.querySelectorAll('.repull-jiten-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                repullJitenData(btn.getAttribute('data-game-id'), btn.getAttribute('data-title'));
+            });
+        });
+        gamesList.querySelectorAll('.edit-game-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                editGame(btn.getAttribute('data-game-id'));
+            });
+        });
+        gamesList.querySelectorAll('.mark-complete-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                markGameCompleted(btn.getAttribute('data-game-id'));
+            });
+        });
     
     // Show empty state if no games
     if (filteredGames.length === 0) {
