@@ -2205,23 +2205,26 @@ def register_database_api_routes(app):
             for field in allowed_fields:
                 if field in data:
                     value = data[field]
+                    # Map 'type' to 'game_type' for the method parameter
+                    field_key = 'game_type' if field == 'type' else field
+                    
                     # Handle empty strings for optional fields
                     if field in ['title_romaji', 'title_english', 'type', 'description', 'image', 'release_date'] and value == '':
-                        update_fields[field] = ''
+                        update_fields[field_key] = ''
                     # Handle None values for numeric fields
                     elif field in ['difficulty', 'deck_id', 'character_count'] and value == '':
-                        update_fields[field] = None
+                        update_fields[field_key] = None
                     # Handle boolean
                     elif field == 'completed':
-                        update_fields[field] = bool(value)
+                        update_fields[field_key] = bool(value)
                     # Handle lists
                     elif field == 'links':
                         if isinstance(value, list):
-                            update_fields[field] = value
+                            update_fields[field_key] = value
                         elif value == '':
-                            update_fields[field] = []
+                            update_fields[field_key] = []
                     else:
-                        update_fields[field] = value
+                        update_fields[field_key] = value
             
             if update_fields:
                 game.update_all_fields_manual(**update_fields)

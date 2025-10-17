@@ -213,7 +213,9 @@ class SQLiteDBTable:
         elif field_type is float:
             setattr(obj, field, float(row_value) if row_value is not None else None)
         elif field_type is bool:
-            setattr(obj, field, bool(row_value) if row_value is not None else None)
+            # Convert from SQLite: 0/1 (int), '0'/'1' (str), or None -> bool
+            # Default to False for None/empty, True only for 1 or '1'
+            setattr(obj, field, row_value == 1 or row_value == '1')
         elif field_type is dict:
             try:
                 setattr(obj, field, json.loads(row_value) if row_value else {})
@@ -225,8 +227,12 @@ class SQLiteDBTable:
     def save(self, retry=1):
         try:
             for field in self._fields:
-                if isinstance(getattr(self, field), list):
-                    setattr(self, field, json.dumps(getattr(self, field)))
+                field_value = getattr(self, field)
+                if isinstance(field_value, list):
+                    setattr(self, field, json.dumps(field_value))
+                elif isinstance(field_value, bool):
+                    # Convert boolean to integer (0 or 1) for SQLite storage
+                    setattr(self, field, 1 if field_value else 0)
             data = {field: getattr(self, field) for field in self._fields}
             pk_val = getattr(self, self._pk, None)
             if pk_val is None:
@@ -266,11 +272,14 @@ class SQLiteDBTable:
                 raise ValueError(
                     f"Primary key {self._pk} must be set for non-auto-increment tables.")
             else:
-                # Serialize list and dict fields to JSON (same as save() method)
+                # Serialize list and dict fields to JSON, convert booleans to integers
                 for field in self._fields:
                     field_value = getattr(self, field)
                     if isinstance(field_value, (list, dict)):
                         setattr(self, field, json.dumps(field_value))
+                    elif isinstance(field_value, bool):
+                        # Convert boolean to integer (0 or 1) for SQLite storage
+                        setattr(self, field, 1 if field_value else 0)
                 
                 keys = ', '.join(self._fields + [self._pk])
                 placeholders = ', '.join(['?'] * (len(self._fields) + 1))
