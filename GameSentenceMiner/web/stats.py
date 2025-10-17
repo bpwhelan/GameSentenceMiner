@@ -589,6 +589,7 @@ def calculate_current_game_stats(all_lines):
         result['image'] = game_metadata.image or ''
         result['game_character_count'] = game_metadata.character_count or 0  # Jiten.moe total
         result['links'] = game_metadata.links or []  # Add links array
+        result['completed'] = game_metadata.completed or False  # Add completion status
         
         # Debug logging for image data
         logger.debug(f"[DEBUG] Game metadata for '{current_game_name}':")
@@ -921,6 +922,16 @@ def calculate_game_milestones(all_lines=None):
     
     return result if result else None
 
+def calculate_completed_games_count():
+    """
+    Count the number of completed games from the games table.
+    
+    Returns:
+        int: Number of games marked as completed
+    """
+    completed_games = GamesTable.get_all_completed()
+    return len(completed_games)
+
 def calculate_all_games_stats(all_lines):
     """Calculate aggregate statistics for all games combined."""
     if not all_lines:
@@ -969,8 +980,8 @@ def calculate_all_games_stats(all_lines):
     # Calculate average daily reading time
     avg_daily_time_hours = calculate_average_daily_reading_time(all_lines)
     
-    # Count unique games
-    unique_games = len(set(line.game_name or "Unknown Game" for line in all_lines))
+    # Count completed games from games table
+    completed_games = calculate_completed_games_count()
     
     return {
         'total_characters': total_characters,
@@ -981,7 +992,7 @@ def calculate_all_games_stats(all_lines):
         'reading_speed': reading_speed,
         'reading_speed_formatted': format_large_number(reading_speed),
         'sessions': sessions,
-        'unique_games': unique_games,
+        'completed_games': completed_games,
         'monthly_characters': monthly_chars,
         'monthly_characters_formatted': format_large_number(monthly_chars),
         'current_streak': current_streak,

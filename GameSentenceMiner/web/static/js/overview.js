@@ -404,7 +404,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Calculate current progress
         const currentHours = allGamesStats.total_time_hours || 0;
         const currentCharacters = allGamesStats.total_characters || 0;
-        const currentGames = allGamesStats.unique_games || 0;
+        const currentGames = allGamesStats.completed_games || 0;
         
         // Calculate 90-day averages for projections
         const dailyHoursAvg = calculate90DayAverage(allLinesData, 'hours');
@@ -1258,6 +1258,35 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Update subtitle only (remove game name display)
         document.getElementById('currentGameName').textContent = '';
+        
+        // Handle completion button visibility and state
+        const completionBtn = document.getElementById('gameCompletionBtn');
+        const currentGameCard = document.getElementById('currentGameCard');
+        
+        if (completionBtn && stats.game_character_count > 0) {
+            const completion = stats.progress_percentage || 0;
+            const isCompleted = stats.completed || false;
+            
+            if (isCompleted) {
+                // Game is already completed - show completed state
+                completionBtn.textContent = 'Completed ✓';
+                completionBtn.disabled = true;
+                completionBtn.classList.add('completed');
+                completionBtn.style.display = 'inline-block';
+                currentGameCard.classList.add('completed');
+            } else if (completion >= 90) {
+                // Game is ≥90% complete - show mark as complete button
+                completionBtn.textContent = 'Mark as completed?';
+                completionBtn.disabled = false;
+                completionBtn.classList.remove('completed');
+                completionBtn.style.display = 'inline-block';
+                currentGameCard.classList.remove('completed');
+            } else {
+                // Game is <90% complete - hide button
+                completionBtn.style.display = 'none';
+                currentGameCard.classList.remove('completed');
+            }
+        }
 
         // Always show game metadata section
         const gameContentGrid = document.getElementById('gameContentGrid');
@@ -1430,7 +1459,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         // Update subtitle
-        const gamesText = stats.unique_games === 1 ? '1 game played' : `${stats.unique_games} games played`;
+        const gamesText = stats.completed_games === 1 ? '1 game completed' : `${stats.completed_games} games completed`;
         document.getElementById('totalGamesCount').textContent = gamesText;
 
         // Update main statistics
@@ -1441,7 +1470,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Update progress section
         document.getElementById('allMonthlyChars').textContent = stats.monthly_characters_formatted;
-        document.getElementById('allUniqueGames').textContent = stats.unique_games.toLocaleString();
+        document.getElementById('allUniqueGames').textContent = stats.completed_games.toLocaleString();
         document.getElementById('allTotalSentences').textContent = stats.total_sentences.toLocaleString();
 
         // Update streak indicator
@@ -1545,6 +1574,86 @@ document.addEventListener('DOMContentLoaded', function () {
                 description.classList.add('expanded');
                 expandText.style.display = 'none';
                 collapseText.style.display = 'inline';
+            }
+        });
+    }
+    
+    // Game completion button handler
+    const gameCompletionBtn = document.getElementById('gameCompletionBtn');
+    if (gameCompletionBtn) {
+        gameCompletionBtn.addEventListener('click', async function() {
+            // Don't do anything if already completed
+            if (this.disabled) return;
+            
+            // Get the current game ID from the stats
+            // We need to fetch current stats to get the game_id
+            try {
+                const response = await fetch('/api/stats');
+                if (!response.ok) throw new Error('Failed to fetch stats');
+                
+                const data = await response.json();
+                const currentGameStats = data.currentGameStats;
+                
+                if (!currentGameStats || !currentGameStats.game_name) {
+                    console.error('No current game found');
+                    return;
+                }
+                
+                // Find the game_id by looking up the game
+                // We need to get the game_id from the games management API
+                const gamesResponse = await fetch('/api/games-management');
+                if (!gamesResponse.ok) throw new Error('Failed to fetch games');
+                
+                const gamesData = await gamesResponse.json();
+                const currentGame = gamesData.games.find(g =>
+                    g.title_original === currentGameStats.game_name ||
+                    g.title_original === currentGameStats.title_original
+                );
+                
+                if (!currentGame) {
+                    console.error('Could not find game ID for current game');
+                    return;
+                }
+                
+                // Confirm with user
+                const confirmMsg = `Mark "${currentGame.title_original}" as completed?`;
+                if (!confirm(confirmMsg)) return;
+                
+                // Call the API to mark as complete
+                const markCompleteResponse = await fetch(`/api/games/${currentGame.id}/mark-complete`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!markCompleteResponse.ok) {
+                    const errorData = await markCompleteResponse.json();
+                    throw new Error(errorData.error || 'Failed to mark game as complete');
+                }
+                
+                const result = await markCompleteResponse.json();
+                console.log('Game marked as complete:', result);
+                
+                // Update button to completed state
+                this.textContent = 'Completed ✓';
+                this.disabled = true;
+                this.classList.add('completed');
+                
+                // Add completed class to card
+                const currentGameCard = document.getElementById('currentGameCard');
+                if (currentGameCard) {
+                    currentGameCard.classList.add('completed');
+                }
+                
+                // Optionally refresh the dashboard to reflect changes
+                setTimeout(() => {
+                    loadDashboardData();
+                }, 500);
+                
+            } catch (error) {
+                console.error('Error marking game as complete:', error);
+                alert(`Failed to mark game as complete: ${error.message}`);
             }
         });
     }

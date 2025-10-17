@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Calculate current progress
             const currentHours = allGamesStats.total_time_hours || 0;
             const currentCharacters = allGamesStats.total_characters || 0;
-            const currentGames = allGamesStats.unique_games || 0;
+            const currentGames = allGamesStats.completed_games || 0;
             
             // Calculate daily averages for projections using 90-day lookback period (reusing logic from stats.js)
             const dailyHoursAvg = calculateDailyAverage(allLinesData, 'hours');

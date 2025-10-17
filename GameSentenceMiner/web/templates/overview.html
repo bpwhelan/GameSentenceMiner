@@ -29,8 +29,13 @@
                     </h3>
                     <p class="dashboard-card-subtitle" id="currentGameName">Loading...</p>
                 </div>
-                <div class="dashboard-streak-indicator" id="currentGameStreak" style="display: none;">
-                    <span id="currentStreakValue">0</span> day streak
+                <div class="dashboard-header-actions">
+                    <button class="game-completion-btn" id="gameCompletionBtn" style="display: none;">
+                        Mark as completed?
+                    </button>
+                    <div class="dashboard-streak-indicator" id="currentGameStreak" style="display: none;">
+                        <span id="currentStreakValue">0</span> day streak
+                    </div>
                 </div>
             </div>
 
@@ -181,7 +186,7 @@
                         </div>
                         <div class="dashboard-progress-item">
                             <div class="dashboard-progress-value neutral" id="allUniqueGames">-</div>
-                            <div class="dashboard-progress-label">Games Played</div>
+                            <div class="dashboard-progress-label">Games Completed</div>
                         </div>
                         <div class="dashboard-progress-item">
                             <div class="dashboard-progress-value neutral" id="allTotalSentences">-</div>

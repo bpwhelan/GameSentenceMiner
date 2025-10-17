@@ -2241,6 +2241,37 @@ def register_database_api_routes(app):
             logger.error(f"Error updating game: {e}", exc_info=True)
             return jsonify({'error': f'Failed to update game: {str(e)}'}), 500
 
+    @app.route('/api/games/<game_id>/mark-complete', methods=['POST'])
+    def api_mark_game_complete(game_id):
+        """
+        Mark a game as completed.
+        Sets the completed field to True for the specified game.
+        """
+        try:
+            from GameSentenceMiner.util.games_table import GamesTable
+            
+            # Get the game
+            game = GamesTable.get(game_id)
+            if not game:
+                return jsonify({'error': 'Game not found'}), 404
+            
+            # Mark as completed
+            game.completed = True
+            game.save()
+            
+            logger.info(f"Marked game {game_id} ({game.title_original}) as completed")
+            
+            return jsonify({
+                'success': True,
+                'message': f'Game "{game.title_original}" marked as completed',
+                'game_id': game_id,
+                'completed': True
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error marking game as complete: {e}", exc_info=True)
+            return jsonify({'error': f'Failed to mark game as complete: {str(e)}'}), 500
+
     @app.route('/api/games/<game_id>/repull-jiten', methods=['POST'])
     def api_repull_game_from_jiten(game_id):
         """

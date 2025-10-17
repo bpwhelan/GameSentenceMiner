@@ -435,6 +435,58 @@
     margin-bottom: 20px;
 }
 
+.dashboard-header-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+/* Game Completion Button */
+.game-completion-btn {
+    background: var(--success-color);
+    color: white;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.game-completion-btn:hover:not(:disabled) {
+    background: #218838;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+}
+
+.game-completion-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.game-completion-btn:disabled {
+    background: var(--success-color);
+    cursor: default;
+    opacity: 0.9;
+}
+
+.game-completion-btn.completed {
+    background: var(--success-color);
+    cursor: default;
+}
+
+/* Completed Game Card Styling */
+.dashboard-card.current-game-full-width.completed {
+    border: 2px solid var(--success-color);
+    box-shadow: 0 4px 16px rgba(40, 167, 69, 0.2);
+}
+
+.dashboard-card.current-game-full-width.completed::before {
+    background: linear-gradient(90deg, var(--success-color), #2ecc71);
+}
+
 .dashboard-card-title {
     font-size: 20px;
     font-weight: 600;

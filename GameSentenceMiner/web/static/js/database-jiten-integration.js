@@ -327,7 +327,7 @@ function openEditGameModal(game) {
     document.getElementById('editDifficulty').value = game.difficulty || '';
     document.getElementById('editDeckId').value = game.deck_id || '';
     document.getElementById('editCharacterCount').value = game.jiten_character_count || '';
-    document.getElementById('editCompleted').checked = game.completed || false;
+    document.getElementById('editCompleted').checked = !!game.completed;
     
     // Handle release date - convert ISO format to date input format (YYYY-MM-DD)
     if (game.release_date) {
