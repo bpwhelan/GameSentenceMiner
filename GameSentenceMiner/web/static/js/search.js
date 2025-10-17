@@ -20,6 +20,8 @@ class SentenceSearchApp {
         this.deleteLinesBtn = document.getElementById('deleteLinesBtn');
         this.selectAllBtn = document.getElementById('selectAllBtn');
         this.pageSizeFilter = document.getElementById('pageSizeFilter');
+        this.toggleAdvancedBtn = document.getElementById('toggleAdvancedSearch');
+        this.advancedSearchSection = document.getElementById('advancedSearchSection');
         
         this.currentPage = 1;
         this.pageSize = 20;
@@ -114,6 +116,26 @@ class SentenceSearchApp {
             this.selectAllBtn.addEventListener('click', () => {
                 this.toggleSelectAll();
             });
+        }
+
+        if (this.toggleAdvancedBtn) {
+            this.toggleAdvancedBtn.addEventListener('click', () => {
+                this.toggleAdvancedSearch();
+            });
+        }
+    }
+
+    toggleAdvancedSearch() {
+        if (!this.advancedSearchSection || !this.toggleAdvancedBtn) return;
+        
+        const isHidden = this.advancedSearchSection.style.display === 'none';
+        
+        if (isHidden) {
+            this.advancedSearchSection.style.display = 'block';
+            this.toggleAdvancedBtn.innerHTML = '<span id="toggleIcon">▲</span> Hide Advanced Search';
+        } else {
+            this.advancedSearchSection.style.display = 'none';
+            this.toggleAdvancedBtn.innerHTML = '<span id="toggleIcon">▼</span> Show Advanced Search';
         }
     }
     

@@ -142,17 +142,17 @@
                             }
                         }
                     });
+                } else {
+                    if (customInput) {
+                        customInput.value = '';
+                        customInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                    if (regexCheckbox) {
+                        regexCheckbox.checked = false;
+                        regexCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
                 }
-            } else {
-                if (customInput) {
-                    customInput.value = '';
-                    customInput.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-                if (regexCheckbox) {
-                    regexCheckbox.checked = false;
-                    regexCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-                }
-            }
+            });
         });
     });
 })();

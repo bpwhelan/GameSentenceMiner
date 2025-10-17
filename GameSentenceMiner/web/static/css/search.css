@@ -1,5 +1,35 @@
 /* Search Page Specific Styles */
 
+/* Toggle Advanced Search Button */
+.toggle-advanced-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.toggle-advanced-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-color);
+}
+
+.toggle-advanced-btn:active {
+    transform: translateY(1px);
+}
+
+.toggle-advanced-btn #toggleIcon {
+    font-size: 12px;
+    transition: transform 0.2s ease;
+}
+
 /* Checkbox styling for search results */
 .line-checkbox {
     margin-top: 4px;

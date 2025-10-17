@@ -32,15 +32,18 @@
         </div>
         
         <div class="search-input-container">
-            <input 
-                type="text" 
-                id="searchInput" 
-                class="search-input" 
+            <input
+                type="text"
+                id="searchInput"
+                class="search-input"
                 placeholder="Search for sentences, words, or phrases..."
                 autocomplete="off"
             />
         </div>
-        <div class="regex-options-container" style="margin-top: 12px; padding: 15px; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-color);">
+        <button id="toggleAdvancedSearch" class="toggle-advanced-btn" style="margin-top: 12px;">
+            <span id="toggleIcon">▼</span> Show Advanced Search
+        </button>
+        <div id="advancedSearchSection" class="regex-options-container" style="display: none; margin-top: 12px; padding: 15px; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-color);">
             <h4 style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-primary);">Advanced Search Options</h4>
             {% include 'components/regex-input.html' %}
         </div>
