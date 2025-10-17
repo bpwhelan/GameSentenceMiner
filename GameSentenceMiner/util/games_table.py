@@ -1,4 +1,6 @@
 import uuid
+import re
+from difflib import SequenceMatcher
 from typing import Optional, List, Dict
 
 from GameSentenceMiner.util.db import SQLiteDBTable
@@ -11,7 +13,7 @@ class GamesTable(SQLiteDBTable):
         'deck_id', 'title_original', 'title_romaji', 'title_english',
         'type',
         'description', 'image', 'character_count', 'difficulty', 'links', 'completed',
-        'release_date', 'manual_overrides'
+        'release_date', 'manual_overrides', 'obs_scene_name'
     ]
     _types = [
         str,      # id (primary key)
@@ -27,7 +29,8 @@ class GamesTable(SQLiteDBTable):
         list,     # links (stored as JSON)
         bool,     # completed
         str,      # release_date (ISO date string)
-        list      # manual_overrides (stored as JSON)
+        list,     # manual_overrides (stored as JSON)
+        str       # obs_scene_name (immutable OBS scene name)
     ]
     _pk = 'id'
     _auto_increment = False  # UUID-based primary key
@@ -47,7 +50,8 @@ class GamesTable(SQLiteDBTable):
         links: Optional[List[Dict]] = None,
         completed: bool = False,
         release_date: Optional[str] = None,
-        manual_overrides: Optional[List[str]] = None
+        manual_overrides: Optional[List[str]] = None,
+        obs_scene_name: Optional[str] = None
     ):
         self.id = id if id else str(uuid.uuid4())
         self.deck_id = deck_id
@@ -63,6 +67,7 @@ class GamesTable(SQLiteDBTable):
         self.completed = completed
         self.release_date = release_date if release_date else ''
         self.manual_overrides = manual_overrides if manual_overrides else []
+        self.obs_scene_name = obs_scene_name if obs_scene_name else ''
 
     @classmethod
     def get_by_deck_id(cls, deck_id: int) -> Optional['GamesTable']:
@@ -77,6 +82,83 @@ class GamesTable(SQLiteDBTable):
         row = cls._db.fetchone(
             f"SELECT * FROM {cls._table} WHERE title_original=?", (title_original,))
         return cls.from_row(row) if row else None
+    
+    @classmethod
+    def get_by_obs_scene_name(cls, obs_scene_name: str) -> Optional['GamesTable']:
+        """Get a game by its OBS scene name."""
+        row = cls._db.fetchone(
+            f"SELECT * FROM {cls._table} WHERE obs_scene_name=?", (obs_scene_name,))
+        return cls.from_row(row) if row else None
+    
+    @classmethod
+    def normalize_game_name(cls, name: str) -> str:
+        """
+        Normalize a game name for fuzzy matching.
+        Removes version numbers, extra whitespace, and converts to lowercase.
+        """
+        if not name:
+            return ''
+        # Remove version patterns like "ver1.00", "v1.0", "Ver.1.0", etc.
+        normalized = re.sub(r'\s*v(?:er)?\.?\s*\d+(?:\.\d+)*', '', name, flags=re.IGNORECASE)
+        # Remove extra whitespace
+        normalized = ' '.join(normalized.split())
+        # Convert to lowercase for comparison
+        return normalized.lower().strip()
+    
+    @classmethod
+    def fuzzy_match_game_name(cls, name1: str, name2: str, threshold: float = 0.85) -> bool:
+        """
+        Check if two game names are similar using fuzzy matching.
+        
+        Args:
+            name1: First game name
+            name2: Second game name
+            threshold: Similarity threshold (0.0 to 1.0), default 0.85
+            
+        Returns:
+            True if names are similar enough, False otherwise
+        """
+        if not name1 or not name2:
+            return False
+        
+        # Normalize both names
+        norm1 = cls.normalize_game_name(name1)
+        norm2 = cls.normalize_game_name(name2)
+        
+        # Calculate similarity ratio
+        similarity = SequenceMatcher(None, norm1, norm2).ratio()
+        
+        logger.debug(f"[FUZZY_MATCH] Comparing '{name1}' vs '{name2}': normalized='{norm1}' vs '{norm2}', similarity={similarity:.2f}, threshold={threshold}")
+        
+        return similarity >= threshold
+    
+    @classmethod
+    def find_similar_game(cls, game_name: str, threshold: float = 0.85) -> Optional['GamesTable']:
+        """
+        Find a game with a similar name using fuzzy matching.
+        
+        Args:
+            game_name: The game name to search for
+            threshold: Similarity threshold (default 0.85)
+            
+        Returns:
+            GamesTable: The similar game if found, None otherwise
+        """
+        # Get all games
+        all_games = cls.all()
+        
+        for game in all_games:
+            # Check against title_original
+            if cls.fuzzy_match_game_name(game_name, game.title_original, threshold):
+                logger.info(f"[FUZZY_MATCH] Found similar game by title_original: '{game_name}' matches '{game.title_original}' (id={game.id})")
+                return game
+            
+            # Check against obs_scene_name if it exists
+            if game.obs_scene_name and cls.fuzzy_match_game_name(game_name, game.obs_scene_name, threshold):
+                logger.info(f"[FUZZY_MATCH] Found similar game by obs_scene_name: '{game_name}' matches '{game.obs_scene_name}' (id={game.id})")
+                return game
+        
+        return None
 
     @classmethod
     def get_or_create_by_name(cls, game_name: str) -> 'GamesTable':
@@ -128,17 +210,20 @@ class GamesTable(SQLiteDBTable):
         else:
             logger.info(f"[GET_OR_CREATE] No existing mapping found in game_lines for '{game_name}'")
         
-        # No existing mapping found - create new game with minimal info
+        # No existing mapping found - create new UNLINKED game with minimal info
+        # Store the OBS scene name in obs_scene_name field for future linking
         new_game = cls(
             title_original=game_name,
             title_romaji='',
             title_english='',
             description='',
             difficulty=None,
-            completed=False
+            completed=False,
+            obs_scene_name=game_name  # Store original OBS scene name
         )
         new_game.add()  # Use add() instead of save() for new records with UUID primary keys
-        logger.info(f"[GET_OR_CREATE] ✗ Created new game record: '{game_name}' (id={new_game.id})")
+        logger.info(f"[GET_OR_CREATE] ✗ Created new UNLINKED game record: '{game_name}' (id={new_game.id}, obs_scene_name='{game_name}')")
+        logger.info(f"[GET_OR_CREATE] ℹ️ This game needs to be manually linked to jiten.moe via the Games Management interface")
         return new_game
 
     @classmethod

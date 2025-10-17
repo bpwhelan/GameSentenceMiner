@@ -1900,7 +1900,8 @@ def register_database_api_routes(app):
                     'start_date': start_date,
                     'last_played': last_played,
                     'links': game.links,
-                    'release_date': game.release_date  # Add release date to API response
+                    'release_date': game.release_date,  # Add release date to API response
+                    'obs_scene_name': game.obs_scene_name if hasattr(game, 'obs_scene_name') else ''  # Add OBS scene name
                 })
             
             # Sort by mined character count (most active games first)
@@ -1973,7 +1974,7 @@ def register_database_api_routes(app):
                     'description': item.get('description', ''),
                     'cover_name': item.get('coverName', ''),
                     'media_type': item.get('mediaType'),
-                    'character_count': item.get('characterCount', 0),
+                    'character_count': item.get('characterCount', 0),  # Convert from camelCase to snake_case
                     'difficulty': item.get('difficulty', 0),
                     'difficulty_raw': item.get('difficultyRaw', 0),
                     'links': item.get('links', []),
@@ -2099,26 +2100,46 @@ def register_database_api_routes(app):
                 except Exception as img_error:
                     logger.warning(f"Failed to download image for game {game_id}: {img_error}")
             
-            # CRITICAL: Store the original game_name BEFORE updating the game
-            # This is the OBS scene name (e.g., "君と彼女と彼女の恋。　ver1.00")
+            # CRITICAL FIX: Use obs_scene_name if available, otherwise query game_lines for actual game_name
+            # The obs_scene_name field stores the immutable OBS scene name (e.g., "君と彼女と彼女の恋。　ver1.00")
             # After update_all_fields_from_jiten(), title_original will be the jiten title (e.g., "君と彼女と彼女の恋。")
-            original_game_name = game.title_original
-            logger.info(f"📝 Storing original game_name before jiten update: '{original_game_name}'")
+            
+            # First, try to get obs_scene_name from the game record
+            obs_scene_name = game.obs_scene_name if hasattr(game, 'obs_scene_name') and game.obs_scene_name else None
+            
+            # If obs_scene_name is not set, query game_lines to find the actual game_name
+            if not obs_scene_name:
+                logger.info(f"📝 obs_scene_name not set for game {game_id}, querying game_lines...")
+                result = GameLinesTable._db.fetchone(
+                    f"SELECT DISTINCT game_name FROM {GameLinesTable._table} WHERE game_id = ? LIMIT 1",
+                    (game_id,)
+                )
+                if result and result[0]:
+                    obs_scene_name = result[0]
+                    logger.info(f"📝 Found game_name from game_lines: '{obs_scene_name}'")
+                    # Store it in obs_scene_name for future use
+                    game.obs_scene_name = obs_scene_name
+                else:
+                    # Fallback to title_original (this is the old buggy behavior)
+                    obs_scene_name = game.title_original
+                    logger.warning(f"⚠️ Could not find game_name in game_lines for game_id={game_id}, falling back to title_original: '{obs_scene_name}'")
+            else:
+                logger.info(f"📝 Using existing obs_scene_name: '{obs_scene_name}'")
             
             # Update the game using the jiten update method (doesn't mark as manual)
             game.update_all_fields_from_jiten(**update_fields)
-            logger.info(f"📝 After jiten update, title_original is now: '{game.title_original}'")
+            logger.info(f"📝 After jiten update, title_original is now: '{game.title_original}', obs_scene_name: '{game.obs_scene_name}'")
             
-            # Update ALL game_lines with the ORIGINAL game_name to point to this game_id
+            # Update ALL game_lines with the OBS scene name to point to this game_id
             # This creates the explicit mapping: OBS scene name -> game_id
             # When a user links a game to jiten.moe, they're saying "this OBS scene name maps to this jiten game"
             lines_updated = 0
             try:
-                # Use the stored original_game_name (OBS scene name) to find and update game_lines
+                # Use the obs_scene_name (OBS scene name) to find and update game_lines
                 # This will OVERWRITE any existing game_id values
                 GameLinesTable._db.execute(
                     f"UPDATE {GameLinesTable._table} SET game_id = ? WHERE game_name = ?",
-                    (game_id, original_game_name),
+                    (game_id, obs_scene_name),
                     commit=True
                 )
                 
@@ -2128,7 +2149,7 @@ def register_database_api_routes(app):
                     (game_id,)
                 )
                 lines_updated = updated_count[0] if updated_count else 0
-                logger.info(f"✓ Linked {lines_updated} game_lines with game_name='{original_game_name}' to game_id={game_id}")
+                logger.info(f"✓ Linked {lines_updated} game_lines with game_name='{obs_scene_name}' to game_id={game_id}")
                 
             except Exception as link_error:
                 logger.warning(f"Failed to update game_lines for game {game_id}: {link_error}")
@@ -2280,7 +2301,7 @@ def register_database_api_routes(app):
                             'description': item.get('description', ''),
                             'cover_name': item.get('coverName', ''),
                             'media_type': item.get('mediaType'),
-                            'character_count': item.get('characterCount', 0),
+                            'character_count': item.get('characterCount', 0),  # Convert from camelCase to snake_case
                             'difficulty': item.get('difficulty', 0),
                             'difficulty_raw': item.get('difficultyRaw', 0),
                             'links': item.get('links', []),

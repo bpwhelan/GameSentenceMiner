@@ -707,7 +707,48 @@ def check_and_run_migrations():
             GameLinesTable.alter_column_type('timestamp_old', 'timestamp', 'REAL')
             logger.info("Migrated 'timestamp' column to REAL type in GameLinesTable.")
     
+    def migrate_obs_scene_name():
+        """
+        Add obs_scene_name column to games table and populate it from game_lines.
+        This migration ensures existing games have their OBS scene names preserved.
+        """
+        if not GamesTable.has_column('obs_scene_name'):
+            logger.info("Adding 'obs_scene_name' column to games table...")
+            GamesTable._db.execute(
+                f"ALTER TABLE {GamesTable._table} ADD COLUMN obs_scene_name TEXT",
+                commit=True
+            )
+            logger.info("Added 'obs_scene_name' column to games table.")
+            
+            # Populate obs_scene_name for existing games by querying game_lines
+            logger.info("Populating obs_scene_name from game_lines...")
+            all_games = GamesTable.all()
+            updated_count = 0
+            
+            for game in all_games:
+                # Find the first game_line with this game_id to get the original game_name
+                result = GameLinesTable._db.fetchone(
+                    f"SELECT game_name FROM {GameLinesTable._table} WHERE game_id=? LIMIT 1",
+                    (game.id,)
+                )
+                
+                if result and result[0]:
+                    obs_scene_name = result[0]
+                    # Update the game with the obs_scene_name
+                    GamesTable._db.execute(
+                        f"UPDATE {GamesTable._table} SET obs_scene_name=? WHERE id=?",
+                        (obs_scene_name, game.id),
+                        commit=True
+                    )
+                    updated_count += 1
+                    logger.debug(f"Set obs_scene_name='{obs_scene_name}' for game id={game.id}")
+            
+            logger.info(f"Migration complete: Updated {updated_count} games with obs_scene_name from game_lines.")
+        else:
+            logger.debug("obs_scene_name column already exists in games table, skipping migration.")
+    
     migrate_timestamp()
+    migrate_obs_scene_name()
         
 check_and_run_migrations()
     
