@@ -706,10 +706,110 @@ document.addEventListener('DOMContentLoaded', function () {
         loadGoalProgress();
     }, 1000);
 
+    // Function to update progress timeline with start and estimated end dates
+    function updateProgressTimeline(stats) {
+        const startDateEl = document.getElementById('gameStartDate');
+        const endDateEl = document.getElementById('gameEstimatedEndDate');
+        
+        // Set start date
+        if (stats.first_date) {
+            startDateEl.textContent = stats.first_date;
+        } else {
+            startDateEl.textContent = '-';
+        }
+        
+        // Calculate and set estimated end date
+        if (!stats.game_character_count || stats.game_character_count <= 0 ||
+            !stats.total_characters || stats.total_characters <= 0 ||
+            !stats.reading_speed || stats.reading_speed <= 0) {
+            endDateEl.textContent = '-';
+            return;
+        }
+        
+        const charsRead = stats.total_characters;
+        const totalChars = stats.game_character_count;
+        const charsRemaining = Math.max(0, totalChars - charsRead);
+        
+        if (charsRemaining === 0) {
+            endDateEl.textContent = 'Completed! 🎉';
+            return;
+        }
+        
+        // Calculate daily character progress
+        let dailyCharProgress = 0;
+        if (stats.daily_activity && Object.keys(stats.daily_activity).length > 0) {
+            const activityDays = Object.values(stats.daily_activity).filter(chars => chars > 0);
+            if (activityDays.length > 0) {
+                dailyCharProgress = activityDays.reduce((sum, chars) => sum + chars, 0) / activityDays.length;
+            }
+        }
+        
+        if (dailyCharProgress === 0) {
+            dailyCharProgress = stats.reading_speed; // Fallback: assume 1 hour per day
+        }
+        
+        const daysUntilCompletion = Math.ceil(charsRemaining / dailyCharProgress);
+        const today = new Date();
+        const completionDate = new Date(today);
+        completionDate.setDate(completionDate.getDate() + daysUntilCompletion);
+        
+        // Format as YYYY-MM-DD (estimated)
+        const year = completionDate.getFullYear();
+        const month = String(completionDate.getMonth() + 1).padStart(2, '0');
+        const day = String(completionDate.getDate()).padStart(2, '0');
+        endDateEl.textContent = `${year}-${month}-${day} (estimated)`;
+    }
+    
+    // Function to update estimated time left stat
+    function updateEstimatedTimeLeft(stats) {
+        const estimatedTimeLeftEl = document.getElementById('currentEstimatedTimeLeft');
+        
+        if (!stats.game_character_count || stats.game_character_count <= 0 ||
+            !stats.total_characters || stats.total_characters <= 0 ||
+            !stats.reading_speed || stats.reading_speed <= 0) {
+            estimatedTimeLeftEl.textContent = '-';
+            return;
+        }
+        
+        const charsRead = stats.total_characters;
+        const totalChars = stats.game_character_count;
+        const charsRemaining = Math.max(0, totalChars - charsRead);
+        
+        if (charsRemaining === 0) {
+            estimatedTimeLeftEl.textContent = '0h';
+            return;
+        }
+        
+        const readingSpeed = stats.reading_speed;
+        const hoursRemaining = charsRemaining / readingSpeed;
+        
+        // Format hours remaining
+        let hoursText;
+        if (hoursRemaining < 1) {
+            const minutes = Math.round(hoursRemaining * 60);
+            hoursText = `${minutes}m`;
+        } else if (hoursRemaining < 24) {
+            const hours = Math.floor(hoursRemaining);
+            const minutes = Math.round((hoursRemaining - hours) * 60);
+            hoursText = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+        } else if (hoursRemaining < 168) {
+            const days = Math.floor(hoursRemaining / 24);
+            const hours = Math.round(hoursRemaining % 24);
+            hoursText = hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+        } else {
+            const days = Math.floor(hoursRemaining / 24);
+            hoursText = `${days}d`;
+        }
+        
+        estimatedTimeLeftEl.textContent = hoursText;
+    }
+
     // Make functions globally available
     window.createHeatmap = createHeatmap;
     window.loadStatsData = loadStatsData;
     window.loadGoalProgress = loadGoalProgress;
+    window.updateProgressTimeline = updateProgressTimeline;
+    window.updateEstimatedTimeLeft = updateEstimatedTimeLeft;
 
     function updateCurrentSessionOverview(sessionDetails, index = sessionDetails.length - 1) {
         window.currentSessionIndex = index; // Store globally for potential future use
@@ -1156,8 +1256,8 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        // Update game name and subtitle
-        document.getElementById('currentGameName').textContent = stats.game_name;
+        // Update subtitle only (remove game name display)
+        document.getElementById('currentGameName').textContent = '';
 
         // Always show game metadata section
         const gameContentGrid = document.getElementById('gameContentGrid');
@@ -1286,27 +1386,28 @@ document.addEventListener('DOMContentLoaded', function () {
                 linksContainer.style.display = 'none';
             }
             
-            // Update progress bar
+            // Update progress bar and timeline
             const progressContainer = document.getElementById('gameProgressContainer');
             if (stats.game_character_count > 0) {
                 const percentage = stats.progress_percentage || 0;
                 document.getElementById('gameProgressPercentage').textContent = Math.floor(percentage) + '%';
                 document.getElementById('gameProgressFill').style.width = percentage + '%';
+                
+                // Update timeline dates
+                updateProgressTimeline(stats);
+                
                 progressContainer.style.display = 'block';
             } else {
                 progressContainer.style.display = 'none';
             }
+            
+            // Update estimated time left stat
+            updateEstimatedTimeLeft(stats);
 
         // Update main statistics
         document.getElementById('currentTotalChars').textContent = stats.total_characters_formatted;
         document.getElementById('currentTotalTime').textContent = stats.total_time_formatted;
         document.getElementById('currentReadingSpeed').textContent = stats.reading_speed_formatted;
-        document.getElementById('currentSessions').textContent = stats.sessions.toLocaleString();
-
-        // Update progress section
-        document.getElementById('currentMonthlyChars').textContent = stats.monthly_characters_formatted;
-        document.getElementById('currentFirstDate').textContent = stats.first_date;
-        document.getElementById('currentLastDate').textContent = stats.last_date;
 
         // Update streak indicator
         const streakElement = document.getElementById('currentGameStreak');

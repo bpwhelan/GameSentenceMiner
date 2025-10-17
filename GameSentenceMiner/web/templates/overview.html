@@ -25,7 +25,7 @@
                 <div>
                     <h3 class="dashboard-card-title">
                         <span class="dashboard-card-icon">🎮</span>
-                        Current Game Statistics
+                        Current Game
                     </h3>
                     <p class="dashboard-card-subtitle" id="currentGameName">Loading...</p>
                 </div>
@@ -64,8 +64,12 @@
                             <span class="game-progress-label">Completion</span>
                             <span class="game-progress-percentage" id="gameProgressPercentage">0%</span>
                         </div>
-                        <div class="game-progress-bar">
-                            <div class="game-progress-fill" id="gameProgressFill"></div>
+                        <div class="game-progress-timeline">
+                            <span class="game-progress-date start-date" id="gameStartDate">-</span>
+                            <div class="game-progress-bar">
+                                <div class="game-progress-fill" id="gameProgressFill"></div>
+                            </div>
+                            <span class="game-progress-date end-date" id="gameEstimatedEndDate">-</span>
                         </div>
                     </div>
                 </div>
@@ -80,31 +84,13 @@
                     <span class="dashboard-stat-value" id="currentTotalTime">-</span>
                     <span class="dashboard-stat-label">Time Spent</span>
                 </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Estimated time remaining to complete this game">
+                    <span class="dashboard-stat-value" id="currentEstimatedTimeLeft">-</span>
+                    <span class="dashboard-stat-label">Est. Time Left</span>
+                </div>
                 <div class="dashboard-stat-item tooltip" data-tooltip="Average reading speed for this game">
                     <span class="dashboard-stat-value" id="currentReadingSpeed">-</span>
                     <span class="dashboard-stat-label">Chars/Hour</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Number of reading sessions for this game">
-                    <span class="dashboard-stat-value" id="currentSessions">-</span>
-                    <span class="dashboard-stat-label">Sessions</span>
-                </div>
-            </div>
-
-            <div class="dashboard-progress-section">
-                <div class="dashboard-progress-title">Recent Progress</div>
-                <div class="dashboard-progress-items">
-                    <div class="dashboard-progress-item">
-                        <div class="dashboard-progress-value positive" id="currentMonthlyChars">-</div>
-                        <div class="dashboard-progress-label">Monthly Characters</div>
-                    </div>
-                    <div class="dashboard-progress-item">
-                        <div class="dashboard-progress-value neutral" id="currentFirstDate">-</div>
-                        <div class="dashboard-progress-label">Started</div>
-                    </div>
-                    <div class="dashboard-progress-item">
-                        <div class="dashboard-progress-value neutral" id="currentLastDate">-</div>
-                        <div class="dashboard-progress-label">Last Activity</div>
-                    </div>
                 </div>
             </div>
         </div>

@@ -386,13 +386,38 @@
     color: var(--accent-color);
 }
 
+/* Game Progress Timeline */
+.game-progress-timeline {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.game-progress-date {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    min-width: fit-content;
+}
+
+.game-progress-date.start-date {
+    color: var(--text-tertiary);
+}
+
+.game-progress-date.end-date {
+    color: var(--success-color);
+    font-style: italic;
+}
+
 .game-progress-bar {
+    flex: 1;
     height: 16px;
     background: var(--bg-tertiary);
     border-radius: 8px;
     overflow: hidden;
     border: 1px solid var(--border-color);
-    margin-bottom: 4px;
 }
 
 .game-progress-fill {
@@ -401,12 +426,6 @@
     border-radius: 8px;
     transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
-}
-
-.game-progress-stats {
-    font-size: 11px;
-    color: var(--text-tertiary);
-    text-align: right;
 }
 
 .dashboard-card-header {
@@ -1073,6 +1092,10 @@
         align-items: flex-start;
         gap: 4px;
     }
+    
+    .game-progress-estimates {
+        gap: 8px;
+    }
 }
 
 @media (max-width: 480px) {
@@ -1110,5 +1133,9 @@
     
     .goal-progress-bar {
         height: 10px;
+    }
+    
+    .game-progress-date {
+        font-size: 9px;
     }
 }
