@@ -691,10 +691,11 @@ if os.path.exists(db_path):
 
 gsm_db = SQLiteDB(db_path)
 
-# Import GamesTable after gsm_db is created to avoid circular import
+# Import GamesTable and CronTable after gsm_db is created to avoid circular import
 from GameSentenceMiner.util.games_table import GamesTable
+from GameSentenceMiner.util.cron_table import CronTable
 
-for cls in [AIModelsTable, GameLinesTable, GamesTable]:
+for cls in [AIModelsTable, GameLinesTable, GamesTable, CronTable]:
     cls.set_db(gsm_db)
     # Uncomment to start fresh every time
     # cls.drop()
@@ -756,8 +757,34 @@ def check_and_run_migrations():
         else:
             logger.debug("obs_scene_name column already exists in games table, skipping migration.")
     
+    def migrate_jiten_cron_job():
+        """
+        Create the monthly jiten.moe update cron job if it doesn't exist.
+        This ensures the cron job is automatically registered on database initialization.
+        """
+        existing_cron = CronTable.get_by_name('jiten_sync')
+        if not existing_cron:
+            logger.info("Creating monthly jiten.moe update cron job...")
+            # Calculate next run: first day of next month at midnight
+            now = datetime.now()
+            if now.month == 12:
+                next_month = datetime(now.year + 1, 1, 1, 0, 0, 0)
+            else:
+                next_month = datetime(now.year, now.month + 1, 1, 0, 0, 0)
+            
+            CronTable.create_cron_entry(
+                name='jiten_sync',
+                description='Automatically update all linked games from jiten.moe database (respects manual overrides)',
+                next_run=next_month,
+                schedule='monthly'
+            )
+            logger.info(f"✅ Created jiten_sync cron job - next run: {next_month.strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            logger.debug("jiten_sync cron job already exists, skipping creation.")
+    
     migrate_timestamp()
     migrate_obs_scene_name()
+    migrate_jiten_cron_job()
         
 check_and_run_migrations()
     
