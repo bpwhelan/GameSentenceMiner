@@ -25,6 +25,43 @@ from GameSentenceMiner.web.stats import (
     calculate_game_milestones
 )
 
+def add_jiten_link_to_game(game, deck_id):
+    """
+    Automatically add a Jiten link to the game's links array if it doesn't already exist.
+    
+    Args:
+        game: The GamesTable instance
+        deck_id: The jiten.moe deck ID
+    """
+    if not deck_id:
+        return
+    
+    # Create the Jiten URL
+    jiten_url = f"https://jiten.moe/decks/media/{deck_id}/detail"
+    
+    # Check if a Jiten link already exists (linkType 10)
+    existing_jiten_link = None
+    for link in game.links:
+        if link.get('linkType') == 10:
+            existing_jiten_link = link
+            break
+    
+    if existing_jiten_link:
+        # Update existing Jiten link URL if it's different
+        if existing_jiten_link.get('url') != jiten_url:
+            existing_jiten_link['url'] = jiten_url
+            existing_jiten_link['deckId'] = deck_id
+            logger.info(f"Updated existing Jiten link for game {game.id}: {jiten_url}")
+    else:
+        # Add new Jiten link
+        jiten_link = {
+            "deckId": deck_id,
+            "linkType": 10,
+            "url": jiten_url
+        }
+        game.links.append(jiten_link)
+        logger.info(f"Added new Jiten link for game {game.id}: {jiten_url}")
+
 def register_database_api_routes(app):
     """Register all database API routes with the Flask app."""
     
@@ -2136,6 +2173,12 @@ def register_database_api_routes(app):
             game.update_all_fields_from_jiten(**update_fields)
             logger.info(f"📝 After jiten update, title_original is now: '{game.title_original}', obs_scene_name: '{game.obs_scene_name}'")
             
+            # Automatically add Jiten link if links are not manually overridden
+            if 'links' not in game.manual_overrides:
+                add_jiten_link_to_game(game, deck_id)
+                # Save the game again to persist the Jiten link
+                game.save()
+            
             # Update ALL game_lines with the OBS scene name to point to this game_id
             # This creates the explicit mapping: OBS scene name -> game_id
             # When a user links a game to jiten.moe, they're saying "this OBS scene name maps to this jiten game"
@@ -2472,6 +2515,13 @@ def register_database_api_routes(app):
             # Update the game using the jiten update method (doesn't mark as manual)
             if update_fields:
                 game.update_all_fields_from_jiten(**update_fields)
+                
+                # Automatically add Jiten link if links are not manually overridden
+                if 'links' not in manual_overrides:
+                    add_jiten_link_to_game(game, game.deck_id)
+                    # Save the game again to persist the Jiten link
+                    game.save()
+                
                 logger.info(f"✅ Successfully repulled jiten.moe data for game {game_id} ({game.title_original})")
                 
                 return jsonify({
@@ -2483,6 +2533,12 @@ def register_database_api_routes(app):
                     'jiten_raw_response': jiten_data  # Include full jiten.moe data
                 }), 200
             else:
+                # Even if no other fields are updated, we should still add the Jiten link if links are not manually overridden
+                if 'links' not in manual_overrides:
+                    add_jiten_link_to_game(game, game.deck_id)
+                    # Save the game to persist the Jiten link
+                    game.save()
+                
                 logger.info(f"ℹ️ No fields updated - all fields are manually overridden for game {game_id}")
                 return jsonify({
                     'success': True,
