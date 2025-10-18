@@ -6,6 +6,39 @@ from GameSentenceMiner.util.configuration import get_stats_config, logger, get_c
 from GameSentenceMiner.util.games_table import GamesTable
 
 
+def build_game_display_name_mapping(all_lines):
+    """
+    Build a mapping of game_name -> display_name (title_original if available).
+    
+    This centralizes the logic for converting OBS scene names to clean game titles
+    for display in charts and statistics.
+    
+    Args:
+        all_lines: List of GameLinesTable records
+        
+    Returns:
+        dict: Mapping of game_name to display_name (title_original from games table)
+    """
+    game_name_to_display = {}
+    unique_game_names = set(line.game_name or "Unknown Game" for line in all_lines)
+    
+    logger.debug(f"Building display name mapping for {len(unique_game_names)} unique games")
+    
+    for game_name in unique_game_names:
+        # Find any line with this game_name to get game_id
+        sample_line = next((line for line in all_lines if (line.game_name or "Unknown Game") == game_name), None)
+        if sample_line:
+            game_metadata = GamesTable.get_by_game_line(sample_line)
+            if game_metadata and game_metadata.title_original:
+                game_name_to_display[game_name] = game_metadata.title_original
+                logger.debug(f"Mapped '{game_name}' -> '{game_metadata.title_original}'")
+            else:
+                game_name_to_display[game_name] = game_name
+                logger.debug(f"No metadata for '{game_name}', using original name")
+    
+    return game_name_to_display
+
+
 def is_kanji(char):
     """Check if a character is a kanji (CJK Unified Ideographs)."""
     # Validate input is a single character
@@ -170,19 +203,7 @@ def calculate_mining_heatmap_data(all_lines, filter_year=None):
 
 def calculate_total_chars_per_game(all_lines):
     """Calculate total characters read per game."""
-    # Build a mapping of game_name -> display_name (title_original if available)
-    game_name_to_display = {}
-    unique_game_names = set(line.game_name or "Unknown Game" for line in all_lines)
-    
-    for game_name in unique_game_names:
-        # Find any line with this game_name to get game_id
-        sample_line = next((line for line in all_lines if (line.game_name or "Unknown Game") == game_name), None)
-        if sample_line:
-            game_metadata = GamesTable.get_by_game_line(sample_line)
-            if game_metadata and game_metadata.title_original:
-                game_name_to_display[game_name] = game_metadata.title_original
-            else:
-                game_name_to_display[game_name] = game_name
+    game_name_to_display = build_game_display_name_mapping(all_lines)
     
     game_data = defaultdict(lambda: {'total_chars': 0, 'first_time': None})
     
@@ -213,19 +234,7 @@ def calculate_total_chars_per_game(all_lines):
 
 def calculate_reading_time_per_game(all_lines):
     """Calculate total reading time per game in hours using AFK timer logic."""
-    # Build a mapping of game_name -> display_name (title_original if available)
-    game_name_to_display = {}
-    unique_game_names = set(line.game_name or "Unknown Game" for line in all_lines)
-    
-    for game_name in unique_game_names:
-        # Find any line with this game_name to get game_id
-        sample_line = next((line for line in all_lines if (line.game_name or "Unknown Game") == game_name), None)
-        if sample_line:
-            game_metadata = GamesTable.get_by_game_line(sample_line)
-            if game_metadata and game_metadata.title_original:
-                game_name_to_display[game_name] = game_metadata.title_original
-            else:
-                game_name_to_display[game_name] = game_name
+    game_name_to_display = build_game_display_name_mapping(all_lines)
     
     game_data = defaultdict(lambda: {'timestamps': [], 'first_time': None})
     
@@ -258,19 +267,7 @@ def calculate_reading_time_per_game(all_lines):
 
 def calculate_reading_speed_per_game(all_lines):
     """Calculate average reading speed per game (chars/hour) using AFK timer logic."""
-    # Build a mapping of game_name -> display_name (title_original if available)
-    game_name_to_display = {}
-    unique_game_names = set(line.game_name or "Unknown Game" for line in all_lines)
-    
-    for game_name in unique_game_names:
-        # Find any line with this game_name to get game_id
-        sample_line = next((line for line in all_lines if (line.game_name or "Unknown Game") == game_name), None)
-        if sample_line:
-            game_metadata = GamesTable.get_by_game_line(sample_line)
-            if game_metadata and game_metadata.title_original:
-                game_name_to_display[game_name] = game_metadata.title_original
-            else:
-                game_name_to_display[game_name] = game_name
+    game_name_to_display = build_game_display_name_mapping(all_lines)
     
     game_data = defaultdict(lambda: {'chars': 0, 'timestamps': [], 'first_time': None})
     
@@ -502,13 +499,12 @@ def calculate_current_game_stats(all_lines):
         return None
     
     # Fetch game metadata from games table using game_id relationship
-    from GameSentenceMiner.util.games_table import GamesTable
-    logger.info(f"[CURRENT_GAME_STATS] Current game line: game_name='{current_game_line.game_name}', game_id='{current_game_line.game_id}'")
+    logger.debug(f"Current game line: game_name='{current_game_line.game_name}', game_id='{current_game_line.game_id}'")
     game_metadata = GamesTable.get_by_game_line(current_game_line)
     if game_metadata:
-        logger.info(f"[CURRENT_GAME_STATS] Found game metadata: id={game_metadata.id}, title_original='{game_metadata.title_original}', deck_id={game_metadata.deck_id}, has_image={bool(game_metadata.image)}")
+        logger.debug(f"Found game metadata: id={game_metadata.id}, title_original='{game_metadata.title_original}', deck_id={game_metadata.deck_id}, has_image={bool(game_metadata.image)}")
     else:
-        logger.warning(f"[CURRENT_GAME_STATS] No game metadata found for game_name='{current_game_name}'")
+        logger.debug(f"No game metadata found for game_name='{current_game_name}'")
     
     # Calculate basic statistics
     total_characters = sum(len(line.line_text) if line.line_text else 0 for line in current_game_lines)
@@ -555,9 +551,9 @@ def calculate_current_game_stats(all_lines):
     progress_percentage = 0
     if game_metadata and game_metadata.character_count and game_metadata.character_count > 0:
         progress_percentage = min(100, (total_characters / game_metadata.character_count) * 100)
-        logger.info(f"[PROGRESS] Game: {current_game_name}, Mined: {total_characters}, Total: {game_metadata.character_count}, Progress: {progress_percentage}%")
+        logger.debug(f"Game progress: {current_game_name}, Mined: {total_characters}, Total: {game_metadata.character_count}, Progress: {progress_percentage:.1f}%")
     else:
-        logger.info(f"[PROGRESS] Game: {current_game_name}, No character_count available (metadata={bool(game_metadata)}, count={game_metadata.character_count if game_metadata else 'N/A'})")
+        logger.debug(f"Game progress: {current_game_name}, No character_count available (metadata={bool(game_metadata)}, count={game_metadata.character_count if game_metadata else 'N/A'})")
     
     # Build result dictionary with game metadata
     result = {
@@ -592,10 +588,7 @@ def calculate_current_game_stats(all_lines):
         result['completed'] = game_metadata.completed or False  # Add completion status
         
         # Debug logging for image data
-        logger.debug(f"[DEBUG] Game metadata for '{current_game_name}':")
-        logger.debug(f"  - Has image: {bool(game_metadata.image)}")
-        logger.debug(f"  - Image length: {len(game_metadata.image) if game_metadata.image else 0}")
-        logger.debug(f"  - Image prefix: {game_metadata.image[:50] if game_metadata.image else 'None'}")
+        logger.debug(f"Game metadata for '{current_game_name}': has_image={bool(game_metadata.image)}, image_length={len(game_metadata.image) if game_metadata.image else 0}")
     else:
         result['title_original'] = ''
         result['title_romaji'] = ''
@@ -605,7 +598,7 @@ def calculate_current_game_stats(all_lines):
         result['image'] = ''
         result['game_character_count'] = 0  # No jiten data available
         result['links'] = []  # Empty links array when no metadata
-        logger.debug(f"[DEBUG] No game metadata found for '{current_game_name}'")
+        logger.debug(f"No game metadata found for '{current_game_name}'")
     
     return result
 
@@ -861,10 +854,6 @@ def calculate_game_milestones(all_lines=None):
             return '9999-12-31'  # Put invalid dates at the end
     
     games_with_dates.sort(key=parse_release_date)
-    
-    # Log sorted games for debugging
-    for i, game in enumerate(games_with_dates):
-        logger.debug(f"[MILESTONES] Sorted game {i}: {game['title_original']} ({parse_release_date(game)})")
     
     oldest_game = games_with_dates[0] if games_with_dates else None
     newest_game = games_with_dates[-1] if games_with_dates else None

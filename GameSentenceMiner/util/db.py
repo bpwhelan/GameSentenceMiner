@@ -774,8 +774,6 @@ def check_and_run_migrations():
             logger.info(f"Migration complete: Updated {updated_count} games with obs_scene_name from game_lines.")
         else:
             logger.debug("obs_scene_name column already exists in games table, skipping migration.")
-    
-    def migrate_cron_timestamps():
         """
         Convert datetime strings in cron_table to Unix timestamps.
         This migration handles legacy data that may have datetime strings instead of floats.

@@ -33,6 +33,7 @@ from GameSentenceMiner.web.gsm_websocket import (
     handle_exit_signal
 )
 from GameSentenceMiner.web.database_api import register_database_api_routes
+from GameSentenceMiner.web.jiten_database_api import register_jiten_database_api_routes
 
 # Global configuration
 port = get_config().general.texthooker_port
@@ -45,6 +46,7 @@ app = flask.Flask(__name__)
 
 # Register database API routes
 register_database_api_routes(app)
+register_jiten_database_api_routes(app)
 
 # Register Anki API routes
 from GameSentenceMiner.web.anki_api_endpoints import register_anki_api_endpoints

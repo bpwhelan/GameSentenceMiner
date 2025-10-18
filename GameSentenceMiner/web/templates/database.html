@@ -711,25 +711,25 @@
     </div>
 </div>
 
-<!-- Individual Game Delete Confirmation Modal -->
-<div id="individualGameDeleteModal" class="modal">
+<!-- Individual Game Unlink Confirmation Modal (Alternative) -->
+<div id="individualGameUnlinkAltModal" class="modal">
     <div class="modal-content" style="max-width: 500px;">
         <div class="modal-header">
             <h3>Unlink Game</h3>
-            <span class="close-btn" data-action="closeModal" data-modal="individualGameDeleteModal">&times;</span>
+            <span class="close-btn" data-action="closeModal" data-modal="individualGameUnlinkAltModal">&times;</span>
         </div>
         <div class="modal-body">
             <p class="warning-text">⚠️ You are about to unlink this game from the database.</p>
             
             <div class="game-info" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin: 15px 0;">
-                <h4 style="margin: 0 0 10px 0; color: var(--text-primary);" id="deleteGameName">Game Name</h4>
+                <h4 style="margin: 0 0 10px 0; color: var(--text-primary);" id="unlinkAltGameName">Game Name</h4>
                 <div class="stats-row">
                     <span class="stats-label">Sentences:</span>
-                    <span class="stats-value" id="deleteGameSentences">0</span>
+                    <span class="stats-value" id="unlinkAltGameSentences">0</span>
                 </div>
                 <div class="stats-row">
                     <span class="stats-label">Characters:</span>
-                    <span class="stats-value" id="deleteGameCharacters">0</span>
+                    <span class="stats-value" id="unlinkAltGameCharacters">0</span>
                 </div>
             </div>
             
@@ -740,15 +740,15 @@
                 </p>
             </div>
             
-            <div id="individualDeleteError" class="error-text" style="display: none;"></div>
-            <div id="individualDeleteLoading" class="loading-indicator" style="display: none;">
+            <div id="individualUnlinkAltError" class="error-text" style="display: none;"></div>
+            <div id="individualUnlinkAltLoading" class="loading-indicator" style="display: none;">
                 <div class="spinner"></div>
                 <span>Unlinking game...</span>
             </div>
         </div>
         <div class="modal-footer">
-            <button class="action-btn" data-action="closeModal" data-modal="individualGameDeleteModal">Cancel</button>
-            <button class="action-btn warning" id="confirmIndividualDeleteBtn">Unlink Game</button>
+            <button class="action-btn" data-action="closeModal" data-modal="individualGameUnlinkAltModal">Cancel</button>
+            <button class="action-btn warning" id="confirmIndividualUnlinkAltBtn">Unlink Game</button>
         </div>
     </div>
 </div>

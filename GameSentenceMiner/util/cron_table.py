@@ -107,7 +107,7 @@ class CronTable(SQLiteDBTable):
             created_at=time.time()
         )
         new_cron.save()
-        logger.info(f"Created cron job '{name}' with schedule '{schedule}', next run at {datetime.fromtimestamp(next_run)}")
+        logger.debug(f"Created cron job '{name}' with schedule '{schedule}', next run at {datetime.fromtimestamp(next_run)}")
         return new_cron
 
     @classmethod
@@ -183,13 +183,13 @@ class CronTable(SQLiteDBTable):
         """Enable this cron job."""
         self.enabled = True
         self.save()
-        logger.info(f"Enabled cron job '{self.name}'")
+        logger.debug(f"Enabled cron job '{self.name}'")
 
     def disable(self):
         """Disable this cron job."""
         self.enabled = False
         self.save()
-        logger.info(f"Disabled cron job '{self.name}'")
+        logger.debug(f"Disabled cron job '{self.name}'")
 
     @classmethod
     def enable_cron(cls, cron_id: int):
@@ -250,25 +250,25 @@ class CronTable(SQLiteDBTable):
             # For one-time jobs, disable after running
             cron.enabled = False
             cron.next_run = now  # Set to now since it won't run again
-            logger.info(f"Cron job '{cron.name}' completed (one-time job) and has been disabled")
+            logger.debug(f"Cron job '{cron.name}' completed (one-time job) and has been disabled")
         elif cron.schedule == 'daily':
             next_run_dt = now_dt + timedelta(days=1)
             cron.next_run = next_run_dt.timestamp()
-            logger.info(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
+            logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == 'weekly':
             next_run_dt = now_dt + timedelta(weeks=1)
             cron.next_run = next_run_dt.timestamp()
-            logger.info(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
+            logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == 'monthly':
             # Add approximately 30 days (will be more accurate with dateutil, but this is simple)
             next_run_dt = now_dt + timedelta(days=30)
             cron.next_run = next_run_dt.timestamp()
-            logger.info(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
+            logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == 'yearly':
             # Add approximately 365 days
             next_run_dt = now_dt + timedelta(days=365)
             cron.next_run = next_run_dt.timestamp()
-            logger.info(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
+            logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         else:
             logger.warning(f"Unknown schedule type '{cron.schedule}' for cron job '{cron.name}'")
             return

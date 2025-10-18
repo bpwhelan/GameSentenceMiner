@@ -150,12 +150,12 @@ class GamesTable(SQLiteDBTable):
         for game in all_games:
             # Check against title_original
             if cls.fuzzy_match_game_name(game_name, game.title_original, threshold):
-                logger.info(f"[FUZZY_MATCH] Found similar game by title_original: '{game_name}' matches '{game.title_original}' (id={game.id})")
+                logger.debug(f"[FUZZY_MATCH] Found similar game by title_original: '{game_name}' matches '{game.title_original}' (id={game.id})")
                 return game
             
             # Check against obs_scene_name if it exists
             if game.obs_scene_name and cls.fuzzy_match_game_name(game_name, game.obs_scene_name, threshold):
-                logger.info(f"[FUZZY_MATCH] Found similar game by obs_scene_name: '{game_name}' matches '{game.obs_scene_name}' (id={game.id})")
+                logger.debug(f"[FUZZY_MATCH] Found similar game by obs_scene_name: '{game_name}' matches '{game.obs_scene_name}' (id={game.id})")
                 return game
         
         return None
@@ -172,15 +172,15 @@ class GamesTable(SQLiteDBTable):
         Returns:
             GamesTable: The existing or newly created game record
         """
-        logger.info(f"[GET_OR_CREATE] Looking up game: '{game_name}'")
+        logger.debug(f"[GET_OR_CREATE] Looking up game: '{game_name}'")
         
         # Try exact match on title_original first
         existing = cls.get_by_title(game_name)
         if existing:
-            logger.info(f"[GET_OR_CREATE] Found exact match in games table: id={existing.id}, deck_id={existing.deck_id}")
+            logger.debug(f"[GET_OR_CREATE] Found exact match in games table: id={existing.id}, deck_id={existing.deck_id}")
             return existing
         
-        logger.info(f"[GET_OR_CREATE] No exact match found, checking game_lines for existing mapping...")
+        logger.debug(f"[GET_OR_CREATE] No exact match found, checking game_lines for existing mapping...")
         
         # Check if existing game_lines already have this game_name mapped to a game_id
         # This handles cases where OBS scene name != game title_original
@@ -190,7 +190,7 @@ class GamesTable(SQLiteDBTable):
         all_game_names = GameLinesTable._db.fetchall(
             f"SELECT DISTINCT game_name FROM {GameLinesTable._table} LIMIT 10"
         )
-        logger.info(f"[GET_OR_CREATE] Sample game_names in game_lines: {[row[0] for row in all_game_names]}")
+        logger.debug(f"[GET_OR_CREATE] Sample game_names in game_lines: {[row[0] for row in all_game_names]}")
         
         # Now try to find our specific game_name
         existing_line = GameLinesTable._db.fetchone(
@@ -200,15 +200,15 @@ class GamesTable(SQLiteDBTable):
         
         if existing_line and existing_line[0]:
             game_id = existing_line[0]
-            logger.info(f"[GET_OR_CREATE] Found existing mapping in game_lines: '{game_name}' -> game_id={game_id}")
+            logger.debug(f"[GET_OR_CREATE] Found existing mapping in game_lines: '{game_name}' -> game_id={game_id}")
             existing_game = cls.get(game_id)
             if existing_game:
-                logger.info(f"[GET_OR_CREATE] ✓ Reusing existing game: '{game_name}' -> game_id={game_id} ('{existing_game.title_original}', deck_id={existing_game.deck_id})")
+                logger.debug(f"[GET_OR_CREATE] ✓ Reusing existing game: '{game_name}' -> game_id={game_id} ('{existing_game.title_original}', deck_id={existing_game.deck_id})")
                 return existing_game
             else:
                 logger.warning(f"[GET_OR_CREATE] game_id {game_id} found in game_lines but not in games table!")
         else:
-            logger.info(f"[GET_OR_CREATE] No existing mapping found in game_lines for '{game_name}'")
+            logger.debug(f"[GET_OR_CREATE] No existing mapping found in game_lines for '{game_name}'")
         
         # No existing mapping found - create new UNLINKED game with minimal info
         # Store the OBS scene name in obs_scene_name field for future linking
@@ -222,8 +222,8 @@ class GamesTable(SQLiteDBTable):
             obs_scene_name=game_name  # Store original OBS scene name
         )
         new_game.add()  # Use add() instead of save() for new records with UUID primary keys
-        logger.info(f"[GET_OR_CREATE] ✗ Created new UNLINKED game record: '{game_name}' (id={new_game.id}, obs_scene_name='{game_name}')")
-        logger.info(f"[GET_OR_CREATE] ℹ️ This game needs to be manually linked to jiten.moe via the Games Management interface")
+        logger.debug(f"[GET_OR_CREATE] ✗ Created new UNLINKED game record: '{game_name}' (id={new_game.id}, obs_scene_name='{game_name}')")
+        logger.debug(f"[GET_OR_CREATE] ℹ️ This game needs to be manually linked to jiten.moe via the Games Management interface")
         return new_game
 
     @classmethod
@@ -360,7 +360,7 @@ class GamesTable(SQLiteDBTable):
             self.mark_field_manual('release_date')
         
         self.save()
-        logger.info(f"Updated game {self.id} ({self.title_original})")
+        logger.debug(f"Updated game {self.id} ({self.title_original})")
 
     def update_all_fields_from_jiten(
         self,
@@ -417,12 +417,12 @@ class GamesTable(SQLiteDBTable):
         if completed is not None:
             self.completed = completed
         if release_date is not None:
-            logger.info(f"📅 GamesTable.update_all_fields_from_jiten: Setting release_date for game {self.id} to '{release_date}' (type: {type(release_date)})")
+            logger.debug(f"📅 GamesTable.update_all_fields_from_jiten: Setting release_date for game {self.id} to '{release_date}' (type: {type(release_date)})")
             self.release_date = release_date
         else:
-            logger.info(f"⏭️ GamesTable.update_all_fields_from_jiten: release_date is None for game {self.id}")
+            logger.debug(f"⏭️ GamesTable.update_all_fields_from_jiten: release_date is None for game {self.id}")
         self.save()
-        logger.info(f"Updated game {self.id} ({self.title_original}) - final release_date: '{self.release_date}'")
+        logger.debug(f"Updated game {self.id} ({self.title_original}) - final release_date: '{self.release_date}'")
 
     def add_link(self, link_type: int, url: str, link_id: Optional[int] = None):
         """
@@ -466,28 +466,28 @@ class GamesTable(SQLiteDBTable):
         Returns:
             GamesTable: The game record, or None if not found
         """
-        logger.info(f"[GET_BY_GAME_LINE] Looking up game for line with game_name='{game_line.game_name if hasattr(game_line, 'game_name') else 'N/A'}', game_id='{game_line.game_id if hasattr(game_line, 'game_id') else 'N/A'}'")
+        logger.debug(f"[GET_BY_GAME_LINE] Looking up game for line with game_name='{game_line.game_name if hasattr(game_line, 'game_name') else 'N/A'}', game_id='{game_line.game_id if hasattr(game_line, 'game_id') else 'N/A'}'")
         
         # First try using game_id relationship if it exists
         if hasattr(game_line, 'game_id') and game_line.game_id and game_line.game_id.strip():
-            logger.info(f"[GET_BY_GAME_LINE] Attempting lookup by game_id: '{game_line.game_id}'")
+            logger.debug(f"[GET_BY_GAME_LINE] Attempting lookup by game_id: '{game_line.game_id}'")
             game = cls.get(game_line.game_id)
             if game:
-                logger.info(f"[GET_BY_GAME_LINE] ✓ Found game by game_id: title_original='{game.title_original}', deck_id={game.deck_id}, has_image={bool(game.image)}")
+                logger.debug(f"[GET_BY_GAME_LINE] ✓ Found game by game_id: title_original='{game.title_original}', deck_id={game.deck_id}, has_image={bool(game.image)}")
                 return game
             else:
                 logger.warning(f"[GET_BY_GAME_LINE] game_id '{game_line.game_id}' not found in games table, falling back to name lookup")
         else:
-            logger.info(f"[GET_BY_GAME_LINE] No valid game_id, falling back to name lookup")
+            logger.debug(f"[GET_BY_GAME_LINE] No valid game_id, falling back to name lookup")
         
         # Fallback to name-based lookup
         if hasattr(game_line, 'game_name') and game_line.game_name:
-            logger.info(f"[GET_BY_GAME_LINE] Attempting lookup by game_name: '{game_line.game_name}'")
+            logger.debug(f"[GET_BY_GAME_LINE] Attempting lookup by game_name: '{game_line.game_name}'")
             game = cls.get_by_title(game_line.game_name)
             if game:
-                logger.info(f"[GET_BY_GAME_LINE] ✓ Found game by name: title_original='{game.title_original}', deck_id={game.deck_id}, has_image={bool(game.image)}")
+                logger.debug(f"[GET_BY_GAME_LINE] ✓ Found game by name: title_original='{game.title_original}', deck_id={game.deck_id}, has_image={bool(game.image)}")
             else:
-                logger.info(f"[GET_BY_GAME_LINE] ✗ No game found by name: '{game_line.game_name}'")
+                logger.debug(f"[GET_BY_GAME_LINE] ✗ No game found by name: '{game_line.game_name}'")
             return game
         
         logger.warning(f"[GET_BY_GAME_LINE] ✗ No game found for line (no game_id or game_name)")

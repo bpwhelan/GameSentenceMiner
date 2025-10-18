@@ -13,12 +13,11 @@ Usage:
 """
 
 import time
-import base64
 from typing import Optional, Dict, List
-import requests
 
 from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.jiten_api_client import JitenApiClient
 
 
 def fetch_jiten_data_for_game(game: GamesTable) -> Optional[Dict]:
@@ -49,59 +48,32 @@ def fetch_jiten_data_for_game(game: GamesTable) -> Optional[Dict]:
         }
     """
     if not game.deck_id:
-        logger.warning(f"Game {game.id} ({game.title_original}) has no deck_id, skipping jiten fetch")
+        logger.debug(f"Game {game.id} ({game.title_original}) has no deck_id, skipping jiten fetch")
         return None
     
     try:
-        logger.info(f"📡 Fetching jiten.moe data for game: {game.title_original} (deck_id: {game.deck_id})")
+        logger.debug(f"Fetching jiten.moe data for game: {game.title_original} (deck_id: {game.deck_id})")
         
-        # Call jiten.moe API
-        jiten_url = 'https://api.jiten.moe/api/media-deck/get-media-decks'
-        params = {
-            'titleFilter': game.title_original,
-            'sortBy': 'title',
-            'sortOrder': 0,
-            'offset': 0
-        }
+        # Use direct deck detail API endpoint
+        data = JitenApiClient.get_deck_detail(game.deck_id)
         
-        response = requests.get(jiten_url, params=params, timeout=10)
-        
-        if response.status_code != 200:
-            logger.error(f"❌ jiten.moe API returned status {response.status_code} for game {game.id}")
+        if not data:
+            logger.debug(f"Failed to fetch deck detail for deck_id {game.deck_id}")
             return None
         
-        data = response.json()
-        logger.debug(f"📊 jiten.moe returned {len(data.get('data', []))} results")
+        # Extract main deck data from the detail response
+        main_deck = data.get('data', {}).get('mainDeck')
+        if not main_deck:
+            logger.debug(f"No mainDeck found in response for deck_id {game.deck_id}")
+            return None
         
-        # Find the specific deck by deck_id
-        for item in data.get('data', []):
-            if item.get('deckId') == game.deck_id:
-                jiten_data = {
-                    'deck_id': item.get('deckId'),
-                    'title_original': item.get('originalTitle', ''),
-                    'title_romaji': item.get('romajiTitle', ''),
-                    'title_english': item.get('englishTitle', ''),
-                    'description': item.get('description', ''),
-                    'cover_name': item.get('coverName', ''),
-                    'media_type': item.get('mediaType'),
-                    'character_count': item.get('characterCount', 0),
-                    'difficulty': item.get('difficulty', 0),
-                    'difficulty_raw': item.get('difficultyRaw', 0),
-                    'links': item.get('links', []),
-                    'aliases': item.get('aliases', []),
-                    'release_date': item.get('releaseDate', '')
-                }
-                logger.info(f"✅ Found jiten.moe data for: {jiten_data['title_original']}")
-                return jiten_data
+        # Normalize the deck data
+        jiten_data = JitenApiClient.normalize_deck_data(main_deck)
+        logger.debug(f"Successfully fetched jiten.moe data for: {jiten_data['title_original']}")
+        return jiten_data
         
-        logger.error(f"❌ Deck {game.deck_id} not found in jiten.moe results for game {game.id}")
-        return None
-        
-    except requests.RequestException as e:
-        logger.error(f"💥 jiten.moe API request failed for game {game.id}: {e}")
-        return None
     except Exception as e:
-        logger.error(f"💥 Unexpected error fetching jiten data for game {game.id}: {e}")
+        logger.debug(f"Unexpected error fetching jiten data for game {game.id}: {e}")
         return None
 
 
@@ -133,7 +105,7 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
             logger.warning(f"⚠️ manual_overrides is not a list for game {game.id}: {type(manual_overrides)}")
             manual_overrides = []
         
-        logger.debug(f"🔍 Checking fields for game {game.id} (manual overrides: {manual_overrides})")
+        logger.debug(f"Checking fields for game {game.id} (manual overrides: {manual_overrides})")
         
         # Check each field against manual overrides
         if 'deck_id' not in manual_overrides:
@@ -190,48 +162,19 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
         
         # Always re-download image if not manually overridden
         if 'image' not in manual_overrides and jiten_data.get('cover_name'):
-            try:
-                logger.debug(f"🖼️ Downloading image: {jiten_data['cover_name']}")
-                img_response = requests.get(jiten_data['cover_name'], timeout=10)
-                if img_response.status_code == 200:
-                    # Encode image to base64
-                    img_base64 = base64.b64encode(img_response.content).decode('utf-8')
-                    
-                    # Detect image format from content-type header or magic bytes
-                    content_type = img_response.headers.get('content-type', '').lower()
-                    if 'png' in content_type:
-                        mime_type = 'image/png'
-                    elif 'jpeg' in content_type or 'jpg' in content_type:
-                        mime_type = 'image/jpeg'
-                    elif 'gif' in content_type:
-                        mime_type = 'image/gif'
-                    elif 'webp' in content_type:
-                        mime_type = 'image/webp'
-                    else:
-                        # Fallback: detect from magic bytes
-                        if img_base64.startswith('iVBOR'):
-                            mime_type = 'image/png'
-                        elif img_base64.startswith('/9j/'):
-                            mime_type = 'image/jpeg'
-                        elif img_base64.startswith('R0lGOD'):
-                            mime_type = 'image/gif'
-                        else:
-                            mime_type = 'image/jpeg'  # Default
-                    
-                    # Store with proper data URI prefix
-                    update_fields['image'] = f'data:{mime_type};base64,{img_base64}'
-                    logger.info(f"✅ Downloaded and encoded image for game {game.id} as {mime_type}")
-                else:
-                    logger.warning(f"⚠️ Failed to download image: HTTP {img_response.status_code}")
-            except Exception as img_error:
-                logger.warning(f"⚠️ Failed to download image for game {game.id}: {img_error}")
+            image_data = JitenApiClient.download_cover_image(jiten_data['cover_name'])
+            if image_data:
+                update_fields['image'] = image_data
+                logger.debug(f"Downloaded and encoded image for game {game.id}")
+            else:
+                logger.debug(f"Failed to download image for game {game.id}")
         elif 'image' in manual_overrides:
             skipped_fields.append('image')
         
         # Update the game using the jiten update method (doesn't mark as manual)
         if update_fields:
             game.update_all_fields_from_jiten(**update_fields)
-            logger.info(f"✅ Updated game {game.id} ({game.title_original}): {len(update_fields)} fields")
+            logger.debug(f"Updated game {game.id} ({game.title_original}): {len(update_fields)} fields")
             return {
                 'success': True,
                 'updated_fields': list(update_fields.keys()),
@@ -239,7 +182,7 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
                 'error': None
             }
         else:
-            logger.info(f"ℹ️ No fields updated for game {game.id} - all fields are manually overridden")
+            logger.debug(f"No fields updated for game {game.id} - all fields are manually overridden")
             return {
                 'success': True,
                 'updated_fields': [],
@@ -278,9 +221,7 @@ def update_all_jiten_games() -> Dict:
             'details': List[Dict]         # Per-game details
         }
     """
-    logger.info("=" * 80)
-    logger.info("🔄 Starting jiten.moe update for all linked games")
-    logger.info("=" * 80)
+    logger.debug("Starting jiten.moe update for all linked games")
     
     start_time = time.time()
     
@@ -293,10 +234,10 @@ def update_all_jiten_games() -> Dict:
     linked_count = len(linked_games)
     skipped_count = total_games - linked_count
     
-    logger.info(f"📊 Found {total_games} total games, {linked_count} linked to jiten.moe, {skipped_count} unlinked")
+    logger.debug(f"Found {total_games} total games, {linked_count} linked to jiten.moe, {skipped_count} unlinked")
     
     if linked_count == 0:
-        logger.info("ℹ️ No linked games found, nothing to update")
+        logger.debug("No linked games found, nothing to update")
         return {
             'total_games': total_games,
             'linked_games': 0,
@@ -314,7 +255,7 @@ def update_all_jiten_games() -> Dict:
     details = []
     
     for i, game in enumerate(linked_games, 1):
-        logger.info(f"📝 Processing game {i}/{linked_count}: {game.title_original} (deck_id: {game.deck_id})")
+        logger.debug(f"Processing game {i}/{linked_count}: {game.title_original} (deck_id: {game.deck_id})")
         
         game_detail = {
             'game_id': game.id,
@@ -331,7 +272,7 @@ def update_all_jiten_games() -> Dict:
             jiten_data = fetch_jiten_data_for_game(game)
             
             if jiten_data is None:
-                logger.warning(f"⚠️ Failed to fetch jiten data for game {game.id}, skipping")
+                logger.debug(f"Failed to fetch jiten data for game {game.id}, skipping")
                 failed_count += 1
                 game_detail['error'] = 'Failed to fetch jiten data'
                 details.append(game_detail)
@@ -360,23 +301,21 @@ def update_all_jiten_games() -> Dict:
         
         # Add 1 second delay between games (except after the last one)
         if i < linked_count:
-            logger.debug(f"⏱️ Waiting 1 second before next game...")
+            logger.debug(f"Waiting 1 second before next game...")
             time.sleep(1)
     
     elapsed_time = time.time() - start_time
     
     # Log summary
-    logger.info("=" * 80)
-    logger.info("✅ Jiten.moe update completed")
-    logger.info(f"📊 Summary:")
-    logger.info(f"   - Total games: {total_games}")
-    logger.info(f"   - Linked games: {linked_count}")
-    logger.info(f"   - Successfully updated: {updated_count}")
-    logger.info(f"   - Failed: {failed_count}")
-    logger.info(f"   - Skipped (no deck_id): {skipped_count}")
-    logger.info(f"   - Total fields updated: {total_fields_updated}")
-    logger.info(f"   - Time elapsed: {elapsed_time:.2f} seconds")
-    logger.info("=" * 80)
+    logger.debug("Jiten.moe update completed")
+    logger.debug(f"Summary:")
+    logger.debug(f"   - Total games: {total_games}")
+    logger.debug(f"   - Linked games: {linked_count}")
+    logger.debug(f"   - Successfully updated: {updated_count}")
+    logger.debug(f"   - Failed: {failed_count}")
+    logger.debug(f"   - Skipped (no deck_id): {skipped_count}")
+    logger.debug(f"   - Total fields updated: {total_fields_updated}")
+    logger.debug(f"   - Time elapsed: {elapsed_time:.2f} seconds")
     
     return {
         'total_games': total_games,
