@@ -8,6 +8,7 @@ Anki review data (retention, game stats) still requires direct AnkiConnect queri
 
 import concurrent.futures
 import datetime
+import traceback
 from flask import request, jsonify
 from GameSentenceMiner.util.configuration import get_config
 from GameSentenceMiner.anki import invoke
@@ -58,11 +59,23 @@ def register_anki_api_endpoints(app):
             
             # Determine date range
             if start_timestamp and end_timestamp:
-                # Convert milliseconds to seconds for fromtimestamp
-                start_date = datetime.date.fromtimestamp(start_timestamp / 1000.0)
-                end_date = datetime.date.fromtimestamp(end_timestamp / 1000.0)
-                start_date_str = start_date.strftime('%Y-%m-%d')
-                end_date_str = end_date.strftime('%Y-%m-%d')
+                try:
+                    # Convert milliseconds to seconds for fromtimestamp
+                    # Handle negative timestamps (before epoch) by clamping to epoch
+                    start_ts_seconds = max(0, start_timestamp / 1000.0)
+                    end_ts_seconds = max(0, end_timestamp / 1000.0)
+                    
+                    start_date = datetime.date.fromtimestamp(start_ts_seconds)
+                    end_date = datetime.date.fromtimestamp(end_ts_seconds)
+                    start_date_str = start_date.strftime('%Y-%m-%d')
+                    end_date_str = end_date.strftime('%Y-%m-%d')
+                    
+                    logger.info(f"[Anki Kanji] Date range: {start_date_str} to {end_date_str}")
+                except (ValueError, OSError) as e:
+                    logger.error(f"Invalid timestamp conversion: start={start_timestamp}, end={end_timestamp}, error={e}")
+                    # Fallback to using all data
+                    start_date_str = None
+                    end_date_str = today_str
             else:
                 start_date_str = None
                 end_date_str = today_str
@@ -106,11 +119,22 @@ def register_anki_api_endpoints(app):
             # If no rollup data, fall back to querying all lines
             if not kanji_freq_dict:
                 logger.info("[Anki Kanji] No rollup data, falling back to direct query")
-                all_lines = (
-                    GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000.0, end_timestamp / 1000.0)
-                    if start_timestamp is not None and end_timestamp is not None
-                    else GameLinesTable.all()
-                )
+                try:
+                    if start_timestamp is not None and end_timestamp is not None:
+                        # Handle negative timestamps by clamping to 0
+                        start_ts = max(0, start_timestamp / 1000.0)
+                        end_ts = max(0, end_timestamp / 1000.0)
+                        all_lines = GameLinesTable.get_lines_filtered_by_timestamp(
+                            start=start_ts,
+                            end=end_ts,
+                            for_stats=True
+                        )
+                    else:
+                        all_lines = GameLinesTable.all()
+                except Exception as e:
+                    logger.error(f"Error querying lines by timestamp: {e}")
+                    logger.error(traceback.format_exc())
+                    all_lines = GameLinesTable.all()
                 gsm_kanji_stats = calculate_kanji_frequency(all_lines)
             else:
                 # Convert rollup kanji data to expected format
@@ -192,6 +216,7 @@ def register_anki_api_endpoints(app):
             
         except Exception as e:
             logger.error(f"Error fetching kanji stats: {e}")
+            logger.error(traceback.format_exc())
             return jsonify({"error": str(e)}), 500
 
     @app.route('/api/anki_game_stats')
@@ -502,13 +527,20 @@ def register_anki_api_endpoints(app):
         try:
             # Fetch GSM lines (direct query needed for mining-specific fields)
             try:
-                all_lines = (
-                    GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000.0, end_timestamp / 1000.0)
-                    if start_timestamp is not None and end_timestamp is not None
-                    else GameLinesTable.all()
-                )
+                if start_timestamp is not None and end_timestamp is not None:
+                    # Handle negative timestamps by clamping to 0
+                    start_ts = max(0, start_timestamp / 1000.0)
+                    end_ts = max(0, end_timestamp / 1000.0)
+                    all_lines = GameLinesTable.get_lines_filtered_by_timestamp(
+                        start=start_ts,
+                        end=end_ts,
+                        for_stats=True
+                    )
+                else:
+                    all_lines = GameLinesTable.all()
             except Exception as e:
                 logger.warning(f"Failed to filter lines by timestamp: {e}, fetching all lines instead")
+                logger.warning(traceback.format_exc())
                 all_lines = GameLinesTable.all()
             
             # Calculate mining heatmap

@@ -204,27 +204,29 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
     for game_id, data in game_data.items():
         time_spent = calculate_actual_reading_time(data['timestamps']) if len(data['timestamps']) >= 2 else 0.0
         
-        # Try to get game title from games table, fallback to game_name
+        # Try to get game title from games table, fallback to game_name (OBS scene name)
         try:
             game = GamesTable.get(game_id)  # game_id is already a UUID string
-            if game:
-                title = game.title_original if game.title_original else f"Game {game_id}"
+            if game and game.title_original:
+                # Best case: we have the game in the database with a proper title
+                title = game.title_original
                 logger.debug(f"[ROLLUP_DEBUG] Found game for {game_id[:8]}...: title='{title}', deck_id={game.deck_id}")
             else:
-                # Fallback to game_name if available
+                # Fallback to game_name (OBS scene name) - much better than UUID!
                 if data['game_name']:
                     title = data['game_name']
-                    logger.info(f"[ROLLUP_FALLBACK] Using game_name '{title}' for missing game_id {game_id[:8]}...")
+                    logger.info(f"[ROLLUP_FALLBACK] Using game_name '{title}' for game_id {game_id[:8]}... (not in games table)")
                 else:
-                    title = f"Game {game_id}"
-                    logger.warning(f"[ROLLUP_DEBUG] GamesTable.get({game_id[:8]}...) returned None and no game_name available")
+                    # Last resort: use a placeholder (shouldn't happen often)
+                    title = f"Unknown Game"
+                    logger.warning(f"[ROLLUP_DEBUG] No title or game_name for game_id {game_id[:8]}...")
         except Exception as e:
             # Fallback to game_name if available
             if data['game_name']:
                 title = data['game_name']
                 logger.info(f"[ROLLUP_FALLBACK] Using game_name '{title}' after exception for game_id {game_id[:8]}...: {e}")
             else:
-                title = f"Game {game_id}"
+                title = f"Unknown Game"
                 logger.warning(f"[ROLLUP_DEBUG] Failed to get game title for game_id {game_id[:8]}...: {e}")
         
         game_details[game_id] = {

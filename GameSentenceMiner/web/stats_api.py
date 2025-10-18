@@ -119,6 +119,21 @@ def register_stats_api_routes(app):
             combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
             logger.info(f"Combined stats: {len(combined_stats)} fields")
             
+            # === PERFORMANCE OPTIMIZATION: Extract game titles from rollup data ===
+            # Build game_name -> title mapping from rollup + today's lines
+            # This eliminates 28+ database queries in build_game_display_name_mapping()
+            game_name_to_display = {}
+            
+            # Step 1: Get game_id -> title mapping from rollup data
+            game_id_to_title = {}
+            game_activity = combined_stats.get('game_activity_data', {})
+            for game_id, activity in game_activity.items():
+                title = activity.get('title', f'Game {game_id}')
+                game_id_to_title[game_id] = title
+                logger.debug(f"[TITLE_DEBUG] game_id={game_id[:8]}..., title='{title}'")
+            
+            logger.info(f"Extracted {len(game_id_to_title)} game titles from rollup data")
+            
             # === PERFORMANCE OPTIMIZATION: Build chart data from rollup instead of fetching all lines ===
             # Only fetch today's lines for live calculations
             today_lines_for_charts = []
@@ -127,6 +142,18 @@ def register_stats_api_routes(app):
                 today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
                 today_lines_for_charts = GameLinesTable.get_lines_filtered_by_timestamp(start=today_start, end=today_end, for_stats=True)
                 logger.info(f"Fetched {len(today_lines_for_charts)} lines for today's charts")
+            
+            # Fetch ALL lines for chart calculations (needed for reverse mapping)
+            all_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=start_timestamp, end=end_timestamp, for_stats=True)
+            logger.info(f"Fetched {len(all_lines)} lines for chart calculations")
+            
+            # Build game_id -> game_name reverse mapping (needed for daily_data)
+            game_id_to_game_name = {}
+            for line in all_lines:
+                if line.game_id and line.game_id not in game_id_to_game_name:
+                    game_id_to_game_name[line.game_id] = line.game_name or "Unknown Game"
+            
+            logger.info(f"Built game_id reverse mapping for {len(game_id_to_game_name)} games")
             
             # 2. Build daily_data from rollup records (FAST) + today's lines (SMALL)
             # Structure: daily_data[date_str][display_name] = {'lines': N, 'chars': N}
@@ -157,7 +184,21 @@ def register_stats_api_routes(app):
                                     game_data = rollup.game_activity_data
                                 
                                 for game_id, activity in game_data.items():
-                                    display_name = activity.get('title', f'Game {game_id}')
+                                    title = activity.get('title', f'Game {game_id}')
+                                    
+                                    # 🔧 HACKY FIX: Use game_name from reverse mapping if title is UUID
+                                    if title.startswith("Game ") and len(title) > 40:  # UUID format check
+                                        # Try to get the actual game_name (OBS scene name) from our reverse mapping
+                                        if game_id in game_id_to_game_name:
+                                            display_name = game_id_to_game_name[game_id]
+                                            logger.debug(f"[DAILY_DATA_DEBUG] Detected UUID title, using game_name: '{display_name}'")
+                                        else:
+                                            # Fallback: use shortened UUID
+                                            display_name = f"Game {game_id[:8]}"
+                                            logger.debug(f"[DAILY_DATA_DEBUG] No game_name found, using shortened UUID: '{display_name}'")
+                                    else:
+                                        display_name = title
+                                    
                                     daily_data[date_str][display_name]['lines'] = activity.get('lines', 0)
                                     daily_data[date_str][display_name]['chars'] = activity.get('chars', 0)
                             except (json.JSONDecodeError, KeyError, TypeError) as e:
@@ -175,10 +216,37 @@ def register_stats_api_routes(app):
                 daily_data[day_str][display_name]['lines'] += 1
                 daily_data[day_str][display_name]['chars'] += len(line.line_text) if line.line_text else 0
             
-            # Fetch ALL lines for chart calculations (needed for build_game_display_name_mapping)
-            # The rollup optimization is for daily_data building, but chart functions still need all lines
-            all_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=start_timestamp, end=end_timestamp, for_stats=True)
-            logger.info(f"Fetched {len(all_lines)} lines for chart calculations")
+            # Step 2: Build game_name -> title mapping by scanning all_lines
+            # (game_id_to_game_name was already built earlier for daily_data)
+            for line in all_lines:
+                game_name = line.game_name or "Unknown Game"
+                
+                # Skip if we already have a mapping for this game_name
+                if game_name in game_name_to_display:
+                    continue
+                
+                # Priority 1: If line has game_id, use the title from rollup
+                if line.game_id and line.game_id in game_id_to_title:
+                    title = game_id_to_title[line.game_id]
+                    
+                    # 🔧 HACKY FIX: Detect if title is a UUID (starts with "Game " followed by UUID pattern)
+                    # If so, fall back to game_name (OBS scene name) which is more readable
+                    if title.startswith("Game ") and len(title) > 40:  # UUID format check
+                        game_name_to_display[game_name] = game_name
+                        logger.debug(f"[MAPPING_DEBUG] Detected UUID title '{title[:20]}...', using game_name instead: '{game_name}'")
+                    else:
+                        game_name_to_display[game_name] = title
+                        logger.debug(f"[MAPPING_DEBUG] game_name='{game_name}' -> title='{title}' (from rollup)")
+                # Priority 2: Fallback to game_name (OBS scene name) - better than nothing!
+                else:
+                    game_name_to_display[game_name] = game_name
+                    logger.debug(f"[MAPPING_DEBUG] game_name='{game_name}' -> title='{game_name}' (fallback to OBS scene name)")
+            
+            logger.info(f"Built game_name mapping for {len(game_name_to_display)} games (no database queries!)")
+            
+            # DEBUG: Log what's in the mapping
+            for gn, title in list(game_name_to_display.items())[:3]:
+                logger.info(f"[MAPPING_SAMPLE] '{gn}' -> '{title}'")
             
             if not all_lines and not daily_data:
                 return jsonify({"labels": [], "datasets": []})
@@ -306,19 +374,19 @@ def register_stats_api_routes(app):
                 heatmap_data = {}
                 
             try:
-                total_chars_data = calculate_total_chars_per_game(all_lines)
+                total_chars_data = calculate_total_chars_per_game(all_lines, game_name_to_display)
             except Exception as e:
                 logger.error(f"Error calculating total chars per game: {e}")
                 total_chars_data = {}
                 
             try:
-                reading_time_data = calculate_reading_time_per_game(all_lines)
+                reading_time_data = calculate_reading_time_per_game(all_lines, game_name_to_display)
             except Exception as e:
                 logger.error(f"Error calculating reading time per game: {e}")
                 reading_time_data = {}
                 
             try:
-                reading_speed_per_game_data = calculate_reading_speed_per_game(all_lines)
+                reading_speed_per_game_data = calculate_reading_speed_per_game(all_lines, game_name_to_display)
             except Exception as e:
                 logger.error(f"Error calculating reading speed per game: {e}")
                 reading_speed_per_game_data = {}

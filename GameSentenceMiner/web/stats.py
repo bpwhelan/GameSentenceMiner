@@ -203,9 +203,11 @@ def calculate_mining_heatmap_data(all_lines, filter_year=None):
     return dict(heatmap_data)
 
 
-def calculate_total_chars_per_game(all_lines):
+def calculate_total_chars_per_game(all_lines, game_name_to_display=None):
     """Calculate total characters read per game."""
-    game_name_to_display = build_game_display_name_mapping(all_lines)
+    if game_name_to_display is None:
+        # Fallback for backward compatibility
+        game_name_to_display = build_game_display_name_mapping(all_lines)
     
     game_data = defaultdict(lambda: {'total_chars': 0, 'first_time': None})
     
@@ -234,9 +236,11 @@ def calculate_total_chars_per_game(all_lines):
         "totals": [item[1] for item in char_data]
     }
 
-def calculate_reading_time_per_game(all_lines):
+def calculate_reading_time_per_game(all_lines, game_name_to_display=None):
     """Calculate total reading time per game in hours using AFK timer logic."""
-    game_name_to_display = build_game_display_name_mapping(all_lines)
+    if game_name_to_display is None:
+        # Fallback for backward compatibility
+        game_name_to_display = build_game_display_name_mapping(all_lines)
     
     game_data = defaultdict(lambda: {'timestamps': [], 'first_time': None})
     
@@ -267,9 +271,11 @@ def calculate_reading_time_per_game(all_lines):
         "totals": [round(item[1], 2) for item in time_data]  # Round to 2 decimals for hours
     }
 
-def calculate_reading_speed_per_game(all_lines):
+def calculate_reading_speed_per_game(all_lines, game_name_to_display=None):
     """Calculate average reading speed per game (chars/hour) using AFK timer logic."""
-    game_name_to_display = build_game_display_name_mapping(all_lines)
+    if game_name_to_display is None:
+        # Fallback for backward compatibility
+        game_name_to_display = build_game_display_name_mapping(all_lines)
     
     game_data = defaultdict(lambda: {'chars': 0, 'timestamps': [], 'first_time': None})
     
