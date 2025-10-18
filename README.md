@@ -61,7 +61,7 @@ https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
 ### Overlay
 
-GSM also has an overlay that allows for on-screen yomitan lookups! Whenever the overlay is on it will the screen ONCE whenever a text event from any source comes into GSM. It then allows for hovering over the actual characters in-game for yomitan lookups, and mining.
+GSM also features an overlay that allows for on-screen yomitan lookups. Whenever the overlay is on it will scan the screen ONCE whenever a text event from any source comes into GSM. It then allows for hovering over the actual characters in-game for yomitan lookups, and mining.
 
 https://youtu.be/m1MweBsHbwI
 
