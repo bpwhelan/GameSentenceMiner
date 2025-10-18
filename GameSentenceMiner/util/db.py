@@ -615,47 +615,6 @@ class GameLinesTable(SQLiteDBTable):
         clean_columns = ['line_text'] if for_stats else []
         return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
 
-class StatsRollupTable(SQLiteDBTable):
-    _table = 'stats_rollup'
-    _fields = ['date', 'games_played', 'lines_mined', 'anki_cards_created', 'time_spent_mining']
-    _types = [int,  # Includes primary key type
-              str, int, int, int, float]
-    _pk = 'id'
-    _auto_increment = True  # Use auto-incrementing integer IDs
-    
-    def __init__(self, id: Optional[int] = None,
-                 date: Optional[str] = None,
-                 games_played: int = 0,
-                 lines_mined: int = 0,
-                 anki_cards_created: int = 0,
-                 time_spent_mining: float = 0.0):
-        self.id = id
-        self.date = date if date is not None else datetime.now().strftime("%Y-%m-%d")
-        self.games_played = games_played
-        self.lines_mined = lines_mined
-        self.anki_cards_created = anki_cards_created
-        self.time_spent_mining = time_spent_mining
-
-    @classmethod
-    def get_stats_for_date(cls, date: str) -> Optional['StatsRollupTable']:
-        row = cls._db.fetchone(
-            f"SELECT * FROM {cls._table} WHERE date=?", (date,))
-        return cls.from_row(row) if row else None
-
-    @classmethod
-    def update_stats(cls, date: str, games_played: int = 0, lines_mined: int = 0, anki_cards_created: int = 0, time_spent_mining: float = 0.0):
-        stats = cls.get_stats_for_date(date)
-        if not stats:
-            new_stats = cls(date=date, games_played=games_played,
-                            lines_mined=lines_mined, anki_cards_created=anki_cards_created, time_spent_mining=time_spent_mining)
-            new_stats.save()
-            return
-        stats.games_played += games_played
-        stats.lines_mined += lines_mined
-        stats.anki_cards_created += anki_cards_created
-        stats.time_spent_mining += time_spent_mining
-        stats.save()
-
 # Ensure database directory exists and return path
 def get_db_directory(test=False, delete_test=False) -> str:
     if platform == 'win32':  # Windows
@@ -709,11 +668,12 @@ if os.path.exists(db_path):
 
 gsm_db = SQLiteDB(db_path)
 
-# Import GamesTable and CronTable after gsm_db is created to avoid circular import
+# Import GamesTable, CronTable, and StatsRollupTable after gsm_db is created to avoid circular import
 from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.cron_table import CronTable
+from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 
-for cls in [AIModelsTable, GameLinesTable, GamesTable, CronTable]:
+for cls in [AIModelsTable, GameLinesTable, GamesTable, CronTable, StatsRollupTable]:
     cls.set_db(gsm_db)
     # Uncomment to start fresh every time
     # cls.drop()

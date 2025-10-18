@@ -65,6 +65,19 @@ def run_due_crons():
                 logger.info(f"✅ Successfully executed {cron.name}")
                 logger.info(f"   Updated: {result['updated_games']}/{result['linked_games']} games")
                 
+            elif cron.name == 'daily_stats_rollup':
+                from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
+                result = run_daily_rollup()
+                
+                # Mark as successfully run
+                CronTable.just_ran(cron.id)
+                executed_count += 1
+                detail['success'] = True
+                detail['result'] = result
+                
+                logger.info(f"✅ Successfully executed {cron.name}")
+                logger.info(f"   Processed: {result['processed']} dates, Skipped: {result['skipped']}, Errors: {result['errors']}")
+                
             else:
                 logger.warning(f"⚠️ Unknown cron job: {cron.name}")
                 detail['error'] = f"Unknown cron job: {cron.name}"
@@ -119,4 +132,6 @@ if __name__ == '__main__':
                 res = detail['result']
                 if 'updated_games' in res:
                     print(f"   Updated {res['updated_games']}/{res['linked_games']} games")
+                elif 'processed' in res:
+                    print(f"   Processed {res['processed']} dates, Skipped {res['skipped']}, Errors {res['errors']}")
         print("-" * 80)
