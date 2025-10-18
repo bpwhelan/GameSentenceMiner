@@ -56,8 +56,15 @@ GSM runs a fork of [OwOCR](https://github.com/AuroraWright/owocr/) to provide ac
 https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
 
+### Overlay
 
-### Game Launcher Capabilities (WIP)
+GSM also has an overlay that allows for on-screen yomitan lookups! Whenever the overlay is on it will the screen ONCE whenever a text event from any source comes into GSM. It then allows for hovering over the actual characters in-game for yomitan lookups, and mining.
+
+https://youtu.be/m1MweBsHbwI
+
+![l0qGasWkoH](https://github.com/user-attachments/assets/c8374705-efa0-497b-b979-113fae8a1e31)
+
+<!--### Game Launcher Capabilities (WIP)
 
 This is probably the feature I care least about, but if you are lazy like me, you may find this helpful.
 
@@ -67,7 +74,7 @@ This is probably the feature I care least about, but if you are lazy like me, yo
 
 This feature simplifies the process of launching games and (potentially) hooking them, making the entire workflow more efficient.
 
-<img width="2560" height="1392" alt="GameSentenceMiner_1zuov0R9xK" src="https://github.com/user-attachments/assets/205769bb-3dd2-493b-9383-2d6e2ca05c2d" />
+<img width="2560" height="1392" alt="GameSentenceMiner_1zuov0R9xK" src="https://github.com/user-attachments/assets/205769bb-3dd2-493b-9383-2d6e2ca05c2d" />-->
 
 ## Basic Requirements
 
