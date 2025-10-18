@@ -173,11 +173,16 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
             'game_ids': []
         }
     
-    game_data = defaultdict(lambda: {'chars': 0, 'lines': 0, 'timestamps': []})
+    game_data = defaultdict(lambda: {'chars': 0, 'lines': 0, 'timestamps': [], 'game_name': None})
     game_ids = set()
     
+    # DEBUG: Count lines with/without game_id
+    lines_with_game_id = sum(1 for line in lines if line.game_id and line.game_id.strip())
+    lines_without_game_id = len(lines) - lines_with_game_id
+    logger.debug(f"[ROLLUP_DEBUG] {date_str}: {len(lines)} total lines, {lines_with_game_id} with game_id, {lines_without_game_id} without game_id")
+    
     for line in lines:
-        if line.game_id:
+        if line.game_id and line.game_id.strip():
             game_id = str(line.game_id)
             game_ids.add(game_id)
             
@@ -185,18 +190,42 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
             game_data[game_id]['chars'] += chars
             game_data[game_id]['lines'] += 1
             game_data[game_id]['timestamps'].append(float(line.timestamp))
+            
+            # Store game_name as fallback for title lookup
+            if hasattr(line, 'game_name') and line.game_name and not game_data[game_id]['game_name']:
+                game_data[game_id]['game_name'] = line.game_name
+        else:
+            # DEBUG: Log lines without game_id
+            if hasattr(line, 'game_name') and line.game_name:
+                logger.debug(f"[ROLLUP_DEBUG] Line without game_id but has game_name: '{line.game_name}'")
     
     # Calculate time spent per game and get game titles
     game_details = {}
     for game_id, data in game_data.items():
         time_spent = calculate_actual_reading_time(data['timestamps']) if len(data['timestamps']) >= 2 else 0.0
         
-        # Try to get game title from games table
+        # Try to get game title from games table, fallback to game_name
         try:
-            game = GamesTable.get(int(game_id))
-            title = game.title_original if game and game.title_original else f"Game {game_id}"
-        except:
-            title = f"Game {game_id}"
+            game = GamesTable.get(game_id)  # game_id is already a UUID string
+            if game:
+                title = game.title_original if game.title_original else f"Game {game_id}"
+                logger.debug(f"[ROLLUP_DEBUG] Found game for {game_id[:8]}...: title='{title}', deck_id={game.deck_id}")
+            else:
+                # Fallback to game_name if available
+                if data['game_name']:
+                    title = data['game_name']
+                    logger.info(f"[ROLLUP_FALLBACK] Using game_name '{title}' for missing game_id {game_id[:8]}...")
+                else:
+                    title = f"Game {game_id}"
+                    logger.warning(f"[ROLLUP_DEBUG] GamesTable.get({game_id[:8]}...) returned None and no game_name available")
+        except Exception as e:
+            # Fallback to game_name if available
+            if data['game_name']:
+                title = data['game_name']
+                logger.info(f"[ROLLUP_FALLBACK] Using game_name '{title}' after exception for game_id {game_id[:8]}...: {e}")
+            else:
+                title = f"Game {game_id}"
+                logger.warning(f"[ROLLUP_DEBUG] Failed to get game title for game_id {game_id[:8]}...: {e}")
         
         game_details[game_id] = {
             'title': title,

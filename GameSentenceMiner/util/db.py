@@ -827,10 +827,33 @@ def check_and_run_migrations():
         else:
             logger.debug("jiten_sync cron job already exists, skipping creation.")
     
+    def migrate_daily_rollup_cron_job():
+        """
+        Create the daily statistics rollup cron job if it doesn't exist.
+        This ensures the cron job is automatically registered on database initialization.
+        """
+        existing_cron = CronTable.get_by_name('daily_stats_rollup')
+        if not existing_cron:
+            logger.info("Creating daily statistics rollup cron job...")
+            # Calculate next run: tomorrow at 2 AM
+            now = datetime.now()
+            tomorrow_2am = datetime(now.year, now.month, now.day, 2, 0, 0) + timedelta(days=1)
+            
+            CronTable.create_cron_entry(
+                name='daily_stats_rollup',
+                description='Roll up daily statistics for all dates up to yesterday',
+                next_run=tomorrow_2am.timestamp(),
+                schedule='daily'
+            )
+            logger.info(f"✅ Created daily_stats_rollup cron job - next run: {tomorrow_2am.strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            logger.debug("daily_stats_rollup cron job already exists, skipping creation.")
+    
     migrate_timestamp()
     migrate_obs_scene_name()
     # migrate_cron_timestamps()  # Disabled - user will manually clean up data
     migrate_jiten_cron_job()
+    migrate_daily_rollup_cron_job()
         
 check_and_run_migrations()
     

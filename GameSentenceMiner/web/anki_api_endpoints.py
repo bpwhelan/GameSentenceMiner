@@ -1,14 +1,22 @@
 """
 Separate API endpoints for Anki statistics to improve performance through progressive loading.
 These endpoints replace the monolithic /api/anki_stats_combined endpoint.
+
+Uses hybrid rollup + live approach similar to /api/stats for GSM-based data (kanji, mining heatmap).
+Anki review data (retention, game stats) still requires direct AnkiConnect queries.
 """
 
 import concurrent.futures
+import datetime
 from flask import request, jsonify
 from GameSentenceMiner.util.configuration import get_config
 from GameSentenceMiner.anki import invoke
-from GameSentenceMiner.web.stats import calculate_kanji_frequency, calculate_mining_heatmap_data, is_kanji
+from GameSentenceMiner.web.stats import (
+    calculate_kanji_frequency, calculate_mining_heatmap_data, is_kanji,
+    aggregate_rollup_data, calculate_live_stats_for_today, combine_rollup_and_live_stats
+)
 from GameSentenceMiner.util.db import GameLinesTable
+from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.configuration import logger
 
 
@@ -36,23 +44,96 @@ def register_anki_api_endpoints(app):
 
     @app.route('/api/anki_kanji_stats')
     def api_anki_kanji_stats():
-        """Get kanji statistics including missing kanji analysis."""
+        """
+        Get kanji statistics including missing kanji analysis.
+        Uses hybrid rollup + live approach for GSM kanji data.
+        """
         start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
         end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
         
         try:
-            # Fetch GSM lines
-            try:
+            # === HYBRID ROLLUP + LIVE APPROACH FOR GSM KANJI ===
+            today = datetime.date.today()
+            today_str = today.strftime('%Y-%m-%d')
+            
+            # Determine date range
+            if start_timestamp and end_timestamp:
+                # Convert milliseconds to seconds for fromtimestamp
+                start_date = datetime.date.fromtimestamp(start_timestamp / 1000.0)
+                end_date = datetime.date.fromtimestamp(end_timestamp / 1000.0)
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                end_date_str = end_date.strftime('%Y-%m-%d')
+            else:
+                start_date_str = None
+                end_date_str = today_str
+            
+            # Check if today is in the date range
+            today_in_range = (not end_date_str) or (end_date_str >= today_str)
+            
+            # Query rollup data for historical dates (up to yesterday)
+            rollup_stats = None
+            if start_date_str:
+                yesterday = today - datetime.timedelta(days=1)
+                yesterday_str = yesterday.strftime('%Y-%m-%d')
+                
+                if start_date_str <= yesterday_str:
+                    rollup_end = min(end_date_str, yesterday_str) if end_date_str else yesterday_str
+                    logger.info(f"[Anki Kanji] Querying rollup data from {start_date_str} to {rollup_end}")
+                    rollups = StatsRollupTable.get_date_range(start_date_str, rollup_end)
+                    
+                    if rollups:
+                        rollup_stats = aggregate_rollup_data(rollups)
+                        logger.info(f"[Anki Kanji] Aggregated {len(rollups)} rollup records")
+            
+            # Calculate today's stats live if needed
+            live_stats = None
+            if today_in_range:
+                logger.info("[Anki Kanji] Calculating today's kanji stats live")
+                today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
+                today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
+                today_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=today_start, end=today_end, for_stats=True)
+                
+                if today_lines:
+                    live_stats = calculate_live_stats_for_today(today_lines)
+                    logger.info(f"[Anki Kanji] Calculated live stats from {len(today_lines)} lines")
+            
+            # Combine rollup and live stats
+            combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
+            
+            # Extract kanji frequency data from combined stats
+            kanji_freq_dict = combined_stats.get('kanji_frequency_data', {})
+            
+            # If no rollup data, fall back to querying all lines
+            if not kanji_freq_dict:
+                logger.info("[Anki Kanji] No rollup data, falling back to direct query")
                 all_lines = (
-                    GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000, end_timestamp / 1000)
+                    GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000.0, end_timestamp / 1000.0)
                     if start_timestamp is not None and end_timestamp is not None
                     else GameLinesTable.all()
                 )
-            except Exception as e:
-                logger.warning(f"Failed to filter lines by timestamp: {e}, fetching all lines instead")
-                all_lines = GameLinesTable.all()
+                gsm_kanji_stats = calculate_kanji_frequency(all_lines)
+            else:
+                # Convert rollup kanji data to expected format
+                from GameSentenceMiner.web.stats import get_gradient_color
+                max_frequency = max(kanji_freq_dict.values()) if kanji_freq_dict else 0
+                sorted_kanji = sorted(kanji_freq_dict.items(), key=lambda x: x[1], reverse=True)
+                
+                kanji_data = []
+                for kanji, count in sorted_kanji:
+                    color = get_gradient_color(count, max_frequency)
+                    kanji_data.append({
+                        "kanji": kanji,
+                        "frequency": count,
+                        "color": color
+                    })
+                
+                gsm_kanji_stats = {
+                    "kanji_data": kanji_data,
+                    "unique_count": len(sorted_kanji),
+                    "max_frequency": max_frequency
+                }
             
-            # Use concurrent processing for Anki API calls and kanji calculation
+            # Fetch Anki kanji (still requires direct query)
             def get_anki_kanji():
                 try:
                     note_ids = invoke("findNotes", query="")
@@ -85,16 +166,7 @@ def register_anki_api_endpoints(app):
                     logger.error(f"Failed to fetch kanji from Anki: {e}")
                     return set()
             
-            def get_gsm_kanji():
-                return calculate_kanji_frequency(all_lines)
-            
-            # Run both operations concurrently
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                anki_future = executor.submit(get_anki_kanji)
-                gsm_future = executor.submit(get_gsm_kanji)
-                
-                anki_kanji_set = anki_future.result()
-                gsm_kanji_stats = gsm_future.result()
+            anki_kanji_set = get_anki_kanji()
             
             gsm_kanji_list = gsm_kanji_stats.get("kanji_data", [])
             gsm_kanji_set = set([k["kanji"] for k in gsm_kanji_list])
@@ -417,15 +489,21 @@ def register_anki_api_endpoints(app):
 
     @app.route('/api/anki_mining_heatmap')
     def api_anki_mining_heatmap():
-        """Get mining heatmap data."""
+        """
+        Get mining heatmap data.
+        
+        Note: Currently uses direct query approach since mining heatmap requires checking
+        specific fields (screenshot_in_anki, audio_in_anki) which aren't aggregated in rollup.
+        Could be optimized in future by adding daily mining counts to rollup table.
+        """
         start_timestamp = int(request.args.get('start_timestamp')) if request.args.get('start_timestamp') else None
         end_timestamp = int(request.args.get('end_timestamp')) if request.args.get('end_timestamp') else None
         
         try:
-            # Fetch GSM lines
+            # Fetch GSM lines (direct query needed for mining-specific fields)
             try:
                 all_lines = (
-                    GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000, end_timestamp / 1000)
+                    GameLinesTable.get_lines_filtered_by_timestamp(start_timestamp / 1000.0, end_timestamp / 1000.0)
                     if start_timestamp is not None and end_timestamp is not None
                     else GameLinesTable.all()
                 )

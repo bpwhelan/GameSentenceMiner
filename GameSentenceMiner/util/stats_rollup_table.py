@@ -104,6 +104,11 @@ class StatsRollupTable(SQLiteDBTable):
         return cls.from_row(row) if row else None
     
     @classmethod
+    def get_by_date(cls, date: str) -> Optional['StatsRollupTable']:
+        """Get rollup statistics for a specific date (alias for get_stats_for_date)."""
+        return cls.get_stats_for_date(date)
+    
+    @classmethod
     def date_exists(cls, date: str) -> bool:
         """Check if a rollup exists for a specific date."""
         row = cls._db.fetchone(
