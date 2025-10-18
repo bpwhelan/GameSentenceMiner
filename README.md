@@ -10,7 +10,7 @@ Installation: https://www.youtube.com/watch?v=sVL9omRbGc4
 
 Discord: https://discord.gg/yP8Qse6bb8
 
-## Features
+## Features - [Anki Card Enhancement](#anki-card-enhancement) | [OCR](#ocr) | [Overlay](#overlay)
 
 ### Anki Card Enhancement
 
@@ -38,6 +38,8 @@ https://github.com/user-attachments/assets/df6bc38e-d74d-423e-b270-8a82eec2394c
 
 https://github.com/user-attachments/assets/ee670fda-1a8b-4dec-b9e6-072264155c6e
 
+---
+
 ### OCR
 
 GSM runs a fork of [OwOCR](https://github.com/AuroraWright/owocr/) to provide accurate text capture from games that do not have a hook. Here are some improvements GSM makes on stock OwOCR:
@@ -55,6 +57,7 @@ GSM runs a fork of [OwOCR](https://github.com/AuroraWright/owocr/) to provide ac
 
 https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
+---
 
 ### Overlay
 
