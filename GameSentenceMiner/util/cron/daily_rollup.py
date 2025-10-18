@@ -204,30 +204,32 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
     for game_id, data in game_data.items():
         time_spent = calculate_actual_reading_time(data['timestamps']) if len(data['timestamps']) >= 2 else 0.0
         
-        # Try to get game title from games table, fallback to game_name (OBS scene name)
+        # Title resolution with proper fallback chain:
+        # 1. games_table.title_original (best - linked game with metadata)
+        # 2. game_name (OBS scene name - good fallback)
+        # 3. Shortened UUID (last resort - better than "Unknown Game")
         try:
             game = GamesTable.get(game_id)  # game_id is already a UUID string
             if game and game.title_original:
                 # Best case: we have the game in the database with a proper title
                 title = game.title_original
-                logger.debug(f"[ROLLUP_DEBUG] Found game for {game_id[:8]}...: title='{title}', deck_id={game.deck_id}")
+                logger.debug(f"[ROLLUP_TITLE] Using games_table title for {game_id[:8]}...: '{title}'")
+            elif data['game_name']:
+                # Good fallback: use OBS scene name
+                title = data['game_name']
+                logger.debug(f"[ROLLUP_TITLE] Using OBS scene name for {game_id[:8]}...: '{title}'")
             else:
-                # Fallback to game_name (OBS scene name) - much better than UUID!
-                if data['game_name']:
-                    title = data['game_name']
-                    logger.info(f"[ROLLUP_FALLBACK] Using game_name '{title}' for game_id {game_id[:8]}... (not in games table)")
-                else:
-                    # Last resort: use a placeholder (shouldn't happen often)
-                    title = f"Unknown Game"
-                    logger.warning(f"[ROLLUP_DEBUG] No title or game_name for game_id {game_id[:8]}...")
+                # Last resort: shortened UUID (better than "Unknown Game" for debugging)
+                title = f"Game {game_id[:8]}"
+                logger.warning(f"[ROLLUP_TITLE] No title or game_name for {game_id[:8]}..., using shortened UUID")
         except Exception as e:
-            # Fallback to game_name if available
+            # Exception during lookup - use fallback chain
             if data['game_name']:
                 title = data['game_name']
-                logger.info(f"[ROLLUP_FALLBACK] Using game_name '{title}' after exception for game_id {game_id[:8]}...: {e}")
+                logger.info(f"[ROLLUP_TITLE] Exception during lookup, using game_name '{title}' for {game_id[:8]}...: {e}")
             else:
-                title = f"Unknown Game"
-                logger.warning(f"[ROLLUP_DEBUG] Failed to get game title for game_id {game_id[:8]}...: {e}")
+                title = f"Game {game_id[:8]}"
+                logger.warning(f"[ROLLUP_TITLE] Exception and no game_name for {game_id[:8]}..., using shortened UUID: {e}")
         
         game_details[game_id] = {
             'title': title,

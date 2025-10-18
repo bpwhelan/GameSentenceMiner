@@ -207,20 +207,12 @@ def register_stats_api_routes(app):
                                     game_data = rollup.game_activity_data
                                 
                                 for game_id, activity in game_data.items():
-                                    title = activity.get('title', f'Game {game_id}')
-                                    
-                                    # 🔧 HACKY FIX: Use game_name from reverse mapping if title is UUID
-                                    if title.startswith("Game ") and len(title) > 40:  # UUID format check
-                                        # Try to get the actual game_name (OBS scene name) from our reverse mapping
-                                        if game_id in game_id_to_game_name:
-                                            display_name = game_id_to_game_name[game_id]
-                                            logger.debug(f"[DAILY_DATA_DEBUG] Detected UUID title, using game_name: '{display_name}'")
-                                        else:
-                                            # Fallback: use shortened UUID
-                                            display_name = f"Game {game_id[:8]}"
-                                            logger.debug(f"[DAILY_DATA_DEBUG] No game_name found, using shortened UUID: '{display_name}'")
-                                    else:
-                                        display_name = title
+                                    # Trust the title from rollup data - it's already been resolved properly
+                                    # during the daily rollup process with proper fallback chain:
+                                    # 1. games_table.title_original
+                                    # 2. game_name (OBS scene name)
+                                    # 3. Shortened UUID as last resort
+                                    display_name = activity.get('title', f'Game {game_id[:8]}')
                                     
                                     daily_data[date_str][display_name]['lines'] = activity.get('lines', 0)
                                     daily_data[date_str][display_name]['chars'] = activity.get('chars', 0)
@@ -519,7 +511,7 @@ def register_stats_api_routes(app):
                 all_games_stats = {}
 
             # 7. Build lightweight allLinesData from rollup records for heatmap "Avg Daily Time" calculation
-            # Frontend needs timestamp data to calculate average daily reading time
+            # Frontend needs reading time data per day to calculate average daily reading time
             all_lines_data = []
             if start_date_str:
                 yesterday = today - datetime.timedelta(days=1)
@@ -532,7 +524,8 @@ def register_stats_api_routes(app):
                         date_obj = datetime.datetime.strptime(rollup.date, '%Y-%m-%d')
                         all_lines_data.append({
                             'timestamp': date_obj.timestamp(),
-                            'date': rollup.date
+                            'date': rollup.date,
+                            'reading_time_seconds': rollup.total_reading_time_seconds  # Add actual reading time
                         })
                     logger.info(f"Built allLinesData from {len(rollups_for_lines)} rollup records for heatmap calculations")
                 else:

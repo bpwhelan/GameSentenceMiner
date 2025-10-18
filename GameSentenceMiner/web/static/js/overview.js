@@ -84,54 +84,82 @@ document.addEventListener('DOMContentLoaded', function () {
         // Calculate average daily time for this year
         let avgDailyTime = "-";
         if (allLinesForYear && allLinesForYear.length > 0) {
-            // Group timestamps by day for this year
-            const dailyTimestamps = {};
-            for (const line of allLinesForYear) {
-                const ts = parseFloat(line.timestamp);
-                if (isNaN(ts)) continue;
-                const dateObj = new Date(ts * 1000);
-                const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
-                if (!dailyTimestamps[dateStr]) {
-                    dailyTimestamps[dateStr] = [];
-                }
-                dailyTimestamps[dateStr].push(parseFloat(line.timestamp));
-            }
+            // Check if we have pre-calculated reading time from rollup data
+            const hasReadingTimeData = allLinesForYear.some(line => line.reading_time_seconds !== undefined);
             
-            // Calculate reading time for each day with activity
-            let totalHours = 0;
-            let activeDays = 0;
-            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
-
-            for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
-                if (timestamps.length >= 2) {
-                    timestamps.sort((a, b) => a - b);
-                    let dayReadingTime = 0;
-
-                    for (let i = 1; i < timestamps.length; i++) {
-                        const gap = timestamps[i] - timestamps[i-1];
-                        dayReadingTime += Math.min(gap, afkTimerSeconds);
-                    }
-
-                    if (dayReadingTime > 0) {
-                        totalHours += dayReadingTime / 3600;
+            if (hasReadingTimeData) {
+                // Use pre-calculated reading time from rollup data (FAST!)
+                let totalHours = 0;
+                let activeDays = 0;
+                
+                for (const line of allLinesForYear) {
+                    if (line.reading_time_seconds !== undefined && line.reading_time_seconds > 0) {
+                        totalHours += line.reading_time_seconds / 3600;
                         activeDays++;
                     }
-                } else if (timestamps.length === 1) {
-                    // Single timestamp - count as minimal activity (1 second)
-                    totalHours += 1 / 3600;
-                    activeDays++;
                 }
-            }
-            
-            if (activeDays > 0) {
-                const avgHours = totalHours / activeDays;
-                if (avgHours < 1) {
-                    const minutes = Math.round(avgHours * 60);
-                    avgDailyTime = `${minutes}m`;
-                } else {
-                    const hours = Math.floor(avgHours);
-                    const minutes = Math.round((avgHours - hours) * 60);
-                    avgDailyTime = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+                
+                if (activeDays > 0) {
+                    const avgHours = totalHours / activeDays;
+                    if (avgHours < 1) {
+                        const minutes = Math.round(avgHours * 60);
+                        avgDailyTime = `${minutes}m`;
+                    } else {
+                        const hours = Math.floor(avgHours);
+                        const minutes = Math.round((avgHours - hours) * 60);
+                        avgDailyTime = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+                    }
+                }
+            } else {
+                // Fallback: Calculate from individual timestamps (for today's data)
+                const dailyTimestamps = {};
+                for (const line of allLinesForYear) {
+                    const ts = parseFloat(line.timestamp);
+                    if (isNaN(ts)) continue;
+                    const dateObj = new Date(ts * 1000);
+                    const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                    if (!dailyTimestamps[dateStr]) {
+                        dailyTimestamps[dateStr] = [];
+                    }
+                    dailyTimestamps[dateStr].push(parseFloat(line.timestamp));
+                }
+                
+                // Calculate reading time for each day with activity
+                let totalHours = 0;
+                let activeDays = 0;
+                let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
+
+                for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
+                    if (timestamps.length >= 2) {
+                        timestamps.sort((a, b) => a - b);
+                        let dayReadingTime = 0;
+
+                        for (let i = 1; i < timestamps.length; i++) {
+                            const gap = timestamps[i] - timestamps[i-1];
+                            dayReadingTime += Math.min(gap, afkTimerSeconds);
+                        }
+
+                        if (dayReadingTime > 0) {
+                            totalHours += dayReadingTime / 3600;
+                            activeDays++;
+                        }
+                    } else if (timestamps.length === 1) {
+                        // Single timestamp - count as minimal activity (1 second)
+                        totalHours += 1 / 3600;
+                        activeDays++;
+                    }
+                }
+                
+                if (activeDays > 0) {
+                    const avgHours = totalHours / activeDays;
+                    if (avgHours < 1) {
+                        const minutes = Math.round(avgHours * 60);
+                        avgDailyTime = `${minutes}m`;
+                    } else {
+                        const hours = Math.floor(avgHours);
+                        const minutes = Math.round((avgHours - hours) * 60);
+                        avgDailyTime = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+                    }
                 }
             }
         }
