@@ -128,6 +128,12 @@ export async function launchSteamGameID(name: string, shouldLaunchAgent: boolean
     const selectedGame = games.find((g: SteamGame) => String(g.name) === String(name));
 
     if (selectedGame) {
+        if (selectedGame.runTextractor) {
+            const textractorPath = getTextractorPath();
+            const textractorDir = path.dirname(textractorPath);
+            const textractorProcess = execFile(textractorPath, {windowsHide: false, cwd: textractorDir});
+            console.log(`Textractor launched with PID: ${textractorProcess.pid}`);
+        }
         if (selectedGame.executablePath) {
             const steamPid = launchSteamGame(selectedGame.executablePath);
         } else {
@@ -144,11 +150,6 @@ export async function launchSteamGameID(name: string, shouldLaunchAgent: boolean
                     });
                 }
             }, 3000);
-        }
-        if (selectedGame.runTextractor) {
-            const textractorPath = getTextractorPath();
-            const textractorProcess = execFile(textractorPath, {windowsHide: false});
-            console.log(`Textractor launched with PID: ${textractorProcess.pid}`);
         }
     } else {
         console.log(JSON.stringify({status: 'error', message: 'Game not found'}));

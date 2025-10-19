@@ -14,17 +14,11 @@
 
         <div class="form-group">
             <div class="input-group">
-                <label for="autoUpdateGSMApp">Auto Update GSM Python App:</label>
+                <label for="autoUpdateGSMApp">Auto Update:</label>
                 <input type="checkbox" id="autoUpdateGSMApp">
-                <span class="tooltip tooltip-bottom tooltip-right">❓
-                    <span class="tooltiptext">
-                        Automatically updates the GSM Python "Backend" to the latest version. This is what does the
-                        actual work.
-                    </span>
-                </span>
             </div>
 
-            <div class="input-group">
+            <!-- <div class="input-group">
                 <label for="autoUpdateElectron">Auto Update GSM Electron App:</label>
                 <input type="checkbox" id="autoUpdateElectron">
                 <span class="tooltip tooltip-bottom tooltip-right">❓
@@ -33,7 +27,7 @@
                         application you are on.
                     </span>
                 </span>
-            </div>
+            </div> -->
 
             <div class="input-group">
                 <label for="startConsoleMinimized">Start Console Minimized:</label>
@@ -53,6 +47,16 @@
                         Enables or disables the Yuzu Launcher tab in the launcher interface.
                     </span>
                 </span>
+            </div>
+
+            <div class="input-group">
+                <label for="runWindowTransparencyToolOnStartup">Run Window Transparency Tool on Startup:</label>
+                <input type="checkbox" id="runWindowTransparencyToolOnStartup">
+            </div>
+
+            <div class="input-group">
+                <label for="runOverlayOnStartup">Run Overlay on Startup:</label>
+                <input type="checkbox" id="runOverlayOnStartup">
             </div>
     </div>
 </div>
@@ -135,10 +139,6 @@
         const { ipcRenderer } = require('electron');
         const autoUpdateGSMAppCheckbox = document.getElementById('autoUpdateGSMApp');
         const autoUpdateElectronCheckbox = document.getElementById('autoUpdateElectron');
-        // const pythonPathInput = document.getElementById('pythonPath');
-        // const selectPythonPathButton = document.getElementById('selectPythonPath');
-        // const agentScriptsPathInput = document.getElementById('agentScriptsPath');
-        // const selectAgentScriptsPathButton = document.getElementById('selectAgentScriptsPath');
         const startConsoleMinimizedCheckbox = document.getElementById('startConsoleMinimized');
         const customPythonPackageInput = document.getElementById('customPythonPackage');
         const showYuzuTab = document.getElementById('showYuzuTab');
@@ -146,8 +146,8 @@
         const windowTransparencyToolHotkeyInput = document.getElementById('window-transparency-tool-hotkey');
         const windowTransparencyTargetInput = document.getElementById('window-transparency-target');
         const runWindowTransparencyToolBtn = document.getElementById('runWindowTransparencyToolBtn');
-        // const autoRunWindowTransparencyToolCheckbox = document.getElementById('autoRunWindowTransparencyTool');
-        // const pullPreReleasesCheckbox = document.getElementById('pullPreReleases');
+        const runWindowTransparencyToolOnStartupCheckbox = document.getElementById('runWindowTransparencyToolOnStartup');
+        const runOverlayOnStartupCheckbox = document.getElementById('runOverlayOnStartup');
         const obsSceneSelector = document.getElementById('obs-ocr-scene-selector');
 
         const setHotkey = (event, inputElement) => {
@@ -183,6 +183,8 @@
                 showYuzuTab.checked = settings.showYuzuTab || false;
                 windowTransparencyToolHotkeyInput.value = settings.windowTransparencyToolHotkey || 'Ctrl+Alt+Y';
                 windowTransparencyTargetInput.value = settings.windowTransparencyTarget || '';
+                runWindowTransparencyToolOnStartupCheckbox.checked = settings.runWindowTransparencyToolOnStartup || false;
+                runOverlayOnStartupCheckbox.checked = settings.runOverlayOnStartup || false;
                 // autoRunWindowTransparencyToolCheckbox.checked = settings.autoRunWindowTransparencyTool || false;
                 // pullPreReleasesCheckbox.checked = settings.pullPreReleases || false;
             }
@@ -214,8 +216,8 @@
                 showYuzuTab: showYuzuTab.checked,
                 windowTransparencyToolHotkey: windowTransparencyToolHotkeyInput.value,
                 windowTransparencyTarget: windowTransparencyTargetInput.value.trim(),
-                // autoRunWindowTransparencyTool: autoRunWindowTransparencyToolCheckbox.checked,
-                // pullPreReleases: pullPreReleasesCheckbox.checked,
+                runWindowTransparencyToolOnStartup: runWindowTransparencyToolOnStartupCheckbox.checked,
+                runOverlayOnStartup: runOverlayOnStartupCheckbox.checked,
                 obsOcrScenes: Array.from(obsSceneSelector.selectedOptions).map(option => option.value)
             };
             await ipcRenderer.invoke('settings.saveSettings', settings);
@@ -227,7 +229,9 @@
             customPythonPackageInput,
             showYuzuTab,
             windowTransparencyToolHotkeyInput,
-            startConsoleMinimizedCheckbox
+            startConsoleMinimizedCheckbox,
+            runWindowTransparencyToolOnStartupCheckbox,
+            runOverlayOnStartupCheckbox
         ].forEach(element => {
             element.addEventListener('change', async () => {
                 await saveSettings();

@@ -19,7 +19,7 @@ from GameSentenceMiner.web.service import handle_texthooker_button
 
 # Import from new modules
 from GameSentenceMiner.web.events import (
-    EventItem, EventManager, EventProcessor, event_manager, event_queue, event_processor
+    EventManager, event_manager
 )
 from GameSentenceMiner.web.stats import (
     is_kanji, interpolate_color, get_gradient_color, calculate_kanji_frequency,
@@ -187,7 +187,11 @@ def get_data():
 
 @app.route('/get_ids', methods=['GET'])
 def get_ids():
-    return jsonify(event_manager.get_ids())
+    asyncio.run(check_for_lines_outside_replay_buffer())
+    return jsonify({
+        "ids": list(event_manager.get_ids()),
+        "timed_out_ids": list(event_manager.timed_out_ids)
+    })
 
 
 @app.route('/clear_history', methods=['POST'])
@@ -198,6 +202,14 @@ def clear_history():
     return jsonify({'message': 'History cleared successfully'}), 200
 
 
+async def check_for_lines_outside_replay_buffer():
+    time_window = datetime.datetime.now() - datetime.timedelta(seconds=gsm_state.replay_buffer_length) - datetime.timedelta(seconds=5)
+    # logger.info(f"Checking for lines outside replay buffer time window: {time_window}")
+    lines_outside_buffer = [line.id for line in event_manager.get_events() if line.time < time_window]
+    # logger.info(f"Lines outside replay buffer: {lines_outside_buffer}")
+    event_manager.remove_lines_by_ids(lines_outside_buffer, timed_out=True)
+    
+
 async def add_event_to_texthooker(line):
     new_event = event_manager.add_gameline(line)
     await websocket_server_thread.send_text({
@@ -207,6 +219,7 @@ async def add_event_to_texthooker(line):
     })
     if get_config().advanced.plaintext_websocket_port:
         await plaintext_websocket_server_thread.send_text(line.text)
+    await check_for_lines_outside_replay_buffer()
 
 
 async def send_word_coordinates_to_overlay(boxes):

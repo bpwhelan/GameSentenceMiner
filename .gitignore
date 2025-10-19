@@ -110,3 +110,7 @@ GameSentenceMiner.wiki/
 /GameSentenceMiner/test
 *.png
 oneocr_results.json
+.github/trim_releases.py
+
+# Test scripts
+test-updates.ps1

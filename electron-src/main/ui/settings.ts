@@ -1,26 +1,31 @@
 // settings.ts
-import {ipcMain, dialog} from 'electron';
-import {spawn} from 'child_process';
+import { ipcMain, dialog } from 'electron';
+import { spawn } from 'child_process';
 import {
-    getAutoRunWindowTransparencyTool,
+    getRunWindowTransparencyToolOnStartup,
     getAutoUpdateElectron,
     getAutoUpdateGSMApp,
-    getCustomPythonPackage, getPythonPath,
+    getCustomPythonPackage,
+    getPythonPath,
     getShowYuzuTab,
     getStartConsoleMinimized,
     getWindowTransparencyTarget,
     getWindowTransparencyToolHotkey,
-    setAutoRunWindowTransparencyTool,
+    setRunWindowTransparencyToolOnStartup,
     setAutoUpdateElectron,
     setAutoUpdateGSMApp,
     setCustomPythonPackage,
     setObsOcrScenes,
+    setRunOverlayOnStartup,
     setShowYuzuTab,
-    setStartConsoleMinimized, setWindowTransparencyTarget, setWindowTransparencyToolHotkey,
-    store
-} from "../store.js";
-import {webSocketManager} from "../communication/websocket.js";
-import {reinstallPython} from "../python/python_downloader.js";
+    setStartConsoleMinimized,
+    setWindowTransparencyTarget,
+    setWindowTransparencyToolHotkey,
+    store,
+    getRunOverlayOnStartup,
+} from '../store.js';
+import { webSocketManager } from '../communication/websocket.js';
+import { reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall } from '../main.js';
 
 export let window_transparency_process: any = null; // Process for the Window Transparency Tool
@@ -37,7 +42,8 @@ export function registerSettingsIPC() {
             showYuzuTab: getShowYuzuTab(),
             windowTransparencyToolHotkey: getWindowTransparencyToolHotkey(),
             windowTransparencyTarget: store.get('windowTransparencyTarget') || '', // Default to empty string if not set
-            autoRunWindowTransparencyTool: getAutoRunWindowTransparencyTool(),
+            runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
+            runOverlayOnStartup: getRunOverlayOnStartup(),
             obsOcrScenes: store.get('obsOcrScenes') || [], // Default to empty array if not set
         };
     });
@@ -50,9 +56,10 @@ export function registerSettingsIPC() {
         setShowYuzuTab(settings.showYuzuTab);
         setWindowTransparencyToolHotkey(settings.windowTransparencyToolHotkey);
         setWindowTransparencyTarget(settings.windowTransparencyTarget);
-        // setAutoRunWindowTransparencyTool(settings.autoRunWindowTransparencyTool);
+        setRunWindowTransparencyToolOnStartup(settings.runWindowTransparencyToolOnStartup);
+        setRunOverlayOnStartup(settings.runOverlayOnStartup);
         setObsOcrScenes(settings.obsOcrScenes || []); // Ensure it's always an array
-        return {success: true};
+        return { success: true };
     });
 
     ipcMain.handle('settings.setAutoUpdateGSMApp', async (_, value: boolean) => {
@@ -64,7 +71,7 @@ export function registerSettingsIPC() {
     });
 
     ipcMain.handle('settings.openGSMSettings', async () => {
-        console.error("Opening GSM settings");
+        console.error('Opening GSM settings');
         await webSocketManager.sendOpenSettings();
     });
 
@@ -74,33 +81,23 @@ export function registerSettingsIPC() {
             type: 'warning',
             buttons: ['Yes', 'No'],
             title: 'Reinstall Python',
-            message: 'Are you sure you want to reinstall Python? This will remove the current installation and install a fresh copy.',
+            message:
+                'Are you sure you want to reinstall Python? This will remove the current installation and install a fresh copy.',
         });
-        if (response.response === 0) { // Yes
+        if (response.response === 0) {
+            // Yes
             try {
                 await reinstallPython();
-                return {success: true, message: 'Python reinstalled successfully.'};
+                return { success: true, message: 'Python reinstalled successfully.' };
             } catch (error) {
                 console.error('Failed to reinstall Python:', error);
-                return {success: false, message: 'Failed to reinstall Python.'};
+                return { success: false, message: 'Failed to reinstall Python.' };
             }
         }
     });
 
     ipcMain.handle('settings.runWindowTransparencyTool', async () => {
-        const hotkey = getWindowTransparencyToolHotkey();
-        if (window_transparency_process && !window_transparency_process.killed) {
-            console.log('Stopping existing Window Transparency Tool process');
-            window_transparency_process.kill();
-        }
-        console.log(`Starting Window Transparency Tool with hotkey: ${hotkey} and target: ${getWindowTransparencyTarget()}`);
-        window_transparency_process = spawn(getPythonPath(), ['-m', 'GameSentenceMiner.tools.window_transparency', '--hotkey', hotkey, '--window', getWindowTransparencyTarget()]);
-        window_transparency_process.stdout.on('data', (data: any) => {
-            console.log(`Window Transparency Tool: ${data}`);
-        });
-        window_transparency_process.stderr.on('data', (data: any) => {
-            console.error(`Window Transparency Tool Error: ${data}`);
-        });
+        runWindowTransparencyTool();
     });
 
     ipcMain.handle('settings.runPipInstall', async (_, pkg: string) => {
@@ -146,4 +143,36 @@ export function registerSettingsIPC() {
     ipcMain.handle('settings.setStartConsoleMinimized', async (_, value: boolean) => {
         setStartConsoleMinimized(value);
     });
+}
+
+export function runWindowTransparencyTool() {
+    const hotkey = getWindowTransparencyToolHotkey();
+    if (window_transparency_process && !window_transparency_process.killed) {
+        console.log('Stopping existing Window Transparency Tool process');
+        window_transparency_process.kill();
+    }
+    console.log(
+        `Starting Window Transparency Tool with hotkey: ${hotkey} and target: ${getWindowTransparencyTarget()}`
+    );
+    window_transparency_process = spawn(getPythonPath(), [
+        '-m',
+        'GameSentenceMiner.tools.window_transparency',
+        '--hotkey',
+        hotkey,
+        '--window',
+        getWindowTransparencyTarget(),
+    ]);
+    window_transparency_process.stdout.on('data', (data: any) => {
+        console.log(`Window Transparency Tool: ${data}`);
+    });
+    window_transparency_process.stderr.on('data', (data: any) => {
+        console.error(`Window Transparency Tool Error: ${data}`);
+    });
+}
+
+export function stopWindowTransparencyTool() {
+    if (window_transparency_process) {
+        window_transparency_process.kill();
+        window_transparency_process = null;
+    }
 }
