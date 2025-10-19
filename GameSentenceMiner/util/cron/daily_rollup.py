@@ -15,21 +15,20 @@ Usage:
 """
 
 import time
-from datetime import datetime, timedelta
-from typing import Dict, Optional, List
 from collections import defaultdict
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
 
-from GameSentenceMiner.util.db import GameLinesTable, gsm_db
+from GameSentenceMiner.util.configuration import get_stats_config, logger
+from GameSentenceMiner.util.db import GameLinesTable
+from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.configuration import logger
 from GameSentenceMiner.web.stats import (
     calculate_actual_reading_time,
-    calculate_kanji_frequency,
     calculate_hourly_activity,
-    calculate_hourly_reading_speed
+    calculate_hourly_reading_speed,
+    calculate_kanji_frequency,
 )
-from GameSentenceMiner.util.configuration import get_stats_config
-from GameSentenceMiner.util.games_table import GamesTable
 
 
 def get_first_data_date() -> Optional[str]:
