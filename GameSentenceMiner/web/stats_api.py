@@ -5,7 +5,9 @@ This module contains the /api/stats endpoint and related statistics API routes.
 Separated from database_api.py to improve code organization and maintainability.
 """
 
+import csv
 import datetime
+import io
 import json
 import time
 from collections import defaultdict
