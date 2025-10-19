@@ -175,13 +175,13 @@
                     <h2 class="collapsible-header">GSM Management</h2>
                     <div class="collapsible-content" style="display: block;">
                         <div class="form-group">
-                            <div class="input-group">
+                            <!-- <div class="input-group">
                                 <button id="repair-gsm-btn" class="danger">🔧 Repair GSM</button>
                                 <div class="tooltip">❓
                                     <span class="tooltiptext">Complete reinstall of Python and GameSentenceMiner. This
                                         will remove all custom packages and restore to default state.</span>
                                 </div>
-                            </div>
+                            </div> -->
                             <div class="input-group">
                                 <button id="clean-cache-btn" class="secondary">🧹 Clean Python Cache</button>
                                 <div class="tooltip">❓
@@ -1346,8 +1346,13 @@
             });
 
             ipcRenderer.on('terminal-error', (event, data) => {
+                const data_lower = data.toLowerCase();
                 if (data.includes("INFO:") || data.includes("DEBUG:") || data.includes("ERROR:") || data.includes("[OCR")) {
                     return; // BAD STDERR, NOT SURE WHY THIS IS HAPPENING
+                }
+                if (data_lower.includes('ocr:__init__')) {
+                    term.write(`\x1b[32mOCR Initialization: ${data}\x1b[0m`); // Green text for OCR initialization
+                    return;
                 }
                 if (data.includes("Transcribe:")) {
                     const transcription = data.split("Transcribe:")[1].trim();
@@ -1507,24 +1512,24 @@
             });
 
             // Repair GSM
-            document.getElementById('repair-gsm-btn').addEventListener('click', async () => {
-                if (confirm('THIS IS ONLY TO BE USED IF SOMETHING IS COMPLETELY BROKEN WITH GSM DUE TO A CUSTOM/BAD PYTHON PACKAGE INSTALLATION. THIS SHOULD NOT BE EXPECTED TO FIX MINOR ISSUES, AND HAS A HIGHER CHANCE OF DOING MORE PAIN THAN GOOD.\n\nAre you sure you want to proceed with repairing GSM?')) {
-                    showPythonStatus('🔧 Repairing GSM... This may take several minutes.');
-                    switchToConsoleTab(); // Switch to console to see progress
+            // document.getElementById('repair-gsm-btn').addEventListener('click', async () => {
+            //     if (confirm('THIS IS ONLY TO BE USED IF SOMETHING IS COMPLETELY BROKEN WITH GSM DUE TO A CUSTOM/BAD PYTHON PACKAGE INSTALLATION. THIS SHOULD NOT BE EXPECTED TO FIX MINOR ISSUES, AND HAS A HIGHER CHANCE OF DOING MORE PAIN THAN GOOD.\n\nAre you sure you want to proceed with repairing GSM?')) {
+            //         showPythonStatus('🔧 Repairing GSM... This may take several minutes.');
+            //         switchToConsoleTab(); // Switch to console to see progress
 
-                    try {
-                        const result = await ipcRenderer.invoke('python.repairGSM');
-                        if (result.success) {
-                            showPythonStatus(`✅ ${result.message}`, 'success');
-                            loadPythonInfo(); // Refresh info after repair
-                        } else {
-                            showPythonStatus(`❌ ${result.message}`, 'error');
-                        }
-                    } catch (error) {
-                        showPythonStatus(`❌ Error repairing GSM: ${error.message}`, 'error');
-                    }
-                }
-            });
+            //         try {
+            //             const result = await ipcRenderer.invoke('python.repairGSM');
+            //             if (result.success) {
+            //                 showPythonStatus(`✅ ${result.message}`, 'success');
+            //                 loadPythonInfo(); // Refresh info after repair
+            //             } else {
+            //                 showPythonStatus(`❌ ${result.message}`, 'error');
+            //             }
+            //         } catch (error) {
+            //             showPythonStatus(`❌ Error repairing GSM: ${error.message}`, 'error');
+            //         }
+            //     }
+            // });
 
             // Clean cache
             document.getElementById('clean-cache-btn').addEventListener('click', async () => {

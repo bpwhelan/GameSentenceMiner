@@ -1,7 +1,5 @@
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
-
-
 def handle_error_in_initialization(e):
     """Handle errors that occur during initialization."""
     logger.exception(e, exc_info=True)
@@ -49,7 +47,7 @@ try:
     logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
     
     start_time = time.time()
-    from GameSentenceMiner.util.get_overlay_coords import OverlayThread
+    from GameSentenceMiner.util.get_overlay_coords import init_overlay_processor
     from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags, add_srt_line
     logger.debug(f"[Import] get_overlay_coords (OverlayThread, remove_html_and_cloze_tags): {time.time() - start_time:.3f}s")
 
@@ -62,7 +60,7 @@ try:
     logger.debug(f"[Import] vad_processor: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed
+    from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed, write_obs_configs, download_oneocr_dlls_if_needed
     logger.debug(
         f"[Import] download_tools (download_obs_if_needed, download_ffmpeg_if_needed): {time.time() - start_time:.3f}s")
 
@@ -191,9 +189,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if anki.card_queue and len(anki.card_queue) > 0:
                 last_note, anki_card_creation_time, selected_lines = anki.card_queue.pop(
                     0)
-            elif get_config().features.backfill_audio:
-                last_note = anki.get_cards_by_sentence(
-                    gametext.current_line_after_regex)
             else:
                 logger.info(
                     "Replay buffer initiated externally. Skipping processing.")
@@ -204,9 +199,6 @@ class VideoToAudioHandler(FileSystemEventHandler):
             if not last_note:
                 if get_config().anki.update_anki:
                     last_note = anki.get_last_anki_card()
-                if get_config().features.backfill_audio:
-                    last_note = anki.get_cards_by_sentence(
-                        gametext.current_line_after_regex)
 
             note, last_note = anki.get_initial_card_info(
                 last_note, selected_lines)
@@ -362,6 +354,7 @@ def initial_checks():
     try:
         subprocess.run(GameSentenceMiner.util.configuration.ffmpeg_base_command_list)
         logger.debug("FFMPEG is installed and accessible.")
+        
     except FileNotFoundError:
         logger.error(
             "FFmpeg not found, please install it and add it to your PATH.")
@@ -381,48 +374,11 @@ def register_hotkeys():
 
 
 def get_screenshot():
-    # try:
     last_note = anki.get_last_anki_card()
     gsm_state.anki_note_for_screenshot = last_note
     gsm_state.line_for_screenshot = get_mined_line(last_note, get_all_lines())
     obs.save_replay_buffer()
-    #     image = obs.get_screenshot()
-    #     wait_for_stable_file(image, timeout=3)
-    #     if not image:
-    #         raise Exception("Failed to get Screenshot from OBS")
-    #     encoded_image = ffmpeg.process_image(image)
-    #     if get_config().anki.update_anki and get_config().screenshot.screenshot_hotkey_updates_anki:
-    #         last_note = anki.get_last_anki_card()
-    #         if get_config().features.backfill_audio:
-    #             last_note = anki.get_cards_by_sentence(gametext.current_line)
-    #         if last_note:
-    #             anki.add_image_to_card(last_note, encoded_image)
-    #             notification.send_screenshot_updated(last_note.get_field(get_config().anki.word_field))
-    #             if get_config().features.open_anki_edit:
-    #                 notification.open_anki_card(last_note.noteId)
-    #         else:
-    #             notification.send_screenshot_saved(encoded_image)
-    #     else:
-    #         notification.send_screenshot_saved(encoded_image)
-    # except Exception as e:
-    #     logger.error(f"Failed to get Screenshot: {e}")
 
-
-# def create_image():
-#     """Create a simple pickaxe icon."""
-#     width, height = 64, 64
-#     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))  # Transparent background
-#     draw = ImageDraw.Draw(image)
-#
-#     # Handle (rectangle)
-#     handle_color = (139, 69, 19)  # Brown color
-#     draw.rectangle([(30, 15), (34, 50)], fill=handle_color)
-#
-#     # Blade (triangle-like shape)
-#     blade_color = (192, 192, 192)  # Silver color
-#     draw.polygon([(15, 15), (49, 15), (32, 5)], fill=blade_color)
-#
-#     return image
 
 def create_image():
     image_path = os.path.join(os.path.dirname(
@@ -673,6 +629,8 @@ def initialize(reloading=False):
         if is_windows():
             download_obs_if_needed()
             download_ffmpeg_if_needed()
+            download_oneocr_dlls_if_needed()
+            write_obs_configs(obs.get_base_obs_dir())
             if shutil.which("ffmpeg") is None:
                 os.environ["PATH"] += os.pathsep + \
                     os.path.dirname(get_ffmpeg_path())
@@ -746,7 +704,7 @@ def async_loop():
         await register_scene_switcher_callback()
         await check_obs_folder_is_correct()
         vad_processor.init()
-        OverlayThread().start()
+        await init_overlay_processor()
 
         # Keep loop alive
         # if is_beangate:

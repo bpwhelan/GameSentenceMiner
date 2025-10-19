@@ -512,7 +512,7 @@ class GameLinesTable(SQLiteDBTable):
     def update(cls, line_id: str, audio_in_anki: Optional[str] = None, screenshot_in_anki: Optional[str] = None, audio_path: Optional[str] = None, screenshot_path: Optional[str] = None, replay_path: Optional[str] = None, translation: Optional[str] = None):
         line = cls.get(line_id)
         if not line:
-            logger.warning(f"GameLine with id {line_id} not found for update.")
+            logger.warning(f"GameLine with id {line_id} not found for update, maybe testing?")
             return
         if screenshot_path is not None:
             line.screenshot_path = screenshot_path

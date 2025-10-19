@@ -470,7 +470,6 @@ class Features:
     open_anki_edit: bool = False
     open_anki_in_browser: bool = True
     browser_query: str = ''
-    backfill_audio: bool = False
     generate_longplay: bool = False
 
 
@@ -761,9 +760,7 @@ class ProfileConfig:
             'notify_on_update', self.features.notify_on_update)
         self.features.open_anki_edit = config_data['features'].get(
             'open_anki_edit', self.features.open_anki_edit)
-        self.features.backfill_audio = config_data['features'].get(
-            'backfill_audio', self.features.backfill_audio)
-
+        
         self.screenshot.width = config_data['screenshot'].get(
             'width', self.screenshot.width)
         self.screenshot.height = config_data['screenshot'].get(
@@ -1176,15 +1173,10 @@ def get_config():
     global config_instance
     if config_instance is None:
         config_instance = load_config()
-        config = config_instance.get_config()
-
-        if config.features.backfill_audio and config.features.full_auto:
-            logger.warning(
-                "Backfill audio is enabled, but full auto is also enabled. Disabling backfill...")
-            config.features.backfill_audio = False
 
     # print(config_instance.get_config())
     return config_instance.get_config()
+
 
 def get_overlay_config():
     global config_instance
@@ -1192,15 +1184,11 @@ def get_overlay_config():
         config_instance = load_config()
     return config_instance.overlay
 
+
 def reload_config():
     global config_instance
     config_instance = load_config()
-    config = config_instance.get_config()
 
-    if config.features.backfill_audio and config.features.full_auto:
-        logger.warning(
-            "Backfill is enabled, but full auto is also enabled. Disabling backfill...")
-        config.features.backfill_audio = False
         
 def get_stats_config():
     global config_instance

@@ -83,6 +83,8 @@ try:
 except ImportError:
     mss = None
     
+overlay_processor = None
+    
 class OverlayThread(threading.Thread):
     """
     A thread to run the overlay processing loop.
@@ -91,7 +93,6 @@ class OverlayThread(threading.Thread):
     """
     def __init__(self):
         super().__init__()
-        self.overlay_processor = OverlayProcessor()
         self.loop = asyncio.new_event_loop()
         self.daemon = True
         self.first_time_run = True
@@ -106,10 +107,10 @@ class OverlayThread(threading.Thread):
         while True:
             if overlay_server_thread.has_clients():
                 if get_config().overlay.periodic:
-                    await self.overlay_processor.find_box_and_send_to_overlay('', True)
+                    await overlay_processor.find_box_and_send_to_overlay('', True)
                     await asyncio.sleep(get_config().overlay.periodic_interval)
                 elif self.first_time_run:
-                    await self.overlay_processor.find_box_and_send_to_overlay('', False)
+                    await overlay_processor.find_box_and_send_to_overlay('', False)
                     self.first_time_run = False
                 else:
                     await asyncio.sleep(3)
@@ -569,7 +570,26 @@ class OverlayProcessor:
         # logger.info(f"Converted OneOCR results to percentages: {converted_results}")
         return converted_results
     
-overlay_processor = OverlayProcessor()
+async def init_overlay_processor():
+    """
+    Initializes the overlay processor and starts the overlay thread.
+    This function can be called at application startup.
+    """
+    global overlay_processor
+    overlay_processor = OverlayProcessor()
+    overlay_thread = OverlayThread()
+    overlay_thread.start()
+    logger.info("Overlay processor initialized and thread started.")
+    
+    
+def get_overlay_processor() -> OverlayProcessor:
+    """
+    Returns the initialized overlay processor instance.
+    """
+    global overlay_processor
+    if overlay_processor is None:
+        asyncio.run(init_overlay_processor())
+    return overlay_processor
 
 async def main_test_screenshot():
     """

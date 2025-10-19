@@ -1,7 +1,8 @@
 import asyncio
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+from collections import defaultdict, deque
 
 import pyperclip
 import requests
@@ -17,7 +18,7 @@ from GameSentenceMiner.util.gsm_utils import add_srt_line
 from GameSentenceMiner.util.text_log import add_line, get_text_log
 from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, overlay_server_thread
 
-from GameSentenceMiner.util.get_overlay_coords import overlay_processor
+from GameSentenceMiner.util.get_overlay_coords import get_overlay_processor
 
 
 current_line = ''
@@ -33,6 +34,61 @@ last_clipboard = ''
 
 reconnecting = False
 websocket_connected = {}
+
+# Rate-based spam detection globals
+message_timestamps = defaultdict(lambda: deque(maxlen=60))  # Store last 60 message timestamps per source
+rate_limit_active = defaultdict(bool)  # Track if rate limiting is active per source
+
+
+def is_message_rate_limited(source="clipboard"):
+    """
+    Aggressive rate-based spam detection optimized for game texthookers.
+    Uses multiple time windows for faster detection and recovery.
+    
+    Args:
+        source (str): The source of the message (clipboard, websocket, etc.)
+    
+    Returns:
+        bool: True if message should be dropped due to rate limiting
+    """
+    current_time = datetime.now()
+    timestamps = message_timestamps[source]
+    
+    # Add current message timestamp
+    timestamps.append(current_time)
+    
+    # Check multiple time windows for aggressive detection
+    half_second_ago = current_time - timedelta(milliseconds=500)
+    one_second_ago = current_time - timedelta(seconds=1)
+    
+    # Count messages in different time windows
+    last_500ms = sum(1 for ts in timestamps if ts > half_second_ago)
+    last_1s = sum(1 for ts in timestamps if ts > one_second_ago)
+    
+    # Very aggressive thresholds for game texthookers:
+    # - 5+ messages in 500ms = instant spam detection
+    # - 8+ messages in 1 second = spam detection
+    spam_detected = last_500ms >= 5 or last_1s >= 8
+    
+    if spam_detected:
+        if not rate_limit_active[source]:
+            logger.warning(f"Rate limiting activated for {source}: {last_500ms} msgs/500ms, {last_1s} msgs/1s")
+            rate_limit_active[source] = True
+        return True
+    
+    # If rate limiting is active, check if we can deactivate it immediately
+    if rate_limit_active[source]:
+        # Very fast recovery: allow if current 500ms window has <= 2 messages
+        if last_500ms <= 2:
+            logger.info(f"Rate limiting deactivated for {source}: rate normalized ({last_500ms} msgs/500ms)")
+            rate_limit_active[source] = False
+            return False  # Allow this message through
+        else:
+            # Still too fast, keep dropping
+            return True
+    
+    return False
+
 
 async def monitor_clipboard():
     global current_line, last_clipboard
@@ -55,6 +111,9 @@ async def monitor_clipboard():
         current_clipboard = pyperclip.paste()
 
         if current_clipboard and current_clipboard != current_line and current_clipboard != last_clipboard:
+            # Check for rate limiting before processing
+            if is_message_rate_limited("clipboard"):
+                continue  # Drop message due to rate limiting
             last_clipboard = current_clipboard
             await handle_new_text_event(current_clipboard)
 
@@ -65,6 +124,7 @@ async def listen_websockets():
     async def listen_on_websocket(uri):
         global current_line, current_line_time, reconnecting, websocket_connected
         try_other = False
+        rated_limited = False
         websocket_connected[uri] = False
         websocket_names = {
             "9002": "GSM OCR",
@@ -82,17 +142,19 @@ async def listen_websockets():
                 websocket_url = f'ws://{uri}/api/ws/text/origin'
             try:
                 async with websockets.connect(websocket_url, ping_interval=None) as websocket:
+                    websocket_source = f"websocket_{uri}"
                     gsm_status.websockets_connected.append(websocket_url)
-                    if reconnecting:
-                        logger.info(f"Texthooker WebSocket {uri}{likely_websocket_name} connected Successfully!" + " Disabling Clipboard Monitor." if (get_config().general.use_clipboard and not get_config().general.use_both_clipboard_and_websocket) else "")
-                        reconnecting = False
+                    logger.info(f"Texthooker WebSocket {uri}{likely_websocket_name} connected Successfully!" + " Disabling Clipboard Monitor." if (get_config().general.use_clipboard and not get_config().general.use_both_clipboard_and_websocket) else "")
                     websocket_connected[uri] = True
                     line_time = None
-                    while True:
-                        message = await websocket.recv()
+                    async for message in websocket:
                         message_received_time = datetime.now()
                         if not message:
                             continue
+                        # Check for rate limiting before processing
+                        if is_message_rate_limited(websocket_source):
+                            rated_limited = True
+                            continue  # Drop message due to rate limiting
                         if is_dev:
                             logger.debug(message)
                         try:
@@ -101,14 +163,10 @@ async def listen_websockets():
                                 current_clipboard = data["sentence"]
                             if "time" in data:
                                 line_time = datetime.fromisoformat(data["time"])
-                        except json.JSONDecodeError or TypeError:
+                        except (json.JSONDecodeError, TypeError):
                             current_clipboard = message
-                        logger.info
                         if current_clipboard != current_line:
-                            try:
-                                await handle_new_text_event(current_clipboard, line_time if line_time else message_received_time)
-                            except Exception as e: 
-                                logger.error(f"Error handling new text event: {e}", exc_info=True)
+                            await handle_new_text_event(current_clipboard, line_time if line_time else message_received_time)
             except (websockets.ConnectionClosed, ConnectionError, InvalidStatus, ConnectionResetError, Exception) as e:
                 if websocket_url in gsm_status.websockets_connected:
                     gsm_status.websockets_connected.remove(websocket_url)
@@ -201,8 +259,8 @@ async def add_line_to_text_log(line, line_time=None):
     if len(get_text_log().values) > 0:
         await add_event_to_texthooker(get_text_log()[-1])
     if get_config().overlay.websocket_port and overlay_server_thread.has_clients():
-        if overlay_processor.ready:
-            await overlay_processor.find_box_and_send_to_overlay(current_line_after_regex)
+        if get_overlay_processor().ready:
+            await get_overlay_processor().find_box_and_send_to_overlay(current_line_after_regex)
     add_srt_line(line_time, new_line)
     if 'nostatspls' not in new_line.scene.lower():
         GameLinesTable.add_line(new_line)

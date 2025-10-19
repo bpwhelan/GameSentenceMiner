@@ -96,7 +96,8 @@ interface StoreConfig {
     customPythonPackage: string;
     windowTransparencyToolHotkey: string;
     windowTransparencyTarget: string; // Target window for transparency tool
-    autoRunWindowTransparencyTool: boolean; // Whether to auto-run the transparency tool
+    runWindowTransparencyToolOnStartup: boolean; // Whether to run the transparency tool on startup
+    runOverlayOnStartup: boolean; // Whether to run the overlay on startup
     obsOcrScenes: string[];
     pullPreReleases: boolean;
     pythonPath: string;
@@ -160,7 +161,8 @@ export const store = new Store<StoreConfig>({
         customPythonPackage: "GameSentenceMiner",
         windowTransparencyToolHotkey: 'Ctrl+Alt+Y',
         windowTransparencyTarget: '', // Default to empty string if not set
-        autoRunWindowTransparencyTool: false, // Whether to auto-run the transparency tool
+        runWindowTransparencyToolOnStartup: false, // Whether to run the transparency tool on startup
+        runOverlayOnStartup: false, // Whether to run the overlay on startup    
         obsOcrScenes: [],
         pullPreReleases: false,
     },
@@ -223,12 +225,20 @@ export function getWindowTransparencyTarget(): string {
     return store.get("windowTransparencyTarget") || '';
 }
 
-export function setAutoRunWindowTransparencyTool(autoRun: boolean): void {
-    store.set("autoRunWindowTransparencyTool", autoRun);
+export function getRunWindowTransparencyToolOnStartup(): boolean {
+    return store.get("runWindowTransparencyToolOnStartup");
 }
 
-export function getAutoRunWindowTransparencyTool(): boolean {
-    return store.get("autoRunWindowTransparencyTool");
+export function setRunWindowTransparencyToolOnStartup(run: boolean): void {
+    store.set("runWindowTransparencyToolOnStartup", run);
+}
+
+export function getRunOverlayOnStartup(): boolean {
+    return store.get("runOverlayOnStartup");
+}
+
+export function setRunOverlayOnStartup(run: boolean): void {
+    store.set("runOverlayOnStartup", run);
 }
 
 export function getObsOcrScenes(): string[] {

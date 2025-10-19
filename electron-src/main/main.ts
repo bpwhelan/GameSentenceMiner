@@ -35,6 +35,8 @@ import {
     getLaunchVNOnStart,
     getLaunchYuzuGameOnStart,
     getPullPreReleases,
+    getRunOverlayOnStartup,
+    getRunWindowTransparencyToolOnStartup,
     getStartConsoleMinimized,
     setPythonPath,
     setWindowName,
@@ -45,13 +47,72 @@ import { launchVNWorkflow, openVNWindow, registerVNIPC } from './ui/vn.js';
 import { launchSteamGameID, openSteamWindow, registerSteamIPC } from './ui/steam.js';
 import { webSocketManager } from './communication/websocket.js';
 import { getOBSConnection, openOBSWindow, registerOBSIPC, setOBSScene } from './ui/obs.js';
-import { registerSettingsIPC, window_transparency_process } from './ui/settings.js';
-import { registerOCRUtilsIPC, startOCR } from './ui/ocr.js';
+import {
+    registerSettingsIPC,
+    runWindowTransparencyTool,
+    stopWindowTransparencyTool,
+    window_transparency_process,
+} from './ui/settings.js';
+import { registerOCRUtilsIPC, startOCR, stopOCR } from './ui/ocr.js';
 import * as fs from 'node:fs';
 import archiver from 'archiver';
-import { registerFrontPageIPC } from './ui/front.js';
+import { registerFrontPageIPC, runOverlay } from './ui/front.js';
 import { registerPythonIPC } from './ui/python.js';
 import { execFile } from 'node:child_process';
+import { c } from 'tar';
+
+// Global error handling setup - catches all unhandled errors to prevent crashes
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+    const errorMessage = `Unhandled Promise Rejection: ${reason}`;
+    log.error('Unhandled Promise Rejection:', errorMessage);
+    console.error('Unhandled Promise Rejection:', reason);
+
+    // Show error dialog to user but don't crash
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        dialog.showErrorBox(
+            'Application Error',
+            'An unexpected error occurred. The application will continue running. Check the logs for details.'
+        );
+    }
+});
+
+process.on('uncaughtException', (error: Error) => {
+    const errorMessage = `Uncaught Exception: ${error.message}`;
+    log.error('Uncaught Exception:', errorMessage);
+    log.error('Stack:', error.stack);
+    console.error('Uncaught Exception:', error);
+
+    // Show error dialog but don't crash
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        dialog.showErrorBox(
+            'Critical Error',
+            `A critical error occurred: ${error.message}\n\nThe application will continue running. Please check the logs and consider restarting.`
+        );
+    }
+});
+
+// Handle Electron-specific errors
+app.on('render-process-gone', (event, webContents, details) => {
+    const errorMessage = `Render process crashed: ${details.reason} (exit code: ${details.exitCode})`;
+    log.error('Render Process Error:', errorMessage);
+    console.error('Render Process Error:', errorMessage);
+
+    dialog.showErrorBox(
+        'Window Crashed',
+        'The application window crashed but will be restarted automatically.'
+    );
+
+    // Recreate window if it was destroyed
+    if (mainWindow && mainWindow.isDestroyed()) {
+        createWindow().catch((err) => log.error('Failed to recreate window:', err));
+    }
+});
+
+app.on('child-process-gone', (event, details) => {
+    const errorMessage = `Child process crashed: ${details.type} - ${details.reason} (exit code: ${details.exitCode})`;
+    log.error('Child Process Error:', errorMessage);
+    console.error('Child Process Error:', errorMessage);
+});
 
 export let mainWindow: BrowserWindow | null = null;
 let tray: Tray;
@@ -67,11 +128,25 @@ const originalError = console.error;
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
 
-function getAutoUpdater(): AppUpdater {
+function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     const { autoUpdater } = electronUpdater;
     autoUpdater.autoDownload = false; // Disable auto download
     autoUpdater.allowPrerelease = getPullPreReleases(); // Enable pre-releases
     autoUpdater.allowDowngrade = true; // Allow downgrades
+    
+    // Force update if forceDev is true - configure for dev mode
+    if (forceDev) {
+        autoUpdater.allowDowngrade = true;
+        autoUpdater.forceDevUpdateConfig = true; // Force dev update config
+        // Set the update URL to the GitHub releases
+        autoUpdater.setFeedURL({
+            provider: 'github',
+            owner: 'bpwhelan',
+            repo: 'GameSentenceMiner',
+            private: false,
+            releaseType: getPullPreReleases() ? 'prerelease' : 'release'
+        });
+    }
     return autoUpdater;
 }
 
@@ -86,59 +161,159 @@ function registerIPC() {
     registerPythonIPC();
 }
 
+let gsmUpdatePromise: Promise<void> = Promise.resolve();
 
+// --- Your refactored functions ---
 
-async function autoUpdate() {
-    const autoUpdater = getAutoUpdater();
-    // autoUpdater.on("update-available", () => {
-    //     log.info("Update available.");
-    //     dialog.showMessageBox({
-    //         type: "info",
-    //         title: "Update Available",
-    //         message: "A new version is available. Downloading now...",
-    //     });
-    // });
+/**
+ * Checks for and downloads updates for the main Electron application.
+ */
+async function autoUpdate(forceUpdate: boolean = false): Promise<void> {
+    const autoUpdater = getAutoUpdater(forceUpdate);
 
     autoUpdater.on('update-downloaded', async () => {
-        log.info('Update downloaded.');
+        log.info(
+            'Application update downloaded. Waiting for Python update process to finish (if any)...'
+        );
+
+        await gsmUpdatePromise;
+
+        log.info('Python process is stable. Proceeding with application restart.');
+
         const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
         fs.writeFileSync(updateFilePath, '');
-
-        while (pythonUpdating) {
-            await new Promise((resolve) => setTimeout(resolve, 100)); // Wait for 100ms
-        }
-
         autoUpdater.quitAndInstall();
     });
 
     autoUpdater.on('error', (err: any) => {
-        log.error('Update error: ' + err.message);
+        log.error('Auto-update error: ' + err.message);
     });
 
-    // await autoUpdater.checkForUpdatesAndNotify();
-    await autoUpdater.checkForUpdates().then((result) => {
-        if (result !== null && result.updateInfo.version !== app.getVersion()) {
-            log.info('Update available.');
-            dialog
-                .showMessageBox({
-                    type: 'question',
-                    title: 'Update Available',
-                    message:
-                        'A new version of the GSM Application is available. Would you like to download and install it now?',
-                    buttons: ['Yes', 'No'],
-                })
-                .then(async (result) => {
-                    if (result.response === 0) {
-                        // "Yes" button
-                        await autoUpdater.downloadUpdate();
-                    } else {
-                        log.info('User chose not to download the update.');
-                    }
-                });
+    try {
+        log.info('Checking for application updates...');
+        const result = await autoUpdater.checkForUpdates();
+
+        if (result !== null && result.updateInfo.version !== app.getVersion() || (result !== null && forceUpdate)) {
+            log.info(`New application version available: ${result.updateInfo.version}`);
+            const dialogResult = await dialog.showMessageBox({
+                type: 'question',
+                title: 'Update Available',
+                message:
+                    'A new version of the GSM Application is available. Would you like to download and install it now?',
+                buttons: ['Yes', 'No'],
+            });
+
+            if (dialogResult.response === 0) {
+                // "Yes" button
+                log.info('User accepted. Downloading application update...');
+                await autoUpdater.downloadUpdate();
+                log.info('Application update download started in the background.');
+            } else {
+                log.info('User declined the application update.');
+            }
         } else {
-            console.log('No update available. Current version: ' + app.getVersion());
+            log.info('Application is up to date. Current version: ' + app.getVersion());
         }
-    });
+    } catch (err: any) {
+        log.error('Failed to check for application updates: ' + err.message);
+    }
+}
+
+/**
+ * The main entry point to run all update checks in the correct order.
+ * @param shouldRestart - Whether to restart the Python process after updating.
+ * @param force - Force the Python update even if versions match.
+ */
+async function runUpdateChecks(
+    shouldRestart: boolean = false,
+    force: boolean = false,
+    forceDev: boolean = false
+): Promise<void> {
+    log.info('Starting full update process...');
+
+    // **IMPROVEMENT**: Run the Python update FIRST and wait for it to complete.
+    await updateGSM(true, force);
+    log.info('Python backend update check is complete.');
+
+    // **IMPROVEMENT**: Only AFTER the Python update is done, check for the main app update.
+    await autoUpdate(forceDev);
+    log.info('Application update check is complete.');
+
+}
+
+/**
+ * Manages and runs the update process for the Python backend (GSM).
+ */
+async function updateGSM(shouldRestart: boolean = false, force: boolean = false): Promise<void> {
+    // **IMPROVEMENT**: The execution of the internal logic is assigned to our tracker promise.
+    // Anyone awaiting gsmUpdatePromise will now wait for this specific operation to finish.
+    gsmUpdatePromise = _updateGSMInternal(shouldRestart, force);
+    await gsmUpdatePromise;
+}
+
+/**
+ * The internal implementation of the Python update logic.
+ */
+async function _updateGSMInternal(
+    shouldRestart: boolean = false,
+    force: boolean = false
+): Promise<void> {
+    // The pythonUpdating flag is no longer needed for coordination.
+    isUpdating = true;
+    try {
+        const { updateAvailable, latestVersion } = await checkForUpdates();
+        if (updateAvailable || force) {
+            if (pyProc) {
+                await closeAllPythonProcesses();
+                await new Promise((resolve) => setTimeout(resolve, 3000));
+            }
+            log.info(`Updating GSM Python Application to ${latestVersion}...`);
+
+            await checkAndInstallUV(pythonPath);
+
+            try {
+                await runCommand(
+                    pythonPath,
+                    ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', PACKAGE_NAME],
+                    true,
+                    true
+                );
+            } catch (err) {
+                log.error(
+                    'Failed to install custom Python package. Falling back to default package and forcing upgrade.',
+                    err
+                );
+                await cleanCache();
+                await runCommand(
+                    pythonPath,
+                    ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', PACKAGE_NAME],
+                    true,
+                    true
+                );
+            }
+
+            log.info('Python update completed successfully.');
+            new Notification({
+                title: 'Update Successful',
+                body: `${APP_NAME} backend has been updated successfully.`,
+                timeoutType: 'default',
+            }).show();
+
+            if (shouldRestart) {
+                await ensureAndRunGSM(pythonPath);
+                log.info('GSM Successfully Restarted after update!');
+            }
+        } else {
+            log.info('Python backend is already up-to-date.');
+        }
+    } catch (error) {
+        log.error('An error occurred during the Python update process:', error);
+        // Optionally re-throw or display an error to the user
+    } finally {
+        // **IMPROVEMENT**: Use a finally block to ensure state is always cleaned up.
+        isUpdating = false;
+        log.info('Finished Python update internal process.');
+    }
 }
 
 function getGSMModulePath(): string {
@@ -193,6 +368,10 @@ async function runCommand(
             reject(err);
         });
     });
+}
+
+async function cleanCache(): Promise<void> {
+    await runCommand(pythonPath, ['-m', 'uv', 'cache', 'purge'], true, true);
 }
 
 /**
@@ -290,7 +469,7 @@ async function createWindow() {
         {
             label: 'File',
             submenu: [
-                { label: 'Update GSM', click: () => update(true, true) },
+                { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
                 { label: 'Restart Python App', click: () => restartGSM() },
                 { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
                 { label: 'Export Logs', click: () => zipLogs() },
@@ -365,80 +544,10 @@ async function createWindow() {
     });
 }
 
-async function update(shouldRestart: boolean = false, force = false): Promise<void> {
-    await updateGSM(shouldRestart, force);
-    await autoUpdate();
-}
-
-async function updateGSM(shouldRestart: boolean = false, force = false): Promise<void> {
-    isUpdating = true;
-    pythonUpdating = true;
-    const { updateAvailable, latestVersion } = await checkForUpdates();
-    if (updateAvailable || force) {
-        if (pyProc) {
-            await closeGSM();
-
-            await new Promise((resolve) => setTimeout(resolve, 3000));
-        }
-        console.log(`Updating GSM Python Application to ${latestVersion}...`);
-
-        await checkAndInstallUV(pythonPath);
-
-        try {
-            // await runCommand(
-            //     pythonPath,
-            //     ['-m', 'pip', 'install', '--upgrade', 'setuptools', 'wheel'],
-            //     true,
-            //     true
-            // );
-            await runCommand(
-                pythonPath,
-                [
-                    '-m',
-                    'uv',
-                    '--no-progress',
-                    'pip',
-                    'install',
-                    '--upgrade',
-                    '--prerelease=allow',
-                    PACKAGE_NAME
-                ],
-                true,
-                true
-            );
-        } catch (err) {
-            console.error(
-                'Failed to install custom Python package. Falling back to default package: GameSentenceMiner, forcing upgrade.',
-                err
-            );
-            await runCommand(
-                pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', PACKAGE_NAME],
-                true,
-                true
-            );
-        }
-        console.log('Update completed successfully.');
-        new Notification({
-            title: 'Update Successful',
-            body: `${APP_NAME} has been updated successfully.`,
-            timeoutType: 'default',
-        }).show();
-        if (shouldRestart) {
-            ensureAndRunGSM(pythonPath).then((r) => {
-                console.log('GSM Successfully Restarted!');
-            });
-        }
-    } else {
-        console.log("You're already using the latest version.");
-    }
-    pythonUpdating = false;
-}
-
 function createTray() {
     tray = new Tray(getIconPath(32)); // Replace with a valid icon path
     const contextMenu = Menu.buildFromTemplate([
-        { label: 'Update GSM', click: () => update(true, true) },
+        { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
         { label: 'Restart Python App', click: () => restartGSM() },
         { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
         { label: 'Quit', click: () => quit() },
@@ -515,7 +624,12 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
     if (!isInstalled) {
         console.log(`${APP_NAME} is not installed. Installing now...`);
         try {
-            await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', '--prerelease=allow', PACKAGE_NAME], true, true);
+            await runCommand(
+                pythonPath,
+                ['-m', 'uv', 'pip', 'install', '--prerelease=allow', PACKAGE_NAME],
+                true,
+                true
+            );
             console.log('Installation complete.');
         } catch (err) {
             console.error('Failed to install package:', err);
@@ -529,10 +643,21 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
     } catch (err) {
         console.error('Failed to start GameSentenceMiner:', err);
         if (!isDev && retry > 0) {
-            console.log('Looks like something\'s broken with GSM, attempting to repair the installation...');
+            console.log(
+                "Looks like something's broken with GSM, attempting to repair the installation..."
+            );
+            await cleanCache();
             await runCommand(
                 pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
+                [
+                    '-m',
+                    'uv',
+                    'pip',
+                    'install',
+                    '--force-reinstall',
+                    '--prerelease=allow',
+                    PACKAGE_NAME,
+                ],
                 true,
                 true
             );
@@ -544,7 +669,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
     restartingGSM = false;
 }
 
-async function processArgs() {
+async function processArgsAndStartSettings() {
     const args = process.argv.slice(1);
     let gameName: string | undefined;
     let windowName: string | undefined;
@@ -564,6 +689,10 @@ async function processArgs() {
             i++;
         } else if (args[i] === '--ocr') {
             runOCR = true;
+        } else if (args[i] === '--force-python-update') {
+            await updateGSM(true, true);
+        } else if (args[i] === '--force-all-updates') {
+            await runUpdateChecks(true, true, true);
         }
     }
 
@@ -575,6 +704,14 @@ async function processArgs() {
     }
     if (runOCR) {
         await startOCR();
+    }
+
+    if (getRunOverlayOnStartup()) {
+        runOverlay();
+    }
+
+    if (getRunWindowTransparencyToolOnStartup()) {
+        runWindowTransparencyTool();
     }
 }
 
@@ -593,7 +730,7 @@ if (!app.requestSingleInstanceLock()) {
     });
 } else {
     app.whenReady().then(async () => {
-        processArgs().then((_) => console.log('Processed Args'));
+        processArgsAndStartSettings().then((_) => console.log('Processed Args'));
         if (getAutoUpdateElectron()) {
             if (await isConnected()) {
                 console.log('Checking for updates...');
@@ -635,7 +772,7 @@ if (!app.requestSingleInstanceLock()) {
 
                     notification.on('click', async () => {
                         console.log('Notification Clicked, Updating GSM...');
-                        await update(true, false);
+                        await runUpdateChecks(true, false);
                     });
 
                     notification.show();
@@ -695,6 +832,12 @@ export async function runPipInstall(packageName: string): Promise<void> {
     await ensureAndRunGSM(pythonPath);
 }
 
+async function closeAllPythonProcesses(): Promise<void> {
+    await closeGSM();
+    await stopOCR();
+    await stopWindowTransparencyTool();
+}
+
 async function closeGSM(): Promise<void> {
     if (!pyProc) return;
     restartingGSM = true;
@@ -738,27 +881,33 @@ async function zipLogs(): Promise<void> {
         const { response } = await dialog.showMessageBox(mainWindow!, {
             type: 'question',
             title: 'Include Temporary Files?',
-            message: 'Do you want to include temporary files like OCR Screenshots, GSM-Created Screenshots, GSM-Created Audio, etc. in the export? This may help with debugging but will increase the size of the export.\n\nPlease be aware of the privacy implications of including these files. They should mostly just be screenshots of your game or application, but please review them if you have any concerns.',
-            buttons: ['Yes', 'No']
+            message:
+                'Do you want to include temporary files like OCR Screenshots, GSM-Created Screenshots, GSM-Created Audio, etc. in the export? This may help with debugging but will increase the size of the export.\n\nPlease be aware of the privacy implications of including these files. They should mostly just be screenshots of your game or application, but please review them if you have any concerns.',
+            buttons: ['Yes', 'No'],
         });
 
         const tempDir = path.join(BASE_DIR, 'temp');
 
         // Check if logs directory exists
         if (!fs.existsSync(logsDir)) {
-            dialog.showErrorBox('No Logs Found', 'No logs directory found. No logs have been generated yet.');
+            dialog.showErrorBox(
+                'No Logs Found',
+                'No logs directory found. No logs have been generated yet.'
+            );
             return;
         }
 
         // Read all files in logs directory
-        const files = fs.readdirSync(logsDir).filter(file => 
-            file.includes('.log') || file.includes('.txt')
-        );
+        const files = fs
+            .readdirSync(logsDir)
+            .filter((file) => file.includes('.log') || file.includes('.txt'));
 
         // Read all files in temp directory
         let tempFiles: string[] = [];
         if (fs.existsSync(tempDir) && response === 0) {
-            tempFiles = fs.readdirSync(tempDir).filter(file => fs.statSync(path.join(tempDir, file)).isFile());
+            tempFiles = fs
+                .readdirSync(tempDir)
+                .filter((file) => fs.statSync(path.join(tempDir, file)).isFile());
         }
 
         if (files.length === 0) {
@@ -770,10 +919,11 @@ async function zipLogs(): Promise<void> {
         const downloadsDir = app.getPath('downloads');
         const result = await dialog.showSaveDialog(mainWindow!, {
             title: 'Save GSM Logs Archive',
-            defaultPath: path.join(downloadsDir, `GSM_Logs_${new Date().toISOString().slice(0, 10)}.zip`),
-            filters: [
-            { name: 'ZIP Archive', extensions: ['zip'] }
-            ]
+            defaultPath: path.join(
+                downloadsDir,
+                `GSM_Logs_${new Date().toISOString().slice(0, 10)}.zip`
+            ),
+            filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
         });
 
         if (result.canceled || !result.filePath) {
@@ -783,23 +933,25 @@ async function zipLogs(): Promise<void> {
         // Create archive
         const output = fs.createWriteStream(result.filePath);
         const archive = archiver('zip', {
-            zlib: { level: 9 } // Sets the compression level
+            zlib: { level: 9 }, // Sets the compression level
         });
 
         // Handle archive events
         output.on('close', () => {
             console.log(`Archive created successfully: ${archive.pointer()} total bytes`);
-            dialog.showMessageBox(mainWindow!, {
-                type: 'info',
-                title: 'Logs Exported',
-                message: `Logs successfully exported to:\n${result.filePath}`,
-                buttons: ['OK', 'Open Folder']
-            }).then((response) => {
-                if (response.response === 1) {
-                    // Open folder containing the zip file
-                    shell.showItemInFolder(result.filePath!);
-                }
-            });
+            dialog
+                .showMessageBox(mainWindow!, {
+                    type: 'info',
+                    title: 'Logs Exported',
+                    message: `Logs successfully exported to:\n${result.filePath}`,
+                    buttons: ['OK', 'Open Folder'],
+                })
+                .then((response) => {
+                    if (response.response === 1) {
+                        // Open folder containing the zip file
+                        shell.showItemInFolder(result.filePath!);
+                    }
+                });
         });
 
         archive.on('error', (err: Error) => {
@@ -811,19 +963,18 @@ async function zipLogs(): Promise<void> {
         archive.pipe(output);
 
         // Add all log files to the archive
-        files.forEach(file => {
+        files.forEach((file) => {
             const filePath = path.join(logsDir, file);
             archive.file(filePath, { name: file });
         });
 
-        tempFiles.forEach(file => {
+        tempFiles.forEach((file) => {
             const filePath = path.join(tempDir, file);
             archive.file(filePath, { name: `temp/${file}` });
         });
 
         // Finalize the archive
         await archive.finalize();
-
     } catch (error) {
         console.error('Error zipping logs:', error);
         dialog.showErrorBox('Export Failed', `Failed to export logs: ${(error as Error).message}`);

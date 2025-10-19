@@ -251,6 +251,26 @@ class ConfigApp:
         self.window.update_idletasks()
         self.window.geometry("")
         self.window.withdraw()
+        
+        # Start checking for OBS error messages
+        self.check_obs_errors()
+    
+    def check_obs_errors(self):
+        """Check for queued error messages from OBS and display them."""
+        try:
+            from GameSentenceMiner import obs
+            errors = obs.get_queued_gui_errors()
+            for title, message, recheck_func in errors:
+                if recheck_func is not None:
+                    if recheck_func():
+                        continue  # Issue resolved, don't show error
+                messagebox.showerror(title, message)
+        except Exception as e:
+            # Don't let error checking crash the GUI
+            logger.debug(f"Error checking OBS error queue: {e}")
+        
+        # Schedule the next check in 1 second
+        self.window.after(1000, self.check_obs_errors)
     
     def change_locale(self):
         """Change the locale of the application."""
@@ -414,7 +434,6 @@ class ConfigApp:
         self.notify_on_update_value = tk.BooleanVar(value=self.settings.features.notify_on_update)
         self.open_anki_edit_value = tk.BooleanVar(value=self.settings.features.open_anki_edit)
         self.open_anki_browser_value = tk.BooleanVar(value=self.settings.features.open_anki_in_browser)
-        self.backfill_audio_value = tk.BooleanVar(value=self.settings.features.backfill_audio)
         self.browser_query_value = tk.StringVar(value=self.settings.features.browser_query)
         self.generate_longplay_value = tk.BooleanVar(value=self.settings.features.generate_longplay)
         
@@ -544,7 +563,7 @@ class ConfigApp:
         self.create_vars()  # Recreate variables to reflect default values
         recreate_tab()
         self.save_settings(profile_change=False)
-        self.reload_settings()
+        self.reload_settings(force_refresh=True)
 
     def show_scene_selection(self, matched_configs):
         selected_scene = None
@@ -645,7 +664,6 @@ class ConfigApp:
                 notify_on_update=self.notify_on_update_value.get(),
                 open_anki_edit=self.open_anki_edit_value.get(),
                 open_anki_in_browser=self.open_anki_browser_value.get(),
-                backfill_audio=self.backfill_audio_value.get(),
                 browser_query=self.browser_query_value.get(),
                 generate_longplay=self.generate_longplay_value.get(),
             ),
@@ -1536,6 +1554,14 @@ class ConfigApp:
         ttk.Checkbutton(anki_frame, variable=self.multi_overwrites_sentence_value, bootstyle="round-toggle").grid(
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
+        
+        advanced_i18n = anki_i18n.get('advanced_settings', {})
+        linebreak_i18n = advanced_i18n.get('multiline_linebreak', {})
+        HoverInfoLabelWidget(anki_frame, text=linebreak_i18n.get('label', '...'),
+                             tooltip=linebreak_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Entry(anki_frame, textvariable=self.multi_line_line_break_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
 
         self.add_reset_button(anki_frame, "anki", self.current_row, 0, self.create_anki_tab)
 
@@ -1593,13 +1619,6 @@ class ConfigApp:
                              tooltip=query_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
         ttk.Entry(features_frame, width=50, textvariable=self.browser_query_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        self.current_row += 1
-
-        backfill_i18n = features_i18n.get('backfill_audio', {})
-        HoverInfoLabelWidget(features_frame, text=backfill_i18n.get('label', '...'), tooltip=backfill_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Checkbutton(features_frame, variable=self.backfill_audio_value, bootstyle="round-toggle").grid(
-            row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
         HoverInfoLabelWidget(features_frame, text="Generate LongPlay", tooltip="Generate a LongPlay video using OBS recording, and write to a .srt file with all the text coming into gsm. RESTART REQUIRED FOR SETTING TO TAKE EFFECT.",
@@ -2061,13 +2080,6 @@ class ConfigApp:
         HoverInfoLabelWidget(advanced_frame, text=play_hotkey_i18n.get('label', '...'),
                              tooltip=play_hotkey_i18n.get('tooltip', '...'), row=self.current_row, column=0)
         ttk.Entry(advanced_frame, textvariable=self.play_latest_audio_hotkey_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
-        self.current_row += 1
-
-        linebreak_i18n = advanced_i18n.get('multiline_linebreak', {})
-        HoverInfoLabelWidget(advanced_frame, text=linebreak_i18n.get('label', '...'),
-                             tooltip=linebreak_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Entry(advanced_frame, textvariable=self.multi_line_line_break_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         storage_field_i18n = advanced_i18n.get('multiline_storage_field', {})

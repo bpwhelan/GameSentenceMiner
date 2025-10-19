@@ -8,6 +8,7 @@ import time
 import logging
 import contextlib
 import shutil
+import queue
 
 import psutil
 
@@ -17,6 +18,21 @@ import numpy as np
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.configuration import get_app_directory, get_config, get_master_config, is_windows, save_full_config, reload_config, logger, gsm_status, gsm_state
 from GameSentenceMiner.util.gsm_utils import sanitize_filename, make_unique_file_name, make_unique_temp_file
+
+# Thread-safe queue for GUI error messages
+_gui_error_queue = queue.Queue()
+
+def _queue_error_for_gui(title, message, recheck_function=None):
+    _gui_error_queue.put((title, message, recheck_function))
+
+def get_queued_gui_errors():
+    errors = []
+    try:
+        while True:
+            errors.append(_gui_error_queue.get_nowait())
+    except queue.Empty:
+        pass
+    return errors
 
 connection_pool: 'OBSConnectionPool' = None
 event_client: obs.EventClient = None
@@ -100,7 +116,6 @@ class OBSConnectionPool:
         if not hasattr(self, '_healthcheck_client') or self._healthcheck_client is None:
             try:
                 self._healthcheck_client = obs.ReqClient(**self.connection_kwargs)
-                logger.info("Initialized dedicated healthcheck client.")
             except Exception as e:
                 logger.error(f"Failed to create healthcheck client: {e}")
                 self._healthcheck_client = None
@@ -161,6 +176,11 @@ class OBSConnectionManager(threading.Thread):
 
         buffer_seconds, error_message = self.check_replay_buffer_enabled()
         
+        if not buffer_seconds:
+            # Queue the error message to be shown safely in the main thread
+            _queue_error_for_gui("OBS Replay Buffer Error", error_message + "\n\nTo disable this message, turn off 'Automatically Manage Replay Buffer' in GSM settings.", recheck_function=get_replay_buffer_output)
+            return errors
+
         gsm_state.replay_buffer_length = buffer_seconds or 300
 
         if not buffer_seconds:
@@ -176,7 +196,7 @@ class OBSConnectionManager(threading.Thread):
             return errors
 
         if current_status != self.last_replay_buffer_status:
-            self.last_replay_buffer_status = current_status
+            errors.append("Replay Buffer Changed Externally, Not Managing Automatically.")
             self.no_output_timestamp = None
             return errors
         
@@ -231,6 +251,9 @@ class OBSConnectionManager(threading.Thread):
 
     def stop(self):
         self.running = False
+        
+def get_base_obs_dir():
+    return os.path.join(configuration.get_app_directory(), 'obs-studio')
     
 def get_obs_path():
     return os.path.join(configuration.get_app_directory(), 'obs-studio/bin/64bit/obs64.exe')
