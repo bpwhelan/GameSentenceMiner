@@ -40,6 +40,10 @@ export const PRESET_PATTERNS = {
     'repeated_chars': {
         label: 'Lines with repeated characters (3+ times)',
         pattern: '(.)\\1{2,}'
+    },
+    'everything': {
+        label: 'Everything',
+        pattern: '.*'
     }
 };
 

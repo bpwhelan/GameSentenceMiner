@@ -89,6 +89,10 @@ def register_database_api_routes(app):
                         filtered_lines.sort(key=lambda l: float(l.timestamp) if l.timestamp else 0)
                     elif sort_by == 'game_name':
                         filtered_lines.sort(key=lambda l: (l.game_name or '', -(float(l.timestamp) if l.timestamp else 0)))
+                    elif sort_by == 'length_desc':
+                        filtered_lines.sort(key=lambda l: -(len(l.line_text) if l.line_text else 0))
+                    elif sort_by == 'length_asc':
+                        filtered_lines.sort(key=lambda l: len(l.line_text) if l.line_text else 0)
                     else:  # date_desc or relevance
                         filtered_lines.sort(key=lambda l: -(float(l.timestamp) if l.timestamp else 0))
                     
@@ -135,6 +139,10 @@ def register_database_api_routes(app):
                     base_query += " ORDER BY timestamp ASC"
                 elif sort_by == 'game_name':
                     base_query += " ORDER BY game_name, timestamp DESC"
+                elif sort_by == 'length_desc':
+                    base_query += " ORDER BY LENGTH(line_text) DESC"
+                elif sort_by == 'length_asc':
+                    base_query += " ORDER BY LENGTH(line_text) ASC"
                 else:  # relevance - could be enhanced with proper scoring
                     base_query += " ORDER BY timestamp DESC"
                 
