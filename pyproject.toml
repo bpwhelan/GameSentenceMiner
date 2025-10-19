@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.18.20"
+version = "2.18.21"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -59,6 +59,7 @@ dependencies = [
   "torchcodec>=0.7.0",
   "torchaudio>=2.8.0",
   "flask-compress~=1.15"
+  "torchaudio==2.8.0",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will

@@ -10,7 +10,7 @@ Installation: https://www.youtube.com/watch?v=sVL9omRbGc4
 
 Discord: https://discord.gg/yP8Qse6bb8
 
-## Features
+## Features - [Anki Card Enhancement](#anki-card-enhancement) | [OCR](#ocr) | [Overlay](#overlay)
 
 ### Anki Card Enhancement
 
@@ -38,6 +38,8 @@ https://github.com/user-attachments/assets/df6bc38e-d74d-423e-b270-8a82eec2394c
 
 https://github.com/user-attachments/assets/ee670fda-1a8b-4dec-b9e6-072264155c6e
 
+---
+
 ### OCR
 
 GSM runs a fork of [OwOCR](https://github.com/AuroraWright/owocr/) to provide accurate text capture from games that do not have a hook. Here are some improvements GSM makes on stock OwOCR:
@@ -55,9 +57,17 @@ GSM runs a fork of [OwOCR](https://github.com/AuroraWright/owocr/) to provide ac
 
 https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
+---
 
+### Overlay
 
-### Game Launcher Capabilities (WIP)
+GSM also features an overlay that allows for on-screen yomitan lookups. Whenever the overlay is on it will scan the screen ONCE whenever a text event from any source comes into GSM. It then allows for hovering over the actual characters in-game for yomitan lookups, and mining.
+
+https://youtu.be/m1MweBsHbwI
+
+![l0qGasWkoH](https://github.com/user-attachments/assets/c8374705-efa0-497b-b979-113fae8a1e31)
+
+<!--### Game Launcher Capabilities (WIP)
 
 This is probably the feature I care least about, but if you are lazy like me, you may find this helpful.
 
@@ -67,7 +77,7 @@ This is probably the feature I care least about, but if you are lazy like me, yo
 
 This feature simplifies the process of launching games and (potentially) hooking them, making the entire workflow more efficient.
 
-<img width="2560" height="1392" alt="GameSentenceMiner_1zuov0R9xK" src="https://github.com/user-attachments/assets/205769bb-3dd2-493b-9383-2d6e2ca05c2d" />
+<img width="2560" height="1392" alt="GameSentenceMiner_1zuov0R9xK" src="https://github.com/user-attachments/assets/205769bb-3dd2-493b-9383-2d6e2ca05c2d" />-->
 
 ## Basic Requirements
 
