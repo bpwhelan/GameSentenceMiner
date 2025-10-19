@@ -466,6 +466,9 @@ def register_stats_api_routes(app):
                 current_game_stats = {}
                 
             try:
+                # Count completed games from GamesTable (using completed boolean)
+                completed_games_count = len(GamesTable.get_all_completed())
+                
                 # Build all_games_stats from combined_stats (no all_lines needed!)
                 all_games_stats = {
                     'total_characters': combined_stats.get('total_characters', 0),
@@ -476,7 +479,7 @@ def register_stats_api_routes(app):
                     'reading_speed': int(combined_stats.get('average_reading_speed_chars_per_hour', 0)),
                     'reading_speed_formatted': format_large_number(int(combined_stats.get('average_reading_speed_chars_per_hour', 0))),
                     'sessions': combined_stats.get('total_sessions', 0),
-                    'completed_games': combined_stats.get('games_completed', 0),
+                    'completed_games': completed_games_count,
                     'current_streak': 0,  # TODO: Calculate from rollup data
                     'avg_daily_time_hours': 0,  # TODO: Calculate from rollup data
                     'avg_daily_time_formatted': '0h'

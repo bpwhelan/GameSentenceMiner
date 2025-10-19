@@ -791,12 +791,21 @@ document.addEventListener('DOMContentLoaded', function () {
     // Function to update estimated time left stat
     function updateEstimatedTimeLeft(stats) {
         const estimatedTimeLeftEl = document.getElementById('currentEstimatedTimeLeft');
+        const estimatedTimeLeftBox = estimatedTimeLeftEl.closest('.dashboard-stat-item');
         
         if (!stats.game_character_count || stats.game_character_count <= 0 ||
             !stats.total_characters || stats.total_characters <= 0 ||
             !stats.reading_speed || stats.reading_speed <= 0) {
-            estimatedTimeLeftEl.textContent = '-';
+            // Hide the entire stat box when we can't calculate estimated time
+            if (estimatedTimeLeftBox) {
+                estimatedTimeLeftBox.style.display = 'none';
+            }
             return;
+        }
+        
+        // Show the stat box if it was hidden
+        if (estimatedTimeLeftBox) {
+            estimatedTimeLeftBox.style.display = '';
         }
         
         const charsRead = stats.total_characters;
@@ -1411,8 +1420,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('allReadingSpeed').textContent = stats.reading_speed_formatted;
         document.getElementById('allSessions').textContent = stats.sessions.toLocaleString();
 
-        // Update progress section
-        document.getElementById('allMonthlyChars').textContent = stats.monthly_characters_formatted;
+        // Update progress section (removed monthly characters)
         document.getElementById('allUniqueGames').textContent = stats.completed_games.toLocaleString();
         document.getElementById('allTotalSentences').textContent = stats.total_sentences.toLocaleString();
 
