@@ -134,7 +134,11 @@ function selectJitenGame(resultIndex) {
     
     // Check if we're linking an existing game or creating from potential
     if (window.currentPotentialGame) {
-        showPotentialGameLinkConfirmation();
+        if (typeof showPotentialGameLinkConfirmation === 'function') {
+            showPotentialGameLinkConfirmation();
+        } else {
+            showLinkConfirmation();
+        }
     } else {
         showLinkConfirmation();
     }
