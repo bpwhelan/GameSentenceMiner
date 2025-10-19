@@ -69,8 +69,6 @@ def register_anki_api_endpoints(app):
                     end_date = datetime.date.fromtimestamp(end_ts_seconds)
                     start_date_str = start_date.strftime('%Y-%m-%d')
                     end_date_str = end_date.strftime('%Y-%m-%d')
-                    
-                    logger.info(f"[Anki Kanji] Date range: {start_date_str} to {end_date_str}")
                 except (ValueError, OSError) as e:
                     logger.error(f"Invalid timestamp conversion: start={start_timestamp}, end={end_timestamp}, error={e}")
                     # Fallback to using all data
@@ -91,24 +89,20 @@ def register_anki_api_endpoints(app):
                 
                 if start_date_str <= yesterday_str:
                     rollup_end = min(end_date_str, yesterday_str) if end_date_str else yesterday_str
-                    logger.info(f"[Anki Kanji] Querying rollup data from {start_date_str} to {rollup_end}")
                     rollups = StatsRollupTable.get_date_range(start_date_str, rollup_end)
                     
                     if rollups:
                         rollup_stats = aggregate_rollup_data(rollups)
-                        logger.info(f"[Anki Kanji] Aggregated {len(rollups)} rollup records")
             
             # Calculate today's stats live if needed
             live_stats = None
             if today_in_range:
-                logger.info("[Anki Kanji] Calculating today's kanji stats live")
                 today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
                 today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
                 today_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=today_start, end=today_end, for_stats=True)
                 
                 if today_lines:
                     live_stats = calculate_live_stats_for_today(today_lines)
-                    logger.info(f"[Anki Kanji] Calculated live stats from {len(today_lines)} lines")
             
             # Combine rollup and live stats
             combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
@@ -118,7 +112,7 @@ def register_anki_api_endpoints(app):
             
             # If no rollup data, fall back to querying all lines
             if not kanji_freq_dict:
-                logger.info("[Anki Kanji] No rollup data, falling back to direct query")
+                logger.debug("[Anki Kanji] No rollup data, falling back to direct query")
                 try:
                     if start_timestamp is not None and end_timestamp is not None:
                         # Handle negative timestamps by clamping to 0

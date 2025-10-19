@@ -1100,12 +1100,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 // Create reading chars quantity chart if data exists (with trendline)
                 if (data.totalCharsPerGame) {
-                    createGameBarChart('readingCharsChart', data.totalCharsPerGame, 'Reading Chars Quantity', 'Characters Read', true);
+                    createGameBarChart('readingCharsChart', data.totalCharsPerGame, 'Reading Chars Quantity', 'Characters Read', false);
                 }
 
                 // Create reading time quantity chart if data exists (with trendline)
                 if (data.readingTimePerGame) {
-                    createGameBarChartWithCustomFormat('readingTimeChart', data.readingTimePerGame, 'Reading Time Quantity', 'Time (hours)', formatTime, true);
+                    createGameBarChartWithCustomFormat('readingTimeChart', data.readingTimePerGame, 'Reading Time Quantity', 'Time (hours)', formatTime, false);
                 }
 
                 // Create reading speed per game chart if data exists (with trendline)

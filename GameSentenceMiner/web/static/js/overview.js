@@ -887,157 +887,50 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('currentSessionTotalChars').textContent = lastSession.totalChars.toLocaleString();
         document.getElementById('currentSessionStartTime').textContent = startTimeDisplay;
         document.getElementById('currentSessionEndTime').textContent = endTimeDisplay;
-        document.getElementById('currentSessionCharsPerHour').textContent = lastSession.readSpeed !== '-' ? lastSession.readSpeed.toLocaleString() : '-';
+        // Use charsPerHour from API (not readSpeed)
+        document.getElementById('currentSessionCharsPerHour').textContent =
+            lastSession.charsPerHour > 0 ? lastSession.charsPerHour.toLocaleString() : '-';
+    }
+
+    // Function to load today's stats from new API endpoint
+    function loadTodayStats() {
+        fetch('/api/today-stats')
+            .then(response => response.json())
+            .then(data => {
+                // Update today's total characters
+                document.getElementById('todayTotalChars').textContent = data.todayTotalChars.toLocaleString();
+                
+                // Update today's chars/hour
+                document.getElementById('todayCharsPerHour').textContent =
+                    data.todayCharsPerHour > 0 ? data.todayCharsPerHour.toLocaleString() : '-';
+                
+                // Store sessions globally for navigation
+                window.todaySessionDetails = data.sessions || [];
+                
+                // Show the latest session (most recent)
+                if (window.todaySessionDetails.length > 0) {
+                    showSessionAtIndex(window.todaySessionDetails.length - 1);
+                } else {
+                    // No sessions - clear session displays
+                    document.getElementById('currentSessionTotalChars').textContent = '0';
+                    document.getElementById('currentSessionCharsPerHour').textContent = '-';
+                }
+                
+                // Update session navigation buttons
+                updateSessionNavigationButtons();
+            })
+            .catch(error => {
+                console.error('Error fetching today\'s stats:', error);
+                // Set default values on error
+                document.getElementById('todayTotalChars').textContent = '0';
+                document.getElementById('todayCharsPerHour').textContent = '-';
+                document.getElementById('currentSessionTotalChars').textContent = '0';
+                document.getElementById('currentSessionCharsPerHour').textContent = '-';
+            });
     }
 
     // Dashboard functionality
     function loadDashboardData(data = null, end_timestamp = null) {
-        function updateTodayOverview(allLinesData) {
-            // Get today's date string (YYYY-MM-DD), timezone aware (local time)
-            const today = new Date();
-            const pad = n => n.toString().padStart(2, '0');
-            const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-            const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
-            document.getElementById('todayDate').textContent = todayStr;
-
-            // Filter lines for today
-            const todayLines = (allLinesData || []).filter(line => {
-                if (!line.timestamp) return false;
-                const ts = parseFloat(line.timestamp);
-                if (isNaN(ts)) return false;
-                const dateObj = new Date(ts * 1000);
-                const lineDate = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}`;
-                return lineDate === todayStr;
-            });
-
-            // Calculate total characters read today (only valid numbers)
-            const totalChars = todayLines.reduce((sum, line) => {
-                const chars = Number(line.characters);
-                return sum + (isNaN(chars) ? 0 : chars);
-            }, 0);
-
-            // Calculate sessions (count gaps > session threshold as new sessions)
-            let sessions = 0;
-            let sessionGap = window.statsConfig ? window.statsConfig.sessionGapSeconds : 3600;
-            let minimumSessionLength = 300; // 5 minutes minimum session length
-            let sessionDetails = [];
-            if (todayLines.length > 0) {
-                // Sort lines by timestamp
-                const sortedLines = todayLines.slice().sort((a, b) => parseFloat(a.timestamp) - parseFloat(b.timestamp));
-                let currentSession = null;
-                let lastTimestamp = null;
-                let lastGameName = null;
-
-                for (let i = 0; i < sortedLines.length; i++) {
-                    const line = sortedLines[i];
-                    const ts = parseFloat(line.timestamp);
-                    const gameName = line.game_name || '';
-                    const chars = Number(line.characters) || 0;
-
-                    // Determine if new session: gap or new game
-                    const isNewSession =
-                        (lastTimestamp !== null && ts - lastTimestamp > sessionGap) ||
-                        (lastGameName !== null && gameName !== lastGameName);
-
-                    if (!currentSession || isNewSession) {
-                        // Finish previous session
-                        if (currentSession) {
-                            // Calculate read speed for session
-                            if (currentSession.totalSeconds > 0) {
-                                currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
-                            } else {
-                                currentSession.readSpeed = '-';
-                            }
-                            // Only add session if it meets minimum length requirement
-                            if (currentSession.totalSeconds >= minimumSessionLength) {
-                                sessionDetails.push(currentSession);
-                            }
-                        }
-                        // Start new session
-                        currentSession = {
-                            startTime: ts,
-                            endTime: ts,
-                            gameName: gameName,
-                            totalChars: chars,
-                            totalSeconds: 0,
-                            lines: [line]
-                        };
-                    } else {
-                        // Continue current session
-                        currentSession.endTime = ts + afkTimerSeconds;
-                        currentSession.totalChars += chars;
-                        currentSession.lines.push(line);
-                        if (lastTimestamp !== null) {
-                            currentSession.totalSeconds += Math.min(ts - lastTimestamp, afkTimerSeconds);
-                        }
-                    }
-
-                    lastTimestamp = ts;
-                    lastGameName = gameName;
-                }
-
-                // Push last session
-                if (currentSession) {
-                    if (currentSession.totalSeconds > 0) {
-                        currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
-                    } else {
-                        currentSession.readSpeed = '-';
-                    }
-                    sessionDetails.push(currentSession);
-                }
-
-                sessions = sessionDetails.length;
-            } else {
-                sessions = 0;
-                sessionDetails = [];
-            }
-
-            // Optionally, you can expose sessionDetails for debugging or further UI use:
-            // console.log(sessionDetails);
-            window.todaySessionDetails = sessionDetails;
-
-            // Calculate total reading time (reuse AFK logic from calculateHeatmapStreaks)
-            let totalSeconds = 0;
-            const timestamps = todayLines
-                .map(l => parseFloat(l.timestamp))
-                .filter(ts => !isNaN(ts))
-                .sort((a, b) => a - b);
-            // Get AFK timer from settings modal if available
-            if (timestamps.length >= 2) {
-                for (let i = 1; i < timestamps.length; i++) {
-                    const gap = timestamps[i] - timestamps[i-1];
-                    totalSeconds += Math.min(gap, afkTimerSeconds);
-                }
-            } else if (timestamps.length === 1) {
-                totalSeconds = 1;
-            }
-            let totalHours = totalSeconds / 3600;
-
-            // Calculate chars/hour
-            let charsPerHour = '-';
-            if (totalChars > 0) {
-                // Avoid division by zero, set minimum time to 1 minute if activity exists
-                if (totalHours <= 0) totalHours = 1/60;
-                charsPerHour = Math.round(totalChars / totalHours).toLocaleString();
-            }
-
-            // Format hours for display
-            let hoursDisplay = '-';
-            if (totalHours > 0) {
-                const h = Math.floor(totalHours);
-                const m = Math.round((totalHours - h) * 60);
-                hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
-            }
-
-            document.getElementById('todayTotalHours').textContent = hoursDisplay;
-            document.getElementById('todayTotalChars').textContent = totalChars.toLocaleString();
-            document.getElementById('todaySessions').textContent = sessions;
-            document.getElementById('todayCharsPerHour').textContent = charsPerHour;
-
-            // Update current session overview with the last session
-            showSessionAtIndex(sessionDetails.length - 1);
-        }
-
         function updateOverviewForEndDay(allLinesData, endTimestamp) {
             if (!endTimestamp) return;
 
@@ -1048,6 +941,10 @@ document.addEventListener('DOMContentLoaded', function () {
             const targetDateStr = `${endDateObj.getFullYear()}-${pad(endDateObj.getMonth() + 1)}-${pad(endDateObj.getDate())}`;
             const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             document.getElementById('todayDate').textContent = targetDateStr;
+            
+            // Load today's stats from new API
+            loadTodayStats();
+            return; // Skip old calculation logic below
 
             // Filter lines that fall on the target date
             const targetLines = (allLinesData || []).filter(line => {
@@ -1196,8 +1093,8 @@ document.addEventListener('DOMContentLoaded', function () {
             updateAllGamesDashboard(data.allGamesStats);
             
             if (data.allLinesData) {
-                end_timestamp == null ? updateTodayOverview(data.allLinesData) : updateOverviewForEndDay(data.allLinesData, end_timestamp)
-            }
+            updateOverviewForEndDay(data.allLinesData, end_timestamp);
+                }
 
             hideDashboardLoading();
         } else {
@@ -1209,9 +1106,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (data.currentGameStats && data.allGamesStats) {
                         updateCurrentGameDashboard(data.currentGameStats);
                         updateAllGamesDashboard(data.allGamesStats);
-                        if (data.allLinesData) {
-                            end_timestamp == null ? updateTodayOverview(data.allLinesData) : updateOverviewForEndDay(data.allLinesData, end_timestamp)
-                        }
+                        
+                        // Always fetch today's data live (don't use rollup data for today)
+  
+                    if (data.allLinesData) {
+                        updateOverviewForEndDay(data.allLinesData, end_timestamp);
+                    }
                     } else {
                         showDashboardError();
                     }

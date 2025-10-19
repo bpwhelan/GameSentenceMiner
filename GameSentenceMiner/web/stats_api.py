@@ -54,7 +54,7 @@ def register_stats_api_routes(app):
             start_timestamp = request.args.get('start', None)
             end_timestamp = request.args.get('end', None)
             
-            logger.info(f"🔍 DEBUG: Request params - start={start_timestamp}, end={end_timestamp}")
+            
             
             # Convert timestamps to float if provided
             start_timestamp = float(start_timestamp) if start_timestamp else None
@@ -66,21 +66,21 @@ def register_stats_api_routes(app):
             today_str = today.strftime('%Y-%m-%d')
             
             # Determine date range
-            logger.info(f"🔍 DEBUG: Checking date range - start_timestamp={start_timestamp}, end_timestamp={end_timestamp}")
+            
             if start_timestamp and end_timestamp:
-                logger.info(f"🔍 DEBUG: Taking IF branch (timestamps provided)")
+                
                 start_date = datetime.date.fromtimestamp(start_timestamp)
                 end_date = datetime.date.fromtimestamp(end_timestamp)
                 start_date_str = start_date.strftime('%Y-%m-%d')
                 end_date_str = end_date.strftime('%Y-%m-%d')
             else:
-                logger.info(f"🔍 DEBUG: Taking ELSE branch (no timestamps)")
+                
                 # Default: all history - get first date from rollup table
                 first_rollup_date = StatsRollupTable.get_first_date()
-                logger.info(f"🔍 DEBUG: get_first_date() returned: {first_rollup_date} (type: {type(first_rollup_date)})")
+                
                 start_date_str = first_rollup_date if first_rollup_date else today_str
                 end_date_str = today_str
-                logger.info(f"🔍 DEBUG: No date filter - start_date_str={start_date_str}, end_date_str={end_date_str}, today_str={today_str}")
+                
             
             # Check if today is in the date range
             today_in_range = (not end_date_str) or (end_date_str >= today_str)
@@ -92,40 +92,35 @@ def register_stats_api_routes(app):
                 # Calculate yesterday
                 yesterday = today - datetime.timedelta(days=1)
                 yesterday_str = yesterday.strftime('%Y-%m-%d')
-                logger.info(f"🔍 DEBUG: Checking rollup condition - start_date_str={start_date_str}, yesterday_str={yesterday_str}, condition={start_date_str <= yesterday_str}")
+                
                 
                 # Only query rollup if we have historical dates
                 if start_date_str <= yesterday_str:
                     rollup_end = min(end_date_str, yesterday_str) if end_date_str else yesterday_str
                     
-                    logger.info(f"Querying rollup data from {start_date_str} to {rollup_end}")
+                    
                     rollups = StatsRollupTable.get_date_range(start_date_str, rollup_end)
                     
                     if rollups:
                         rollup_stats = aggregate_rollup_data(rollups)
-                        logger.info(f"Aggregated {len(rollups)} rollup records in {time.time() - rollup_query_start:.3f}s")
+                        
             
             # Calculate today's stats live if needed
             live_stats_start = time.time()
             live_stats = None
             if today_in_range:
-                logger.info("Calculating today's stats live")
                 today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
                 today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
                 today_lines = GameLinesTable.get_lines_filtered_by_timestamp(start=today_start, end=today_end, for_stats=True)
                 
                 if today_lines:
-                    live_stats = calculate_live_stats_for_today(today_lines)
-                    logger.info(f"Calculated live stats from {len(today_lines)} lines in {time.time() - live_stats_start:.3f}s")
-            
+                    live_stats = calculate_live_stats_for_today(today_lines)            
             # Combine rollup and live stats
             combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
-            logger.info(f"Combined stats: {len(combined_stats)} fields")
             
-            # === PERFORMANCE OPTIMIZATION: Build game mappings from GamesTable ===
+            
+            # Build game mappings from GamesTable
             # This replaces the expensive all_lines fetch that was used just for mapping
-            # OLD: Fetched 500K+ lines just to build game_id -> game_name mapping
-            # NEW: Query ~50-100 games from GamesTable (20-100x faster!)
             def build_game_mappings_from_games_table():
                 """
                 Build game_id and game_name mappings from GamesTable.
@@ -160,7 +155,7 @@ def register_stats_api_routes(app):
             
             # Build all mappings from GamesTable (FAST!)
             game_id_to_game_name, game_name_to_display, game_id_to_title = build_game_mappings_from_games_table()
-            logger.info(f"Built game mappings from GamesTable: {len(game_id_to_game_name)} games (no all_lines fetch!)")
+            
             
             # Also extract titles from rollup data as fallback for games not in GamesTable
             game_activity = combined_stats.get('game_activity_data', {})
@@ -170,7 +165,7 @@ def register_stats_api_routes(app):
                     game_id_to_title[game_id] = title
                     logger.debug(f"[TITLE_DEBUG] Using rollup title for game_id={game_id[:8]}..., title='{title}'")
             
-            logger.info(f"Total game titles available: {len(game_id_to_title)} (GamesTable + rollup)")
+            
             
             # === PERFORMANCE OPTIMIZATION: Only fetch today's lines for live calculations ===
             today_lines_for_charts = []
@@ -178,7 +173,7 @@ def register_stats_api_routes(app):
                 today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
                 today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
                 today_lines_for_charts = GameLinesTable.get_lines_filtered_by_timestamp(start=today_start, end=today_end, for_stats=True)
-                logger.info(f"Fetched {len(today_lines_for_charts)} lines for today's charts")
+                
             
             # 2. Build daily_data from rollup records (FAST) + today's lines (SMALL)
             # Structure: daily_data[date_str][display_name] = {'lines': N, 'chars': N}
@@ -191,11 +186,11 @@ def register_stats_api_routes(app):
                 
                 if start_date_str <= yesterday_str:
                     rollup_end = min(end_date_str, yesterday_str) if end_date_str else yesterday_str
-                    logger.info(f"Building daily_data from rollup records: {start_date_str} to {rollup_end}")
+                    
                     
                     # Get rollup records for the date range
                     rollups = StatsRollupTable.get_date_range(start_date_str, rollup_end)
-                    logger.info(f"Processing {len(rollups)} rollup records for chart data")
+                    
                     
                     # Build daily_data directly from rollup records
                     for rollup in rollups:
@@ -231,11 +226,6 @@ def register_stats_api_routes(app):
                 daily_data[day_str][display_name]['lines'] += 1
                 daily_data[day_str][display_name]['chars'] += len(line.line_text) if line.line_text else 0
             
-            logger.info(f"Built daily_data with {len(game_name_to_display)} game mappings (using GamesTable, no all_lines!)")
-            
-            # DEBUG: Log sample mappings
-            for gn, title in list(game_name_to_display.items())[:3]:
-                logger.info(f"[MAPPING_SAMPLE] '{gn}' -> '{title}'")
             
             if not daily_data:
                 return jsonify({"labels": [], "datasets": []})
@@ -415,7 +405,7 @@ def register_stats_api_routes(app):
                         reading_speed_per_game_data["labels"].append(g['title'])
                         reading_speed_per_game_data["totals"].append(speed)
                 
-                logger.info(f"Extracted per-game stats from combined_stats: {len(game_list)} games")
+                
             except Exception as e:
                 logger.error(f"Error extracting per-game stats from combined_stats: {e}")
                 total_chars_data = {"labels": [], "totals": []}
@@ -445,7 +435,7 @@ def register_stats_api_routes(app):
                     current_game_stats = calculate_current_game_stats(current_game_lines)
                 else:
                     # No lines today - fetch the most recent game from all data
-                    logger.info("No lines today, fetching most recent game from all data")
+                    
                     most_recent_line = GameLinesTable._db.fetchone(
                         f"SELECT * FROM {GameLinesTable._table} ORDER BY timestamp DESC LIMIT 1"
                     )
@@ -453,7 +443,7 @@ def register_stats_api_routes(app):
                     if most_recent_line:
                         most_recent_game_line = GameLinesTable.from_row(most_recent_line)
                         current_game_name = most_recent_game_line.game_name or "Unknown Game"
-                        logger.info(f"Most recent game: {current_game_name}")
+                        
                         
                         # Fetch all lines for this game within the date range
                         if start_timestamp and end_timestamp:
@@ -496,7 +486,7 @@ def register_stats_api_routes(app):
                 first_rollup_date = StatsRollupTable.get_first_date()
                 if first_rollup_date:
                     all_games_stats['first_date'] = first_rollup_date
-                    logger.info(f"Using first_date from rollup: {first_rollup_date}")
+                    
                 else:
                     # Fallback to today if no rollup data
                     all_games_stats['first_date'] = datetime.date.today().strftime('%Y-%m-%d')
@@ -507,7 +497,7 @@ def register_stats_api_routes(app):
                 else:
                     all_games_stats['last_date'] = datetime.date.today().strftime('%Y-%m-%d')
                 
-                logger.info(f"Built all_games_stats from combined_stats (no all_lines!)")
+                
             except Exception as e:
                 logger.error(f"Error calculating all games stats: {e}")
                 all_games_stats = {}
@@ -529,10 +519,8 @@ def register_stats_api_routes(app):
                             'date': rollup.date,
                             'reading_time_seconds': rollup.total_reading_time_seconds  # Add actual reading time
                         })
-                    logger.info(f"Built allLinesData from {len(rollups_for_lines)} rollup records for heatmap calculations")
-                else:
-                    logger.info("No historical rollup data in range, allLinesData will be empty")
-            
+
+                    
             # Add today's lines if in range
             if today_in_range and today_lines_for_charts:
                 for line in today_lines_for_charts:
@@ -540,7 +528,7 @@ def register_stats_api_routes(app):
                         'timestamp': float(line.timestamp),
                         'date': datetime.date.fromtimestamp(float(line.timestamp)).strftime('%Y-%m-%d')
                     })
-                logger.info(f"Added {len(today_lines_for_charts)} today's lines to allLinesData")
+                
 
             # 8. Get hourly activity pattern from combined stats
             try:
@@ -583,7 +571,7 @@ def register_stats_api_routes(app):
                     'max_daily_chars': combined_stats.get('max_chars_in_session', 0),
                     'max_daily_hours': combined_stats.get('max_time_in_session_seconds', 0.0) / 3600
                 }
-                logger.info(f"Using peak stats from combined_stats (approximation using session peaks)")
+                
             except Exception as e:
                 logger.error(f"Error calculating peak daily stats: {e}")
                 peak_daily_stats = {'max_daily_chars': 0, 'max_daily_hours': 0.0}
@@ -606,7 +594,7 @@ def register_stats_api_routes(app):
 
             # Log total request time
             total_time = time.time() - request_start_time
-            logger.info(f"✅ /api/stats completed in {total_time:.3f}s (target: <1.0s)")
+            
             
             return jsonify({
                 "labels": sorted_days,
@@ -796,6 +784,7 @@ def register_stats_api_routes(app):
         except Exception as e:
             logger.error(f"Error calculating goals today: {e}")
             return jsonify({'error': 'Failed to calculate daily goals'}), 500
+
 
     @app.route('/api/goals-projection', methods=['GET'])
     def api_goals_projection():
@@ -999,14 +988,14 @@ def register_stats_api_routes(app):
                     return jsonify({'error': 'Empty CSV file'}), 400
                 
                 header_line = lines[0].strip()
-                logger.info(f"Header line: {header_line}")
+                
                 
                 # Parse headers manually
                 header_reader = csv.reader([header_line])
                 try:
                     headers = next(header_reader)
                     headers = [h.strip() for h in headers]  # Clean whitespace
-                    logger.info(f"Parsed headers: {headers}")
+                    
                 except StopIteration:
                     return jsonify({'error': 'Could not parse CSV headers'}), 400
                 
@@ -1069,7 +1058,7 @@ def register_stats_api_routes(app):
                         
                         # Check if this line already exists in database
                         if line_hash in existing_uuids:
-                            logger.info(f"Skipping duplicate UUID already in database: {line_hash}")
+                            
                             continue
 
                         # Convert time to timestamp
@@ -1095,12 +1084,12 @@ def register_stats_api_routes(app):
                             index=0,
                         ))
                         
-                        logger.info(f"Batch insert size: {len(batch_insert)}")
+                        
                         
                         existing_uuids.add(line_hash)  # Add to existing to prevent duplicates in same import
                         
                         if len(batch_insert) >= batch_size:
-                            logger.info(f"Importing batch of {len(batch_insert)} lines...")
+                            
                             GameLinesTable.add_lines(batch_insert)
                             imported_count += len(batch_insert)
                             batch_insert = []
@@ -1113,7 +1102,7 @@ def register_stats_api_routes(app):
                     
                 # Insert the rest of the batch
                 if batch_insert:
-                    logger.info(f"Importing final batch of {len(batch_insert)} lines...")
+                    
                     GameLinesTable.add_lines(batch_insert)
                     imported_count += len(batch_insert)
                     batch_insert = []
@@ -1140,9 +1129,9 @@ def register_stats_api_routes(app):
                     response_data['warnings'] = errors
                     response_data['warning_count'] = len(errors)
                 
-                logger.info(f"ExStatic import completed: {imported_count} lines from {len(games_set)} games")
                 
-                logger.info(f"Import response: {response_data}")
+                
+                
                 
                 return jsonify(response_data), 200
                 
@@ -1235,3 +1224,138 @@ def register_stats_api_routes(app):
         except Exception as e:
             logger.error(f"Error fetching config {filename}: {e}")
             return jsonify({'error': 'Failed to fetch configuration'}), 500
+
+    @app.route('/api/today-stats', methods=['GET'])
+    def api_today_stats():
+        """
+        Calculate and return today's statistics including sessions.
+        Returns total characters, chars/hour for today, and all sessions with their stats.
+        """
+        try:
+            # Get configuration
+            config = get_stats_config()
+            afk_timer_seconds = config.afk_timer_seconds
+            session_gap_seconds = config.session_gap_seconds
+            minimum_session_length = 300  # 5 minutes
+            
+            # Get today's date range
+            today = datetime.date.today()
+            today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
+            today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
+            
+            # Query all game lines for today
+            today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
+                start=today_start,
+                end=today_end,
+                for_stats=True
+            )
+            
+            # If no lines today, return empty stats
+            if not today_lines:
+                return jsonify({
+                    'todayTotalChars': 0,
+                    'todayCharsPerHour': 0,
+                    'todayTotalHours': 0,
+                    'todaySessions': 0,
+                    'sessions': []
+                }), 200
+            
+            # Sort lines by timestamp
+            sorted_lines = sorted(today_lines, key=lambda line: float(line.timestamp))
+            
+            # Calculate total characters
+            total_chars = sum(len(line.line_text) if line.line_text else 0 for line in sorted_lines)
+            
+            # Calculate total reading time using AFK timer logic
+            total_seconds = 0
+            timestamps = [float(line.timestamp) for line in sorted_lines]
+            
+            if len(timestamps) >= 2:
+                for i in range(1, len(timestamps)):
+                    gap = timestamps[i] - timestamps[i-1]
+                    total_seconds += min(gap, afk_timer_seconds)
+            elif len(timestamps) == 1:
+                total_seconds = 1  # Minimal activity
+            
+            total_hours = total_seconds / 3600
+            
+            # Calculate chars/hour for today
+            chars_per_hour = 0
+            if total_chars > 0 and total_hours > 0:
+                chars_per_hour = round(total_chars / total_hours)
+            
+            # Detect sessions
+            sessions = []
+            current_session = None
+            last_timestamp = None
+            last_game_name = None
+            
+            for line in sorted_lines:
+                ts = float(line.timestamp)
+                game_name = line.game_name or 'Unknown Game'
+                chars = len(line.line_text) if line.line_text else 0
+                
+                # Determine if new session: gap > session_gap OR game changed
+                is_new_session = (
+                    (last_timestamp is not None and ts - last_timestamp > session_gap_seconds) or
+                    (last_game_name is not None and game_name != last_game_name)
+                )
+                
+                if not current_session or is_new_session:
+                    # Finish previous session
+                    if current_session:
+                        # Calculate read speed for session
+                        if current_session['totalSeconds'] > 0:
+                            session_hours = current_session['totalSeconds'] / 3600
+                            current_session['charsPerHour'] = round(current_session['totalChars'] / session_hours)
+                        else:
+                            current_session['charsPerHour'] = 0
+                        
+                        # Only add session if it meets minimum length requirement
+                        if current_session['totalSeconds'] >= minimum_session_length:
+                            sessions.append(current_session)
+                    
+                    # Start new session
+                    current_session = {
+                        'startTime': ts,
+                        'endTime': ts,
+                        'gameName': game_name,
+                        'totalChars': chars,
+                        'totalSeconds': 0,
+                        'charsPerHour': 0
+                    }
+                else:
+                    # Continue current session
+                    current_session['endTime'] = ts
+                    current_session['totalChars'] += chars
+                    if last_timestamp is not None:
+                        gap = ts - last_timestamp
+                        current_session['totalSeconds'] += min(gap, afk_timer_seconds)
+                
+                last_timestamp = ts
+                last_game_name = game_name
+            
+            # Add the last session
+            if current_session:
+                if current_session['totalSeconds'] > 0:
+                    session_hours = current_session['totalSeconds'] / 3600
+                    current_session['charsPerHour'] = round(current_session['totalChars'] / session_hours)
+                else:
+                    current_session['charsPerHour'] = 0
+                
+                # Only add if meets minimum length
+                if current_session['totalSeconds'] >= minimum_session_length:
+                    sessions.append(current_session)
+            
+            # Return response
+            return jsonify({
+                'todayTotalChars': total_chars,
+                'todayCharsPerHour': chars_per_hour,
+                'todayTotalHours': round(total_hours, 2),
+                'todaySessions': len(sessions),
+                'sessions': sessions
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error calculating today's stats: {e}", exc_info=True)
+            return jsonify({'error': 'Failed to calculate today\'s statistics'}), 500
