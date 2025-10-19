@@ -19,13 +19,13 @@ def run_due_crons():
     Returns:
         Dictionary with execution summary
     """
-    logger.info("🔄 Checking for due cron jobs...")
+    logger.info("Checking for due cron jobs...")
     
     # Get all cron jobs that need to run
     due_crons = CronTable.get_due_crons()
     
     if not due_crons:
-        logger.info("ℹ️ No cron jobs are due to run at this time")
+        logger.info("No cron jobs are due to run at this time")
         return {
             'total_checked': 0,
             'executed': 0,
@@ -40,8 +40,8 @@ def run_due_crons():
     details = []
     
     for cron in due_crons:
-        logger.info(f"▶️ Executing cron job: {cron.name}")
-        logger.info(f"   Description: {cron.description}")
+        logger.info(f"Executing cron job: {cron.name}")
+        logger.info(f"Description: {cron.description}")
         
         detail = {
             'name': cron.name,
@@ -62,8 +62,8 @@ def run_due_crons():
                 detail['success'] = True
                 detail['result'] = result
                 
-                logger.info(f"✅ Successfully executed {cron.name}")
-                logger.info(f"   Updated: {result['updated_games']}/{result['linked_games']} games")
+                logger.info(f"Successfully executed {cron.name}")
+                logger.info(f"Updated: {result['updated_games']}/{result['linked_games']} games")
                 
             elif cron.name == 'daily_stats_rollup':
                 from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
@@ -75,28 +75,25 @@ def run_due_crons():
                 detail['success'] = True
                 detail['result'] = result
                 
-                logger.info(f"✅ Successfully executed {cron.name}")
-                logger.info(f"   Processed: {result['processed']} dates, Skipped: {result['skipped']}, Errors: {result['errors']}")
+                logger.info(f"Successfully executed {cron.name}")
+                logger.info(f"Processed: {result['processed']} dates, Skipped: {result['skipped']}, Errors: {result['errors']}")
                 
             else:
-                logger.warning(f"⚠️ Unknown cron job: {cron.name}")
+                logger.error(f"⚠️ Unknown cron job: {cron.name}")
                 detail['error'] = f"Unknown cron job: {cron.name}"
                 failed_count += 1
                 
         except Exception as e:
-            logger.error(f"❌ Failed to execute {cron.name}: {e}", exc_info=True)
+            logger.error(f"Failed to execute {cron.name}: {e}", exc_info=True)
             detail['error'] = str(e)
             failed_count += 1
         
         details.append(detail)
-    
-    logger.info("=" * 80)
-    logger.info("✅ Cron job check completed")
-    logger.info(f"   Total checked: {len(due_crons)}")
-    logger.info(f"   Successfully executed: {executed_count}")
-    logger.info(f"   Failed: {failed_count}")
-    logger.info("=" * 80)
-    
+    logger.info("Cron job check completed")
+    logger.info(f"Total checked: {len(due_crons)}")
+    logger.info(f"Successfully executed: {executed_count}")
+    logger.info(f"Failed: {failed_count}")
+
     return {
         'total_checked': len(due_crons),
         'executed': executed_count,

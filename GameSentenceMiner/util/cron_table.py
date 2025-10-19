@@ -252,21 +252,28 @@ class CronTable(SQLiteDBTable):
             cron.next_run = now  # Set to now since it won't run again
             logger.debug(f"Cron job '{cron.name}' completed (one-time job) and has been disabled")
         elif cron.schedule == 'daily':
-            next_run_dt = now_dt + timedelta(days=1)
+            # Schedule for 3am tomorrow
+            # If we schedule at + 24 hours
+            # imagine if user opens gsm at like 6pm first time, does some mining
+            # tomorrow they open gsm again but at 9am, but the cron is set to run at 6pm
+            # so they will have stats from yesterday not rolled up, as stats rollup did not run
+            # setting it to 3am means the user always has the full previous day rolled up when they open gsm
+            next_run_dt = (now_dt + timedelta(days=1)).replace(hour=3, minute=0, second=0, microsecond=0)
             cron.next_run = next_run_dt.timestamp()
             logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == 'weekly':
-            next_run_dt = now_dt + timedelta(weeks=1)
+            # Schedule for 3am next week (same day)
+            next_run_dt = (now_dt + timedelta(weeks=1)).replace(hour=3, minute=0, second=0, microsecond=0)
             cron.next_run = next_run_dt.timestamp()
             logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == 'monthly':
-            # Add approximately 30 days (will be more accurate with dateutil, but this is simple)
-            next_run_dt = now_dt + timedelta(days=30)
+            # Schedule for 3am approximately 30 days from now
+            next_run_dt = (now_dt + timedelta(days=30)).replace(hour=3, minute=0, second=0, microsecond=0)
             cron.next_run = next_run_dt.timestamp()
             logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == 'yearly':
-            # Add approximately 365 days
-            next_run_dt = now_dt + timedelta(days=365)
+            # Schedule for 3am approximately 365 days from now
+            next_run_dt = (now_dt + timedelta(days=365)).replace(hour=3, minute=0, second=0, microsecond=0)
             cron.next_run = next_run_dt.timestamp()
             logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         else:
