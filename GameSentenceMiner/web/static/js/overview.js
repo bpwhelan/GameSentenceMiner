@@ -897,8 +897,21 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch('/api/today-stats')
             .then(response => response.json())
             .then(data => {
+                // Update today's total hours
+                const totalHours = data.todayTotalHours || 0;
+                let hoursDisplay = '-';
+                if (totalHours > 0) {
+                    const h = Math.floor(totalHours);
+                    const m = Math.round((totalHours - h) * 60);
+                    hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
+                }
+                document.getElementById('todayTotalHours').textContent = hoursDisplay;
+                
                 // Update today's total characters
                 document.getElementById('todayTotalChars').textContent = data.todayTotalChars.toLocaleString();
+                
+                // Update today's sessions count
+                document.getElementById('todaySessions').textContent = data.todaySessions || 0;
                 
                 // Update today's chars/hour
                 document.getElementById('todayCharsPerHour').textContent =
@@ -922,7 +935,9 @@ document.addEventListener('DOMContentLoaded', function () {
             .catch(error => {
                 console.error('Error fetching today\'s stats:', error);
                 // Set default values on error
+                document.getElementById('todayTotalHours').textContent = '-';
                 document.getElementById('todayTotalChars').textContent = '0';
+                document.getElementById('todaySessions').textContent = '0';
                 document.getElementById('todayCharsPerHour').textContent = '-';
                 document.getElementById('currentSessionTotalChars').textContent = '0';
                 document.getElementById('currentSessionCharsPerHour').textContent = '-';
