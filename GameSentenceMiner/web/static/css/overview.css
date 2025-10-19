@@ -137,6 +137,14 @@
     border-radius: 2px;
 }
 
+/* Today's Container - Side by Side Layout */
+.today-container {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    margin-bottom: 30px;
+}
+
 /* Dashboard Cards Styles */
 .dashboard-container {
     display: grid;
@@ -1033,8 +1041,54 @@
     margin-bottom: 16px;
 }
 
+/* Session Navigation Buttons */
+.session-navigation {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.prev-session-btn,
+.next-session-btn,
+.delete-session-btn {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.prev-session-btn:hover,
+.next-session-btn:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.delete-session-btn:hover {
+    background: var(--danger-color);
+    color: white;
+    border-color: var(--danger-color);
+    transform: translateY(-1px);
+}
+
+.prev-session-btn:active,
+.next-session-btn:active,
+.delete-session-btn:active {
+    transform: translateY(0);
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
+    .today-container {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+    
     .dashboard-container {
         grid-template-columns: 1fr;
         gap: 20px;
