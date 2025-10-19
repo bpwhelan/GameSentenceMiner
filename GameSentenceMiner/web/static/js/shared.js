@@ -584,12 +584,51 @@ function initializeScreenshotButton() {
     screenshotButton.addEventListener('click', takeScreenshot);
 }
 
+// Lazy-load html2canvas library
+let html2canvasLoaded = false;
+let html2canvasLoading = false;
+
+async function loadHtml2Canvas() {
+    if (html2canvasLoaded) {
+        return true;
+    }
+    
+    if (html2canvasLoading) {
+        // Wait for the loading to complete
+        return new Promise((resolve) => {
+            const checkInterval = setInterval(() => {
+                if (html2canvasLoaded) {
+                    clearInterval(checkInterval);
+                    resolve(true);
+                }
+            }, 100);
+        });
+    }
+    
+    html2canvasLoading = true;
+    
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+        script.onload = () => {
+            html2canvasLoaded = true;
+            html2canvasLoading = false;
+            resolve(true);
+        };
+        script.onerror = () => {
+            html2canvasLoading = false;
+            reject(new Error('Failed to load html2canvas'));
+        };
+        document.head.appendChild(script);
+    });
+}
+
 async function takeScreenshot() {
     try {
-        // Check if html2canvas is available
+        // Lazy-load html2canvas if not already loaded
         if (typeof html2canvas === 'undefined') {
-            console.error('html2canvas library not loaded');
-            return;
+            console.log('Loading html2canvas library...');
+            await loadHtml2Canvas();
         }
         
         // Generate timestamp for filename

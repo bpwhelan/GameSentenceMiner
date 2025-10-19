@@ -165,9 +165,8 @@ function renderGamesList(games, filter = 'all') {
                 markGameCompleted(btn.getAttribute('data-game-id'));
             });
         });
-    
-    // Show empty state if no games
-    if (filteredGames.length === 0) {
+    } else {
+        // Show empty state if no games
         gamesList.innerHTML = `
             <div style="text-align: center; color: var(--text-secondary); padding: 40px;">
                 <p>No games found.</p>

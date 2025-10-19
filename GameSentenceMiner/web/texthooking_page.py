@@ -6,6 +6,7 @@ import threading
 
 import flask
 import webbrowser
+from flask import make_response
 
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.obs import get_current_game
@@ -44,6 +45,51 @@ websocket_port = 55001
 server_start_time = datetime.datetime.now().timestamp()
 
 app = flask.Flask(__name__)
+
+# Configure Flask-Compress for Brotli compression
+try:
+    from flask_compress import Compress
+    
+    # Configure compression settings
+    app.config['COMPRESS_MIMETYPES'] = [
+        'text/html',
+        'text/css',
+        'text/xml',
+        'text/plain',
+        'application/json',
+        'application/javascript',
+        'application/x-javascript',
+        'text/javascript'
+    ]
+    app.config['COMPRESS_LEVEL'] = 6  # Balance between speed and compression ratio
+    app.config['COMPRESS_MIN_SIZE'] = 500  # Only compress files larger than 500 bytes
+    app.config['COMPRESS_ALGORITHM'] = ['br', 'gzip', 'deflate']  # Prefer Brotli, fallback to gzip
+    
+    Compress(app)
+    logger.info("Flask compression enabled with Brotli support")
+except ImportError:
+    logger.warning("flask-compress not installed. Run 'pip install flask-compress' for better performance.")
+
+# Add cache control headers for static files
+@app.after_request
+def add_cache_headers(response):
+    """Add cache control headers to static assets for better performance."""
+    # Only add cache headers for static files (CSS, JS, images, fonts)
+    if request.path.startswith('/static/'):
+        # Check file extension
+        if any(request.path.endswith(ext) for ext in ['.css', '.js']):
+            # Cache for 3 days for CSS/JS (local development, updates every few days)
+            # Use must-revalidate to check for updates after expiry
+            response.cache_control.max_age = 259200  # 3 days in seconds
+            response.cache_control.public = True
+            response.cache_control.must_revalidate = True
+            response.headers['Cache-Control'] = 'public, max-age=259200, must-revalidate'
+        elif any(request.path.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.woff', '.woff2', '.ttf', '.eot', '.ico']):
+            # Cache images and fonts for longer (they rarely change)
+            response.cache_control.max_age = 2592000  # 30 days
+            response.cache_control.public = True
+            response.headers['Cache-Control'] = 'public, max-age=2592000, immutable'
+    return response
 
 # Register database API routes
 register_database_api_routes(app)
