@@ -50,7 +50,7 @@ export function registerSettingsIPC() {
 
     ipcMain.handle('settings.saveSettings', async (_, settings: any) => {
         setAutoUpdateGSMApp(settings.autoUpdateGSMApp);
-        setAutoUpdateElectron(settings.autoUpdateElectron);
+        // setAutoUpdateElectron(settings.autoUpdateElectron);
         setStartConsoleMinimized(settings.startConsoleMinimized);
         setCustomPythonPackage(settings.customPythonPackage);
         setShowYuzuTab(settings.showYuzuTab);
