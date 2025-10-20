@@ -1215,9 +1215,10 @@ document.addEventListener('DOMContentLoaded', function () {
         const completionBtn = document.getElementById('gameCompletionBtn');
         const currentGameCard = document.getElementById('currentGameCard');
         
-        if (completionBtn && stats.game_character_count > 0) {
+        if (completionBtn) {
             const completion = stats.progress_percentage || 0;
             const isCompleted = stats.completed || false;
+            const hasCharacterCount = stats.game_character_count && stats.game_character_count > 0;
             
             if (isCompleted) {
                 // Game is already completed - show completed state
@@ -1226,15 +1227,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 completionBtn.classList.add('completed');
                 completionBtn.style.display = 'inline-block';
                 currentGameCard.classList.add('completed');
-            } else if (completion >= 90) {
-                // Game is ≥90% complete - show mark as complete button
+            } else if (!hasCharacterCount || completion >= 90) {
+                // Show button if: no character count set OR game is ≥90% complete
                 completionBtn.textContent = 'Mark as completed?';
                 completionBtn.disabled = false;
                 completionBtn.classList.remove('completed');
                 completionBtn.style.display = 'inline-block';
                 currentGameCard.classList.remove('completed');
             } else {
-                // Game is <90% complete - hide button
+                // Game has character count and is <90% complete - hide button
                 completionBtn.style.display = 'none';
                 currentGameCard.classList.remove('completed');
             }
