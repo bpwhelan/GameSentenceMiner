@@ -76,7 +76,7 @@ def run_due_crons():
                 detail['result'] = result
                 
                 logger.info(f"Successfully executed {cron.name}")
-                logger.info(f"Processed: {result['processed']} dates, Skipped: {result['skipped']}, Errors: {result['errors']}")
+                logger.info(f"Processed: {result['processed']} dates, Overwritten: {result['overwritten']}, Errors: {result['errors']}")
                 
             else:
                 logger.error(f"⚠️ Unknown cron job: {cron.name}")
@@ -130,5 +130,5 @@ if __name__ == '__main__':
                 if 'updated_games' in res:
                     print(f"   Updated {res['updated_games']}/{res['linked_games']} games")
                 elif 'processed' in res:
-                    print(f"   Processed {res['processed']} dates, Skipped {res['skipped']}, Errors {res['errors']}")
+                    print(f"   Processed {res['processed']} dates, Overwritten {res['overwritten']}, Errors {res['errors']}")
         print("-" * 80)

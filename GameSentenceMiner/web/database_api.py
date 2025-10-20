@@ -22,6 +22,7 @@ from GameSentenceMiner.util.configuration import (
     save_current_config,
     save_stats_config,
 )
+from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency,
@@ -430,9 +431,20 @@ def register_database_api_routes(app):
                 response_data["warning"] = (
                     f"Some games failed to delete: {', '.join(failed_deletions)}"
                 )
-                return jsonify(response_data), 207  # Multi-Status (partial success)
+                status_code = 207  # Multi-Status (partial success)
             else:
-                return jsonify(response_data), 200
+                status_code = 200
+            
+            # Trigger stats rollup after successful deletion
+            if successful_deletions:
+                try:
+                    logger.info("Triggering stats rollup after game deletion")
+                    run_daily_rollup()
+                except Exception as rollup_error:
+                    logger.error(f"Stats rollup failed after game deletion: {rollup_error}")
+                    # Don't fail the deletion operation if rollup fails
+            
+            return jsonify(response_data), status_code
 
         except Exception as e:
             logger.error(f"Error in bulk game deletion: {e}")
@@ -1284,6 +1296,14 @@ def register_database_api_routes(app):
                     "total_lines_in_primary": merge_summary["total_lines_after_merge"],
                     "merge_summary": merge_summary,
                 }
+
+                # Trigger stats rollup after successful merge
+                try:
+                    logger.info("Triggering stats rollup after game merge")
+                    run_daily_rollup()
+                except Exception as rollup_error:
+                    logger.error(f"Stats rollup failed after game merge: {rollup_error}")
+                    # Don't fail the merge operation if rollup fails
 
                 return jsonify(response_data), 200
 

@@ -611,40 +611,7 @@
     font-size: 14px;
 }
 
-/* Date Range Card */
-.dashboard-date-range {
-    display: flex;
-    gap: 20px;
-}
-
-.dashboard-date-item {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.dashboard-date-item label {
-    font-size: 13px;
-    color: var(--text-secondary);
-    font-weight: 500;
-}
-
-.dashboard-date-input {
-    padding: 8px 12px;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-size: 14px;
-    transition: all 0.2s ease;
-}
-
-.dashboard-date-input:focus {
-    outline: none;
-    border-color: var(--accent-color);
-    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.15);
-}
+/* Date Range Card - Styles moved to dashboard-shared.css */
 
 /* Tooltip Styles */
 /* Tooltip styles are now only in shared.css */
@@ -1106,15 +1073,7 @@
         font-size: 18px;
     }
     
-    .dashboard-date-range {
-        flex-direction: column;
-        gap: 12px;
-        padding: 12px 16px;
-    }
-
-    .dashboard-date-item {
-        width: 100%;
-    }
+    /* Date range responsive styles now in dashboard-shared.css */
     
     .goal-progress-grid {
         grid-template-columns: 1fr;

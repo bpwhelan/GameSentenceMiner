@@ -11,6 +11,7 @@ from flask import request, jsonify
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.configuration import logger
 from GameSentenceMiner.util.jiten_api_client import JitenApiClient
+from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
 
 
 def add_jiten_link_to_game(game, deck_id):
@@ -717,6 +718,14 @@ def register_jiten_database_api_routes(app):
                 f"Unlinked game '{game_name}' (id={game_id}): removed game record, unlinked {unlinked_lines} lines"
             )
 
+            # Trigger stats rollup after unlinking game
+            try:
+                logger.info("Triggering stats rollup after game unlink")
+                run_daily_rollup()
+            except Exception as rollup_error:
+                logger.error(f"Stats rollup failed after game unlink: {rollup_error}")
+                # Don't fail the unlink operation if rollup fails
+
             return jsonify(
                 {
                     "success": True,
@@ -729,6 +738,71 @@ def register_jiten_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error unlinking game {game_id}: {e}", exc_info=True)
             return jsonify({"error": f"Failed to unlink game: {str(e)}"}), 500
+
+    @app.route("/api/games/<game_id>/delete-lines", methods=["DELETE"])
+    def api_delete_game_lines(game_id):
+        """
+        Permanently delete all lines associated with a game.
+        This is a destructive operation that cannot be undone.
+        """
+        try:
+            from GameSentenceMiner.util.games_table import GamesTable
+
+            # Get the game to verify it exists
+            game = GamesTable.get(game_id)
+            if not game:
+                return jsonify({"error": "Game not found"}), 404
+
+            game_name = game.title_original
+
+            # Get count of lines that will be deleted
+            lines_count = GameLinesTable._db.fetchone(
+                f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE game_id=?",
+                (game_id,),
+            )
+            lines_to_delete = lines_count[0] if lines_count else 0
+
+            if lines_to_delete == 0:
+                return jsonify(
+                    {"error": "No lines found for this game"}
+                ), 404
+
+            # PERMANENTLY DELETE all lines for this game
+            GameLinesTable._db.execute(
+                f"DELETE FROM {GameLinesTable._table} WHERE game_id = ?",
+                (game_id,),
+                commit=True,
+            )
+
+            # Also delete the game record from games table
+            GameLinesTable._db.execute(
+                f"DELETE FROM {GamesTable._table} WHERE id = ?", (game_id,), commit=True
+            )
+
+            logger.info(
+                f"PERMANENTLY DELETED game '{game_name}' (id={game_id}): deleted {lines_to_delete} lines and game record"
+            )
+
+            # Trigger stats rollup after deleting game lines
+            try:
+                logger.info("Triggering stats rollup after game lines deletion")
+                run_daily_rollup()
+            except Exception as rollup_error:
+                logger.error(f"Stats rollup failed after game lines deletion: {rollup_error}")
+                # Don't fail the deletion operation if rollup fails
+
+            return jsonify(
+                {
+                    "success": True,
+                    "message": f'Game lines for "{game_name}" have been PERMANENTLY DELETED',
+                    "game_name": game_name,
+                    "deleted_lines": lines_to_delete,
+                }
+            ), 200
+
+        except Exception as e:
+            logger.error(f"Error deleting game lines for {game_id}: {e}", exc_info=True)
+            return jsonify({"error": f"Failed to delete game lines: {str(e)}"}), 500
 
     @app.route("/api/orphaned-games", methods=["GET"])
     def api_orphaned_games():

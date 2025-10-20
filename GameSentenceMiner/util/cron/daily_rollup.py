@@ -277,46 +277,6 @@ def analyze_kanji_data(lines: List) -> Dict:
     }
 
 
-def refresh_game_titles_in_rollup(rollup: StatsRollupTable) -> None:
-    """
-    Refresh game titles in an existing rollup entry by looking up current titles from games_table.
-    This ensures that when games are linked to jiten after the rollup was created,
-    the titles will be updated to reflect the current game metadata.
-    
-    Args:
-        rollup: The StatsRollupTable entry to update
-    """
-    import json
-    
-    try:
-        # Parse the existing game_activity_data JSON
-        game_activity = json.loads(rollup.game_activity_data)
-        
-        if not game_activity:
-            return
-        
-        # Refresh title for each game
-        for game_id, game_data in game_activity.items():
-            # Use the same title resolution logic as analyze_game_activity()
-            try:
-                game = GamesTable.get(game_id)
-                if game and game.title_original:
-                    # Best case: we have the game in the database with a proper title
-                    game_data['title'] = game.title_original
-                # If no title_original, keep the existing title (could be game_name or UUID)
-            except Exception:
-                # If lookup fails, keep the existing title
-                pass
-        
-        # Save the updated game_activity_data back to the rollup
-        rollup.game_activity_data = json.dumps(game_activity, ensure_ascii=False)
-        rollup.updated_at = time.time()
-        rollup.save()
-        
-    except (json.JSONDecodeError, Exception) as e:
-        logger.warning(f"Failed to refresh game titles for rollup {rollup.date}: {e}")
-
-
 def calculate_daily_stats(date_str: str) -> Dict:
     """
     Calculate comprehensive daily statistics for a given date using existing functions.
@@ -465,7 +425,7 @@ def run_daily_rollup() -> Dict:
                 'end_date': None,
                 'total_dates': 0,
                 'processed': 0,
-                'skipped': 0,
+                'overwritten': 0,
                 'errors': 0,
                 'elapsed_time': time.time() - start_time,
                 'error_message': None
@@ -501,7 +461,7 @@ def run_daily_rollup() -> Dict:
                 'end_date': end_date,
                 'total_dates': 0,
                 'processed': 0,
-                'skipped': 0,
+                'overwritten': 0,
                 'errors': 0,
                 'elapsed_time': time.time() - start_time,
                 'error_message': None
@@ -509,58 +469,87 @@ def run_daily_rollup() -> Dict:
         
         # Process each date
         processed = 0
-        skipped = 0
+        overwritten = 0
         errors = 0
         
         for i, date_str in enumerate(dates_to_process, 1):
             try:
-                # Check if rollup already exists
-                existing = StatsRollupTable.get_by_date(date_str)
-                if existing:
-                    # Refresh game titles in existing rollup
-                    refresh_game_titles_in_rollup(existing)
-                    skipped += 1
-                    continue
-                
-                # Calculate and save rollup
+                # Always calculate fresh stats for the date
                 logger.info(f"Processing {i}/{total_dates}: {date_str}")
                 stats = calculate_daily_stats(date_str)
                 
-                # Create and save rollup entry with all 27 fields
-                rollup = StatsRollupTable(
-                    date=stats['date'],
-                    total_lines=stats['total_lines'],
-                    total_characters=stats['total_characters'],
-                    total_sessions=stats['total_sessions'],
-                    unique_games_played=stats['unique_games_played'],
-                    total_reading_time_seconds=stats['total_reading_time_seconds'],
-                    total_active_time_seconds=stats['total_active_time_seconds'],
-                    longest_session_seconds=stats['longest_session_seconds'],
-                    shortest_session_seconds=stats['shortest_session_seconds'],
-                    average_session_seconds=stats['average_session_seconds'],
-                    average_reading_speed_chars_per_hour=stats['average_reading_speed_chars_per_hour'],
-                    peak_reading_speed_chars_per_hour=stats['peak_reading_speed_chars_per_hour'],
-                    games_completed=stats['games_completed'],
-                    games_started=stats['games_started'],
-                    anki_cards_created=stats['anki_cards_created'],
-                    lines_with_screenshots=stats['lines_with_screenshots'],
-                    lines_with_audio=stats['lines_with_audio'],
-                    lines_with_translations=stats['lines_with_translations'],
-                    unique_kanji_seen=stats['unique_kanji_seen'],
-                    kanji_frequency_data=stats['kanji_frequency_data'],
-                    hourly_activity_data=stats['hourly_activity_data'],
-                    hourly_reading_speed_data=stats['hourly_reading_speed_data'],
-                    game_activity_data=stats['game_activity_data'],
-                    games_played_ids=stats['games_played_ids'],
-                    max_chars_in_session=stats['max_chars_in_session'],
-                    max_time_in_session_seconds=stats['max_time_in_session_seconds'],
-                    created_at=time.time(),
-                    updated_at=time.time()
-                )
-                rollup.save()
+                # Check if rollup already exists
+                existing = StatsRollupTable.get_by_date(date_str)
                 
-                processed += 1
-                logger.debug(f"Created rollup for {date_str}")
+                if existing:
+                    # Update all fields in existing rollup
+                    existing.date = stats['date']
+                    existing.total_lines = stats['total_lines']
+                    existing.total_characters = stats['total_characters']
+                    existing.total_sessions = stats['total_sessions']
+                    existing.unique_games_played = stats['unique_games_played']
+                    existing.total_reading_time_seconds = stats['total_reading_time_seconds']
+                    existing.total_active_time_seconds = stats['total_active_time_seconds']
+                    existing.longest_session_seconds = stats['longest_session_seconds']
+                    existing.shortest_session_seconds = stats['shortest_session_seconds']
+                    existing.average_session_seconds = stats['average_session_seconds']
+                    existing.average_reading_speed_chars_per_hour = stats['average_reading_speed_chars_per_hour']
+                    existing.peak_reading_speed_chars_per_hour = stats['peak_reading_speed_chars_per_hour']
+                    existing.games_completed = stats['games_completed']
+                    existing.games_started = stats['games_started']
+                    existing.anki_cards_created = stats['anki_cards_created']
+                    existing.lines_with_screenshots = stats['lines_with_screenshots']
+                    existing.lines_with_audio = stats['lines_with_audio']
+                    existing.lines_with_translations = stats['lines_with_translations']
+                    existing.unique_kanji_seen = stats['unique_kanji_seen']
+                    existing.kanji_frequency_data = stats['kanji_frequency_data']
+                    existing.hourly_activity_data = stats['hourly_activity_data']
+                    existing.hourly_reading_speed_data = stats['hourly_reading_speed_data']
+                    existing.game_activity_data = stats['game_activity_data']
+                    existing.games_played_ids = stats['games_played_ids']
+                    existing.max_chars_in_session = stats['max_chars_in_session']
+                    existing.max_time_in_session_seconds = stats['max_time_in_session_seconds']
+                    existing.updated_at = time.time()
+                    existing.save()
+                    
+                    overwritten += 1
+                    logger.debug(f"Overwritten rollup for {date_str}")
+                else:
+                    # Create and save new rollup entry with all 27 fields
+                    rollup = StatsRollupTable(
+                        date=stats['date'],
+                        total_lines=stats['total_lines'],
+                        total_characters=stats['total_characters'],
+                        total_sessions=stats['total_sessions'],
+                        unique_games_played=stats['unique_games_played'],
+                        total_reading_time_seconds=stats['total_reading_time_seconds'],
+                        total_active_time_seconds=stats['total_active_time_seconds'],
+                        longest_session_seconds=stats['longest_session_seconds'],
+                        shortest_session_seconds=stats['shortest_session_seconds'],
+                        average_session_seconds=stats['average_session_seconds'],
+                        average_reading_speed_chars_per_hour=stats['average_reading_speed_chars_per_hour'],
+                        peak_reading_speed_chars_per_hour=stats['peak_reading_speed_chars_per_hour'],
+                        games_completed=stats['games_completed'],
+                        games_started=stats['games_started'],
+                        anki_cards_created=stats['anki_cards_created'],
+                        lines_with_screenshots=stats['lines_with_screenshots'],
+                        lines_with_audio=stats['lines_with_audio'],
+                        lines_with_translations=stats['lines_with_translations'],
+                        unique_kanji_seen=stats['unique_kanji_seen'],
+                        kanji_frequency_data=stats['kanji_frequency_data'],
+                        hourly_activity_data=stats['hourly_activity_data'],
+                        hourly_reading_speed_data=stats['hourly_reading_speed_data'],
+                        game_activity_data=stats['game_activity_data'],
+                        games_played_ids=stats['games_played_ids'],
+                        max_chars_in_session=stats['max_chars_in_session'],
+                        max_time_in_session_seconds=stats['max_time_in_session_seconds'],
+                        created_at=time.time(),
+                        updated_at=time.time()
+                    )
+                    rollup.save()
+                    
+                    processed += 1
+                    logger.debug(f"Created rollup for {date_str}")
                 
                 # Progress update every 10 dates
                 if processed % 10 == 0:
@@ -575,7 +564,7 @@ def run_daily_rollup() -> Dict:
         
         # Log summary
         logger.info("Daily rollup cron job completed")
-        logger.info(f"Date range: {first_date} to {end_date}, Total dates: {total_dates}, Processed: {processed}, Skipped: {skipped}, Errors: {errors}, Time: {elapsed_time:.2f}s")
+        logger.info(f"Date range: {first_date} to {end_date}, Total dates: {total_dates}, Processed: {processed}, Overwritten: {overwritten}, Errors: {errors}, Time: {elapsed_time:.2f}s")
         
         return {
             'success': True,
@@ -583,7 +572,7 @@ def run_daily_rollup() -> Dict:
             'end_date': end_date,
             'total_dates': total_dates,
             'processed': processed,
-            'skipped': skipped,
+            'overwritten': overwritten,
             'errors': errors,
             'elapsed_time': elapsed_time,
             'error_message': None
@@ -600,7 +589,7 @@ def run_daily_rollup() -> Dict:
             'end_date': None,
             'total_dates': 0,
             'processed': 0,
-            'skipped': 0,
+            'overwritten': 0,
             'errors': 1,
             'elapsed_time': elapsed_time,
             'error_message': error_msg
@@ -621,7 +610,7 @@ if __name__ == '__main__':
         print(f"Date range: {result['start_date']} to {result['end_date']}")
     print(f"Total dates with data: {result['total_dates']}")
     print(f"Successfully processed: {result['processed']}")
-    print(f"Skipped (already exist): {result['skipped']}")
+    print(f"Overwritten: {result['overwritten']}")
     print(f"Errors: {result['errors']}")
     print(f"Time elapsed: {result['elapsed_time']:.2f} seconds")
     if result['error_message']:

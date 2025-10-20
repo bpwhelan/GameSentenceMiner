@@ -243,12 +243,8 @@ async function confirmLinkGame() {
         const result = await response.json();
         
         if (response.ok) {
-            // Success! Close modal and refresh game list
+            // Success! Close modal and refresh the entire page
             closeModal('gameLinkConfirmModal');
-            await loadGamesForDataManagement();
-            if (typeof databaseManager !== 'undefined') {
-                await databaseManager.loadGameManagementStats();
-            }
             
             // Log the complete API response for debugging
             logApiResponse('Link Game to Jiten', response, result);
@@ -257,6 +253,11 @@ async function confirmLinkGame() {
             const lineCount = result.lines_linked || currentGameForSearch.line_count || 0;
             console.log(`✅ Game linking successful: ${lineCount} lines linked`);
             showDatabaseSuccessPopup(`Successfully linked "${currentGameForSearch.title_original}" to jiten.moe! ${lineCount} lines linked.`);
+            
+            // Refresh the entire page to prevent state issues when linking multiple games
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500); // Give user time to see the success message
         } else {
             const errorMessage = result.error || 'Failed to link game';
             errorDiv.textContent = errorMessage;
