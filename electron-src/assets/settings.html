@@ -138,7 +138,7 @@
     <script>
         const { ipcRenderer } = require('electron');
         const autoUpdateGSMAppCheckbox = document.getElementById('autoUpdateGSMApp');
-        const autoUpdateElectronCheckbox = document.getElementById('autoUpdateElectron');
+        // const autoUpdateElectronCheckbox = document.getElementById('autoUpdateElectron');
         const startConsoleMinimizedCheckbox = document.getElementById('startConsoleMinimized');
         const customPythonPackageInput = document.getElementById('customPythonPackage');
         const showYuzuTab = document.getElementById('showYuzuTab');
@@ -175,7 +175,7 @@
             const settings = await ipcRenderer.invoke('settings.getSettings');
             if (settings) {
                 autoUpdateGSMAppCheckbox.checked = settings.autoUpdateGSMApp || false;
-                autoUpdateElectronCheckbox.checked = settings.autoUpdateElectron || false;
+                // autoUpdateElectronCheckbox.checked = settings.autoUpdateElectron || false;
                 // pythonPathInput.value = settings.pythonPath || '';
                 // agentScriptsPathInput.value = settings.agentScriptsPath || '';
                 startConsoleMinimizedCheckbox.checked = settings.startConsoleMinimized || false;
@@ -208,7 +208,7 @@
         async function saveSettings() {
             const settings = {
                 autoUpdateGSMApp: autoUpdateGSMAppCheckbox.checked,
-                autoUpdateElectron: autoUpdateElectronCheckbox.checked,
+                // autoUpdateElectron: autoUpdateElectronCheckbox.checked,
                 // pythonPath: pythonPathInput.value,
                 // agentScriptsPath: agentScriptsPathInput.value,
                 startConsoleMinimized: startConsoleMinimizedCheckbox.checked,
@@ -225,7 +225,7 @@
 
         [
             autoUpdateGSMAppCheckbox,
-            autoUpdateElectronCheckbox,
+            // autoUpdateElectronCheckbox,
             customPythonPackageInput,
             showYuzuTab,
             windowTransparencyToolHotkeyInput,
