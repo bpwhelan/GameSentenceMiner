@@ -260,7 +260,7 @@ async def add_line_to_text_log(line, line_time=None):
         await add_event_to_texthooker(get_text_log()[-1])
     if get_config().overlay.websocket_port and overlay_server_thread.has_clients():
         if get_overlay_processor().ready:
-            await get_overlay_processor().find_box_and_send_to_overlay(current_line_after_regex)
+            asyncio.create_task(get_overlay_processor().find_box_and_send_to_overlay(current_line_after_regex))
     add_srt_line(line_time, new_line)
     if 'nostatspls' not in new_line.scene.lower():
         GameLinesTable.add_line(new_line)
