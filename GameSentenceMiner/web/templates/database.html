@@ -496,11 +496,19 @@
                     </small>
                 </div>
                 
-                <div class="form-group">
+                <div class="form-group" style="display: none;">
                     <label class="form-label">Links (JSON Array)</label>
                     <textarea id="editLinks" class="form-textarea" rows="4" placeholder='[{"linkType": 4, "url": "https://example.com", "deckId": 123}]'></textarea>
                     <small style="color: var(--text-tertiary); font-size: 12px;">
                         JSON array of link objects. Leave empty for no links.
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Links (list, converted to JSON)</label>
+                    <textarea id="editLinksList" class="form-textarea" rows="6" placeholder="https://example.com&#10;https://vndb.org/v1234&#10;https://another-link.com"></textarea>
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        Enter one URL per line. These will be automatically converted to JSON format when saved.
                     </small>
                 </div>
                 

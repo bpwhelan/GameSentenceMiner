@@ -1581,9 +1581,21 @@ def register_stats_api_routes(app):
             last_timestamp = None
             last_game_name = None
 
+            # Build a cache of game_name -> title_original mappings for efficiency
+            game_name_to_title = {}
+            for line in sorted_lines:
+                if line.game_name and line.game_name not in game_name_to_title:
+                    game_metadata = GamesTable.get_by_game_line(line)
+                    if game_metadata and game_metadata.title_original:
+                        game_name_to_title[line.game_name] = game_metadata.title_original
+                    else:
+                        game_name_to_title[line.game_name] = line.game_name
+
             for line in sorted_lines:
                 ts = float(line.timestamp)
-                game_name = line.game_name or "Unknown Game"
+                # Use title_original from games table instead of game_name from game_lines
+                raw_game_name = line.game_name or "Unknown Game"
+                game_name = game_name_to_title.get(raw_game_name, raw_game_name)
                 chars = len(line.line_text) if line.line_text else 0
 
                 # Determine if new session: gap > session_gap OR game changed

@@ -350,11 +350,25 @@ function openEditGameModal(game) {
         document.getElementById('editReleaseDate').value = '';
     }
     
-    // Handle links JSON
+    // Handle links JSON - keep the hidden field updated for compatibility
     if (game.links && game.links.length > 0) {
         document.getElementById('editLinks').value = JSON.stringify(game.links, null, 2);
+        
+        // Extract URLs from links array and populate the list textarea
+        // Handle both array of objects and array of strings
+        const urls = game.links.map(link => {
+            if (typeof link === 'string') {
+                return link;
+            } else if (link && link.url) {
+                return link.url;
+            }
+            return null;
+        }).filter(url => url);
+        
+        document.getElementById('editLinksList').value = urls.join('\n');
     } else {
         document.getElementById('editLinks').value = '';
+        document.getElementById('editLinksList').value = '';
     }
     
     // Handle image preview
@@ -397,22 +411,22 @@ async function saveGameEdits() {
         return;
     }
     
-    // Validate links JSON if provided
-    const linksText = document.getElementById('editLinks').value.trim();
+    // Convert links list to JSON array
+    const linksListText = document.getElementById('editLinksList').value.trim();
     let linksArray = [];
-    if (linksText) {
-        try {
-            linksArray = JSON.parse(linksText);
-            if (!Array.isArray(linksArray)) {
-                errorDiv.textContent = 'Links must be a JSON array';
-                errorDiv.style.display = 'block';
-                return;
-            }
-        } catch (e) {
-            errorDiv.textContent = 'Invalid JSON format for links';
-            errorDiv.style.display = 'block';
-            return;
-        }
+    if (linksListText) {
+        // Split by newlines and filter out empty lines
+        const urls = linksListText.split('\n')
+            .map(url => url.trim())
+            .filter(url => url.length > 0);
+        
+        // Convert each URL to the required JSON format
+        linksArray = urls.map(url => ({
+            deckId: 1,
+            linkId: 1,
+            linkType: 2,
+            url: url
+        }));
     }
     
     // Validate difficulty
