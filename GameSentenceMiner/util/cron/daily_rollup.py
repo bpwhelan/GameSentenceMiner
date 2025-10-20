@@ -277,6 +277,46 @@ def analyze_kanji_data(lines: List) -> Dict:
     }
 
 
+def refresh_game_titles_in_rollup(rollup: StatsRollupTable) -> None:
+    """
+    Refresh game titles in an existing rollup entry by looking up current titles from games_table.
+    This ensures that when games are linked to jiten after the rollup was created,
+    the titles will be updated to reflect the current game metadata.
+    
+    Args:
+        rollup: The StatsRollupTable entry to update
+    """
+    import json
+    
+    try:
+        # Parse the existing game_activity_data JSON
+        game_activity = json.loads(rollup.game_activity_data)
+        
+        if not game_activity:
+            return
+        
+        # Refresh title for each game
+        for game_id, game_data in game_activity.items():
+            # Use the same title resolution logic as analyze_game_activity()
+            try:
+                game = GamesTable.get(game_id)
+                if game and game.title_original:
+                    # Best case: we have the game in the database with a proper title
+                    game_data['title'] = game.title_original
+                # If no title_original, keep the existing title (could be game_name or UUID)
+            except Exception:
+                # If lookup fails, keep the existing title
+                pass
+        
+        # Save the updated game_activity_data back to the rollup
+        rollup.game_activity_data = json.dumps(game_activity, ensure_ascii=False)
+        rollup.updated_at = time.time()
+        rollup.save()
+        
+    except (json.JSONDecodeError, Exception) as e:
+        logger.warning(f"Failed to refresh game titles for rollup {rollup.date}: {e}")
+
+
 def calculate_daily_stats(date_str: str) -> Dict:
     """
     Calculate comprehensive daily statistics for a given date using existing functions.
@@ -477,7 +517,8 @@ def run_daily_rollup() -> Dict:
                 # Check if rollup already exists
                 existing = StatsRollupTable.get_by_date(date_str)
                 if existing:
-                    logger.debug(f"Rollup already exists for {date_str}, skipping")
+                    # Refresh game titles in existing rollup
+                    refresh_game_titles_in_rollup(existing)
                     skipped += 1
                     continue
                 

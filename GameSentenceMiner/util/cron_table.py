@@ -57,7 +57,7 @@ class CronTable(SQLiteDBTable):
             next_run: Unix timestamp for next scheduled run
             enabled: Whether the cron job is active
             created_at: Unix timestamp of creation (defaults to now)
-            schedule: Schedule type ('once', 'daily', 'weekly', 'monthly', 'yearly')
+            schedule: Schedule type ('once', 'minutely', 'hourly', 'daily', 'weekly', 'monthly', 'yearly')
         """
         self.id = id
         self.name = name if name else ""
@@ -68,7 +68,7 @@ class CronTable(SQLiteDBTable):
         self.created_at = created_at if created_at else time.time()
         self.schedule = (
             schedule
-            if schedule in ["once", "daily", "weekly", "monthly", "yearly"]
+            if schedule in ["once", "minutely", "hourly", "daily", "weekly", "monthly", "yearly"]
             else "once"
         )
 
@@ -88,7 +88,7 @@ class CronTable(SQLiteDBTable):
             name: Unique name for the cron job
             description: Human-readable description
             next_run: Unix timestamp for next scheduled run
-            schedule: Schedule type ('once', 'daily', 'weekly', 'monthly', 'yearly')
+            schedule: Schedule type ('once', 'minutely', 'hourly', 'daily', 'weekly', 'monthly', 'yearly')
             enabled: Whether the cron job is active (default: True)
 
         Returns:
@@ -98,7 +98,7 @@ class CronTable(SQLiteDBTable):
             ValueError: If schedule type is invalid or name already exists
         """
         # Validate schedule type
-        valid_schedules = ["once", "daily", "weekly", "monthly", "yearly"]
+        valid_schedules = ["once", "minutely", "hourly", "daily", "weekly", "monthly", "yearly"]
         if schedule not in valid_schedules:
             raise ValueError(
                 f"Invalid schedule type '{schedule}'. Must be one of: {', '.join(valid_schedules)}"
@@ -268,6 +268,20 @@ class CronTable(SQLiteDBTable):
             cron.next_run = now  # Set to now since it won't run again
             logger.debug(
                 f"Cron job '{cron.name}' completed (one-time job) and has been disabled"
+            )
+        elif cron.schedule == "minutely":
+            # Schedule for 1 minute from now
+            next_run_dt = now_dt + timedelta(minutes=1)
+            cron.next_run = next_run_dt.timestamp()
+            logger.debug(
+                f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}"
+            )
+        elif cron.schedule == "hourly":
+            # Schedule for 1 hour from now
+            next_run_dt = now_dt + timedelta(hours=1)
+            cron.next_run = next_run_dt.timestamp()
+            logger.debug(
+                f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}"
             )
         elif cron.schedule == "daily":
             # Schedule for 3am tomorrow
