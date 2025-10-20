@@ -57,7 +57,6 @@ dependencies = [
   "win10toast>=0.9; sys_platform == 'win32'",
   "stable-ts>=2.19.1",
   "torchcodec>=0.7.0",
-  "torchaudio>=2.8.0",
   "flask-compress~=1.15",
   "torchaudio==2.8.0",
 ]
