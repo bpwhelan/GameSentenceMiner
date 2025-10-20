@@ -835,17 +835,17 @@ def check_and_run_migrations():
         existing_cron = CronTable.get_by_name('daily_stats_rollup')
         if not existing_cron:
             logger.info("Creating daily statistics rollup cron job...")
-            # Calculate next run: tomorrow at 2 AM
+            # Schedule for 1 minute ago to ensure it runs immediately on first startup
             now = datetime.now()
-            tomorrow_2am = datetime(now.year, now.month, now.day, 2, 0, 0) + timedelta(days=1)
+            one_minute_ago = now - timedelta(minutes=1)
             
             CronTable.create_cron_entry(
                 name='daily_stats_rollup',
                 description='Roll up daily statistics for all dates up to yesterday',
-                next_run=tomorrow_2am.timestamp(),
+                next_run=one_minute_ago.timestamp(),
                 schedule='daily'
             )
-            logger.info(f"✅ Created daily_stats_rollup cron job - next run: {tomorrow_2am.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"✅ Created daily_stats_rollup cron job - scheduled to run immediately (next_run: {one_minute_ago.strftime('%Y-%m-%d %H:%M:%S')})")
         else:
             logger.debug("daily_stats_rollup cron job already exists, skipping creation.")
     
