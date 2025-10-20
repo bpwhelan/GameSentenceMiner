@@ -20,6 +20,16 @@ def add_jiten_link_to_game(game, deck_id):
     """
     jiten_url = f"https://jiten.moe/deck/{deck_id}"
 
+    # Ensure game.links is a list (handle cases where it might be a string or None)
+    if not isinstance(game.links, list):
+        if isinstance(game.links, str):
+            try:
+                game.links = json.loads(game.links)
+            except (json.JSONDecodeError, TypeError):
+                game.links = []
+        else:
+            game.links = []
+
     # Check if a Jiten link already exists
     jiten_link_index = None
     for i, link in enumerate(game.links):
