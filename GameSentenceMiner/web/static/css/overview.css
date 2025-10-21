@@ -1000,6 +1000,164 @@
     margin-bottom: 16px;
 }
 
+/* Session Game Metadata Styles */
+.session-game-metadata {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    align-items: flex-start;
+}
+
+.session-game-photo {
+    flex-shrink: 0;
+}
+
+.session-game-photo-img {
+    width: 120px;
+    height: 160px;
+    object-fit: cover;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.session-game-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.session-game-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.session-game-title-original {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.session-game-title-romaji {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.session-game-title-english {
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.session-game-type-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    background: var(--accent-color);
+    color: white;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    white-space: nowrap;
+    width: fit-content;
+}
+
+.session-game-description-container {
+    position: relative;
+}
+
+.session-game-description {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    max-height: 2.8em;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.session-game-description.expanded {
+    max-height: none;
+    -webkit-line-clamp: unset;
+}
+
+.session-description-expand-btn {
+    background: none;
+    border: none;
+    color: var(--accent-color);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 2px 0;
+    margin-top: 3px;
+    transition: all 0.2s ease;
+}
+
+.session-description-expand-btn:hover {
+    color: var(--accent-color-hover, #0056b3);
+    text-decoration: underline;
+}
+
+.session-game-links-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.session-game-links-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.session-game-links-pills {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.session-game-link-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.session-game-link-pill:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 123, 255, 0.25);
+}
+
+.session-game-link-pill:active {
+    transform: translateY(0);
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .dashboard-container {
@@ -1148,5 +1306,35 @@
     
     .game-progress-date {
         font-size: 9px;
+    }
+    
+    /* Session game metadata responsive */
+    .session-game-metadata {
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px;
+    }
+    
+    .session-game-photo {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+    }
+    
+    .session-game-photo-img {
+        width: 100px;
+        height: 133px;
+    }
+    
+    .session-game-title-original {
+        font-size: 18px;
+    }
+    
+    .session-game-title-romaji {
+        font-size: 12px;
+    }
+    
+    .session-game-title-english {
+        font-size: 11px;
     }
 }

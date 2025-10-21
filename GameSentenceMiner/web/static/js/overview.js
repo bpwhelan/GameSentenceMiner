@@ -612,8 +612,14 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!window.todaySessionDetails || window.todaySessionDetails.length === 0) {
             prevSessionBtn.disabled = true;
             nextSessionBtn.disabled = true;
+            prevSessionBtn.style.display = 'none';
+            nextSessionBtn.style.display = 'none';
+            deleteSessionBtn.style.display = 'none';
             return;
         }
+        prevSessionBtn.style.display = 'inline-block';
+        nextSessionBtn.style.display = 'inline-block';
+        deleteSessionBtn.style.display = 'inline-block';
         prevSessionBtn.disabled = window.currentSessionIndex <= 0;
         nextSessionBtn.disabled = window.currentSessionIndex >= window.todaySessionDetails.length - 1;
     }
@@ -855,19 +861,20 @@ document.addEventListener('DOMContentLoaded', function () {
         const lastSession = sessionDetails && sessionDetails.length > 0 ? sessionDetails[index] : null;
 
         if (!lastSession) {
-            // No current session
-            document.getElementById('currentSessionStatus').textContent = 'No active session';
-            document.getElementById('currentSessionTotalHours').textContent = '-';
-            document.getElementById('currentSessionTotalChars').textContent = '-';
-            document.getElementById('currentSessionStartTime').textContent = '-';
-            document.getElementById('currentSessionEndTime').textContent = '-';
-            document.getElementById('currentSessionCharsPerHour').textContent = '-';
+            // No current session - clear session stats
+            const sessionHoursEl = document.getElementById('currentSessionTotalHours');
+            const sessionCharsEl = document.getElementById('currentSessionTotalChars');
+            const sessionStartEl = document.getElementById('currentSessionStartTime');
+            const sessionEndEl = document.getElementById('currentSessionEndTime');
+            const sessionSpeedEl = document.getElementById('currentSessionCharsPerHour');
+            
+            if (sessionHoursEl) sessionHoursEl.textContent = '-';
+            if (sessionCharsEl) sessionCharsEl.textContent = '-';
+            if (sessionStartEl) sessionStartEl.textContent = '-';
+            if (sessionEndEl) sessionEndEl.textContent = '-';
+            if (sessionSpeedEl) sessionSpeedEl.textContent = '-';
             return;
         }
-
-        // Update session status (show game name if available)
-        const statusText = lastSession.gameName ? `Playing: ${lastSession.gameName}` : 'Active session';
-        document.getElementById('currentSessionStatus').textContent = statusText;
 
         // Format session duration
         let hoursDisplay = '-';
@@ -899,6 +906,130 @@ document.addEventListener('DOMContentLoaded', function () {
         // Use charsPerHour from API (not readSpeed)
         document.getElementById('currentSessionCharsPerHour').textContent =
             lastSession.charsPerHour > 0 ? lastSession.charsPerHour.toLocaleString() : '-';
+
+        // Render game metadata if available
+        renderSessionGameMetadata(lastSession);
+    }
+
+    function renderSessionGameMetadata(session) {
+        const gameContentGrid = document.getElementById('gameContentGrid');
+        const gameMetadata = session.gameMetadata;
+        
+        // If no metadata available, hide the game content grid
+        if (!gameMetadata) {
+            if (gameContentGrid) {
+                gameContentGrid.style.display = 'none';
+            }
+            return;
+        }
+
+        // Show the game content grid
+        if (gameContentGrid) {
+            gameContentGrid.style.display = 'flex';
+        }
+
+        // Clear existing content
+        const gamePhotoSection = document.getElementById('gamePhotoSection');
+        const gamePhoto = document.getElementById('gamePhoto');
+        const gameTitleOriginal = document.getElementById('gameTitleOriginal');
+        const gameTitleRomaji = document.getElementById('gameTitleRomaji');
+        const gameTitleEnglish = document.getElementById('gameTitleEnglish');
+        const gameTypeBadge = document.getElementById('gameTypeBadge');
+        const gameDescription = document.getElementById('gameDescription');
+        const descriptionExpandBtn = document.getElementById('descriptionExpandBtn');
+        const gameLinksContainer = document.getElementById('gameLinksContainer');
+        const gameLinksPills = document.getElementById('gameLinksPills');
+
+        // Update photo
+        if (gameMetadata.image && gameMetadata.image.trim()) {
+            let imageSrc = gameMetadata.image.trim();
+            
+            // Handle different image formats
+            if (imageSrc.startsWith('data:image')) {
+                gamePhoto.src = imageSrc;
+            } else if (imageSrc.startsWith('http')) {
+                gamePhoto.src = imageSrc;
+            } else if (imageSrc.startsWith('/9j/') || imageSrc.startsWith('iVBOR')) {
+                const mimeType = imageSrc.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
+                gamePhoto.src = `data:${mimeType};base64,${imageSrc}`;
+            }
+            
+            gamePhotoSection.style.display = 'block';
+            gamePhoto.style.display = 'block';
+        } else {
+            gamePhotoSection.style.display = 'none';
+        }
+
+        // Update titles
+        if (gameMetadata.title_original) {
+            gameTitleOriginal.textContent = gameMetadata.title_original;
+            gameTitleOriginal.style.display = 'block';
+        } else {
+            gameTitleOriginal.style.display = 'none';
+        }
+        
+        if (gameMetadata.title_romaji) {
+            gameTitleRomaji.textContent = gameMetadata.title_romaji;
+            gameTitleRomaji.style.display = 'block';
+        } else {
+            gameTitleRomaji.style.display = 'none';
+        }
+        
+        if (gameMetadata.title_english) {
+            gameTitleEnglish.textContent = gameMetadata.title_english;
+            gameTitleEnglish.style.display = 'block';
+        } else {
+            gameTitleEnglish.style.display = 'none';
+        }
+
+        // Update type badge
+        if (gameMetadata.type) {
+            gameTypeBadge.textContent = gameMetadata.type;
+            gameTypeBadge.style.display = 'inline-block';
+        } else {
+            gameTypeBadge.style.display = 'none';
+        }
+
+        // Update description
+        if (gameMetadata.description) {
+            gameDescription.textContent = gameMetadata.description;
+            gameDescription.classList.remove('expanded');
+            
+            // Show/hide expand button based on description length
+            if (gameMetadata.description.length > 150) {
+                descriptionExpandBtn.style.display = 'block';
+                const expandText = descriptionExpandBtn.querySelector('.expand-text');
+                const collapseText = descriptionExpandBtn.querySelector('.collapse-text');
+                if (expandText) expandText.style.display = 'inline';
+                if (collapseText) collapseText.style.display = 'none';
+            } else {
+                descriptionExpandBtn.style.display = 'none';
+            }
+        } else {
+            gameDescription.textContent = '';
+            descriptionExpandBtn.style.display = 'none';
+        }
+
+        // Update links
+        if (gameMetadata.links && gameMetadata.links.length > 0) {
+            gameLinksPills.innerHTML = '';
+            
+            gameMetadata.links.forEach(link => {
+                if (link.url) {
+                    const pill = document.createElement('a');
+                    pill.href = link.url;
+                    pill.target = '_blank';
+                    pill.rel = 'noopener noreferrer';
+                    pill.className = 'game-link-pill';
+                    pill.textContent = extractDomainName(link.url);
+                    gameLinksPills.appendChild(pill);
+                }
+            });
+            
+            gameLinksContainer.style.display = 'flex';
+        } else {
+            gameLinksContainer.style.display = 'none';
+        }
     }
 
     // Function to load today's stats from new API endpoint

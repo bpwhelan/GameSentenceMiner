@@ -30,6 +30,12 @@
                     <p class="dashboard-card-subtitle" id="currentGameName">Loading...</p>
                 </div>
                 <div class="dashboard-header-actions">
+                    <!-- Session Navigation -->
+                    <div class="session-navigation">
+                        <button class="prev-session-btn" data-action="prevSession">←</button>
+                        <button class="next-session-btn" data-action="nextSession">→</button>
+                        <button class="delete-session-btn" data-action="deleteSession" title="Delete Current Session">🗑️</button>
+                    </div>
                     <button class="game-completion-btn" id="gameCompletionBtn" style="display: none;">
                         Mark as completed?
                     </button>
@@ -98,6 +104,30 @@
                     <span class="dashboard-stat-label">Est. Time Left</span>
                 </div>
             </div>
+            
+            <!-- Session Stats -->
+            <div class="dashboard-stats-grid" id="currentSessionStats" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total hours spent reading in current session">
+                    <span class="dashboard-stat-value" id="currentSessionTotalHours">-</span>
+                    <span class="dashboard-stat-label">Session Hours</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read in current session">
+                    <span class="dashboard-stat-value" id="currentSessionTotalChars">-</span>
+                    <span class="dashboard-stat-label">Session Chars</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Session start time">
+                    <span class="dashboard-stat-value" id="currentSessionStartTime">-</span>
+                    <span class="dashboard-stat-label">Started</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Session end time">
+                    <span class="dashboard-stat-value" id="currentSessionEndTime">-</span>
+                    <span class="dashboard-stat-label">Ended</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Average reading speed in current session">
+                    <span class="dashboard-stat-value" id="currentSessionCharsPerHour">-</span>
+                    <span class="dashboard-stat-label">Session Chars/Hour</span>
+                </div>
+            </div>
         </div>
 
                 <!-- Loading/Error states for dashboard -->
@@ -141,44 +171,6 @@
             </div>
         </div>
 
-         <!-- Today's Sessions Overview Card -->
-        <div class="dashboard-card current-session-overview" id="currentSessionOverviewCard" style="margin-bottom: 24px;">
-            <div class="dashboard-card-header">
-                <h3 class="dashboard-card-title">
-                    <span class="dashboard-card-icon">🔄</span>
-                    Today's Sessions
-                </h3>
-                <p class="dashboard-card-subtitle" id="currentSessionStatus">Loading...</p>
-                <!-- Two Arrow Keys To Navigate Between Sessions -->
-                <div class="session-navigation">
-                    <button class="prev-session-btn" data-action="prevSession">←</button>
-                    <button class="next-session-btn" data-action="nextSession">→</button>
-                    <button class="delete-session-btn" data-action="deleteSession" title="Delete Current Session">🗑️</button>
-                </div>
-            </div>
-            <div class="dashboard-stats-grid" id="currentSessionStats">
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total hours spent reading in latest session">
-                    <span class="dashboard-stat-value" id="currentSessionTotalHours">-</span>
-                    <span class="dashboard-stat-label">Hours Spent</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read in latest session">
-                    <span class="dashboard-stat-value" id="currentSessionTotalChars">-</span>
-                    <span class="dashboard-stat-label">Characters</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Session start time">
-                    <span class="dashboard-stat-value" id="currentSessionStartTime">-</span>
-                    <span class="dashboard-stat-label">Started</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Session end time">
-                    <span class="dashboard-stat-value" id="currentSessionEndTime">-</span>
-                    <span class="dashboard-stat-label">Ended</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Average reading speed in latest session">
-                    <span class="dashboard-stat-value" id="currentSessionCharsPerHour">-</span>
-                    <span class="dashboard-stat-label">Chars/Hour</span>
-                </div>
-            </div>
-        </div>
 
         <!-- Dashboard Statistics Sections -->
         <div class="dashboard-container">

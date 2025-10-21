@@ -1581,15 +1581,34 @@ def register_stats_api_routes(app):
             last_timestamp = None
             last_game_name = None
 
-            # Build a cache of game_name -> title_original mappings for efficiency
+            # Build a cache of game_name -> title_original and full metadata mappings for efficiency
             game_name_to_title = {}
+            game_name_to_metadata = {}
             for line in sorted_lines:
                 if line.game_name and line.game_name not in game_name_to_title:
                     game_metadata = GamesTable.get_by_game_line(line)
-                    if game_metadata and game_metadata.title_original:
-                        game_name_to_title[line.game_name] = game_metadata.title_original
+                    if game_metadata:
+                        if game_metadata.title_original:
+                            game_name_to_title[line.game_name] = game_metadata.title_original
+                        else:
+                            game_name_to_title[line.game_name] = line.game_name
+                        
+                        # Store full metadata for this game
+                        game_name_to_metadata[line.game_name] = {
+                            "title_original": game_metadata.title_original or "",
+                            "title_romaji": game_metadata.title_romaji or "",
+                            "title_english": game_metadata.title_english or "",
+                            "type": game_metadata.type or "",
+                            "description": game_metadata.description or "",
+                            "image": game_metadata.image or "",
+                            "character_count": game_metadata.character_count or 0,
+                            "difficulty": game_metadata.difficulty,
+                            "links": game_metadata.links or [],
+                            "completed": game_metadata.completed or False,
+                        }
                     else:
                         game_name_to_title[line.game_name] = line.game_name
+                        game_name_to_metadata[line.game_name] = None
 
             for line in sorted_lines:
                 ts = float(line.timestamp)
@@ -1620,7 +1639,8 @@ def register_stats_api_routes(app):
                         if current_session["totalSeconds"] >= minimum_session_length:
                             sessions.append(current_session)
 
-                    # Start new session
+                    # Start new session with full game metadata
+                    game_metadata = game_name_to_metadata.get(raw_game_name)
                     current_session = {
                         "startTime": ts,
                         "endTime": ts,
@@ -1628,6 +1648,7 @@ def register_stats_api_routes(app):
                         "totalChars": chars,
                         "totalSeconds": 0,
                         "charsPerHour": 0,
+                        "gameMetadata": game_metadata,  # Add full game metadata
                     }
                 else:
                     # Continue current session
