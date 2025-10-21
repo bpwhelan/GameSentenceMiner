@@ -1235,6 +1235,137 @@ def register_database_api_routes(app):
                 {"error": f"Entire game deduplication failed: {str(e)}"}
             ), 500
 
+    @app.route("/api/search-duplicates", methods=["POST"])
+    def api_search_duplicates():
+        """
+        Search for duplicate sentences and return full line details for display in search results.
+        Similar to preview-deduplication but returns complete line information with IDs.
+        """
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+
+            game_filter = data.get("game", "")
+            time_window_minutes = data.get("time_window_minutes", 5)
+            case_sensitive = data.get("case_sensitive", False)
+            ignore_time_window = data.get("ignore_time_window", False)
+
+            # Get lines from selected game or all games
+            if game_filter:
+                all_lines = GameLinesTable.get_all_lines_for_scene(game_filter)
+            else:
+                all_lines = GameLinesTable.all()
+
+            if not all_lines:
+                return jsonify({
+                    "results": [],
+                    "total": 0,
+                    "duplicates_found": 0
+                }), 200
+
+            # Group lines by game and sort by timestamp
+            game_lines = defaultdict(list)
+            for line in all_lines:
+                game_name = line.game_name or "Unknown Game"
+                game_lines[game_name].append(line)
+
+            # Sort lines within each game by timestamp
+            for game_name in game_lines:
+                game_lines[game_name].sort(key=lambda x: float(x.timestamp))
+
+            duplicate_line_ids = set()
+            time_window_seconds = time_window_minutes * 60
+
+            # Find duplicates for each game
+            for game_name, lines in game_lines.items():
+                if ignore_time_window:
+                    # Find all duplicates regardless of time
+                    seen_texts = {}
+                    for line in lines:
+                        # Ensure line_text is a string
+                        if not line.line_text or not isinstance(line.line_text, str):
+                            continue
+                        if not line.line_text.strip():
+                            continue
+
+                        line_text = (
+                            line.line_text if case_sensitive else line.line_text.lower()
+                        )
+
+                        if line_text in seen_texts:
+                            # Mark this as a duplicate (keep first occurrence)
+                            duplicate_line_ids.add(line.id)
+                        else:
+                            seen_texts[line_text] = line.id
+                else:
+                    # Find duplicates within time window
+                    text_timeline = []
+
+                    for line in lines:
+                        # Ensure line_text is a string
+                        if not line.line_text or not isinstance(line.line_text, str):
+                            continue
+                        if not line.line_text.strip():
+                            continue
+
+                        line_text = (
+                            line.line_text if case_sensitive else line.line_text.lower()
+                        )
+                        timestamp = float(line.timestamp)
+
+                        # Check for duplicates within time window
+                        for prev_text, prev_timestamp, prev_line_id in reversed(
+                            text_timeline
+                        ):
+                            if timestamp - prev_timestamp > time_window_seconds:
+                                break  # Outside time window
+
+                            if prev_text == line_text:
+                                # Found duplicate within time window
+                                duplicate_line_ids.add(line.id)
+                                break
+
+                        text_timeline.append((line_text, timestamp, line.id))
+
+            # Get full details for all duplicate lines
+            duplicate_lines = [line for line in all_lines if line.id in duplicate_line_ids]
+            
+            # Group duplicates by normalized text for sorting
+            # Sort by: 1) normalized text (to group duplicates), 2) timestamp (oldest first within group)
+            def get_sort_key(line):
+                if not line.line_text or not isinstance(line.line_text, str):
+                    return ("", 0)
+                normalized_text = line.line_text.lower() if not case_sensitive else line.line_text
+                timestamp = float(line.timestamp) if line.timestamp else 0
+                return (normalized_text, timestamp)
+            
+            duplicate_lines.sort(key=get_sort_key)
+
+            # Format results to match search results format
+            results = []
+            for line in duplicate_lines:
+                results.append({
+                    "id": line.id,
+                    "sentence": line.line_text or "",
+                    "game_name": line.game_name or "Unknown Game",
+                    "timestamp": float(line.timestamp) if line.timestamp else 0,
+                    "translation": line.translation or None,
+                    "has_audio": bool(getattr(line, "audio_path", None)),
+                    "has_screenshot": bool(getattr(line, "screenshot_path", None)),
+                })
+
+            return jsonify({
+                "results": results,
+                "total": len(results),
+                "duplicates_found": len(results),
+                "search_mode": "duplicates"
+            }), 200
+
+        except Exception as e:
+            logger.error(f"Error in search duplicates: {e}")
+            return jsonify({"error": f"Duplicate search failed: {str(e)}"}), 500
+
     @app.route("/api/merge_games", methods=["POST"])
     def api_merge_games():
         """

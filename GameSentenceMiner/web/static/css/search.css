@@ -217,6 +217,61 @@
     }
 }
 
+/* Duplicate Detection Section Styles */
+#duplicateDetectionSection {
+    transition: all 0.3s ease;
+}
+
+#duplicateDetectionSection .form-group {
+    margin-bottom: 0;
+}
+
+#duplicateDetectionSection .form-input {
+    font-size: 14px;
+    transition: border-color 0.2s ease;
+}
+
+#duplicateDetectionSection .form-input:hover {
+    border-color: var(--accent-color);
+}
+
+#duplicateDetectionSection .form-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+#duplicateDetectionSection .checkbox-input:hover {
+    opacity: 0.8;
+}
+
+#duplicateDetectionSection .checkbox-label:hover {
+    color: var(--accent-color);
+}
+
+#toggleDuplicateDetection {
+    background: var(--bg-primary);
+    transition: all 0.2s ease;
+}
+
+#toggleDuplicateDetection:hover {
+    background: var(--bg-tertiary);
+    transform: translateY(-1px);
+}
+
+#searchDuplicatesBtn {
+    transition: all 0.2s ease;
+}
+
+#searchDuplicatesBtn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+#searchDuplicatesBtn:active {
+    transform: translateY(0);
+}
+
 /* Search-specific responsive styles */
 @media (max-width: 768px) {
     .navigation {
@@ -227,5 +282,13 @@
         display: block;
         margin: 5px 0;
         text-align: center;
+    }
+    
+    #duplicateDetectionSection {
+        padding: 12px;
+    }
+    
+    #duplicateDetectionSection .form-input {
+        font-size: 16px; /* Prevent zoom on mobile */
     }
 }

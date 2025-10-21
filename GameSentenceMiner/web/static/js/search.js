@@ -19,6 +19,15 @@ class SentenceSearchApp {
         this.regexCaseCheckbox = document.querySelector('.regex-case-checkbox');
         this.regexModeCheckbox = document.querySelector('.regex-mode-checkbox');
         
+        // Duplicate detection elements
+        this.toggleDuplicateBtn = document.getElementById('toggleDuplicateDetection');
+        this.duplicateSection = document.getElementById('duplicateDetectionSection');
+        this.duplicateTimeWindow = document.getElementById('duplicateTimeWindow');
+        this.duplicateIgnoreTimeWindow = document.getElementById('duplicateIgnoreTimeWindow');
+        this.duplicateCaseSensitive = document.getElementById('duplicateCaseSensitive');
+        this.searchDuplicatesBtn = document.getElementById('searchDuplicatesBtn');
+        this.duplicateTimeWindowGroup = document.getElementById('duplicateTimeWindowGroup');
+        
         this.deleteLinesBtn = document.getElementById('deleteLinesBtn');
         this.selectAllBtn = document.getElementById('selectAllBtn');
         this.pageSizeFilter = document.getElementById('pageSizeFilter');
@@ -31,6 +40,7 @@ class SentenceSearchApp {
         this.currentQuery = '';
         this.totalResults = 0;
         this.currentUseRegex = false;
+        this.isDuplicateSearch = false;
         this.initialize();
     }
 
@@ -125,6 +135,25 @@ class SentenceSearchApp {
         if (this.toggleAdvancedBtn) {
             this.toggleAdvancedBtn.addEventListener('click', () => {
                 this.toggleAdvancedSearch();
+            });
+        }
+        
+        // Duplicate detection event listeners
+        if (this.toggleDuplicateBtn) {
+            this.toggleDuplicateBtn.addEventListener('click', () => {
+                this.toggleDuplicateDetection();
+            });
+        }
+        
+        if (this.duplicateIgnoreTimeWindow) {
+            this.duplicateIgnoreTimeWindow.addEventListener('change', () => {
+                this.toggleDuplicateTimeWindow();
+            });
+        }
+        
+        if (this.searchDuplicatesBtn) {
+            this.searchDuplicatesBtn.addEventListener('click', () => {
+                this.searchForDuplicates();
             });
         }
         
@@ -511,6 +540,94 @@ class SentenceSearchApp {
         } catch (error) {
             this.showErrorState(`Failed to delete sentences: ${error.message}`);
             console.error('Delete error:', error);
+        }
+    }
+
+    toggleDuplicateDetection() {
+        if (!this.duplicateSection || !this.toggleDuplicateBtn) return;
+        
+        const isHidden = this.duplicateSection.style.display === 'none';
+        const icon = document.getElementById('duplicateToggleIcon');
+        
+        if (isHidden) {
+            this.duplicateSection.style.display = 'block';
+            if (icon) icon.textContent = '▲';
+        } else {
+            this.duplicateSection.style.display = 'none';
+            if (icon) icon.textContent = '▼';
+        }
+    }
+    
+    toggleDuplicateTimeWindow() {
+        if (!this.duplicateIgnoreTimeWindow || !this.duplicateTimeWindowGroup) return;
+        
+        const isIgnored = this.duplicateIgnoreTimeWindow.checked;
+        
+        if (isIgnored) {
+            this.duplicateTimeWindowGroup.style.opacity = '0.5';
+            this.duplicateTimeWindowGroup.style.pointerEvents = 'none';
+            if (this.duplicateTimeWindow) {
+                this.duplicateTimeWindow.disabled = true;
+            }
+        } else {
+            this.duplicateTimeWindowGroup.style.opacity = '1';
+            this.duplicateTimeWindowGroup.style.pointerEvents = 'auto';
+            if (this.duplicateTimeWindow) {
+                this.duplicateTimeWindow.disabled = false;
+            }
+        }
+    }
+    
+    async searchForDuplicates() {
+        const gameFilter = this.gameFilter.value;
+        const timeWindow = parseInt(this.duplicateTimeWindow.value);
+        const ignoreTimeWindow = this.duplicateIgnoreTimeWindow.checked;
+        const caseSensitive = this.duplicateCaseSensitive.checked;
+        
+        // Validate input
+        if (!ignoreTimeWindow && (isNaN(timeWindow) || timeWindow < 1)) {
+            this.showErrorState('Time window must be at least 1 minute');
+            return;
+        }
+        
+        this.showLoadingState();
+        this.isDuplicateSearch = true;
+        const startTime = Date.now();
+        
+        try {
+            const requestData = {
+                game: gameFilter,
+                time_window_minutes: timeWindow,
+                ignore_time_window: ignoreTimeWindow,
+                case_sensitive: caseSensitive
+            };
+            
+            const response = await fetch('/api/search-duplicates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+            
+            const data = await response.json();
+            const searchTime = Date.now() - startTime;
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'Duplicate search failed');
+            }
+            
+            // Display results using existing display method
+            this.displayResults(data, searchTime);
+            
+            // Update stats text to indicate duplicate search
+            if (data.total > 0) {
+                const modeText = ignoreTimeWindow ? 'across entire game' : `within ${timeWindow} minute window`;
+                const gameText = gameFilter ? ` in ${gameFilter}` : '';
+                this.searchStats.textContent = `Found ${data.total.toLocaleString()} duplicate sentences ${modeText}${gameText}`;
+            }
+            
+        } catch (error) {
+            this.showErrorState(error.message);
+            this.isDuplicateSearch = false;
         }
     }
 
