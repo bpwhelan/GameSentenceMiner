@@ -21,6 +21,7 @@
             <label for="datePresets" class="dashboard-presets-label">Quick ranges</label>
             <select id="datePresets" class="dashboard-presets-select" aria-label="Quick date ranges">
                 <option value="" selected>Quick ranges…</option>
+                <option value="custom">Custom Range</option>
                 <option value="today">Today</option>
                 <option value="week">Current Week</option>
                 <option value="month">Current Month</option>
@@ -129,5 +130,16 @@
                 e.target.value = '';
             });
         }
+
+        // Update dropdown to show "Custom Range" when user manually selects dates
+        function updateDropdownForCustomRange() {
+            if (fromInput.value && toInput.value) {
+                presetSelect.value = 'custom';
+            }
+        }
+
+        // Listen for manual date changes
+        fromInput.addEventListener('change', updateDropdownForCustomRange);
+        toInput.addEventListener('change', updateDropdownForCustomRange);
     })();
 </script>
