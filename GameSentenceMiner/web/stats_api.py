@@ -19,6 +19,8 @@ from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.configuration import logger, get_stats_config
+from GameSentenceMiner.util.text_log import GameLine
+from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency,
     calculate_mining_heatmap_data,
@@ -1397,6 +1399,15 @@ def register_stats_api_routes(app):
                 #     except Exception as e:
                 #         logger.error(f"Failed to import line {game_line.id}: {e}")
                 #         errors.append(f"Failed to import line {game_line.id}: {str(e)}")
+
+                # Run daily rollup to update statistics with newly imported data
+                logger.info("Running daily rollup after ExStatic import to update statistics...")
+                try:
+                    rollup_result = run_daily_rollup()
+                    logger.info(f"Daily rollup completed: processed {rollup_result.get('processed', 0)} dates, overwritten {rollup_result.get('overwritten', 0)} dates")
+                except Exception as rollup_error:
+                    logger.error(f"Error running daily rollup after import: {rollup_error}")
+                    # Don't fail the import if rollup fails - just log it
 
                 # Prepare response
                 response_data = {

@@ -3,6 +3,8 @@ class SentenceSearchApp {
         this.searchInput = document.getElementById('searchInput');
         this.gameFilter = document.getElementById('gameFilter');
         this.sortFilter = document.getElementById('sortFilter');
+        this.fromDateFilter = document.getElementById('searchFromDate');
+        this.toDateFilter = document.getElementById('searchToDate');
         this.searchResults = document.getElementById('searchResults');
         this.loadingIndicator = document.getElementById('loadingIndicator');
         this.noResults = document.getElementById('noResults');
@@ -64,6 +66,8 @@ class SentenceSearchApp {
         this.gameFilter.addEventListener('change', () => this.performSearch());
         this.sortFilter.addEventListener('change', () => this.performSearch());
         
+        // Date range filters do NOT auto-trigger search - user must click Search button
+        
         if (this.pageSizeFilter) {
             this.pageSizeFilter.addEventListener('change', () => {
                 this.pageSize = parseInt(this.pageSizeFilter.value);
@@ -123,6 +127,14 @@ class SentenceSearchApp {
                 this.toggleAdvancedSearch();
             });
         }
+        
+        // Manual search button for date filtering
+        const manualSearchBtn = document.getElementById('manualSearchBtn');
+        if (manualSearchBtn) {
+            manualSearchBtn.addEventListener('click', () => {
+                this.performSearch();
+            });
+        }
     }
 
     toggleAdvancedSearch() {
@@ -164,6 +176,8 @@ class SentenceSearchApp {
         const query = this.searchInput.value.trim();
         const gameFilter = this.gameFilter.value;
         const sortBy = this.sortFilter.value;
+        const fromDate = this.fromDateFilter ? this.fromDateFilter.value : '';
+        const toDate = this.toDateFilter ? this.toDateFilter.value : '';
         
         // Get regex settings from component
         const customRegex = this.regexCustomInput ? this.regexCustomInput.value.trim() : '';
@@ -197,6 +211,12 @@ class SentenceSearchApp {
 
             if (gameFilter) {
                 params.append('game', gameFilter);
+            }
+            if (fromDate) {
+                params.append('from_date', fromDate);
+            }
+            if (toDate) {
+                params.append('to_date', toDate);
             }
             if (useRegex) {
                 params.append('use_regex', 'true');

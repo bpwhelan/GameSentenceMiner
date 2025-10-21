@@ -67,6 +67,13 @@
             </div>
         </div>
         
+        <!-- Date Range Filter -->
+        {% set from_id = 'searchFromDate' %}
+        {% set to_id = 'searchToDate' %}
+        {% set from_tooltip = 'Filter sentences from this date onwards' %}
+        {% set to_tooltip = 'Filter sentences up to this date' %}
+        {% include 'components/date-range.html' %}
+        
         <div class="search-stats">
             <span id="searchStats">Ready to search</span>
             <span id="searchTime"></span>
@@ -80,6 +87,7 @@
                         <option value="200">200</option>
                     </select>
                 </div>
+                <button id="manualSearchBtn" class="action-btn primary" style="margin-right: 8px;">🔍 Search</button>
                 <button id="selectAllBtn" class="action-btn secondary" style="margin-right: 8px;" disabled>Select All</button>
                 <button id="deleteLinesBtn" class="delete-btn" disabled>Delete Selected</button>
             </div>

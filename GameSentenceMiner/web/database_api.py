@@ -63,6 +63,8 @@ def register_database_api_routes(app):
             # Get query parameters
             query = request.args.get("q", "").strip()
             game_filter = request.args.get("game", "")
+            from_date = request.args.get("from_date", "").strip()
+            to_date = request.args.get("to_date", "").strip()
             sort_by = request.args.get("sort", "relevance")
             page = int(request.args.get("page", 1))
             page_size = int(request.args.get("page_size", 20))
@@ -76,6 +78,28 @@ def register_database_api_routes(app):
                 page = 1
             if page_size < 1 or page_size > 200:
                 page_size = 20
+            
+            # Parse and validate date range if provided
+            date_start_timestamp = None
+            date_end_timestamp = None
+            
+            if from_date:
+                try:
+                    # Parse from_date in YYYY-MM-DD format
+                    from_date_obj = datetime.datetime.strptime(from_date, "%Y-%m-%d")
+                    # Get start of day (00:00:00)
+                    date_start_timestamp = from_date_obj.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                except ValueError:
+                    return jsonify({"error": "Invalid from_date format. Use YYYY-MM-DD"}), 400
+            
+            if to_date:
+                try:
+                    # Parse to_date in YYYY-MM-DD format
+                    to_date_obj = datetime.datetime.strptime(to_date, "%Y-%m-%d")
+                    # Get end of day (23:59:59)
+                    date_end_timestamp = to_date_obj.replace(hour=23, minute=59, second=59, microsecond=999999).timestamp()
+                except ValueError:
+                    return jsonify({"error": "Invalid to_date format. Use YYYY-MM-DD"}), 400
 
             if use_regex:
                 # Regex search: fetch all candidate rows, filter in Python
@@ -89,6 +113,21 @@ def register_database_api_routes(app):
                         all_lines = [
                             line for line in all_lines if line.game_name == game_filter
                         ]
+                    
+                    # Apply date range filter if provided
+                    if date_start_timestamp is not None or date_end_timestamp is not None:
+                        filtered_lines = []
+                        for line in all_lines:
+                            if not line.timestamp:
+                                continue
+                            timestamp = float(line.timestamp)
+                            # Check if timestamp is within range
+                            if date_start_timestamp is not None and timestamp < date_start_timestamp:
+                                continue
+                            if date_end_timestamp is not None and timestamp > date_end_timestamp:
+                                continue
+                            filtered_lines.append(line)
+                        all_lines = filtered_lines
 
                     # Compile regex pattern with proper error handling
                     try:
@@ -182,6 +221,14 @@ def register_database_api_routes(app):
                 if game_filter:
                     base_query += " AND game_name = ?"
                     params.append(game_filter)
+                
+                # Add date range filter if specified
+                if date_start_timestamp is not None:
+                    base_query += " AND timestamp >= ?"
+                    params.append(date_start_timestamp)
+                if date_end_timestamp is not None:
+                    base_query += " AND timestamp <= ?"
+                    params.append(date_end_timestamp)
 
                 # Add sorting
                 if sort_by == "date_desc":
@@ -203,6 +250,12 @@ def register_database_api_routes(app):
                 if game_filter:
                     count_query += " AND game_name = ?"
                     count_params.append(game_filter)
+                if date_start_timestamp is not None:
+                    count_query += " AND timestamp >= ?"
+                    count_params.append(date_start_timestamp)
+                if date_end_timestamp is not None:
+                    count_query += " AND timestamp <= ?"
+                    count_params.append(date_end_timestamp)
 
                 total_results = GameLinesTable._db.fetchone(count_query, count_params)[
                     0

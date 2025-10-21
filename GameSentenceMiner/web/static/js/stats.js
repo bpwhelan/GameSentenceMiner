@@ -1288,7 +1288,8 @@ document.addEventListener('DOMContentLoaded', function () {
         // Enable/disable import button based on file selection
         exstaticFileInput.addEventListener('change', function(e) {
             const file = e.target.files[0];
-            if (file && file.type === 'text/csv' && file.name.toLowerCase().endsWith('.csv')) {
+            // Enable button whenever any file is selected
+            if (file) {
                 importExstaticBtn.disabled = false;
                 importExstaticBtn.style.background = '#2980b9';
                 importExstaticBtn.style.cursor = 'pointer';
@@ -1297,9 +1298,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 importExstaticBtn.disabled = true;
                 importExstaticBtn.style.background = '#666';
                 importExstaticBtn.style.cursor = 'not-allowed';
-                if (file) {
-                    showImportStatus('Please select a valid CSV file.', 'error', true);
-                }
             }
         });
         
