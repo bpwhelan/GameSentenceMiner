@@ -502,6 +502,46 @@
     opacity: 0.8;
 }
 
+/* Session Navigation Buttons */
+.session-navigation {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.session-navigation button {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-size: 18px;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.session-navigation button:hover:not(:disabled) {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+}
+
+.session-navigation button:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.session-navigation button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 .dashboard-card-subtitle {
     font-size: 14px;
     color: var(--text-tertiary);

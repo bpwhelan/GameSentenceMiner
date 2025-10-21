@@ -680,13 +680,9 @@ document.addEventListener('DOMContentLoaded', function () {
         const sessionToDelete = window.todaySessionDetails[idx];
         if (!sessionToDelete) return;
 
-        // Confirm deletion
-        const confirm1 = confirm(`Are you sure you want to delete the session starting at ${new Date(sessionToDelete.startTime * 1000).toLocaleString()}? This will delete ${sessionToDelete.lines.length} lines. This action cannot be undone.`);
-        if (!confirm1) return;
-        const confirm2 = confirm("Are you REALLY sure? This cannot be undone.");
-        if (!confirm2) return;
-        const confirm3 = confirm("Final warning: Delete this session permanently?");
-        if (!confirm3) return;
+        // Confirm deletion with clear warning
+        const confirmMsg = `All session data will be deleted.\n\nSession: ${new Date(sessionToDelete.startTime * 1000).toLocaleString()}\nLines: ${sessionToDelete.lines.length}\n\nThis action cannot be undone. Continue?`;
+        if (!confirm(confirmMsg)) return;
 
         // Call the delete function
         deleteSession(sessionToDelete);

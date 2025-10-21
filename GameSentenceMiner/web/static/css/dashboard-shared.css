@@ -222,7 +222,7 @@
     padding: 10px 14px;
     border: 2px solid var(--border-color);
     border-radius: 10px;
-    background: var(--bg-primary);
+    background: var(--bg-tertiary);
     color: var(--text-primary);
     font-size: 14px;
     font-weight: 500;
