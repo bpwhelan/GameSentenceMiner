@@ -108,7 +108,7 @@ function renderGamesList(games, filter = 'all') {
             
             gameItem.innerHTML = `
                 <div class="game-header">
-                    ${game.image ? `<img src="data:image/png;base64,${game.image}" class="game-thumbnail" alt="Game cover">` : '<div class="game-thumbnail-placeholder">🎮</div>'}
+                    ${game.image ? `<img src="${game.image.startsWith('data:') ? game.image : 'data:image/png;base64,' + game.image}" class="game-thumbnail" alt="Game cover">` : '<div class="game-thumbnail-placeholder">🎮</div>'}
                     <div class="game-info">
                         <h4 class="game-title">${escapeHtml(game.title_original)}</h4>
                         ${game.title_english ? `<p class="game-title-en">${escapeHtml(game.title_english)}</p>` : ''}
@@ -201,6 +201,14 @@ async function loadGamesForManagement() {
         
         if (gamesResponse.ok) {
             const games = gamesData.games || [];
+            
+            // Sort games alphabetically by title_original
+            games.sort((a, b) => {
+                const titleA = (a.title_original || '').toLowerCase();
+                const titleB = (b.title_original || '').toLowerCase();
+                return titleA.localeCompare(titleB);
+            });
+            
             gamesList.innerHTML = '';
             
             games.forEach(game => {
@@ -229,7 +237,7 @@ async function loadGamesForManagement() {
                 
                 gameItem.innerHTML = `
                     <div class="game-header">
-                        ${game.image ? `<img src="data:image/png;base64,${game.image}" class="game-thumbnail" alt="Game cover">` : '<div class="game-thumbnail-placeholder">🎮</div>'}
+                        ${game.image ? `<img src="${game.image.startsWith('data:') ? game.image : 'data:image/png;base64,' + game.image}" class="game-thumbnail" alt="Game cover">` : '<div class="game-thumbnail-placeholder">🎮</div>'}
                         <div class="game-info">
                             <h4 class="game-title">${escapeHtml(game.title_original)}</h4>
                             ${game.title_english ? `<p class="game-title-en">${escapeHtml(game.title_english)}</p>` : ''}
@@ -298,6 +306,13 @@ async function loadGamesForBulkOperations() {
         const data = await response.json();
         
         if (response.ok && data.games) {
+            // Sort games alphabetically by name
+            data.games.sort((a, b) => {
+                const nameA = (a.name || '').toLowerCase();
+                const nameB = (b.name || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+            
             gamesList.innerHTML = '';
             
             data.games.forEach(game => {
@@ -340,6 +355,13 @@ async function loadGamesForDeduplication() {
         const data = await response.json();
         
         if (response.ok && data.games) {
+            // Sort games alphabetically by name
+            data.games.sort((a, b) => {
+                const nameA = (a.name || '').toLowerCase();
+                const nameB = (b.name || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+            
             const gameSelect = document.getElementById('gameSelection');
             // Keep "All Games" option and add individual games
             gameSelect.innerHTML = '<option value="all">All Games</option>';

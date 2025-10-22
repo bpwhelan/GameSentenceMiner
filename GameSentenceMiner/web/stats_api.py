@@ -810,6 +810,111 @@ def register_stats_api_routes(app):
                 reading_speed_heatmap_data = {}
                 max_reading_speed = 0
 
+            # 12. Calculate day of week activity data (using rollup data only)
+            try:
+                day_of_week_data = {
+                    "chars": [0] * 7,
+                    "hours": [0] * 7,
+                    "counts": [0] * 7,  # Track how many times each day appears
+                    "avg_hours": [0] * 7  # Average hours per occurrence
+                }
+                
+                if start_date_str:
+                    yesterday = today - datetime.timedelta(days=1)
+                    yesterday_str = yesterday.strftime("%Y-%m-%d")
+                    
+                    if start_date_str <= yesterday_str:
+                        rollup_end = (
+                            min(end_date_str, yesterday_str)
+                            if end_date_str
+                            else yesterday_str
+                        )
+                        rollups_for_dow = StatsRollupTable.get_date_range(
+                            start_date_str, rollup_end
+                        )
+                        
+                        for rollup in rollups_for_dow:
+                            date_obj = datetime.datetime.strptime(rollup.date, "%Y-%m-%d")
+                            day_of_week = date_obj.weekday()  # 0=Monday, 6=Sunday
+                            day_of_week_data["chars"][day_of_week] += rollup.total_characters
+                            day_of_week_data["hours"][day_of_week] += rollup.total_reading_time_seconds / 3600
+                            day_of_week_data["counts"][day_of_week] += 1
+                
+                # Add today's data if in range
+                if today_in_range and live_stats:
+                    today_day_of_week = today.weekday()
+                    day_of_week_data["chars"][today_day_of_week] += live_stats.get("total_characters", 0)
+                    day_of_week_data["hours"][today_day_of_week] += live_stats.get("total_reading_time_seconds", 0) / 3600
+                    day_of_week_data["counts"][today_day_of_week] += 1
+                
+                # Calculate averages
+                for i in range(7):
+                    if day_of_week_data["counts"][i] > 0:
+                        day_of_week_data["avg_hours"][i] = round(
+                            day_of_week_data["hours"][i] / day_of_week_data["counts"][i], 2
+                        )
+                        
+            except Exception as e:
+                logger.error(f"Error calculating day of week activity: {e}")
+                day_of_week_data = {"chars": [0] * 7, "hours": [0] * 7}
+
+            # 13. Calculate reading speed by difficulty data
+            try:
+                difficulty_speed_data = {"labels": [], "speeds": []}
+                
+                # Get all games with difficulty ratings
+                all_games = GamesTable.all()
+                difficulty_groups = {}  # difficulty -> {chars: total, time: total}
+                
+                for game in all_games:
+                    if game.difficulty is not None:
+                        difficulty = game.difficulty
+                        if difficulty not in difficulty_groups:
+                            difficulty_groups[difficulty] = {"chars": 0, "time": 0}
+                        
+                        # Get stats for this game from game_activity_data
+                        game_activity = combined_stats.get("game_activity_data", {})
+                        if game.id in game_activity:
+                            activity = game_activity[game.id]
+                            difficulty_groups[difficulty]["chars"] += activity.get("chars", 0)
+                            difficulty_groups[difficulty]["time"] += activity.get("time", 0)
+                
+                # Calculate average speed for each difficulty
+                for difficulty in sorted(difficulty_groups.keys()):
+                    data = difficulty_groups[difficulty]
+                    if data["time"] > 0 and data["chars"] > 0:
+                        hours = data["time"] / 3600
+                        speed = int(data["chars"] / hours)
+                        difficulty_speed_data["labels"].append(f"Difficulty {difficulty}")
+                        difficulty_speed_data["speeds"].append(speed)
+                        
+            except Exception as e:
+                logger.error(f"Error calculating reading speed by difficulty: {e}")
+                difficulty_speed_data = {"labels": [], "speeds": []}
+
+            # 14. Calculate game type distribution data
+            try:
+                game_type_data = {"labels": [], "counts": []}
+                
+                # Get all games and count by type
+                all_games = GamesTable.all()
+                type_counts = {}
+                
+                for game in all_games:
+                    game_type = game.type if game.type else "Unknown"
+                    type_counts[game_type] = type_counts.get(game_type, 0) + 1
+                
+                # Sort by count descending
+                sorted_types = sorted(type_counts.items(), key=lambda x: x[1], reverse=True)
+                
+                for game_type, count in sorted_types:
+                    game_type_data["labels"].append(game_type)
+                    game_type_data["counts"].append(count)
+                    
+            except Exception as e:
+                logger.error(f"Error calculating game type distribution: {e}")
+                game_type_data = {"labels": [], "counts": []}
+
             # Log total request time
             total_time = time.time() - request_start_time
 
@@ -832,6 +937,9 @@ def register_stats_api_routes(app):
                     "gameMilestones": game_milestones,
                     "readingSpeedHeatmapData": reading_speed_heatmap_data,
                     "maxReadingSpeed": max_reading_speed,
+                    "dayOfWeekData": day_of_week_data,
+                    "difficultySpeedData": difficulty_speed_data,
+                    "gameTypeData": game_type_data,
                 }
             )
 

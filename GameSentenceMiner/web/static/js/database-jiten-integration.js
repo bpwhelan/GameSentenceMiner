@@ -376,7 +376,7 @@ function openEditGameModal(game) {
     const imagePreview = document.getElementById('editImagePreview');
     const imagePreviewImg = document.getElementById('editImagePreviewImg');
     if (game.image) {
-        imagePreviewImg.src = `data:image/png;base64,${game.image}`;
+        imagePreviewImg.src = game.image.startsWith('data:') ? game.image : `data:image/png;base64,${game.image}`;
         imagePreview.style.display = 'block';
     } else {
         imagePreview.style.display = 'none';
