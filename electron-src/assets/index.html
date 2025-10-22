@@ -423,10 +423,7 @@
                                         notice real text being filtered out, either lower this or disable by setting to
                                         0.
                                         <br><br>
-                                        <strong>Tip:</strong> Click<span style="color: blue;"> Preview</span> to bring
-                                        up a box to show what it
-                                        should filter out.
-                                        Anything that fits inside of the box should get filtered out.
+                                        <strong>Tip:</strong> Click <span style="color: blue;">Preview</span> to open a window that will help you select the best sensitivity for your current game.
                                     </span>
                                     <span id="furigana-filter-sensitivity-value">0</span>
                                     <input type="range" id="furigana-filter-sensitivity" min="0" max="100" value="0"
@@ -1104,7 +1101,7 @@
                 function getWindows(showLoading = true) {
                     // Remember the previously selected window
                     const previousSelection = windowSelect.value;
-                    
+
                     if (showLoading)
                         windowSelect.innerHTML = '<option>Loading...</option>';
                     ipcRenderer.invoke('ocr.getWindows').then(windowsRes => {
@@ -1116,12 +1113,12 @@
                             option.textContent = window;
                             windowSelect.appendChild(option);
                         });
-                        
+
                         // Restore previous selection if it still exists in the list
                         if (previousSelection && windows.includes(previousSelection)) {
                             windowSelect.value = previousSelection;
                         }
-                        
+
                         getOBSWindows();
                         refreshActiveOCRWindow();
                     });
@@ -1130,7 +1127,7 @@
                 function refreshScenesAndWindows(showLoading = true) {
                     // Remember the previously selected scene
                     const previousSceneSelection = sceneSelect.value;
-                    
+
                     if (showLoading)
                         sceneSelect.innerHTML = '<option>Loading...</option>';
                     ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
@@ -1142,19 +1139,11 @@
                             option.textContent = scene.name;
                             sceneSelect.appendChild(option);
                         });
-                        ipcRenderer.invoke('obs.getActiveScene').then(scene => {
-                            if (scene && !scenes.some(s => s.id === scene.id)) {
-                                const option = document.createElement('option');
-                                option.value = scene.id;
-                                option.textContent = scene.name;
-                                sceneSelect.appendChild(option);
-                            }
-                            
-                            // Restore previous selection if it still exists, otherwise use active scene
-                            if (previousSceneSelection && scenes.some(s => s.id === previousSceneSelection)) {
-                                sceneSelect.value = previousSceneSelection;
-                            } else if (scene) {
-                                sceneSelect.value = scene.id;
+                        ipcRenderer.invoke('obs.getActiveScene').then(activeScene => {
+                            if (activeScene) {
+                                if (scenes.some(s => s.id === activeScene.id)) {
+                                    sceneSelect.value = activeScene.id;
+                                }
                             }
                         });
                         getWindows(showLoading);

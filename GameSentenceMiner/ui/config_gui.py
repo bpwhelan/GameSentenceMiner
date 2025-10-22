@@ -845,6 +845,14 @@ class ConfigApp:
 
         title_template = self.i18n.get('app', {}).get('title_with_profile', 'GameSentenceMiner Configuration - {profile_name}')
         self.window.title(title_template.format(profile_name=current_config.name))
+        
+        try:
+            import mss as mss
+            self.monitors = [f"Monitor {i}: width: {monitor['width']}, height: {monitor['height']}" for i, monitor in enumerate(mss.mss().monitors[1:], start=1)]
+            if len(self.monitors) == 0:
+                self.monitors = [1]
+        except ImportError:
+            self.monitors = []
 
         if current_config.name != self.settings.name or self.settings.config_changed(current_config) or force_refresh:
             logger.info("Config changed, reloading settings.")

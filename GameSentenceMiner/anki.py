@@ -559,10 +559,10 @@ def update_new_card():
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         gsm_state.last_mined_line = game_line
-        queue_card_for_processing(last_card, lines)
+        queue_card_for_processing(last_card, lines, game_line)
         
-def queue_card_for_processing(last_card, lines):
-    card_queue.append((last_card, datetime.now(), lines))
+def queue_card_for_processing(last_card, lines, last_mined_line):
+    card_queue.append((last_card, datetime.now(), lines, last_mined_line))
     texthooking_page.reset_checked_lines()
     try:
         obs.save_replay_buffer()
