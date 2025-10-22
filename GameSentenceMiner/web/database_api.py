@@ -395,6 +395,15 @@ def register_database_api_routes(app):
                 response_data["warning"] = f"{len(failed_ids)} lines failed to delete"
                 response_data["failed_ids"] = failed_ids
 
+            # Trigger stats rollup after successful deletion
+            if deleted_count > 0:
+                try:
+                    logger.info("Triggering stats rollup after sentence line deletion")
+                    run_daily_rollup()
+                except Exception as rollup_error:
+                    logger.error(f"Stats rollup failed after sentence line deletion: {rollup_error}")
+                    # Don't fail the deletion operation if rollup fails
+
             return jsonify(response_data), 200
 
         except Exception as e:
@@ -921,6 +930,15 @@ def register_database_api_routes(app):
                 f"Deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}"
             )
 
+            # Trigger stats rollup after successful deletion
+            if deleted_count > 0:
+                try:
+                    logger.info("Triggering stats rollup after text line deletion")
+                    run_daily_rollup()
+                except Exception as rollup_error:
+                    logger.error(f"Stats rollup failed after text line deletion: {rollup_error}")
+                    # Don't fail the deletion operation if rollup fails
+
             return jsonify(
                 {
                     "deleted_count": deleted_count,
@@ -1200,6 +1218,15 @@ def register_database_api_routes(app):
             logger.info(
                 f"Deduplication completed: removed {deleted_count} duplicate sentences from {len(games)} games with {mode_desc}"
             )
+
+            # Trigger stats rollup after successful deduplication
+            if deleted_count > 0:
+                try:
+                    logger.info("Triggering stats rollup after deduplication")
+                    run_daily_rollup()
+                except Exception as rollup_error:
+                    logger.error(f"Stats rollup failed after deduplication: {rollup_error}")
+                    # Don't fail the deduplication operation if rollup fails
 
             return jsonify(
                 {

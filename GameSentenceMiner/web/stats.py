@@ -213,6 +213,60 @@ def calculate_mining_heatmap_data(all_lines, filter_year=None):
     return dict(heatmap_data)
 
 
+def calculate_reading_speed_heatmap_data(all_lines, filter_year=None):
+    """
+    Calculate daily average reading speed (chars/hour) for heatmap visualization.
+    Returns both heatmap data and maximum reading speed for percentage-based coloring.
+    
+    Args:
+        all_lines: List of GameLinesTable records
+        filter_year: Optional year filter (string)
+    
+    Returns:
+        tuple: (heatmap_data dict, max_reading_speed float)
+            heatmap_data format: {year: {date: speed_in_chars_per_hour}}
+    """
+    # Group lines by date
+    daily_data = defaultdict(lambda: {"chars": 0, "timestamps": []})
+    
+    for line in all_lines:
+        date_obj = datetime.date.fromtimestamp(float(line.timestamp))
+        year = str(date_obj.year)
+        
+        # Filter by year if specified
+        if filter_year and year != filter_year:
+            continue
+        
+        date_str = date_obj.strftime("%Y-%m-%d")
+        char_count = len(line.line_text) if line.line_text else 0
+        
+        daily_data[date_str]["chars"] += char_count
+        daily_data[date_str]["timestamps"].append(float(line.timestamp))
+    
+    # Calculate reading speed for each day
+    heatmap_data = defaultdict(lambda: defaultdict(int))
+    max_speed = 0
+    
+    for date_str, data in daily_data.items():
+        if len(data["timestamps"]) >= 2 and data["chars"] > 0:
+            # Calculate actual reading time for this day
+            reading_time_seconds = calculate_actual_reading_time(data["timestamps"])
+            reading_time_hours = reading_time_seconds / 3600
+            
+            if reading_time_hours > 0:
+                # Calculate speed (chars per hour)
+                speed = int(data["chars"] / reading_time_hours)
+                
+                # Extract year from date string
+                year = date_str.split("-")[0]
+                heatmap_data[year][date_str] = speed
+                
+                # Track maximum speed
+                max_speed = max(max_speed, speed)
+    
+    return dict(heatmap_data), max_speed
+
+
 def calculate_total_chars_per_game(all_lines, game_name_to_display=None):
     """Calculate total characters read per game."""
     if game_name_to_display is None:

@@ -673,6 +673,280 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];
     }
 
+    // Function to create top 5 reading speed days horizontal bar chart
+    function createTopReadingSpeedDaysChart(canvasId, readingSpeedHeatmapData) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !readingSpeedHeatmapData) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        // Extract all dates and speeds from heatmap data
+        const allDays = [];
+        for (const year in readingSpeedHeatmapData) {
+            for (const date in readingSpeedHeatmapData[year]) {
+                const speed = readingSpeedHeatmapData[year][date];
+                if (speed > 0) {
+                    allDays.push({ date, speed });
+                }
+            }
+        }
+        
+        // Sort by speed descending and take top 5
+        allDays.sort((a, b) => b.speed - a.speed);
+        const top5Days = allDays.slice(0, 5);
+        
+        // If no data, show empty chart
+        if (top5Days.length === 0) {
+            return null;
+        }
+        
+        // Prepare data for horizontal bar chart (reverse order so highest is on top)
+        const labels = top5Days.reverse().map(day => day.date);
+        const speeds = top5Days.map(day => day.speed);
+        
+        // Generate gradient colors from green (fastest) to yellow (5th fastest)
+        const colors = speeds.map((speed, index) => {
+            // Reverse index so top bar gets greenest color
+            const reverseIndex = speeds.length - 1 - index;
+            const hue = 120 - (reverseIndex * 20); // 120 (green) to 40 (yellow-orange)
+            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        });
+        
+        const borderColors = speeds.map((speed, index) => {
+            const reverseIndex = speeds.length - 1 - index;
+            const hue = 120 - (reverseIndex * 20);
+            return `hsla(${hue}, 70%, 40%, 1)`;
+        });
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Reading Speed (chars/hour)',
+                    data: speeds,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                indexAxis: 'y', // This makes it horizontal
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Top 5 Fastest Reading Days',
+                        color: getThemeTextColor(),
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        },
+                        padding: {
+                            top: 10,
+                            bottom: 20
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return context[0].label;
+                            },
+                            label: function(context) {
+                                const speed = context.parsed.x;
+                                return `Speed: ${speed.toLocaleString()} chars/hour`;
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Reading Speed (chars/hour)',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
+    // Function to create top 5 character count days horizontal bar chart
+    function createTopCharacterDaysChart(canvasId, heatmapData) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !heatmapData) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        // Extract all dates and character counts from heatmap data
+        const allDays = [];
+        for (const year in heatmapData) {
+            for (const date in heatmapData[year]) {
+                const chars = heatmapData[year][date];
+                if (chars > 0) {
+                    allDays.push({ date, chars });
+                }
+            }
+        }
+        
+        // Sort by character count descending and take top 5
+        allDays.sort((a, b) => b.chars - a.chars);
+        const top5Days = allDays.slice(0, 5);
+        
+        // If no data, show empty chart
+        if (top5Days.length === 0) {
+            return null;
+        }
+        
+        // Prepare data for horizontal bar chart (reverse order so highest is on top)
+        const labels = top5Days.reverse().map(day => day.date);
+        const charCounts = top5Days.map(day => day.chars);
+        
+        // Generate gradient colors from blue (most productive) to cyan (5th most productive)
+        const colors = charCounts.map((chars, index) => {
+            // Reverse index so top bar gets bluest color
+            const reverseIndex = charCounts.length - 1 - index;
+            const hue = 200 - (reverseIndex * 15); // 200 (blue) to 155 (cyan)
+            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        });
+        
+        const borderColors = charCounts.map((chars, index) => {
+            const reverseIndex = charCounts.length - 1 - index;
+            const hue = 200 - (reverseIndex * 15);
+            return `hsla(${hue}, 70%, 40%, 1)`;
+        });
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Characters Read',
+                    data: charCounts,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                indexAxis: 'y', // This makes it horizontal
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Top 5 Most Productive Reading Days',
+                        color: getThemeTextColor(),
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        },
+                        padding: {
+                            top: 10,
+                            bottom: 20
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return context[0].label;
+                            },
+                            label: function(context) {
+                                const chars = context.parsed.x;
+                                return `Characters: ${chars.toLocaleString()}`;
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Characters Read',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
     // Function to create hourly reading speed bar chart
     function createHourlyReadingSpeedChart(canvasId, hourlySpeedData) {
         const canvas = document.getElementById(canvasId);
@@ -1121,6 +1395,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Create hourly reading speed chart if data exists
                 if (data.hourlyReadingSpeedData) {
                     createHourlyReadingSpeedChart('hourlyReadingSpeedChart', data.hourlyReadingSpeedData);
+                }
+
+                // Create top 5 reading speed days chart if data exists
+                if (data.readingSpeedHeatmapData) {
+                    createTopReadingSpeedDaysChart('topReadingSpeedDaysChart', data.readingSpeedHeatmapData);
+                }
+
+                // Create top 5 character count days chart if data exists
+                if (data.heatmapData) {
+                    createTopCharacterDaysChart('topCharacterDaysChart', data.heatmapData);
                 }
 
                 // Create kanji grid if data exists

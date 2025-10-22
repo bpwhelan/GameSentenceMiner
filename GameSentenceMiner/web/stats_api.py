@@ -24,6 +24,7 @@ from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency,
     calculate_mining_heatmap_data,
+    calculate_reading_speed_heatmap_data,
     calculate_total_chars_per_game,
     calculate_reading_time_per_game,
     calculate_reading_speed_per_game,
@@ -750,6 +751,65 @@ def register_stats_api_routes(app):
                 logger.error(f"Error calculating game milestones: {e}")
                 game_milestones = None
 
+            # 11. Calculate reading speed heatmap data
+            try:
+                # Use rollup-based approach similar to regular heatmap
+                reading_speed_heatmap_data = {}
+                max_reading_speed = 0
+                
+                if start_date_str:
+                    yesterday = today - datetime.timedelta(days=1)
+                    yesterday_str = yesterday.strftime("%Y-%m-%d")
+
+                    if start_date_str <= yesterday_str:
+                        rollup_end = (
+                            min(end_date_str, yesterday_str)
+                            if end_date_str
+                            else yesterday_str
+                        )
+                        rollups_for_speed = StatsRollupTable.get_date_range(
+                            start_date_str, rollup_end
+                        )
+                        
+                        # Build reading speed heatmap from rollup data
+                        for rollup in rollups_for_speed:
+                            if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
+                                reading_time_hours = rollup.total_reading_time_seconds / 3600
+                                speed = int(rollup.total_characters / reading_time_hours)
+                                
+                                year = rollup.date.split("-")[0]
+                                if year not in reading_speed_heatmap_data:
+                                    reading_speed_heatmap_data[year] = {}
+                                reading_speed_heatmap_data[year][rollup.date] = speed
+                                max_reading_speed = max(max_reading_speed, speed)
+
+                        # Add today's data to reading speed heatmap if needed
+                        if today_in_range and today_lines_for_charts:
+                            today_speed_data, today_max_speed = calculate_reading_speed_heatmap_data(
+                                today_lines_for_charts, filter_year
+                            )
+                            # Merge today's data
+                            for year, dates in today_speed_data.items():
+                                if year not in reading_speed_heatmap_data:
+                                    reading_speed_heatmap_data[year] = {}
+                                for date, speed in dates.items():
+                                    reading_speed_heatmap_data[year][date] = speed
+                                    max_reading_speed = max(max_reading_speed, speed)
+                    else:
+                        # Only today's data
+                        reading_speed_heatmap_data, max_reading_speed = calculate_reading_speed_heatmap_data(
+                            today_lines_for_charts, filter_year
+                        )
+                else:
+                    # No date range specified, use today only
+                    reading_speed_heatmap_data, max_reading_speed = calculate_reading_speed_heatmap_data(
+                        today_lines_for_charts, filter_year
+                    )
+            except Exception as e:
+                logger.error(f"Error calculating reading speed heatmap data: {e}")
+                reading_speed_heatmap_data = {}
+                max_reading_speed = 0
+
             # Log total request time
             total_time = time.time() - request_start_time
 
@@ -770,6 +830,8 @@ def register_stats_api_routes(app):
                     "peakDailyStats": peak_daily_stats,
                     "peakSessionStats": peak_session_stats,
                     "gameMilestones": game_milestones,
+                    "readingSpeedHeatmapData": reading_speed_heatmap_data,
+                    "maxReadingSpeed": max_reading_speed,
                 }
             )
 
