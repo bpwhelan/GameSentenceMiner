@@ -58,7 +58,8 @@ dependencies = [
   "torchcodec~=0.7.0",
   "torchaudio==2.8.0",
   "pillow~=12.0.0",
-  "openai>=2.6.0",
+  "openai~=2.6.0",
+  "pynput~=1.8.1"
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
