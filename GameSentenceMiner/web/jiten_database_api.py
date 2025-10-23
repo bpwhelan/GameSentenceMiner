@@ -19,7 +19,7 @@ def add_jiten_link_to_game(game, deck_id):
     Helper function to add or update Jiten.moe link in game's links list.
     Ensures there's only one Jiten link and it's up to date.
     """
-    jiten_url = f"https://jiten.moe/deck/{deck_id}"
+    jiten_url = f"https://jiten.moe/decks/media/{deck_id}"
 
     # Ensure game.links is a list (handle cases where it might be a string or None)
     if not isinstance(game.links, list):
@@ -34,7 +34,7 @@ def add_jiten_link_to_game(game, deck_id):
     # Check if a Jiten link already exists
     jiten_link_index = None
     for i, link in enumerate(game.links):
-        if "jiten.moe/deck/" in link:
+        if "jiten.moe/deck" in link:
             jiten_link_index = i
             break
 
