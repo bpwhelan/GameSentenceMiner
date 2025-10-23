@@ -142,6 +142,11 @@
             <button class="dashboard-retry-btn" data-action="loadDashboardData">Retry</button>
         </div>
 
+        <div class="chart-container">
+            <h2>Activity Heatmap</h2>
+            <div id="heatmapContainer"></div>
+        </div>
+
          <!-- Today's Overview Card -->
         <div class="dashboard-card today-overview" id="todayOverviewCard" style="margin-bottom: 24px;">
             <div class="dashboard-card-header">
@@ -224,10 +229,7 @@
             </div>
         </div>
 
-        <div class="chart-container">
-            <h2>Activity Heatmap</h2>
-            <div id="heatmapContainer"></div>
-        </div>
+
         <!-- Include shared settings modal -->
         {% include 'components/settings-modal.html' %}
     </div>
