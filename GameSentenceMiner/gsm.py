@@ -187,7 +187,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:
-                last_note, anki_card_creation_time, selected_lines = anki.card_queue.pop(
+                last_note, anki_card_creation_time, selected_lines, mined_line = anki.card_queue.pop(
                     0)
             else:
                 logger.info(
@@ -211,11 +211,11 @@ class VideoToAudioHandler(FileSystemEventHandler):
             full_text = ''
             if selected_lines:
                 start_line = selected_lines[0]
-                mined_line = get_mined_line(last_note, selected_lines)
+                # mined_line = get_mined_line(last_note, selected_lines)
                 line_cutoff = selected_lines[-1].get_next_time()
                 full_text = remove_html_and_cloze_tags(note['fields'][get_config().anki.sentence_field])
             else:
-                mined_line = get_text_event(last_note)
+                # mined_line = get_text_event(last_note)
                 if mined_line:
                     start_line = mined_line
                     if mined_line.next:
