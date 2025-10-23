@@ -183,12 +183,11 @@
                     option.textContent = scene.name;
                     sceneSelect.appendChild(option);
                 });
-                ipcRenderer.invoke('obs.getActiveScene').then(scene => {
-                    if (scene && !scenes.some(s => s.id === scene.id)) {
-                        const option = document.createElement('option');
-                        option.value = scene.id;
-                        option.textContent = scene.name;
-                        sceneSelect.appendChild(option);
+                ipcRenderer.invoke('obs.getActiveScene').then(activeScene => {
+                    if (activeScene) {
+                        if (scenes.some(s => s.id === activeScene.id)) {
+                            sceneSelect.value = activeScene.id;
+                        }
                     }
                 });
                 getWindows(showLoading);

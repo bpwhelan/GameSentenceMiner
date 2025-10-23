@@ -146,25 +146,27 @@ def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
     
     if not lines:
         raise Exception("No voicelines in GSM. GSM can only do work on text that has been sent to it since it started. If you are not getting any text into GSM, please check your setup/config.")
+    
+    last_line = lines[-1] # Store reference to the latest line
 
     if not last_note:
-        return lines[-1]
+        return last_line
 
     sentence = last_note.get_field(get_config().anki.sentence_field)
     if not sentence:
-        return lines[-1]
+        return last_line
 
     logger.info(f"Replay buffer length: {gsm_state.replay_buffer_length}")
     time_window = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length) - timedelta(seconds=5)
     for line in reversed(lines):
         if line.time < time_window:
             logger.info("Could not find matching sentence from GSM's history within the replay buffer time window. Using the latest line.")
-            return lines[-1]
+            return last_line
         if lines_match(line.text, remove_html_and_cloze_tags(sentence)):
             return line
 
     logger.info("Could not find matching sentence from GSM's history. Using the latest line.")
-    return lines[-1]
+    return last_line
 
 
 def get_text_event(last_note) -> GameLine:
