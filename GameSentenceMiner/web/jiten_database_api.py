@@ -959,6 +959,36 @@ def register_jiten_database_api_routes(app):
             logger.error(f"Error creating game: {e}")
             return jsonify({"error": f"Failed to create game: {str(e)}"}), 500
 
+    @app.route("/api/game-types", methods=["GET"])
+    def api_game_types():
+        """
+        Get all unique game types from the games table.
+        Returns a list of distinct game types that exist in the database.
+        """
+        try:
+            from GameSentenceMiner.util.games_table import GamesTable
+            
+            # Get all games
+            all_games = GamesTable.all()
+            
+            # Extract unique types (excluding empty/None values)
+            unique_types = set()
+            for game in all_games:
+                if game.type and game.type.strip():
+                    unique_types.add(game.type.strip())
+            
+            # Sort alphabetically for consistency
+            sorted_types = sorted(unique_types)
+            
+            return jsonify({
+                "types": sorted_types,
+                "count": len(sorted_types)
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error fetching game types: {e}", exc_info=True)
+            return jsonify({"error": "Failed to fetch game types"}), 500
+
     @app.route("/api/debug-db", methods=["GET"])
     def api_debug_db():
         """Debug endpoint to check database structure and content."""

@@ -318,10 +318,52 @@ function editGame(gameId) {
 }
 
 /**
+ * Load game types from database and populate dropdown
+ */
+async function loadGameTypes() {
+    try {
+        const response = await fetch('/api/game-types');
+        const data = await response.json();
+        
+        if (response.ok && data.types) {
+            const typeSelect = document.getElementById('editType');
+            if (typeSelect) {
+                // Keep the "Select type..." option
+                const currentValue = typeSelect.value;
+                
+                // Clear existing options except the first one
+                while (typeSelect.options.length > 1) {
+                    typeSelect.remove(1);
+                }
+                
+                // Add types from database
+                data.types.forEach(type => {
+                    const option = document.createElement('option');
+                    option.value = type;
+                    option.textContent = type;
+                    typeSelect.appendChild(option);
+                });
+                
+                // Restore the current value if it exists
+                if (currentValue) {
+                    typeSelect.value = currentValue;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error loading game types:', error);
+        // Silently fail - the dropdown will just have the default option
+    }
+}
+
+/**
  * Open edit game modal with game data
  * @param {Object} game - Game object to edit
  */
-function openEditGameModal(game) {
+async function openEditGameModal(game) {
+    // Load game types first
+    await loadGameTypes();
+    
     // Populate form fields with current game data
     document.getElementById('editGameId').value = game.id;
     document.getElementById('editTitleOriginal').value = game.title_original || '';
