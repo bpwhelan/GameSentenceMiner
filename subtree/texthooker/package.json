@@ -1,0 +1,44 @@
+{
+	"author": "Renji-xD",
+	"devDependencies": {
+		"@mdi/js": "^7.1.96",
+		"@sveltejs/vite-plugin-svelte": "^2.0.2",
+		"@tsconfig/svelte": "^3.0.0",
+		"@types/dom-screen-wake-lock": "^1.0.0",
+		"@types/sortablejs": "^1.15.8",
+		"autoprefixer": "^10.4.13",
+		"daisyui": "^2.45.0",
+		"eslint": "^8.30.0",
+		"eslint-config-prettier": "^8.5.0",
+		"eslint-plugin-svelte3": "^4.0.0",
+		"postcss": "^8.4.20",
+		"postcss-load-config": "^4.0.1",
+		"prettier": "^2.8.1",
+		"rollup": "^3.14.0",
+		"rxjs": "^7.8.0",
+		"svelte": "^3.55.0",
+		"svelte-check": "^2.10.2",
+		"svelte-preprocess": "^5.0.0",
+		"tailwindcss": "^3.2.4",
+		"tslib": "^2.4.1",
+		"typescript": "^4.9.4",
+		"vite": "^4.0.1",
+		"vite-plugin-singlefile": "^0.13.2"
+	},
+	"license": "MIT",
+	"name": "texthooker-ui",
+	"private": true,
+	"scripts": {
+		"build": "vite -c vite.main.config.ts build",
+		"build:lib": "vite -c vite.lib.config.ts build",
+		"check": "svelte-check --tsconfig ./tsconfig.json",
+		"check:types": "tsc --noEmit",
+		"dev": "vite -c vite.main.config.ts",
+		"preview": "vite -c vite.main.config.ts preview --host"
+	},
+	"type": "module",
+	"version": "1.0.0",
+	"dependencies": {
+		"sortablejs": "^1.15.2"
+	}
+}
