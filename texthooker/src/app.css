@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'Ackaisyo';
+  src: local(''), url('https://gsm.beangate.us/ackaisyo.ttf') format('truetype');
+  font-display: swap;
+}
+
+@font-face {
+	font-family: 'CineCaption226';
+	src: local(''), url('https://gsm.beangate.us/cinecaption226.ttf') format('truetype');
+	font-display: swap;
+}
+
+body,
+html {
+	margin: 0;
+	display: flex;
+	flex: 1;
+	min-height: 100%;
+	overflow: auto;
+}

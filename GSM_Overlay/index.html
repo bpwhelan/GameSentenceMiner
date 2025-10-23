@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<style>
+  html {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    /* HIDE SCROLLBARS */
+    overflow: hidden;
+    /* flex-direction: column;
+    justify-content: flex-end; */
+    /* 👈 Push content to bottom */
+
+  }
+
+  /* body {
+background: rgba(202, 12, 12, 0.692);
+  } */
+
+  body {
+    overflow: hidden;
+  }
+
+
+  #text {
+    position: relative;
+    white-space: pre-wrap;
+    font-size: 39px;
+    background: rgba(15, 15, 15, 0);
+    color: rgba(255, 255, 255, 0);
+    min-height: 25px;
+    text-align: start;
+    resize: none;
+    overflow: auto;
+  }
+
+  .text {
+    background: rgba(15, 15, 15, 0);
+    color: rgba(255, 255, 255, 0);
+    min-height: 25px;
+    text-align: start;
+    overflow: auto;
+  }
+
+  .text-box {
+    position: absolute;
+    white-space: nowrap;
+    background: rgba(15, 15, 15, 0);
+    color: rgba(255, 255, 255, 0);
+    text-align: start;
+    pointer-events: auto;
+    user-select: text;
+    z-index: 999;
+    line-height: 1;
+    display: block;
+    align-items: center;
+    justify-content: flex-start;
+    overflow: visible;
+  }
+
+  .text-box-container {
+    position: absolute;
+    white-space: nowrap;
+    /* background: rgba(15, 15, 15, 0);
+    color: rgba(255, 255, 255, 0); */
+    text-align: start;
+    pointer-events: auto;
+    user-select: text;
+    z-index: 1000;
+    line-height: 1;
+    display: block;
+    align-items: center;
+    justify-content: flex-start;
+    overflow: visible;
+  }
+
+  body.force-visible .text-box,
+  body:hover .text-box {
+    background: rgba(15, 15, 15, 0.856);
+    color: white;
+    transition: opacity 0.3s ease;
+  }
+
+  .text-box:hover {
+    background: rgba(15, 15, 15, 0.856);
+    color: white;
+    transition: opacity 0.3s ease;
+  }
+
+  #resize-handle {
+    opacity: 0;
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    right: 0;
+    bottom: 0;
+    transform: rotate(180deg);
+    background:
+      linear-gradient(135deg, transparent 45%, #aaa 45%, #aaa 55%, transparent 55%),
+      linear-gradient(135deg, transparent 25%, #aaa 25%, #aaa 35%, transparent 35%),
+      linear-gradient(135deg, transparent 5%, #aaa 5%, #aaa 15%, transparent 15%);
+    background-repeat: no-repeat;
+    background-position: bottom right;
+    cursor: se-resize;
+    pointer-events: auto;
+  }
+
+  #draggable {
+    height: 30px;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 0 8px;
+  }
+
+  #main-box {
+    position: fixed;
+    left: 50%;
+    top: 70%;
+
+  }
+
+  .faded {
+    background: rgba(0, 0, 0, 0);
+  }
+
+  body.force-visible #text,
+  body:hover #text {
+    background: rgba(15, 15, 15, 0.856);
+    color: white;
+    transition: opacity 0.3s ease;
+  }
+
+  #main-box:hover #boxes:hover #resize-handle .text-box:hover {
+    opacity: 1;
+  }
+
+  .control-btn {
+    background: transparent;
+    user-select: none;
+    color: white;
+    border: none;
+    font-size: 16px;
+    margin-left: 10px;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+
+  .control-btn:hover {
+    color: #ff6666;
+  }
+
+  #btn-pin {
+    color: #ddd2d2a3;
+  }
+
+  /* .big-interactive-area:hover {
+    background: rgba(15, 15, 15, 0.1);
+  } */
+
+  /* Loading Indicator Styles */
+  #loading-indicator {
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    width: 20px;
+    height: 20px;
+    z-index: 10000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  #loading-indicator.show {
+    opacity: 1;
+  }
+
+  #loading-indicator.fade-out {
+    opacity: 0;
+    transition: opacity 5s ease-out;
+  }
+
+  .loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top: 2px solid #00ff88;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  .checkmark {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: #00ff88;
+    font-weight: bold;
+    text-shadow: 0 0 3px rgba(0, 255, 136, 0.5);
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  /* Alternative pulsing dot indicator */
+  .loading-dot {
+    width: 12px;
+    height: 12px;
+    background: #00ff88;
+    border-radius: 50%;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { 
+      opacity: 0.4;
+      transform: scale(1);
+    }
+    50% { 
+      opacity: 1;
+      transform: scale(1.2);
+    }
+  }
+</style>
+
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <style>
+
+  </style>
+</head>
+
+
+<body style="margin:0px;">
+  <!-- Text Loading Indicator -->
+  <div id="loading-indicator">
+    <div class="loading-spinner"></div>
+  </div>
+  
+  <div id="main-box">
+    <div draggable="false" id="draggable" , class="interactive">
+      <button class="control-btn" id="btn-pin">⬤</button>
+      <button class="control-btn" id="btn-settings">⚙</button>
+      <button class="control-btn" id="btn-yomitan"><img src="yomitan-icon.svg"></button>
+      <button class="control-btn" id="btn-minimize">➖</button>
+      <button class="control-btn" id="btn-close">✖</button>
+    </div>
+    <div id="text" class="interactive">Hide this box with Alt+Shift+H</div>
+    <div draggable="false" id="resize-handle" class="interactive half-interactive"></div>
+  </div>
+  <!-- <div id="text-box-container" class="text-box-container interactive"></div> -->
+  <!-- <p id="text-box-paragraph" style="width: 100%; height: 100%;"></p> -->
+</body>
+
+
+<script>
+  let yomitanShowing = false;
+  let autoHide = null;
+  let hideOnYomitanClose = false;
+  // let currentX = 0;
+  // let currentY = 0;
+  let magpieReleaseInterval = null;
+  let manualModeActivatedOnce = false;
+  let hideReadyIndicator = false;
+
+  // window.addEventListener('mousemove', (e) => {
+  //   console.log("Mouse moved:", e.clientX, e.clientY);
+  //   currentX = e.clientX;
+  //   currentY = e.clientY;
+  // });
+
+  window.addEventListener('yomitan-popup-shown', (event) => {
+    console.log('Yomitan popup shown:', event);
+    console.log(event.detail); // This will log the value of 'this' passed above
+    ipcRenderer.send('yomitan-event', true);
+    yomitanShowing = true;
+  });
+
+  // When popup is hidden, tell main process to ignore mouse events again
+  window.addEventListener('yomitan-popup-hidden', (event) => {
+    ipcRenderer.send('yomitan-event', false);
+    ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+    yomitanShowing = false;
+    if (hideOnYomitanClose) {
+      hideOnYomitanClose = false;
+      if (!pinned) {
+        document.body.classList.remove('force-visible');
+      }
+      hideTextBoxes();
+    }
+  });
+
+  const textElement = document.getElementById("text");
+  const handle = document.getElementById("resize-handle");
+
+  let isResizing = false;
+  let startX, startY, startWidth, startHeight;
+
+  handle.addEventListener("mousedown", (e) => {
+    isResizing = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    const rect = textElement.getBoundingClientRect();
+    startWidth = rect.width;
+    startHeight = rect.height;
+    document.addEventListener("mousemove", resize);
+    document.addEventListener("mouseup", stopResize, { once: true });
+  });
+
+  function resize(e) {
+    if (!isResizing) return;
+    const newWidth = startWidth + (e.clientX - startX);
+    const newHeight = startHeight + (e.clientY - startY);
+    textElement.style.width = newWidth + "px";
+    textElement.style.height = newHeight + "px";
+  }
+
+  function stopResize() {
+    isResizing = false;
+    document.removeEventListener("mousemove", resize);
+  }
+
+
+</script>
+
+<script>
+  const { ipcRenderer } = require("electron");
+  const dragBar = document.getElementById("draggable");
+  const textEl = document.getElementById("text");
+  const mainBox = document.getElementById("main-box");
+
+  let isDragging = false;
+  let offsetX, offsetY;
+  let magpieCompatibility = false;
+  let hideOnStartup = false;
+  let usePercentage = false;
+  let unHoverTimer = null;
+  let magpieWindowInfo = null;
+  let manualMode = false;
+  let showHotkey = "Shift + Space";
+  let manualHotkeyPressed = false;
+  let showTextBackground = false;
+  let width = 2560;
+  let height = 1440;
+  let workArea = { x: 0, y: 0, width: 2560, height: 1440 };
+  let workAreaWidth = 2560;
+  let workAreaHeight = 1392;
+  let workAreaAdjustment = (workAreaHeight / height - 1) * -1;
+
+  // Loading indicator functions
+  let loadingStartTime = null;
+
+  function showLoadingIndicator() {
+    const indicator = document.getElementById('loading-indicator');
+    if (indicator) {
+      // Reset any previous states
+      indicator.classList.remove('fade-out');
+      indicator.innerHTML = '<div class="loading-spinner"></div>';
+      indicator.classList.add('show');
+      loadingStartTime = Date.now(); // Record when loading started
+    }
+  }
+
+  function showReadyIndicator() {
+    const indicator = document.getElementById('loading-indicator');
+    if (indicator && loadingStartTime) {
+      const elapsedTime = Date.now() - loadingStartTime;
+      const minDisplayTime = 500; // Minimum 500ms spinner display
+      
+      const remainingTime = Math.max(0, minDisplayTime - elapsedTime);
+      
+      setTimeout(() => {
+        // Replace spinner with checkmark
+        indicator.innerHTML = '<div class="checkmark">✓</div>';
+        
+        // Start fade out after a brief moment
+        setTimeout(() => {
+          indicator.classList.add('fade-out');
+          
+          // Clean up after fade completes
+          setTimeout(() => {
+            indicator.classList.remove('show', 'fade-out');
+            loadingStartTime = null; // Reset timing
+          }, 5000);
+        }, 200);
+      }, remainingTime);
+    }
+  }
+
+  function hideLoadingIndicator() {
+    const indicator = document.getElementById('loading-indicator');
+    if (indicator) {
+      indicator.classList.remove('show', 'fade-out');
+      loadingStartTime = null;
+    }
+  }
+
+  // Auto-hide loading indicator after a delay
+  function hideLoadingIndicatorWithDelay(delay = 1500) {
+    setTimeout(() => {
+      hideLoadingIndicator();
+    }, delay);
+  }
+
+  dragBar.addEventListener("mousedown", (e) => {
+    const rect = mainBox.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+    isDragging = true;
+    document.addEventListener("mousemove", onDrag);
+    document.addEventListener("mouseup", stopDrag, { once: true });
+  });
+
+  function onDrag(e) {
+    if (!isDragging) return;
+    const newX = Math.max(0, Math.min(window.innerWidth - mainBox.offsetWidth, e.clientX - offsetX));
+    const newY = Math.max(0, Math.min(window.innerHeight - mainBox.offsetHeight, e.clientY - offsetY));
+    mainBox.style.left = `${newX}px`;
+    mainBox.style.top = `${newY}px`;
+  }
+
+  function stopDrag() {
+    isDragging = false;
+    document.removeEventListener("mousemove", onDrag);
+  }
+
+  let prevContainer = null;
+
+  function setupWebSocket(weburl, isPrimary) {
+    try {
+      new URL(weburl);
+      let type = "ws1";
+      if (!isPrimary) {
+        type = "ws2";
+      }
+      if (window[type] && window[type].readyState !== WebSocket.CLOSED) {
+        window[type].close();
+      }
+      const websocket = new WebSocket(weburl);
+      websocket.onclose = (event) => {
+        ipcRenderer.send(`websocket-closed`, type)
+      }
+      websocket.onopen = (event) => {
+        ipcRenderer.send(`websocket-opened`, type)
+      }
+      websocket.onmessage = (event) => {
+        let data = event.data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (_) {
+          data = event.data;
+        }
+
+        if (data.config) {
+          ipcRenderer.send("config-received", data.config);
+        }
+
+        // Clear existing text boxes
+        const mainBoxBounds = mainBox.getBoundingClientRect();
+        clearTextBoxes();
+
+        console.log(data);
+
+        // Check if data has words array (new word-level coordinate format)
+        if (Array.isArray(data) && data.every(item => item.text && item.bounding_rect)) {
+          // Show loading indicator when text processing starts
+          if (!hideReadyIndicator) {
+            showLoadingIndicator();
+          }
+          // Handle array of {text, bounding_rect}
+          data.forEach(line => {
+            const rect = line.bounding_rect;
+            usePercentage = rect.x1 < 1 && rect.y1 < 1 && rect.x3 < 1 && rect.y3 < 1;
+            let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+            let bigInteractiveArea = document.createElement("div");
+            bigInteractiveArea.className = "big-interactive-area interactive half-interactive";
+            if (!/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(line.text)) {
+              // Not Japanese, Chinese, or Korean: add a spacer span after each box
+              const spacer = document.createElement('span');
+              spacer.textContent = ' ';
+              spacer.style.display = 'inline-block';
+              spacer.style.width = '0.5em';
+              spacer.className = 'spacer';
+              document.body.appendChild(spacer);
+            }
+            line.words.forEach(word => {
+              const rect = word.bounding_rect;
+              let x1 = usePercentage ? rect.x1 * 100 : rect.x1;
+              let y1 = usePercentage ? rect.y1 * 100 : rect.y1;
+              let x3 = usePercentage ? rect.x3 * 100 : rect.x3;
+              let y3 = usePercentage ? rect.y3 * 100 : rect.y3;
+
+              // console.log(workAreaAdjustment);
+
+              // if (workAreaAdjustment > 0) {
+              //   y1 *= 1 + workAreaAdjustment;
+              //   y3 *= 1 + workAreaAdjustment;
+              // }
+
+              minx = Math.min(minx, x1);
+              miny = Math.min(miny, y1);
+              maxx = Math.max(maxx, x3);
+              maxy = Math.max(maxy, y3);
+              const box = createTextBox(word.text, x1, y1, x3, y3, 0, true, true, false);
+              // Disable pointer events and set display:none by default
+              document.body.appendChild(box);
+              const boundBox = box.getBoundingClientRect();
+              if (pinned && isTextInMainBox(boundBox, mainBoxBounds)) {
+                console.log("Text inside main box, hiding:", word.text);
+                box.style.display = 'none';
+                return; // Skip boxes found inside main box
+              }
+              // Estimate and apply the appropriate font size based on the box's dimensions and position
+              const fontSize = estimateFontSize(word.text, x3 - x1, y3 - y1, boundBox, usePercentage);
+              box.style.fontSize = `${fontSize}px`;
+            });
+
+            // Create aesthetic line box for background/border
+            let lineBox = document.createElement("div");
+            lineBox.className = "line-box";
+            lineBox.style.position = "absolute";
+            lineBox.style.pointerEvents = "none";
+            lineBox.style.zIndex = "998"; // Below text boxes but above background
+
+            // Transform coordinates for bigInteractiveArea if Magpie window info is available
+            if (magpieWindowInfo) {
+              const topLeft = transformCoordinates(minx, miny, usePercentage);
+              const bottomRight = transformCoordinates(maxx, maxy, usePercentage);
+
+              // Position line box
+              lineBox.style.left = `${topLeft.x - 2}px`;
+              lineBox.style.top = `${topLeft.y - 2}px`;
+              lineBox.style.width = `${bottomRight.x - topLeft.x + 4}px`;
+              lineBox.style.height = `${bottomRight.y - topLeft.y + 4}px`;
+
+              // Position big interactive area
+              minx = topLeft.x - 25;
+              miny = topLeft.y - 25;
+              maxx = bottomRight.x + 25;
+              maxy = bottomRight.y + 25;
+              bigInteractiveArea.style.position = "absolute";
+              bigInteractiveArea.style.left = `${minx}px`;
+              bigInteractiveArea.style.top = `${miny}px`;
+              bigInteractiveArea.style.width = `${maxx - minx}px`;
+              bigInteractiveArea.style.height = `${maxy - miny}px`;
+            } else {
+              // Position line box
+              let lineMinx = usePercentage ? minx - 0.2 : minx - 2;
+              let lineMiny = usePercentage ? miny - 0.2 : miny - 2;
+              let lineMaxx = usePercentage ? maxx + 0.2 : maxx + 2;
+              let lineMaxy = usePercentage ? maxy + 0.2 : maxy + 2;
+
+              lineBox.style.left = usePercentage ? `${lineMinx}%` : `${lineMinx}px`;
+              lineBox.style.top = usePercentage ? `${lineMiny}%` : `${lineMiny}px`;
+              lineBox.style.width = usePercentage ? `${lineMaxx - lineMinx}%` : `${lineMaxx - lineMinx}px`;
+              lineBox.style.height = usePercentage ? `${lineMaxy - lineMiny}%` : `${lineMaxy - lineMiny}px`;
+
+              if (magpieCompatibility) {
+                minx -= usePercentage ? 5 : 100;
+                miny -= usePercentage ? 20 : 100;
+                maxx += usePercentage ? 5 : 100;
+                maxy += usePercentage ? 5 : 100;
+                bigInteractiveArea.style.position = "absolute";
+                bigInteractiveArea.style.left = usePercentage ? `${minx}%` : `${minx}px`;
+                bigInteractiveArea.style.top = usePercentage ? `${miny}%` : `${miny}px`;
+                bigInteractiveArea.style.width = usePercentage ? `${maxx - minx}%` : `${maxx - minx}px`;
+                bigInteractiveArea.style.height = usePercentage ? `${maxy - miny}%` : `${maxy - miny}px`;
+              }
+            }
+
+            // Apply styling based on showTextBackground setting
+            lineBox.style.transition = 'border-color 2s ease-out, background-color 2s ease-out';
+            if (showTextBackground) {
+              lineBox.style.border = '1px solid rgba(255, 0, 0, 0.6)';
+
+              // Fade out border over 2 seconds
+              setTimeout(() => {
+                lineBox.style.borderColor = 'rgba(255, 0, 0, 0)';
+              }, 100);
+            } else {
+              lineBox.style.background = 'rgba(0, 0, 0, 0)';
+              lineBox.style.border = 'none';
+            }
+
+            // Add line box and big interactive area to DOM
+            document.body.appendChild(lineBox);
+            document.body.appendChild(bigInteractiveArea);
+                    
+            // Show ready indicator (checkmark) after text processing is complete
+            if (!hideReadyIndicator)
+              showReadyIndicator();
+          });
+
+          // document.body.appendChild(bigInteractiveArea);
+        } else {
+          // Legacy format - single sentence
+          let line = data?.sentence || data;
+          document.getElementById("text").textContent = line[0] == '\n' ? line.slice(1) : line;
+        }
+        if (manualMode && !manualHotkeyPressed) {
+          hideTextBoxes();
+        }
+
+        ipcRenderer.send("text-recieved", data);
+        if (!manualModeActivatedOnce) {
+          setMouseEventHandlers();
+        }
+        // setMouseEventHandlers();
+      }
+      window[type] = websocket;
+    } catch (e) {
+      console.warn("Websocket setup error:", e);
+      return;
+    }
+  }
+
+  // Function to create individual text boxes at specified coordinates
+  function createTextBox(sentence, x1, y1, x2, y2, fontSize, noBackground = false, transparentText = false, verticalText = false) {
+    console.log(`Creating box for "${sentence}" at (${x1}, ${y1}) to (${x2}, ${y2}) with font size ${fontSize}`);
+    const textBox = document.createElement('span');
+    textBox.className = 'text-box interactive';
+    textBox.textContent = sentence[0] == '\n' ? sentence.slice(1) : sentence;
+
+    // Set position and dimensions
+    textBox.style.left = `${x1}${usePercentage ? '%' : 'px'}`;
+    textBox.style.top = `${y1}${usePercentage ? '%' : 'px'}`;
+    textBox.style.width = `${x2 - x1}${usePercentage ? '%' : 'px'}`;
+    textBox.style.height = `${y2 - y1}${usePercentage ? '%' : 'px'}`;
+    textBox.style.width = `${x2 - x1}${usePercentage ? '%' : 'px'}`;
+    textBox.style.height = `${y2 - y1}${usePercentage ? '%' : 'px'}`;
+    textBox.style.display = 'block';
+    textBox.style.overflow = 'visible';
+    textBox.style.whiteSpace = 'nowrap';
+    textBox.style.fontSize = '48px';
+    textBox.style.lineHeight = 'normal';
+    textBox.style.textOverflow = 'ellipsis';
+
+    // Apply background based on setting - no individual borders anymore
+    textBox.style.background = 'rgba(0,0,0,0)';
+    textBox.style.border = 'none';
+    // Make text transparent if requested
+    if (transparentText) {
+      textBox.style.color = 'rgba(255,255,255,0)';
+    }
+
+    // Vertical text support also check if japanese characters are present
+    if (verticalText && /[^\u0000-\u007F]+/.test(sentence)) {
+      textBox.style.writingMode = 'vertical-rl';
+      textBox.style.textAlign = 'center';
+      textBox.style.alignItems = 'flex-start';
+      textBox.style.justifyContent = 'center';
+      textBox.style.whiteSpace = 'normal';
+    } else {
+      textBox.style.lineHeight = '1';
+      textBox.style.display = 'block';
+      textBox.style.overflow = 'visible';
+      textBox.style.whiteSpace = 'nowrap';
+    }
+    return textBox;
+  }
+
+  function checkAndReconnectWebSockets() {
+    if (window.ws1 && window.ws1.readyState === WebSocket.CLOSED) {
+      setupWebSocket(window.ws1.url, true);
+    }
+    if (window.ws2 && window.ws2.readyState === WebSocket.CLOSED) {
+      setupWebSocket(window.ws2.url, false);
+    }
+  }
+  setInterval(checkAndReconnectWebSockets, 1000); // Check every 10 seconds
+
+  function getCoordinatesFromPercentage(x, y) {
+    // hardcoded 2560x1440 for now
+    const hardcodedWidth = 2560;
+    const hardcodedHeight = 1440;
+
+    return { x: x / 100 * hardcodedWidth, y: y / 100 * hardcodedHeight };
+  }
+
+  // Function to transform coordinates from source window to display coordinates
+  function transformCoordinates(x, y, isPercentage) {
+    if (!magpieWindowInfo) {
+      // If no Magpie info, use coordinates as-is
+      return { x, y };
+    }
+
+    const sourceWidth = magpieWindowInfo.sourceWindowRightEdgePosition - magpieWindowInfo.sourceWindowLeftEdgePosition;
+    const sourceHeight = magpieWindowInfo.sourceWindowBottomEdgePosition - magpieWindowInfo.sourceWindowTopEdgePosition;
+
+    let transformedX, transformedY;
+
+    if (isPercentage) {
+      // Convert percentage to pixel coordinates within source window, then add offset
+      transformedX = magpieWindowInfo.sourceWindowLeftEdgePosition + (x / 100 * sourceWidth);
+      transformedY = magpieWindowInfo.sourceWindowTopEdgePosition + (y / 100 * sourceHeight);
+    } else {
+      // Direct pixel coordinates within source window, add offset
+      transformedX = magpieWindowInfo.sourceWindowLeftEdgePosition + x;
+      transformedY = magpieWindowInfo.sourceWindowTopEdgePosition + y;
+    }
+
+    return { x: transformedX, y: transformedY };
+  }
+
+  // Function to estimate font size based on word dimensions
+  function estimateFontSize(word, width, height, rect, usePercentage) {
+    let pixelWidth, pixelHeight;
+
+    console.log(`Container rect: ${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}`);
+
+    return Math.max(8, Math.min(100, Math.round(rect.height)));
+  }
+
+  function isTextInMainBox(rect, mainBoxBounds) {
+    // If mainbox is not visible, return false
+    if (mainBox.style.display === "none" || mainBox.style.visibility === "hidden") {
+      return false;
+    }
+    return !(rect.right < mainBoxBounds.left ||
+      rect.left > mainBoxBounds.right ||
+      rect.bottom < mainBoxBounds.top ||
+      rect.top > mainBoxBounds.bottom);
+  }
+
+
+  function setMouseEventHandlers() {
+    const interactiveElements = document.querySelectorAll('.interactive');
+    const halfInteractiveElements = document.querySelectorAll('.half-interactive');
+    const textBoxElements = document.querySelectorAll('.text-box');
+    const bigInteractiveAreas = document.querySelectorAll('.big-interactive-area');
+    let isMouseOverInteractiveElement = false;
+
+    console.log("Setting mouse event handlers for interactive elements:", interactiveElements);
+
+    interactiveElements.forEach((element) => {
+      element.addEventListener('mouseenter', (event) => {
+        isMouseOverInteractiveElement = true;
+        ipcRenderer.send('set-ignore-mouse-events', false);
+      });
+      if (!element.classList.contains("half-interactive")) {
+        element.addEventListener('mouseleave', () => {
+          isMouseOverInteractiveElement = false;
+          ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+        });
+      }
+    });
+
+    halfInteractiveElements.forEach((element) => {
+      if (!element.classList.contains("interactive")) {
+        element.addEventListener('mouseenter', () => {
+          isMouseOverInteractiveElement = true;
+          ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+        });
+      }
+    });
+
+    bigInteractiveAreas.forEach((area) => {
+      area.addEventListener('click', (event) => {
+        // If not a textbox, hide the big interactive area for three seconds.
+        if (!event.target.classList.contains('text-box')) {
+          ipcRenderer.send('hide');
+          setTimeout(() => {
+            ipcRenderer.send('show');
+          }, 3000);
+        }
+      });
+    });
+  }
+
+  // Function to clear all existing text boxes
+  function clearTextBoxes() {
+    const existingBoxes = document.querySelectorAll('.text-box');
+    const existingLineBreaks = document.querySelectorAll('br');
+    const bigAreas = document.querySelectorAll('.big-interactive-area');
+    const spacers = document.querySelectorAll('.spacer');
+    const lineBoxes = document.querySelectorAll('.line-box');
+    existingLineBreaks.forEach(br => br.remove());
+    existingBoxes.forEach(box => box.remove());
+    bigAreas.forEach(area => area.remove());
+    spacers.forEach(spacer => spacer.remove());
+    lineBoxes.forEach(lineBox => lineBox.remove());
+  }
+
+  function hideTextBoxes() {
+    const existingBoxes = document.querySelectorAll('.text-box');
+    existingBoxes.forEach(box => box.style.display = 'none');
+    const bigAreas = document.querySelectorAll('.big-interactive-area');
+    bigAreas.forEach(area => area.style.display = 'none');
+    const lineBoxes = document.querySelectorAll('.line-box');
+    lineBoxes.forEach(lineBox => lineBox.style.display = 'none');
+  }
+
+  function showTextBoxes() {
+    const existingBoxes = document.querySelectorAll('.text-box');
+    existingBoxes.forEach(box => box.style.display = 'block');
+    const bigAreas = document.querySelectorAll('.big-interactive-area');
+    bigAreas.forEach(area => area.style.display = 'block');
+    const lineBoxes = document.querySelectorAll('.line-box');
+    lineBoxes.forEach(lineBox => lineBox.style.display = 'block');
+  }
+
+  let resizeMode = false;
+  let pinned = false;
+  document.getElementById("btn-pin").addEventListener("click", () => {
+    if (!pinned) {
+      document.body.classList.add("force-visible");
+      pinned = true;
+      document.getElementById("btn-pin").style.color = "#ddd2d2";
+      ipcRenderer.send("pinned-changed", true);
+    } else {
+      document.getElementById("btn-pin").style.color = "#ddd2d2a3";
+      document.body.classList.remove("force-visible");
+      pinned = false;
+      ipcRenderer.send("pinned-changed", false);
+    }
+  });
+
+  document.getElementById("btn-minimize").addEventListener("click", () => {
+    ipcRenderer.send("app-minimize");
+  });
+
+  document.getElementById("btn-close").addEventListener("click", () => {
+    ipcRenderer.send("app-close");
+  });
+
+  document.getElementById("btn-settings").addEventListener("click", () => {
+    ipcRenderer.send("open-settings");
+  });
+
+  document.getElementById("btn-yomitan").addEventListener("click", () => {
+    ipcRenderer.send("open-yomitan-settings");
+  });
+
+  // If anywhere but ".interactive" and ".yomitan-popup" is left clicked or right clicked, ignore mouse events, and let it go through
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".interactive") && !event.target.closest(".yomitan-popup") && !yomitanShowing) {
+      ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+    }
+  });
+
+  ipcRenderer.on("load-settings", (event, newsettings) => {
+    textEl.style.fontSize = `${newsettings.fontSize}px`;
+    setupWebSocket(newsettings.weburl1, true)
+    setupWebSocket(newsettings.weburl2, false)
+    hideOnStartup = newsettings.hideOnStartup;
+    magpieCompatibility = newsettings.magpieCompatibility;
+    manualMode = newsettings.manualMode;
+    showHotkey = newsettings.showHotkey;
+    pinned = newsettings.pinned;
+    showTextBackground = newsettings.showTextBackground || false;
+    hideReadyIndicator = newsettings.hideReadyIndicator;
+
+    if (pinned) {
+      document.body.classList.add("force-visible");
+      document.getElementById("btn-pin").style.color = "#ddd2d2";
+    } else {
+      document.getElementById("btn-pin").style.color = "#ddd2d2a3";
+      document.body.classList.remove("force-visible");
+    }
+
+    if (hideOnStartup) {
+      mainBox.style.display = "none";
+    } else {
+      mainBox.style.display = "";
+    }
+
+    if (magpieReleaseInterval) {
+      clearInterval(magpieReleaseInterval);
+    }
+
+    if (magpieCompatibility) {
+      // every 500ms, set-ignore-mouse-events to true
+      magpieReleaseInterval = setInterval(() => {
+        if (!pinned && !yomitanShowing && !manualHotkeyPressed) {
+          ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+        }
+      }, 1000);
+    }
+  })
+
+  ipcRenderer.on('display-info', (event, newDisplay) => {
+    display = newDisplay;
+    width = display.size.width;
+    height = display.size.height;
+    workArea = display.workArea;
+    workAreaWidth = workArea.width;
+    workAreaHeight = workArea.height;
+    workAreaAdjustment = (workAreaHeight / height - 1) * -1;
+    console.log("Display info updated:", display);
+    console.log(`Work area adjustment factor: ${workAreaAdjustment}`);
+  });
+
+  // Unified settings update handler
+  ipcRenderer.on("settings-updated", (event, updatedSettings) => {
+    console.log("Settings updated:", updatedSettings);
+
+    Object.keys(updatedSettings).forEach(key => {
+      const value = updatedSettings[key];
+
+      switch (key) {
+        case "fontSize":
+          textEl.style.fontSize = `${value}px`;
+          break;
+        case "weburl1":
+          setupWebSocket(value, true);
+          break;
+        case "weburl2":
+          setupWebSocket(value, false);
+          break;
+        case "hideOnStartup":
+          hideOnStartup = value;
+          break;
+        case "magpieCompatibility":
+          updateMagpieCompatibility(value);
+          break;
+        case "manualMode":
+          updateManualMode(value);
+          break;
+        case "showHotkey":
+          showHotkey = value;
+          break;
+        case "pinned":
+          updatePinnedState(value);
+          break;
+        case "showTextBackground":
+          updateTextBackground(value);
+          break;
+        case "hideReadyIndicator":
+          hideReadyIndicator = value;
+          break;
+      }
+    });
+  });
+
+  function updateMagpieCompatibility(newValue) {
+    magpieCompatibility = newValue;
+    console.log("Magpie compatibility changed to:", magpieCompatibility);
+
+    if (magpieReleaseInterval) {
+      clearInterval(magpieReleaseInterval);
+      magpieReleaseInterval = null;
+    }
+
+    if (magpieCompatibility) {
+      magpieReleaseInterval = setInterval(() => {
+        if (!pinned && !yomitanShowing && !manualHotkeyPressed) {
+          ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+        }
+      }, 1000);
+    }
+
+    // Update any UI elements or settings related to magpieCompatibility
+    const bigInteractiveAreas = document.querySelectorAll('.big-interactive-area');
+    bigInteractiveAreas.forEach(area => {
+      const left = parseFloat(area.style.left) || 0;
+      const top = parseFloat(area.style.top) || 0;
+      const width = parseFloat(area.style.width) || 0;
+      const height = parseFloat(area.style.height) || 0;
+
+      if (usePercentage) {
+        if (magpieCompatibility) {
+          area.style.left = (left - 5) + '%';
+          area.style.top = (top - 5) + '%';
+          area.style.width = (width + 10) + '%';
+          area.style.height = (height + 10) + '%';
+        } else {
+          area.style.left = left + '%';
+          area.style.top = top + '%';
+          area.style.width = width + '%';
+          area.style.height = height + '%';
+        }
+      }
+      else if (magpieCompatibility) {
+        area.style.left = (left - 100) + 'px';
+        area.style.top = (top - 100) + 'px';
+        area.style.width = (width + 200) + 'px';
+        area.style.height = (height + 200) + 'px';
+      } else {
+        area.style.left = (left + 100 - 10) + 'px';
+        area.style.top = (top + 100 - 10) + 'px';
+        area.style.width = (width - 200 + 20) + 'px';
+        area.style.height = (height - 200 + 20) + 'px';
+      }
+    });
+  }
+
+  function updateManualMode(newValue) {
+    manualMode = newValue;
+    if (manualMode) {
+      manualModeActivatedOnce = false;
+      manualHotkeyPressed = false;
+      if (!pinned) {
+        document.body.classList.remove('force-visible');
+      }
+      hideTextBoxes();
+      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+    } else {
+      document.body.classList.add('force-visible');
+      showTextBoxes();
+      ipcRenderer.send('set-ignore-mouse-events', false);
+    }
+  }
+
+  function updatePinnedState(newValue) {
+    pinned = newValue;
+    if (pinned) {
+      document.body.classList.add("force-visible");
+      document.getElementById("btn-pin").style.color = "#ddd2d2";
+    } else {
+      document.getElementById("btn-pin").style.color = "#ddd2d2a3";
+      document.body.classList.remove("force-visible");
+    }
+  }
+
+  function updateTextBackground(newValue) {
+    showTextBackground = newValue;
+    // Apply or remove background/border from existing line boxes
+    const lineBoxes = document.querySelectorAll('.line-box');
+    lineBoxes.forEach(lineBox => {
+      lineBox.style.transition = 'border-color 2s ease-out, background-color 2s ease-out';
+      if (showTextBackground) {
+        lineBox.style.border = '1px solid rgba(255, 0, 0, 0.6)';
+
+        // Fade out border after 3 seconds
+        setTimeout(() => {
+          lineBox.style.borderColor = 'rgba(255, 0, 0, 0)';
+          lineBox.style.background = 'rgba(0, 0, 0, 0)';
+        }, 1000);
+      } else {
+        lineBox.style.background = 'rgba(0, 0, 0, 0)';
+        lineBox.style.border = 'none';
+      }
+    });
+  }
+
+  ipcRenderer.on("new-fontsize", (event, newsize) => {
+    textEl.style.fontSize = `${newsize}px`;
+  })
+  ipcRenderer.on("new-weburl1", (event, newurl) => {
+    console.log("yes")
+    setupWebSocket(newurl, true)
+  })
+  ipcRenderer.on("new-weburl2", (event, newurl) => {
+    setupWebSocket(newurl, false)
+  })
+  ipcRenderer.on("new-hideonstartup", (event, newValue) => {
+    hideOnStartup = newValue;
+  })
+  ipcRenderer.on("new-magpieCompatibility", (event, newValue) => {
+    magpieCompatibility = newValue;
+    console.log("Magpie compatibility changed to:", magpieCompatibility);
+
+    if (magpieReleaseInterval) {
+      clearInterval(magpieReleaseInterval);
+      magpieReleaseInterval = null;
+    }
+
+    if (magpieCompatibility) {
+      magpieReleaseInterval = setInterval(() => {
+        if (!pinned && !yomitanShowing && !manualHotkeyPressed) {
+          ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+        }
+      }, 1000);
+    }
+
+    // Update any UI elements or settings related to magpieCompatibility
+    const bigInteractiveAreas = document.querySelectorAll('.big-interactive-area');
+    bigInteractiveAreas.forEach(area => {
+      const left = parseFloat(area.style.left) || 0;
+      const top = parseFloat(area.style.top) || 0;
+      const width = parseFloat(area.style.width) || 0;
+      const height = parseFloat(area.style.height) || 0;
+
+      if (usePercentage) {
+        if (magpieCompatibility) {
+          // When using percentage units and Magpie compatibility is enabled,
+          // adjust the styles accordingly.
+          area.style.left = (left - 5) + '%';
+          area.style.top = (top - 5) + '%';
+          area.style.width = (width + 10) + '%';
+          area.style.height = (height + 10) + '%';
+        } else {
+          // When using percentage units and Magpie compatibility is disabled,
+          // reset to original styles or apply default adjustments.
+          area.style.left = left + '%';
+          area.style.top = top + '%';
+          area.style.width = width + '%';
+          area.style.height = height + '%';
+        }
+      }
+      else if (magpieCompatibility) {
+        area.style.left = (left - 100) + 'px';
+        area.style.top = (top - 100) + 'px';
+        area.style.width = (width + 200) + 'px';
+        area.style.height = (height + 200) + 'px';
+      } else {
+        area.style.left = (left + 100 - 10) + 'px';
+        area.style.top = (top + 100 - 10) + 'px';
+        area.style.width = (width - 200 + 20) + 'px';
+        area.style.height = (height - 200 + 20) + 'px';
+      }
+    });
+  });
+
+  ipcRenderer.on('show-overlay-hotkey', (event, isActive) => {
+    manualHotkeyPressed = isActive;
+    if (manualHotkeyPressed) {
+      manualModeActivatedOnce = true;
+      document.body.classList.add('force-visible');
+      showTextBoxes();
+      ipcRenderer.send('set-ignore-mouse-events', false);
+    } else {
+      if (yomitanShowing) {
+        hideOnYomitanClose = true;
+        return;
+      }
+      if (!pinned) {
+        document.body.classList.remove('force-visible');
+      }
+      hideTextBoxes();
+      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+    }
+  });
+
+  // Dedicated AFK hide channel — main process sends this when AFK timeout occurs
+  ipcRenderer.on('afk-hide', (event, shouldHide) => {
+    if (shouldHide) {
+      // Mirror the hotkey release behavior but mark it as AFK-driven
+      manualHotkeyPressed = false;
+      if (!pinned) {
+        document.body.classList.remove('force-visible');
+      }
+      hideTextBoxes();
+      // Tell main to ignore mouse events so clicks pass through
+      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+    } else {
+      // show overlay again
+      document.body.classList.add('force-visible');
+      showTextBoxes();
+      ipcRenderer.send('set-ignore-mouse-events', false);
+    }
+  });
+
+  ipcRenderer.on("force-visible", (event, value) => {
+    if (!pinned) {
+      if (value) {
+        document.body.classList.add("force-visible");
+      } else {
+        document.body.classList.remove("force-visible");
+      }
+    }
+  });
+  ipcRenderer.on("request-current-settings", () => {
+    const fontSize = parseInt(textEl.style.fontSize, 10);
+    const weburl1 = window.ws1 ? window.ws1.url : null;
+    const weburl2 = window.ws2 ? window.ws2.url : null;
+    ipcRenderer.send("reply-current-settings", { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, showHotkey, manualMode, showTextBackground });
+  })
+
+  ipcRenderer.on('toggle-main-box', () => {
+    const mainBox = document.getElementById('main-box');
+    if (mainBox.style.display === 'none') {
+      mainBox.style.display = '';
+    } else {
+      mainBox.style.display = 'none';
+    }
+  });
+
+  ipcRenderer.on('magpie-window-info', (event, info) => {
+    magpieWindowInfo = info;
+    console.log('Received Magpie window info:', info);
+  });
+
+  ipcRenderer.on('new-manualmode', (event, newValue) => {
+    updateManualMode(newValue);
+  });
+
+</script>
+
+</html>
