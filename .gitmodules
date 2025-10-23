@@ -1,4 +1,0 @@
-[submodule "GSM_Overlay"]
-	path = GSM_Overlay
-	url = https://github.com/bpwhelan/GSM_Overlay
-	branch = master
