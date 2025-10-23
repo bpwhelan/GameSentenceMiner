@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Yomitan Action Popup</title>
+    <link rel="icon" type="image/png" href="/images/icon16.png" sizes="16x16">
+    <link rel="icon" type="image/png" href="/images/icon19.png" sizes="19x19">
+    <link rel="icon" type="image/png" href="/images/icon32.png" sizes="32x32">
+    <link rel="icon" type="image/png" href="/images/icon38.png" sizes="38x38">
+    <link rel="icon" type="image/png" href="/images/icon48.png" sizes="48x48">
+    <link rel="icon" type="image/png" href="/images/icon64.png" sizes="64x64">
+    <link rel="icon" type="image/png" href="/images/icon128.png" sizes="128x128">
+    <link rel="stylesheet" type="text/css" href="/css/material.css">
+    <link rel="stylesheet" type="text/css" href="/css/action-popup.css">
+    <script src="/js/pages/action-popup-main.js" type="module"></script>
+</head>
+<body>
+    <div id="loading">
+        Loading...
+    </div>
+    <div id="action-popup">
+        <div class="action-container action-select-profile" hidden>
+            <div class="action-item-left">
+                <h2 class="action-title">Profile</h2>
+            </div>
+            <div class="action-item-right">
+                <select tabindex="0"  class="profile-select" id="profile-select">
+                </select>
+            </div>
+        </div>
+        <div class="action-container">
+            <div class="action-item-center">
+                <label class="toggle">
+                    <input tabindex="0" type="checkbox" class="enable-search">
+                    <div class="toggle-group">
+                        <span class="toggle-on">On</span>
+                        <span class="toggle-off">Off</span>
+                        <span class="toggle-handle"></span>
+                    </div>
+                </label>
+                <p class="tooltip">Hover over text to scan</p>
+            </div>
+        </div>
+        <div class="action-container action-buttons">
+            <button tabindex="0" type="button" class="low-emphasis action-open-settings" title="Settings" data-hotkey='["global:openSettingsPage","title","Settings ({0})"]'>
+                <div class="action-icon">
+                    <span class="icon" data-icon="cog"></span>
+                </div>
+            </button>
+            <button tabindex="0" type="button" class="low-emphasis action-open-search" title="Search&#010;Shift+click to open here" data-hotkey='["global:openSearchPage","title","Search ({0})\nShift+click to open here"]'>
+                <div class="action-icon">
+                    <span class="icon" data-icon="magnifying-glass"></span>
+                </div>
+            </button>
+            <button tabindex="0" type="button" class="low-emphasis action-open-info" title="Information" data-hotkey='["global:openInfoPage","title","Information ({0})"]'>
+                <div class="action-icon">
+                    <span class="icon" data-icon="question-mark-circle"></span>
+                </div>
+            </button>
+        </div>
+    </div>
+</body>
+</html>
