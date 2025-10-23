@@ -673,6 +673,758 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];
     }
 
+    // Function to create top 5 reading speed days horizontal bar chart
+    function createTopReadingSpeedDaysChart(canvasId, readingSpeedHeatmapData) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !readingSpeedHeatmapData) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        // Extract all dates and speeds from heatmap data
+        const allDays = [];
+        for (const year in readingSpeedHeatmapData) {
+            for (const date in readingSpeedHeatmapData[year]) {
+                const speed = readingSpeedHeatmapData[year][date];
+                if (speed > 0) {
+                    allDays.push({ date, speed });
+                }
+            }
+        }
+        
+        // Sort by speed descending and take top 5
+        allDays.sort((a, b) => b.speed - a.speed);
+        const top5Days = allDays.slice(0, 5);
+        
+        // If no data, show empty chart
+        if (top5Days.length === 0) {
+            return null;
+        }
+        
+        // Prepare data for horizontal bar chart (reverse order so highest is on top)
+        const labels = top5Days.reverse().map(day => day.date);
+        const speeds = top5Days.map(day => day.speed);
+        
+        // Generate gradient colors from green (fastest) to yellow (5th fastest)
+        const colors = speeds.map((speed, index) => {
+            // Reverse index so top bar gets greenest color
+            const reverseIndex = speeds.length - 1 - index;
+            const hue = 120 - (reverseIndex * 20); // 120 (green) to 40 (yellow-orange)
+            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        });
+        
+        const borderColors = speeds.map((speed, index) => {
+            const reverseIndex = speeds.length - 1 - index;
+            const hue = 120 - (reverseIndex * 20);
+            return `hsla(${hue}, 70%, 40%, 1)`;
+        });
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Reading Speed (chars/hour)',
+                    data: speeds,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                indexAxis: 'y', // This makes it horizontal
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Top 5 Fastest Reading Days',
+                        color: getThemeTextColor(),
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        },
+                        padding: {
+                            top: 10,
+                            bottom: 20
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return context[0].label;
+                            },
+                            label: function(context) {
+                                const speed = context.parsed.x;
+                                return `Speed: ${speed.toLocaleString()} chars/hour`;
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Reading Speed (chars/hour)',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
+    // Function to create day of week activity bar chart
+    function createDayOfWeekChart(canvasId, dayOfWeekData) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !dayOfWeekData) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        // Day labels (Monday to Sunday)
+        const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        
+        // Get data arrays
+        const charsData = dayOfWeekData.chars || [0, 0, 0, 0, 0, 0, 0];
+        const hoursData = dayOfWeekData.hours || [0, 0, 0, 0, 0, 0, 0];
+        
+        // Generate colors for each day
+        const colors = [
+            'rgba(255, 99, 132, 0.8)',   // Monday - Red
+            'rgba(255, 159, 64, 0.8)',   // Tuesday - Orange
+            'rgba(255, 205, 86, 0.8)',   // Wednesday - Yellow
+            'rgba(75, 192, 192, 0.8)',   // Thursday - Teal
+            'rgba(54, 162, 235, 0.8)',   // Friday - Blue
+            'rgba(153, 102, 255, 0.8)',  // Saturday - Purple
+            'rgba(201, 203, 207, 0.8)'   // Sunday - Gray
+        ];
+        
+        const borderColors = [
+            'rgba(255, 99, 132, 1)',
+            'rgba(255, 159, 64, 1)',
+            'rgba(255, 205, 86, 1)',
+            'rgba(75, 192, 192, 1)',
+            'rgba(54, 162, 235, 1)',
+            'rgba(153, 102, 255, 1)',
+            'rgba(201, 203, 207, 1)'
+        ];
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: dayLabels,
+                datasets: [{
+                    label: 'Characters Read',
+                    data: charsData,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 2,
+                    yAxisID: 'y'
+                }, {
+                    label: 'Hours Read',
+                    data: hoursData,
+                    backgroundColor: colors.map(c => c.replace('0.8', '0.4')),
+                    borderColor: borderColors,
+                    borderWidth: 2,
+                    yAxisID: 'y1',
+                    hidden: true
+                }]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            color: getThemeTextColor()
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Reading Activity by Day of Week',
+                        color: getThemeTextColor(),
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.dataset.label || '';
+                                const value = context.parsed.y;
+                                if (label === 'Characters Read') {
+                                    return `${label}: ${value.toLocaleString()} chars`;
+                                } else {
+                                    return `${label}: ${value.toFixed(2)} hours`;
+                                }
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff'
+                    }
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Characters Read',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Hours Read',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
+                        },
+                        grid: {
+                            drawOnChartArea: false
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Day of Week',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
+                        }
+                    }
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
+    // Function to create average hours by day bar chart
+    function createAvgHoursByDayChart(canvasId, dayOfWeekData) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !dayOfWeekData) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        // Day labels (Monday to Sunday)
+        const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        
+        // Get average hours data array (not total hours)
+        const hoursData = dayOfWeekData.avg_hours || [0, 0, 0, 0, 0, 0, 0];
+        
+        // Generate gradient colors based on hours (more hours = greener)
+        const maxHours = Math.max(...hoursData);
+        const barColors = hoursData.map(hours => {
+            if (hours === 0) {
+                return getCurrentTheme() === 'dark' ? 'rgba(100, 100, 100, 0.3)' : 'rgba(200, 200, 200, 0.3)';
+            }
+            
+            // Create color gradient from red (low hours) to green (high hours)
+            const normalizedHours = maxHours > 0 ? hours / maxHours : 0;
+            const hue = normalizedHours * 120; // 0 = red, 120 = green
+            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        });
+        
+        const borderColors = hoursData.map(hours => {
+            if (hours === 0) {
+                return getCurrentTheme() === 'dark' ? 'rgba(100, 100, 100, 0.6)' : 'rgba(200, 200, 200, 0.6)';
+            }
+            
+            const normalizedHours = maxHours > 0 ? hours / maxHours : 0;
+            const hue = normalizedHours * 120;
+            return `hsla(${hue}, 70%, 40%, 1)`;
+        });
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: dayLabels,
+                datasets: [{
+                    label: 'Hours Read',
+                    data: hoursData,
+                    backgroundColor: barColors,
+                    borderColor: borderColors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Average Hours Read by Day of Week',
+                        color: getThemeTextColor(),
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        },
+                        padding: {
+                            top: 10,
+                            bottom: 20
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return context[0].label;
+                            },
+                            label: function(context) {
+                                const hours = context.parsed.y;
+                                if (hours === 0) {
+                                    return 'No reading activity';
+                                }
+                                return `Hours: ${hours.toFixed(2)}`;
+                            },
+                            afterLabel: function(context) {
+                                const hours = context.parsed.y;
+                                if (hours === 0) return '';
+                                
+                                // Show comparison to weekly average
+                                const nonZeroHours = hoursData.filter(h => h > 0);
+                                if (nonZeroHours.length === 0) return '';
+                                
+                                const avgHours = nonZeroHours.reduce((sum, h) => sum + h, 0) / nonZeroHours.length;
+                                const comparison = hours > avgHours ? 'above' : hours < avgHours ? 'below' : 'at';
+                                const percentage = avgHours > 0 ? Math.abs(((hours - avgHours) / avgHours) * 100).toFixed(1) : '0';
+                                
+                                return `${percentage}% ${comparison} weekly average`;
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Hours',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toFixed(1);
+                            }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Day of Week',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
+    // Function to create reading speed by difficulty bar chart
+    function createDifficultySpeedChart(canvasId, difficultySpeedData) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !difficultySpeedData) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        const labels = difficultySpeedData.labels || [];
+        const speeds = difficultySpeedData.speeds || [];
+        
+        if (labels.length === 0) {
+            return null; // No data to display
+        }
+        
+        // Generate gradient colors from green (easy) to red (hard)
+        const colors = speeds.map((_, index) => {
+            const ratio = index / Math.max(labels.length - 1, 1);
+            const hue = 120 - (ratio * 120); // 120 (green) to 0 (red)
+            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        });
+        
+        const borderColors = speeds.map((_, index) => {
+            const ratio = index / Math.max(labels.length - 1, 1);
+            const hue = 120 - (ratio * 120);
+            return `hsla(${hue}, 70%, 40%, 1)`;
+        });
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Average Reading Speed',
+                    data: speeds,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Average Reading Speed by Game Difficulty',
+                        color: getThemeTextColor(),
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const speed = context.parsed.y;
+                                return `Speed: ${speed.toLocaleString()} chars/hour`;
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Characters per Hour',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Difficulty Level',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
+                        }
+                    }
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
+    // Function to create game type distribution pie chart
+    function createGameTypeChart(canvasId, gameTypeData) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !gameTypeData) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        const labels = gameTypeData.labels || [];
+        const counts = gameTypeData.counts || [];
+        
+        if (labels.length === 0) {
+            return null; // No data to display
+        }
+        
+        // Generate distinct colors for each game type
+        const colors = generateGameColors(labels.length);
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Game Count',
+                    data: counts,
+                    backgroundColor: colors.map(c => c + '99'), // Semi-transparent
+                    borderColor: colors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                aspectRatio: 1.5,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            color: getThemeTextColor(),
+                            padding: 15,
+                            font: {
+                                size: 12
+                            }
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Game Type Distribution',
+                        color: getThemeTextColor(),
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.parsed;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((value / total) * 100).toFixed(1);
+                                return `${label}: ${value} games (${percentage}%)`;
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff'
+                    }
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
+    // Function to create top 5 character count days horizontal bar chart
+    function createTopCharacterDaysChart(canvasId, heatmapData) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !heatmapData) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        // Extract all dates and character counts from heatmap data
+        const allDays = [];
+        for (const year in heatmapData) {
+            for (const date in heatmapData[year]) {
+                const chars = heatmapData[year][date];
+                if (chars > 0) {
+                    allDays.push({ date, chars });
+                }
+            }
+        }
+        
+        // Sort by character count descending and take top 5
+        allDays.sort((a, b) => b.chars - a.chars);
+        const top5Days = allDays.slice(0, 5);
+        
+        // If no data, show empty chart
+        if (top5Days.length === 0) {
+            return null;
+        }
+        
+        // Prepare data for horizontal bar chart (reverse order so highest is on top)
+        const labels = top5Days.reverse().map(day => day.date);
+        const charCounts = top5Days.map(day => day.chars);
+        
+        // Generate gradient colors from blue (most productive) to cyan (5th most productive)
+        const colors = charCounts.map((chars, index) => {
+            // Reverse index so top bar gets bluest color
+            const reverseIndex = charCounts.length - 1 - index;
+            const hue = 200 - (reverseIndex * 15); // 200 (blue) to 155 (cyan)
+            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        });
+        
+        const borderColors = charCounts.map((chars, index) => {
+            const reverseIndex = charCounts.length - 1 - index;
+            const hue = 200 - (reverseIndex * 15);
+            return `hsla(${hue}, 70%, 40%, 1)`;
+        });
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Characters Read',
+                    data: charCounts,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                indexAxis: 'y', // This makes it horizontal
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Top 5 Most Productive Reading Days',
+                        color: getThemeTextColor(),
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        },
+                        padding: {
+                            top: 10,
+                            bottom: 20
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return context[0].label;
+                            },
+                            label: function(context) {
+                                const chars = context.parsed.x;
+                                return `Characters: ${chars.toLocaleString()}`;
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Characters Read',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor()
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
     // Function to create hourly reading speed bar chart
     function createHourlyReadingSpeedChart(canvasId, hourlySpeedData) {
         const canvas = document.getElementById(canvasId);
@@ -835,6 +1587,146 @@ document.addEventListener('DOMContentLoaded', function () {
         kanjiGridRenderer.render(kanjiData);
     }
 
+    // Function to update game milestones display
+    function updateGameMilestones(gameMilestones) {
+        const oldestCard = document.getElementById('oldestGameCard');
+        const newestCard = document.getElementById('newestGameCard');
+        const noDataMsg = document.getElementById('milestonesNoData');
+        
+        if (!gameMilestones || (!gameMilestones.oldest_game && !gameMilestones.newest_game)) {
+            // No milestone data available
+            if (oldestCard) oldestCard.style.display = 'none';
+            if (newestCard) newestCard.style.display = 'none';
+            if (noDataMsg) noDataMsg.style.display = 'block';
+            return;
+        }
+        
+        // Hide no data message
+        if (noDataMsg) noDataMsg.style.display = 'none';
+        
+        // Update oldest game card
+        if (gameMilestones.oldest_game && oldestCard) {
+            const game = gameMilestones.oldest_game;
+            
+            // Update image with proper base64 handling
+            const imageEl = document.getElementById('oldestGameImage');
+            if (game.image && game.image.trim()) {
+                let imageSrc = game.image.trim();
+                
+                // Check if it's a base64 image or URL
+                if (imageSrc.startsWith('data:image')) {
+                    console.log('[DEBUG] Setting base64 image with data URI for oldest game');
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else if (imageSrc.startsWith('http')) {
+                    console.log('[DEBUG] Setting URL image for oldest game:', imageSrc);
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else if (imageSrc.startsWith('/9j/') || imageSrc.startsWith('iVBOR')) {
+                    // Raw base64 data without data URI prefix - add it
+                    // /9j/ is JPEG, iVBOR is PNG
+                    const mimeType = imageSrc.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
+                    imageSrc = `data:${mimeType};base64,${imageSrc}`;
+                    console.log('[DEBUG] Added data URI prefix to raw base64 data for oldest game');
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else {
+                    // Invalid image format, use placeholder
+                    console.log('[DEBUG] Invalid image format for oldest game, using placeholder');
+                    imageEl.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+                }
+                
+                imageEl.onerror = function() {
+                    this.style.display = 'none';
+                    this.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+                };
+            } else {
+                console.log('[DEBUG] No image data for oldest game, using placeholder');
+                imageEl.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+            }
+            
+            // Update title
+            document.getElementById('oldestGameTitle').textContent = game.title_original || 'Unknown Game';
+            
+            // Update subtitle (romaji or english)
+            const subtitle = game.title_romaji || game.title_english || '';
+            const subtitleEl = document.getElementById('oldestGameSubtitle');
+            if (subtitle) {
+                subtitleEl.textContent = subtitle;
+                subtitleEl.style.display = 'block';
+            } else {
+                subtitleEl.style.display = 'none';
+            }
+            
+            // Update release date
+            document.getElementById('oldestGameReleaseYear').textContent = game.release_date || 'Unknown';
+            
+            
+            oldestCard.style.display = 'flex';
+        }
+        
+        // Update newest game card
+        if (gameMilestones.newest_game && newestCard) {
+            const game = gameMilestones.newest_game;
+            
+            // Update image with proper base64 handling
+            const imageEl = document.getElementById('newestGameImage');
+            if (game.image && game.image.trim()) {
+                let imageSrc = game.image.trim();
+                
+                // Check if it's a base64 image or URL
+                if (imageSrc.startsWith('data:image')) {
+                    console.log('[DEBUG] Setting base64 image with data URI for newest game');
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else if (imageSrc.startsWith('http')) {
+                    console.log('[DEBUG] Setting URL image for newest game:', imageSrc);
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else if (imageSrc.startsWith('/9j/') || imageSrc.startsWith('iVBOR')) {
+                    // Raw base64 data without data URI prefix - add it
+                    // /9j/ is JPEG, iVBOR is PNG
+                    const mimeType = imageSrc.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
+                    imageSrc = `data:${mimeType};base64,${imageSrc}`;
+                    console.log('[DEBUG] Added data URI prefix to raw base64 data for newest game');
+                    imageEl.src = imageSrc;
+                    imageEl.style.display = 'block';
+                } else {
+                    // Invalid image format, use placeholder
+                    console.log('[DEBUG] Invalid image format for newest game, using placeholder');
+                    imageEl.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+                }
+                
+                imageEl.onerror = function() {
+                    this.style.display = 'none';
+                    this.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+                };
+            } else {
+                console.log('[DEBUG] No image data for newest game, using placeholder');
+                imageEl.parentElement.innerHTML = '<div class="milestone-game-image placeholder">🎮</div>';
+            }
+            
+            // Update title
+            document.getElementById('newestGameTitle').textContent = game.title_original || 'Unknown Game';
+            
+            // Update subtitle (romaji or english)
+            const subtitle = game.title_romaji || game.title_english || '';
+            const subtitleEl = document.getElementById('newestGameSubtitle');
+            if (subtitle) {
+                subtitleEl.textContent = subtitle;
+                subtitleEl.style.display = 'block';
+            } else {
+                subtitleEl.style.display = 'none';
+            }
+            
+            // Update release date
+            document.getElementById('newestGameReleaseYear').textContent = game.release_date || 'Unknown';
+            
+            
+            newestCard.style.display = 'flex';
+        }
+    }
+
     // Function to update peak statistics display
     function updatePeakStatistics(peakDailyStats, peakSessionStats) {
         // Helper function to format large numbers
@@ -960,12 +1852,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 // Create reading chars quantity chart if data exists (with trendline)
                 if (data.totalCharsPerGame) {
-                    createGameBarChart('readingCharsChart', data.totalCharsPerGame, 'Reading Chars Quantity', 'Characters Read', true);
+                    createGameBarChart('readingCharsChart', data.totalCharsPerGame, 'Reading Chars Quantity', 'Characters Read', false);
                 }
 
                 // Create reading time quantity chart if data exists (with trendline)
                 if (data.readingTimePerGame) {
-                    createGameBarChartWithCustomFormat('readingTimeChart', data.readingTimePerGame, 'Reading Time Quantity', 'Time (hours)', formatTime, true);
+                    createGameBarChartWithCustomFormat('readingTimeChart', data.readingTimePerGame, 'Reading Time Quantity', 'Time (hours)', formatTime, false);
                 }
 
                 // Create reading speed per game chart if data exists (with trendline)
@@ -983,6 +1875,36 @@ document.addEventListener('DOMContentLoaded', function () {
                     createHourlyReadingSpeedChart('hourlyReadingSpeedChart', data.hourlyReadingSpeedData);
                 }
 
+                // Create top 5 reading speed days chart if data exists
+                if (data.readingSpeedHeatmapData) {
+                    createTopReadingSpeedDaysChart('topReadingSpeedDaysChart', data.readingSpeedHeatmapData);
+                }
+
+                // Create top 5 character count days chart if data exists
+                if (data.heatmapData) {
+                    createTopCharacterDaysChart('topCharacterDaysChart', data.heatmapData);
+                }
+
+                // Create day of week activity chart if data exists
+                if (data.dayOfWeekData) {
+                    createDayOfWeekChart('dayOfWeekChart', data.dayOfWeekData);
+                }
+
+                // Create average hours by day chart if data exists
+                if (data.dayOfWeekData) {
+                    createAvgHoursByDayChart('avgHoursByDayChart', data.dayOfWeekData);
+                }
+
+                // Create difficulty speed chart if data exists
+                if (data.difficultySpeedData) {
+                    createDifficultySpeedChart('difficultySpeedChart', data.difficultySpeedData);
+                }
+
+                // Create game type distribution chart if data exists
+                if (data.gameTypeData) {
+                    createGameTypeChart('gameTypeChart', data.gameTypeData);
+                }
+
                 // Create kanji grid if data exists
                 if (data.kanjiGridData) {
                     createKanjiGrid(data.kanjiGridData);
@@ -991,6 +1913,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Update peak statistics if data exists
                 if (data.peakDailyStats && data.peakSessionStats) {
                     updatePeakStatistics(data.peakDailyStats, data.peakSessionStats);
+                }
+
+                // Update game milestones if data exists
+                if (data.gameMilestones) {
+                    updateGameMilestones(data.gameMilestones);
                 }
 
                 return data;
@@ -1143,7 +2070,8 @@ document.addEventListener('DOMContentLoaded', function () {
         // Enable/disable import button based on file selection
         exstaticFileInput.addEventListener('change', function(e) {
             const file = e.target.files[0];
-            if (file && file.type === 'text/csv' && file.name.toLowerCase().endsWith('.csv')) {
+            // Enable button whenever any file is selected
+            if (file) {
                 importExstaticBtn.disabled = false;
                 importExstaticBtn.style.background = '#2980b9';
                 importExstaticBtn.style.cursor = 'pointer';
@@ -1152,9 +2080,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 importExstaticBtn.disabled = true;
                 importExstaticBtn.style.background = '#666';
                 importExstaticBtn.style.cursor = 'not-allowed';
-                if (file) {
-                    showImportStatus('Please select a valid CSV file.', 'error', true);
-                }
             }
         });
         
