@@ -340,6 +340,7 @@
                                     <!-- <option value="glens">Google Lens</option> -->
                                     <option value="bing">Bing</option>
                                     <option value="oneocr">OneOCR (Recommended)</option>
+                                    <option value="meiki_text_detector">Meiki Text Detector (Experimental)</option>
                                     <!-- <option value="gemini">Gemini</option> -->
                                     <!-- <option value="qwenv2">Qwen2-VL</option> -->
                                     <option value="easyocr">EasyOCR</option>
@@ -705,6 +706,7 @@
                     "OCRSpace": { ansi: "\x1b[93m", html: "color: #FFFF00;" },
                     "Qwen2-VL": { ansi: "\x1b[90m", html: "color: #808080;" },
                     "Local LLM OCR": { ansi: "\x1b[95m", html: "color: #D6A4FF;" },
+                    "Meiki": { ansi: "\x1b[91m", html: "color: crimson;" },
                 };
 
                 function getEngineColor(engine, ansi = true) {
@@ -732,6 +734,7 @@
 
                 ipcRenderer.on('ocr-log', (event, data) => {
                     const trimmedData = data.trim();
+                    const trimmedDataLower = trimmedData.toLowerCase();
                     const engine_name = trimmedData.includes("using") ? trimmedData.split("using")[1].split(":")[0].trim() : "";
                     let engine_pretty_ansi = getEngineFormatString(engine_name, engine_name, true);
                     let engine_pretty_html = getEngineFormatString(engine_name, engine_name, false);
@@ -779,6 +782,11 @@
                         // Add a "Duplicate" flag at the end of the previous line"
                         ocrTerm.write('\r\x1b[2K'); // Clear the line
                         ocrTerm.write(`\x1b[33m${previous_message} (Duplicate)\x1b[0m\n`);
+                    } else if (trimmedDataLower.includes("boxes recognized with meiki")) {
+                        // ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true), true));
+                        document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Scanning using " + engine_pretty_html + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>';
+                        animationFrame = (animationFrame + 1) % scanningAnimation.length;
+                        previous_message = trimmedData;
                     } else if (trimmedData) {
                         stopScanningAnimation();
                         ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true, !trimmedData.includes("Text recognized")), true));
