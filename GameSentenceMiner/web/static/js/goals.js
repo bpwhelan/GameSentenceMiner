@@ -333,6 +333,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('projectionHoursValue').textContent =
                     Math.floor(data.hours.projection).toLocaleString() + 'h';
                 
+                // Update label with target date
+                const hoursLabel = document.getElementById('hoursProjectionLabel');
+                if (hoursLabel) {
+                    hoursLabel.textContent = `Total Hours by Target (${data.hours.target_date})`;
+                }
+                
                 // Calculate percentage difference
                 const hoursPercentDiff = ((data.hours.projection - data.hours.target) / data.hours.target) * 100;
                 
@@ -375,6 +381,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('charsProjectionSummary').style.display = 'block';
                 
                 document.getElementById('projectionCharsValue').textContent = formatGoalNumber(data.characters.projection);
+                
+                // Update label with target date
+                const charsLabel = document.getElementById('charsProjectionLabel');
+                if (charsLabel) {
+                    charsLabel.textContent = `Total Characters by Target (${data.characters.target_date})`;
+                }
                 
                 // Calculate percentage difference
                 const charsPercentDiff = ((data.characters.projection - data.characters.target) / data.characters.target) * 100;
