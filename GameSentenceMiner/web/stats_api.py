@@ -901,8 +901,11 @@ def register_stats_api_routes(app):
                 type_counts = {}
                 
                 for game in all_games:
-                    game_type = game.type if game.type else "Unknown"
-                    type_counts[game_type] = type_counts.get(game_type, 0) + 1
+                    # Use the actual type value from the database, or empty string if not set
+                    game_type = game.type if game.type else ""
+                    # Only count games that have a type set
+                    if game_type:
+                        type_counts[game_type] = type_counts.get(game_type, 0) + 1
                 
                 # Sort by count descending
                 sorted_types = sorted(type_counts.items(), key=lambda x: x[1], reverse=True)

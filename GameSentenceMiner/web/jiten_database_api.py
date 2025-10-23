@@ -244,12 +244,9 @@ def register_jiten_database_api_routes(app):
             ):
                 update_fields["title_english"] = jiten_data["title_english"]
 
-            if "type" not in game.manual_overrides and jiten_data.get("media_type"):
-                # Map media type to string
-                media_type_map = {1: "Anime", 7: "Visual Novel", 2: "Manga"}
-                update_fields["game_type"] = media_type_map.get(
-                    jiten_data["media_type"], "Unknown"
-                )
+            if "type" not in game.manual_overrides and jiten_data.get("media_type_string"):
+                # Use the pre-converted media type string from jiten_api_client
+                update_fields["game_type"] = jiten_data["media_type_string"]
 
             if "description" not in game.manual_overrides and jiten_data.get(
                 "description"
@@ -583,12 +580,9 @@ def register_jiten_database_api_routes(app):
             elif "title_english" in manual_overrides:
                 skipped_fields.append("title_english")
 
-            if "type" not in manual_overrides and jiten_data.get("media_type"):
-                # Map media type to string
-                media_type_map = {1: "Anime", 7: "Visual Novel", 2: "Manga"}
-                update_fields["game_type"] = media_type_map.get(
-                    jiten_data["media_type"], "Unknown"
-                )
+            if "type" not in manual_overrides and jiten_data.get("media_type_string"):
+                # Use the pre-converted media type string from jiten_api_client
+                update_fields["game_type"] = jiten_data["media_type_string"]
             elif "type" in manual_overrides:
                 skipped_fields.append("type")
 
@@ -958,36 +952,6 @@ def register_jiten_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error creating game: {e}")
             return jsonify({"error": f"Failed to create game: {str(e)}"}), 500
-
-    @app.route("/api/game-types", methods=["GET"])
-    def api_game_types():
-        """
-        Get all unique game types from the games table.
-        Returns a list of distinct game types that exist in the database.
-        """
-        try:
-            from GameSentenceMiner.util.games_table import GamesTable
-            
-            # Get all games
-            all_games = GamesTable.all()
-            
-            # Extract unique types (excluding empty/None values)
-            unique_types = set()
-            for game in all_games:
-                if game.type and game.type.strip():
-                    unique_types.add(game.type.strip())
-            
-            # Sort alphabetically for consistency
-            sorted_types = sorted(unique_types)
-            
-            return jsonify({
-                "types": sorted_types,
-                "count": len(sorted_types)
-            }), 200
-            
-        except Exception as e:
-            logger.error(f"Error fetching game types: {e}", exc_info=True)
-            return jsonify({"error": "Failed to fetch game types"}), 500
 
     @app.route("/api/debug-db", methods=["GET"])
     def api_debug_db():

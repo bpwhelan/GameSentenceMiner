@@ -122,6 +122,19 @@ class JitenApiClient:
         Returns:
             Normalized deck data with snake_case keys
         """
+        # Map media type integer to human-readable string
+        media_type_raw = deck_data.get("mediaType")
+        media_type_map = {
+            1: "Anime",
+            2: "Manga",
+            3: "Light Novel",
+            4: "Web Novel",
+            5: "Book",
+            6: "Game",
+            7: "Visual Novel"
+        }
+        media_type_string = media_type_map.get(media_type_raw, f"Type {media_type_raw}" if media_type_raw else "")
+        
         return {
             "deck_id": deck_data.get("deckId"),
             "title_original": deck_data.get("originalTitle", ""),
@@ -129,7 +142,8 @@ class JitenApiClient:
             "title_english": deck_data.get("englishTitle", ""),
             "description": deck_data.get("description", ""),
             "cover_name": deck_data.get("coverName", ""),
-            "media_type": deck_data.get("mediaType"),
+            "media_type": media_type_raw,  # Keep raw integer for backend processing
+            "media_type_string": media_type_string,  # Add human-readable string
             "character_count": deck_data.get("characterCount", 0),
             "difficulty": deck_data.get("difficulty", 0),
             "difficulty_raw": deck_data.get("difficultyRaw", 0),
