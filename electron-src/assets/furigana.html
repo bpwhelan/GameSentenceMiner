@@ -50,12 +50,11 @@
     </style>
 </head>
 <body>
+<!-- Include shared module with ipcRenderer, clipboard, and sharedState -->
+<script src="shared.js"></script>
 <div id="character"></div>
 <div id="toggleHandle">X</div>
 <script>
-    // Directly import ipcRenderer since nodeIntegration is true
-    const {ipcRenderer} = require('electron');
-
     const charElement = document.getElementById('character');
     const toggleHandle = document.getElementById('toggleHandle');
     let isDragging = false;

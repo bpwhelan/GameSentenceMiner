@@ -58,6 +58,7 @@ import * as fs from 'node:fs';
 import archiver from 'archiver';
 import { registerFrontPageIPC, runOverlay } from './ui/front.js';
 import { registerPythonIPC } from './ui/python.js';
+import { registerStateIPC } from './communication/state.js';
 import { execFile } from 'node:child_process';
 import { c } from 'tar';
 
@@ -159,6 +160,7 @@ function registerIPC() {
     registerOCRUtilsIPC();
     registerFrontPageIPC();
     registerPythonIPC();
+    registerStateIPC();
 }
 
 let gsmUpdatePromise: Promise<void> = Promise.resolve();
@@ -731,11 +733,12 @@ if (!app.requestSingleInstanceLock()) {
 } else {
     app.whenReady().then(async () => {
         processArgsAndStartSettings().then((_) => console.log('Processed Args'));
-        if (getAutoUpdateElectron()) {
+        if (getAutoUpdateGSMApp()) {
             if (await isConnected()) {
                 console.log('Checking for updates...');
                 await autoUpdate();
             }
+            await updateGSM(false, false);
         }
         createWindow().then(async () => {
             createTray();

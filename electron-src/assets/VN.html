@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<!-- Include shared module with ipcRenderer, clipboard, and sharedState -->
+<script src="shared.js"></script>
 <h1>VN/.exe Config/Launcher</h1>
 <div>
     <label for="sceneSelect">Scenes:</label>
@@ -34,8 +36,6 @@
 
 <p id="status"></p>
 <script>
-    const {ipcRenderer} = require('electron');
-
     const gameSelect = document.getElementById('gameSelect');
     const sceneSelect = document.getElementById('sceneSelect');
     const launchBtn = document.getElementById('launchBtn');

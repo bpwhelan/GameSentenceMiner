@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<!-- Include shared module with ipcRenderer, clipboard, and sharedState -->
+<script src="shared.js"></script>
 <div class="card form-group">
     <h2>Game Management</h2>
     <div class="input-group">
@@ -36,8 +38,6 @@
 <p id="status"></p>
 
 <script>
-    const { ipcRenderer } = require('electron');
-
     const gameSelect = document.getElementById('gameSelect');
     const removeGameBtn = document.getElementById('removeGameBtn');
     const setAgentBtn = document.getElementById('setAgentBtn');
