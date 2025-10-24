@@ -333,39 +333,48 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('projectionHoursValue').textContent =
                     Math.floor(data.hours.projection).toLocaleString() + 'h';
                 
-                // Update label with target date
+                // Update label with target date (formatted in user's locale)
                 const hoursLabel = document.getElementById('hoursProjectionLabel');
                 if (hoursLabel) {
-                    hoursLabel.textContent = `Total Hours by Target (${data.hours.target_date})`;
+                    const targetDate = new Date(data.hours.target_date);
+                    const formattedTargetDate = targetDate.toLocaleDateString(navigator.language);
+                    hoursLabel.textContent = `Total Hours by ${formattedTargetDate}`;
                 }
                 
                 // Calculate percentage difference
                 const hoursPercentDiff = ((data.hours.projection - data.hours.target) / data.hours.target) * 100;
                 
-                // Status message with pace badge
+                // Calculate projected completion date
+                const hoursRemaining = Math.max(0, data.hours.target - data.hours.current);
+                const hoursDaysToComplete = data.hours.daily_average > 0 ? Math.ceil(hoursRemaining / data.hours.daily_average) : 0;
+                const hoursCompletionDate = new Date();
+                hoursCompletionDate.setDate(hoursCompletionDate.getDate() + hoursDaysToComplete);
+                const hoursCompletionDateStr = hoursCompletionDate.toLocaleDateString(navigator.language);
+                
+                // Status message with pace badge and completion date
                 const hoursStatus = document.getElementById('hoursProjectionStatus');
                 if (hoursPercentDiff >= 5) {
                     // Over-achieving by 5% or more
                     const badge = `<span class="pace-badge pace-ahead">+${Math.floor(hoursPercentDiff)}%</span>`;
-                    hoursStatus.innerHTML = `On Track! 🎉 ${badge}`;
+                    hoursStatus.innerHTML = `On Track! 🎉 ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${hoursCompletionDateStr}</small>`;
                     hoursStatus.className = 'dashboard-progress-value positive';
                 } else if (hoursPercentDiff >= -5) {
                     // Within ±5% - perfect pace
                     const badge = `<span class="pace-badge pace-perfect">±${Math.abs(Math.floor(hoursPercentDiff))}%</span>`;
-                    hoursStatus.innerHTML = `Perfect Pace! ✅ ${badge}`;
+                    hoursStatus.innerHTML = `Perfect Pace! ✅ ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${hoursCompletionDateStr}</small>`;
                     hoursStatus.className = 'dashboard-progress-value positive';
                 } else if (hoursPercentDiff >= -15) {
                     // Slightly behind (-5% to -15%)
                     const shortfall = data.hours.target - data.hours.projection;
                     const badge = `<span class="pace-badge pace-behind-mild">${Math.floor(hoursPercentDiff)}%</span>`;
-                    hoursStatus.innerHTML = `${Math.floor(shortfall)}h short ${badge}`;
+                    hoursStatus.innerHTML = `${Math.floor(shortfall)}h short ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${hoursCompletionDateStr}</small>`;
                     hoursStatus.className = 'dashboard-progress-value';
                     hoursStatus.style.color = 'var(--warning-color)';
                 } else {
                     // Significantly behind (< -15%)
                     const shortfall = data.hours.target - data.hours.projection;
                     const badge = `<span class="pace-badge pace-behind">${Math.floor(hoursPercentDiff)}%</span>`;
-                    hoursStatus.innerHTML = `${Math.floor(shortfall)}h short ${badge}`;
+                    hoursStatus.innerHTML = `${Math.floor(shortfall)}h short ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${hoursCompletionDateStr}</small>`;
                     hoursStatus.className = 'dashboard-progress-value';
                     hoursStatus.style.color = 'var(--danger-color)';
                 }
@@ -382,39 +391,48 @@ document.addEventListener('DOMContentLoaded', function () {
                 
                 document.getElementById('projectionCharsValue').textContent = formatGoalNumber(data.characters.projection);
                 
-                // Update label with target date
+                // Update label with target date (formatted in user's locale)
                 const charsLabel = document.getElementById('charsProjectionLabel');
                 if (charsLabel) {
-                    charsLabel.textContent = `Total Characters by Target (${data.characters.target_date})`;
+                    const targetDate = new Date(data.characters.target_date);
+                    const formattedTargetDate = targetDate.toLocaleDateString(navigator.language);
+                    charsLabel.textContent = `Total Characters by ${formattedTargetDate}`;
                 }
                 
                 // Calculate percentage difference
                 const charsPercentDiff = ((data.characters.projection - data.characters.target) / data.characters.target) * 100;
                 
-                // Status message with pace badge
+                // Calculate projected completion date
+                const charsRemaining = Math.max(0, data.characters.target - data.characters.current);
+                const charsDaysToComplete = data.characters.daily_average > 0 ? Math.ceil(charsRemaining / data.characters.daily_average) : 0;
+                const charsCompletionDate = new Date();
+                charsCompletionDate.setDate(charsCompletionDate.getDate() + charsDaysToComplete);
+                const charsCompletionDateStr = charsCompletionDate.toLocaleDateString(navigator.language);
+                
+                // Status message with pace badge and completion date
                 const charsStatus = document.getElementById('charsProjectionStatus');
                 if (charsPercentDiff >= 5) {
                     // Over-achieving by 5% or more
                     const badge = `<span class="pace-badge pace-ahead">+${Math.floor(charsPercentDiff)}%</span>`;
-                    charsStatus.innerHTML = `On Track! 🎉 ${badge}`;
+                    charsStatus.innerHTML = `On Track! 🎉 ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${charsCompletionDateStr}</small>`;
                     charsStatus.className = 'dashboard-progress-value positive';
                 } else if (charsPercentDiff >= -5) {
                     // Within ±5% - perfect pace
                     const badge = `<span class="pace-badge pace-perfect">±${Math.abs(Math.floor(charsPercentDiff))}%</span>`;
-                    charsStatus.innerHTML = `Perfect Pace! ✅ ${badge}`;
+                    charsStatus.innerHTML = `Perfect Pace! ✅ ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${charsCompletionDateStr}</small>`;
                     charsStatus.className = 'dashboard-progress-value positive';
                 } else if (charsPercentDiff >= -15) {
                     // Slightly behind (-5% to -15%)
                     const shortfall = data.characters.target - data.characters.projection;
                     const badge = `<span class="pace-badge pace-behind-mild">${Math.floor(charsPercentDiff)}%</span>`;
-                    charsStatus.innerHTML = `${formatGoalNumber(shortfall)} short ${badge}`;
+                    charsStatus.innerHTML = `${formatGoalNumber(shortfall)} short ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${charsCompletionDateStr}</small>`;
                     charsStatus.className = 'dashboard-progress-value';
                     charsStatus.style.color = 'var(--warning-color)';
                 } else {
                     // Significantly behind (< -15%)
                     const shortfall = data.characters.target - data.characters.projection;
                     const badge = `<span class="pace-badge pace-behind">${Math.floor(charsPercentDiff)}%</span>`;
-                    charsStatus.innerHTML = `${formatGoalNumber(shortfall)} short ${badge}`;
+                    charsStatus.innerHTML = `${formatGoalNumber(shortfall)} short ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${charsCompletionDateStr}</small>`;
                     charsStatus.className = 'dashboard-progress-value';
                     charsStatus.style.color = 'var(--danger-color)';
                 }
@@ -434,30 +452,37 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Calculate percentage difference
                 const gamesPercentDiff = ((data.games.projection - data.games.target) / data.games.target) * 100;
                 
-                // Status message with pace badge
+                // Calculate projected completion date
+                const gamesRemaining = Math.max(0, data.games.target - data.games.current);
+                const gamesDaysToComplete = data.games.daily_average > 0 ? Math.ceil(gamesRemaining / data.games.daily_average) : 0;
+                const gamesCompletionDate = new Date();
+                gamesCompletionDate.setDate(gamesCompletionDate.getDate() + gamesDaysToComplete);
+                const gamesCompletionDateStr = gamesCompletionDate.toLocaleDateString(navigator.language);
+                
+                // Status message with pace badge and completion date
                 const gamesStatus = document.getElementById('gamesProjectionStatus');
                 if (gamesPercentDiff >= 5) {
                     // Over-achieving by 5% or more
                     const badge = `<span class="pace-badge pace-ahead">+${Math.floor(gamesPercentDiff)}%</span>`;
-                    gamesStatus.innerHTML = `On Track! 🎉 ${badge}`;
+                    gamesStatus.innerHTML = `On Track! 🎉 ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${gamesCompletionDateStr}</small>`;
                     gamesStatus.className = 'dashboard-progress-value positive';
                 } else if (gamesPercentDiff >= -5) {
                     // Within ±5% - perfect pace
                     const badge = `<span class="pace-badge pace-perfect">±${Math.abs(Math.floor(gamesPercentDiff))}%</span>`;
-                    gamesStatus.innerHTML = `Perfect Pace! ✅ ${badge}`;
+                    gamesStatus.innerHTML = `Perfect Pace! ✅ ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${gamesCompletionDateStr}</small>`;
                     gamesStatus.className = 'dashboard-progress-value positive';
                 } else if (gamesPercentDiff >= -15) {
                     // Slightly behind (-5% to -15%)
                     const shortfall = data.games.target - data.games.projection;
                     const badge = `<span class="pace-badge pace-behind-mild">${Math.floor(gamesPercentDiff)}%</span>`;
-                    gamesStatus.innerHTML = `${shortfall} short ${badge}`;
+                    gamesStatus.innerHTML = `${shortfall} short ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${gamesCompletionDateStr}</small>`;
                     gamesStatus.className = 'dashboard-progress-value';
                     gamesStatus.style.color = 'var(--warning-color)';
                 } else {
                     // Significantly behind (< -15%)
                     const shortfall = data.games.target - data.games.projection;
                     const badge = `<span class="pace-badge pace-behind">${Math.floor(gamesPercentDiff)}%</span>`;
-                    gamesStatus.innerHTML = `${shortfall} short ${badge}`;
+                    gamesStatus.innerHTML = `${shortfall} short ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${gamesCompletionDateStr}</small>`;
                     gamesStatus.className = 'dashboard-progress-value';
                     gamesStatus.style.color = 'var(--danger-color)';
                 }
