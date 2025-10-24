@@ -1849,6 +1849,40 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // Cache for filtered datasets to avoid re-filtering
+    let cachedFilteredDatasets = null;
+    
+    // Function to get or create filtered datasets
+    function getFilteredDatasets(data) {
+        // Return cached version if available and data hasn't changed
+        if (cachedFilteredDatasets && cachedFilteredDatasets.sourceData === data.datasets) {
+            return cachedFilteredDatasets;
+        }
+        
+        // Filter datasets for each chart
+        const linesData = {
+            labels: data.labels,
+            datasets: data.datasets.filter(d => d.for === "Lines Received")
+        };
+
+        const charsData = {
+            labels: data.labels,
+            datasets: data.datasets.filter(d => d.for === 'Characters Read')
+        };
+        
+        // Remove the 'hidden' property so they appear on their own charts
+        [...charsData.datasets].forEach(d => delete d.hidden);
+        
+        // Cache the result
+        cachedFilteredDatasets = {
+            sourceData: data.datasets,
+            linesData: linesData,
+            charsData: charsData
+        };
+        
+        return cachedFilteredDatasets;
+    }
+
     // Function to load stats data with optional year filter
     function loadStatsData(start_timestamp = null, end_timestamp = null) {
         let url = '/api/stats';
@@ -1881,19 +1915,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     return data;
                 }
 
-                // Filter datasets for each chart
-                const linesData = {
-                    labels: data.labels,
-                    datasets: data.datasets.filter(d => d.for === "Lines Received")
-                };
-
-                const charsData = {
-                    labels: data.labels,
-                    datasets: data.datasets.filter(d => d.for === 'Characters Read')
-                };
-                
-                // Remove the 'hidden' property so they appear on their own charts
-                [...charsData.datasets].forEach(d => delete d.hidden);
+                // Get filtered datasets (cached if possible)
+                const filtered = getFilteredDatasets(data);
+                const linesData = filtered.linesData;
+                const charsData = filtered.charsData;
 
                 // Charts are re-created with the new data 
                 createChart('linesChart', linesData, 'Cumulative Lines Received');
@@ -1989,7 +2014,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     
     // ================================
-    // Initialize date inputs with sessionStorage or fetch initial values
+    // Initialize date inputs with sessionStorage or use config values
     // Dispatches "datesSet" event once dates are set
     // ================================
     function initializeDates() {
@@ -1999,27 +2024,26 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!fromDateInput || !toDateInput) return; // Null check
 
         const fromDate = sessionStorage.getItem("fromDate");
-        const toDate = sessionStorage.getItem("toDate"); 
+        const toDate = sessionStorage.getItem("toDate");
 
         if (!(fromDate && toDate)) {
-            fetch('/api/stats')
-                .then(response => response.json())
-                .then(response_json => {
-                    // Get first date from API
-                    const firstDate = response_json.allGamesStats.first_date;
-                    fromDateInput.value = firstDate;
+            // Use first_date from statsConfig if available (avoids extra API call)
+            const firstDate = window.statsConfig && window.statsConfig.firstDate
+                ? window.statsConfig.firstDate
+                : new Date().toLocaleDateString('en-CA'); // Fallback to today
+            
+            fromDateInput.value = firstDate;
 
-                    // Get today's date
-                    const today = new Date();
-                    const toDate = today.toLocaleDateString('en-CA');
-                    toDateInput.value = toDate;
+            // Get today's date
+            const today = new Date();
+            const todayStr = today.toLocaleDateString('en-CA');
+            toDateInput.value = todayStr;
 
-                    // Save in sessionStorage
-                    sessionStorage.setItem("fromDate", firstDate);
-                    sessionStorage.setItem("toDate", toDate);
+            // Save in sessionStorage
+            sessionStorage.setItem("fromDate", firstDate);
+            sessionStorage.setItem("toDate", todayStr);
 
-                    document.dispatchEvent(new Event("datesSet"));
-                });
+            document.dispatchEvent(new Event("datesSet"));
         } else {
             // If values already in sessionStorage, set inputs from there
             fromDateInput.value = fromDate;

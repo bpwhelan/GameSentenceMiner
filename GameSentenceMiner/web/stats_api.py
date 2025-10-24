@@ -48,6 +48,8 @@ from GameSentenceMiner.web.rollup_stats import (
     combine_rollup_and_live_stats,
     build_heatmap_from_rollup,
     build_daily_chart_data_from_rollup,
+    calculate_day_of_week_averages_from_rollup,
+    calculate_difficulty_speed_from_rollup,
 )
 
 
@@ -390,6 +392,32 @@ def register_stats_api_routes(app):
             except Exception as e:
                 logger.error(f"Error formatting Chart.js datasets: {e}")
                 return jsonify({"error": "Failed to format chart data"}), 500
+
+            # ========================================================================
+            # CHART DATA CALCULATION STRATEGY
+            # ========================================================================
+            # This section calculates data for various charts. Charts are categorized by
+            # whether they need today's live data or only historical rollup data:
+            #
+            # CHARTS USING LIVE DATA (combined_stats includes today):
+            # - Lines/Characters Over Time (cumulative charts)
+            # - Peak Statistics (if today sets new records)
+            # - Heatmaps (to show today's activity)
+            # - Kanji Grid (to include today's kanji)
+            # - Current Game Stats
+            # - Top 5 charts (if today qualifies for top rankings)
+            #
+            # CHARTS USING HISTORICAL DATA ONLY (rollup data, excludes today):
+            # - Day of Week Activity (pure historical patterns)
+            # - Average Hours by Day (pure historical averages)
+            # - Hourly Activity Pattern (historical average by hour)
+            # - Hourly Reading Speed (historical average by hour)
+            # - Reading Speed by Difficulty (historical averages)
+            #
+            # Rationale: Average/pattern charts should show stable historical trends
+            # without being skewed by today's incomplete data. Cumulative charts need
+            # today's data to show current progress.
+            # ========================================================================
 
             # 5. Calculate additional chart data from combined_stats (no all_lines needed!)
             try:
@@ -851,15 +879,11 @@ def register_stats_api_routes(app):
                 reading_speed_heatmap_data = {}
                 max_reading_speed = 0
 
-            # 12. Calculate day of week activity data (using rollup data only)
+            # 12. Calculate day of week activity data (HISTORICAL AVERAGES ONLY)
+            # NOTE: This chart shows pure historical patterns and should NOT include today's incomplete data.
+            # Today's data is already included in cumulative charts (Lines/Chars Over Time, Heatmaps, etc.)
             try:
-                day_of_week_data = {
-                    "chars": [0] * 7,
-                    "hours": [0] * 7,
-                    "counts": [0] * 7,  # Track how many times each day appears
-                    "avg_hours": [0] * 7  # Average hours per occurrence
-                }
-                
+                # Use pre-computed function from rollup_stats for historical averages
                 if start_date_str:
                     yesterday = today - datetime.timedelta(days=1)
                     yesterday_str = yesterday.strftime("%Y-%m-%d")
@@ -874,61 +898,37 @@ def register_stats_api_routes(app):
                             start_date_str, rollup_end
                         )
                         
-                        for rollup in rollups_for_dow:
-                            date_obj = datetime.datetime.strptime(rollup.date, "%Y-%m-%d")
-                            day_of_week = date_obj.weekday()  # 0=Monday, 6=Sunday
-                            day_of_week_data["chars"][day_of_week] += rollup.total_characters
-                            day_of_week_data["hours"][day_of_week] += rollup.total_reading_time_seconds / 3600
-                            day_of_week_data["counts"][day_of_week] += 1
+                        # PRE-COMPUTE from rollup data (historical averages only)
+                        day_of_week_data = calculate_day_of_week_averages_from_rollup(rollups_for_dow)
+                    else:
+                        # Only today's data requested - return empty for historical averages
+                        day_of_week_data = {
+                            "chars": [0] * 7,
+                            "hours": [0] * 7,
+                            "counts": [0] * 7,
+                            "avg_hours": [0] * 7
+                        }
+                else:
+                    day_of_week_data = {
+                        "chars": [0] * 7,
+                        "hours": [0] * 7,
+                        "counts": [0] * 7,
+                        "avg_hours": [0] * 7
+                    }
                 
-                # Add today's data if in range
-                if today_in_range and live_stats:
-                    today_day_of_week = today.weekday()
-                    day_of_week_data["chars"][today_day_of_week] += live_stats.get("total_characters", 0)
-                    day_of_week_data["hours"][today_day_of_week] += live_stats.get("total_reading_time_seconds", 0) / 3600
-                    day_of_week_data["counts"][today_day_of_week] += 1
-                
-                # Calculate averages
-                for i in range(7):
-                    if day_of_week_data["counts"][i] > 0:
-                        day_of_week_data["avg_hours"][i] = round(
-                            day_of_week_data["hours"][i] / day_of_week_data["counts"][i], 2
-                        )
+                # REMOVED: Do NOT add today's data to historical averages
+                # Today's incomplete data would skew the historical patterns shown in:
+                # - Day of Week Activity chart
+                # - Average Hours by Day chart
                         
             except Exception as e:
                 logger.error(f"Error calculating day of week activity: {e}")
-                day_of_week_data = {"chars": [0] * 7, "hours": [0] * 7}
+                day_of_week_data = {"chars": [0] * 7, "hours": [0] * 7, "counts": [0] * 7, "avg_hours": [0] * 7}
 
-            # 13. Calculate reading speed by difficulty data
+            # 13. Calculate reading speed by difficulty data (PRE-COMPUTED from rollup)
             try:
-                difficulty_speed_data = {"labels": [], "speeds": []}
-                
-                # Get all games with difficulty ratings
-                all_games = GamesTable.all()
-                difficulty_groups = {}  # difficulty -> {chars: total, time: total}
-                
-                for game in all_games:
-                    if game.difficulty is not None:
-                        difficulty = game.difficulty
-                        if difficulty not in difficulty_groups:
-                            difficulty_groups[difficulty] = {"chars": 0, "time": 0}
-                        
-                        # Get stats for this game from game_activity_data
-                        game_activity = combined_stats.get("game_activity_data", {})
-                        if game.id in game_activity:
-                            activity = game_activity[game.id]
-                            difficulty_groups[difficulty]["chars"] += activity.get("chars", 0)
-                            difficulty_groups[difficulty]["time"] += activity.get("time", 0)
-                
-                # Calculate average speed for each difficulty
-                for difficulty in sorted(difficulty_groups.keys()):
-                    data = difficulty_groups[difficulty]
-                    if data["time"] > 0 and data["chars"] > 0:
-                        hours = data["time"] / 3600
-                        speed = int(data["chars"] / hours)
-                        difficulty_speed_data["labels"].append(f"Difficulty {difficulty}")
-                        difficulty_speed_data["speeds"].append(speed)
-                        
+                # Use pre-computed function from rollup_stats
+                difficulty_speed_data = calculate_difficulty_speed_from_rollup(combined_stats)
             except Exception as e:
                 logger.error(f"Error calculating reading speed by difficulty: {e}")
                 difficulty_speed_data = {"labels": [], "speeds": []}

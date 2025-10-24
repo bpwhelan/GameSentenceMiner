@@ -202,6 +202,7 @@
     {% set chars_target = stats_config.character_count_target | default(25000000) %}
     {% set games_target = stats_config.games_target | default(100) %}
     {% set heatmap_year = 'all' %}
+    {% set first_date = first_rollup_date | default('') %}
 
     {% set stats_config_vars = {
         'afkTimerSeconds': afk_timer,
@@ -210,7 +211,8 @@
         'readingHoursTarget': hours_target,
         'characterCountTarget': chars_target,
         'gamesTarget': games_target,
-        'heatmapDisplayYear': heatmap_year
+        'heatmapDisplayYear': heatmap_year,
+        'firstDate': first_date
     } %}
 
     <!-- Include shared JavaScript configuration -->
