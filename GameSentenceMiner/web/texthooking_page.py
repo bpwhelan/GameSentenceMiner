@@ -469,12 +469,17 @@ def overview():
 def stats():
     """Renders the stats page."""
     from GameSentenceMiner.util.configuration import get_master_config, get_stats_config
+    from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
+
+    # Get first date from rollup table to avoid extra API call on page load
+    first_rollup_date = StatsRollupTable.get_first_date()
 
     return render_template(
         "stats.html",
         config=get_config(),
         master_config=get_master_config(),
         stats_config=get_stats_config(),
+        first_rollup_date=first_rollup_date,
     )
 
 

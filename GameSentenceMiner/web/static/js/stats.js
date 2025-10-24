@@ -1209,82 +1209,131 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];
     }
 
-    // Function to create game type distribution pie chart
-    function createGameTypeChart(canvasId, gameTypeData) {
+
+    function createCardsMinedChart(canvasId, chartData) {
         const canvas = document.getElementById(canvasId);
-        if (!canvas || !gameTypeData) return null;
-        
-        const ctx = canvas.getContext('2d');
-        
-        // Destroy existing chart if it exists
+        const noDataEl = document.getElementById('cardsMinedNoData');
+        if (!canvas) return null;
+
         if (window.myCharts[canvasId]) {
             window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
         }
-        
-        const labels = gameTypeData.labels || [];
-        const counts = gameTypeData.counts || [];
-        
-        if (labels.length === 0) {
-            return null; // No data to display
+
+        const hasLabels =
+            chartData &&
+            Array.isArray(chartData.labels) &&
+            chartData.labels.length > 0;
+
+        const hasTotals =
+            chartData &&
+            Array.isArray(chartData.totals) &&
+            chartData.totals.length > 0 &&
+            chartData.labels.length === chartData.totals.length;
+
+        const hasNonZeroTotals = hasTotals
+            ? chartData.totals.some((value) => Number(value) > 0)
+            : false;
+
+        if (!hasLabels || !hasTotals || !hasNonZeroTotals) {
+            canvas.style.display = 'none';
+            if (noDataEl) {
+                noDataEl.style.display = 'block';
+            }
+            return null;
         }
-        
-        // Generate distinct colors for each game type
-        const colors = generateGameColors(labels.length);
-        
+
+        canvas.style.display = 'block';
+        if (noDataEl) {
+            noDataEl.style.display = 'none';
+        }
+
+        const ctx = canvas.getContext('2d');
+        const primaryColor = getCurrentTheme() === 'dark' ? '#4e9fff' : '#2980b9';
+
         window.myCharts[canvasId] = new Chart(ctx, {
-            type: 'pie',
+            type: 'bar',
             data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Game Count',
-                    data: counts,
-                    backgroundColor: colors.map(c => c + '99'), // Semi-transparent
-                    borderColor: colors,
-                    borderWidth: 2
-                }]
+                labels: chartData.labels,
+                datasets: [
+                    {
+                        label: 'Cards Mined',
+                        data: chartData.totals,
+                        backgroundColor: `${primaryColor}CC`,
+                        borderColor: primaryColor,
+                        borderWidth: 2,
+                        borderRadius: 4
+                    }
+                ]
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: true,
-                aspectRatio: 1.5,
                 plugins: {
                     legend: {
-                        position: 'right',
-                        labels: {
-                            color: getThemeTextColor(),
-                            padding: 15,
-                            font: {
-                                size: 12
-                            }
-                        }
-                    },
-                    title: {
-                        display: true,
-                        text: 'Game Type Distribution',
-                        color: getThemeTextColor(),
-                        font: {
-                            size: 16,
-                            weight: 'bold'
-                        }
+                        display: false
                     },
                     tooltip: {
                         callbacks: {
-                            label: function(context) {
-                                const label = context.label || '';
-                                const value = context.parsed;
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = ((value / total) * 100).toFixed(1);
-                                return `${label}: ${value} games (${percentage}%)`;
+                            title: function (context) {
+                                return context[0].label;
+                            },
+                            label: function (context) {
+                                const value = context.parsed.y || 0;
+                                return `Cards: ${value.toLocaleString()}`;
                             }
                         },
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        backgroundColor: 'rgba(0, 0, 0, 0.85)',
                         titleColor: '#fff',
-                        bodyColor: '#fff'
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 6,
+                        displayColors: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Cards Mined',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function (value) {
+                                return value.toLocaleString();
+                            }
+                        },
+                        grid: {
+                            color:
+                                getCurrentTheme() === 'dark'
+                                    ? 'rgba(255, 255, 255, 0.1)'
+                                    : 'rgba(0, 0, 0, 0.1)'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            maxRotation: 45,
+                            minRotation: 45,
+                            callback: function (value) {
+                                return this.getLabelForValue(value);
+                            }
+                        },
+                        grid: {
+                            display: false
+                        }
                     }
                 }
             }
         });
-        
+
         return window.myCharts[canvasId];
     }
 
@@ -1574,6 +1623,18 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];
     }
 
+    // Initialize heatmap renderer with mining-specific configuration
+    const miningHeatmapRenderer = new HeatmapRenderer({
+        containerId: 'miningHeatmapContainer',
+        metricName: 'sentences',
+        metricLabel: 'sentences mined'
+    });
+    
+    // Function to create GitHub-style heatmap for mining activity using shared component
+    function createMiningHeatmap(heatmapData) {
+        miningHeatmapRenderer.render(heatmapData);
+    }
+
     // Initialize Kanji Grid Renderer (using shared component)
     const kanjiGridRenderer = new KanjiGridRenderer({
         containerSelector: '#kanjiGrid',
@@ -1800,6 +1861,77 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // Cache for filtered datasets to avoid re-filtering
+    let cachedFilteredDatasets = null;
+    
+    // Function to get or create filtered datasets
+    function getFilteredDatasets(data) {
+        // Return cached version if available and data hasn't changed
+        if (cachedFilteredDatasets && cachedFilteredDatasets.sourceData === data.datasets) {
+            return cachedFilteredDatasets;
+        }
+        
+        // Filter datasets for each chart
+        const linesData = {
+            labels: data.labels,
+            datasets: data.datasets.filter(d => d.for === "Lines Received")
+        };
+
+        const charsData = {
+            labels: data.labels,
+            datasets: data.datasets.filter(d => d.for === 'Characters Read')
+        };
+        
+        // Remove the 'hidden' property so they appear on their own charts
+        [...charsData.datasets].forEach(d => delete d.hidden);
+        
+        // Cache the result
+        cachedFilteredDatasets = {
+            sourceData: data.datasets,
+            linesData: linesData,
+            charsData: charsData
+        };
+        
+        return cachedFilteredDatasets;
+    }
+
+    // Function to load mining heatmap data
+    async function loadMiningHeatmap(start_timestamp = null, end_timestamp = null) {
+        try {
+            let url = '/api/mining_heatmap';
+            const params = new URLSearchParams();
+
+            if (start_timestamp && end_timestamp) {
+                params.append('start', start_timestamp);
+                params.append('end', end_timestamp);
+            }
+
+            const queryString = params.toString();
+            if (queryString) {
+                url += `?${queryString}`;
+            }
+
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error('Failed to load mining heatmap');
+            const data = await resp.json();
+            
+            if (data && Object.keys(data).length > 0) {
+                createMiningHeatmap(data);
+            } else {
+                const container = document.getElementById('miningHeatmapContainer');
+                if (container) {
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">No mining data available for the selected date range.</p>';
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load mining heatmap:', e);
+            const container = document.getElementById('miningHeatmapContainer');
+            if (container) {
+                container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">Failed to load mining heatmap.</p>';
+            }
+        }
+    }
+
     // Function to load stats data with optional year filter
     function loadStatsData(start_timestamp = null, end_timestamp = null) {
         let url = '/api/stats';
@@ -1815,6 +1947,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (queryString) {
             url += `?${queryString}`;
         }
+        
+        // Load mining heatmap separately
+        loadMiningHeatmap(start_timestamp, end_timestamp);
         
         return fetch(url)
             .then(response => response.json())
@@ -1832,19 +1967,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     return data;
                 }
 
-                // Filter datasets for each chart
-                const linesData = {
-                    labels: data.labels,
-                    datasets: data.datasets.filter(d => d.for === "Lines Received")
-                };
-
-                const charsData = {
-                    labels: data.labels,
-                    datasets: data.datasets.filter(d => d.for === 'Characters Read')
-                };
-                
-                // Remove the 'hidden' property so they appear on their own charts
-                [...charsData.datasets].forEach(d => delete d.hidden);
+                // Get filtered datasets (cached if possible)
+                const filtered = getFilteredDatasets(data);
+                const linesData = filtered.linesData;
+                const charsData = filtered.charsData;
 
                 // Charts are re-created with the new data 
                 createChart('linesChart', linesData, 'Cumulative Lines Received');
@@ -1900,9 +2026,18 @@ document.addEventListener('DOMContentLoaded', function () {
                     createDifficultySpeedChart('difficultySpeedChart', data.difficultySpeedData);
                 }
 
-                // Create game type distribution chart if data exists
-                if (data.gameTypeData) {
-                    createGameTypeChart('gameTypeChart', data.gameTypeData);
+                createCardsMinedChart('cardsMinedChart', data.cardsMinedLast30Days || null);
+
+                // Create mining heatmap if data exists
+                if (data.miningHeatmapData) {
+                    if (Object.keys(data.miningHeatmapData).length > 0) {
+                        createMiningHeatmap(data.miningHeatmapData);
+                    } else {
+                        const container = document.getElementById('miningHeatmapContainer');
+                        if (container) {
+                            container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">No mining data available for the selected date range.</p>';
+                        }
+                    }
                 }
 
                 // Create kanji grid if data exists
@@ -1943,7 +2078,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     
     // ================================
-    // Initialize date inputs with sessionStorage or fetch initial values
+    // Initialize date inputs with sessionStorage or use config values
     // Dispatches "datesSet" event once dates are set
     // ================================
     function initializeDates() {
@@ -1953,27 +2088,26 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!fromDateInput || !toDateInput) return; // Null check
 
         const fromDate = sessionStorage.getItem("fromDate");
-        const toDate = sessionStorage.getItem("toDate"); 
+        const toDate = sessionStorage.getItem("toDate");
 
         if (!(fromDate && toDate)) {
-            fetch('/api/stats')
-                .then(response => response.json())
-                .then(response_json => {
-                    // Get first date from API
-                    const firstDate = response_json.allGamesStats.first_date;
-                    fromDateInput.value = firstDate;
+            // Use first_date from statsConfig if available (avoids extra API call)
+            const firstDate = window.statsConfig && window.statsConfig.firstDate
+                ? window.statsConfig.firstDate
+                : new Date().toLocaleDateString('en-CA'); // Fallback to today
+            
+            fromDateInput.value = firstDate;
 
-                    // Get today's date
-                    const today = new Date();
-                    const toDate = today.toLocaleDateString('en-CA');
-                    toDateInput.value = toDate;
+            // Get today's date
+            const today = new Date();
+            const todayStr = today.toLocaleDateString('en-CA');
+            toDateInput.value = todayStr;
 
-                    // Save in sessionStorage
-                    sessionStorage.setItem("fromDate", firstDate);
-                    sessionStorage.setItem("toDate", toDate);
+            // Save in sessionStorage
+            sessionStorage.setItem("fromDate", firstDate);
+            sessionStorage.setItem("toDate", todayStr);
 
-                    document.dispatchEvent(new Event("datesSet"));
-                });
+            document.dispatchEvent(new Event("datesSet"));
         } else {
             // If values already in sessionStorage, set inputs from there
             fromDateInput.value = fromDate;

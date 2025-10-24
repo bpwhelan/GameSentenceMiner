@@ -186,6 +186,10 @@
     background: linear-gradient(90deg, var(--success-color), var(--warning-color));
 }
 
+.dashboard-card.today-overview::before {
+    background: linear-gradient(90deg, var(--info-color), var(--success-color));
+}
+
 .dashboard-card.date-range::before {
     background: linear-gradient(90deg, var(--info-color), var(--accent-color));
 }

@@ -163,8 +163,27 @@
         </div>
 
         <div class="chart-container">
-            <h2>🎮 Game Type Distribution</h2>
-            <canvas id="gameTypeChart"></canvas>
+            <h2>Cards Mined Over Last 30 Days</h2>
+            <canvas id="cardsMinedChart"></canvas>
+            <div id="cardsMinedNoData" class="chart-no-data" style="display: none;">
+                No card mining activity recorded for the selected range.
+            </div>
+        </div>
+
+        <!-- Mining Heatmap Card (Full Width) -->
+        <div class="dashboard-card all-games" id="miningHeatmapCard" style="margin-bottom: 24px;">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">📊</span>
+                    Mining Heatmap
+                </h3>
+                <p class="dashboard-card-subtitle">Track your daily sentence mining progress</p>
+            </div>
+            
+            <div class="dashboard-progress-section">
+                <div class="dashboard-progress-title">Activity Heatmap</div>
+                <div id="miningHeatmapContainer"></div>
+            </div>
         </div>
 
         <div class="chart-container">
@@ -199,6 +218,7 @@
     {% set chars_target = stats_config.character_count_target | default(25000000) %}
     {% set games_target = stats_config.games_target | default(100) %}
     {% set heatmap_year = 'all' %}
+    {% set first_date = first_rollup_date | default('') %}
 
     {% set stats_config_vars = {
         'afkTimerSeconds': afk_timer,
@@ -207,13 +227,15 @@
         'readingHoursTarget': hours_target,
         'characterCountTarget': chars_target,
         'gamesTarget': games_target,
-        'heatmapDisplayYear': heatmap_year
+        'heatmapDisplayYear': heatmap_year,
+        'firstDate': first_date
     } %}
 
     <!-- Include shared JavaScript configuration -->
     {% set config_vars = stats_config_vars %}
     {% set config_object_name = 'statsConfig' %}
     {% set include_kanji_grid_js = true %}
+    {% set include_heatmap_js = true %}
     {% set page_specific_js = 'stats.js' %}
     {% include 'components/js-config.html' %}
 

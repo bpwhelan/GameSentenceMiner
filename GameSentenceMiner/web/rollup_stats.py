@@ -573,3 +573,100 @@ def build_daily_chart_data_from_rollup(rollups: List) -> Dict:
                 continue
 
     return daily_data
+
+
+def calculate_day_of_week_averages_from_rollup(rollups: List) -> Dict:
+    """
+    Pre-compute day of week activity averages from rollup data.
+    This is much faster than calculating on every API request.
+    
+    Args:
+        rollups: List of StatsRollupTable records
+        
+    Returns:
+        Dictionary with day of week data including averages:
+        {
+            "chars": [Mon, Tue, Wed, Thu, Fri, Sat, Sun],
+            "hours": [Mon, Tue, Wed, Thu, Fri, Sat, Sun],
+            "counts": [Mon, Tue, Wed, Thu, Fri, Sat, Sun],
+            "avg_hours": [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+        }
+    """
+    day_of_week_data = {
+        "chars": [0] * 7,
+        "hours": [0] * 7,
+        "counts": [0] * 7,
+        "avg_hours": [0] * 7
+    }
+    
+    for rollup in rollups:
+        try:
+            date_obj = datetime.datetime.strptime(rollup.date, "%Y-%m-%d")
+            day_of_week = date_obj.weekday()  # 0=Monday, 6=Sunday
+            day_of_week_data["chars"][day_of_week] += rollup.total_characters
+            day_of_week_data["hours"][day_of_week] += rollup.total_reading_time_seconds / 3600
+            day_of_week_data["counts"][day_of_week] += 1
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Error parsing date for rollup {rollup.date}: {e}")
+            continue
+    
+    # Calculate averages
+    for i in range(7):
+        if day_of_week_data["counts"][i] > 0:
+            day_of_week_data["avg_hours"][i] = round(
+                day_of_week_data["hours"][i] / day_of_week_data["counts"][i], 2
+            )
+    
+    return day_of_week_data
+
+
+def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
+    """
+    Pre-compute reading speed by difficulty from rollup game activity data.
+    This avoids recalculating on every API request.
+    
+    Args:
+        combined_stats: Combined rollup statistics with game_activity_data
+        
+    Returns:
+        Dictionary with difficulty speed data:
+        {
+            "labels": ["Difficulty 1", "Difficulty 2", ...],
+            "speeds": [speed1, speed2, ...]
+        }
+    """
+    from GameSentenceMiner.util.games_table import GamesTable
+    
+    difficulty_speed_data = {"labels": [], "speeds": []}
+    
+    try:
+        # Get all games with difficulty ratings
+        all_games = GamesTable.all()
+        difficulty_groups = {}  # difficulty -> {chars: total, time: total}
+        
+        for game in all_games:
+            if game.difficulty is not None:
+                difficulty = game.difficulty
+                if difficulty not in difficulty_groups:
+                    difficulty_groups[difficulty] = {"chars": 0, "time": 0}
+                
+                # Get stats for this game from game_activity_data
+                game_activity = combined_stats.get("game_activity_data", {})
+                if game.id in game_activity:
+                    activity = game_activity[game.id]
+                    difficulty_groups[difficulty]["chars"] += activity.get("chars", 0)
+                    difficulty_groups[difficulty]["time"] += activity.get("time", 0)
+        
+        # Calculate average speed for each difficulty
+        for difficulty in sorted(difficulty_groups.keys()):
+            data = difficulty_groups[difficulty]
+            if data["time"] > 0 and data["chars"] > 0:
+                hours = data["time"] / 3600
+                speed = int(data["chars"] / hours)
+                difficulty_speed_data["labels"].append(f"Difficulty {difficulty}")
+                difficulty_speed_data["speeds"].append(speed)
+                
+    except Exception as e:
+        logger.error(f"Error calculating difficulty speed from rollup: {e}")
+    
+    return difficulty_speed_data
