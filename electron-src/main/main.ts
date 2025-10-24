@@ -738,7 +738,6 @@ if (!app.requestSingleInstanceLock()) {
                 console.log('Checking for updates...');
                 await autoUpdate();
             }
-            await updateGSM(false, false);
         }
         createWindow().then(async () => {
             createTray();
@@ -753,6 +752,8 @@ if (!app.requestSingleInstanceLock()) {
                 if (fs.existsSync(path.join(BASE_DIR, 'update_python.flag'))) {
                     fs.unlinkSync(path.join(BASE_DIR, 'update_python.flag'));
                 }
+            } else if (getAutoUpdateGSMApp()) {
+                await updateGSM(false, false);
             }
             try {
                 ensureAndRunGSM(pythonPath).then(async () => {
