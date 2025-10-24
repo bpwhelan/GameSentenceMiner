@@ -202,6 +202,47 @@ def register_stats_api_routes(app):
                     start=today_start, end=today_end, for_stats=True
                 )
 
+            cards_mined_last_30_days = {"labels": [], "totals": []}
+
+            last_rollup_date_str = StatsRollupTable.get_last_date()
+            if last_rollup_date_str:
+                cards_range_end = datetime.datetime.strptime(
+                    last_rollup_date_str, "%Y-%m-%d"
+                ).date()
+
+                if end_date_str:
+                    requested_end_date = datetime.datetime.strptime(
+                        end_date_str, "%Y-%m-%d"
+                    ).date()
+                    if requested_end_date < cards_range_end:
+                        cards_range_end = requested_end_date
+
+                requested_start_date = None
+                if start_date_str:
+                    requested_start_date = datetime.datetime.strptime(
+                        start_date_str, "%Y-%m-%d"
+                    ).date()
+                    if requested_start_date > cards_range_end:
+                        cards_range_end = None
+
+                if cards_range_end:
+                    cards_range_start = cards_range_end - datetime.timedelta(days=29)
+                    if requested_start_date and cards_range_start < requested_start_date:
+                        cards_range_start = requested_start_date
+
+                    if cards_range_start <= cards_range_end:
+                        cards_rollups = StatsRollupTable.get_date_range(
+                            cards_range_start.strftime("%Y-%m-%d"),
+                            cards_range_end.strftime("%Y-%m-%d"),
+                        )
+                        if cards_rollups:
+                            cards_mined_last_30_days["labels"] = [
+                                rollup.date for rollup in cards_rollups
+                            ]
+                            cards_mined_last_30_days["totals"] = [
+                                rollup.anki_cards_created for rollup in cards_rollups
+                            ]
+
             # 2. Build daily_data from rollup records (FAST) + today's lines (SMALL)
             # Structure: daily_data[date_str][display_name] = {'lines': N, 'chars': N}
             daily_data = defaultdict(
@@ -918,6 +959,7 @@ def register_stats_api_routes(app):
                 logger.error(f"Error calculating game type distribution: {e}")
                 game_type_data = {"labels": [], "counts": []}
 
+
             # Log total request time
             total_time = time.time() - request_start_time
 
@@ -925,6 +967,7 @@ def register_stats_api_routes(app):
                 {
                     "labels": sorted_days,
                     "datasets": datasets,
+                    "cardsMinedLast30Days": cards_mined_last_30_days,
                     "kanjiGridData": kanji_grid_data,
                     "heatmapData": heatmap_data,
                     "totalCharsPerGame": total_chars_data,

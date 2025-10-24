@@ -1209,82 +1209,131 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];
     }
 
-    // Function to create game type distribution pie chart
-    function createGameTypeChart(canvasId, gameTypeData) {
+
+    function createCardsMinedChart(canvasId, chartData) {
         const canvas = document.getElementById(canvasId);
-        if (!canvas || !gameTypeData) return null;
-        
-        const ctx = canvas.getContext('2d');
-        
-        // Destroy existing chart if it exists
+        const noDataEl = document.getElementById('cardsMinedNoData');
+        if (!canvas) return null;
+
         if (window.myCharts[canvasId]) {
             window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
         }
-        
-        const labels = gameTypeData.labels || [];
-        const counts = gameTypeData.counts || [];
-        
-        if (labels.length === 0) {
-            return null; // No data to display
+
+        const hasLabels =
+            chartData &&
+            Array.isArray(chartData.labels) &&
+            chartData.labels.length > 0;
+
+        const hasTotals =
+            chartData &&
+            Array.isArray(chartData.totals) &&
+            chartData.totals.length > 0 &&
+            chartData.labels.length === chartData.totals.length;
+
+        const hasNonZeroTotals = hasTotals
+            ? chartData.totals.some((value) => Number(value) > 0)
+            : false;
+
+        if (!hasLabels || !hasTotals || !hasNonZeroTotals) {
+            canvas.style.display = 'none';
+            if (noDataEl) {
+                noDataEl.style.display = 'block';
+            }
+            return null;
         }
-        
-        // Generate distinct colors for each game type
-        const colors = generateGameColors(labels.length);
-        
+
+        canvas.style.display = 'block';
+        if (noDataEl) {
+            noDataEl.style.display = 'none';
+        }
+
+        const ctx = canvas.getContext('2d');
+        const primaryColor = getCurrentTheme() === 'dark' ? '#4e9fff' : '#2980b9';
+
         window.myCharts[canvasId] = new Chart(ctx, {
-            type: 'pie',
+            type: 'bar',
             data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Game Count',
-                    data: counts,
-                    backgroundColor: colors.map(c => c + '99'), // Semi-transparent
-                    borderColor: colors,
-                    borderWidth: 2
-                }]
+                labels: chartData.labels,
+                datasets: [
+                    {
+                        label: 'Cards Mined',
+                        data: chartData.totals,
+                        backgroundColor: `${primaryColor}CC`,
+                        borderColor: primaryColor,
+                        borderWidth: 2,
+                        borderRadius: 4
+                    }
+                ]
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: true,
-                aspectRatio: 1.5,
                 plugins: {
                     legend: {
-                        position: 'right',
-                        labels: {
-                            color: getThemeTextColor(),
-                            padding: 15,
-                            font: {
-                                size: 12
-                            }
-                        }
-                    },
-                    title: {
-                        display: true,
-                        text: 'Game Type Distribution',
-                        color: getThemeTextColor(),
-                        font: {
-                            size: 16,
-                            weight: 'bold'
-                        }
+                        display: false
                     },
                     tooltip: {
                         callbacks: {
-                            label: function(context) {
-                                const label = context.label || '';
-                                const value = context.parsed;
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = ((value / total) * 100).toFixed(1);
-                                return `${label}: ${value} games (${percentage}%)`;
+                            title: function (context) {
+                                return context[0].label;
+                            },
+                            label: function (context) {
+                                const value = context.parsed.y || 0;
+                                return `Cards: ${value.toLocaleString()}`;
                             }
                         },
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        backgroundColor: 'rgba(0, 0, 0, 0.85)',
                         titleColor: '#fff',
-                        bodyColor: '#fff'
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 6,
+                        displayColors: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Cards Mined',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function (value) {
+                                return value.toLocaleString();
+                            }
+                        },
+                        grid: {
+                            color:
+                                getCurrentTheme() === 'dark'
+                                    ? 'rgba(255, 255, 255, 0.1)'
+                                    : 'rgba(0, 0, 0, 0.1)'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            maxRotation: 45,
+                            minRotation: 45,
+                            callback: function (value) {
+                                return this.getLabelForValue(value);
+                            }
+                        },
+                        grid: {
+                            display: false
+                        }
                     }
                 }
             }
         });
-        
+
         return window.myCharts[canvasId];
     }
 
@@ -1900,10 +1949,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     createDifficultySpeedChart('difficultySpeedChart', data.difficultySpeedData);
                 }
 
-                // Create game type distribution chart if data exists
-                if (data.gameTypeData) {
-                    createGameTypeChart('gameTypeChart', data.gameTypeData);
-                }
+                createCardsMinedChart('cardsMinedChart', data.cardsMinedLast30Days || null);
 
                 // Create kanji grid if data exists
                 if (data.kanjiGridData) {
