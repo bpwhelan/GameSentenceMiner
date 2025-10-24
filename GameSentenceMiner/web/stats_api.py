@@ -407,16 +407,19 @@ def register_stats_api_routes(app):
             # - Current Game Stats
             # - Top 5 charts (if today qualifies for top rankings)
             #
-            # CHARTS USING HISTORICAL DATA ONLY (rollup data, excludes today):
+            # CHARTS USING HISTORICAL DATA ONLY (rollup_stats, excludes today):
+            # - Per-Game Totals (chars, time, speed per game)
             # - Day of Week Activity (pure historical patterns)
             # - Average Hours by Day (pure historical averages)
             # - Hourly Activity Pattern (historical average by hour)
             # - Hourly Reading Speed (historical average by hour)
             # - Reading Speed by Difficulty (historical averages)
+            # - Game Type Distribution (based on GamesTable, not activity)
             #
             # Rationale: Average/pattern charts should show stable historical trends
             # without being skewed by today's incomplete data. Cumulative charts need
-            # today's data to show current progress.
+            # today's data to show current progress. Per-game charts update only after
+            # the daily rollup runs, providing consistent snapshots of game progress.
             # ========================================================================
 
             # 5. Calculate additional chart data from combined_stats (no all_lines needed!)
@@ -517,10 +520,10 @@ def register_stats_api_routes(app):
                 logger.error(f"Error calculating heatmap data: {e}")
                 heatmap_data = {}
 
-            # Extract per-game stats from combined_stats (already aggregated!)
+            # Extract per-game stats from ROLLUP ONLY (no live data)
             try:
-                # Build per-game stats from game_activity_data
-                game_activity_data = combined_stats.get("game_activity_data", {})
+                # Build per-game stats from rollup game_activity_data only
+                game_activity_data = rollup_stats.get("game_activity_data", {}) if rollup_stats else {}
 
                 # Sort games by first appearance (use game_id order from rollup)
                 game_list = []
@@ -565,7 +568,7 @@ def register_stats_api_routes(app):
 
             except Exception as e:
                 logger.error(
-                    f"Error extracting per-game stats from combined_stats: {e}"
+                    f"Error extracting per-game stats from rollup_stats: {e}"
                 )
                 total_chars_data = {"labels": [], "totals": []}
                 reading_time_data = {"labels": [], "totals": []}
@@ -743,10 +746,10 @@ def register_stats_api_routes(app):
                         }
                     )
 
-            # 8. Get hourly activity pattern from combined stats
+            # 8. Get hourly activity pattern from ROLLUP ONLY (no live data)
             try:
                 # Convert dict to list format expected by frontend
-                hourly_dict = combined_stats.get("hourly_activity_data", {})
+                hourly_dict = rollup_stats.get("hourly_activity_data", {}) if rollup_stats else {}
                 hourly_activity_data = [0] * 24
                 for hour_str, chars in hourly_dict.items():
                     try:
@@ -761,10 +764,10 @@ def register_stats_api_routes(app):
                 logger.error(f"Error processing hourly activity: {e}")
                 hourly_activity_data = [0] * 24
 
-            # 8.5. Get hourly reading speed pattern from combined stats
+            # 8.5. Get hourly reading speed pattern from ROLLUP ONLY (no live data)
             try:
                 # Convert dict to list format expected by frontend
-                speed_dict = combined_stats.get("hourly_reading_speed_data", {})
+                speed_dict = rollup_stats.get("hourly_reading_speed_data", {}) if rollup_stats else {}
                 hourly_reading_speed_data = [0] * 24
                 for hour_str, speed in speed_dict.items():
                     try:
@@ -925,10 +928,10 @@ def register_stats_api_routes(app):
                 logger.error(f"Error calculating day of week activity: {e}")
                 day_of_week_data = {"chars": [0] * 7, "hours": [0] * 7, "counts": [0] * 7, "avg_hours": [0] * 7}
 
-            # 13. Calculate reading speed by difficulty data (PRE-COMPUTED from rollup)
+            # 13. Calculate reading speed by difficulty data (ROLLUP ONLY - no live data)
             try:
-                # Use pre-computed function from rollup_stats
-                difficulty_speed_data = calculate_difficulty_speed_from_rollup(combined_stats)
+                # Use pre-computed function from rollup_stats with rollup data only
+                difficulty_speed_data = calculate_difficulty_speed_from_rollup(rollup_stats if rollup_stats else {})
             except Exception as e:
                 logger.error(f"Error calculating reading speed by difficulty: {e}")
                 difficulty_speed_data = {"labels": [], "speeds": []}

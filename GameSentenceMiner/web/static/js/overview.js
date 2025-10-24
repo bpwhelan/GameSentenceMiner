@@ -1,6 +1,194 @@
 // Overview Page JavaScript
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
+// ============================================================================
+// PERFORMANCE OPTIMIZATION: Cache frequently accessed DOM elements
+// ============================================================================
+const DOM_CACHE = {
+    // Dashboard cards
+    currentGameCard: null,
+    allGamesCard: null,
+    todayOverviewCard: null,
+    
+    // Current game elements
+    currentGameName: null,
+    currentTotalChars: null,
+    currentTotalTime: null,
+    currentReadingSpeed: null,
+    currentEstimatedTimeLeft: null,
+    currentGameStreak: null,
+    currentStreakValue: null,
+    gameCompletionBtn: null,
+    
+    // Session elements
+    currentSessionTotalHours: null,
+    currentSessionTotalChars: null,
+    currentSessionStartTime: null,
+    currentSessionEndTime: null,
+    currentSessionCharsPerHour: null,
+    
+    // Game metadata elements
+    gameContentGrid: null,
+    gamePhotoSection: null,
+    gamePhoto: null,
+    gameTitleOriginal: null,
+    gameTitleRomaji: null,
+    gameTitleEnglish: null,
+    gameTypeBadge: null,
+    gameDescription: null,
+    descriptionExpandBtn: null,
+    gameLinksContainer: null,
+    gameLinksPills: null,
+    gameProgressContainer: null,
+    gameProgressPercentage: null,
+    gameProgressFill: null,
+    gameStartDate: null,
+    gameEstimatedEndDate: null,
+    
+    // Today's overview elements
+    todayDate: null,
+    todayTotalHours: null,
+    todayTotalChars: null,
+    todaySessions: null,
+    todayCharsPerHour: null,
+    
+    // All games elements
+    totalGamesCount: null,
+    allTotalChars: null,
+    allTotalTime: null,
+    allReadingSpeed: null,
+    allSessions: null,
+    allUniqueGames: null,
+    allTotalSentences: null,
+    allGamesStreak: null,
+    allStreakValue: null,
+    
+    // Loading/error states
+    dashboardLoading: null,
+    dashboardError: null,
+    
+    // Heatmap
+    heatmapContainer: null,
+    
+    // Date inputs
+    fromDateInput: null,
+    toDateInput: null,
+    
+    // Session navigation
+    prevSessionBtn: null,
+    nextSessionBtn: null,
+    deleteSessionBtn: null,
+    
+    // Initialize all cached references
+    init() {
+        // Dashboard cards
+        this.currentGameCard = document.getElementById('currentGameCard');
+        this.allGamesCard = document.getElementById('allGamesCard');
+        this.todayOverviewCard = document.getElementById('todayOverviewCard');
+        
+        // Current game elements
+        this.currentGameName = document.getElementById('currentGameName');
+        this.currentTotalChars = document.getElementById('currentTotalChars');
+        this.currentTotalTime = document.getElementById('currentTotalTime');
+        this.currentReadingSpeed = document.getElementById('currentReadingSpeed');
+        this.currentEstimatedTimeLeft = document.getElementById('currentEstimatedTimeLeft');
+        this.currentGameStreak = document.getElementById('currentGameStreak');
+        this.currentStreakValue = document.getElementById('currentStreakValue');
+        this.gameCompletionBtn = document.getElementById('gameCompletionBtn');
+        
+        // Session elements
+        this.currentSessionTotalHours = document.getElementById('currentSessionTotalHours');
+        this.currentSessionTotalChars = document.getElementById('currentSessionTotalChars');
+        this.currentSessionStartTime = document.getElementById('currentSessionStartTime');
+        this.currentSessionEndTime = document.getElementById('currentSessionEndTime');
+        this.currentSessionCharsPerHour = document.getElementById('currentSessionCharsPerHour');
+        
+        // Game metadata elements
+        this.gameContentGrid = document.getElementById('gameContentGrid');
+        this.gamePhotoSection = document.getElementById('gamePhotoSection');
+        this.gamePhoto = document.getElementById('gamePhoto');
+        this.gameTitleOriginal = document.getElementById('gameTitleOriginal');
+        this.gameTitleRomaji = document.getElementById('gameTitleRomaji');
+        this.gameTitleEnglish = document.getElementById('gameTitleEnglish');
+        this.gameTypeBadge = document.getElementById('gameTypeBadge');
+        this.gameDescription = document.getElementById('gameDescription');
+        this.descriptionExpandBtn = document.getElementById('descriptionExpandBtn');
+        this.gameLinksContainer = document.getElementById('gameLinksContainer');
+        this.gameLinksPills = document.getElementById('gameLinksPills');
+        this.gameProgressContainer = document.getElementById('gameProgressContainer');
+        this.gameProgressPercentage = document.getElementById('gameProgressPercentage');
+        this.gameProgressFill = document.getElementById('gameProgressFill');
+        this.gameStartDate = document.getElementById('gameStartDate');
+        this.gameEstimatedEndDate = document.getElementById('gameEstimatedEndDate');
+        
+        // Today's overview elements
+        this.todayDate = document.getElementById('todayDate');
+        this.todayTotalHours = document.getElementById('todayTotalHours');
+        this.todayTotalChars = document.getElementById('todayTotalChars');
+        this.todaySessions = document.getElementById('todaySessions');
+        this.todayCharsPerHour = document.getElementById('todayCharsPerHour');
+        
+        // All games elements
+        this.totalGamesCount = document.getElementById('totalGamesCount');
+        this.allTotalChars = document.getElementById('allTotalChars');
+        this.allTotalTime = document.getElementById('allTotalTime');
+        this.allReadingSpeed = document.getElementById('allReadingSpeed');
+        this.allSessions = document.getElementById('allSessions');
+        this.allUniqueGames = document.getElementById('allUniqueGames');
+        this.allTotalSentences = document.getElementById('allTotalSentences');
+        this.allGamesStreak = document.getElementById('allGamesStreak');
+        this.allStreakValue = document.getElementById('allStreakValue');
+        
+        // Loading/error states
+        this.dashboardLoading = document.getElementById('dashboardLoading');
+        this.dashboardError = document.getElementById('dashboardError');
+        
+        // Heatmap
+        this.heatmapContainer = document.getElementById('heatmapContainer');
+        
+        // Date inputs
+        this.fromDateInput = document.getElementById('fromDate');
+        this.toDateInput = document.getElementById('toDate');
+        
+        // Session navigation
+        this.prevSessionBtn = document.querySelector('.prev-session-btn');
+        this.nextSessionBtn = document.querySelector('.next-session-btn');
+        this.deleteSessionBtn = document.querySelector('.delete-session-btn');
+    }
+};
+
+// ============================================================================
+// PERFORMANCE OPTIMIZATION: Cache API responses to avoid redundant fetches
+// ============================================================================
+const API_CACHE = {
+    statsData: null,
+    statsDataTimestamp: null,
+    CACHE_DURATION: 5000, // 5 seconds cache
+    
+    setStatsData(data) {
+        this.statsData = data;
+        this.statsDataTimestamp = Date.now();
+    },
+    
+    getStatsData() {
+        if (!this.statsData || !this.statsDataTimestamp) {
+            return null;
+        }
+        // Check if cache is still valid
+        if (Date.now() - this.statsDataTimestamp > this.CACHE_DURATION) {
+            this.statsData = null;
+            this.statsDataTimestamp = null;
+            return null;
+        }
+        return this.statsData;
+    },
+    
+    clearStatsData() {
+        this.statsData = null;
+        this.statsDataTimestamp = null;
+    }
+};
+
 // Helper function to detect the current theme based on the app's theme system
 function getCurrentTheme() {
     const dataTheme = document.documentElement.getAttribute('data-theme');
@@ -21,6 +209,8 @@ function getThemeTextColor() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    // Initialize DOM cache
+    DOM_CACHE.init();
     
     // Custom streak calculation function for activity heatmap (includes average daily time)
     function calculateActivityStreaks(grid, yearData, allLinesForYear = []) {

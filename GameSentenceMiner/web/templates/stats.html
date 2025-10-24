@@ -170,6 +170,22 @@
             </div>
         </div>
 
+        <!-- Mining Heatmap Card (Full Width) -->
+        <div class="dashboard-card all-games" id="miningHeatmapCard" style="margin-bottom: 24px;">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">📊</span>
+                    Mining Heatmap
+                </h3>
+                <p class="dashboard-card-subtitle">Track your daily sentence mining progress</p>
+            </div>
+            
+            <div class="dashboard-progress-section">
+                <div class="dashboard-progress-title">Activity Heatmap</div>
+                <div id="miningHeatmapContainer"></div>
+            </div>
+        </div>
+
         <div class="chart-container">
             <h2>Kanji Grid</h2>
             <div id="kanjiGridContainer">
@@ -219,6 +235,7 @@
     {% set config_vars = stats_config_vars %}
     {% set config_object_name = 'statsConfig' %}
     {% set include_kanji_grid_js = true %}
+    {% set include_heatmap_js = true %}
     {% set page_specific_js = 'stats.js' %}
     {% include 'components/js-config.html' %}
 

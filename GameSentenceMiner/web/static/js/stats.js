@@ -1623,6 +1623,18 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];
     }
 
+    // Initialize heatmap renderer with mining-specific configuration
+    const miningHeatmapRenderer = new HeatmapRenderer({
+        containerId: 'miningHeatmapContainer',
+        metricName: 'sentences',
+        metricLabel: 'sentences mined'
+    });
+    
+    // Function to create GitHub-style heatmap for mining activity using shared component
+    function createMiningHeatmap(heatmapData) {
+        miningHeatmapRenderer.render(heatmapData);
+    }
+
     // Initialize Kanji Grid Renderer (using shared component)
     const kanjiGridRenderer = new KanjiGridRenderer({
         containerSelector: '#kanjiGrid',
@@ -1883,6 +1895,43 @@ document.addEventListener('DOMContentLoaded', function () {
         return cachedFilteredDatasets;
     }
 
+    // Function to load mining heatmap data
+    async function loadMiningHeatmap(start_timestamp = null, end_timestamp = null) {
+        try {
+            let url = '/api/mining_heatmap';
+            const params = new URLSearchParams();
+
+            if (start_timestamp && end_timestamp) {
+                params.append('start', start_timestamp);
+                params.append('end', end_timestamp);
+            }
+
+            const queryString = params.toString();
+            if (queryString) {
+                url += `?${queryString}`;
+            }
+
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error('Failed to load mining heatmap');
+            const data = await resp.json();
+            
+            if (data && Object.keys(data).length > 0) {
+                createMiningHeatmap(data);
+            } else {
+                const container = document.getElementById('miningHeatmapContainer');
+                if (container) {
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">No mining data available for the selected date range.</p>';
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load mining heatmap:', e);
+            const container = document.getElementById('miningHeatmapContainer');
+            if (container) {
+                container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">Failed to load mining heatmap.</p>';
+            }
+        }
+    }
+
     // Function to load stats data with optional year filter
     function loadStatsData(start_timestamp = null, end_timestamp = null) {
         let url = '/api/stats';
@@ -1898,6 +1947,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (queryString) {
             url += `?${queryString}`;
         }
+        
+        // Load mining heatmap separately
+        loadMiningHeatmap(start_timestamp, end_timestamp);
         
         return fetch(url)
             .then(response => response.json())
@@ -1975,6 +2027,18 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
 
                 createCardsMinedChart('cardsMinedChart', data.cardsMinedLast30Days || null);
+
+                // Create mining heatmap if data exists
+                if (data.miningHeatmapData) {
+                    if (Object.keys(data.miningHeatmapData).length > 0) {
+                        createMiningHeatmap(data.miningHeatmapData);
+                    } else {
+                        const container = document.getElementById('miningHeatmapContainer');
+                        if (container) {
+                            container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 20px;">No mining data available for the selected date range.</p>';
+                        }
+                    }
+                }
 
                 // Create kanji grid if data exists
                 if (data.kanjiGridData) {
