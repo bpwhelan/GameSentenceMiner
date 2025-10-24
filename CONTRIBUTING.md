@@ -166,6 +166,6 @@ Thank you for contributing to GameSentenceMiner! Your efforts help make language
 # Logging
 
 In Python:
-* info() is sent to the console
-* Debug() is sent to a file
+* info() and errror() are sent to the console
+* info(), error(), and debug() are all sent to log file
 
