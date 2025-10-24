@@ -1098,6 +1098,15 @@ def register_stats_api_routes(app):
                 today_hours = 0
                 today_characters = 0
 
+            # Calculate today's cards mined (lines with audio_in_anki OR screenshot_in_anki)
+            today_cards_mined = 0
+            if today_lines:
+                for line in today_lines:
+                    # Count if either audio_in_anki or screenshot_in_anki is not empty
+                    if (line.audio_in_anki and line.audio_in_anki.strip()) or \
+                       (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
+                        today_cards_mined += 1
+
             result = {}
 
             # Calculate hours requirement
@@ -1212,6 +1221,21 @@ def register_stats_api_routes(app):
                 result["games"] = {
                     "required": 0,
                     "progress": total_games,
+                    "has_target": False,
+                }
+
+            # Calculate cards mined requirement (daily goal)
+            cards_daily_target = getattr(config, 'cards_mined_daily_target', 10)
+            if cards_daily_target > 0:
+                result["cards"] = {
+                    "required": cards_daily_target,
+                    "progress": today_cards_mined,
+                    "has_target": True,
+                }
+            else:
+                result["cards"] = {
+                    "required": 0,
+                    "progress": today_cards_mined,
                     "has_target": False,
                 }
 

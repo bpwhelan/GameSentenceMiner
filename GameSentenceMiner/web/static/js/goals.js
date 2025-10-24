@@ -299,6 +299,25 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('charsDaysRemaining').style.display = 'none';
             }
             
+            // Update cards mined goal
+            const cardsGoalItem = document.getElementById('cardsGoalItem');
+            if (data.cards && data.cards.has_target) {
+                hasAnyTarget = true;
+                cardsGoalItem.style.display = 'block';
+                
+                document.getElementById('todayCardsProgress').textContent = data.cards.progress;
+                document.getElementById('todayCardsRequired').textContent = data.cards.required;
+                
+                // Add green highlight if goal is met
+                if (data.cards.progress >= data.cards.required) {
+                    cardsGoalItem.classList.add('goal-met');
+                } else {
+                    cardsGoalItem.classList.remove('goal-met');
+                }
+            } else {
+                cardsGoalItem.style.display = 'none';
+            }
+            
             // Show/hide sections based on whether any targets are set
             if (hasAnyTarget) {
                 document.getElementById('noTargetsMessage').style.display = 'none';
@@ -539,6 +558,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const gamesDateInput = document.getElementById('gamesTargetDate');
         if (gamesDateInput) gamesDateInput.value = window.statsConfig.gamesTargetDate || '';
+
+        const cardsDailyTargetInput = document.getElementById('cardsMinedDailyTarget');
+        if (cardsDailyTargetInput) cardsDailyTargetInput.value = window.statsConfig.cardsMinedDailyTarget || 10;
     }
 
     // Open settings modal
@@ -580,7 +602,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     games_target: parseInt(document.getElementById('gamesTarget').value),
                     reading_hours_target_date: document.getElementById('readingHoursTargetDate').value || '',
                     character_count_target_date: document.getElementById('characterCountTargetDate').value || '',
-                    games_target_date: document.getElementById('gamesTargetDate').value || ''
+                    games_target_date: document.getElementById('gamesTargetDate').value || '',
+                    cards_mined_daily_target: parseInt(document.getElementById('cardsMinedDailyTarget').value) || 10
                 };
 
                 const response = await fetch('/api/settings', {
@@ -602,7 +625,8 @@ document.addEventListener('DOMContentLoaded', function () {
                         gamesTarget: formData.games_target,
                         readingHoursTargetDate: formData.reading_hours_target_date,
                         characterCountTargetDate: formData.character_count_target_date,
-                        gamesTargetDate: formData.games_target_date
+                        gamesTargetDate: formData.games_target_date,
+                        cardsMinedDailyTarget: formData.cards_mined_daily_target
                     };
 
                     // Show success message
