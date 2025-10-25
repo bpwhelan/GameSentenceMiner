@@ -155,7 +155,7 @@
         });
 
         function getWindows(showLoading = true) {
-            if (osInfo.isWindows === false) {
+            if (osInfo && osInfo.isWindows === false) {
                 return;
             }
             // Remember the previously selected window
@@ -390,91 +390,92 @@
 
         async function applyOSSpecificUI() {
             // Get OS info from shared state (set by index.html)
-            osInfo = await sharedState.getState('systemInfo');
+            systemInfo = await sharedState.getState('systemInfo');
 
-            if (osInfo) {
-            console.log('Using OS info from shared state:', osInfo);
+            if (systemInfo) {
+                osInmfo = systemInfo;
+                console.log('Using OS info from shared state:', systemInfo);
 
-            // Disable "Run Overlay" button and help icon on non-Windows
-            const runOverlayBtn = document.getElementById('runOverlayBtn');
-            const overlayHelpBtn = document.getElementById('open-overlay-wiki-btn');
-            const refreshWindowsBtn = document.getElementById('refreshWindowsBtn');
-            const createNewSceneBtn = document.getElementById('createNewSceneBtn');
-            const createNewSceneGameBtn = document.getElementById('createNewSceneGameBtn');
+                // Disable "Run Overlay" button and help icon on non-Windows
+                const runOverlayBtn = document.getElementById('runOverlayBtn');
+                const overlayHelpBtn = document.getElementById('open-overlay-wiki-btn');
+                const refreshWindowsBtn = document.getElementById('refreshWindowsBtn');
+                const createNewSceneBtn = document.getElementById('createNewSceneBtn');
+                const createNewSceneGameBtn = document.getElementById('createNewSceneGameBtn');
 
-            if (osInfo.isWindows) {
-                if (runOverlayBtn) {
-                runOverlayBtn.disabled = false;
-                runOverlayBtn.style.opacity = '1';
-                runOverlayBtn.style.cursor = 'pointer';
-                runOverlayBtn.removeAttribute('title');
+                if (osInfo.isWindows) {
+                    if (runOverlayBtn) {
+                        runOverlayBtn.disabled = false;
+                        runOverlayBtn.style.opacity = '1';
+                        runOverlayBtn.style.cursor = 'pointer';
+                        runOverlayBtn.removeAttribute('title');
+                    }
+                    if (overlayHelpBtn) {
+                        overlayHelpBtn.disabled = false;
+                        overlayHelpBtn.style.opacity = '1';
+                        overlayHelpBtn.style.cursor = 'pointer';
+                        overlayHelpBtn.removeAttribute('title');
+                    }
+                    if (windowSelect) {
+                        windowSelect.disabled = false;
+                        windowSelect.style.cursor = '';
+                        windowSelect.removeAttribute('title');
+                    }
+                    if (refreshWindowsBtn) {
+                        refreshWindowsBtn.disabled = false;
+                        refreshWindowsBtn.style.opacity = '';
+                        refreshWindowsBtn.style.cursor = '';
+                        refreshWindowsBtn.removeAttribute('title');
+                    }
+                    if (createNewSceneBtn) {
+                        createNewSceneBtn.disabled = false;
+                        createNewSceneBtn.style.opacity = '';
+                        createNewSceneBtn.style.cursor = '';
+                        createNewSceneBtn.removeAttribute('title');
+                    }
+                    if (createNewSceneGameBtn) {
+                        createNewSceneGameBtn.disabled = false;
+                        createNewSceneGameBtn.style.opacity = '';
+                        createNewSceneGameBtn.style.cursor = '';
+                        createNewSceneGameBtn.removeAttribute('title');
+                    }
+                } else {
+                    if (runOverlayBtn) {
+                        runOverlayBtn.disabled = true;
+                        runOverlayBtn.style.opacity = '0.5';
+                        runOverlayBtn.style.cursor = 'not-allowed';
+                        runOverlayBtn.title = 'Not supported in this OS (Yet)';
+                        console.log('Run Overlay button disabled - not running on Windows');
+                    }
+                    // if (overlayHelpBtn) {
+                    // overlayHelpBtn.disabled = true;
+                    // overlayHelpBtn.style.opacity = '0.5';
+                    // overlayHelpBtn.style.cursor = 'not-allowed';
+                    // overlayHelpBtn.title = 'Not supported in this OS';
+                    // }
+                    windowSelect.innerHTML = '<option>Need to set scenes in OBS on this OS.</option>';
+                    windowSelect.disabled = true;
+                    windowSelect.style.cursor = 'not-allowed';
+                    windowSelect.title = 'Not supported in this OS';
+                    if (refreshWindowsBtn) {
+                        refreshWindowsBtn.disabled = true;
+                        refreshWindowsBtn.style.opacity = '0.5';
+                        refreshWindowsBtn.style.cursor = 'not-allowed';
+                        refreshWindowsBtn.title = 'Not supported in this OS';
+                    }
+                    if (createNewSceneBtn) {
+                        createNewSceneBtn.disabled = true;
+                        createNewSceneBtn.style.opacity = '0.5';
+                        createNewSceneBtn.style.cursor = 'not-allowed';
+                        createNewSceneBtn.title = 'Not supported in this OS';
+                    }
+                    if (createNewSceneGameBtn) {
+                        createNewSceneGameBtn.disabled = true;
+                        createNewSceneGameBtn.style.opacity = '0.5';
+                        createNewSceneGameBtn.style.cursor = 'not-allowed';
+                        createNewSceneGameBtn.title = 'Not supported in this OS';
+                    }
                 }
-                if (overlayHelpBtn) {
-                overlayHelpBtn.disabled = false;
-                overlayHelpBtn.style.opacity = '1';
-                overlayHelpBtn.style.cursor = 'pointer';
-                overlayHelpBtn.removeAttribute('title');
-                }
-                if (windowSelect) {
-                windowSelect.disabled = false;
-                windowSelect.style.cursor = '';
-                windowSelect.removeAttribute('title');
-                }
-                if (refreshWindowsBtn) {
-                refreshWindowsBtn.disabled = false;
-                refreshWindowsBtn.style.opacity = '';
-                refreshWindowsBtn.style.cursor = '';
-                refreshWindowsBtn.removeAttribute('title');
-                }
-                if (createNewSceneBtn) {
-                createNewSceneBtn.disabled = false;
-                createNewSceneBtn.style.opacity = '';
-                createNewSceneBtn.style.cursor = '';
-                createNewSceneBtn.removeAttribute('title');
-                }
-                if (createNewSceneGameBtn) {
-                createNewSceneGameBtn.disabled = false;
-                createNewSceneGameBtn.style.opacity = '';
-                createNewSceneGameBtn.style.cursor = '';
-                createNewSceneGameBtn.removeAttribute('title');
-                }
-            } else {
-                if (runOverlayBtn) {
-                runOverlayBtn.disabled = true;
-                runOverlayBtn.style.opacity = '0.5';
-                runOverlayBtn.style.cursor = 'not-allowed';
-                runOverlayBtn.title = 'Not supported in this OS (Yet)';
-                console.log('Run Overlay button disabled - not running on Windows');
-                }
-                // if (overlayHelpBtn) {
-                // overlayHelpBtn.disabled = true;
-                // overlayHelpBtn.style.opacity = '0.5';
-                // overlayHelpBtn.style.cursor = 'not-allowed';
-                // overlayHelpBtn.title = 'Not supported in this OS';
-                // }
-                windowSelect.innerHTML = '<option>Need to set scenes in OBS on this OS.</option>';
-                windowSelect.disabled = true;
-                windowSelect.style.cursor = 'not-allowed';
-                windowSelect.title = 'Not supported in this OS';
-                if (refreshWindowsBtn) {
-                refreshWindowsBtn.disabled = true;
-                refreshWindowsBtn.style.opacity = '0.5';
-                refreshWindowsBtn.style.cursor = 'not-allowed';
-                refreshWindowsBtn.title = 'Not supported in this OS';
-                }
-                if (createNewSceneBtn) {
-                createNewSceneBtn.disabled = true;
-                createNewSceneBtn.style.opacity = '0.5';
-                createNewSceneBtn.style.cursor = 'not-allowed';
-                createNewSceneBtn.title = 'Not supported in this OS';
-                }
-                if (createNewSceneGameBtn) {
-                createNewSceneGameBtn.disabled = true;
-                createNewSceneGameBtn.style.opacity = '0.5';
-                createNewSceneGameBtn.style.cursor = 'not-allowed';
-                createNewSceneGameBtn.title = 'Not supported in this OS';
-                }
-            }
             }
         }
 
