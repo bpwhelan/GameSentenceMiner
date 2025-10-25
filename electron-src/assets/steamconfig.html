@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<!-- Include shared module with ipcRenderer, clipboard, and sharedState -->
+<script src="shared.js"></script>
 <div class="card">
     <h1>Game Configuration</h1>
 
@@ -78,8 +80,6 @@
 </div>
 
 <script>
-    const {ipcRenderer} = require('electron');
-
     const steamIdInput = document.getElementById('steamIdInput');
     const gameNameInput = document.getElementById('gameNameInput');
     const executableNameInput = document.getElementById('executableNameInput');

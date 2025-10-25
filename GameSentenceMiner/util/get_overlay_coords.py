@@ -330,56 +330,64 @@ class OverlayProcessor:
         # Check for cancellation after screenshot
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
-            
+        
         if self.oneocr:
-            # 2. Use OneOCR to find general text areas (fast)
-            res, text, oneocr_results, crop_coords_list = self.oneocr(
-                full_screenshot,
-                return_coords=True,
-                multiple_crop_coords=True,
-                return_one_box=False,
-                furigana_filter_sensitivity=get_overlay_config().minimum_character_size,
-            )
-            
-            if not crop_coords_list:
-                return        
-            
-            # Check for cancellation after OneOCR
-            if asyncio.current_task().cancelled():
-                raise asyncio.CancelledError()
-            
-            text_str = "".join([text for text in text if self.regex.match(text)])
-            
-            # RapidFuzz fuzzy match 90% to not send the same results repeatedly
-            if self.last_oneocr_result and check_against_last:
+            tries = get_overlay_config().number_of_local_scans_per_event if not check_against_last else 1
+            for i in range(tries):
+                if i > 0:
+                    try:
+                        await asyncio.sleep(0.1)
+                    except asyncio.CancelledError:
+                        logger.info("OCR task cancelled during local scan delay")
+                        raise
+                # 2. Use OneOCR to find general text areas (fast)
+                res, text, oneocr_results, crop_coords_list = self.oneocr(
+                    full_screenshot,
+                    return_coords=True,
+                    multiple_crop_coords=True,
+                    return_one_box=False,
+                    furigana_filter_sensitivity=get_overlay_config().minimum_character_size,
+                )
                 
-                score = fuzz.ratio(text_str, self.last_oneocr_result)
-                if score >= 80:
+                if not crop_coords_list:
+                    return        
+                
+                # Check for cancellation after OneOCR
+                if asyncio.current_task().cancelled():
+                    raise asyncio.CancelledError()
+                
+                text_str = "".join([text for text in text if self.regex.match(text)])
+                
+                # RapidFuzz fuzzy match 90% to not send the same results repeatedly
+                if self.last_oneocr_result and check_against_last:
+                    
+                    score = fuzz.ratio(text_str, self.last_oneocr_result)
+                    if score >= get_config().overlay.periodic_ratio * 100:
+                        return
+                self.last_oneocr_result = text_str
+                
+                await send_word_coordinates_to_overlay(self._convert_oneocr_results_to_percentages(oneocr_results, monitor_width, monitor_height))
+                
+                # If User Home is beangate
+                if is_beangate:
+                    with open("oneocr_results.json", "w", encoding="utf-8") as f:
+                        f.write(json.dumps(oneocr_results, ensure_ascii=False, indent=2))
+                
+                if get_config().overlay.engine == OverlayEngine.ONEOCR.value and self.oneocr:
+                    logger.info("Sent %d text boxes to overlay.", len(oneocr_results))
                     return
-            self.last_oneocr_result = text_str
 
-            await send_word_coordinates_to_overlay(self._convert_oneocr_results_to_percentages(oneocr_results, monitor_width, monitor_height))
-            
-            # If User Home is beangate
-            if is_beangate:
-                with open("oneocr_results.json", "w", encoding="utf-8") as f:
-                    f.write(json.dumps(oneocr_results, ensure_ascii=False, indent=2))
-            
-            if get_config().overlay.engine == OverlayEngine.ONEOCR.value and self.oneocr:
-                logger.info("Sent %d text boxes to overlay.", len(oneocr_results))
-                return
+                # Check for cancellation before creating composite image
+                if asyncio.current_task().cancelled():
+                    raise asyncio.CancelledError()
 
-            # Check for cancellation before creating composite image
-            if asyncio.current_task().cancelled():
-                raise asyncio.CancelledError()
-
-            # 3. Create a composite image with only the detected text regions
-            composite_image = self._create_composite_image(
-                full_screenshot, 
-                crop_coords_list, 
-                monitor_width, 
-                monitor_height
-            )
+                # 3. Create a composite image with only the detected text regions
+                composite_image = self._create_composite_image(
+                    full_screenshot, 
+                    crop_coords_list, 
+                    monitor_width, 
+                    monitor_height
+                )
         else:
             composite_image = full_screenshot
         
@@ -408,7 +416,7 @@ class OverlayProcessor:
         # RapidFuzz fuzzy match 90% to not send the same results repeatedly
         if self.last_lens_result and check_against_last:
             score = fuzz.ratio(text_str, self.last_lens_result)
-            if score >= 80:
+            if score >= get_config().overlay.periodic_ratio * 100:
                 logger.info("Google Lens results are similar to the last results (score: %d). Skipping overlay update.", score)
                 return
         self.last_lens_result = text_str

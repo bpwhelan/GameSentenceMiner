@@ -24,14 +24,14 @@
     {% include 'components/navigation.html' %}
 
     <div class="management-grid">
-        <!-- Games Management Card -->
-        <div class="management-card games">
+        <!-- Manage Game Data Card -->
+        <div class="management-card game-data">
             <div class="card-header">
-                <div class="card-icon">🗑️</div>
-                <h2 class="card-title">Games Management</h2>
+                <div class="card-icon">🎮</div>
+                <h2 class="card-title">Manage Games & Data</h2>
             </div>
             <p class="card-description">
-                Manage your game data by viewing statistics and selectively deleting games and their associated sentences.
+                Comprehensive game management: link to jiten.moe database, manage individual games, perform bulk operations like merging and deletion.
             </p>
             <div class="stats-row">
                 <span class="stats-label">Total Games:</span>
@@ -41,30 +41,21 @@
                 <span class="stats-label">Total Sentences:</span>
                 <span class="stats-value" id="totalSentencesCount">Loading...</span>
             </div>
-            <div class="card-actions">
-                <button class="action-btn danger" data-action="openGameDeletionModal">
-                    Manage Games
-                </button>
-            </div>
-        </div>
-
-
-        <!-- Text Lines Management Card -->
-        <div class="management-card text-lines">
-            <div class="card-header">
-                <div class="card-icon">📄</div>
-                <h2 class="card-title">Manage Text Lines</h2>
-            </div>
-            <p class="card-description">
-                Manage specific lines of text based on content matching.
-            </p>
             <div class="stats-row">
-                <span class="stats-label">Last Cleanup:</span>
-                <span class="stats-value" id="lastCleanupDate">Never</span>
+                <span class="stats-label">Total Characters:</span>
+                <span class="stats-value" id="totalCharactersCount">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Linked Games:</span>
+                <span class="stats-value" id="linkedGamesCount">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Unlinked Games:</span>
+                <span class="stats-value" id="unlinkedGamesCount">Loading...</span>
             </div>
             <div class="card-actions">
-                <button class="action-btn warning" data-action="openTextLinesModal">
-                    Manage Text Lines
+                <button class="action-btn primary" data-action="openGameDataModal">
+                    Manage Games & Data
                 </button>
             </div>
         </div>
@@ -91,48 +82,6 @@
     </div>
 </div>
 
-<!-- Games Deletion Modal (moved from stats.html) -->
-<div id="gamesDeletionModal" class="modal">
-    <div class="modal-content" style="max-width: 800px;">
-        <div class="modal-header">
-            <h3>Manage Games</h3>
-            <span class="close-btn" data-action="closeModal" data-modal="gamesDeletionModal">&times;</span>
-        </div>
-        <div class="modal-body">
-            <p class="warning-text">Select games to delete. This will permanently remove all associated sentences and data.</p>
-
-            <p class="warning-text">When Merging, the first selected game will be the target for all merged data.</p>
-            
-            <div style="margin-bottom: 15px; padding: 10px; background: var(--bg-tertiary); border-radius: 5px; border-left: 4px solid var(--accent-color);">
-                <small style="color: var(--text-secondary); font-size: 13px;">
-                    <strong>Note:</strong> Game names come from the OBS Scene, to change the name for future stats, change the scene name in OBS.
-                </small>
-            </div>
-            
-            <div id="gamesLoadingIndicator" class="loading-indicator">
-                <div class="spinner"></div>
-                <span>Loading games...</span>
-            </div>
-            
-            <div id="gamesContent" style="display: none;">
-                <div style="margin-bottom: 20px;">
-                    <button class="action-btn primary" data-action="selectAllGames">Select All</button>
-                    <button class="action-btn primary" data-action="selectNoGames">Select None</button>
-                </div>
-                <div id="gamesList" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 5px; padding: 10px;">
-                    <!-- Games will be populated here -->
-                </div>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button class="action-btn" data-action="closeModal" data-modal="gamesDeletionModal">Cancel</button>
-            <button class="action-btn warning" id="mergeSelectedGamesBtn" data-action="mergeSelectedGames" disabled>Merge Selected Games</button>
-            <button class="action-btn danger" id="deleteSelectedGamesBtn" data-action="deleteSelectedGames" disabled>Delete Selected</button>
-        </div>
-    </div>
-</div>
-
-
 <!-- Text Lines Deletion Modal -->
 <div id="textLinesModal" class="modal">
     <div class="modal-content">
@@ -143,52 +92,8 @@
         <div class="modal-body">
             <p class="warning-text">Remove specific lines of text from all games using preset patterns or custom regex. This operation cannot be undone.</p>
             
-            <div class="form-group">
-                <label class="form-label">Preset Patterns:</label>
-                <select id="presetPatterns" class="form-input">
-                    <option value="">Select a preset pattern...</option>
-                    <option value="lines_over_50">Lines over 50 characters</option>
-                    <option value="lines_over_100">Lines over 100 characters</option>
-                    <option value="non_japanese">Non-Japanese text</option>
-                    <option value="ascii_only">ASCII-only lines</option>
-                    <option value="empty_lines">Empty or whitespace-only lines</option>
-                    <option value="numbers_only">Lines with numbers only</option>
-                    <option value="single_char">Single character lines</option>
-                    <option value="repeated_chars">Lines with repeated characters (3+ times)</option>
-                </select>
-                <small style="color: var(--text-tertiary); font-size: 12px;">
-                    Select a common pattern or create a custom regex below.
-                </small>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Custom Regex Pattern:</label>
-                <input type="text" id="customRegex" class="form-input" placeholder="Enter custom regex pattern (e.g., ^.{0,10}$ for lines 10 chars or less)">
-                <small style="color: var(--text-tertiary); font-size: 12px;">
-                    Use regex syntax. Leave empty to use exact text matching below.
-                </small>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Exact Text to Delete:</label>
-                <textarea id="textToDelete" class="form-textarea" rows="4" placeholder="Enter exact text lines to delete, one per line..."></textarea>
-                <small style="color: var(--text-tertiary); font-size: 12px;">
-                    Each line will be treated as an exact match. Only used if no regex pattern is provided.
-                </small>
-            </div>
-            
-            <div class="form-group">
-                <div class="checkbox-container">
-                    <input type="checkbox" id="caseSensitiveDelete" class="checkbox-input">
-                    <label for="caseSensitiveDelete" class="checkbox-label">Case sensitive matching</label>
-                </div>
-            </div>
-            
-            <div class="form-group">
-                <div class="checkbox-container">
-                    <input type="checkbox" id="useRegexDelete" class="checkbox-input">
-                    <label for="useRegexDelete" class="checkbox-label">Treat custom pattern as regex</label>
-                </div>
+            <div id="textLinesRegexComponent" data-show-exact-text="true">
+                {% include 'components/regex-input.html' %}
             </div>
             
             <div id="previewDeleteResults" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 5px; margin: 15px 0;">
@@ -291,6 +196,343 @@
     </div>
 </div>
 
+<!-- Unified Game Data Management Modal -->
+<div id="gameDataModal" class="modal">
+    <div class="modal-content" style="max-width: 95vw; max-height: 90vh; width: 95vw; height: 90vh;">
+        <div class="modal-header">
+            <h3>Manage Games & Data</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="gameDataModal">&times;</span>
+        </div>
+        
+        <!-- Tab Navigation -->
+        <div class="modal-tabs">
+            <button class="tab-btn active" data-tab="linkGames">🔗 Link Games</button>
+            <button class="tab-btn" data-tab="manageGames">⚙️ Manage Games</button>
+            <button class="tab-btn" data-tab="bulkOperations">📦 Bulk Operations</button>
+        </div>
+        
+        <div class="modal-body" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+            
+            <!-- Tab 1: Link Games -->
+            <div id="linkGamesTab" class="tab-content active" style="flex: 1; overflow-y: auto;">
+                <p class="info-text">Link your games to jiten.moe database for enhanced metadata, difficulty ratings, and cover images.</p>
+                
+                <div id="gameDataLoadingIndicator" class="loading-indicator">
+                    <div class="spinner"></div>
+                    <span>Loading games...</span>
+                </div>
+                
+                <div id="gameDataContent" style="display: none;">
+                    <div class="game-data-filters" style="margin-bottom: 20px;">
+                        <button class="action-btn primary" data-filter="all" id="filterAll">All Games</button>
+                        <button class="action-btn" data-filter="linked" id="filterLinked">Linked</button>
+                        <button class="action-btn" data-filter="unlinked" id="filterUnlinked">Unlinked</button>
+                    </div>
+                    
+                    <div id="gameDataList" style="max-height: none; overflow-y: auto;">
+                        <!-- Games will be populated here -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tab 2: Manage Games -->
+            <div id="manageGamesTab" class="tab-content" style="flex: 1; overflow-y: auto; display: none;">
+                <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid var(--warning-color);">
+                    <h4 style="margin: 0 0 10px 0; color: var(--warning-color);">⚠️ Important Distinctions</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; font-size: 14px;">
+                        <div>
+                            <strong style="color: var(--warning-color);">🔗 Unlink Game:</strong>
+                            <ul style="margin: 5px 0 0 20px; color: var(--text-secondary);">
+                                <li>Removes jiten.moe integration</li>
+                                <li>Preserves all sentences</li>
+                                <li>Can be re-linked later</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <strong style="color: var(--danger-color);">🗑️ Delete Game Lines:</strong>
+                            <ul style="margin: 5px 0 0 20px; color: var(--text-secondary);">
+                                <li><strong style="color: var(--danger-color);">PERMANENTLY</strong> deletes all sentences</li>
+                                <li><strong style="color: var(--danger-color);">CANNOT</strong> be undone</li>
+                                <li>Game data is lost <strong style="color: var(--danger-color);">FOREVER</strong></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="manageGamesLoadingIndicator" class="loading-indicator">
+                    <div class="spinner"></div>
+                    <span>Loading games...</span>
+                </div>
+                
+                <div id="manageGamesContent" style="display: none;">
+                    <div id="manageGamesList" style="max-height: none; overflow-y: auto;">
+                        <!-- Games with individual action buttons will be populated here -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tab 3: Bulk Operations -->
+            <div id="bulkOperationsTab" class="tab-content" style="flex: 1; overflow-y: auto; display: none;">
+                <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid var(--danger-color);">
+                    <h4 style="margin: 0 0 10px 0; color: var(--danger-color);">🚨 Bulk Operations Warning</h4>
+                    <p style="margin: 0; color: var(--text-secondary); font-size: 14px;">
+                        These operations affect multiple games at once. <strong style="color: var(--danger-color);">Deletion operations cannot be undone.</strong>
+                        When merging, the first selected game becomes the target for all merged data.
+                    </p>
+                </div>
+                
+                <div style="margin-bottom: 15px; padding: 10px; background: var(--bg-tertiary); border-radius: 5px; border-left: 4px solid var(--accent-color);">
+                    <small style="color: var(--text-secondary); font-size: 13px;">
+                        <strong>Note:</strong> Game names come from the OBS Scene, to change the name for future stats, change the scene name in OBS.
+                    </small>
+                </div>
+                
+                <div id="bulkGamesLoadingIndicator" class="loading-indicator">
+                    <div class="spinner"></div>
+                    <span>Loading games...</span>
+                </div>
+                
+                <div id="bulkGamesContent" style="display: none;">
+                    <div style="margin-bottom: 20px;">
+                        <button class="action-btn primary" data-action="selectAllGames">Select All</button>
+                        <button class="action-btn primary" data-action="selectNoGames">Select None</button>
+                    </div>
+                    <div id="bulkGamesList" style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 5px; padding: 10px;">
+                        <!-- Games with checkboxes will be populated here -->
+                    </div>
+                    
+                    <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                        <button class="action-btn warning" id="mergeSelectedGamesBtn" data-action="mergeSelectedGames" disabled>🔀 Merge Selected Games</button>
+                        <button class="action-btn danger" id="deleteSelectedGamesBtn" data-action="deleteSelectedGames" disabled>🗑️ Delete Selected Lines FOREVER</button>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+        
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="gameDataModal">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Jiten.moe Search Modal -->
+<div id="jitenSearchModal" class="modal">
+    <div class="modal-content" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3>Search jiten.moe Database</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="jitenSearchModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="search-info" style="margin-bottom: 20px;">
+                <p><strong>Searching for:</strong> <span id="searchingForGame"></span></p>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Search Term:</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="jitenSearchInput" class="form-input" placeholder="Enter game title to search...">
+                    <button class="action-btn primary" id="jitenSearchBtn">Search</button>
+                </div>
+                <small style="color: var(--text-tertiary); font-size: 12px;">
+                    Search supports Japanese, romaji, and English titles.
+                </small>
+            </div>
+            
+            <div id="jitenSearchResults" style="display: none;">
+                <h4>Search Results:</h4>
+                <div id="jitenResultsList" style="max-height: 400px; overflow-y: auto; margin-top: 15px;">
+                    <!-- Search results will be populated here -->
+                </div>
+            </div>
+            
+            <div id="jitenSearchError" class="error-text" style="display: none;"></div>
+            <div id="jitenSearchLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Searching jiten.moe...</span>
+            </div>
+            
+            <div style="margin-top: 20px; padding: 15px; background: var(--bg-tertiary); border-radius: 8px; border-left: 4px solid var(--accent-color);">
+                <p style="margin: 0; color: var(--text-secondary); font-size: 14px;">
+                    <strong>💡 Not found?</strong> Either contribute it to <a href="https://jiten.moe/" target="_blank" rel="noopener noreferrer" style="color: var(--accent-color); text-decoration: underline;">Jiten</a> or click Edit on the unlinked game to make a manual game.
+                </p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="jitenSearchModal">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Game Link Confirmation Modal -->
+<div id="gameLinkConfirmModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3>Confirm Game Link</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="gameLinkConfirmModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="link-preview">
+                <div class="current-game" style="margin-bottom: 20px;">
+                    <h4>Your Game:</h4>
+                    <div id="currentGamePreview" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px;">
+                        <!-- Current game info will be populated here -->
+                    </div>
+                </div>
+                
+                <div class="jiten-game" style="margin-bottom: 20px;">
+                    <h4>jiten.moe Match:</h4>
+                    <div id="jitenGamePreview" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px;">
+                        <!-- Jiten game info will be populated here -->
+                    </div>
+                </div>
+                
+                <div class="manual-overrides-warning" id="manualOverridesWarning" style="display: none; background: var(--warning-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                    <strong>⚠️ Manual Overrides Detected:</strong>
+                    <div id="overriddenFieldsList"></div>
+                    <small>These manually edited fields will NOT be overwritten.</small>
+                </div>
+            </div>
+            
+            <div id="linkConfirmError" class="error-text" style="display: none;"></div>
+            <div id="linkConfirmLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Linking game...</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="gameLinkConfirmModal">Cancel</button>
+            <button class="action-btn success" id="confirmLinkBtn">Link Game</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Game Modal -->
+<div id="editGameModal" class="modal">
+    <div class="modal-content" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3>Edit Game</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="editGameModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p class="info-text">Edit game information. All changes will be marked as manual overrides and won't be overwritten by jiten.moe linking.</p>
+            
+            <form id="editGameForm">
+                <input type="hidden" id="editGameId" value="">
+                
+                <div class="form-group">
+                    <label class="form-label">Original Title (Japanese) *</label>
+                    <input type="text" id="editTitleOriginal" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Romaji Title</label>
+                    <input type="text" id="editTitleRomaji" class="form-input">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">English Title</label>
+                    <input type="text" id="editTitleEnglish" class="form-input">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Type</label>
+                    <select id="editType" class="form-input">
+                        <option value="">Select type...</option>
+                        <option value="Visual Novel">Visual Novel</option>
+                        <option value="Anime">Anime</option>
+                        <option value="Manga">Manga</option>
+                        <option value="Game">Game</option>
+                        <option value="Light Novel">Light Novel</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea id="editDescription" class="form-textarea" rows="4"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Difficulty (1-5)</label>
+                    <input type="number" id="editDifficulty" class="form-input" min="1" max="5">
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        1 = Easiest, 5 = Hardest
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Deck ID (jiten.moe)</label>
+                    <input type="number" id="editDeckId" class="form-input">
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        The jiten.moe deck identifier
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Character Count</label>
+                    <input type="number" id="editCharacterCount" class="form-input" min="0">
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        Total character count (usually auto-calculated)
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Cover Image</label>
+                    <div id="editImagePreview" style="margin-bottom: 10px; display: none;">
+                        <img id="editImagePreviewImg" style="max-width: 200px; max-height: 200px; border-radius: 8px; border: 1px solid var(--border-color);" alt="Cover preview">
+                    </div>
+                    <input type="file" id="editImageUpload" class="form-input" accept="image/*">
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        Upload a new cover image (will be converted to base64)
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Release Date</label>
+                    <input type="date" id="editReleaseDate" class="form-input">
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        Game release date (will be marked as manual override if edited)
+                    </small>
+                </div>
+                
+                <div class="form-group" style="display: none;">
+                    <label class="form-label">Links (JSON Array)</label>
+                    <textarea id="editLinks" class="form-textarea" rows="4" placeholder='[{"linkType": 4, "url": "https://example.com", "deckId": 123}]'></textarea>
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        JSON array of link objects. Leave empty for no links.
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Links (list, converted to JSON)</label>
+                    <textarea id="editLinksList" class="form-textarea" rows="6" placeholder="https://example.com&#10;https://vndb.org/v1234&#10;https://another-link.com"></textarea>
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        Enter one URL per line. These will be automatically converted to JSON format when saved.
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="editCompleted" class="checkbox-input">
+                        <label for="editCompleted" class="checkbox-label">Mark as completed</label>
+                    </div>
+                </div>
+            </form>
+            
+            <div id="editGameError" class="error-text" style="display: none;"></div>
+            <div id="editGameLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Saving changes...</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="editGameModal">Cancel</button>
+            <button class="action-btn success" id="saveGameEditsBtn" onclick="saveGameEdits()">Save Changes</button>
+        </div>
+    </div>
+</div>
+
 <!-- Game Merge Confirmation Modal -->
 <div id="gameMergeModal" class="modal">
     <div class="modal-content" style="max-width: 700px;">
@@ -354,8 +596,213 @@
     </div>
 </div>
 
-<!-- Include shared JavaScript first (required dependency for database.js) -->
+<!-- Individual Game Unlink Confirmation Modal -->
+<div id="individualGameUnlinkModal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3 style="color: var(--warning-color);">🔗 Unlink Game</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="individualGameUnlinkModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div style="background: var(--warning-color); color: #333; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+                <h4 style="margin: 0 0 10px 0;">⚠️ UNLINK GAME</h4>
+                <p style="margin: 0; font-weight: 600;">This removes jiten.moe integration but preserves all sentences</p>
+            </div>
+            
+            <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h4 style="margin: 0 0 10px 0; color: var(--text-primary);">Game Information:</h4>
+                <div class="stats-row">
+                    <span class="stats-label">Game Name:</span>
+                    <span class="stats-value" id="unlinkGameName">-</span>
+                </div>
+                <div class="stats-row">
+                    <span class="stats-label">Sentences:</span>
+                    <span class="stats-value" id="unlinkGameSentences">-</span>
+                </div>
+                <div class="stats-row">
+                    <span class="stats-label">Characters:</span>
+                    <span class="stats-value" id="unlinkGameCharacters">-</span>
+                </div>
+                <div class="stats-row">
+                    <span class="stats-label">Release Date:</span>
+                    <span class="stats-value" id="unlinkGameReleaseDate">-</span>
+                </div>
+            </div>
+            
+            <div style="background: var(--bg-secondary); padding: 15px; border-radius: 8px; border: 1px solid var(--success-color);">
+                <h4 style="margin: 0 0 10px 0; color: var(--success-color);">✅ What will happen:</h4>
+                <ul style="margin: 0; padding-left: 20px; color: var(--text-secondary);">
+                    <li>Removes jiten.moe metadata (cover image, difficulty, etc.)</li>
+                    <li><strong style="color: var(--success-color);">All sentences are preserved</strong></li>
+                    <li>Game can be re-linked to jiten.moe later</li>
+                    <li>No data is permanently lost</li>
+                </ul>
+            </div>
+            
+            <div id="individualUnlinkError" class="error-text" style="display: none;"></div>
+            <div id="individualUnlinkLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Unlinking game...</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="individualGameUnlinkModal">Cancel</button>
+            <button class="action-btn warning" id="confirmIndividualUnlinkBtn">🔗 Unlink Game</button>
+        </div>
+    </div>
+</div>
+
+<!-- Individual Game Delete Lines Confirmation Modal -->
+<div id="individualGameDeleteModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3 style="color: var(--danger-color);">🗑️ DELETE GAME LINES FOREVER</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="individualGameDeleteModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div style="background: var(--danger-color); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center; border: 3px solid #dc3545;">
+                <h2 style="margin: 0 0 10px 0; font-size: 24px;">🚨 DANGER ZONE 🚨</h2>
+                <h3 style="margin: 0 0 10px 0; font-size: 20px;">PERMANENT DELETION</h3>
+                <p style="margin: 0; font-weight: 600; font-size: 16px;">ALL SENTENCES WILL BE DELETED FOREVER</p>
+                <p style="margin: 5px 0 0 0; font-size: 14px;">THIS CANNOT BE UNDONE</p>
+            </div>
+            
+            <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h4 style="margin: 0 0 10px 0; color: var(--text-primary);">Game to be DELETED:</h4>
+                <div class="stats-row">
+                    <span class="stats-label">Game Name:</span>
+                    <span class="stats-value" id="deleteGameName">-</span>
+                </div>
+                <div class="stats-row">
+                    <span class="stats-label">Sentences to DELETE:</span>
+                    <span class="stats-value" style="color: var(--danger-color); font-weight: 700;" id="deleteGameSentences">-</span>
+                </div>
+                <div class="stats-row">
+                    <span class="stats-label">Characters to DELETE:</span>
+                    <span class="stats-value" style="color: var(--danger-color); font-weight: 700;" id="deleteGameCharacters">-</span>
+                </div>
+            </div>
+            
+            <div style="background: var(--danger-color); color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h4 style="margin: 0 0 10px 0;">💀 WHAT WILL BE LOST FOREVER:</h4>
+                <ul style="margin: 0; padding-left: 20px;">
+                    <li><strong>ALL sentences from this game</strong></li>
+                    <li><strong>ALL character progress data</strong></li>
+                    <li><strong>ALL timestamps and metadata</strong></li>
+                    <li><strong>EVERYTHING related to this game</strong></li>
+                </ul>
+                <p style="margin: 10px 0 0 0; font-weight: 700; text-align: center; font-size: 16px;">
+                    ⚠️ THIS ACTION CANNOT BE REVERSED ⚠️
+                </p>
+            </div>
+            
+            <div style="background: var(--bg-secondary); padding: 15px; border-radius: 8px; border: 2px solid var(--warning-color);">
+                <h4 style="margin: 0 0 10px 0; color: var(--warning-color);">💡 Alternative: Consider "Unlink" instead</h4>
+                <p style="margin: 0; color: var(--text-secondary);">
+                    If you just want to remove jiten.moe integration, use "Unlink Game" instead.
+                    This preserves all your sentences and can be reversed later.
+                </p>
+            </div>
+            
+            <div id="individualDeleteError" class="error-text" style="display: none;"></div>
+            <div id="individualDeleteLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Deleting game lines...</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="individualGameDeleteModal">Cancel</button>
+            <button class="action-btn danger" id="confirmIndividualDeleteBtn" style="background: var(--danger-color); font-weight: 700;">
+                🗑️ DELETE FOREVER
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Individual Game Unlink Confirmation Modal (Alternative) -->
+<div id="individualGameUnlinkAltModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3>Unlink Game</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="individualGameUnlinkAltModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p class="warning-text">⚠️ You are about to unlink this game from the database.</p>
+            
+            <div class="game-info" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin: 15px 0;">
+                <h4 style="margin: 0 0 10px 0; color: var(--text-primary);" id="unlinkAltGameName">Game Name</h4>
+                <div class="stats-row">
+                    <span class="stats-label">Sentences:</span>
+                    <span class="stats-value" id="unlinkAltGameSentences">0</span>
+                </div>
+                <div class="stats-row">
+                    <span class="stats-label">Characters:</span>
+                    <span class="stats-value" id="unlinkAltGameCharacters">0</span>
+                </div>
+            </div>
+            
+            <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 5px; border-left: 4px solid var(--warning-color); margin: 15px 0;">
+                <p style="margin: 0; color: var(--text-secondary); font-size: 14px;">
+                    <strong>Important:</strong> This will unlink the game but <strong>preserve all sentence data</strong>.
+                    The sentences will become "orphaned" but can be re-linked to a game later if needed.
+                </p>
+            </div>
+            
+            <div id="individualUnlinkAltError" class="error-text" style="display: none;"></div>
+            <div id="individualUnlinkAltLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Unlinking game...</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="individualGameUnlinkAltModal">Cancel</button>
+            <button class="action-btn warning" id="confirmIndividualUnlinkAltBtn">Unlink Game</button>
+        </div>
+    </div>
+</div>
+
+<!-- Database Management Success/Error Popups -->
+<div id="databaseSuccessPopup" class="dashboard-popup hidden">
+    <div class="dashboard-popup-content">
+        <div class="dashboard-popup-icon">✅</div>
+        <div class="dashboard-popup-message" id="databaseSuccessMessage">Operation completed successfully!</div>
+        <button id="closeDatabaseSuccessBtn" class="dashboard-popup-btn">OK</button>
+    </div>
+</div>
+
+<div id="databaseErrorPopup" class="dashboard-popup hidden">
+    <div class="dashboard-popup-content">
+        <div class="dashboard-popup-icon">❌</div>
+        <div class="dashboard-popup-message" id="databaseErrorMessage">An error occurred!</div>
+        <button id="closeDatabaseErrorBtn" class="dashboard-popup-btn">OK</button>
+    </div>
+</div>
+
+<div id="databaseConfirmPopup" class="dashboard-popup hidden">
+    <div class="dashboard-popup-content">
+        <div class="dashboard-popup-icon">❓</div>
+        <div class="dashboard-popup-message" id="databaseConfirmMessage">Are you sure?</div>
+        <div style="display: flex; gap: 10px; margin-top: 15px;">
+            <button id="databaseConfirmYesBtn" class="dashboard-popup-btn" style="background: var(--danger-color);">Yes</button>
+            <button id="databaseConfirmNoBtn" class="dashboard-popup-btn">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Include shared JavaScript first (required dependency for all database modules) -->
 <script src="/static/js/shared.js"></script>
+
+<!-- Load database modules in dependency order -->
+<script src="/static/js/database-helpers.js"></script>
+<script src="/static/js/database-popups.js"></script>
+<script src="/static/js/database-tabs.js"></script>
+<script src="/static/js/database-game-data.js"></script>
+<script src="/static/js/database-bulk-operations.js"></script>
+<script src="/static/js/database-text-management.js"></script>
+<script src="/static/js/database-jiten-integration.js"></script>
+<script src="/static/js/database-game-operations.js"></script>
+
+<!-- Load main database.js last (orchestrator) -->
 <script src="/static/js/database.js"></script>
 
 </body>

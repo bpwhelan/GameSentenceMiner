@@ -1,7 +1,7 @@
 // electron-src/main/launchers/obs.ts
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import path from 'path';
-import { BASE_DIR, getAssetsDir, isWindows, isWindows10OrHigher } from '../util.js';
+import { BASE_DIR, getAssetsDir, isLinux, isWindows, isWindows10OrHigher } from '../util.js';
 import { isQuitting } from '../main.js';
 import { exec } from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
@@ -582,6 +582,9 @@ export async function registerOBSIPC() {
 
     ipcMain.handle('obs.getWindows', async () => {
         try {
+            if (!isWindows()) {
+                return ["Not Supported"];
+            }
             await getOBSConnection();
             const response = await getWindowList();
             return response.map((item: any) => ({

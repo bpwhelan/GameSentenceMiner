@@ -64,7 +64,8 @@ class OBSConnectionPool:
             except Exception as e:
                 if str(e) == self.last_error_shown[i]:
                     continue
-                logger.error(f"Failed to create client {i} in pool: {e}")
+                if self.connected_once:
+                    logger.error(f"Failed to create client {i} in pool during initial connection: {e}")
                 self.last_error_shown[i] = str(e)
         return True
 

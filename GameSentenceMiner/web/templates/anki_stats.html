@@ -3,7 +3,7 @@
 {% set page_title = 'Anki and GSM Kanji Stats' %}
 {% set page_specific_css = 'stats.css' %}
 {% set include_kanji_grid_css = true %}
-{% set include_chart_js = true %}
+{% set include_chartjs = true %}
 {% set include_html2canvas = true %}
 {% include 'components/html-head.html' %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/loading-skeleton.css') }}">
@@ -134,23 +134,6 @@
         </div>
     </div>
     -->
-
-    <!-- Missing High-Frequency Kanji Section -->
-    <!-- Mining Heatmap Card (Full Width) -->
-    <div class="dashboard-card all-games" id="miningHeatmapCard" style="margin-bottom: 24px;">
-        <div class="dashboard-card-header">
-            <h3 class="dashboard-card-title">
-                <span class="dashboard-card-icon">📊</span>
-                Mining Heatmap
-            </h3>
-            <p class="dashboard-card-subtitle">Track your daily sentence mining progress</p>
-        </div>
-        
-        <div class="dashboard-progress-section">
-            <div class="dashboard-progress-title">Activity Heatmap</div>
-            <div id="miningHeatmapContainer"></div>
-        </div>
-    </div>
 
     <!-- Dashboard Statistics Sections -->
     <div class="dashboard-container">
@@ -327,6 +310,9 @@
     </div>
     {% include 'components/settings-modal.html' %}
 </div>
+
+<!-- Include shared settings modal -->
+{% include 'components/settings-modal.html' %}
 
 <!-- Include shared JavaScript configuration -->
 {% set include_kanji_grid_js = true %}

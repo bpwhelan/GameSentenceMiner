@@ -324,13 +324,15 @@ class AnkiConfirmationDialog(tk.Toplevel):
         # Clean up audio before closing
         self._cleanup_audio()
         # The screenshot_path is now correctly updated if the user chose a new one
-        self.result = (True, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip() if self.translation_text else None, self.screenshot_path, self.nsfw_tag_var.get())
+        # Include audio_path in the result tuple so TTS audio can be sent to Anki
+        self.result = (True, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip() if self.translation_text else None, self.screenshot_path, self.nsfw_tag_var.get(), self.audio_path)
         self.destroy()
 
     def _on_no_voice(self):
         # Clean up audio before closing
         self._cleanup_audio()
-        self.result = (False, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip() if self.translation_text else None, self.screenshot_path, self.nsfw_tag_var.get())
+        # Include audio_path in the result tuple so TTS audio can be sent to Anki
+        self.result = (False, self.sentence_text.get("1.0", tk.END).strip(), self.translation_text.get("1.0", tk.END).strip() if self.translation_text else None, self.screenshot_path, self.nsfw_tag_var.get(), self.audio_path)
         self.destroy()
         
     def _on_cancel(self):
