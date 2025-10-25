@@ -21,6 +21,7 @@
         <!-- Include shared popup components -->
         {% include 'components/popups.html' %}
 
+        <!-- SECTION 1: Summary Cards -->
         <div class="dashboard-card peak-stats">
             <div class="dashboard-card-header">
                 <h3 class="dashboard-card-title">
@@ -102,6 +103,33 @@
             </div>
         </div>
         <br>
+
+        <!-- SECTION 2: Daily Activity (Last 4 Weeks) -->
+        <div class="chart-container">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h2 style="margin: 0;" id="dailyTimeChartTitle">📊 Daily Reading Time (Last 4 Weeks)</h2>
+                <button id="toggleTimeDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+            </div>
+            <canvas id="dailyTimeChart"></canvas>
+        </div>
+
+        <div class="chart-container">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h2 style="margin: 0;" id="dailyCharsChartTitle">📚 Daily Characters Read (Last 4 Weeks)</h2>
+                <button id="toggleCharsDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+            </div>
+            <canvas id="dailyCharsChart"></canvas>
+        </div>
+
+        <div class="chart-container">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h2 style="margin: 0;" id="dailySpeedChartTitle">⚡ Daily Reading Speed (Last 4 Weeks)</h2>
+                <button id="toggleSpeedDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+            </div>
+            <canvas id="dailySpeedChart"></canvas>
+        </div>
+
+        <!-- SECTION 3: Overall Progress Over Time -->
         <div class="chart-container">
             <h2>Lines Received Over Time</h2>
             <canvas id="linesChart"></canvas>
@@ -113,20 +141,27 @@
         </div>
 
         <div class="chart-container">
-            <h2>Reading Chars Quantity</h2>
-            <canvas id="readingCharsChart"></canvas>
-        </div>
-
-        <div class="chart-container">
             <h2>Reading Time Quantity</h2>
             <canvas id="readingTimeChart"></canvas>
         </div>
 
         <div class="chart-container">
+            <h2>Reading Chars Quantity</h2>
+            <canvas id="readingCharsChart"></canvas>
+        </div>
+
+        <!-- SECTION 4: Reading Speed Analysis -->
+        <div class="chart-container">
             <h2>Reading Speed Improvement</h2>
             <canvas id="readingSpeedPerGameChart"></canvas>
         </div>
 
+        <div class="chart-container">
+            <h2>📉 Reading Speed by Game Difficulty</h2>
+            <canvas id="difficultySpeedChart"></canvas>
+        </div>
+
+        <!-- SECTION 5: Time Patterns -->
         <div class="chart-container">
             <h2>Time of Day Activity Pattern</h2>
             <canvas id="hourlyActivityChart"></canvas>
@@ -135,16 +170,6 @@
         <div class="chart-container">
             <h2>Hourly Reading Speed</h2>
             <canvas id="hourlyReadingSpeedChart"></canvas>
-        </div>
-
-        <div class="chart-container">
-            <h2>🏆 Top 5 Reading Speed Days</h2>
-            <canvas id="topReadingSpeedDaysChart"></canvas>
-        </div>
-
-        <div class="chart-container">
-            <h2>📚 Top 5 Most Productive Days</h2>
-            <canvas id="topCharacterDaysChart"></canvas>
         </div>
 
         <div class="chart-container">
@@ -157,11 +182,18 @@
             <canvas id="avgHoursByDayChart"></canvas>
         </div>
 
+        <!-- SECTION 6: Top Performance Days -->
         <div class="chart-container">
-            <h2>📉 Reading Speed by Game Difficulty</h2>
-            <canvas id="difficultySpeedChart"></canvas>
+            <h2>🏆 Top 5 Reading Speed Days</h2>
+            <canvas id="topReadingSpeedDaysChart"></canvas>
         </div>
 
+        <div class="chart-container">
+            <h2>📚 Top 5 Most Productive Days</h2>
+            <canvas id="topCharacterDaysChart"></canvas>
+        </div>
+
+        <!-- SECTION 7: Mining Activity -->
         <div class="chart-container">
             <h2>Cards Mined Over Last 30 Days</h2>
             <canvas id="cardsMinedChart"></canvas>
@@ -186,6 +218,7 @@
             </div>
         </div>
 
+        <!-- SECTION 8: Kanji Grid (Bottom) -->
         <div class="chart-container">
             <h2>Kanji Grid</h2>
             <div id="kanjiGridContainer">
@@ -238,6 +271,9 @@
     {% set include_heatmap_js = true %}
     {% set page_specific_js = 'stats.js' %}
     {% include 'components/js-config.html' %}
+    
+    <!-- Load bar chart component before stats.js to ensure it's available -->
+    <script src="/static/js/components/bar-chart.js"></script>
 
 </body>
 

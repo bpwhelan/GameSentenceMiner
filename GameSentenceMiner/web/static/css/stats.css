@@ -10,6 +10,29 @@
     border: 1px solid var(--border-color);
 }
 
+.chart-toggle-btn {
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.chart-toggle-btn:hover {
+    background: #0056b3;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.chart-toggle-btn:active {
+    transform: translateY(0);
+}
+
 .heatmap-year {
     margin-bottom: 30px;
 }

@@ -1766,6 +1766,91 @@ def register_stats_api_routes(app):
             logger.error(f"Error fetching config {filename}: {e}")
             return jsonify({"error": "Failed to fetch configuration"}), 500
 
+    @app.route("/api/daily-activity", methods=["GET"])
+    def api_daily_activity():
+        """
+        Get daily activity data (time and characters) for the last 4 weeks or all time.
+        Returns data from the rollup table ONLY (no live data).
+        Uses historical data up to today (inclusive).
+        
+        Query Parameters:
+        - all_time: If 'true', returns all available data from first rollup date to today
+        """
+        try:
+            # Check if all-time data is requested
+            use_all_time = request.args.get('all_time', 'false').lower() == 'true'
+            
+            today = datetime.date.today()
+            
+            if use_all_time:
+                # Get all data from first rollup date to today
+                first_rollup_date = StatsRollupTable.get_first_date()
+                if not first_rollup_date:
+                    return jsonify({
+                        "labels": [],
+                        "timeData": [],
+                        "charsData": [],
+                        "speedData": []
+                    }), 200
+                
+                start_date = datetime.datetime.strptime(first_rollup_date, "%Y-%m-%d").date()
+            else:
+                # Get date range for last 4 weeks (28 days) - INCLUDING today
+                start_date = today - datetime.timedelta(days=27)  # 28 days of data
+            
+            # Get rollup data for the date range (up to today, inclusive)
+            rollups = StatsRollupTable.get_date_range(
+                start_date.strftime("%Y-%m-%d"),
+                today.strftime("%Y-%m-%d")
+            )
+            
+            # Build response data
+            labels = []
+            time_data = []
+            chars_data = []
+            speed_data = []
+            
+            # Create a map of existing rollup data
+            rollup_map = {rollup.date: rollup for rollup in rollups}
+            
+            # Fill in all dates in the range (including days with no data)
+            current_date = start_date
+            while current_date <= today:
+                date_str = current_date.strftime("%Y-%m-%d")
+                labels.append(date_str)
+                
+                if date_str in rollup_map:
+                    rollup = rollup_map[date_str]
+                    # Convert seconds to hours
+                    time_hours = rollup.total_reading_time_seconds / 3600
+                    time_data.append(round(time_hours, 2))
+                    chars_data.append(rollup.total_characters)
+                    
+                    # Calculate reading speed (chars/hour)
+                    if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
+                        speed = int(rollup.total_characters / time_hours)
+                        speed_data.append(speed)
+                    else:
+                        speed_data.append(0)
+                else:
+                    # No data for this day
+                    time_data.append(0)
+                    chars_data.append(0)
+                    speed_data.append(0)
+                
+                current_date += datetime.timedelta(days=1)
+            
+            return jsonify({
+                "labels": labels,
+                "timeData": time_data,
+                "charsData": chars_data,
+                "speedData": speed_data
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error fetching daily activity: {e}", exc_info=True)
+            return jsonify({"error": "Failed to fetch daily activity"}), 500
+
     @app.route("/api/today-stats", methods=["GET"])
     def api_today_stats():
         """

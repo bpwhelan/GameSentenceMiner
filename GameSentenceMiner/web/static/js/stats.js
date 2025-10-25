@@ -529,15 +529,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Function to create hourly activity bar chart
     function createHourlyActivityChart(canvasId, hourlyData) {
-        const canvas = document.getElementById(canvasId);
-        if (!canvas || !hourlyData || !Array.isArray(hourlyData)) return null;
-        
-        const ctx = canvas.getContext('2d');
-        
-        // Destroy existing chart if it exists
-        if (window.myCharts[canvasId]) {
-            window.myCharts[canvasId].destroy();
-        }
+        if (!hourlyData || !Array.isArray(hourlyData)) return null;
         
         // Create hour labels (0-23)
         const hourLabels = [];
@@ -547,130 +539,41 @@ document.addEventListener('DOMContentLoaded', function () {
             hourLabels.push(`${hour12}${ampm}`);
         }
         
-        // Generate gradient colors for bars based on activity values
-        const maxActivity = Math.max(...hourlyData.filter(activity => activity > 0));
-        const minActivity = Math.min(...hourlyData.filter(activity => activity > 0));
-        
-        const barColors = hourlyData.map(activity => {
-            if (activity === 0) {
-                return getCurrentTheme() === 'dark' ? 'rgba(100, 100, 100, 0.3)' : 'rgba(200, 200, 200, 0.3)';
-            }
-            
-            // Create color gradient from red (low activity) to green (high activity)
-            const normalizedActivity = maxActivity > minActivity ? (activity - minActivity) / (maxActivity - minActivity) : 0.5;
-            const hue = normalizedActivity * 120; // 0 = red, 120 = green
-            return `hsla(${hue}, 70%, 50%, 0.8)`;
-        });
-        
-        const borderColors = hourlyData.map(activity => {
-            if (activity === 0) {
-                return getCurrentTheme() === 'dark' ? 'rgba(100, 100, 100, 0.6)' : 'rgba(200, 200, 200, 0.6)';
-            }
-            
-            const normalizedActivity = maxActivity > minActivity ? (activity - minActivity) / (maxActivity - minActivity) : 0.5;
-            const hue = normalizedActivity * 120;
-            return `hsla(${hue}, 70%, 40%, 1)`;
-        });
-
-        window.myCharts[canvasId] = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: hourLabels,
-                datasets: [{
-                    label: 'Characters Read',
-                    data: hourlyData,
-                    backgroundColor: barColors,
-                    borderColor: borderColors,
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        display: false // Hide legend for cleaner look
-                    },
-                    title: {
-                        display: true,
-                        text: 'Reading Activity by Hour of Day',
-                        color: getThemeTextColor(),
-                        font: {
-                            size: 16,
-                            weight: 'bold'
-                        },
-                        padding: {
-                            top: 10,
-                            bottom: 20
-                        }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            title: function(context) {
-                                const hourIndex = context[0].dataIndex;
-                                const hour24 = hourIndex;
-                                const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
-                                const ampm = hour24 < 12 ? 'AM' : 'PM';
-                                return `${hour12}:00 ${ampm} (${hour24}:00)`;
-                            },
-                            label: function(context) {
-                                const activity = context.parsed.y;
-                                if (activity === 0) {
-                                    return 'No reading activity';
-                                }
-                                return `Characters: ${activity.toLocaleString()}`;
-                            },
-                            afterLabel: function(context) {
-                                const activity = context.parsed.y;
-                                if (activity === 0) return '';
-                                
-                                const total = hourlyData.reduce((sum, val) => sum + val, 0);
-                                const percentage = total > 0 ? ((activity / total) * 100).toFixed(1) : '0.0';
-                                return `${percentage}% of total activity`;
-                            }
-                        },
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                        titleColor: '#fff',
-                        bodyColor: '#fff',
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
-                        borderWidth: 1,
-                        cornerRadius: 8,
-                        displayColors: true
-                    }
+        const chart = new BarChartComponent(canvasId, {
+            title: 'Reading Activity by Hour of Day',
+            colorScheme: 'gradient',
+            yAxisLabel: 'Characters Read',
+            xAxisLabel: 'Hour of Day',
+            datasetLabel: 'Characters Read',
+            maxRotation: 0,
+            minRotation: 0,
+            tooltipFormatter: {
+                title: (context) => {
+                    const hourIndex = context[0].dataIndex;
+                    const hour24 = hourIndex;
+                    const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+                    const ampm = hour24 < 12 ? 'AM' : 'PM';
+                    return `${hour12}:00 ${ampm} (${hour24}:00)`;
                 },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Characters Read',
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor(),
-                            callback: function(value) {
-                                return value.toLocaleString();
-                            }
-                        }
-                    },
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Hour of Day',
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor()
-                        }
+                label: (context) => {
+                    const activity = context.parsed.y;
+                    if (activity === 0) {
+                        return 'No reading activity';
                     }
+                    return `Characters: ${activity.toLocaleString()}`;
                 },
-                animation: {
-                    duration: 1000,
-                    easing: 'easeOutQuart'
+                afterLabel: (context) => {
+                    const activity = context.parsed.y;
+                    if (activity === 0) return '';
+                    
+                    const total = hourlyData.reduce((sum, val) => sum + val, 0);
+                    const percentage = total > 0 ? ((activity / total) * 100).toFixed(1) : '0.0';
+                    return `${percentage}% of total activity`;
                 }
             }
         });
         
-        return window.myCharts[canvasId];
+        return chart.render(hourlyData, hourLabels);
     }
 
     // Function to create top 5 reading speed days horizontal bar chart
@@ -709,17 +612,17 @@ document.addEventListener('DOMContentLoaded', function () {
         const labels = top5Days.reverse().map(day => day.date);
         const speeds = top5Days.map(day => day.speed);
         
-        // Generate gradient colors from green (fastest) to yellow (5th fastest)
+        // Generate gradient colors from blue (fastest) to teal (5th fastest) - performance theme
         const colors = speeds.map((speed, index) => {
-            // Reverse index so top bar gets greenest color
+            // Reverse index so top bar gets best color
             const reverseIndex = speeds.length - 1 - index;
-            const hue = 120 - (reverseIndex * 20); // 120 (green) to 40 (yellow-orange)
+            const hue = 200 - (reverseIndex * 15); // 200 (blue) to 155 (cyan)
             return `hsla(${hue}, 70%, 50%, 0.8)`;
         });
         
         const borderColors = speeds.map((speed, index) => {
             const reverseIndex = speeds.length - 1 - index;
-            const hue = 120 - (reverseIndex * 20);
+            const hue = 200 - (reverseIndex * 15);
             return `hsla(${hue}, 70%, 40%, 1)`;
         });
         
@@ -829,25 +732,25 @@ document.addEventListener('DOMContentLoaded', function () {
         const charsData = dayOfWeekData.chars || [0, 0, 0, 0, 0, 0, 0];
         const hoursData = dayOfWeekData.hours || [0, 0, 0, 0, 0, 0, 0];
         
-        // Generate colors for each day
+        // Generate colors for each day - cohesive blue-purple gradient
         const colors = [
-            'rgba(255, 99, 132, 0.8)',   // Monday - Red
-            'rgba(255, 159, 64, 0.8)',   // Tuesday - Orange
-            'rgba(255, 205, 86, 0.8)',   // Wednesday - Yellow
-            'rgba(75, 192, 192, 0.8)',   // Thursday - Teal
-            'rgba(54, 162, 235, 0.8)',   // Friday - Blue
-            'rgba(153, 102, 255, 0.8)',  // Saturday - Purple
-            'rgba(201, 203, 207, 0.8)'   // Sunday - Gray
+            'rgba(54, 162, 235, 0.8)',   // Monday - Blue
+            'rgba(75, 192, 192, 0.8)',   // Tuesday - Teal
+            'rgba(102, 187, 106, 0.8)',  // Wednesday - Green
+            'rgba(255, 167, 38, 0.8)',   // Thursday - Orange
+            'rgba(239, 83, 80, 0.8)',    // Friday - Red
+            'rgba(171, 71, 188, 0.8)',   // Saturday - Purple
+            'rgba(126, 87, 194, 0.8)'    // Sunday - Deep Purple
         ];
         
         const borderColors = [
-            'rgba(255, 99, 132, 1)',
-            'rgba(255, 159, 64, 1)',
-            'rgba(255, 205, 86, 1)',
-            'rgba(75, 192, 192, 1)',
             'rgba(54, 162, 235, 1)',
-            'rgba(153, 102, 255, 1)',
-            'rgba(201, 203, 207, 1)'
+            'rgba(75, 192, 192, 1)',
+            'rgba(102, 187, 106, 1)',
+            'rgba(255, 167, 38, 1)',
+            'rgba(239, 83, 80, 1)',
+            'rgba(171, 71, 188, 1)',
+            'rgba(126, 87, 194, 1)'
         ];
         
         window.myCharts[canvasId] = new Chart(ctx, {
@@ -964,146 +867,45 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Function to create average hours by day bar chart
     function createAvgHoursByDayChart(canvasId, dayOfWeekData) {
-        const canvas = document.getElementById(canvasId);
-        if (!canvas || !dayOfWeekData) return null;
+        if (!dayOfWeekData) return null;
         
-        const ctx = canvas.getContext('2d');
-        
-        // Destroy existing chart if it exists
-        if (window.myCharts[canvasId]) {
-            window.myCharts[canvasId].destroy();
-        }
-        
-        // Day labels (Monday to Sunday)
         const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-        
-        // Get average hours data array (not total hours)
         const hoursData = dayOfWeekData.avg_hours || [0, 0, 0, 0, 0, 0, 0];
         
-        // Generate gradient colors based on hours (more hours = greener)
-        const maxHours = Math.max(...hoursData);
-        const barColors = hoursData.map(hours => {
-            if (hours === 0) {
-                return getCurrentTheme() === 'dark' ? 'rgba(100, 100, 100, 0.3)' : 'rgba(200, 200, 200, 0.3)';
-            }
-            
-            // Create color gradient from red (low hours) to green (high hours)
-            const normalizedHours = maxHours > 0 ? hours / maxHours : 0;
-            const hue = normalizedHours * 120; // 0 = red, 120 = green
-            return `hsla(${hue}, 70%, 50%, 0.8)`;
-        });
-        
-        const borderColors = hoursData.map(hours => {
-            if (hours === 0) {
-                return getCurrentTheme() === 'dark' ? 'rgba(100, 100, 100, 0.6)' : 'rgba(200, 200, 200, 0.6)';
-            }
-            
-            const normalizedHours = maxHours > 0 ? hours / maxHours : 0;
-            const hue = normalizedHours * 120;
-            return `hsla(${hue}, 70%, 40%, 1)`;
-        });
-        
-        window.myCharts[canvasId] = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: dayLabels,
-                datasets: [{
-                    label: 'Hours Read',
-                    data: hoursData,
-                    backgroundColor: barColors,
-                    borderColor: borderColors,
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    title: {
-                        display: true,
-                        text: 'Average Hours Read by Day of Week',
-                        color: getThemeTextColor(),
-                        font: {
-                            size: 16,
-                            weight: 'bold'
-                        },
-                        padding: {
-                            top: 10,
-                            bottom: 20
-                        }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            title: function(context) {
-                                return context[0].label;
-                            },
-                            label: function(context) {
-                                const hours = context.parsed.y;
-                                if (hours === 0) {
-                                    return 'No reading activity';
-                                }
-                                return `Hours: ${hours.toFixed(2)}`;
-                            },
-                            afterLabel: function(context) {
-                                const hours = context.parsed.y;
-                                if (hours === 0) return '';
-                                
-                                // Show comparison to weekly average
-                                const nonZeroHours = hoursData.filter(h => h > 0);
-                                if (nonZeroHours.length === 0) return '';
-                                
-                                const avgHours = nonZeroHours.reduce((sum, h) => sum + h, 0) / nonZeroHours.length;
-                                const comparison = hours > avgHours ? 'above' : hours < avgHours ? 'below' : 'at';
-                                const percentage = avgHours > 0 ? Math.abs(((hours - avgHours) / avgHours) * 100).toFixed(1) : '0';
-                                
-                                return `${percentage}% ${comparison} weekly average`;
-                            }
-                        },
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                        titleColor: '#fff',
-                        bodyColor: '#fff',
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
-                        borderWidth: 1,
-                        cornerRadius: 8,
-                        displayColors: true
+        const chart = new BarChartComponent(canvasId, {
+            title: 'Average Hours Read by Day of Week',
+            colorScheme: 'gradient',
+            yAxisLabel: 'Hours',
+            xAxisLabel: 'Day of Week',
+            datasetLabel: 'Hours Read',
+            maxRotation: 0,
+            minRotation: 0,
+            yAxisFormatter: (value) => value.toFixed(1),
+            tooltipFormatter: {
+                label: (context) => {
+                    const hours = context.parsed.y;
+                    if (hours === 0) {
+                        return 'No reading activity';
                     }
+                    return `Hours: ${hours.toFixed(2)}`;
                 },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Hours',
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor(),
-                            callback: function(value) {
-                                return value.toFixed(1);
-                            }
-                        }
-                    },
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Day of Week',
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor()
-                        }
-                    }
-                },
-                animation: {
-                    duration: 1000,
-                    easing: 'easeOutQuart'
+                afterLabel: (context) => {
+                    const hours = context.parsed.y;
+                    if (hours === 0) return '';
+                    
+                    const nonZeroHours = hoursData.filter(h => h > 0);
+                    if (nonZeroHours.length === 0) return '';
+                    
+                    const avgHours = nonZeroHours.reduce((sum, h) => sum + h, 0) / nonZeroHours.length;
+                    const comparison = hours > avgHours ? 'above' : hours < avgHours ? 'below' : 'at';
+                    const percentage = avgHours > 0 ? Math.abs(((hours - avgHours) / avgHours) * 100).toFixed(1) : '0';
+                    
+                    return `${percentage}% ${comparison} weekly average`;
                 }
             }
         });
         
-        return window.myCharts[canvasId];
+        return chart.render(hoursData, dayLabels);
     }
 
     // Function to create reading speed by difficulty bar chart
@@ -1125,16 +927,16 @@ document.addEventListener('DOMContentLoaded', function () {
             return null; // No data to display
         }
         
-        // Generate gradient colors from green (easy) to red (hard)
+        // Generate gradient colors from blue (easy) to orange (hard) - difficulty theme
         const colors = speeds.map((_, index) => {
             const ratio = index / Math.max(labels.length - 1, 1);
-            const hue = 120 - (ratio * 120); // 120 (green) to 0 (red)
+            const hue = 200 - (ratio * 170); // 200 (blue) to 30 (orange)
             return `hsla(${hue}, 70%, 50%, 0.8)`;
         });
         
         const borderColors = speeds.map((_, index) => {
             const ratio = index / Math.max(labels.length - 1, 1);
-            const hue = 120 - (ratio * 120);
+            const hue = 200 - (ratio * 170);
             return `hsla(${hue}, 70%, 40%, 1)`;
         });
         
@@ -1249,18 +1051,48 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         const ctx = canvas.getContext('2d');
-        const primaryColor = getCurrentTheme() === 'dark' ? '#4e9fff' : '#2980b9';
+        
+        // Generate gradient colors based on values (more = greener)
+        const maxVal = Math.max(...chartData.totals.filter(v => v > 0));
+        const minVal = Math.min(...chartData.totals.filter(v => v > 0));
+        const isDark = getCurrentTheme() === 'dark';
+        
+        const barColors = chartData.totals.map(value => {
+            if (value === 0) {
+                return isDark ? 'rgba(100, 100, 100, 0.3)' : 'rgba(200, 200, 200, 0.3)';
+            }
+            const normalized = maxVal > minVal ? (value - minVal) / (maxVal - minVal) : 0.5;
+            const hue = 30 + (normalized * 170); // 30 = orange, 200 = blue
+            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        });
+        
+        const borderColors = chartData.totals.map(value => {
+            if (value === 0) {
+                return isDark ? 'rgba(100, 100, 100, 0.6)' : 'rgba(200, 200, 200, 0.6)';
+            }
+            const normalized = maxVal > minVal ? (value - minVal) / (maxVal - minVal) : 0.5;
+            const hue = 30 + (normalized * 170);
+            return `hsla(${hue}, 70%, 40%, 1)`;
+        });
 
+        // Format labels to show weekend indicator
+        const formattedLabels = chartData.labels.map(dateStr => {
+            const date = new Date(dateStr);
+            const dayOfWeek = date.getDay();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            return isWeekend ? `${dateStr} 📅` : dateStr;
+        });
+        
         window.myCharts[canvasId] = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: chartData.labels,
+                labels: formattedLabels,
                 datasets: [
                     {
                         label: 'Cards Mined',
                         data: chartData.totals,
-                        backgroundColor: `${primaryColor}CC`,
-                        borderColor: primaryColor,
+                        backgroundColor: barColors,
+                        borderColor: borderColors,
                         borderWidth: 2,
                         borderRadius: 4
                     }
@@ -1275,11 +1107,19 @@ document.addEventListener('DOMContentLoaded', function () {
                     tooltip: {
                         callbacks: {
                             title: function (context) {
-                                return context[0].label;
+                                const index = context[0].dataIndex;
+                                return chartData.labels[index];
                             },
                             label: function (context) {
                                 const value = context.parsed.y || 0;
                                 return `Cards: ${value.toLocaleString()}`;
+                            },
+                            afterLabel: function(context) {
+                                const index = context[0].dataIndex;
+                                const date = new Date(chartData.labels[index]);
+                                const dayOfWeek = date.getDay();
+                                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                                return isWeekend ? '📅 Weekend' : '';
                             }
                         },
                         backgroundColor: 'rgba(0, 0, 0, 0.85)',
@@ -1339,15 +1179,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Function to create top 5 character count days horizontal bar chart
     function createTopCharacterDaysChart(canvasId, heatmapData) {
-        const canvas = document.getElementById(canvasId);
-        if (!canvas || !heatmapData) return null;
-        
-        const ctx = canvas.getContext('2d');
-        
-        // Destroy existing chart if it exists
-        if (window.myCharts[canvasId]) {
-            window.myCharts[canvasId].destroy();
-        }
+        if (!heatmapData) return null;
         
         // Extract all dates and character counts from heatmap data
         const allDays = [];
@@ -1364,114 +1196,23 @@ document.addEventListener('DOMContentLoaded', function () {
         allDays.sort((a, b) => b.chars - a.chars);
         const top5Days = allDays.slice(0, 5);
         
-        // If no data, show empty chart
-        if (top5Days.length === 0) {
-            return null;
-        }
+        if (top5Days.length === 0) return null;
         
         // Prepare data for horizontal bar chart (reverse order so highest is on top)
         const labels = top5Days.reverse().map(day => day.date);
         const charCounts = top5Days.map(day => day.chars);
         
-        // Generate gradient colors from blue (most productive) to cyan (5th most productive)
-        const colors = charCounts.map((chars, index) => {
-            // Reverse index so top bar gets bluest color
-            const reverseIndex = charCounts.length - 1 - index;
-            const hue = 200 - (reverseIndex * 15); // 200 (blue) to 155 (cyan)
-            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        const chart = new BarChartComponent(canvasId, {
+            title: 'Top 5 Most Productive Reading Days',
+            type: 'horizontal',
+            colorScheme: 'performance',
+            xAxisLabel: 'Characters Read',
+            yAxisLabel: 'Date',
+            datasetLabel: 'Characters Read',
+            valueFormatter: (value) => `Characters: ${value.toLocaleString()}`
         });
         
-        const borderColors = charCounts.map((chars, index) => {
-            const reverseIndex = charCounts.length - 1 - index;
-            const hue = 200 - (reverseIndex * 15);
-            return `hsla(${hue}, 70%, 40%, 1)`;
-        });
-        
-        window.myCharts[canvasId] = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Characters Read',
-                    data: charCounts,
-                    backgroundColor: colors,
-                    borderColor: borderColors,
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                indexAxis: 'y', // This makes it horizontal
-                responsive: true,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    title: {
-                        display: true,
-                        text: 'Top 5 Most Productive Reading Days',
-                        color: getThemeTextColor(),
-                        font: {
-                            size: 16,
-                            weight: 'bold'
-                        },
-                        padding: {
-                            top: 10,
-                            bottom: 20
-                        }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            title: function(context) {
-                                return context[0].label;
-                            },
-                            label: function(context) {
-                                const chars = context.parsed.x;
-                                return `Characters: ${chars.toLocaleString()}`;
-                            }
-                        },
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                        titleColor: '#fff',
-                        bodyColor: '#fff',
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
-                        borderWidth: 1,
-                        cornerRadius: 8,
-                        displayColors: true
-                    }
-                },
-                scales: {
-                    x: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Characters Read',
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor(),
-                            callback: function(value) {
-                                return value.toLocaleString();
-                            }
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Date',
-                            color: getThemeTextColor()
-                        },
-                        ticks: {
-                            color: getThemeTextColor()
-                        }
-                    }
-                },
-                animation: {
-                    duration: 1000,
-                    easing: 'easeOutQuart'
-                }
-            }
-        });
-        
-        return window.myCharts[canvasId];
+        return chart.render(charCounts, labels);
     }
 
     // Function to create hourly reading speed bar chart
@@ -1503,9 +1244,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 return getCurrentTheme() === 'dark' ? 'rgba(100, 100, 100, 0.3)' : 'rgba(200, 200, 200, 0.3)';
             }
             
-            // Create color gradient from red (slow) to green (fast)
+            // Create color gradient from orange (slow) to blue (fast) - performance theme
             const normalizedSpeed = maxSpeed > minSpeed ? (speed - minSpeed) / (maxSpeed - minSpeed) : 0.5;
-            const hue = normalizedSpeed * 120; // 0 = red, 120 = green
+            const hue = 30 + (normalizedSpeed * 170); // 30 = orange, 200 = blue
             return `hsla(${hue}, 70%, 50%, 0.8)`;
         });
         
@@ -1515,7 +1256,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             
             const normalizedSpeed = maxSpeed > minSpeed ? (speed - minSpeed) / (maxSpeed - minSpeed) : 0.5;
-            const hue = normalizedSpeed * 120;
+            const hue = 30 + (normalizedSpeed * 170);
             return `hsla(${hue}, 70%, 40%, 1)`;
         });
 
@@ -1643,6 +1384,429 @@ document.addEventListener('DOMContentLoaded', function () {
         emptyMessage: 'No kanji data available'
     });
     
+    // Function to create daily time bar chart with weekend markers
+    function createDailyTimeChart(canvasId, chartData, isAllTime = false) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !chartData) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        // Generate gradient colors based on values (more = greener)
+        const maxVal = Math.max(...chartData.timeData.filter(v => v > 0));
+        const minVal = Math.min(...chartData.timeData.filter(v => v > 0));
+        const isDark = getCurrentTheme() === 'dark';
+        
+        const barColors = chartData.timeData.map(value => {
+            if (value === 0) {
+                return isDark ? 'rgba(100, 100, 100, 0.3)' : 'rgba(200, 200, 200, 0.3)';
+            }
+            const normalized = maxVal > minVal ? (value - minVal) / (maxVal - minVal) : 0.5;
+            const hue = 30 + (normalized * 170); // 30 = orange, 200 = blue
+            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        });
+        
+        const borderColors = chartData.timeData.map(value => {
+            if (value === 0) {
+                return isDark ? 'rgba(100, 100, 100, 0.6)' : 'rgba(200, 200, 200, 0.6)';
+            }
+            const normalized = maxVal > minVal ? (value - minVal) / (maxVal - minVal) : 0.5;
+            const hue = 30 + (normalized * 170);
+            return `hsla(${hue}, 70%, 40%, 1)`;
+        });
+        
+        // Format labels to show day of week with weekend indicator
+        const formattedLabels = chartData.labels.map(dateStr => {
+            const date = new Date(dateStr);
+            const dayOfWeek = date.getDay();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            return isWeekend ? `${dayNames[dayOfWeek]} ${monthDay} 📅` : `${dayNames[dayOfWeek]} ${monthDay}`;
+        });
+        
+        // Update the title element
+        const titleElement = document.getElementById('dailyTimeChartTitle');
+        if (titleElement) {
+            titleElement.textContent = isAllTime ? '📊 Daily Reading Time (All Time)' : '📊 Daily Reading Time (Last 4 Weeks)';
+        }
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: formattedLabels,
+                datasets: [{
+                    label: 'Hours Read',
+                    data: chartData.timeData,
+                    backgroundColor: barColors,
+                    borderColor: borderColors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const index = context[0].dataIndex;
+                                return chartData.labels[index];
+                            },
+                            label: function(context) {
+                                const hours = context.parsed.y;
+                                if (hours === 0) {
+                                    return 'No reading activity';
+                                }
+                                const wholeHours = Math.floor(hours);
+                                const minutes = Math.round((hours - wholeHours) * 60);
+                                if (minutes > 0) {
+                                    return `Time: ${wholeHours}h ${minutes}m`;
+                                } else {
+                                    return `Time: ${wholeHours}h`;
+                                }
+                            },
+                            afterLabel: function(context) {
+                                const index = context[0].dataIndex;
+                                const date = new Date(chartData.labels[index]);
+                                const dayOfWeek = date.getDay();
+                                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                                return isWeekend ? '📅 Weekend' : '';
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Hours',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toFixed(1);
+                            }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            maxRotation: 45,
+                            minRotation: 45
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
+    // Function to create daily characters bar chart with gradient colors
+    function createDailyCharsChart(canvasId, chartData, isAllTime = false) {
+        if (!chartData) return null;
+        
+        // Format labels to show day of week with weekend indicator
+        const formattedLabels = chartData.labels.map(dateStr => {
+            const date = new Date(dateStr);
+            const dayOfWeek = date.getDay();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            return isWeekend ? `${dayNames[dayOfWeek]} ${monthDay} 📅` : `${dayNames[dayOfWeek]} ${monthDay}`;
+        });
+        
+        // Generate gradient colors based on values (more = greener)
+        const maxVal = Math.max(...chartData.charsData.filter(v => v > 0));
+        const minVal = Math.min(...chartData.charsData.filter(v => v > 0));
+        const isDark = getCurrentTheme() === 'dark';
+        
+        const barColors = chartData.charsData.map(value => {
+            if (value === 0) {
+                return isDark ? 'rgba(100, 100, 100, 0.3)' : 'rgba(200, 200, 200, 0.3)';
+            }
+            const normalized = maxVal > minVal ? (value - minVal) / (maxVal - minVal) : 0.5;
+            const hue = 30 + (normalized * 170); // 30 = orange, 200 = blue
+            return `hsla(${hue}, 70%, 50%, 0.8)`;
+        });
+        
+        const borderColors = chartData.charsData.map(value => {
+            if (value === 0) {
+                return isDark ? 'rgba(100, 100, 100, 0.6)' : 'rgba(200, 200, 200, 0.6)';
+            }
+            const normalized = maxVal > minVal ? (value - minVal) / (maxVal - minVal) : 0.5;
+            const hue = 30 + (normalized * 170);
+            return `hsla(${hue}, 70%, 40%, 1)`;
+        });
+        
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        // Update the title element
+        const titleElement = document.getElementById('dailyCharsChartTitle');
+        if (titleElement) {
+            titleElement.textContent = isAllTime ? '📚 Daily Characters Read (All Time)' : '📚 Daily Characters Read (Last 4 Weeks)';
+        }
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: formattedLabels,
+                datasets: [{
+                    label: 'Characters Read',
+                    data: chartData.charsData,
+                    backgroundColor: barColors,
+                    borderColor: borderColors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const index = context[0].dataIndex;
+                                return chartData.labels[index];
+                            },
+                            label: function(context) {
+                                const chars = context.parsed.y;
+                                if (chars === 0) {
+                                    return 'No reading activity';
+                                }
+                                return `Characters: ${chars.toLocaleString()}`;
+                            },
+                            afterLabel: function(context) {
+                                const index = context[0].dataIndex;
+                                const date = new Date(chartData.labels[index]);
+                                const dayOfWeek = date.getDay();
+                                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                                return isWeekend ? '📅 Weekend' : '';
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Characters',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            maxRotation: 45,
+                            minRotation: 45
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
+    // Function to create daily reading speed line chart
+    function createDailySpeedChart(canvasId, chartData, isAllTime = false) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !chartData) return null;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+        }
+        
+        // Filter out days with no data for cleaner line chart
+        const filteredLabels = [];
+        const filteredSpeedData = [];
+        const filteredOriginalLabels = [];
+        
+        chartData.labels.forEach((dateStr, index) => {
+            if (chartData.speedData[index] > 0) {
+                const date = new Date(dateStr);
+                const dayOfWeek = date.getDay();
+                const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                filteredLabels.push(`${dayNames[dayOfWeek]} ${monthDay}`);
+                filteredSpeedData.push(chartData.speedData[index]);
+                filteredOriginalLabels.push(dateStr);
+            }
+        });
+        
+        // Generate point colors based on weekend - consistent with other daily charts
+        const pointColors = filteredOriginalLabels.map(dateStr => {
+            const date = new Date(dateStr);
+            const dayOfWeek = date.getDay();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            return isWeekend ? 'rgba(171, 71, 188, 1)' : 'rgba(54, 162, 235, 1)';
+        });
+        
+        // Update the title element
+        const titleElement = document.getElementById('dailySpeedChartTitle');
+        if (titleElement) {
+            titleElement.textContent = isAllTime ? '⚡ Daily Reading Speed (All Time)' : '⚡ Daily Reading Speed (Last 4 Weeks)';
+        }
+        
+        window.myCharts[canvasId] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: filteredLabels,
+                datasets: [{
+                    label: 'Reading Speed (chars/hour)',
+                    data: filteredSpeedData,
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                    pointBackgroundColor: pointColors,
+                    pointBorderColor: pointColors,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const index = context[0].dataIndex;
+                                return filteredOriginalLabels[index];
+                            },
+                            label: function(context) {
+                                const speed = context.parsed.y;
+                                return `Speed: ${speed.toLocaleString()} chars/hour`;
+                            },
+                            afterLabel: function(context) {
+                                const index = context[0].dataIndex;
+                                const date = new Date(filteredOriginalLabels[index]);
+                                const dayOfWeek = date.getDay();
+                                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                                return isWeekend ? '📅 Weekend' : '';
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Characters per Hour',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            color: getThemeTextColor()
+                        },
+                        ticks: {
+                            color: getThemeTextColor(),
+                            maxRotation: 45,
+                            minRotation: 45
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+        
+        return window.myCharts[canvasId];
+    }
+
     // Function to create kanji grid (now using shared renderer)
     function createKanjiGrid(kanjiData) {
         kanjiGridRenderer.render(kanjiData);
@@ -1895,6 +2059,34 @@ document.addEventListener('DOMContentLoaded', function () {
         return cachedFilteredDatasets;
     }
 
+    // Function to load and render daily activity charts
+    async function loadDailyActivityCharts(useAllTimeData = false) {
+        try {
+            let url = '/api/daily-activity';
+            if (useAllTimeData) {
+                url += '?all_time=true';
+            }
+            
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error('Failed to load daily activity data');
+            }
+            
+            const data = await response.json();
+            
+            // Create the charts with the isAllTime flag
+            if (data.labels && data.labels.length > 0) {
+                createDailyTimeChart('dailyTimeChart', data, useAllTimeData);
+                createDailyCharsChart('dailyCharsChart', data, useAllTimeData);
+                createDailySpeedChart('dailySpeedChart', data, useAllTimeData);
+            } else {
+                console.log('No daily activity data available');
+            }
+        } catch (error) {
+            console.error('Error loading daily activity charts:', error);
+        }
+    }
+
     // Function to load mining heatmap data
     async function loadMiningHeatmap(start_timestamp = null, end_timestamp = null) {
         try {
@@ -2039,6 +2231,9 @@ document.addEventListener('DOMContentLoaded', function () {
                         }
                     }
                 }
+
+                // Load and create daily activity charts
+                loadDailyActivityCharts();
 
                 // Create kanji grid if data exists
                 if (data.kanjiGridData) {
@@ -2191,6 +2386,53 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Make functions globally available
     window.loadStatsData = loadStatsData;
+    
+    // Add toggle button functionality for all three daily charts
+    const toggleTimeDataBtn = document.getElementById('toggleTimeDataBtn');
+    const toggleCharsDataBtn = document.getElementById('toggleCharsDataBtn');
+    const toggleSpeedDataBtn = document.getElementById('toggleSpeedDataBtn');
+    
+    // Helper function to handle toggle button clicks
+    function setupToggleButton(button) {
+        if (!button) return;
+        
+        button.addEventListener('click', function() {
+            const currentMode = this.getAttribute('data-mode');
+            
+            if (currentMode === '30days') {
+                // Switch to all-time data
+                this.setAttribute('data-mode', 'alltime');
+                this.textContent = 'View 30 days data';
+                loadDailyActivityCharts(true);
+                
+                // Update all other buttons to match
+                [toggleTimeDataBtn, toggleCharsDataBtn, toggleSpeedDataBtn].forEach(btn => {
+                    if (btn && btn !== this) {
+                        btn.setAttribute('data-mode', 'alltime');
+                        btn.textContent = 'View 30 days data';
+                    }
+                });
+            } else {
+                // Switch back to 30 days data
+                this.setAttribute('data-mode', '30days');
+                this.textContent = 'View all time data';
+                loadDailyActivityCharts(false);
+                
+                // Update all other buttons to match
+                [toggleTimeDataBtn, toggleCharsDataBtn, toggleSpeedDataBtn].forEach(btn => {
+                    if (btn && btn !== this) {
+                        btn.setAttribute('data-mode', '30days');
+                        btn.textContent = 'View all time data';
+                    }
+                });
+            }
+        });
+    }
+    
+    // Setup all toggle buttons
+    setupToggleButton(toggleTimeDataBtn);
+    setupToggleButton(toggleCharsDataBtn);
+    setupToggleButton(toggleSpeedDataBtn);
 
     // ExStatic Import Functionality
     const exstaticFileInput = document.getElementById('exstaticFile');
