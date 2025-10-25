@@ -119,7 +119,11 @@
         const obsStatusBtn = document.getElementById('obs-status');
         const sceneSelect = document.getElementById('sceneSelect');
         const windowSelect = document.getElementById('windowSelect');
-        let osInfo = null;
+        let osInfo = {
+            isWindows: true,
+            isMac: false,
+            isLinux: false
+        };
 
 
         obsStatusBtn.addEventListener('click', async () => {
