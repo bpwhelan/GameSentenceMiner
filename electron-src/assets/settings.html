@@ -9,6 +9,8 @@
 </head>
 
 <body>
+    <!-- Include shared module with ipcRenderer, clipboard, and sharedState -->
+    <script src="shared.js"></script>
     <div class="card">
         <h2>Settings</h2>
 
@@ -136,7 +138,6 @@
     </div>
 
     <script>
-        const { ipcRenderer } = require('electron');
         const autoUpdateGSMAppCheckbox = document.getElementById('autoUpdateGSMApp');
         // const autoUpdateElectronCheckbox = document.getElementById('autoUpdateElectron');
         const startConsoleMinimizedCheckbox = document.getElementById('startConsoleMinimized');
@@ -149,6 +150,60 @@
         const runWindowTransparencyToolOnStartupCheckbox = document.getElementById('runWindowTransparencyToolOnStartup');
         const runOverlayOnStartupCheckbox = document.getElementById('runOverlayOnStartup');
         const obsSceneSelector = document.getElementById('obs-ocr-scene-selector');
+
+        // ====================================================================
+        // Shared State Example: Use OS info from index.html to hide Windows-only features
+        // ====================================================================
+        
+        async function applyOSSpecificUI() {
+            // Get OS info from shared state (set by index.html)
+            const osInfo = await sharedState.getState('systemInfo');
+            
+            if (osInfo) {
+                console.log('Using OS info from shared state:', osInfo);
+                
+                // Hide Window Transparency Tool card on non-Windows
+                const windowTransparencyCard = document.getElementById('window-transparency-card');
+                if (windowTransparencyCard) {
+                    if (osInfo.isWindows) {
+                        windowTransparencyCard.style.display = 'block';
+                    } else {
+                        windowTransparencyCard.style.display = 'none';
+                        console.log('Window Transparency Tool hidden - not running on Windows');
+                    }
+                }
+                
+                // Hide "Run Overlay on Startup" option on non-Windows
+                const runOverlayGroup = runOverlayOnStartupCheckbox.parentElement;
+                if (runOverlayGroup) {
+                    if (osInfo.isWindows) {
+                        runOverlayGroup.style.display = 'flex';
+                    } else {
+                        runOverlayGroup.style.display = 'none';
+                        console.log('Run Overlay option hidden - not running on Windows');
+                    }
+                }
+                
+                // Hide "Run Window Transparency Tool on Startup" option on non-Windows
+                const runTransparencyGroup = runWindowTransparencyToolOnStartupCheckbox.parentElement;
+                if (runTransparencyGroup) {
+                    if (osInfo.isWindows) {
+                        runTransparencyGroup.style.display = 'flex';
+                    } else {
+                        runTransparencyGroup.style.display = 'none';
+                        console.log('Run Window Transparency Tool on Startup option hidden - not running on Windows');
+                    }
+                }
+            } else {
+                console.log('OS info not yet available in shared state - will apply when available');
+            }
+        }
+        
+        // Listen for OS info changes (in case it gets set after page loads)
+        sharedState.onStateChanged('systemInfo', (osInfo) => {
+            console.log('System info updated in shared state:', osInfo);
+            applyOSSpecificUI();
+        });
 
         const setHotkey = (event, inputElement) => {
             event.preventDefault();
@@ -262,7 +317,13 @@
         //   }
         // });
 
-        document.addEventListener('DOMContentLoaded', loadSettings);
+        document.addEventListener('DOMContentLoaded', () => {
+            // Apply OS-specific UI changes
+            applyOSSpecificUI();
+            
+            // Load settings
+            loadSettings();
+        });
     </script>
 </body>
 

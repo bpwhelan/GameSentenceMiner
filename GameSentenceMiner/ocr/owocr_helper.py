@@ -344,15 +344,75 @@ def reset_callback_vars():
 
 #     def get_ocr_ocr2(self):
 #         return self.ocr2
+last_meiki_crop_coords = None
+last_meiki_crop_time = None
+last_meiki_success = None
 
-def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None):
-    global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, previous_text_list, last_sent_result
+
+def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None, meiki_boxes=None):
+    global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, previous_text_list, last_sent_result, last_meiki_crop_coords, last_meiki_success, last_meiki_crop_time
     orig_text_string = ''.join([item for item in orig_text if item is not None]) if orig_text else ""
     if came_from_ss:
         save_result_image(img)
         asyncio.run(send_result(text, time))
         return
-    
+        
+    if meiki_boxes:
+        # If we don't have a previous meiki crop coords, store this one and wait for the next run
+        try:
+            if last_meiki_crop_coords is None:
+                last_meiki_crop_coords = crop_coords
+                last_meiki_crop_time = time
+                previous_img = img
+                return
+
+            # Ensure both coords exist
+            if not crop_coords or not last_meiki_crop_coords:
+                last_meiki_crop_coords = crop_coords
+                last_meiki_crop_time = time
+                return
+
+            # Compare coordinates within tolerance (pixels)
+            tol = 5
+            try:
+                close = all(abs(int(crop_coords[i]) - int(last_meiki_crop_coords[i])) <= tol for i in range(4))
+            except Exception:
+                # Fallback: if values not int-convertible, set not close
+                close = False
+                
+            if close:
+                if all(last_meiki_success and abs(int(crop_coords[i]) - int(last_meiki_success[i])) <= tol for i in range(4)):
+                    # Reset last_meiki_crop_coords and time so we require another matching pair for a future queue
+                    last_meiki_crop_coords = None
+                    last_meiki_crop_time = None
+                    return
+                # Stable crop: queue second OCR immediately
+                try:
+                    stable_time = last_meiki_crop_time
+                    previous_img_local = previous_img
+                    pre_crop_image = previous_img_local
+                    ocr2_image = get_ocr2_image(crop_coords, og_image=previous_img_local, ocr2_engine=get_ocr_ocr2())
+                    # Use the earlier timestamp for when the stable crop started if available
+                    # ocr2_image.show()
+                    second_ocr_queue.put((text, stable_time, ocr2_image, filtering, pre_crop_image))
+                    run.set_last_image(img)
+                    last_meiki_success = crop_coords
+                except Exception as e:
+                    logger.info(f"Failed to queue second OCR task: {e}", exc_info=True)
+                # Reset last_meiki_crop_coords and time so we require another matching pair for a future queue
+                last_meiki_crop_coords = None
+                last_meiki_crop_time = None
+                return
+            else:
+                # Not stable: replace last and wait for the next run
+                last_meiki_crop_coords = crop_coords
+                last_meiki_success = None
+                previous_img = img
+                return
+        except Exception as e:
+            logger.debug(f"Error handling meiki crop coords stability check: {e}")
+            last_meiki_crop_coords = crop_coords
+            
     if not text:
         run.set_last_image(img)
 

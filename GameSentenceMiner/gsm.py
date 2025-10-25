@@ -32,7 +32,7 @@ try:
 
     import keyboard
     import ttkbootstrap as ttk
-    from PIL import Image, ImageDraw
+    from PIL import Image
     from pystray import Icon, Menu, MenuItem
     from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
