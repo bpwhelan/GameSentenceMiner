@@ -92,9 +92,9 @@
 </head>
 
 <body class="index">
-    <script>
-        const { ipcRenderer, clipboard } = require('electron');
-    </script>
+    <!-- Include shared module with ipcRenderer, clipboard, and sharedState -->
+    <script src="shared.js"></script>
+    
     <div id="main-tab-bar" class="tab-bar">
         <button class="tab-button active" data-tab="obs">Home</button>
         <button class="tab-button" data-tab="ocr">OCR</button>
@@ -351,6 +351,7 @@
                                     <!-- <option value="azure">Azure Image Analysis</option> -->
                                     <!-- <option value="ocrspace">OCRSpace</option> -->
                                     <option value="local_llm_ocr">Local LLM OCR</option>
+                                    <option value="alivetext">Apple Live Text (Mac Only)</option>
                                 </select>
                             </div>
                             <div id="ocr2-select-group" class="input-group">
@@ -376,6 +377,7 @@
                                     <option value="azure">Azure Image Analysis</option>
                                     <option value="ocrspace">OCRSpace</option>
                                     <option value="local_llm_ocr">Local LLM OCR</option>
+                                    <option value="alivetext">Apple Live Text (Mac Only)</option>
                                 </select>
                             </div>
                             <div id="language-select-group" class="input-group">
@@ -1632,6 +1634,35 @@
 
         // Initialize collapsible sections
         setupPythonCollapsibleSections();
+        
+        // ====================================================================
+        // Shared State: Detect and store OS information for all pages
+        // ====================================================================
+        
+        async function detectAndStoreOSInfo() {
+            // Detect the OS
+            const isWindows = process.platform === 'win32';
+            const isMac = process.platform === 'darwin';
+            const isLinux = process.platform === 'linux';
+            // const isWindows = false;
+            // const isMac = true;
+            // const isLinux = false;
+            
+            const osInfo = {
+                platform: process.platform,
+                isWindows,
+                isMac,
+                isLinux,
+                detectedAt: Date.now()
+            };
+            
+            // Store in shared state so all pages can access it
+            await sharedState.setState('systemInfo', osInfo);
+            console.log('🖥️ System Information detected and stored:', osInfo);
+        }
+        
+        // Detect OS on page load
+        detectAndStoreOSInfo();
     </script>
 </body>
 

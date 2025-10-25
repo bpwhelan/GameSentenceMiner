@@ -9,6 +9,9 @@
 </head>
 
 <body>
+    <!-- Include shared module with ipcRenderer, clipboard, and sharedState -->
+    <script src="shared.js"></script>
+
     <div class="card">
         <h2>Game Capture (Required)</h2>
         <div class="input-group">
@@ -28,6 +31,8 @@
                     Window Capture works for most applications
                     <br>
                     Game Capture is recommended for fullscreen games.
+                    <br>
+                    If not on Windows, you need to setup OBS Scenes manually.
                 </span>
             </span>
         </div>
@@ -108,13 +113,13 @@
         </div>
     </div>
     <script>
-        const { ipcRenderer } = require('electron');
         const removeSceneBtn = document.getElementById('removeSceneBtn');
         const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
         const runOverlayBtn = document.getElementById('runOverlayBtn');
         const obsStatusBtn = document.getElementById('obs-status');
         const sceneSelect = document.getElementById('sceneSelect');
         const windowSelect = document.getElementById('windowSelect');
+        let osInfo = null;
 
 
         obsStatusBtn.addEventListener('click', async () => {
@@ -146,6 +151,9 @@
         });
 
         function getWindows(showLoading = true) {
+            if (osInfo.isWindows === false) {
+                return;
+            }
             // Remember the previously selected window
             const previousSelection = windowSelect.value;
 
@@ -169,9 +177,8 @@
             });
         }
 
-        function refreshScenesAndWindows(showLoading = true) {
+        function refreshScenesAndWindows(showLoading = true, setIntervalFlag = true) {
             // Remember the previously selected scene
-
             if (showLoading)
                 sceneSelect.innerHTML = '<option>Loading...</option>';
             ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
@@ -192,6 +199,8 @@
                 });
                 getWindows(showLoading);
             });
+            if (setIntervalFlag)
+                setInterval(() => refreshScenesAndWindows(false, false), 5000);
         }
 
         document.getElementById('refreshScenesBtn').addEventListener('click', () => {
@@ -370,7 +379,108 @@
         // }
 
         refreshScenesAndWindows(true);
-        setInterval(() => refreshScenesAndWindows(false), 5000);
+
+        // ====================================================================
+        // Shared State: Hide "Run Overlay" button on non-Windows
+        // ====================================================================
+
+        async function applyOSSpecificUI() {
+            // Get OS info from shared state (set by index.html)
+            osInfo = await sharedState.getState('systemInfo');
+
+            if (osInfo) {
+            console.log('Using OS info from shared state:', osInfo);
+
+            // Disable "Run Overlay" button and help icon on non-Windows
+            const runOverlayBtn = document.getElementById('runOverlayBtn');
+            const overlayHelpBtn = document.getElementById('open-overlay-wiki-btn');
+            const refreshWindowsBtn = document.getElementById('refreshWindowsBtn');
+            const createNewSceneBtn = document.getElementById('createNewSceneBtn');
+            const createNewSceneGameBtn = document.getElementById('createNewSceneGameBtn');
+
+            if (osInfo.isWindows) {
+                if (runOverlayBtn) {
+                runOverlayBtn.disabled = false;
+                runOverlayBtn.style.opacity = '1';
+                runOverlayBtn.style.cursor = 'pointer';
+                runOverlayBtn.removeAttribute('title');
+                }
+                if (overlayHelpBtn) {
+                overlayHelpBtn.disabled = false;
+                overlayHelpBtn.style.opacity = '1';
+                overlayHelpBtn.style.cursor = 'pointer';
+                overlayHelpBtn.removeAttribute('title');
+                }
+                if (windowSelect) {
+                windowSelect.disabled = false;
+                windowSelect.style.cursor = '';
+                windowSelect.removeAttribute('title');
+                }
+                if (refreshWindowsBtn) {
+                refreshWindowsBtn.disabled = false;
+                refreshWindowsBtn.style.opacity = '';
+                refreshWindowsBtn.style.cursor = '';
+                refreshWindowsBtn.removeAttribute('title');
+                }
+                if (createNewSceneBtn) {
+                createNewSceneBtn.disabled = false;
+                createNewSceneBtn.style.opacity = '';
+                createNewSceneBtn.style.cursor = '';
+                createNewSceneBtn.removeAttribute('title');
+                }
+                if (createNewSceneGameBtn) {
+                createNewSceneGameBtn.disabled = false;
+                createNewSceneGameBtn.style.opacity = '';
+                createNewSceneGameBtn.style.cursor = '';
+                createNewSceneGameBtn.removeAttribute('title');
+                }
+            } else {
+                if (runOverlayBtn) {
+                runOverlayBtn.disabled = true;
+                runOverlayBtn.style.opacity = '0.5';
+                runOverlayBtn.style.cursor = 'not-allowed';
+                runOverlayBtn.title = 'Not supported in this OS (Yet)';
+                console.log('Run Overlay button disabled - not running on Windows');
+                }
+                // if (overlayHelpBtn) {
+                // overlayHelpBtn.disabled = true;
+                // overlayHelpBtn.style.opacity = '0.5';
+                // overlayHelpBtn.style.cursor = 'not-allowed';
+                // overlayHelpBtn.title = 'Not supported in this OS';
+                // }
+                windowSelect.innerHTML = '<option>Need to set scenes in OBS on this OS.</option>';
+                windowSelect.disabled = true;
+                windowSelect.style.cursor = 'not-allowed';
+                windowSelect.title = 'Not supported in this OS';
+                if (refreshWindowsBtn) {
+                refreshWindowsBtn.disabled = true;
+                refreshWindowsBtn.style.opacity = '0.5';
+                refreshWindowsBtn.style.cursor = 'not-allowed';
+                refreshWindowsBtn.title = 'Not supported in this OS';
+                }
+                if (createNewSceneBtn) {
+                createNewSceneBtn.disabled = true;
+                createNewSceneBtn.style.opacity = '0.5';
+                createNewSceneBtn.style.cursor = 'not-allowed';
+                createNewSceneBtn.title = 'Not supported in this OS';
+                }
+                if (createNewSceneGameBtn) {
+                createNewSceneGameBtn.disabled = true;
+                createNewSceneGameBtn.style.opacity = '0.5';
+                createNewSceneGameBtn.style.cursor = 'not-allowed';
+                createNewSceneGameBtn.title = 'Not supported in this OS';
+                }
+            }
+            }
+        }
+
+        // Apply on page load
+        applyOSSpecificUI();
+
+        // Listen for OS info changes (in case it gets set after this page loads)
+        sharedState.onStateChanged('systemInfo', () => {
+            applyOSSpecificUI();
+        });
     </script>
 </body>
 

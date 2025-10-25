@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<!-- Include shared module with ipcRenderer, clipboard, and sharedState -->
+<script src="shared.js"></script>
 <div id="gamesSection" class="card">
     <h2>Select a Game</h2>
     <div class="form-group">
@@ -54,8 +56,6 @@
 <p id="statusMessage"></p>
 
 <script>
-    const {ipcRenderer} = require('electron');
-
     const currentObsScene = document.getElementById('currentObsScene');
     const changeObsSceneBtn = document.getElementById('changeObsSceneBtn');
     const refreshScenesBtn = document.getElementById('refreshScenesBtn');
