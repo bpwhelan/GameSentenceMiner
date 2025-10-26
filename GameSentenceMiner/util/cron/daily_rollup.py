@@ -174,12 +174,7 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
     
     game_data = defaultdict(lambda: {'chars': 0, 'lines': 0, 'timestamps': [], 'game_name': None})
     game_ids = set()
-    
-    # DEBUG: Count lines with/without game_id
-    lines_with_game_id = sum(1 for line in lines if line.game_id and line.game_id.strip())
-    lines_without_game_id = len(lines) - lines_with_game_id
-    logger.debug(f"[ROLLUP_DEBUG] {date_str}: {len(lines)} total lines, {lines_with_game_id} with game_id, {lines_without_game_id} without game_id")
-    
+        
     for line in lines:
         if line.game_id and line.game_id.strip():
             game_id = str(line.game_id)

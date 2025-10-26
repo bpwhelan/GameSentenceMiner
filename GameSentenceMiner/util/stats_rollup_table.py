@@ -177,7 +177,6 @@ class StatsRollupTable(SQLiteDBTable):
             f"SELECT date FROM {cls._table} ORDER BY date ASC LIMIT 1"
         )
         result = row[0] if row else None
-        logger.info(f"[ROLLUP_DEBUG] get_first_date() query result: row={row}, returning: {result}")
         return result
 
     @classmethod

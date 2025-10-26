@@ -547,9 +547,11 @@
 }
 
 .dashboard-card-subtitle {
-    font-size: 14px;
-    color: var(--text-tertiary);
-    margin: 4px 0 0 0;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 8px 0 0 0;
+    line-height: 1.3;
 }
 
 /* Stats Grid */
