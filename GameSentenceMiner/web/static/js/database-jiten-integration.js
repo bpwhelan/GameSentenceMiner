@@ -56,12 +56,15 @@ async function searchJitenMoe() {
         return;
     }
     
+    // Remove all punctuation from the search term before sending to API
+    const searchTermNoPunctuation = searchTerm.replace(/[^\p{L}\p{N}\s]/gu, '');
+    
     errorDiv.style.display = 'none';
     resultsDiv.style.display = 'none';
     loadingDiv.style.display = 'flex';
     
     try {
-        const response = await fetch(`/api/jiten-search?title=${encodeURIComponent(searchTerm)}`);
+        const response = await fetch(`/api/jiten-search?title=${encodeURIComponent(searchTermNoPunctuation)}`);
         const data = await response.json();
         
         if (response.ok) {
