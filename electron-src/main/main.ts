@@ -373,7 +373,7 @@ async function runCommand(
 }
 
 async function cleanCache(): Promise<void> {
-    await runCommand(pythonPath, ['-m', 'uv', 'cache', 'purge'], true, true);
+    await runCommand(pythonPath, ['-m', 'uv', 'cache', 'clean'], true, true);
 }
 
 /**
