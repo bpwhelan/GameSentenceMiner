@@ -1,6 +1,9 @@
 // Database Jiten.moe Integration Functions
 // Dependencies: shared.js (provides escapeHtml, openModal, closeModal, safeJoinArray, logApiResponse), database-popups.js, database-helpers.js
 
+// Global flag to prevent concurrent link operations
+let isLinkingInProgress = false;
+
 /**
  * Open jiten.moe search modal for a specific game
  * @param {string} gameId - Game ID to search for
@@ -212,6 +215,12 @@ async function confirmLinkGame() {
         return;
     }
     
+    // Prevent concurrent link operations
+    if (isLinkingInProgress) {
+        console.log('Link operation already in progress, ignoring request');
+        return;
+    }
+    
     // Validate game ID before making API call
     if (!currentGameForSearch.id || currentGameForSearch.id === 'undefined' || currentGameForSearch.id === 'null') {
         showDatabaseErrorPopup(`Cannot link game: Invalid game ID (${currentGameForSearch.id}). Please refresh the page and try again.`);
@@ -222,6 +231,9 @@ async function confirmLinkGame() {
     const errorDiv = document.getElementById('linkConfirmError');
     const loadingDiv = document.getElementById('linkConfirmLoading');
     const confirmBtn = document.getElementById('confirmLinkBtn');
+    
+    // Set global lock
+    isLinkingInProgress = true;
     
     errorDiv.style.display = 'none';
     loadingDiv.style.display = 'flex';
@@ -243,7 +255,7 @@ async function confirmLinkGame() {
         const result = await response.json();
         
         if (response.ok) {
-            // Success! Close modal and refresh the entire page
+            // Success! Close modal
             closeModal('gameLinkConfirmModal');
             
             // Log the complete API response for debugging
@@ -254,10 +266,11 @@ async function confirmLinkGame() {
             console.log(`✅ Game linking successful: ${lineCount} lines linked`);
             showDatabaseSuccessPopup(`Successfully linked "${currentGameForSearch.title_original}" to jiten.moe! ${lineCount} lines linked.`);
             
-            // Refresh the entire page to prevent state issues when linking multiple games
-            setTimeout(() => {
-                window.location.reload();
-            }, 1500); // Give user time to see the success message
+            // Refresh data without page reload
+            await refreshAfterLinking();
+            
+            // Reset state for next operation
+            confirmBtn.disabled = false;
         } else {
             const errorMessage = result.error || 'Failed to link game';
             errorDiv.textContent = errorMessage;
@@ -272,6 +285,44 @@ async function confirmLinkGame() {
         confirmBtn.disabled = false;
     } finally {
         loadingDiv.style.display = 'none';
+        // Release global lock
+        isLinkingInProgress = false;
+    }
+}
+
+/**
+ * Refresh data after successful game linking without page reload
+ */
+async function refreshAfterLinking() {
+    console.log('🔄 Refreshing data after game linking...');
+    
+    try {
+        // Fetch updated game data from API
+        const gamesResponse = await fetch('/api/games-management');
+        const gamesData = await gamesResponse.json();
+        
+        if (gamesResponse.ok && gamesData.games) {
+            // Update the currentGames array with fresh data
+            currentGames = gamesData.games;
+            console.log(`✅ Updated currentGames array with ${currentGames.length} games`);
+            
+            // Get the current filter state
+            const activeFilterBtn = document.querySelector('.game-data-filters button.primary');
+            const currentFilter = activeFilterBtn ? activeFilterBtn.dataset.filter : 'all';
+            
+            // Re-render the games list with the current filter (this is smooth, no loading indicator)
+            renderGamesList(currentGames, currentFilter);
+            
+            // Silently update dashboard stats in the background
+            if (typeof databaseManager !== 'undefined' && databaseManager.loadGameManagementStats) {
+                await databaseManager.loadGameManagementStats();
+            }
+        }
+        
+        console.log('✅ Data refresh completed successfully');
+    } catch (error) {
+        console.error('Error refreshing data after linking:', error);
+        // Don't show error to user since the link operation itself succeeded
     }
 }
 
@@ -620,6 +671,17 @@ function initializeJitenIntegration() {
     const jitenSearchBtn = document.getElementById('jitenSearchBtn');
     if (jitenSearchBtn) {
         jitenSearchBtn.addEventListener('click', searchJitenMoe);
+    }
+
+    // Add Enter key support for jiten search input
+    const jitenSearchInput = document.getElementById('jitenSearchInput');
+    if (jitenSearchInput) {
+        jitenSearchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                searchJitenMoe();
+            }
+        });
     }
 
     const confirmLinkBtn = document.getElementById('confirmLinkBtn');
