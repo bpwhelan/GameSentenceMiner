@@ -84,7 +84,6 @@ def register_stats_api_routes(app):
             today_str = today.strftime("%Y-%m-%d")
 
             # Determine date range
-
             if start_timestamp and end_timestamp:
                 start_date = datetime.date.fromtimestamp(start_timestamp)
                 end_date = datetime.date.fromtimestamp(end_timestamp)
@@ -314,8 +313,32 @@ def register_stats_api_routes(app):
                     len(line.line_text) if line.line_text else 0
                 )
 
+            # GRACEFUL FALLBACK: If no daily_data from rollup, calculate from game_lines directly
             if not daily_data:
-                return jsonify({"labels": [], "datasets": []})
+                logger.warning(f"No daily_data from rollup! Falling back to live calculation from game_lines table.")
+                logger.info("This usually happens after a version upgrade. The rollup table will be populated automatically.")
+                
+                # Fetch all lines for the date range and calculate stats directly
+                if start_timestamp and end_timestamp:
+                    fallback_lines = GameLinesTable.get_lines_filtered_by_timestamp(
+                        start=start_timestamp, end=end_timestamp, for_stats=True
+                    )
+                    
+                    if fallback_lines:
+                        logger.info(f"Fallback: Processing {len(fallback_lines)} lines directly from game_lines table")
+                        for line in fallback_lines:
+                            day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime("%Y-%m-%d")
+                            game_name = line.game_name or "Unknown Game"
+                            display_name = game_name_to_display.get(game_name, game_name)
+                            daily_data[day_str][display_name]["lines"] += 1
+                            daily_data[day_str][display_name]["chars"] += (
+                                len(line.line_text) if line.line_text else 0
+                            )
+                
+                # If still no data after fallback, return empty response
+                if not daily_data:
+                    logger.warning(f"No data found even after fallback. Date range: {start_date_str} to {end_date_str}")
+                    return jsonify({"labels": [], "datasets": []})
 
             # 3. Create cumulative datasets for Chart.js
             sorted_days = sorted(daily_data.keys())
@@ -685,14 +708,13 @@ def register_stats_api_routes(app):
 
                 # Get first_date from rollup table
                 first_rollup_date = StatsRollupTable.get_first_date()
+                
                 if first_rollup_date:
                     all_games_stats["first_date"] = first_rollup_date
-
                 else:
                     # Fallback to today if no rollup data
-                    all_games_stats["first_date"] = datetime.date.today().strftime(
-                        "%Y-%m-%d"
-                    )
+                    fallback_date = datetime.date.today().strftime("%Y-%m-%d")
+                    all_games_stats["first_date"] = fallback_date
 
                 # Get last_date from today or end_timestamp
                 if end_timestamp:

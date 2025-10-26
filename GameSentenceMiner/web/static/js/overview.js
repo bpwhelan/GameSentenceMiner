@@ -733,8 +733,25 @@ document.addEventListener('DOMContentLoaded', function () {
             fetch('/api/stats')
                 .then(response => response.json())
                 .then(response_json => {
-                    // Get first date from API
-                    const firstDate = response_json.allGamesStats.first_date;
+                    console.log('[DATE_INIT_DEBUG] API response:', response_json);
+                    
+                    // Get first date from API - check if allGamesStats exists and has first_date
+                    let firstDate;
+                    if (response_json && response_json.allGamesStats && response_json.allGamesStats.first_date) {
+                        firstDate = response_json.allGamesStats.first_date;
+                        console.log('[DATE_INIT_DEBUG] Using first_date from API:', firstDate);
+                    } else {
+                        // If no first_date, try to get it from labels (which come from rollup data)
+                        if (response_json && response_json.labels && response_json.labels.length > 0) {
+                            firstDate = response_json.labels[0];
+                            console.log('[DATE_INIT_DEBUG] Using first label as first_date:', firstDate);
+                        } else {
+                            // Last resort: use today as both start and end
+                            const today = new Date();
+                            firstDate = today.toLocaleDateString('en-CA');
+                            console.warn('[DATE_INIT_DEBUG] No data found, using today as first_date:', firstDate);
+                        }
+                    }
                     fromDateInput.value = firstDate;
 
                     // Get today's date
@@ -746,6 +763,19 @@ document.addEventListener('DOMContentLoaded', function () {
                     sessionStorage.setItem("fromDate", firstDate);
                     sessionStorage.setItem("toDate", toDate);
 
+                    document.dispatchEvent(new Event("datesSet"));
+                })
+                .catch(error => {
+                    console.error('Error initializing dates:', error);
+                    // Fallback to today for both dates on error
+                    const today = new Date();
+                    const todayStr = today.toLocaleDateString('en-CA');
+                    
+                    fromDateInput.value = todayStr;
+                    toDateInput.value = todayStr;
+                    sessionStorage.setItem("fromDate", todayStr);
+                    sessionStorage.setItem("toDate", todayStr);
+                    
                     document.dispatchEvent(new Event("datesSet"));
                 });
         } else {

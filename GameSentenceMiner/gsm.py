@@ -643,6 +643,26 @@ def initialize(reloading=False):
         except Exception as e:
             logger.warning(f"Failed to check cron jobs on startup: {e}")
         
+        # Check if rollup table needs initial population (version upgrade migration)
+        try:
+            from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
+            from GameSentenceMiner.util.db import GameLinesTable
+            from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
+            
+            # Check if we have game lines but no rollup data
+            first_rollup = StatsRollupTable.get_first_date()
+            has_game_lines = GameLinesTable._db.fetchone(
+                f"SELECT COUNT(*) FROM {GameLinesTable._table}"
+            )[0] > 0
+            
+            if has_game_lines and not first_rollup:
+                logger.info("Detected existing data without rollup table - running initial rollup generation...")
+                logger.info("This is a one-time migration for version upgrades. Please wait...")
+                rollup_result = run_daily_rollup()
+                logger.info(f"Initial rollup complete: processed {rollup_result.get('processed', 0)} dates")
+        except Exception as e:
+            logger.warning(f"Failed to check/populate rollup table on startup: {e}")
+        
         if get_config().obs.open_obs:
             obs_process = obs.start_obs()
             # obs.connect_to_obs(start_replay=True)
