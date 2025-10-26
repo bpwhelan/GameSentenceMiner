@@ -911,21 +911,31 @@ document.addEventListener('DOMContentLoaded', function () {
     // Function to create reading speed by difficulty bar chart
     function createDifficultySpeedChart(canvasId, difficultySpeedData) {
         const canvas = document.getElementById(canvasId);
-        if (!canvas || !difficultySpeedData) return null;
-        
-        const ctx = canvas.getContext('2d');
+        const noDataEl = document.getElementById('difficultySpeedNoData');
+        if (!canvas) return null;
         
         // Destroy existing chart if it exists
         if (window.myCharts[canvasId]) {
             window.myCharts[canvasId].destroy();
         }
         
-        const labels = difficultySpeedData.labels || [];
-        const speeds = difficultySpeedData.speeds || [];
+        const labels = difficultySpeedData?.labels || [];
+        const speeds = difficultySpeedData?.speeds || [];
         
-        if (labels.length === 0) {
-            return null; // No data to display
+        if (!difficultySpeedData || labels.length === 0) {
+            canvas.style.display = 'none';
+            if (noDataEl) {
+                noDataEl.style.display = 'block';
+            }
+            return null;
         }
+        
+        canvas.style.display = 'block';
+        if (noDataEl) {
+            noDataEl.style.display = 'none';
+        }
+        
+        const ctx = canvas.getContext('2d');
         
         // Generate gradient colors from blue (easy) to orange (hard) - difficulty theme
         const colors = speeds.map((_, index) => {
@@ -1009,6 +1019,47 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         
         return window.myCharts[canvasId];
+    }
+
+    // Function to create game type distribution bar chart
+    function createGameTypeChart(canvasId, gameTypeData) {
+        const canvas = document.getElementById(canvasId);
+        const noDataEl = document.getElementById('gameTypeNoData');
+        
+        if (!canvas) return null;
+        
+        if (!gameTypeData || !gameTypeData.labels || gameTypeData.labels.length === 0) {
+            canvas.style.display = 'none';
+            if (noDataEl) {
+                noDataEl.style.display = 'block';
+            }
+            return null;
+        }
+        
+        canvas.style.display = 'block';
+        if (noDataEl) {
+            noDataEl.style.display = 'none';
+        }
+        
+        const chart = new BarChartComponent(canvasId, {
+            title: 'Games by Type',
+            colorScheme: 'gradient',
+            yAxisLabel: 'Number of Games',
+            xAxisLabel: 'Game Type',
+            datasetLabel: 'Games',
+            maxRotation: 45,
+            minRotation: 45,
+            tooltipFormatter: {
+                label: (context) => {
+                    const count = context.parsed.y;
+                    const total = gameTypeData.counts.reduce((sum, val) => sum + val, 0);
+                    const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : '0.0';
+                    return `Games: ${count} (${percentage}%)`;
+                }
+            }
+        });
+        
+        return chart.render(gameTypeData.counts, gameTypeData.labels);
     }
 
 
@@ -2216,6 +2267,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Create difficulty speed chart if data exists
                 if (data.difficultySpeedData) {
                     createDifficultySpeedChart('difficultySpeedChart', data.difficultySpeedData);
+                }
+
+                // Create game type chart if data exists
+                if (data.gameTypeData) {
+                    createGameTypeChart('gameTypeChart', data.gameTypeData);
                 }
 
                 createCardsMinedChart('cardsMinedChart', data.cardsMinedLast30Days || null);

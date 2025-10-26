@@ -958,19 +958,21 @@ def register_stats_api_routes(app):
                 logger.error(f"Error calculating reading speed by difficulty: {e}")
                 difficulty_speed_data = {"labels": [], "speeds": []}
 
-            # 14. Calculate game type distribution data
+            # 14. Calculate game type distribution data (only for games the user has played)
             try:
                 game_type_data = {"labels": [], "counts": []}
                 
-                # Get all games and count by type
-                all_games = GamesTable.all()
+                # Get game IDs that have been played (from rollup stats)
+                game_activity_data = rollup_stats.get("game_activity_data", {}) if rollup_stats else {}
+                played_game_ids = set(game_activity_data.keys())
+                
+                # Count types only for games that have been played
                 type_counts = {}
                 
-                for game in all_games:
-                    # Use the actual type value from the database, or empty string if not set
-                    game_type = game.type if game.type else ""
-                    # Only count games that have a type set
-                    if game_type:
+                for game_id in played_game_ids:
+                    game = GamesTable.get(game_id)
+                    if game and game.type:
+                        game_type = game.type
                         type_counts[game_type] = type_counts.get(game_type, 0) + 1
                 
                 # Sort by count descending

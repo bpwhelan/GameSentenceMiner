@@ -98,7 +98,7 @@
 
                 <!-- No data message -->
                 <div class="milestone-no-data" id="milestonesNoData" style="display: none;">
-                    No games with release dates found. Link games to jiten.moe to see milestones.
+                    No data. <a href="http://localhost:55000/database">Create entries in Database Management</a>
                 </div>
             </div>
         </div>
@@ -159,6 +159,17 @@
         <div class="chart-container">
             <h2>📉 Reading Speed by Game Difficulty</h2>
             <canvas id="difficultySpeedChart"></canvas>
+            <div id="difficultySpeedNoData" class="chart-no-data" style="display: none;">
+                No data. <a href="http://localhost:55000/database">Create entries in Database Management</a>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h2>🎮 Games by Type</h2>
+            <canvas id="gameTypeChart"></canvas>
+            <div id="gameTypeNoData" class="chart-no-data" style="display: none;">
+                No data. <a href="http://localhost:55000/database">Create entries in Database Management</a>
+            </div>
         </div>
 
         <!-- SECTION 5: Time Patterns -->
