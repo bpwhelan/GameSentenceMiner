@@ -1567,9 +1567,18 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        // Update subtitle with game name
-        const gameName = stats.game_name || stats.title_original || 'Unknown Game';
-        document.getElementById('currentGameName').textContent = gameName;
+        // Update subtitle with game name only if title_original is not set
+        // (If title_original exists, it will be shown in the game content grid instead)
+        const currentGameNameEl = document.getElementById('currentGameName');
+        if (stats.title_original && stats.title_original.trim()) {
+            // Hide subtitle when we have a proper title in the game content grid
+            currentGameNameEl.style.display = 'none';
+        } else {
+            // Show game name in subtitle when no title_original is available
+            const gameName = stats.game_name || 'Unknown Game';
+            currentGameNameEl.textContent = gameName;
+            currentGameNameEl.style.display = 'block';
+        }
         
         // Handle completion button visibility and state
         const completionBtn = document.getElementById('gameCompletionBtn');

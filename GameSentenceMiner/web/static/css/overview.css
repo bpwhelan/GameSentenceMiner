@@ -243,16 +243,16 @@
 }
 
 .game-title-original {
-    font-size: 28px;
-    font-weight: 700;
+    font-size: 20px;
+    font-weight: 600;
     color: var(--text-primary);
     line-height: 1.2;
     margin-bottom: 4px;
 }
 
 .game-title-romaji {
-    font-size: 15px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 400;
     color: var(--text-secondary);
     font-style: italic;
     margin-bottom: 2px;
@@ -492,7 +492,7 @@
 }
 
 .dashboard-card-title {
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
@@ -547,10 +547,10 @@
 }
 
 .dashboard-card-subtitle {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin: 8px 0 0 0;
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    margin: 4px 0 0 0;
     line-height: 1.3;
 }
 
@@ -578,8 +578,8 @@
 }
 
 .dashboard-stat-value {
-    font-size: 24px;
-    font-weight: bold;
+    font-size: 20px;
+    font-weight: 600;
     color: var(--text-primary);
     margin-bottom: 4px;
     display: block;
