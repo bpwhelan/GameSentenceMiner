@@ -817,7 +817,7 @@ def set_fit_to_screen_for_scene_items(scene_name: str):
                     'positionX': 0, 'positionY': 0,
                 }
                 
-                if not already_cropped:
+                if not True:
                     fit_to_screen_transform.update({
                         'cropLeft': 0 if not aspect_ratio_different or canvas_width > source_width else (source_width - canvas_width) // 2,
                         'cropRight': 0 if not aspect_ratio_different or canvas_width > source_width else (source_width - canvas_width) // 2,

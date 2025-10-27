@@ -144,6 +144,8 @@ procs_to_close = []
 settings_window: config_gui.ConfigApp = None
 obs_paused = False
 root = None
+file_watcher_observer = None  # Global observer for file watching
+file_watcher_path = None  # Track the currently watched path
 warnings.simplefilter("ignore", DeprecationWarning)
 
 
@@ -595,6 +597,14 @@ def cleanup():
         if gsm_tray:
             gsm_tray.stop()
 
+        # Stop file watcher observer
+        if file_watcher_observer:
+            try:
+                file_watcher_observer.stop()
+                file_watcher_observer.join()
+            except Exception as e:
+                logger.error(f"Error stopping file watcher observer: {e}")
+
         for video in gsm_state.videos_to_remove:
             try:
                 if os.path.exists(video):
@@ -620,6 +630,43 @@ def handle_exit():
         sys.exit(0)
 
     return _handle_exit
+
+
+def start_file_watcher():
+    """Start or restart the file watcher with current config."""
+    global file_watcher_observer, file_watcher_path
+    
+    # Stop existing observer if running
+    if file_watcher_observer:
+        try:
+            file_watcher_observer.stop()
+            file_watcher_observer.join(timeout=2)
+            logger.info("Stopped existing file watcher")
+        except Exception as e:
+            logger.error(f"Error stopping file watcher: {e}")
+    
+    # Create and start new observer
+    watch_path = get_config().paths.folder_to_watch
+    os.makedirs(watch_path, exist_ok=True)
+    
+    file_watcher_observer = Observer()
+    file_watcher_observer.schedule(VideoToAudioHandler(), watch_path, recursive=False)
+    file_watcher_observer.start()
+    file_watcher_path = watch_path
+    logger.info(f"File watcher started for: {watch_path}")
+
+
+def on_config_changed():
+    """Called when config is saved/changed. Restarts file watcher if path changed."""
+    global file_watcher_path
+    
+    new_path = get_config().paths.folder_to_watch
+    
+    if file_watcher_path != new_path:
+        logger.info(f"Watch path changed from '{file_watcher_path}' to '{new_path}', restarting file watcher...")
+        start_file_watcher()
+    else:
+        logger.debug("Config changed, but watch path unchanged - no restart needed")
 
 
 def initialize(reloading=False):
@@ -703,6 +750,10 @@ def async_loop():
         await obs.connect_to_obs(connections=3, check_output=True)
         await register_scene_switcher_callback()
         await check_obs_folder_is_correct()
+        
+        # Start file watcher after OBS path is verified/corrected
+        start_file_watcher()
+        
         vad_processor.init()
         await init_overlay_processor()
 
@@ -787,10 +838,6 @@ async def async_main(reloading=False):
         settings_window = config_gui.ConfigApp(root)
         gsm_state.config_app = settings_window
         initialize_async()
-        observer = Observer()
-        observer.schedule(VideoToAudioHandler(),
-                          get_config().paths.folder_to_watch, recursive=False)
-        observer.start()
         if is_windows():
             register_hotkeys()
 
@@ -821,16 +868,11 @@ async def async_main(reloading=False):
             #     audio_path="C:/path/to/my/audio.mp3",
             #     translation="Hello world! How are you?"))
             settings_window.add_save_hook(gsm_tray.update_icon)
+            settings_window.add_save_hook(on_config_changed)
             settings_window.on_exit = exit_program
             root.mainloop()
         except KeyboardInterrupt:
             cleanup()
-
-        try:
-            observer.stop()
-            observer.join()
-        except Exception as e:
-            logger.error(f"Error stopping observer: {e}")
     except Exception as e:
         handle_error_in_initialization(e)
 
