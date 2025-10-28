@@ -204,7 +204,6 @@
     gap: 20px;
     margin-bottom: 20px;
     padding-bottom: 20px;
-    border-bottom: 1px solid var(--border-color);
     align-items: flex-start;
 }
 
@@ -552,6 +551,28 @@
     color: var(--text-secondary);
     margin: 4px 0 0 0;
     line-height: 1.3;
+}
+
+/* Stats Section Headers */
+.stats-section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.stats-section-icon {
+    font-size: 20px;
+    opacity: 0.9;
+}
+
+.stats-section-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 /* Stats Grid */

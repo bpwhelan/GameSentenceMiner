@@ -47,7 +47,7 @@
 
             <!-- No Game Data Message -->
             <div class="no-game-data-message" id="noGameDataMessage" style="display: none; text-align: center; padding: 20px; color: var(--text-secondary);">
-                <p>Please link this to Jiten or create it manually in <a href="http://localhost:55000/database" style="color: var(--primary-color); text-decoration: underline;">Database Management</a></p>
+                <p><strong id="noGameDataTitle"></strong> not found. Please link this to Jiten or create it manually in <a href="http://localhost:55000/database" style="color: var(--primary-color); text-decoration: underline;">Database Management</a></p>
             </div>
 
             <!-- Game Content Grid: Photo + Info -->
@@ -91,6 +91,11 @@
                 </div>
             </div>
 
+            <!-- Overall Game Statistics -->
+            <div class="stats-section-header">
+                <span class="stats-section-icon">📊</span>
+                <h4 class="stats-section-title">Overall Game Statistics</h4>
+            </div>
             <div class="dashboard-stats-grid" id="currentGameStats">
                 <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read in this game">
                     <span class="dashboard-stat-value" id="currentTotalChars">-</span>
@@ -110,8 +115,12 @@
                 </div>
             </div>
             
-            <!-- Session Stats -->
-            <div class="dashboard-stats-grid" id="currentSessionStats" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+            <!-- Current Session Statistics -->
+            <div class="stats-section-header" style="margin-top: 24px;">
+                <span class="stats-section-icon">⏱️</span>
+                <h4 class="stats-section-title">Current Session Statistics</h4>
+            </div>
+            <div class="dashboard-stats-grid" id="currentSessionStats" style="margin-top: 12px;">
                 <div class="dashboard-stat-item tooltip" data-tooltip="Total hours spent reading in current session">
                     <span class="dashboard-stat-value" id="currentSessionTotalHours">-</span>
                     <span class="dashboard-stat-label">Session Hours</span>
