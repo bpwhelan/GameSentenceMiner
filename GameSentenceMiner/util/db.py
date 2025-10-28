@@ -849,10 +849,34 @@ def check_and_run_migrations():
         else:
             logger.debug("daily_stats_rollup cron job already exists, skipping creation.")
     
+    def migrate_populate_games_cron_job():
+        """
+        Create the one-time populate_games cron job if it doesn't exist.
+        This ensures games table is populated before the daily rollup runs.
+        Runs once and auto-disables (schedule='once').
+        """
+        existing_cron = CronTable.get_by_name('populate_games')
+        if not existing_cron:
+            logger.info("Creating one-time populate_games cron job...")
+            # Schedule to run immediately (2 minutes ago to ensure it runs before rollup)
+            now = datetime.now()
+            two_minutes_ago = now - timedelta(minutes=2)
+            
+            CronTable.create_cron_entry(
+                name='populate_games',
+                description='One-time auto-creation of game records from game_lines (runs before rollup)',
+                next_run=two_minutes_ago.timestamp(),
+                schedule='once'  # Will auto-disable after running
+            )
+            logger.info(f"✅ Created populate_games cron job - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})")
+        else:
+            logger.debug("populate_games cron job already exists, skipping creation.")
+    
     migrate_timestamp()
     migrate_obs_scene_name()
     # migrate_cron_timestamps()  # Disabled - user will manually clean up data
     migrate_jiten_cron_job()
+    migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
         
 check_and_run_migrations()

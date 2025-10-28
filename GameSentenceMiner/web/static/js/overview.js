@@ -733,8 +733,25 @@ document.addEventListener('DOMContentLoaded', function () {
             fetch('/api/stats')
                 .then(response => response.json())
                 .then(response_json => {
-                    // Get first date from API
-                    const firstDate = response_json.allGamesStats.first_date;
+                    console.log('[DATE_INIT_DEBUG] API response:', response_json);
+                    
+                    // Get first date from API - check if allGamesStats exists and has first_date
+                    let firstDate;
+                    if (response_json && response_json.allGamesStats && response_json.allGamesStats.first_date) {
+                        firstDate = response_json.allGamesStats.first_date;
+                        console.log('[DATE_INIT_DEBUG] Using first_date from API:', firstDate);
+                    } else {
+                        // If no first_date, try to get it from labels (which come from rollup data)
+                        if (response_json && response_json.labels && response_json.labels.length > 0) {
+                            firstDate = response_json.labels[0];
+                            console.log('[DATE_INIT_DEBUG] Using first label as first_date:', firstDate);
+                        } else {
+                            // Last resort: use today as both start and end
+                            const today = new Date();
+                            firstDate = today.toLocaleDateString('en-CA');
+                            console.warn('[DATE_INIT_DEBUG] No data found, using today as first_date:', firstDate);
+                        }
+                    }
                     fromDateInput.value = firstDate;
 
                     // Get today's date
@@ -746,6 +763,19 @@ document.addEventListener('DOMContentLoaded', function () {
                     sessionStorage.setItem("fromDate", firstDate);
                     sessionStorage.setItem("toDate", toDate);
 
+                    document.dispatchEvent(new Event("datesSet"));
+                })
+                .catch(error => {
+                    console.error('Error initializing dates:', error);
+                    // Fallback to today for both dates on error
+                    const today = new Date();
+                    const todayStr = today.toLocaleDateString('en-CA');
+                    
+                    fromDateInput.value = todayStr;
+                    toDateInput.value = todayStr;
+                    sessionStorage.setItem("fromDate", todayStr);
+                    sessionStorage.setItem("toDate", todayStr);
+                    
                     document.dispatchEvent(new Event("datesSet"));
                 });
         } else {
@@ -1099,17 +1129,29 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderSessionGameMetadata(session) {
         const gameContentGrid = document.getElementById('gameContentGrid');
+        const noGameDataMessage = document.getElementById('noGameDataMessage');
         const gameMetadata = session.gameMetadata;
         
-        // If no metadata available, hide the game content grid
-        if (!gameMetadata) {
+        // Check if we have meaningful game data (image or description)
+        const hasImage = gameMetadata && gameMetadata.image && gameMetadata.image.trim();
+        const hasDescription = gameMetadata && gameMetadata.description && gameMetadata.description.trim();
+        const hasManualOverrides = gameMetadata && gameMetadata.manual_overrides && gameMetadata.manual_overrides.length > 0;
+        
+        // Show message if: no metadata OR (no image AND no description AND no manual overrides)
+        if (!gameMetadata || (!hasImage && !hasDescription && !hasManualOverrides)) {
             if (gameContentGrid) {
                 gameContentGrid.style.display = 'none';
+            }
+            if (noGameDataMessage) {
+                noGameDataMessage.style.display = 'block';
             }
             return;
         }
 
-        // Show the game content grid
+        // Hide the message and show the game content grid
+        if (noGameDataMessage) {
+            noGameDataMessage.style.display = 'none';
+        }
         if (gameContentGrid) {
             gameContentGrid.style.display = 'flex';
         }
@@ -1525,8 +1567,18 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        // Update subtitle only (remove game name display)
-        document.getElementById('currentGameName').textContent = '';
+        // Update subtitle with game name only if title_original is not set
+        // (If title_original exists, it will be shown in the game content grid instead)
+        const currentGameNameEl = document.getElementById('currentGameName');
+        if (stats.title_original && stats.title_original.trim()) {
+            // Hide subtitle when we have a proper title in the game content grid
+            currentGameNameEl.style.display = 'none';
+        } else {
+            // Show game name in subtitle when no title_original is available
+            const gameName = stats.game_name || 'Unknown Game';
+            currentGameNameEl.textContent = gameName;
+            currentGameNameEl.style.display = 'block';
+        }
         
         // Handle completion button visibility and state
         const completionBtn = document.getElementById('gameCompletionBtn');
@@ -1558,13 +1610,47 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // Always show game metadata section
+        // Check if we have meaningful game data
         const gameContentGrid = document.getElementById('gameContentGrid');
+        const noGameDataMessage = document.getElementById('noGameDataMessage');
         const gamePhotoSection = document.getElementById('gamePhotoSection');
         const gamePhoto = document.getElementById('gamePhoto');
         
-        // Always display the content grid
-        gameContentGrid.style.display = 'flex';
+        // Check if we have meaningful game data (image or description)
+        const hasImage = stats.image && stats.image.trim();
+        const hasDescription = stats.description && stats.description.trim();
+        const hasManualOverrides = stats.manual_overrides && stats.manual_overrides.length > 0;
+        
+        console.log('[DEBUG] Game data check:', {
+            hasImage,
+            hasDescription,
+            hasManualOverrides,
+            manual_overrides: stats.manual_overrides,
+            title_original: stats.title_original,
+            game_name: stats.game_name
+        });
+        
+        // Show message if: no image AND no description AND no manual overrides
+        // (If user has manually edited ANY field, don't show the message)
+        if (!hasImage && !hasDescription && !hasManualOverrides) {
+            console.log('[DEBUG] No meaningful game data and no manual overrides - showing message');
+            if (gameContentGrid) {
+                gameContentGrid.style.display = 'none';
+            }
+            if (noGameDataMessage) {
+                console.log('[DEBUG] Setting noGameDataMessage display to block');
+                noGameDataMessage.style.display = 'block';
+            } else {
+                console.log('[DEBUG] noGameDataMessage element not found!');
+            }
+        } else {
+            console.log('[DEBUG] Has meaningful game data or manual overrides - hiding message');
+            // Hide the message and display the content grid
+            if (noGameDataMessage) {
+                noGameDataMessage.style.display = 'none';
+            }
+            gameContentGrid.style.display = 'flex';
+        }
         
         // Update game photo with proper error handling
         console.log('[DEBUG] Game photo data:', {

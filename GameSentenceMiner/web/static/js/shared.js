@@ -697,7 +697,7 @@ async function exportPageToPDF() {
 
         console.log('Converting to image...');
         // Use JPEG with high quality for better file size vs quality balance
-        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        const imgData = canvas.toDataURL('image/jpeg', 0.80);
 
         console.log('Creating PDF...');
         // PDF setup (A4)

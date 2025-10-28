@@ -84,7 +84,6 @@ def register_stats_api_routes(app):
             today_str = today.strftime("%Y-%m-%d")
 
             # Determine date range
-
             if start_timestamp and end_timestamp:
                 start_date = datetime.date.fromtimestamp(start_timestamp)
                 end_date = datetime.date.fromtimestamp(end_timestamp)
@@ -314,8 +313,32 @@ def register_stats_api_routes(app):
                     len(line.line_text) if line.line_text else 0
                 )
 
+            # GRACEFUL FALLBACK: If no daily_data from rollup, calculate from game_lines directly
             if not daily_data:
-                return jsonify({"labels": [], "datasets": []})
+                logger.warning(f"No daily_data from rollup! Falling back to live calculation from game_lines table.")
+                logger.info("This usually happens after a version upgrade. The rollup table will be populated automatically.")
+                
+                # Fetch all lines for the date range and calculate stats directly
+                if start_timestamp and end_timestamp:
+                    fallback_lines = GameLinesTable.get_lines_filtered_by_timestamp(
+                        start=start_timestamp, end=end_timestamp, for_stats=True
+                    )
+                    
+                    if fallback_lines:
+                        logger.info(f"Fallback: Processing {len(fallback_lines)} lines directly from game_lines table")
+                        for line in fallback_lines:
+                            day_str = datetime.date.fromtimestamp(float(line.timestamp)).strftime("%Y-%m-%d")
+                            game_name = line.game_name or "Unknown Game"
+                            display_name = game_name_to_display.get(game_name, game_name)
+                            daily_data[day_str][display_name]["lines"] += 1
+                            daily_data[day_str][display_name]["chars"] += (
+                                len(line.line_text) if line.line_text else 0
+                            )
+                
+                # If still no data after fallback, return empty response
+                if not daily_data:
+                    logger.warning(f"No data found even after fallback. Date range: {start_date_str} to {end_date_str}")
+                    return jsonify({"labels": [], "datasets": []})
 
             # 3. Create cumulative datasets for Chart.js
             sorted_days = sorted(daily_data.keys())
@@ -685,14 +708,13 @@ def register_stats_api_routes(app):
 
                 # Get first_date from rollup table
                 first_rollup_date = StatsRollupTable.get_first_date()
+                
                 if first_rollup_date:
                     all_games_stats["first_date"] = first_rollup_date
-
                 else:
                     # Fallback to today if no rollup data
-                    all_games_stats["first_date"] = datetime.date.today().strftime(
-                        "%Y-%m-%d"
-                    )
+                    fallback_date = datetime.date.today().strftime("%Y-%m-%d")
+                    all_games_stats["first_date"] = fallback_date
 
                 # Get last_date from today or end_timestamp
                 if end_timestamp:
@@ -936,19 +958,21 @@ def register_stats_api_routes(app):
                 logger.error(f"Error calculating reading speed by difficulty: {e}")
                 difficulty_speed_data = {"labels": [], "speeds": []}
 
-            # 14. Calculate game type distribution data
+            # 14. Calculate game type distribution data (only for games the user has played)
             try:
                 game_type_data = {"labels": [], "counts": []}
                 
-                # Get all games and count by type
-                all_games = GamesTable.all()
+                # Get game IDs that have been played (from rollup stats)
+                game_activity_data = rollup_stats.get("game_activity_data", {}) if rollup_stats else {}
+                played_game_ids = set(game_activity_data.keys())
+                
+                # Count types only for games that have been played
                 type_counts = {}
                 
-                for game in all_games:
-                    # Use the actual type value from the database, or empty string if not set
-                    game_type = game.type if game.type else ""
-                    # Only count games that have a type set
-                    if game_type:
+                for game_id in played_game_ids:
+                    game = GamesTable.get(game_id)
+                    if game and game.type:
+                        game_type = game.type
                         type_counts[game_type] = type_counts.get(game_type, 0) + 1
                 
                 # Sort by count descending
@@ -1765,6 +1789,91 @@ def register_stats_api_routes(app):
         except Exception as e:
             logger.error(f"Error fetching config {filename}: {e}")
             return jsonify({"error": "Failed to fetch configuration"}), 500
+
+    @app.route("/api/daily-activity", methods=["GET"])
+    def api_daily_activity():
+        """
+        Get daily activity data (time and characters) for the last 4 weeks or all time.
+        Returns data from the rollup table ONLY (no live data).
+        Uses historical data up to today (inclusive).
+        
+        Query Parameters:
+        - all_time: If 'true', returns all available data from first rollup date to today
+        """
+        try:
+            # Check if all-time data is requested
+            use_all_time = request.args.get('all_time', 'false').lower() == 'true'
+            
+            today = datetime.date.today()
+            
+            if use_all_time:
+                # Get all data from first rollup date to today
+                first_rollup_date = StatsRollupTable.get_first_date()
+                if not first_rollup_date:
+                    return jsonify({
+                        "labels": [],
+                        "timeData": [],
+                        "charsData": [],
+                        "speedData": []
+                    }), 200
+                
+                start_date = datetime.datetime.strptime(first_rollup_date, "%Y-%m-%d").date()
+            else:
+                # Get date range for last 4 weeks (28 days) - INCLUDING today
+                start_date = today - datetime.timedelta(days=27)  # 28 days of data
+            
+            # Get rollup data for the date range (up to today, inclusive)
+            rollups = StatsRollupTable.get_date_range(
+                start_date.strftime("%Y-%m-%d"),
+                today.strftime("%Y-%m-%d")
+            )
+            
+            # Build response data
+            labels = []
+            time_data = []
+            chars_data = []
+            speed_data = []
+            
+            # Create a map of existing rollup data
+            rollup_map = {rollup.date: rollup for rollup in rollups}
+            
+            # Fill in all dates in the range (including days with no data)
+            current_date = start_date
+            while current_date <= today:
+                date_str = current_date.strftime("%Y-%m-%d")
+                labels.append(date_str)
+                
+                if date_str in rollup_map:
+                    rollup = rollup_map[date_str]
+                    # Convert seconds to hours
+                    time_hours = rollup.total_reading_time_seconds / 3600
+                    time_data.append(round(time_hours, 2))
+                    chars_data.append(rollup.total_characters)
+                    
+                    # Calculate reading speed (chars/hour)
+                    if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
+                        speed = int(rollup.total_characters / time_hours)
+                        speed_data.append(speed)
+                    else:
+                        speed_data.append(0)
+                else:
+                    # No data for this day
+                    time_data.append(0)
+                    chars_data.append(0)
+                    speed_data.append(0)
+                
+                current_date += datetime.timedelta(days=1)
+            
+            return jsonify({
+                "labels": labels,
+                "timeData": time_data,
+                "charsData": chars_data,
+                "speedData": speed_data
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error fetching daily activity: {e}", exc_info=True)
+            return jsonify({"error": "Failed to fetch daily activity"}), 500
 
     @app.route("/api/today-stats", methods=["GET"])
     def api_today_stats():

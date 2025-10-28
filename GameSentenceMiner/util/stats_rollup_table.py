@@ -172,10 +172,12 @@ class StatsRollupTable(SQLiteDBTable):
     @classmethod
     def get_first_date(cls) -> Optional[str]:
         """Get the earliest date with rollup data."""
+        from GameSentenceMiner.util.configuration import logger
         row = cls._db.fetchone(
             f"SELECT date FROM {cls._table} ORDER BY date ASC LIMIT 1"
         )
-        return row[0] if row else None
+        result = row[0] if row else None
+        return result
 
     @classmethod
     def get_last_date(cls) -> Optional[str]:

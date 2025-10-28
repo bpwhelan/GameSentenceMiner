@@ -51,8 +51,22 @@ def run_due_crons():
         }
         
         try:
+            # Execute populate_games BEFORE daily_stats_rollup to ensure games table is populated
+            if cron.name == 'populate_games':
+                from GameSentenceMiner.util.cron.populate_games import populate_games_table
+                result = populate_games_table()
+                
+                # Mark as successfully run (even if there were some errors, as long as it completed)
+                CronTable.just_ran(cron.id)
+                executed_count += 1
+                detail['success'] = True
+                detail['result'] = result
+                
+                logger.info(f"Successfully executed {cron.name}")
+                logger.info(f"Created: {result['created']} games, Linked: {result['linked_lines']} lines, Errors: {result['errors']}")
+                
             # Execute the appropriate function based on cron name
-            if cron.name == 'jiten_sync':
+            elif cron.name == 'jiten_sync':
                 from GameSentenceMiner.util.cron.jiten_update import update_all_jiten_games
                 result = update_all_jiten_games()
                 
