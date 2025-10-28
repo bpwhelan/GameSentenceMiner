@@ -1130,6 +1130,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function renderSessionGameMetadata(session) {
         const gameContentGrid = document.getElementById('gameContentGrid');
         const noGameDataMessage = document.getElementById('noGameDataMessage');
+        const noGameDataTitle = document.getElementById('noGameDataTitle');
         const gameMetadata = session.gameMetadata;
         
         // Check if we have meaningful game data (image or description)
@@ -1143,6 +1144,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 gameContentGrid.style.display = 'none';
             }
             if (noGameDataMessage) {
+                // Set the game title in the message
+                if (noGameDataTitle && session.gameName) {
+                    noGameDataTitle.textContent = session.gameName;
+                }
                 noGameDataMessage.style.display = 'block';
             }
             return;
@@ -1680,6 +1685,12 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             if (noGameDataMessage) {
                 console.log('[DEBUG] Setting noGameDataMessage display to block');
+                // Set the game title in the message
+                const noGameDataTitle = document.getElementById('noGameDataTitle');
+                if (noGameDataTitle) {
+                    const gameTitle = stats.title_original || stats.game_name || 'Game';
+                    noGameDataTitle.textContent = gameTitle;
+                }
                 noGameDataMessage.style.display = 'block';
             } else {
                 console.log('[DEBUG] noGameDataMessage element not found!');
