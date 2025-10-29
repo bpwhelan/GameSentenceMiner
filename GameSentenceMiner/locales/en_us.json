@@ -358,6 +358,10 @@
           "hotkey_updates_anki": {
             "label": "Screenshot Hotkey Updates Anki:",
             "tooltip": "Enable to allow Screenshot hotkey/button to update the latest anki card."
+          },
+          "trim_black_bars": {
+            "label": "Trim Black Bars:",
+            "tooltip": "Automatically trim black bars from screenshots. Useful for games with letterboxing/pillarboxing (e.g., 4:3 games on 16:9 displays)."
           }
         },
         "audio": {

@@ -391,7 +391,7 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
                     stable_time = last_meiki_crop_time
                     previous_img_local = previous_img
                     pre_crop_image = previous_img_local
-                    ocr2_image = get_ocr2_image(crop_coords, og_image=previous_img_local, ocr2_engine=get_ocr_ocr2())
+                    ocr2_image = get_ocr2_image(crop_coords, og_image=previous_img_local, ocr2_engine=get_ocr_ocr2(), extra_padding=10)
                     # Use the earlier timestamp for when the stable crop started if available
                     # ocr2_image.show()
                     second_ocr_queue.put((text, stable_time, ocr2_image, filtering, pre_crop_image))
@@ -482,22 +482,54 @@ done = False
 # Create a queue for tasks
 second_ocr_queue = queue.Queue()
 
-def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None):
+def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_padding=0):
     """
     Returns the image to use for the second OCR pass, cropping and scaling as needed.
     Logic is unchanged, but code is refactored for clarity and maintainability.
     """
     def return_original_image():
+        """Return a (possibly cropped) PIL.Image based on the original image and padding."""
         logger.debug("Returning original image for OCR2 (no cropping or optimization).")
+        # Convert bytes to PIL.Image if necessary
+        img = og_image
+        if isinstance(og_image, (bytes, bytearray)):
+            try:
+                img = Image.open(io.BytesIO(og_image)).convert('RGB')
+            except Exception:
+                # If conversion fails, just return og_image as-is
+                return og_image
+
         if not crop_coords or not get_ocr_optimize_second_scan():
-            return og_image
+            return img
+
         x1, y1, x2, y2 = crop_coords
-        x1 = min(max(0, x1), og_image.width)
-        y1 = min(max(0, y1), og_image.height)
-        x2 = min(max(0, x2), og_image.width)
-        y2 = min(max(0, y2), og_image.height)
-        og_image.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
-        return og_image.crop((x1, y1, x2, y2))
+        # Apply integer padding (can be negative to shrink)
+        pad = int(extra_padding or 0)
+        x1 = x1 - pad
+        y1 = y1 - pad
+        x2 = x2 + pad
+        y2 = y2 + pad
+
+        # Clamp coordinates to image bounds
+        x1 = min(max(0, int(x1)), img.width)
+        y1 = min(max(0, int(y1)), img.height)
+        x2 = min(max(0, int(x2)), img.width)
+        y2 = min(max(0, int(y2)), img.height)
+
+        # Ensure at least a 1-pixel width/height
+        if x2 <= x1:
+            x2 = min(img.width, x1 + 1)
+            x1 = max(0, x2 - 1)
+        if y2 <= y1:
+            y2 = min(img.height, y1 + 1)
+            y1 = max(0, y2 - 1)
+
+        try:
+            img.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
+        except Exception:
+            # don't fail just because we couldn't save a debug image
+            logger.debug("Could not save pre_oneocrcrop.png for debugging")
+        return img.crop((x1, y1, x2, y2))
     
     # TODO Get rid of this check, and just always convert to full res
     LOCAL_OCR_ENGINES = ['easyocr', 'oneocr', 'rapidocr', 'mangaocr', 'winrtocr']
@@ -541,16 +573,33 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None):
     x2 = int(crop_coords[2] * width_ratio)
     y2 = int(crop_coords[3] * height_ratio)
 
+    # Scale padding separately for X and Y
+    pad_x = int(round((extra_padding or 0) * width_ratio))
+    pad_y = int(round((extra_padding or 0) * height_ratio))
+
+    x1 = x1 - pad_x
+    y1 = y1 - pad_y
+    x2 = x2 + pad_x
+    y2 = y2 + pad_y
+
     # Clamp coordinates to image bounds
-    x1 = min(max(0, x1), img.width)
-    y1 = min(max(0, y1), img.height)
-    x2 = min(max(0, x2), img.width)
-    y2 = min(max(0, y2), img.height)
-    
+    x1 = min(max(0, int(x1)), img.width)
+    y1 = min(max(0, int(y1)), img.height)
+    x2 = min(max(0, int(x2)), img.width)
+    y2 = min(max(0, int(y2)), img.height)
+
+    # Ensure at least a 1-pixel width/height
+    if x2 <= x1:
+        x2 = min(img.width, x1 + 1)
+        x1 = max(0, x2 - 1)
+    if y2 <= y1:
+        y2 = min(img.height, y1 + 1)
+        y1 = max(0, y2 - 1)
+
     logger.debug(f"Scaled crop coordinates: {(x1, y1, x2, y2)}")
-    
+
     img = run.apply_ocr_config_to_image(img, ocr_config_local, is_secondary=False)
-    
+
     ret = img.crop((x1, y1, x2, y2))
     return ret
 
@@ -763,7 +812,7 @@ if __name__ == "__main__":
             try:
                 while not done:
                     time.sleep(1)
-            except KeyboardInterrupt as e:
+            except KeyboardInterrupt:
                 pass
         else:
             print("Failed to load OCR configuration. Please check the logs.")

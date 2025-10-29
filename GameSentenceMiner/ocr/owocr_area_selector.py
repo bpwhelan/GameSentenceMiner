@@ -54,8 +54,11 @@ class ScreenSelector:
             raise RuntimeError("mss is required for screen selection.")
 
         if self.use_obs_screenshot:
-            print("Using OBS screenshot as target.")
-            self.screenshot_img = obs.get_screenshot_PIL(compression=75)
+            sources = obs.get_active_video_sources()
+            best_source = obs.get_best_source_for_screenshot()
+            if len(sources) > 1:
+                logger.warning(f"Warning: Multiple active video sources found in OBS. Using '{best_source.get('sourceName')}' for screenshot. Please ensure only one source is active for best results.")
+            self.screenshot_img = obs.get_screenshot_PIL(compression=100, img_format='jpg')
             # print(screenshot_base64)
             if not self.screenshot_img:
                 raise RuntimeError("Failed to get OBS screenshot.")
