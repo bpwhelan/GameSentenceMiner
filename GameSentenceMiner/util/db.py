@@ -866,7 +866,7 @@ def check_and_run_migrations():
                 name='populate_games',
                 description='One-time auto-creation of game records from game_lines (runs before rollup)',
                 next_run=two_minutes_ago.timestamp(),
-                schedule='once'  # Will auto-disable after running
+                schedule='weekly'  # Will auto-disable after running
             )
             logger.info(f"✅ Created populate_games cron job - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})")
         else:
