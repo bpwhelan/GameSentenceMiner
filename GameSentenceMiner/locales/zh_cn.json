@@ -585,6 +585,16 @@
             "label": "捕获间隔（秒）:",
             "tooltip": "定期屏幕捕获的时间间隔（秒）。"
           }
+          ,
+          "periodic_ratio": {
+            "label": "定期匹配比率:",
+            "tooltip": "在定期扫描期间使用的比率（0-1），用于确定区域匹配多少才算检测到。"
+          }
+          ,
+          "number_of_local_scans_per_event": {
+            "label": "每次事件本地扫描数:",
+            "tooltip": "在停止或将结果发送到OCR引擎之前，每个事件执行的本地扫描次数。"
+          }
         },
         "wip": {
           "title": "WIP",

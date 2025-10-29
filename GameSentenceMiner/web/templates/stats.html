@@ -4,6 +4,7 @@
 {% set page_title = 'GSM Dashboard' %}
 {% set page_specific_css = 'stats.css' %}
 {% set include_kanji_grid_css = true %}
+{% set include_chartjs = true %}
 {% include 'components/html-head.html' %}
 
 <body>
@@ -20,6 +21,7 @@
         <!-- Include shared popup components -->
         {% include 'components/popups.html' %}
 
+        <!-- SECTION 1: Summary Cards -->
         <div class="dashboard-card peak-stats">
             <div class="dashboard-card-header">
                 <h3 class="dashboard-card-title">
@@ -47,6 +49,87 @@
             </div>
         </div>
         <br>
+
+        <div class="dashboard-card game-milestones">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">🎮</span>
+                    By Release Date
+                </h3>
+            </div>
+            <div class="game-milestones-grid" id="gameMilestonesGrid">
+                <!-- Oldest game card -->
+                <div class="milestone-game-card" id="oldestGameCard" style="display: none;">
+                    <div class="milestone-game-image-container">
+                        <img id="oldestGameImage" class="milestone-game-image" alt="Game Cover">
+                    </div>
+                    <div class="milestone-game-info">
+                        <div class="milestone-label oldest">📜 OLDEST</div>
+                        <div class="milestone-game-title" id="oldestGameTitle">-</div>
+                        <div class="milestone-game-subtitle" id="oldestGameSubtitle"></div>
+                        <div class="milestone-game-details">
+                            <div class="milestone-detail-row">
+                                <span class="milestone-detail-icon">📅</span>
+                                <span class="milestone-detail-label">Released:</span>
+                                <span class="milestone-detail-value" id="oldestGameReleaseYear">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Newest game card -->
+                <div class="milestone-game-card" id="newestGameCard" style="display: none;">
+                    <div class="milestone-game-image-container">
+                        <img id="newestGameImage" class="milestone-game-image" alt="Game Cover">
+                    </div>
+                    <div class="milestone-game-info">
+                        <div class="milestone-label newest">✨ NEWEST</div>
+                        <div class="milestone-game-title" id="newestGameTitle">-</div>
+                        <div class="milestone-game-subtitle" id="newestGameSubtitle"></div>
+                        <div class="milestone-game-details">
+                            <div class="milestone-detail-row">
+                                <span class="milestone-detail-icon">📅</span>
+                                <span class="milestone-detail-label">Released:</span>
+                                <span class="milestone-detail-value" id="newestGameReleaseYear">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- No data message -->
+                <div class="milestone-no-data" id="milestonesNoData" style="display: none;">
+                    No data. <a href="http://localhost:55000/database">Create entries in Database Management</a>
+                </div>
+            </div>
+        </div>
+        <br>
+
+        <!-- SECTION 2: Daily Activity (Last 4 Weeks) -->
+        <div class="chart-container">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h2 style="margin: 0;" id="dailyTimeChartTitle">📊 Daily Reading Time (Last 4 Weeks)</h2>
+                <button id="toggleTimeDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+            </div>
+            <canvas id="dailyTimeChart"></canvas>
+        </div>
+
+        <div class="chart-container">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h2 style="margin: 0;" id="dailyCharsChartTitle">📚 Daily Characters Read (Last 4 Weeks)</h2>
+                <button id="toggleCharsDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+            </div>
+            <canvas id="dailyCharsChart"></canvas>
+        </div>
+
+        <div class="chart-container">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h2 style="margin: 0;" id="dailySpeedChartTitle">⚡ Daily Reading Speed (Last 4 Weeks)</h2>
+                <button id="toggleSpeedDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+            </div>
+            <canvas id="dailySpeedChart"></canvas>
+        </div>
+
+        <!-- SECTION 3: Overall Progress Over Time -->
         <div class="chart-container">
             <h2>Lines Received Over Time</h2>
             <canvas id="linesChart"></canvas>
@@ -58,20 +141,38 @@
         </div>
 
         <div class="chart-container">
-            <h2>Reading Chars Quantity</h2>
-            <canvas id="readingCharsChart"></canvas>
-        </div>
-
-        <div class="chart-container">
             <h2>Reading Time Quantity</h2>
             <canvas id="readingTimeChart"></canvas>
         </div>
 
         <div class="chart-container">
+            <h2>Reading Chars Quantity</h2>
+            <canvas id="readingCharsChart"></canvas>
+        </div>
+
+        <!-- SECTION 4: Reading Speed Analysis -->
+        <div class="chart-container">
             <h2>Reading Speed Improvement</h2>
             <canvas id="readingSpeedPerGameChart"></canvas>
         </div>
 
+        <div class="chart-container">
+            <h2>📉 Reading Speed by Game Difficulty</h2>
+            <canvas id="difficultySpeedChart"></canvas>
+            <div id="difficultySpeedNoData" class="chart-no-data" style="display: none;">
+                No data. <a href="http://localhost:55000/database">Create entries in Database Management</a>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h2>🎮 Games by Type</h2>
+            <canvas id="gameTypeChart"></canvas>
+            <div id="gameTypeNoData" class="chart-no-data" style="display: none;">
+                No data. <a href="http://localhost:55000/database">Create entries in Database Management</a>
+            </div>
+        </div>
+
+        <!-- SECTION 5: Time Patterns -->
         <div class="chart-container">
             <h2>Time of Day Activity Pattern</h2>
             <canvas id="hourlyActivityChart"></canvas>
@@ -82,6 +183,53 @@
             <canvas id="hourlyReadingSpeedChart"></canvas>
         </div>
 
+        <div class="chart-container">
+            <h2>📅 Day of Week Activity</h2>
+            <canvas id="dayOfWeekChart"></canvas>
+        </div>
+
+        <div class="chart-container">
+            <h2>⏰ Average Hours Read by Day</h2>
+            <canvas id="avgHoursByDayChart"></canvas>
+        </div>
+
+        <!-- SECTION 6: Top Performance Days -->
+        <div class="chart-container">
+            <h2>🏆 Top 5 Reading Speed Days</h2>
+            <canvas id="topReadingSpeedDaysChart"></canvas>
+        </div>
+
+        <div class="chart-container">
+            <h2>📚 Top 5 Most Productive Days</h2>
+            <canvas id="topCharacterDaysChart"></canvas>
+        </div>
+
+        <!-- SECTION 7: Mining Activity -->
+        <div class="chart-container">
+            <h2>Cards Mined Over Last 30 Days</h2>
+            <canvas id="cardsMinedChart"></canvas>
+            <div id="cardsMinedNoData" class="chart-no-data" style="display: none;">
+                No card mining activity recorded for the selected range.
+            </div>
+        </div>
+
+        <!-- Mining Heatmap Card (Full Width) -->
+        <div class="dashboard-card all-games" id="miningHeatmapCard" style="margin-bottom: 24px;">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">📊</span>
+                    Mining Heatmap
+                </h3>
+                <p class="dashboard-card-subtitle">Track your daily sentence mining progress</p>
+            </div>
+            
+            <div class="dashboard-progress-section">
+                <div class="dashboard-progress-title">Activity Heatmap</div>
+                <div id="miningHeatmapContainer"></div>
+            </div>
+        </div>
+
+        <!-- SECTION 8: Kanji Grid (Bottom) -->
         <div class="chart-container">
             <h2>Kanji Grid</h2>
             <div id="kanjiGridContainer">
@@ -114,6 +262,7 @@
     {% set chars_target = stats_config.character_count_target | default(25000000) %}
     {% set games_target = stats_config.games_target | default(100) %}
     {% set heatmap_year = 'all' %}
+    {% set first_date = first_rollup_date | default('') %}
 
     {% set stats_config_vars = {
         'afkTimerSeconds': afk_timer,
@@ -122,15 +271,20 @@
         'readingHoursTarget': hours_target,
         'characterCountTarget': chars_target,
         'gamesTarget': games_target,
-        'heatmapDisplayYear': heatmap_year
+        'heatmapDisplayYear': heatmap_year,
+        'firstDate': first_date
     } %}
 
     <!-- Include shared JavaScript configuration -->
     {% set config_vars = stats_config_vars %}
     {% set config_object_name = 'statsConfig' %}
     {% set include_kanji_grid_js = true %}
+    {% set include_heatmap_js = true %}
     {% set page_specific_js = 'stats.js' %}
     {% include 'components/js-config.html' %}
+    
+    <!-- Load bar chart component before stats.js to ensure it's available -->
+    <script src="/static/js/components/bar-chart.js"></script>
 
 </body>
 

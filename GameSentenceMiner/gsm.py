@@ -32,7 +32,7 @@ try:
 
     import keyboard
     import ttkbootstrap as ttk
-    from PIL import Image, ImageDraw
+    from PIL import Image
     from pystray import Icon, Menu, MenuItem
     from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
@@ -187,7 +187,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:
-                last_note, anki_card_creation_time, selected_lines = anki.card_queue.pop(
+                last_note, anki_card_creation_time, selected_lines, mined_line = anki.card_queue.pop(
                     0)
             else:
                 logger.info(
@@ -211,11 +211,11 @@ class VideoToAudioHandler(FileSystemEventHandler):
             full_text = ''
             if selected_lines:
                 start_line = selected_lines[0]
-                mined_line = get_mined_line(last_note, selected_lines)
+                # mined_line = get_mined_line(last_note, selected_lines)
                 line_cutoff = selected_lines[-1].get_next_time()
                 full_text = remove_html_and_cloze_tags(note['fields'][get_config().anki.sentence_field])
             else:
-                mined_line = get_text_event(last_note)
+                # mined_line = get_text_event(last_note)
                 if mined_line:
                     start_line = mined_line
                     if mined_line.next:
@@ -634,6 +634,35 @@ def initialize(reloading=False):
             if shutil.which("ffmpeg") is None:
                 os.environ["PATH"] += os.pathsep + \
                     os.path.dirname(get_ffmpeg_path())
+        
+        # Check for due cron jobs on startup
+        try:
+            from GameSentenceMiner.util.cron.run_crons import run_due_crons
+            logger.info("Checking for due cron jobs...")
+            run_due_crons()
+        except Exception as e:
+            logger.warning(f"Failed to check cron jobs on startup: {e}")
+        
+        # Check if rollup table needs initial population (version upgrade migration)
+        try:
+            from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
+            from GameSentenceMiner.util.db import GameLinesTable
+            from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
+            
+            # Check if we have game lines but no rollup data
+            first_rollup = StatsRollupTable.get_first_date()
+            has_game_lines = GameLinesTable._db.fetchone(
+                f"SELECT COUNT(*) FROM {GameLinesTable._table}"
+            )[0] > 0
+            
+            if has_game_lines and not first_rollup:
+                logger.info("Detected existing data without rollup table - running initial rollup generation...")
+                logger.info("This is a one-time migration for version upgrades. Please wait...")
+                rollup_result = run_daily_rollup()
+                logger.info(f"Initial rollup complete: processed {rollup_result.get('processed', 0)} dates")
+        except Exception as e:
+            logger.warning(f"Failed to check/populate rollup table on startup: {e}")
+        
         if get_config().obs.open_obs:
             obs_process = obs.start_obs()
             # obs.connect_to_obs(start_replay=True)

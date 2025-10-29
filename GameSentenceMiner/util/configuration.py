@@ -675,8 +675,10 @@ class Overlay:
     monitor_to_capture: int = 0
     periodic: bool = False
     periodic_interval: float = 1.0
+    periodic_ratio: float = 0.9
     scan_delay: float = 0.25
     minimum_character_size: int = 0
+    number_of_local_scans_per_event: int = 1
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:
@@ -837,6 +839,7 @@ class StatsConfig:
     reading_hours_target_date: str = ""  # Target date for reading hours goal (ISO format: YYYY-MM-DD)
     character_count_target_date: str = ""  # Target date for character count goal (ISO format: YYYY-MM-DD)
     games_target_date: str = ""  # Target date for games/VNs goal (ISO format: YYYY-MM-DD)
+    cards_mined_daily_target: int = 10  # Daily target for cards mined (default: 10 cards per day)
 
 @dataclass_json
 @dataclass

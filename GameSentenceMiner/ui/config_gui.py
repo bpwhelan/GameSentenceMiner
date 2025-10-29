@@ -512,9 +512,11 @@ class ConfigApp:
         self.overlay_websocket_send_value = tk.BooleanVar(value=self.settings.overlay.monitor_to_capture)
         self.overlay_engine_value = tk.StringVar(value=self.settings.overlay.engine)
         self.periodic_value = tk.BooleanVar(value=self.settings.overlay.periodic)
+        self.periodic_ratio_value = tk.StringVar(value=str(self.settings.overlay.periodic_ratio))
         self.periodic_interval_value = tk.StringVar(value=str(self.settings.overlay.periodic_interval))
         self.scan_delay_value = tk.StringVar(value=str(self.settings.overlay.scan_delay))
         self.overlay_minimum_character_size_value = tk.StringVar(value=str(self.settings.overlay.minimum_character_size))
+        self.number_of_local_scans_per_event_value = tk.StringVar(value=str(getattr(self.settings.overlay, 'number_of_local_scans_per_event', 1)))
         
         # Master Config Settings
         self.switch_to_default_if_not_found_value = tk.BooleanVar(value=self.master_config.switch_to_default_if_not_found)
@@ -616,6 +618,28 @@ class ConfigApp:
             self.sync_changes_checkbutton.state(['!selected'])
 
         # Create a new Config instance
+        # Validate and clamp periodic_ratio to [0.0, 1.0]
+        try:
+            _periodic_ratio = float(self.periodic_ratio_value.get())
+        except Exception:
+            _periodic_ratio = 0.9
+        # clamp
+        if _periodic_ratio < 0.0:
+            _periodic_ratio = 0.0
+        if _periodic_ratio > 1.0:
+            _periodic_ratio = 1.0
+        # reflect back to UI variable (keep consistent formatting)
+        self.periodic_ratio_value.set(str(_periodic_ratio))
+
+        # Validate and clamp number_of_local_scans_per_event to positive integer
+        try:
+            _local_scans = int(float(self.number_of_local_scans_per_event_value.get()))
+        except Exception:
+            _local_scans = int(getattr(self.settings.overlay, 'number_of_local_scans_per_event', 1))
+        if _local_scans < 1:
+            _local_scans = 1
+        self.number_of_local_scans_per_event_value.set(str(_local_scans))
+
         config = ProfileConfig(
             scenes=self.settings.scenes,
             general=General(
@@ -754,7 +778,9 @@ class ConfigApp:
                 engine=OverlayEngine(self.overlay_engine_value.get()).value if self.overlay_engine_value.get() else OverlayEngine.LENS.value,
                 scan_delay=float(self.scan_delay_value.get()),
                 periodic=float(self.periodic_value.get()),
+                periodic_ratio=_periodic_ratio,
                 periodic_interval=float(self.periodic_interval_value.get()),
+                number_of_local_scans_per_event=int(self.number_of_local_scans_per_event_value.get()),
                 minimum_character_size=int(self.overlay_minimum_character_size_value.get()),
             )
             # wip=WIP(
@@ -819,6 +845,14 @@ class ConfigApp:
 
         title_template = self.i18n.get('app', {}).get('title_with_profile', 'GameSentenceMiner Configuration - {profile_name}')
         self.window.title(title_template.format(profile_name=current_config.name))
+        
+        try:
+            import mss as mss
+            self.monitors = [f"Monitor {i}: width: {monitor['width']}, height: {monitor['height']}" for i, monitor in enumerate(mss.mss().monitors[1:], start=1)]
+            if len(self.monitors) == 0:
+                self.monitors = [1]
+        except ImportError:
+            self.monitors = []
 
         if current_config.name != self.settings.name or self.settings.config_changed(current_config) or force_refresh:
             logger.info("Config changed, reloading settings.")
@@ -2432,6 +2466,22 @@ class ConfigApp:
                              tooltip=periodic_interval_i18n.get('tooltip', 'Interval for periodic scanning.'),
                              row=self.current_row, column=0)
         ttk.Entry(overlay_frame, textvariable=self.periodic_interval_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
+        # Periodic Ratio (how much of the screen must match to count)
+        periodic_ratio_i18n = overlay_i18n.get('periodic_ratio', {})
+        HoverInfoLabelWidget(overlay_frame, text=periodic_ratio_i18n.get('label', 'Periodic Ratio:'),
+                             tooltip=periodic_ratio_i18n.get('tooltip', 'Ratio (0-1) used during periodic scanning to determine matching threshold.'),
+                             row=self.current_row, column=0)
+        ttk.Entry(overlay_frame, textvariable=self.periodic_ratio_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+
+        # Number of Local Scans Per Event
+        local_scans_i18n = overlay_i18n.get('number_of_local_scans_per_event', {})
+        HoverInfoLabelWidget(overlay_frame, text=local_scans_i18n.get('label', 'Local Scans Per Event:'),
+                             tooltip=local_scans_i18n.get('tooltip', 'How many local scans to perform per event before stopping or sending to lens.'),
+                             row=self.current_row, column=0)
+        ttk.Entry(overlay_frame, textvariable=self.number_of_local_scans_per_event_value).grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         # Minimum Character Size

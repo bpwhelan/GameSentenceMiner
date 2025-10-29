@@ -233,12 +233,15 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         config_app: 'ConfigApp' = gsm_state.config_app
         sentence = note['fields'].get(config.anki.sentence_field, last_note.get_field(config.anki.sentence_field))
         
-        use_voice, sentence, translation, new_ss_path, add_nsfw_tag = config_app.show_anki_confirmation_dialog(
+        use_voice, sentence, translation, new_ss_path, add_nsfw_tag, new_audio_path = config_app.show_anki_confirmation_dialog(
             tango, sentence, assets.screenshot_path, assets.audio_path if update_audio_flag else None, translation, ss_time
         )
         note['fields'][config.anki.sentence_field] = sentence
         note['fields'][config.ai.anki_field] = translation
         assets.screenshot_path = new_ss_path or assets.screenshot_path
+        # Update audio path if TTS was generated in the dialog
+        if new_audio_path:
+            assets.audio_path = new_audio_path
         
         # Add NSFW tag if checkbox was selected
         if add_nsfw_tag:
@@ -559,10 +562,10 @@ def update_new_card():
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         gsm_state.last_mined_line = game_line
-        queue_card_for_processing(last_card, lines)
+        queue_card_for_processing(last_card, lines, game_line)
         
-def queue_card_for_processing(last_card, lines):
-    card_queue.append((last_card, datetime.now(), lines))
+def queue_card_for_processing(last_card, lines, last_mined_line):
+    card_queue.append((last_card, datetime.now(), lines, last_mined_line))
     texthooking_page.reset_checked_lines()
     try:
         obs.save_replay_buffer()

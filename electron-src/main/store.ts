@@ -1,6 +1,7 @@
 import Store from "electron-store";
 import { SteamGame } from "./ui/steam.js";
 import {ObsScene} from "./ui/obs.js";
+import { BrowserWindow } from "electron";
 
 
 interface YuzuConfig {
@@ -186,11 +187,11 @@ export function setAutoUpdateGSMApp(autoUpdate: boolean): void {
 }
 
 export function getAutoUpdateElectron(): boolean {
-    return store.get("autoUpdateElectron");
+    return store.get("autoUpdateGSMApp");
 }
 
 export function setAutoUpdateElectron(autoUpdate: boolean): void {
-    store.set("autoUpdateElectron", autoUpdate);
+    store.set("autoUpdateGSMApp", autoUpdate);
 }
 
 export function getPythonPath(): string {
@@ -546,3 +547,76 @@ export function getSteamGames(): SteamGame[] {
 export function setSteamGames(games: SteamGame[]): void {
     store.set('steam.steamGames', games);
 }
+
+// ============================================================================
+// Runtime State Manager
+// ============================================================================
+// This manages ephemeral runtime state that doesn't need to persist to disk.
+// It's separate from the settings store above which saves to disk.
+
+class RuntimeStateManager {
+    private state: Map<string, any> = new Map();
+
+    /**
+     * Get a state value
+     */
+    get(key: string): any {
+        return this.state.get(key);
+    }
+
+    /**
+     * Set a state value and broadcast to all windows
+     */
+    set(key: string, value: any): void {
+        const oldValue = this.state.get(key);
+        this.state.set(key, value);
+        
+        // Broadcast to all windows
+        this.broadcastStateChange(key, value, oldValue);
+    }
+
+    /**
+     * Remove a state value
+     */
+    remove(key: string): void {
+        const oldValue = this.state.get(key);
+        this.state.delete(key);
+        
+        // Broadcast removal
+        this.broadcastStateChange(key, undefined, oldValue);
+    }
+
+    /**
+     * Get all state as an object
+     */
+    getAll(): Record<string, any> {
+        return Object.fromEntries(this.state);
+    }
+
+    /**
+     * Clear all state
+     */
+    clear(): void {
+        this.state.clear();
+        
+        // Notify all windows that state was cleared
+        BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) {
+                win.webContents.send('state-cleared');
+            }
+        });
+    }
+
+    /**
+     * Broadcast state change to all windows
+     */
+    private broadcastStateChange(key: string, value: any, oldValue: any): void {
+        BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) {
+                win.webContents.send('state-changed', { key, value, oldValue });
+            }
+        });
+    }
+}
+
+export const runtimeState = new RuntimeStateManager();
