@@ -358,6 +358,10 @@
           "hotkey_updates_anki": {
             "label": "截图热键更新 Anki:",
             "tooltip": "允许截图热键/按钮更新最新的 Anki 卡片。"
+          },
+          "trim_black_bars": {
+            "label": "裁剪黑边:",
+            "tooltip": "自动裁剪截图中的黑边。适用于有信箱/柱状框的游戏（例如在 16:9 显示器上的 4:3 游戏）。"
           }
         },
         "audio": {

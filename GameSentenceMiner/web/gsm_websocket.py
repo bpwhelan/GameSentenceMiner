@@ -77,10 +77,12 @@ class WebsocketServerThread(threading.Thread):
             self._event.set()
             while True:
                 try:
-                    self.server = start_server = websockets.serve(self.server_handler,
-                                                                  get_config().advanced.localhost_bind_address,
-                                                                  self.get_ws_port_func(),
-                                                                  max_size=1000000000)
+                    self.server = start_server = websockets.serve(
+                        self.server_handler,
+                        get_config().advanced.localhost_bind_address,
+                        self.get_ws_port_func(),
+                        max_size=1000000000,
+                    )
                     async with start_server:
                         await stop_event.wait()
                     return
@@ -106,11 +108,11 @@ websocket_server_thread.start()
 plaintext_websocket_server_thread = None
 if get_config().advanced.plaintext_websocket_port:
     plaintext_websocket_server_thread = WebsocketServerThread(
-        read=False, get_ws_port_func=lambda: get_config().get_field_value('advanced', 'plaintext_websocket_port'))
+        read=True, get_ws_port_func=lambda: get_config().get_field_value('advanced', 'plaintext_websocket_port'))
     plaintext_websocket_server_thread.start()
 
 overlay_server_thread = WebsocketServerThread(
-    read=False, get_ws_port_func=lambda: get_config().get_field_value('overlay', 'websocket_port'))
+    read=True, get_ws_port_func=lambda: get_config().get_field_value('overlay', 'websocket_port'))
 overlay_server_thread.start()
 
 websocket_server_threads = [

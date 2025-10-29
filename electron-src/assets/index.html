@@ -4,10 +4,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="xterm.css">
-    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
     <link rel="stylesheet" href="style.css">
+    <!-- TODO: IMPORT THESE PROPERLY -->
+    <link rel="stylesheet" href="xterm.css" />
+    <script src="xterm.js"></script>
+    <script src="xterm-addon-fit.js"></script>
     <style>
         body.index {
             margin: 0;
@@ -246,7 +247,7 @@
                     </h2>
                     <div id="setup-collapsible-content" class="collapsible-content" style="display: block;">
                         <div class="form-group">
-                            <button id="install-recommended-btn">Install OwOCR</button>
+                            <!-- <button id="install-recommended-btn">Install OwOCR</button> -->
                             <div id="dependency-select-group" class="input-group">
                                 <label for="dependency-select">Optional:</label>
                                 <select id="dependency-select">
@@ -254,8 +255,8 @@
                                     </option>
                                     <option value="pip install owocr[winocr]">WindowsOCR</option>
                                     <option value="pip install owocr[mangaocr]">MangaOCR</option>
-                                    <option value="pip install owocr[easyocr]">EasyOCR</option>
-                                    <option value="pip install owocr[rapidocr]">RapidOCR</option>
+                                    <!-- <option value="pip install owocr[easyocr]">EasyOCR</option> -->
+                                    <!-- <option value="pip install owocr[rapidocr]">RapidOCR</option> -->
                                     <option value="pip install owocr[gvision]">Google Vision (apikey required)</option>
                                     <option value="pip install owocr[azure]">Azure (apikey required)</option>
                                     <option value="pip install owocr[ocrspace]">OCRSpace (apikey required)</option>
@@ -338,20 +339,19 @@
                                 <select id="ocr1-input">
                                     <option value="" disabled selected>Select Stability OCR</option>
                                     <!-- <option value="glens">Google Lens</option> -->
-                                    <option value="bing">Bing</option>
                                     <option value="oneocr">OneOCR (Recommended)</option>
-                                    <option value="meiki_text_detector">Meiki Text Detector (Experimental)</option>
+                                    <option value="meiki_text_detector">Meiki Text Detector (Experimental, Fast)</option>
+                                    <option value="alivetext">Apple Live Text (Mac Only)</option>
                                     <!-- <option value="gemini">Gemini</option> -->
                                     <!-- <option value="qwenv2">Qwen2-VL</option> -->
-                                    <option value="easyocr">EasyOCR</option>
-                                    <option value="rapidocr">RapidOCR</option>
-                                    <option value="mangaocr">MangaOCR</option>
+                                    <!-- <option value="easyocr">EasyOCR</option>
+                                    <option value="rapidocr">RapidOCR</option> -->
+                                    <option value="mangaocr">MangaOCR (Not Recommended)</option>
                                     <option value="winrtocr">WindowsOCR</option>
                                     <!-- <option value="gvision">Google Vision</option> -->
                                     <!-- <option value="azure">Azure Image Analysis</option> -->
                                     <!-- <option value="ocrspace">OCRSpace</option> -->
                                     <option value="local_llm_ocr">Local LLM OCR</option>
-                                    <option value="alivetext">Apple Live Text (Mac Only)</option>
                                 </select>
                             </div>
                             <div id="ocr2-select-group" class="input-group">
@@ -369,10 +369,10 @@
                                     <option value="oneocr">OneOCR</option>
                                     <option value="gemini">Gemini</option>
                                     <!-- <option value="qwenv2">Qwen2-VL</option> -->
-                                    <option value="easyocr">EasyOCR</option>
+                                    <!-- <option value="easyocr">EasyOCR</option>
                                     <option value="rapidocr">RapidOCR</option>
                                     <option value="mangaocr">MangaOCR</option>
-                                    <option value="winrtocr">WindowsOCR</option>
+                                    <option value="winrtocr">WindowsOCR</option> -->
                                     <option value="gvision">Google Vision</option>
                                     <option value="azure">Azure Image Analysis</option>
                                     <option value="ocrspace">OCRSpace</option>
@@ -675,6 +675,10 @@
                 const scanningAnimation = ['.', '..', '...', '....'];
                 let animationFrame = 0;
                 let sleepingAnimationFrame = 1;
+                let iteration = 0;
+                let speeds = {
+                    
+                }
 
                 function stopScanningAnimation() {
                     // if (isScanning) {
@@ -735,6 +739,7 @@
                 }
 
                 ipcRenderer.on('ocr-log', (event, data) => {
+                    iteration += 1;
                     const trimmedData = data.trim();
                     const trimmedDataLower = trimmedData.toLowerCase();
                     const engine_name = trimmedData.includes("using") ? trimmedData.split("using")[1].split(":")[0].trim() : "";
@@ -757,9 +762,23 @@
                         closeOCRConsole();
                         return;
                     }
+                    // if (trimmedDataLower.includes("using meiki")) {
+                    //     
+                    //     // ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true), true));
+                    //     document.getElementById('ocr-status-label').innerHTML = `<b>Status</b>: Scanning using ${engine_pretty_html} in ${speed}s` + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>';
+                    //     animationFrame = (animationFrame + 1) % scanningAnimation.length;
+                    //     previous_message = trimmedData;
+                    // } 
                     if (trimmedData.endsWith(engine_name + ":") && !paused) {
+                        if (speeds[engine_name] === undefined || iteration % 5 === 0) {
+                            speeds[engine_name] = trimmedData.split(" in ")[1]?.split("s")[0]?.trim() || "0";
+                        }
                         // Start scanning animation
-                        document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Scanning using " + engine_pretty_html + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>';
+                        if (speeds[engine_name] !== 0) {
+                            document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Scanning using " + engine_pretty_html + ' in ' + speeds[engine_name] + 's' + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>';
+                        } else {
+                            document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Scanning using " + engine_pretty_html + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>';
+                        }
                         animationFrame = (animationFrame + 1) % scanningAnimation.length;
                         //if (!isScanning) {
                         //   isScanning = true;
@@ -784,10 +803,17 @@
                         // Add a "Duplicate" flag at the end of the previous line"
                         ocrTerm.write('\r\x1b[2K'); // Clear the line
                         ocrTerm.write(`\x1b[33m${previous_message} (Duplicate)\x1b[0m\n`);
-                    } else if (trimmedDataLower.includes("boxes recognized with meiki")) {
-                        // ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true), true));
-                        document.getElementById('ocr-status-label').innerHTML = "<b>Status</b>: Scanning using " + engine_pretty_html + '<span style="font-size: 2.0em;">' + scanningAnimation[animationFrame] + '</span>';
-                        animationFrame = (animationFrame + 1) % scanningAnimation.length;
+                    } else if (trimmedData.includes("Multiple active video sources found in OBS")) {
+                        // Using {self.current_source_name} for OCR.
+                        const source_name = trimmedData.split("Multiple active video sources found in OBS. Using ")[1]?.split(" for Screenshot")[0]?.trim() || "Unknown Source";
+                        stopScanningAnimation();
+                        ocrTerm.writeln(getEngineFormatString(engine_name, replaceEngineNameWithColor(trimmedData, true), true));
+                        // Show Error box for warning
+                        ipcRenderer.invoke('show-error-box', {
+                            title: 'Multiple OBS Video Sources Detected',
+                            message: 'Multiple active video sources were found in OBS. Please ensure only one source is active for OCR to function correctly.',
+                            detail: 'Having multiple active video sources can lead to unexpected behavior. Please disable any unnecessary sources and try again.\n\nFor now, the source "' + source_name + '" will be used for OCR.'
+                        });
                         previous_message = trimmedData;
                     } else if (trimmedData) {
                         stopScanningAnimation();
@@ -895,7 +921,7 @@
                     refreshActiveOCRWindow();
                 }
 
-                const installRecommendedBtn = document.getElementById('install-recommended-btn');
+                // const installRecommendedBtn = document.getElementById('install-recommended-btn');
                 const openOcrPageBtn = document.getElementById('open-ocr-page-btn');
                 const windowSelect = document.getElementById("windowSelect");
                 const manualOcrHotkeyInput = document.getElementById('manual-ocr-hotkey');
@@ -929,23 +955,23 @@
                     saveOCRConfig();
                 });
 
-                installRecommendedBtn.addEventListener('click', () => {
-                    openOCRConsole("Close Console", {
-                        hideSetupCard: false,
-                        hideConfigCard: true,
-                        hideSettingsCard: true,
-                        showLogCard: true,
-                        hideStartControls: true,
-                        showStopControls: true,
-                        hideManualHotkey: false,
-                        hideAreaHotkey: false,
-                        hideScreenshotsGroup: false,
-                        showSelectAreasButton: false,
-                        updateSettingsHeader: false,
-                        fitIntervalMs: 500,
-                    });
-                    ipcRenderer.send('ocr.install-recommended-deps');
-                });
+                // installRecommendedBtn.addEventListener('click', () => {
+                //     openOCRConsole("Close Console", {
+                //         hideSetupCard: false,
+                //         hideConfigCard: true,
+                //         hideSettingsCard: true,
+                //         showLogCard: true,
+                //         hideStartControls: true,
+                //         showStopControls: true,
+                //         hideManualHotkey: false,
+                //         hideAreaHotkey: false,
+                //         hideScreenshotsGroup: false,
+                //         showSelectAreasButton: false,
+                //         updateSettingsHeader: false,
+                //         fitIntervalMs: 500,
+                //     });
+                //     ipcRenderer.send('ocr.install-recommended-deps');
+                // });
 
                 openOcrPageBtn.addEventListener('click', () => {
                     window.location.href = 'ocr_replacements.html';
@@ -1284,8 +1310,6 @@
     </div>
     <div id="console" class="tab-content">
         <div id="terminal"></div>
-        <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
         <script>
             const term = new Terminal({
                 fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace', // Japanese-supporting fonts

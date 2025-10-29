@@ -28,7 +28,7 @@ import re
 import platform
 import sys
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Any, List
 
 # Global variables to track state
@@ -58,6 +58,8 @@ class MediaAssets:
     final_prev_screenshot_path: str = ''
     final_video_path: str = ''
 
+    extra_tags: List[str] = field(default_factory=list)
+
 
 def _determine_update_conditions(last_note: 'AnkiCard') -> (bool, bool):
     """Determine if audio and picture fields should be updated."""
@@ -83,7 +85,10 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
         assets.screenshot_in_anki = anki_result.screenshot_in_anki
         assets.prev_screenshot_in_anki = anki_result.prev_screenshot_in_anki
         assets.video_in_anki = anki_result.video_in_anki
+        assets.extra_tags = anki_result.extra_tags
         return assets
+    
+    assets.extra_tags = []
 
     # --- Generate new media files ---
     if config.anki.picture_field and config.screenshot.enabled:
@@ -242,7 +247,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         
         # Add NSFW tag if checkbox was selected
         if add_nsfw_tag:
-            tags.append("NSFW")
+            assets.extra_tags.append("NSFW")
 
     # 5. If creating new media, store files in Anki's collection. Then update note fields.
     if not use_existing_files:
@@ -266,6 +271,9 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         if config.audio.external_tool and config.audio.external_tool_enabled:
             anki_media_audio_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki)
             open_audio_in_external(anki_media_audio_path)
+            
+    for extra_tag in assets.extra_tags:
+        tags.append(extra_tag)
 
     # 6. Asynchronously update the note in Anki
     run_new_thread(lambda: check_and_update_note(last_note, note, tags))
@@ -284,7 +292,8 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
             multi_line=bool(selected_lines and len(selected_lines) > 1),
             video_in_anki=assets.video_in_anki or '',
             word_path=word_path,
-            word=tango
+            word=tango,
+            extra_tags=assets.extra_tags
         )
     
     # 9. Update the local application database with final paths
