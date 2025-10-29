@@ -449,6 +449,7 @@ class ConfigApp:
         self.screenshot_timing_value = tk.StringVar(value=self.settings.screenshot.screenshot_timing_setting)
         self.use_screenshot_selector_value = tk.BooleanVar(value=self.settings.screenshot.use_screenshot_selector)
         self.animated_screenshot_value = tk.BooleanVar(value=self.settings.screenshot.animated)
+        self.trim_black_bars_value = tk.BooleanVar(value=self.settings.screenshot.trim_black_bars_wip)
 
         # Audio Settings
         self.audio_enabled_value = tk.BooleanVar(value=self.settings.audio.enabled)
@@ -703,6 +704,7 @@ class ConfigApp:
                 seconds_after_line=float(self.seconds_after_line_value.get()) if self.seconds_after_line_value.get() else 0.0,
                 screenshot_timing_setting=self.screenshot_timing_value.get(),
                 use_screenshot_selector=self.use_screenshot_selector_value.get(),
+                trim_black_bars_wip=self.trim_black_bars_value.get(),
             ),
             audio=Audio(
                 enabled=self.audio_enabled_value.get(),
@@ -771,6 +773,7 @@ class ConfigApp:
                 use_canned_context_prompt=self.use_canned_context_prompt_value.get(),
                 custom_prompt=self.custom_prompt.get("1.0", tk.END).strip(),
                 dialogue_context_length=int(self.ai_dialogue_context_length_value.get()),
+                custom_texthooker_prompt=self.custom_texthooker_prompt.get("1.0", tk.END).strip(),
             ),
             overlay=Overlay(
                 websocket_port=int(self.overlay_websocket_port_value.get()),
@@ -1765,6 +1768,14 @@ class ConfigApp:
             row=self.current_row, column=1, sticky='W', pady=2)
         self.current_row += 1
 
+        trim_black_bars_i18n = ss_i18n.get('trim_black_bars', {})
+        HoverInfoLabelWidget(screenshot_frame, text=trim_black_bars_i18n.get('label', '...'),
+                             tooltip=trim_black_bars_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Checkbutton(screenshot_frame, variable=self.trim_black_bars_value, bootstyle="round-toggle").grid(
+            row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+
         self.add_reset_button(screenshot_frame, "screenshot", self.current_row, 0, self.create_screenshot_tab)
 
         for col in range(3):
@@ -2298,6 +2309,16 @@ class ConfigApp:
                                                        highlightbackground=ttk.Style().colors.border)
         self.custom_prompt.insert(tk.END, self.settings.ai.custom_prompt)
         self.custom_prompt.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        self.current_row += 1
+        
+        custom_texthooker_prompt_i18n = ai_i18n.get('custom_texthooker_prompt', {})
+        HoverInfoLabelWidget(ai_frame, text=custom_texthooker_prompt_i18n.get('label', 'Custom Texthooker Prompt:'), tooltip=custom_texthooker_prompt_i18n.get('tooltip', 'Custom Prompt to use for Texthooker Translate Button.'),
+                             row=self.current_row, column=0)
+        self.custom_texthooker_prompt = scrolledtext.ScrolledText(ai_frame, width=50, height=5, font=("TkDefaultFont", 9),
+                                                                   relief="solid", borderwidth=1,
+                                                                   highlightbackground=ttk.Style().colors.border)
+        self.custom_texthooker_prompt.insert(tk.END, self.settings.ai.custom_texthooker_prompt)
+        self.custom_texthooker_prompt.grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         self.add_reset_button(ai_frame, "ai", self.current_row, 0, self.create_ai_tab)
