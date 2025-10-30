@@ -863,7 +863,6 @@ def get_screenshot_PIL(source_name=None, compression=75, img_format='png', width
                 # If validation fails, still return the image as it might be valid
                 return source if return_source_dict else img
     
-    logger.error("No active source with valid image data found.")
     return None
 
     
