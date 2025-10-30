@@ -581,7 +581,10 @@ def get_active_video_sources():
     if not scene_items_response:
         return None
     video_sources = ['window_capture', 'game_capture', 'monitor_capture']
-    return [item for item in scene_items_response if item.get('inputKind') in video_sources]
+    active_video_sources = [item for item in scene_items_response if item.get('inputKind') in video_sources]
+    # active_video_sources = []
+    
+    return active_video_sources if active_video_sources else [scene_items_response[0]]
 
 def get_record_directory():
     try:
@@ -863,7 +866,6 @@ def get_screenshot_PIL(source_name=None, compression=75, img_format='png', width
                 # If validation fails, still return the image as it might be valid
                 return source if return_source_dict else img
     
-    logger.error("No active source with valid image data found.")
     return None
 
     
