@@ -581,7 +581,10 @@ def get_active_video_sources():
     if not scene_items_response:
         return None
     video_sources = ['window_capture', 'game_capture', 'monitor_capture']
-    return [item for item in scene_items_response if item.get('inputKind') in video_sources]
+    active_video_sources = [item for item in scene_items_response if item.get('inputKind') in video_sources]
+    # active_video_sources = []
+    
+    return active_video_sources if active_video_sources else [scene_items_response[0]]
 
 def get_record_directory():
     try:
