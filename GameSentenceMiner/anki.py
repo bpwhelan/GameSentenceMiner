@@ -376,12 +376,13 @@ def fix_overlay_whitespace(last_note: AnkiCard, note, lines=None):
     return note, last_note
 
 
-def get_initial_card_info(last_note: AnkiCard, selected_lines):
+def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLine):
     note = {'id': last_note.noteId, 'fields': {}}
     if not last_note:
         return note, last_note
     note, last_note = fix_overlay_whitespace(last_note, note, selected_lines)
-    game_line = get_text_event(last_note)
+    if not game_line:
+        game_line = get_text_event(last_note)
     sentences = []
     sentences_text = ''
     
@@ -597,7 +598,7 @@ def update_card_from_same_sentence(last_card, lines, game_line):
         return
     
     if anki_result.success:
-        note, last_card = get_initial_card_info(last_card, lines)
+        note, last_card = get_initial_card_info(last_card, lines, game_line)
         tango = last_card.get_field(get_config().anki.word_field)
         update_anki_card(last_card, note=note,
                          game_line=get_mined_line(last_card, lines), use_existing_files=True, tango=tango)

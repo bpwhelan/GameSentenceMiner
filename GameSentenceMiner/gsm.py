@@ -203,7 +203,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     last_note = anki.get_last_anki_card()
 
             note, last_note = anki.get_initial_card_info(
-                last_note, selected_lines)
+                last_note, selected_lines, game_line=mined_line)
             tango = last_note.get_field(
                 get_config().anki.word_field) if last_note else ''
 
