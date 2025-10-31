@@ -460,12 +460,15 @@ def find_black_bars(video_file, screenshot_timing):
         
         logger.debug(f"Original video dimensions: {orig_width}x{orig_height}")
         
+        ss_seek = max(0, float(screenshot_timing) - 0.5)
         cropdetect_command = ffmpeg_base_command_list_info + [
+            "-ss", str(ss_seek),              # fast input seek
             "-i", video_file,
-            "-ss", f"{screenshot_timing}", # Start near the screenshot time
-            "-t", "1",                     # Analyze for 1 second
-            "-vf", "cropdetect=limit=16",  # limit=0 means true black only, round=2 for even dimensions
-            "-f", "null", "-"              # Discard video output
+            "-t", "1",                        # analyze ~1 second
+            "-an",                            # ignore audio
+            "-vf", "cropdetect=limit=16:round=2",
+            "-frames:v", "8",                 # only analyze a few frames
+            "-f", "null", "-"
         ]
         
         result = subprocess.run(
@@ -495,6 +498,11 @@ def find_black_bars(video_file, screenshot_timing):
                 
                 logger.debug(f"Crop would be {crop_width}x{crop_height} ({area_ratio:.1%} of original area)")
                 logger.debug(f"Original aspect ratio: {orig_aspect:.3f}, Crop aspect ratio: {crop_aspect:.3f}, Difference: {aspect_diff:.1%}")
+                
+                # If the crop is within 1% of the original aspect ratio, don't crop
+                if aspect_diff < 0.01:
+                    logger.info("Detected crop does not significantly change aspect ratio. Skipping crop.")
+                    return None
                 
                 # Safeguards:
                 # 1. Crop must retain at least 25% of the original video area
