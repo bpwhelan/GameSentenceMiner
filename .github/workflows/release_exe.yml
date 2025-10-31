@@ -26,10 +26,15 @@ jobs:
         with:
           submodules: true
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '21'
 
       - name: Check Version vs Latest Release and Determine Build/Release
         id: version_check
@@ -111,10 +116,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '21'
 
       - name: Install dependencies
         run: |
@@ -127,49 +137,46 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Rename artifact
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.electron-build-windows.outputs.PACKAGE_VERSION }}
+          files: dist/*.AppImage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  electron-build-mac:
+    runs-on: macos-latest
+    needs: electron-build-windows
+    if: needs.electron-build-windows.outputs.should_build == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '21'
+
+      - name: Install dependencies
         run: |
-          find dist -name "*.AppImage" -exec mv {} dist/GameSentenceMiner-WIP-linux.AppImage \;
+          npm install
+          npm install --save-dev electron electron-builder
+
+      - name: Build Electron app for macOS
+        run: |
+          npm run app:dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.electron-build-windows.outputs.PACKAGE_VERSION }}
-          files: dist/GameSentenceMiner-WIP-linux.AppImage
+          files: dist/*.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  # electron-build-mac:
-  #   runs-on: macos-latest
-  #   needs: electron-build-windows
-  #   if: needs.electron-build-windows.outputs.should_build == 'true'
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
-
-  #     - name: Set up Node.js
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: '18'
-
-  #     - name: Install dependencies
-  #       run: |
-  #         npm install
-  #         npm install --save-dev electron electron-builder
-
-  #     - name: Build Electron app for macOS
-  #       run: |
-  #         npm run app:dist
-  #       env:
-  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  #     - name: Rename artifact
-  #       run: |
-  #         find dist -name "*.dmg" -exec mv {} dist/GameSentenceMiner-WIP-mac.dmg \;
-
-  #     - name: Upload to release
-  #       uses: softprops/action-gh-release@v2
-  #       with:
-  #         tag_name: v${{ needs.electron-build-windows.outputs.PACKAGE_VERSION }}
-  #         files: dist/GameSentenceMiner-WIP-mac.dmg
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
