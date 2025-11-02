@@ -213,13 +213,17 @@ class OpenAIManager(AIManager):
                 text_output = response.choices[0].message.content.strip()
                 # get the json at the end of the message
                 if "{" in text_output and "}" in text_output:
-                    json_output = text_output[text_output.find(
-                        "{"):text_output.rfind("}")+1]
-                    text_output = json.loads(json_output)['output']
+                    try:
+                        json_output = text_output[text_output.find(
+                            "{"):text_output.rfind("}")+1]
+                        json_output = json_output.replace("{output:", '{"output":')
+                        text_output = json.loads(json_output)['output']
+                    except Exception as e:
+                        self.logger.debug(f"Failed to parse JSON from response returning response raw: {e}", exc_info=True)
             # self.logger.debug(f"Received response:\n{text_output}")
             return text_output
         except Exception as e:
-            self.logger.error(f"OpenAI processing failed: {e}")
+            self.logger.error(f"OpenAI processing failed: {e}", exc_info=True)
             return f"Processing failed: {e}"
 
 
