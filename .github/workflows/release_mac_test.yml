@@ -48,6 +48,8 @@ jobs:
         with:
           name: GameSentenceMiner-mac
           path: dist/*.dmg
+          compression-level: 0
+
 
     #   - name: Upload to release
     #     uses: softprops/action-gh-release@v2
