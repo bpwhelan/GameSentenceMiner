@@ -73,5 +73,5 @@ gamesentenceminer = "GameSentenceMiner.gsm:main"
 packages = { find = { include = ["GameSentenceMiner*"] } }
 
 [tool.setuptools.package-data]
-"GameSentenceMiner.web" = ["static/*", "static/css/*", "static/js/*", "templates/*", "templates/components/*", "templates/components/kanji_grid/*"]
+"GameSentenceMiner.web" = ["**/*"]
 "GameSentenceMiner" = ["assets/*", "locales/*"]

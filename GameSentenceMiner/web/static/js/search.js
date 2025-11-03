@@ -214,25 +214,27 @@ class SentenceSearchApp {
         const caseSensitive = this.regexCaseCheckbox ? this.regexCaseCheckbox.checked : false;
         
         // Use custom regex if provided and regex mode is enabled, otherwise use search query
-        const searchPattern = (useRegex && customRegex) ? customRegex : query;
+        // If search is empty, default to .* regex pattern
+        let searchPattern = (useRegex && customRegex) ? customRegex : query;
+        let effectiveUseRegex = useRegex;
+        
+        if (!searchPattern && !query) {
+            searchPattern = '.*';
+            effectiveUseRegex = true;  // Force regex mode for .* pattern
+        }
 
-        if (searchPattern !== this.currentQuery || useRegex !== this.currentUseRegex) {
+        if (searchPattern !== this.currentQuery || effectiveUseRegex !== this.currentUseRegex) {
             this.currentPage = 1;
         }
         this.currentQuery = searchPattern;
-        this.currentUseRegex = useRegex;
-
-        if (!searchPattern && !query) {
-            this.showEmptyState();
-            return;
-        }
+        this.currentUseRegex = effectiveUseRegex;
 
         this.showLoadingState();
         const startTime = Date.now();
 
         try {
             const params = new URLSearchParams({
-                q: searchPattern || query,
+                q: searchPattern,
                 page: this.currentPage,
                 page_size: this.pageSize,
                 sort: sortBy
@@ -247,7 +249,7 @@ class SentenceSearchApp {
             if (toDate) {
                 params.append('to_date', toDate);
             }
-            if (useRegex) {
+            if (effectiveUseRegex) {
                 params.append('use_regex', 'true');
             }
             if (caseSensitive) {
