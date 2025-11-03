@@ -691,18 +691,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function updateSessionNavigationButtons() {
         if (!window.todaySessionDetails || window.todaySessionDetails.length === 0) {
+            // Keep buttons visible but disabled when no sessions
             prevSessionBtn.disabled = true;
             nextSessionBtn.disabled = true;
-            prevSessionBtn.style.display = 'none';
-            nextSessionBtn.style.display = 'none';
-            deleteSessionBtn.style.display = 'none';
+            deleteSessionBtn.disabled = true;
             return;
         }
-        prevSessionBtn.style.display = 'inline-block';
-        nextSessionBtn.style.display = 'inline-block';
-        deleteSessionBtn.style.display = 'inline-block';
+        // Enable/disable based on navigation state
         prevSessionBtn.disabled = window.currentSessionIndex <= 0;
         nextSessionBtn.disabled = window.currentSessionIndex >= window.todaySessionDetails.length - 1;
+        deleteSessionBtn.disabled = false;
     }
 
     function showSessionAtIndex(index) {
