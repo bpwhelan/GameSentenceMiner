@@ -615,18 +615,26 @@ def register_stats_api_routes(app):
                         if (line.game_name or "Unknown Game") == current_game_name
                     ]
 
-                    # If we need historical data for current game, fetch it separately
-                    if start_timestamp:
+                    # Fetch historical data for current game
+                    if start_timestamp and end_timestamp:
+                        # If timestamps provided, filter by date range
                         historical_current_game = GameLinesTable._db.fetchall(
                             f"SELECT * FROM {GameLinesTable._table} WHERE game_name=? AND timestamp >= ? AND timestamp <= ?",
                             (current_game_name, start_timestamp, end_timestamp),
                         )
-                        current_game_lines.extend(
-                            [
-                                GameLinesTable.from_row(row)
-                                for row in historical_current_game
-                            ]
+                    else:
+                        # If no timestamps provided, fetch all historical data
+                        historical_current_game = GameLinesTable._db.fetchall(
+                            f"SELECT * FROM {GameLinesTable._table} WHERE game_name=?",
+                            (current_game_name,),
                         )
+                    
+                    current_game_lines.extend(
+                        [
+                            GameLinesTable.from_row(row)
+                            for row in historical_current_game
+                        ]
+                    )
 
                     current_game_stats = calculate_current_game_stats(
                         current_game_lines
@@ -646,13 +654,15 @@ def register_stats_api_routes(app):
                             most_recent_game_line.game_name or "Unknown Game"
                         )
 
-                        # Fetch all lines for this game within the date range
+                        # Fetch all lines for this game
                         if start_timestamp and end_timestamp:
+                            # If timestamps provided, filter by date range
                             current_game_lines_rows = GameLinesTable._db.fetchall(
                                 f"SELECT * FROM {GameLinesTable._table} WHERE game_name=? AND timestamp >= ? AND timestamp <= ?",
                                 (current_game_name, start_timestamp, end_timestamp),
                             )
                         else:
+                            # If no timestamps provided, fetch all data
                             current_game_lines_rows = GameLinesTable._db.fetchall(
                                 f"SELECT * FROM {GameLinesTable._table} WHERE game_name=?",
                                 (current_game_name,),
