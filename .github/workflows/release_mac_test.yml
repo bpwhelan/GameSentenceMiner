@@ -3,7 +3,7 @@ name: Build Electron App
 on:
   push:
     branches:
-      - mac_build # Or your default branch
+      - test-mac-actions # Or your default branch
   workflow_dispatch: # Allow manual trigger
 
 # Grant read permissions for checking releases and write for uploading assets
@@ -21,10 +21,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '21'
 
       - name: Install dependencies
         run: |
@@ -37,16 +42,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Rename artifact
-        run: |
-          find dist -name "*.dmg" -exec mv {} dist/GameSentenceMiner-WIP-mac.dmg \;
-
     #   Upload Artifact to run, not release
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
-          name: GameSentenceMiner-WIP-mac
-          path: dist/GameSentenceMiner-WIP-mac.dmg
+          name: GameSentenceMiner-mac
+          path: dist/*.dmg
+          compression-level: 0
+
 
     #   - name: Upload to release
     #     uses: softprops/action-gh-release@v2

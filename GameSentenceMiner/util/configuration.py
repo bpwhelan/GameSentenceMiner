@@ -12,7 +12,7 @@ from logging.handlers import RotatingFileHandler
 from os.path import expanduser
 from sys import platform
 import time
-from typing import List, Dict
+from typing import Any, List, Dict
 import sys
 from enum import Enum
 
@@ -59,6 +59,28 @@ supported_formats = {
     'm4a': 'aac',
 }
 
+KNOWN_ASPECT_RATIOS = [
+    # --- Classic / Legacy ---
+    {"name": "4:3 (SD / Retro Games)", "ratio": 4 / 3},
+    {"name": "5:4 (Old PC Monitors)", "ratio": 5 / 4},
+    {"name": "3:2 (Handheld / GBA / DS / DSLR)", "ratio": 3 / 2},
+
+    # --- Modern Displays ---
+    {"name": "16:10 (PC Widescreen)", "ratio": 16 / 10},
+    {"name": "16:9 (Standard HD / 1080p / 4K)", "ratio": 16 / 9},
+    {"name": "18:9 (Mobile / Some Modern Laptops)", "ratio": 18 / 9},
+    {"name": "19.5:9 (Modern Smartphones)", "ratio": 19.5 / 9},
+    {"name": "21:9 (UltraWide)", "ratio": 21 / 9},
+    {"name": "24:10 (UltraWide+)", "ratio": 24 / 10},
+    {"name": "32:9 (Super UltraWide)", "ratio": 32 / 9},
+
+    # --- Vertical / Mobile ---
+    {"name": "9:16 (Portrait Mode)", "ratio": 9 / 16},
+    {"name": "3:4 (Portrait 4:3)", "ratio": 3 / 4},
+    {"name": "1:1 (Square / UI Capture)", "ratio": 1 / 1},
+]
+
+KNOWN_ASPECT_RATIOS_DICT = {item["name"]: item["ratio"] for item in KNOWN_ASPECT_RATIOS}
 
 def is_linux():
     return platform == 'linux'
@@ -490,6 +512,7 @@ class Screenshot:
     use_new_screenshot_logic: bool = False
     screenshot_timing_setting: str = 'beginning'  # 'middle', 'end'
     use_screenshot_selector: bool = False
+    trim_black_bars_wip: bool = True
 
     def __post_init__(self):
         if not self.screenshot_timing_setting and self.use_beginning_of_line_as_screenshot:
@@ -632,6 +655,7 @@ class Ai:
     use_canned_translation_prompt: bool = True
     use_canned_context_prompt: bool = False
     custom_prompt: str = ''
+    custom_texthooker_prompt: str = ''
     dialogue_context_length: int = 10
 
     def __post_init__(self):
@@ -1322,10 +1346,11 @@ class AnkiUpdateResult:
     video_in_anki: str = ''
     word_path: str = ''
     word: str = ''
+    extra_tags: List[str] = field(default_factory=list)
 
     @staticmethod
     def failure():
-        return AnkiUpdateResult(success=False, audio_in_anki='', screenshot_in_anki='', prev_screenshot_in_anki='', sentence_in_anki='', multi_line=False, video_in_anki='', word_path='', word='')
+        return AnkiUpdateResult(success=False, audio_in_anki='', screenshot_in_anki='', prev_screenshot_in_anki='', sentence_in_anki='', multi_line=False, video_in_anki='', word_path='', word='', extra_tags=[])
 
 
 @dataclass_json
@@ -1376,6 +1401,8 @@ def get_ffprobe_path():
     return os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if is_windows() else "ffprobe"
 
 ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
+
+ffmpeg_base_command_list_info = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "info", '-nostdin']
 
 
 # logger.debug(f"Running in development mode: {is_dev}")

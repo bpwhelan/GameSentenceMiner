@@ -12,8 +12,14 @@ def handle_error_in_initialization(e):
         logger.info("Exiting due to initialization error.")
         sys.exit(1)
 
+Icon = None
 
 try:
+    import GameSentenceMiner.util.configuration
+    from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
+    get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
+    is_windows, is_linux, get_ffmpeg_path
+    
     import asyncio
     import os
     import shutil
@@ -33,16 +39,16 @@ try:
     import keyboard
     import ttkbootstrap as ttk
     from PIL import Image
-    from pystray import Icon, Menu, MenuItem
+    try:
+        pass
+        # from pystray import Icon, Menu, MenuItem
+    except Exception:
+        logger.warning("pystray not installed correctly, tray icon will not work.")
     from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
     import psutil
 
     start_time = time.time()
-    import GameSentenceMiner.util.configuration
-    from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
-    get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
-    is_windows, is_linux, get_ffmpeg_path
 
     logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
     
@@ -144,6 +150,8 @@ procs_to_close = []
 settings_window: config_gui.ConfigApp = None
 obs_paused = False
 root = None
+file_watcher_observer = None  # Global observer for file watching
+file_watcher_path = None  # Track the currently watched path
 warnings.simplefilter("ignore", DeprecationWarning)
 
 
@@ -201,7 +209,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     last_note = anki.get_last_anki_card()
 
             note, last_note = anki.get_initial_card_info(
-                last_note, selected_lines)
+                last_note, selected_lines, game_line=mined_line)
             tango = last_note.get_field(
                 get_config().anki.word_field) if last_note else ''
 
@@ -441,9 +449,15 @@ class GSMTray(threading.Thread):
         self.icon = None
 
     def run(self):
+        if not Icon:
+            logger.warning("Tray icon functionality is not available.")
+            return
         self.run_tray()
 
     def run_tray(self):
+        if not Icon:
+            logger.warning("Tray icon functionality is not available.")
+            return
         def run_anki_confirmation_window():
             settings_window.show_anki_confirmation_dialog(expression="こんにちは",
                 sentence="こんにちは、世界！元気ですか？",
@@ -473,6 +487,8 @@ class GSMTray(threading.Thread):
 
     def update_icon(self, profile=None):
         global menu, icon
+        if not self.icon:
+            return
         # Recreate the menu with the updated button text
         profile_menu = Menu(
             *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, self.switch_profile) for
@@ -494,6 +510,8 @@ class GSMTray(threading.Thread):
         self.icon.update_menu()
 
     def switch_profile(self, icon, item):
+        if not self.icon:
+            return
         if "Active:" in item.text:
             logger.error("You cannot switch to the currently active profile!")
             return
@@ -507,11 +525,15 @@ class GSMTray(threading.Thread):
             send_restart_signal()
 
     def play_pause(self, icon, item):
+        if not self.icon:
+            return
         global obs_paused, menu
         obs.toggle_replay_buffer()
         self.update_icon()
 
     def stop(self):
+        if not self.icon:
+            return
         if self.icon:
             self.icon.stop()
 
@@ -595,6 +617,14 @@ def cleanup():
         if gsm_tray:
             gsm_tray.stop()
 
+        # Stop file watcher observer
+        if file_watcher_observer:
+            try:
+                file_watcher_observer.stop()
+                file_watcher_observer.join()
+            except Exception as e:
+                logger.error(f"Error stopping file watcher observer: {e}")
+
         for video in gsm_state.videos_to_remove:
             try:
                 if os.path.exists(video):
@@ -620,6 +650,43 @@ def handle_exit():
         sys.exit(0)
 
     return _handle_exit
+
+
+def start_file_watcher():
+    """Start or restart the file watcher with current config."""
+    global file_watcher_observer, file_watcher_path
+    
+    # Stop existing observer if running
+    if file_watcher_observer:
+        try:
+            file_watcher_observer.stop()
+            file_watcher_observer.join(timeout=2)
+            logger.info("Stopped existing file watcher")
+        except Exception as e:
+            logger.error(f"Error stopping file watcher: {e}")
+    
+    # Create and start new observer
+    watch_path = get_config().paths.folder_to_watch
+    os.makedirs(watch_path, exist_ok=True)
+    
+    file_watcher_observer = Observer()
+    file_watcher_observer.schedule(VideoToAudioHandler(), watch_path, recursive=False)
+    file_watcher_observer.start()
+    file_watcher_path = watch_path
+    logger.info(f"File watcher started for: {watch_path}")
+
+
+def on_config_changed():
+    """Called when config is saved/changed. Restarts file watcher if path changed."""
+    global file_watcher_path
+    
+    new_path = get_config().paths.folder_to_watch
+    
+    if file_watcher_path != new_path:
+        logger.info(f"Watch path changed from '{file_watcher_path}' to '{new_path}', restarting file watcher...")
+        start_file_watcher()
+    else:
+        logger.debug("Config changed, but watch path unchanged - no restart needed")
 
 
 def initialize(reloading=False):
@@ -732,6 +799,10 @@ def async_loop():
         await obs.connect_to_obs(connections=3, check_output=True)
         await register_scene_switcher_callback()
         await check_obs_folder_is_correct()
+        
+        # Start file watcher after OBS path is verified/corrected
+        start_file_watcher()
+        
         vad_processor.init()
         await init_overlay_processor()
 
@@ -816,10 +887,6 @@ async def async_main(reloading=False):
         settings_window = config_gui.ConfigApp(root)
         gsm_state.config_app = settings_window
         initialize_async()
-        observer = Observer()
-        observer.schedule(VideoToAudioHandler(),
-                          get_config().paths.folder_to_watch, recursive=False)
-        observer.start()
         if is_windows():
             register_hotkeys()
 
@@ -843,23 +910,20 @@ async def async_main(reloading=False):
         try:
             if get_config().general.open_config_on_startup:
                 root.after(50, settings_window.show)
-            root.after(50, gsm_tray.start)
+            if Icon:
+                root.after(50, gsm_tray.start)
             # root.after(100, settings_window.show_anki_confirmation_dialog(expression="こんにちは",
             #     sentence="こんにちは、世界！元気ですか？",
             #     screenshot_path="test_image.png",
             #     audio_path="C:/path/to/my/audio.mp3",
             #     translation="Hello world! How are you?"))
-            settings_window.add_save_hook(gsm_tray.update_icon)
+            if Icon:
+                settings_window.add_save_hook(gsm_tray.update_icon)
+            settings_window.add_save_hook(on_config_changed)
             settings_window.on_exit = exit_program
             root.mainloop()
         except KeyboardInterrupt:
             cleanup()
-
-        try:
-            observer.stop()
-            observer.join()
-        except Exception as e:
-            logger.error(f"Error stopping observer: {e}")
     except Exception as e:
         handle_error_in_initialization(e)
 

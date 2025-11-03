@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.13.4",
+  "version": "1.13.7",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -81,6 +81,8 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
     "archiver": "^7.0.1",
     "archiver-utils": "^5.0.2",
     "axios": "^1.8.1",

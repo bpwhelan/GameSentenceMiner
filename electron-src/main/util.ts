@@ -42,6 +42,10 @@ export function isLinux(): boolean {
     return getPlatform() === 'linux';
 }
 
+export function isMacOS(): boolean {
+    return getPlatform() === 'darwin';
+}
+
 export function isWindows10OrHigher(): boolean {
     return isWindows() && parseInt(process.getSystemVersion().split('.')[0]) >= 10;
 }

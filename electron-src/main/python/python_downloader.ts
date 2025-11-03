@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { Downloader } from 'nodejs-file-downloader';
 import * as tar from 'tar';
-import { BASE_DIR, execFileAsync, getPlatform, isArmMac, SupportedPlatform } from '../util.js';
+import { BASE_DIR, execFileAsync, getPlatform, isArmMac, isWindows, SupportedPlatform } from '../util.js';
 import { mainWindow } from '../main.js';
 import { dialog } from 'electron';
 
@@ -53,7 +53,7 @@ function getVenvPath(): string {
  */
 function getPythonExecutablePath(): string {
     const platform = getPlatform();
-    if (platform === 'linux') {
+    if (!isWindows()) {
         return path.join(getVenvPath(), 'bin', 'python');
     }
     return path.join(BASE_DIR, downloads[platform].path);
@@ -143,7 +143,7 @@ async function extractArchive(archivePath: string, extractPath: string): Promise
 async function _performInstallation(): Promise<void> {
     const platform = getPlatform();
 
-    if (platform === 'linux') {
+    if (!isWindows()) {
         console.log('Creating Python virtual environment...');
         const venvPath = getVenvPath();
         try {
@@ -206,7 +206,7 @@ export async function getOrInstallPython(): Promise<string> {
 
     console.log('Python not found. Starting installation process...');
     const message =
-        getPlatform() === 'linux'
+        !isWindows()
             ? 'Setting up Python virtual environment. This may take a moment...'
             : 'Downloading Python. This may take a while depending on your connection...';
 
@@ -239,7 +239,7 @@ export async function reinstallPython(): Promise<void> {
     console.log('Starting Python reinstallation...');
     const platform = getPlatform();
 
-    if (platform === 'linux') {
+    if (!isWindows()) {
         const venvPath = getVenvPath();
         if (fs.existsSync(venvPath)) {
             console.log(`Removing existing Python venv at: ${venvPath}`);

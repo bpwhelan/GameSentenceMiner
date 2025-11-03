@@ -161,6 +161,17 @@ function registerIPC() {
     registerFrontPageIPC();
     registerPythonIPC();
     registerStateIPC();
+
+    ipcMain.handle('show-error-box', async (event, { title, message, detail }) => {
+        const response = await dialog.showMessageBox(mainWindow!, {
+            type: 'error',
+            title,
+            message,
+            detail,
+            buttons: ['OK']
+        });
+        return response;
+    });
 }
 
 let gsmUpdatePromise: Promise<void> = Promise.resolve();
@@ -373,7 +384,7 @@ async function runCommand(
 }
 
 async function cleanCache(): Promise<void> {
-    await runCommand(pythonPath, ['-m', 'uv', 'cache', 'purge'], true, true);
+    await runCommand(pythonPath, ['-m', 'uv', 'cache', 'clean'], true, true);
 }
 
 /**

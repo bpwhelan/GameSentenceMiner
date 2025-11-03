@@ -355,19 +355,23 @@ def translate_line():
     if event_id is None:
         return jsonify({'error': 'Missing id'}), 400
     
-    prompt = f"""
-    **Professional Game Localization Task**
+    
+    if get_config().ai.custom_texthooker_prompt:
+        prompt = get_config().ai.custom_texthooker_prompt.strip()
+    else:
+        prompt = f"""
+        **Professional Game Localization Task**
 
-    **Task Directive:**
-    Translate ONLY the provided line of game dialogue specified below into natural-sounding, context-aware {get_config().general.get_native_language_name()}. The translation must preserve the original tone and intent of the source.
+        **Task Directive:**
+        Translate ONLY the provided line of game dialogue specified below into natural-sounding, context-aware {get_config().general.get_native_language_name()}. The translation must preserve the original tone and intent of the source.
 
-    **Output Requirements:**
-    - Provide only the single, best {get_config().general.get_native_language_name()} translation.
-    - Use expletives if they are natural for the context and enhance the translation's impact, but do not over-exaggerate.
-    - Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line.
+        **Output Requirements:**
+        - Provide only the single, best {get_config().general.get_native_language_name()} translation.
+        - Use expletives if they are natural for the context and enhance the translation's impact, but do not over-exaggerate.
+        - Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line.
 
-    **Line to Translate:**
-    """
+        **Line to Translate:**
+        """
 
     if not get_config().ai.is_configured():
         return jsonify(
@@ -407,26 +411,22 @@ def translate_multiple():
     ]
 
     text = "\n".join(line.text for line in lines)
-
-    language = (
-        get_config().general.get_native_language_name()
-        if get_config().general.native_language
-        else "English"
-    )
-
+    
+    language = get_config().general.get_native_language_name() if get_config().general.native_language else "English"
+    
     translate_multiple_lines_prompt = f"""
-**Professional Game Localization Task**
-Translate the following lines of game dialogue into natural-sounding, context-aware {language}:
+    **Professional Game Localization Task**
+    Translate the following lines of game dialogue into natural-sounding, context-aware {language}:
 
-**Output Requirements**
-- Maintain the original tone and style of the dialogue.
-- Ensure that the translation is contextually appropriate for the game.
-- Pay attention to character names and any specific terminology used in the game.
-- Maintain Formatting and newline structure of the given lines. It should be very human readable as a dialogue.
-- Do not include any notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated lines.
+    **Output Requirements**
+    - Maintain the original tone and style of the dialogue.
+    - Ensure that the translation is contextually appropriate for the game.
+    - Pay attention to character names and any specific terminology used in the game.
+    - Maintain Formatting and newline structure of the given lines. It should be very human readable as a dialogue.
+    - Do not include any notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated lines.
 
-**Lines to Translate:**
-"""
+    **Lines to Translate:**
+    """
 
     translation = get_ai_prompt_result(
         get_all_lines(),

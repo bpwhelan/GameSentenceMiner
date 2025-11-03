@@ -77,10 +77,12 @@ class WebsocketServerThread(threading.Thread):
             self._event.set()
             while True:
                 try:
-                    self.server = start_server = websockets.serve(self.server_handler,
-                                                                  get_config().advanced.localhost_bind_address,
-                                                                  self.get_ws_port_func(),
-                                                                  max_size=1000000000)
+                    self.server = start_server = websockets.serve(
+                        self.server_handler,
+                        get_config().advanced.localhost_bind_address,
+                        self.get_ws_port_func(),
+                        max_size=1000000000,
+                    )
                     async with start_server:
                         await stop_event.wait()
                     return

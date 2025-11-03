@@ -565,6 +565,27 @@ def get_active_source():
         return None
     return get_source_from_scene(current_game)
 
+def get_active_video_sources():
+    current_game = get_current_game()
+    if not current_game:
+        return None
+    scene_items_response = []
+    try:
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            response = client.get_scene_item_list(name=current_game)
+            scene_items_response = response.scene_items if response else []
+    except Exception as e:
+        logger.error(f"Error getting scene items for active video source: {e}")
+        return None
+    if not scene_items_response:
+        return None
+    video_sources = ['window_capture', 'game_capture', 'monitor_capture']
+    active_video_sources = [item for item in scene_items_response if item.get('inputKind') in video_sources]
+    # active_video_sources = []
+    
+    return active_video_sources if active_video_sources else [scene_items_response[0]]
+
 def get_record_directory():
     try:
         with connection_pool.get_client() as client:
@@ -709,32 +730,142 @@ def get_screenshot_base64(compression=75, width=None, height=None):
         return None
     
 
-def get_screenshot_PIL(source_name=None, compression=75, img_format='png', width=None, height=None, retry=3):
+def get_screenshot_PIL_from_source(source_name, compression=75, img_format='png', width=None, height=None, retry=3):
+    """
+    Get a PIL Image screenshot from a specific OBS source.
+    
+    Args:
+        source_name: The name of the OBS source to capture
+        compression: Image quality (0-100)
+        img_format: Image format ('png' or 'jpg')
+        width: Optional width to resize
+        height: Optional height to resize
+        retry: Number of retry attempts
+        
+    Returns:
+        PIL.Image or None if failed
+    """
     import io
     import base64
     from PIL import Image
+    
     if not source_name:
-        source_name = get_active_source().get('sourceName', None)
-    if not source_name:
-        logger.error("No active source found in the current scene.")
+        logger.error("No source name provided.")
         return None
-    while True:
-        with connection_pool.get_client() as client:
-            client: obs.ReqClient
-            response = client.get_source_screenshot(name=source_name, img_format=img_format, quality=compression, width=width, height=height)
+        
+    for attempt in range(retry):
         try:
-            response.image_data = response.image_data.split(',', 1)[-1]  # Remove data:image/png;base64, prefix if present
+            with connection_pool.get_client() as client:
+                client: obs.ReqClient
+                response = client.get_source_screenshot(name=source_name, img_format=img_format, quality=compression, width=width, height=height)
+            
+            if response and hasattr(response, 'image_data') and response.image_data:
+                image_data = response.image_data.split(',', 1)[-1]  # Remove data:image/png;base64, prefix if present
+                image_data = base64.b64decode(image_data)
+                img = Image.open(io.BytesIO(image_data)).convert("RGBA")
+                return img
         except AttributeError:
-            retry -= 1
-            if retry <= 0:
-                logger.error(f"Error getting screenshot: {response}")
+            if attempt >= retry - 1:
+                logger.error(f"Error getting screenshot from source '{source_name}': Invalid response")
                 return None
+            time.sleep(0.1)
+        except Exception as e:
+            logger.error(f"Error getting screenshot from source '{source_name}': {e}")
+            return None
+    
+    return None
+
+
+def get_best_source_for_screenshot():
+    """
+    Get the best available video source dict based on priority and image validation.
+    
+    Priority order: window_capture > game_capture > monitor_capture
+    
+    Returns:
+        The source dict of the best available source, or None if no valid source found.
+    """
+    return get_screenshot_PIL(return_source_dict=True)
+
+
+def get_screenshot_PIL(source_name=None, compression=75, img_format='png', width=None, height=None, retry=3, return_source_dict=False):
+    """
+    Get a PIL Image screenshot. If no source_name is provided, automatically selects
+    the best available source based on priority and validates it has actual image data.
+    
+    Priority order: window_capture > game_capture > monitor_capture
+    
+    Args:
+        source_name: Optional specific OBS source name. If None, auto-selects best source.
+        compression: Image quality (0-100)
+        img_format: Image format ('png' or 'jpg')
+        width: Optional width to resize
+        height: Optional height to resize
+        retry: Number of retry attempts
+        return_source_dict: If True, returns only the source dict. If False, returns only the PIL.Image.
+        
+    Returns:
+        PIL.Image if return_source_dict=False, or source dict if return_source_dict=True.
+        Returns None if failed.
+    """
+    import io
+    import base64
+    from PIL import Image
+    
+    # If source_name is provided, use it directly
+    if source_name:
+        if return_source_dict:
+            # Need to find the source dict for this source_name
+            current_sources = get_active_video_sources()
+            if current_sources:
+                for src in current_sources:
+                    if src.get('sourceName') == source_name:
+                        return src
+            return None
+        img = get_screenshot_PIL_from_source(source_name, compression, img_format, width, height, retry)
+        return img
+    
+    # Get all available video sources
+    current_sources = get_active_video_sources()
+    if not current_sources:
+        logger.error("No active video sources found in the current scene.")
+        return None
+    
+    # Priority: window_capture (0) > game_capture (1) > monitor_capture (2)
+    priority_map = {'window_capture': 0, 'game_capture': 1, 'monitor_capture': 2}
+    
+    # Sort sources by priority
+    sorted_sources = sorted(
+        current_sources,
+        key=lambda x: priority_map.get(x.get('inputKind'), 999)
+    )
+    
+    # Try each source in priority order
+    for source in sorted_sources:
+        found_source_name = source.get('sourceName')
+        if not found_source_name:
             continue
-        if response and response.image_data:
-            image_data = response.image_data.split(',', 1)[-1]  # Remove data:image/png;base64, prefix if present
-            image_data = base64.b64decode(image_data)
-            img = Image.open(io.BytesIO(image_data)).convert("RGBA")
-            return img
+            
+        img = get_screenshot_PIL_from_source(found_source_name, compression, img_format, width, height, retry)
+        
+        if img:
+            # Validate that the image has actual content (not completely empty/black)
+            try:
+                extrema = img.getextrema()
+                if isinstance(extrema[0], tuple):
+                    is_empty = all(e[0] == e[1] for e in extrema)
+                else:
+                    is_empty = extrema[0] == extrema[1]
+                
+                if not is_empty:
+                    return source if return_source_dict else img
+                else:
+                    logger.debug(f"Source '{found_source_name}' returned an empty image, trying next source")
+            except Exception as e:
+                logger.warning(f"Failed to validate image from source '{found_source_name}': {e}")
+                # If validation fails, still return the image as it might be valid
+                return source if return_source_dict else img
+    
     return None
 
     
@@ -817,7 +948,7 @@ def set_fit_to_screen_for_scene_items(scene_name: str):
                     'positionX': 0, 'positionY': 0,
                 }
                 
-                if not already_cropped:
+                if not True:
                     fit_to_screen_transform.update({
                         'cropLeft': 0 if not aspect_ratio_different or canvas_width > source_width else (source_width - canvas_width) // 2,
                         'cropRight': 0 if not aspect_ratio_different or canvas_width > source_width else (source_width - canvas_width) // 2,
@@ -915,6 +1046,13 @@ def create_scene():
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     connect_to_obs_sync()
+    try:
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            resp = client.get_scene_item_list(get_current_scene())
+            print(resp.scene_items)
+    except Exception as e:
+        print(f"Error: {e}")
     
     # outputs = get_output_list()
     # print(outputs)

@@ -1,4 +1,6 @@
+import math
 import os
+import re
 import subprocess
 import json
 import tkinter as tk
@@ -6,8 +8,9 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 from PIL import Image, ImageTk
 
+from GameSentenceMiner.util import ffmpeg
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
-from GameSentenceMiner.util.configuration import get_temporary_directory, logger, ffmpeg_base_command_list, get_ffprobe_path
+from GameSentenceMiner.util.configuration import get_config, get_temporary_directory, logger, ffmpeg_base_command_list, get_ffprobe_path, ffmpeg_base_command_list_info
 
 
 class ScreenshotSelectorDialog(tk.Toplevel):
@@ -65,7 +68,7 @@ class ScreenshotSelectorDialog(tk.Toplevel):
         # Force always on top to ensure visibility
 
     def _extract_frames(self, video_path, timestamp, mode):
-        """Extracts frames using ffmpeg. Encapsulated from the original script."""
+        """Extracts frames using ffmpeg, with automatic black bar removal."""
         temp_dir = os.path.join(
             get_temporary_directory(False),
             "screenshot_frames",
@@ -87,17 +90,36 @@ class ScreenshotSelectorDialog(tk.Toplevel):
             logger.warning(f"Timestamp {timestamp_number} exceeds video duration {video_duration}.")
             return [], None
 
+        video_filters = []
+
+        if get_config().screenshot.trim_black_bars_wip:
+            crop_filter = ffmpeg.find_black_bars(video_path, timestamp_number)
+            if crop_filter:
+                video_filters.append(crop_filter)
+
+        # Always add the frame extraction filter
+        video_filters.append(f"fps=1/{0.25}")
+
         try:
+            # Build the final command for frame extraction
             command = ffmpeg_base_command_list + [
-                "-y",
+                "-y",                          # Overwrite output files without asking
                 "-ss", str(timestamp_number),
-                "-i", video_path,
-                "-vf", f"fps=1/{0.25}",
+                "-i", video_path
+            ]
+            
+            # Chain all collected filters (crop and fps) together with a comma
+            command.extend(["-vf", ",".join(video_filters)])
+            
+            command.extend([
                 "-vframes", "20",
                 os.path.join(temp_dir, "frame_%02d.png")
-            ]
+            ])
+            
+            logger.debug(f"Executing frame extraction command: {' '.join(command)}")
             subprocess.run(command, check=True, capture_output=True, text=True)
 
+            # The rest of your logic remains the same
             for i in range(1, 21):
                 frame_path = os.path.join(temp_dir, f"frame_{i:02d}.png")
                 if os.path.exists(frame_path):
@@ -122,7 +144,7 @@ class ScreenshotSelectorDialog(tk.Toplevel):
         except Exception as e:
             logger.error(f"An unexpected error occurred during frame extraction: {e}")
             return [], None
-
+        
     def _build_image_grid(self, image_paths, golden_frame):
         """Creates and displays the grid of selectable images."""
         self.images = [] # Keep a reference to images to prevent garbage collection
