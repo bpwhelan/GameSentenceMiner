@@ -377,7 +377,6 @@ document.addEventListener('DOMContentLoaded', function () {
         return fetch(url)
             .then(response => response.json())
             .then(data => {
-                console.log(data);
                 // Store all lines data globally for heatmap calculations
                 if (data.allLinesData && Array.isArray(data.allLinesData)) {
                     window.allLinesData = data.allLinesData;
@@ -1327,7 +1326,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (data && data.currentGameStats && data.allGamesStats) {
             // Use existing data if available
-            console.log(data);
             updateCurrentGameDashboard(data.currentGameStats);
             updateAllGamesDashboard(data.allGamesStats);
             
