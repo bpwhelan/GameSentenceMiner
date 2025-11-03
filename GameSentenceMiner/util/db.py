@@ -211,9 +211,29 @@ class SQLiteDBTable:
         elif field_type is int:
             setattr(obj, field, int(row_value) if row_value is not None else None)
         elif field_type is float:
-            setattr(obj, field, float(row_value) if row_value is not None else None)
+            if row_value is None:
+                setattr(obj, field, None)
+            elif isinstance(row_value, str):
+                # Try to parse datetime strings to Unix timestamp
+                try:
+                    # First try direct float conversion
+                    setattr(obj, field, float(row_value))
+                except ValueError:
+                    # If that fails, try parsing as datetime string
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(row_value.replace(' ', 'T'))
+                        setattr(obj, field, dt.timestamp())
+                    except (ValueError, AttributeError):
+                        # If all parsing fails, set to None
+                        logger.warning(f"Could not convert '{row_value}' to float or datetime, setting to None")
+                        setattr(obj, field, None)
+            else:
+                setattr(obj, field, float(row_value))
         elif field_type is bool:
-            setattr(obj, field, bool(row_value) if row_value is not None else None)
+            # Convert from SQLite: 0/1 (int), '0'/'1' (str), or None -> bool
+            # Default to False for None/empty, True only for 1 or '1'
+            setattr(obj, field, row_value == 1 or row_value == '1')
         elif field_type is dict:
             try:
                 setattr(obj, field, json.loads(row_value) if row_value else {})
@@ -225,8 +245,12 @@ class SQLiteDBTable:
     def save(self, retry=1):
         try:
             for field in self._fields:
-                if isinstance(getattr(self, field), list):
-                    setattr(self, field, json.dumps(getattr(self, field)))
+                field_value = getattr(self, field)
+                if isinstance(field_value, list):
+                    setattr(self, field, json.dumps(field_value))
+                elif isinstance(field_value, bool):
+                    # Convert boolean to integer (0 or 1) for SQLite storage
+                    setattr(self, field, 1 if field_value else 0)
             data = {field: getattr(self, field) for field in self._fields}
             pk_val = getattr(self, self._pk, None)
             if pk_val is None:
@@ -266,6 +290,15 @@ class SQLiteDBTable:
                 raise ValueError(
                     f"Primary key {self._pk} must be set for non-auto-increment tables.")
             else:
+                # Serialize list and dict fields to JSON, convert booleans to integers
+                for field in self._fields:
+                    field_value = getattr(self, field)
+                    if isinstance(field_value, (list, dict)):
+                        setattr(self, field, json.dumps(field_value))
+                    elif isinstance(field_value, bool):
+                        # Convert boolean to integer (0 or 1) for SQLite storage
+                        setattr(self, field, 1 if field_value else 0)
+                
                 keys = ', '.join(self._fields + [self._pk])
                 placeholders = ', '.join(['?'] * (len(self._fields) + 1))
                 values = tuple(getattr(self, field)
@@ -530,9 +563,10 @@ class GameLinesTable(SQLiteDBTable):
         logger.debug(f"Updated GameLine id={line_id} paths.")
 
     @classmethod
-    def add_line(cls, gameline: GameLine):
+    def add_line(cls, gameline: GameLine, game_id: Optional[str] = None):
         new_line = cls(id=gameline.id, game_name=gameline.scene,
-                       line_text=gameline.text, timestamp=gameline.time.timestamp())
+                       line_text=gameline.text, timestamp=gameline.time.timestamp(),
+                       game_id=game_id if game_id else '')
         # logger.info("Adding GameLine to DB: %s", new_line)
         new_line.add()
         return new_line
@@ -580,47 +614,6 @@ class GameLinesTable(SQLiteDBTable):
         rows = cls._db.fetchall(query, tuple(params))
         clean_columns = ['line_text'] if for_stats else []
         return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
-
-class StatsRollupTable(SQLiteDBTable):
-    _table = 'stats_rollup'
-    _fields = ['date', 'games_played', 'lines_mined', 'anki_cards_created', 'time_spent_mining']
-    _types = [int,  # Includes primary key type
-              str, int, int, int, float]
-    _pk = 'id'
-    _auto_increment = True  # Use auto-incrementing integer IDs
-    
-    def __init__(self, id: Optional[int] = None,
-                 date: Optional[str] = None,
-                 games_played: int = 0,
-                 lines_mined: int = 0,
-                 anki_cards_created: int = 0,
-                 time_spent_mining: float = 0.0):
-        self.id = id
-        self.date = date if date is not None else datetime.now().strftime("%Y-%m-%d")
-        self.games_played = games_played
-        self.lines_mined = lines_mined
-        self.anki_cards_created = anki_cards_created
-        self.time_spent_mining = time_spent_mining
-
-    @classmethod
-    def get_stats_for_date(cls, date: str) -> Optional['StatsRollupTable']:
-        row = cls._db.fetchone(
-            f"SELECT * FROM {cls._table} WHERE date=?", (date,))
-        return cls.from_row(row) if row else None
-
-    @classmethod
-    def update_stats(cls, date: str, games_played: int = 0, lines_mined: int = 0, anki_cards_created: int = 0, time_spent_mining: float = 0.0):
-        stats = cls.get_stats_for_date(date)
-        if not stats:
-            new_stats = cls(date=date, games_played=games_played,
-                            lines_mined=lines_mined, anki_cards_created=anki_cards_created, time_spent_mining=time_spent_mining)
-            new_stats.save()
-            return
-        stats.games_played += games_played
-        stats.lines_mined += lines_mined
-        stats.anki_cards_created += anki_cards_created
-        stats.time_spent_mining += time_spent_mining
-        stats.save()
 
 # Ensure database directory exists and return path
 def get_db_directory(test=False, delete_test=False) -> str:
@@ -675,10 +668,12 @@ if os.path.exists(db_path):
 
 gsm_db = SQLiteDB(db_path)
 
-# Import GamesTable after gsm_db is created to avoid circular import
+# Import GamesTable, CronTable, and StatsRollupTable after gsm_db is created to avoid circular import
 from GameSentenceMiner.util.games_table import GamesTable
+from GameSentenceMiner.util.cron_table import CronTable
+from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 
-for cls in [AIModelsTable, GameLinesTable, GamesTable]:
+for cls in [AIModelsTable, GameLinesTable, GamesTable, CronTable, StatsRollupTable]:
     cls.set_db(gsm_db)
     # Uncomment to start fresh every time
     # cls.drop()
@@ -700,7 +695,189 @@ def check_and_run_migrations():
             GameLinesTable.alter_column_type('timestamp_old', 'timestamp', 'REAL')
             logger.info("Migrated 'timestamp' column to REAL type in GameLinesTable.")
     
+    def migrate_obs_scene_name():
+        """
+        Add obs_scene_name column to games table and populate it from game_lines.
+        This migration ensures existing games have their OBS scene names preserved.
+        """
+        if not GamesTable.has_column('obs_scene_name'):
+            logger.info("Adding 'obs_scene_name' column to games table...")
+            GamesTable._db.execute(
+                f"ALTER TABLE {GamesTable._table} ADD COLUMN obs_scene_name TEXT",
+                commit=True
+            )
+            logger.info("Added 'obs_scene_name' column to games table.")
+            
+            # Populate obs_scene_name for existing games by querying game_lines
+            logger.info("Populating obs_scene_name from game_lines...")
+            all_games = GamesTable.all()
+            updated_count = 0
+            
+            for game in all_games:
+                # Find the first game_line with this game_id to get the original game_name
+                result = GameLinesTable._db.fetchone(
+                    f"SELECT game_name FROM {GameLinesTable._table} WHERE game_id=? LIMIT 1",
+                    (game.id,)
+                )
+                
+                if result and result[0]:
+                    obs_scene_name = result[0]
+                    # Update the game with the obs_scene_name
+                    GamesTable._db.execute(
+                        f"UPDATE {GamesTable._table} SET obs_scene_name=? WHERE id=?",
+                        (obs_scene_name, game.id),
+                        commit=True
+                    )
+                    updated_count += 1
+                    logger.debug(f"Set obs_scene_name='{obs_scene_name}' for game id={game.id}")
+            
+            logger.info(f"Migration complete: Updated {updated_count} games with obs_scene_name from game_lines.")
+        else:
+            logger.debug("obs_scene_name column already exists in games table, skipping migration.")
+        """
+        Convert datetime strings in cron_table to Unix timestamps.
+        This migration handles legacy data that may have datetime strings instead of floats.
+        """
+        try:
+            # Get all rows directly from database to check for datetime strings
+            rows = CronTable._db.fetchall(f"SELECT id, last_run, next_run, created_at FROM {CronTable._table}")
+            
+            updates_needed = []
+            for row in rows:
+                cron_id, last_run, next_run, created_at = row
+                needs_update = False
+                new_last_run = last_run
+                new_next_run = next_run
+                new_created_at = created_at
+                
+                # Check and convert last_run
+                if last_run and isinstance(last_run, str) and not last_run.replace('.', '', 1).isdigit():
+                    try:
+                        dt = datetime.fromisoformat(last_run.replace(' ', 'T'))
+                        new_last_run = dt.timestamp()
+                        needs_update = True
+                    except (ValueError, AttributeError):
+                        logger.warning(f"Could not parse last_run '{last_run}' for cron id={cron_id}")
+                        new_last_run = None
+                        needs_update = True
+                
+                # Check and convert next_run
+                if next_run and isinstance(next_run, str) and not next_run.replace('.', '', 1).isdigit():
+                    try:
+                        dt = datetime.fromisoformat(next_run.replace(' ', 'T'))
+                        new_next_run = dt.timestamp()
+                        needs_update = True
+                    except (ValueError, AttributeError):
+                        logger.warning(f"Could not parse next_run '{next_run}' for cron id={cron_id}")
+                        new_next_run = time.time()
+                        needs_update = True
+                
+                # Check and convert created_at
+                if created_at and isinstance(created_at, str) and not created_at.replace('.', '', 1).isdigit():
+                    try:
+                        dt = datetime.fromisoformat(created_at.replace(' ', 'T'))
+                        new_created_at = dt.timestamp()
+                        needs_update = True
+                    except (ValueError, AttributeError):
+                        logger.warning(f"Could not parse created_at '{created_at}' for cron id={cron_id}")
+                        new_created_at = time.time()
+                        needs_update = True
+                
+                if needs_update:
+                    updates_needed.append((new_last_run, new_next_run, new_created_at, cron_id))
+            
+            # Apply updates
+            if updates_needed:
+                logger.info(f"Migrating {len(updates_needed)} cron entries with datetime strings to Unix timestamps...")
+                for new_last_run, new_next_run, new_created_at, cron_id in updates_needed:
+                    CronTable._db.execute(
+                        f"UPDATE {CronTable._table} SET last_run=?, next_run=?, created_at=? WHERE id=?",
+                        (new_last_run, new_next_run, new_created_at, cron_id),
+                        commit=True
+                    )
+                logger.info(f"✅ Migrated {len(updates_needed)} cron entries to Unix timestamps")
+            else:
+                logger.debug("No cron timestamp migration needed")
+                
+        except Exception as e:
+            logger.error(f"Error during cron timestamp migration: {e}")
+    
+    def migrate_jiten_cron_job():
+        """
+        Create the monthly jiten.moe update cron job if it doesn't exist.
+        This ensures the cron job is automatically registered on database initialization.
+        """
+        existing_cron = CronTable.get_by_name('jiten_sync')
+        if not existing_cron:
+            logger.info("Creating monthly jiten.moe update cron job...")
+            # Calculate next run: first day of next month at midnight
+            now = datetime.now()
+            if now.month == 12:
+                next_month = datetime(now.year + 1, 1, 1, 0, 0, 0)
+            else:
+                next_month = datetime(now.year, now.month + 1, 1, 0, 0, 0)
+            
+            CronTable.create_cron_entry(
+                name='jiten_sync',
+                description='Automatically update all linked games from jiten.moe database (respects manual overrides)',
+                next_run=next_month.timestamp(),
+                schedule='monthly'
+            )
+            logger.info(f"✅ Created jiten_sync cron job - next run: {next_month.strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            logger.debug("jiten_sync cron job already exists, skipping creation.")
+    
+    def migrate_daily_rollup_cron_job():
+        """
+        Create the daily statistics rollup cron job if it doesn't exist.
+        This ensures the cron job is automatically registered on database initialization.
+        """
+        existing_cron = CronTable.get_by_name('daily_stats_rollup')
+        if not existing_cron:
+            logger.info("Creating daily statistics rollup cron job...")
+            # Schedule for 1 minute ago to ensure it runs immediately on first startup
+            now = datetime.now()
+            one_minute_ago = now - timedelta(minutes=1)
+            
+            CronTable.create_cron_entry(
+                name='daily_stats_rollup',
+                description='Roll up daily statistics for all dates up to yesterday',
+                next_run=one_minute_ago.timestamp(),
+                schedule='daily'
+            )
+            logger.info(f"✅ Created daily_stats_rollup cron job - scheduled to run immediately (next_run: {one_minute_ago.strftime('%Y-%m-%d %H:%M:%S')})")
+        else:
+            logger.debug("daily_stats_rollup cron job already exists, skipping creation.")
+    
+    def migrate_populate_games_cron_job():
+        """
+        Create the one-time populate_games cron job if it doesn't exist.
+        This ensures games table is populated before the daily rollup runs.
+        Runs once and auto-disables (schedule='once').
+        """
+        existing_cron = CronTable.get_by_name('populate_games')
+        if not existing_cron:
+            logger.info("Creating one-time populate_games cron job...")
+            # Schedule to run immediately (2 minutes ago to ensure it runs before rollup)
+            now = datetime.now()
+            two_minutes_ago = now - timedelta(minutes=2)
+            
+            CronTable.create_cron_entry(
+                name='populate_games',
+                description='One-time auto-creation of game records from game_lines (runs before rollup)',
+                next_run=two_minutes_ago.timestamp(),
+                schedule='weekly'  # Will auto-disable after running
+            )
+            logger.info(f"✅ Created populate_games cron job - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})")
+        else:
+            logger.debug("populate_games cron job already exists, skipping creation.")
+    
     migrate_timestamp()
+    migrate_obs_scene_name()
+    # migrate_cron_timestamps()  # Disabled - user will manually clean up data
+    migrate_jiten_cron_job()
+    migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
+    migrate_daily_rollup_cron_job()
         
 check_and_run_migrations()
     

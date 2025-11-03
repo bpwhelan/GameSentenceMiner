@@ -12,6 +12,7 @@ from rapidfuzz import fuzz
 
 from GameSentenceMiner.util.configuration import get_config, gsm_status, logger, gsm_state, is_dev
 from GameSentenceMiner.util.db import GameLinesTable
+from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.gsm_utils import add_srt_line
@@ -262,8 +263,18 @@ async def add_line_to_text_log(line, line_time=None):
         if get_overlay_processor().ready:
             asyncio.create_task(get_overlay_processor().find_box_and_send_to_overlay(current_line_after_regex))
     add_srt_line(line_time, new_line)
-    if 'nostatspls' not in new_line.scene.lower():
-        GameLinesTable.add_line(new_line)
+    
+    # Link the game_line to the games table, but skip if 'nostatspls' in scene
+    game_line = get_text_log()[-1]
+    if 'nostatspls' not in game_line.scene.lower():
+        if game_line.scene:
+            # Get or create the game record
+            game = GamesTable.get_or_create_by_name(game_line.scene)
+            # Add the line with the game_id
+            GameLinesTable.add_line(game_line, game_id=game.id)
+        else:
+            # Fallback if no scene is set
+            GameLinesTable.add_line(game_line)
 
 def reset_line_hotkey_pressed():
     global current_line_time

@@ -3,6 +3,8 @@ class SentenceSearchApp {
         this.searchInput = document.getElementById('searchInput');
         this.gameFilter = document.getElementById('gameFilter');
         this.sortFilter = document.getElementById('sortFilter');
+        this.fromDateFilter = document.getElementById('searchFromDate');
+        this.toDateFilter = document.getElementById('searchToDate');
         this.searchResults = document.getElementById('searchResults');
         this.loadingIndicator = document.getElementById('loadingIndicator');
         this.noResults = document.getElementById('noResults');
@@ -10,10 +12,27 @@ class SentenceSearchApp {
         this.errorMessage = document.getElementById('errorMessage');
         this.searchStats = document.getElementById('searchStats');
         this.searchTime = document.getElementById('searchTime');
-        this.regexCheckbox = document.getElementById('regexCheckbox');
+        
+        // Regex component elements
+        this.regexPresetSelect = document.querySelector('.regex-preset-select');
+        this.regexCustomInput = document.querySelector('.regex-custom-input');
+        this.regexCaseCheckbox = document.querySelector('.regex-case-checkbox');
+        this.regexModeCheckbox = document.querySelector('.regex-mode-checkbox');
+        
+        // Duplicate detection elements
+        this.toggleDuplicateBtn = document.getElementById('toggleDuplicateDetection');
+        this.duplicateSection = document.getElementById('duplicateDetectionSection');
+        this.duplicateTimeWindow = document.getElementById('duplicateTimeWindow');
+        this.duplicateIgnoreTimeWindow = document.getElementById('duplicateIgnoreTimeWindow');
+        this.duplicateCaseSensitive = document.getElementById('duplicateCaseSensitive');
+        this.searchDuplicatesBtn = document.getElementById('searchDuplicatesBtn');
+        this.duplicateTimeWindowGroup = document.getElementById('duplicateTimeWindowGroup');
+        
         this.deleteLinesBtn = document.getElementById('deleteLinesBtn');
         this.selectAllBtn = document.getElementById('selectAllBtn');
         this.pageSizeFilter = document.getElementById('pageSizeFilter');
+        this.toggleAdvancedBtn = document.getElementById('toggleAdvancedSearch');
+        this.advancedSearchSection = document.getElementById('advancedSearchSection');
         
         this.currentPage = 1;
         this.pageSize = 20;
@@ -21,6 +40,7 @@ class SentenceSearchApp {
         this.currentQuery = '';
         this.totalResults = 0;
         this.currentUseRegex = false;
+        this.isDuplicateSearch = false;
         this.initialize();
     }
 
@@ -56,6 +76,8 @@ class SentenceSearchApp {
         this.gameFilter.addEventListener('change', () => this.performSearch());
         this.sortFilter.addEventListener('change', () => this.performSearch());
         
+        // Date range filters do NOT auto-trigger search - user must click Search button
+        
         if (this.pageSizeFilter) {
             this.pageSizeFilter.addEventListener('change', () => {
                 this.pageSize = parseInt(this.pageSizeFilter.value);
@@ -76,8 +98,24 @@ class SentenceSearchApp {
             this.performSearch();
         });
 
-        if (this.regexCheckbox) {
-            this.regexCheckbox.addEventListener('change', () => {
+        // Regex component event listeners
+        if (this.regexCustomInput) {
+            this.regexCustomInput.addEventListener('input', () => {
+                clearTimeout(this.searchTimeout);
+                this.searchTimeout = setTimeout(() => {
+                    this.performSearch();
+                }, 300);
+            });
+        }
+        
+        if (this.regexModeCheckbox) {
+            this.regexModeCheckbox.addEventListener('change', () => {
+                this.performSearch();
+            });
+        }
+        
+        if (this.regexCaseCheckbox) {
+            this.regexCaseCheckbox.addEventListener('change', () => {
                 this.performSearch();
             });
         }
@@ -92,6 +130,53 @@ class SentenceSearchApp {
             this.selectAllBtn.addEventListener('click', () => {
                 this.toggleSelectAll();
             });
+        }
+
+        if (this.toggleAdvancedBtn) {
+            this.toggleAdvancedBtn.addEventListener('click', () => {
+                this.toggleAdvancedSearch();
+            });
+        }
+        
+        // Duplicate detection event listeners
+        if (this.toggleDuplicateBtn) {
+            this.toggleDuplicateBtn.addEventListener('click', () => {
+                this.toggleDuplicateDetection();
+            });
+        }
+        
+        if (this.duplicateIgnoreTimeWindow) {
+            this.duplicateIgnoreTimeWindow.addEventListener('change', () => {
+                this.toggleDuplicateTimeWindow();
+            });
+        }
+        
+        if (this.searchDuplicatesBtn) {
+            this.searchDuplicatesBtn.addEventListener('click', () => {
+                this.searchForDuplicates();
+            });
+        }
+        
+        // Manual search button for date filtering
+        const manualSearchBtn = document.getElementById('manualSearchBtn');
+        if (manualSearchBtn) {
+            manualSearchBtn.addEventListener('click', () => {
+                this.performSearch();
+            });
+        }
+    }
+
+    toggleAdvancedSearch() {
+        if (!this.advancedSearchSection || !this.toggleAdvancedBtn) return;
+        
+        const isHidden = this.advancedSearchSection.style.display === 'none';
+        
+        if (isHidden) {
+            this.advancedSearchSection.style.display = 'block';
+            this.toggleAdvancedBtn.innerHTML = '<span id="toggleIcon">▲</span> Hide Advanced Search';
+        } else {
+            this.advancedSearchSection.style.display = 'none';
+            this.toggleAdvancedBtn.innerHTML = '<span id="toggleIcon">▼</span> Show Advanced Search';
         }
     }
     
@@ -120,15 +205,24 @@ class SentenceSearchApp {
         const query = this.searchInput.value.trim();
         const gameFilter = this.gameFilter.value;
         const sortBy = this.sortFilter.value;
-        const useRegex = this.regexCheckbox && this.regexCheckbox.checked;
+        const fromDate = this.fromDateFilter ? this.fromDateFilter.value : '';
+        const toDate = this.toDateFilter ? this.toDateFilter.value : '';
+        
+        // Get regex settings from component
+        const customRegex = this.regexCustomInput ? this.regexCustomInput.value.trim() : '';
+        const useRegex = this.regexModeCheckbox ? this.regexModeCheckbox.checked : false;
+        const caseSensitive = this.regexCaseCheckbox ? this.regexCaseCheckbox.checked : false;
+        
+        // Use custom regex if provided and regex mode is enabled, otherwise use search query
+        const searchPattern = (useRegex && customRegex) ? customRegex : query;
 
-        if (query !== this.currentQuery || useRegex !== this.currentUseRegex) {
+        if (searchPattern !== this.currentQuery || useRegex !== this.currentUseRegex) {
             this.currentPage = 1;
         }
-        this.currentQuery = query;
+        this.currentQuery = searchPattern;
         this.currentUseRegex = useRegex;
 
-        if (!query) {
+        if (!searchPattern && !query) {
             this.showEmptyState();
             return;
         }
@@ -138,7 +232,7 @@ class SentenceSearchApp {
 
         try {
             const params = new URLSearchParams({
-                q: query,
+                q: searchPattern || query,
                 page: this.currentPage,
                 page_size: this.pageSize,
                 sort: sortBy
@@ -147,8 +241,17 @@ class SentenceSearchApp {
             if (gameFilter) {
                 params.append('game', gameFilter);
             }
+            if (fromDate) {
+                params.append('from_date', fromDate);
+            }
+            if (toDate) {
+                params.append('to_date', toDate);
+            }
             if (useRegex) {
                 params.append('use_regex', 'true');
+            }
+            if (caseSensitive) {
+                params.append('case_sensitive', 'true');
             }
 
             const response = await fetch(`/api/search-sentences?${params}`);
@@ -248,12 +351,15 @@ class SentenceSearchApp {
     highlightSearchTerms(text, query) {
         if (!query) return escapeHtml(text);
 
-        const useRegex = this.regexCheckbox && this.regexCheckbox.checked;
+        const useRegex = this.regexModeCheckbox ? this.regexModeCheckbox.checked : false;
+        const customRegex = this.regexCustomInput ? this.regexCustomInput.value.trim() : '';
+        const caseSensitive = this.regexCaseCheckbox ? this.regexCaseCheckbox.checked : false;
         const escapedText = escapeHtml(text);
 
-        if (useRegex) {
+        if (useRegex && customRegex) {
             try {
-                const pattern = new RegExp(query, 'gi');
+                const flags = caseSensitive ? 'g' : 'gi';
+                const pattern = new RegExp(customRegex, flags);
                 return escapedText.replace(pattern, '<span class="search-highlight">$&</span>');
             } catch (e) {
                 return escapedText;
@@ -262,7 +368,8 @@ class SentenceSearchApp {
             const searchTerms = query.split(' ').filter(term => term.length > 0);
             let result = escapedText;
             searchTerms.forEach(term => {
-                const regex = new RegExp(`(${escapeRegex(term)})`, 'gi');
+                const flags = caseSensitive ? 'g' : 'gi';
+                const regex = new RegExp(`(${escapeRegex(term)})`, flags);
                 result = result.replace(regex, '<span class="search-highlight">$1</span>');
             });
             return result;
@@ -433,6 +540,94 @@ class SentenceSearchApp {
         } catch (error) {
             this.showErrorState(`Failed to delete sentences: ${error.message}`);
             console.error('Delete error:', error);
+        }
+    }
+
+    toggleDuplicateDetection() {
+        if (!this.duplicateSection || !this.toggleDuplicateBtn) return;
+        
+        const isHidden = this.duplicateSection.style.display === 'none';
+        const icon = document.getElementById('duplicateToggleIcon');
+        
+        if (isHidden) {
+            this.duplicateSection.style.display = 'block';
+            if (icon) icon.textContent = '▲';
+        } else {
+            this.duplicateSection.style.display = 'none';
+            if (icon) icon.textContent = '▼';
+        }
+    }
+    
+    toggleDuplicateTimeWindow() {
+        if (!this.duplicateIgnoreTimeWindow || !this.duplicateTimeWindowGroup) return;
+        
+        const isIgnored = this.duplicateIgnoreTimeWindow.checked;
+        
+        if (isIgnored) {
+            this.duplicateTimeWindowGroup.style.opacity = '0.5';
+            this.duplicateTimeWindowGroup.style.pointerEvents = 'none';
+            if (this.duplicateTimeWindow) {
+                this.duplicateTimeWindow.disabled = true;
+            }
+        } else {
+            this.duplicateTimeWindowGroup.style.opacity = '1';
+            this.duplicateTimeWindowGroup.style.pointerEvents = 'auto';
+            if (this.duplicateTimeWindow) {
+                this.duplicateTimeWindow.disabled = false;
+            }
+        }
+    }
+    
+    async searchForDuplicates() {
+        const gameFilter = this.gameFilter.value;
+        const timeWindow = parseInt(this.duplicateTimeWindow.value);
+        const ignoreTimeWindow = this.duplicateIgnoreTimeWindow.checked;
+        const caseSensitive = this.duplicateCaseSensitive.checked;
+        
+        // Validate input
+        if (!ignoreTimeWindow && (isNaN(timeWindow) || timeWindow < 1)) {
+            this.showErrorState('Time window must be at least 1 minute');
+            return;
+        }
+        
+        this.showLoadingState();
+        this.isDuplicateSearch = true;
+        const startTime = Date.now();
+        
+        try {
+            const requestData = {
+                game: gameFilter,
+                time_window_minutes: timeWindow,
+                ignore_time_window: ignoreTimeWindow,
+                case_sensitive: caseSensitive
+            };
+            
+            const response = await fetch('/api/search-duplicates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+            
+            const data = await response.json();
+            const searchTime = Date.now() - startTime;
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'Duplicate search failed');
+            }
+            
+            // Display results using existing display method
+            this.displayResults(data, searchTime);
+            
+            // Update stats text to indicate duplicate search
+            if (data.total > 0) {
+                const modeText = ignoreTimeWindow ? 'across entire game' : `within ${timeWindow} minute window`;
+                const gameText = gameFilter ? ` in ${gameFilter}` : '';
+                this.searchStats.textContent = `Found ${data.total.toLocaleString()} duplicate sentences ${modeText}${gameText}`;
+            }
+            
+        } catch (error) {
+            this.showErrorState(error.message);
+            this.isDuplicateSearch = false;
         }
     }
 

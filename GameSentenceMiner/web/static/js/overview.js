@@ -1,6 +1,194 @@
 // Overview Page JavaScript
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
+// ============================================================================
+// PERFORMANCE OPTIMIZATION: Cache frequently accessed DOM elements
+// ============================================================================
+const DOM_CACHE = {
+    // Dashboard cards
+    currentGameCard: null,
+    allGamesCard: null,
+    todayOverviewCard: null,
+    
+    // Current game elements
+    currentGameName: null,
+    currentTotalChars: null,
+    currentTotalTime: null,
+    currentReadingSpeed: null,
+    currentEstimatedTimeLeft: null,
+    currentGameStreak: null,
+    currentStreakValue: null,
+    gameCompletionBtn: null,
+    
+    // Session elements
+    currentSessionTotalHours: null,
+    currentSessionTotalChars: null,
+    currentSessionStartTime: null,
+    currentSessionEndTime: null,
+    currentSessionCharsPerHour: null,
+    
+    // Game metadata elements
+    gameContentGrid: null,
+    gamePhotoSection: null,
+    gamePhoto: null,
+    gameTitleOriginal: null,
+    gameTitleRomaji: null,
+    gameTitleEnglish: null,
+    gameTypeBadge: null,
+    gameDescription: null,
+    descriptionExpandBtn: null,
+    gameLinksContainer: null,
+    gameLinksPills: null,
+    gameProgressContainer: null,
+    gameProgressPercentage: null,
+    gameProgressFill: null,
+    gameStartDate: null,
+    gameEstimatedEndDate: null,
+    
+    // Today's overview elements
+    todayDate: null,
+    todayTotalHours: null,
+    todayTotalChars: null,
+    todaySessions: null,
+    todayCharsPerHour: null,
+    
+    // All games elements
+    totalGamesCount: null,
+    allTotalChars: null,
+    allTotalTime: null,
+    allReadingSpeed: null,
+    allSessions: null,
+    allUniqueGames: null,
+    allTotalSentences: null,
+    allGamesStreak: null,
+    allStreakValue: null,
+    
+    // Loading/error states
+    dashboardLoading: null,
+    dashboardError: null,
+    
+    // Heatmap
+    heatmapContainer: null,
+    
+    // Date inputs
+    fromDateInput: null,
+    toDateInput: null,
+    
+    // Session navigation
+    prevSessionBtn: null,
+    nextSessionBtn: null,
+    deleteSessionBtn: null,
+    
+    // Initialize all cached references
+    init() {
+        // Dashboard cards
+        this.currentGameCard = document.getElementById('currentGameCard');
+        this.allGamesCard = document.getElementById('allGamesCard');
+        this.todayOverviewCard = document.getElementById('todayOverviewCard');
+        
+        // Current game elements
+        this.currentGameName = document.getElementById('currentGameName');
+        this.currentTotalChars = document.getElementById('currentTotalChars');
+        this.currentTotalTime = document.getElementById('currentTotalTime');
+        this.currentReadingSpeed = document.getElementById('currentReadingSpeed');
+        this.currentEstimatedTimeLeft = document.getElementById('currentEstimatedTimeLeft');
+        this.currentGameStreak = document.getElementById('currentGameStreak');
+        this.currentStreakValue = document.getElementById('currentStreakValue');
+        this.gameCompletionBtn = document.getElementById('gameCompletionBtn');
+        
+        // Session elements
+        this.currentSessionTotalHours = document.getElementById('currentSessionTotalHours');
+        this.currentSessionTotalChars = document.getElementById('currentSessionTotalChars');
+        this.currentSessionStartTime = document.getElementById('currentSessionStartTime');
+        this.currentSessionEndTime = document.getElementById('currentSessionEndTime');
+        this.currentSessionCharsPerHour = document.getElementById('currentSessionCharsPerHour');
+        
+        // Game metadata elements
+        this.gameContentGrid = document.getElementById('gameContentGrid');
+        this.gamePhotoSection = document.getElementById('gamePhotoSection');
+        this.gamePhoto = document.getElementById('gamePhoto');
+        this.gameTitleOriginal = document.getElementById('gameTitleOriginal');
+        this.gameTitleRomaji = document.getElementById('gameTitleRomaji');
+        this.gameTitleEnglish = document.getElementById('gameTitleEnglish');
+        this.gameTypeBadge = document.getElementById('gameTypeBadge');
+        this.gameDescription = document.getElementById('gameDescription');
+        this.descriptionExpandBtn = document.getElementById('descriptionExpandBtn');
+        this.gameLinksContainer = document.getElementById('gameLinksContainer');
+        this.gameLinksPills = document.getElementById('gameLinksPills');
+        this.gameProgressContainer = document.getElementById('gameProgressContainer');
+        this.gameProgressPercentage = document.getElementById('gameProgressPercentage');
+        this.gameProgressFill = document.getElementById('gameProgressFill');
+        this.gameStartDate = document.getElementById('gameStartDate');
+        this.gameEstimatedEndDate = document.getElementById('gameEstimatedEndDate');
+        
+        // Today's overview elements
+        this.todayDate = document.getElementById('todayDate');
+        this.todayTotalHours = document.getElementById('todayTotalHours');
+        this.todayTotalChars = document.getElementById('todayTotalChars');
+        this.todaySessions = document.getElementById('todaySessions');
+        this.todayCharsPerHour = document.getElementById('todayCharsPerHour');
+        
+        // All games elements
+        this.totalGamesCount = document.getElementById('totalGamesCount');
+        this.allTotalChars = document.getElementById('allTotalChars');
+        this.allTotalTime = document.getElementById('allTotalTime');
+        this.allReadingSpeed = document.getElementById('allReadingSpeed');
+        this.allSessions = document.getElementById('allSessions');
+        this.allUniqueGames = document.getElementById('allUniqueGames');
+        this.allTotalSentences = document.getElementById('allTotalSentences');
+        this.allGamesStreak = document.getElementById('allGamesStreak');
+        this.allStreakValue = document.getElementById('allStreakValue');
+        
+        // Loading/error states
+        this.dashboardLoading = document.getElementById('dashboardLoading');
+        this.dashboardError = document.getElementById('dashboardError');
+        
+        // Heatmap
+        this.heatmapContainer = document.getElementById('heatmapContainer');
+        
+        // Date inputs
+        this.fromDateInput = document.getElementById('fromDate');
+        this.toDateInput = document.getElementById('toDate');
+        
+        // Session navigation
+        this.prevSessionBtn = document.querySelector('.prev-session-btn');
+        this.nextSessionBtn = document.querySelector('.next-session-btn');
+        this.deleteSessionBtn = document.querySelector('.delete-session-btn');
+    }
+};
+
+// ============================================================================
+// PERFORMANCE OPTIMIZATION: Cache API responses to avoid redundant fetches
+// ============================================================================
+const API_CACHE = {
+    statsData: null,
+    statsDataTimestamp: null,
+    CACHE_DURATION: 5000, // 5 seconds cache
+    
+    setStatsData(data) {
+        this.statsData = data;
+        this.statsDataTimestamp = Date.now();
+    },
+    
+    getStatsData() {
+        if (!this.statsData || !this.statsDataTimestamp) {
+            return null;
+        }
+        // Check if cache is still valid
+        if (Date.now() - this.statsDataTimestamp > this.CACHE_DURATION) {
+            this.statsData = null;
+            this.statsDataTimestamp = null;
+            return null;
+        }
+        return this.statsData;
+    },
+    
+    clearStatsData() {
+        this.statsData = null;
+        this.statsDataTimestamp = null;
+    }
+};
+
 // Helper function to detect the current theme based on the app's theme system
 function getCurrentTheme() {
     const dataTheme = document.documentElement.getAttribute('data-theme');
@@ -21,6 +209,8 @@ function getThemeTextColor() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    // Initialize DOM cache
+    DOM_CACHE.init();
     
     // Custom streak calculation function for activity heatmap (includes average daily time)
     function calculateActivityStreaks(grid, yearData, allLinesForYear = []) {
@@ -84,54 +274,82 @@ document.addEventListener('DOMContentLoaded', function () {
         // Calculate average daily time for this year
         let avgDailyTime = "-";
         if (allLinesForYear && allLinesForYear.length > 0) {
-            // Group timestamps by day for this year
-            const dailyTimestamps = {};
-            for (const line of allLinesForYear) {
-                const ts = parseFloat(line.timestamp);
-                if (isNaN(ts)) continue;
-                const dateObj = new Date(ts * 1000);
-                const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
-                if (!dailyTimestamps[dateStr]) {
-                    dailyTimestamps[dateStr] = [];
-                }
-                dailyTimestamps[dateStr].push(parseFloat(line.timestamp));
-            }
+            // Check if we have pre-calculated reading time from rollup data
+            const hasReadingTimeData = allLinesForYear.some(line => line.reading_time_seconds !== undefined);
             
-            // Calculate reading time for each day with activity
-            let totalHours = 0;
-            let activeDays = 0;
-            let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
-
-            for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
-                if (timestamps.length >= 2) {
-                    timestamps.sort((a, b) => a - b);
-                    let dayReadingTime = 0;
-
-                    for (let i = 1; i < timestamps.length; i++) {
-                        const gap = timestamps[i] - timestamps[i-1];
-                        dayReadingTime += Math.min(gap, afkTimerSeconds);
-                    }
-
-                    if (dayReadingTime > 0) {
-                        totalHours += dayReadingTime / 3600;
+            if (hasReadingTimeData) {
+                // Use pre-calculated reading time from rollup data (FAST!)
+                let totalHours = 0;
+                let activeDays = 0;
+                
+                for (const line of allLinesForYear) {
+                    if (line.reading_time_seconds !== undefined && line.reading_time_seconds > 0) {
+                        totalHours += line.reading_time_seconds / 3600;
                         activeDays++;
                     }
-                } else if (timestamps.length === 1) {
-                    // Single timestamp - count as minimal activity (1 second)
-                    totalHours += 1 / 3600;
-                    activeDays++;
                 }
-            }
-            
-            if (activeDays > 0) {
-                const avgHours = totalHours / activeDays;
-                if (avgHours < 1) {
-                    const minutes = Math.round(avgHours * 60);
-                    avgDailyTime = `${minutes}m`;
-                } else {
-                    const hours = Math.floor(avgHours);
-                    const minutes = Math.round((avgHours - hours) * 60);
-                    avgDailyTime = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+                
+                if (activeDays > 0) {
+                    const avgHours = totalHours / activeDays;
+                    if (avgHours < 1) {
+                        const minutes = Math.round(avgHours * 60);
+                        avgDailyTime = `${minutes}m`;
+                    } else {
+                        const hours = Math.floor(avgHours);
+                        const minutes = Math.round((avgHours - hours) * 60);
+                        avgDailyTime = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+                    }
+                }
+            } else {
+                // Fallback: Calculate from individual timestamps (for today's data)
+                const dailyTimestamps = {};
+                for (const line of allLinesForYear) {
+                    const ts = parseFloat(line.timestamp);
+                    if (isNaN(ts)) continue;
+                    const dateObj = new Date(ts * 1000);
+                    const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                    if (!dailyTimestamps[dateStr]) {
+                        dailyTimestamps[dateStr] = [];
+                    }
+                    dailyTimestamps[dateStr].push(parseFloat(line.timestamp));
+                }
+                
+                // Calculate reading time for each day with activity
+                let totalHours = 0;
+                let activeDays = 0;
+                let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
+
+                for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
+                    if (timestamps.length >= 2) {
+                        timestamps.sort((a, b) => a - b);
+                        let dayReadingTime = 0;
+
+                        for (let i = 1; i < timestamps.length; i++) {
+                            const gap = timestamps[i] - timestamps[i-1];
+                            dayReadingTime += Math.min(gap, afkTimerSeconds);
+                        }
+
+                        if (dayReadingTime > 0) {
+                            totalHours += dayReadingTime / 3600;
+                            activeDays++;
+                        }
+                    } else if (timestamps.length === 1) {
+                        // Single timestamp - count as minimal activity (1 second)
+                        totalHours += 1 / 3600;
+                        activeDays++;
+                    }
+                }
+                
+                if (activeDays > 0) {
+                    const avgHours = totalHours / activeDays;
+                    if (avgHours < 1) {
+                        const minutes = Math.round(avgHours * 60);
+                        avgDailyTime = `${minutes}m`;
+                    } else {
+                        const hours = Math.floor(avgHours);
+                        const minutes = Math.round((avgHours - hours) * 60);
+                        avgDailyTime = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+                    }
                 }
             }
         }
@@ -404,7 +622,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Calculate current progress
         const currentHours = allGamesStats.total_time_hours || 0;
         const currentCharacters = allGamesStats.total_characters || 0;
-        const currentGames = allGamesStats.unique_games || 0;
+        const currentGames = allGamesStats.completed_games || 0;
         
         // Calculate 90-day averages for projections
         const dailyHoursAvg = calculate90DayAverage(allLinesData, 'hours');
@@ -515,8 +733,25 @@ document.addEventListener('DOMContentLoaded', function () {
             fetch('/api/stats')
                 .then(response => response.json())
                 .then(response_json => {
-                    // Get first date from API
-                    const firstDate = response_json.allGamesStats.first_date;
+                    console.log('[DATE_INIT_DEBUG] API response:', response_json);
+                    
+                    // Get first date from API - check if allGamesStats exists and has first_date
+                    let firstDate;
+                    if (response_json && response_json.allGamesStats && response_json.allGamesStats.first_date) {
+                        firstDate = response_json.allGamesStats.first_date;
+                        console.log('[DATE_INIT_DEBUG] Using first_date from API:', firstDate);
+                    } else {
+                        // If no first_date, try to get it from labels (which come from rollup data)
+                        if (response_json && response_json.labels && response_json.labels.length > 0) {
+                            firstDate = response_json.labels[0];
+                            console.log('[DATE_INIT_DEBUG] Using first label as first_date:', firstDate);
+                        } else {
+                            // Last resort: use today as both start and end
+                            const today = new Date();
+                            firstDate = today.toLocaleDateString('en-CA');
+                            console.warn('[DATE_INIT_DEBUG] No data found, using today as first_date:', firstDate);
+                        }
+                    }
                     fromDateInput.value = firstDate;
 
                     // Get today's date
@@ -528,6 +763,19 @@ document.addEventListener('DOMContentLoaded', function () {
                     sessionStorage.setItem("fromDate", firstDate);
                     sessionStorage.setItem("toDate", toDate);
 
+                    document.dispatchEvent(new Event("datesSet"));
+                })
+                .catch(error => {
+                    console.error('Error initializing dates:', error);
+                    // Fallback to today for both dates on error
+                    const today = new Date();
+                    const todayStr = today.toLocaleDateString('en-CA');
+                    
+                    fromDateInput.value = todayStr;
+                    toDateInput.value = todayStr;
+                    sessionStorage.setItem("fromDate", todayStr);
+                    sessionStorage.setItem("toDate", todayStr);
+                    
                     document.dispatchEvent(new Event("datesSet"));
                 });
         } else {
@@ -584,8 +832,14 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!window.todaySessionDetails || window.todaySessionDetails.length === 0) {
             prevSessionBtn.disabled = true;
             nextSessionBtn.disabled = true;
+            prevSessionBtn.style.display = 'none';
+            nextSessionBtn.style.display = 'none';
+            deleteSessionBtn.style.display = 'none';
             return;
         }
+        prevSessionBtn.style.display = 'inline-block';
+        nextSessionBtn.style.display = 'inline-block';
+        deleteSessionBtn.style.display = 'inline-block';
         prevSessionBtn.disabled = window.currentSessionIndex <= 0;
         nextSessionBtn.disabled = window.currentSessionIndex >= window.todaySessionDetails.length - 1;
     }
@@ -646,13 +900,9 @@ document.addEventListener('DOMContentLoaded', function () {
         const sessionToDelete = window.todaySessionDetails[idx];
         if (!sessionToDelete) return;
 
-        // Confirm deletion
-        const confirm1 = confirm(`Are you sure you want to delete the session starting at ${new Date(sessionToDelete.startTime * 1000).toLocaleString()}? This will delete ${sessionToDelete.lines.length} lines. This action cannot be undone.`);
-        if (!confirm1) return;
-        const confirm2 = confirm("Are you REALLY sure? This cannot be undone.");
-        if (!confirm2) return;
-        const confirm3 = confirm("Final warning: Delete this session permanently?");
-        if (!confirm3) return;
+        // Confirm deletion with clear warning
+        const confirmMsg = `All session data will be deleted.\n\nSession: ${new Date(sessionToDelete.startTime * 1000).toLocaleString()}\nLines: ${sessionToDelete.lines.length}\n\nThis action cannot be undone. Continue?`;
+        if (!confirm(confirmMsg)) return;
 
         // Call the delete function
         deleteSession(sessionToDelete);
@@ -706,10 +956,119 @@ document.addEventListener('DOMContentLoaded', function () {
         loadGoalProgress();
     }, 1000);
 
+    // Function to update progress timeline with start and estimated end dates
+    function updateProgressTimeline(stats) {
+        const startDateEl = document.getElementById('gameStartDate');
+        const endDateEl = document.getElementById('gameEstimatedEndDate');
+        
+        // Set start date
+        if (stats.first_date) {
+            startDateEl.textContent = stats.first_date;
+        } else {
+            startDateEl.textContent = '-';
+        }
+        
+        // Calculate and set estimated end date
+        if (!stats.game_character_count || stats.game_character_count <= 0 ||
+            !stats.total_characters || stats.total_characters <= 0 ||
+            !stats.reading_speed || stats.reading_speed <= 0) {
+            endDateEl.textContent = '-';
+            return;
+        }
+        
+        const charsRead = stats.total_characters;
+        const totalChars = stats.game_character_count;
+        const charsRemaining = Math.max(0, totalChars - charsRead);
+        
+        if (charsRemaining === 0) {
+            endDateEl.textContent = 'Completed! 🎉';
+            return;
+        }
+        
+        // Calculate daily character progress
+        let dailyCharProgress = 0;
+        if (stats.daily_activity && Object.keys(stats.daily_activity).length > 0) {
+            const activityDays = Object.values(stats.daily_activity).filter(chars => chars > 0);
+            if (activityDays.length > 0) {
+                dailyCharProgress = activityDays.reduce((sum, chars) => sum + chars, 0) / activityDays.length;
+            }
+        }
+        
+        if (dailyCharProgress === 0) {
+            dailyCharProgress = stats.reading_speed; // Fallback: assume 1 hour per day
+        }
+        
+        const daysUntilCompletion = Math.ceil(charsRemaining / dailyCharProgress);
+        const today = new Date();
+        const completionDate = new Date(today);
+        completionDate.setDate(completionDate.getDate() + daysUntilCompletion);
+        
+        // Format as YYYY-MM-DD (estimated)
+        const year = completionDate.getFullYear();
+        const month = String(completionDate.getMonth() + 1).padStart(2, '0');
+        const day = String(completionDate.getDate()).padStart(2, '0');
+        endDateEl.textContent = `${year}-${month}-${day} (estimated)`;
+    }
+    
+    // Function to update estimated time left stat
+    function updateEstimatedTimeLeft(stats) {
+        const estimatedTimeLeftEl = document.getElementById('currentEstimatedTimeLeft');
+        const estimatedTimeLeftBox = estimatedTimeLeftEl.closest('.dashboard-stat-item');
+        
+        if (!stats.game_character_count || stats.game_character_count <= 0 ||
+            !stats.total_characters || stats.total_characters <= 0 ||
+            !stats.reading_speed || stats.reading_speed <= 0) {
+            // Hide the entire stat box when we can't calculate estimated time
+            if (estimatedTimeLeftBox) {
+                estimatedTimeLeftBox.style.display = 'none';
+            }
+            return;
+        }
+        
+        // Show the stat box if it was hidden
+        if (estimatedTimeLeftBox) {
+            estimatedTimeLeftBox.style.display = '';
+        }
+        
+        const charsRead = stats.total_characters;
+        const totalChars = stats.game_character_count;
+        const charsRemaining = Math.max(0, totalChars - charsRead);
+        
+        if (charsRemaining === 0) {
+            estimatedTimeLeftEl.textContent = '0h';
+            return;
+        }
+        
+        const readingSpeed = stats.reading_speed;
+        const hoursRemaining = charsRemaining / readingSpeed;
+        
+        // Format hours remaining
+        let hoursText;
+        if (hoursRemaining < 1) {
+            const minutes = Math.round(hoursRemaining * 60);
+            hoursText = `${minutes}m`;
+        } else if (hoursRemaining < 24) {
+            const hours = Math.floor(hoursRemaining);
+            const minutes = Math.round((hoursRemaining - hours) * 60);
+            hoursText = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+        } else if (hoursRemaining < 168) {
+            const days = Math.floor(hoursRemaining / 24);
+            const hours = Math.round(hoursRemaining % 24);
+            hoursText = hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+        } else {
+            const days = Math.floor(hoursRemaining / 24);
+            hoursText = `${days}d`;
+        }
+        
+        estimatedTimeLeftEl.textContent = hoursText;
+    }
+
     // Make functions globally available
     window.createHeatmap = createHeatmap;
     window.loadStatsData = loadStatsData;
     window.loadGoalProgress = loadGoalProgress;
+    window.updateProgressTimeline = updateProgressTimeline;
+    window.updateEstimatedTimeLeft = updateEstimatedTimeLeft;
 
     function updateCurrentSessionOverview(sessionDetails, index = sessionDetails.length - 1) {
         window.currentSessionIndex = index; // Store globally for potential future use
@@ -718,19 +1077,20 @@ document.addEventListener('DOMContentLoaded', function () {
         const lastSession = sessionDetails && sessionDetails.length > 0 ? sessionDetails[index] : null;
 
         if (!lastSession) {
-            // No current session
-            document.getElementById('currentSessionStatus').textContent = 'No active session';
-            document.getElementById('currentSessionTotalHours').textContent = '-';
-            document.getElementById('currentSessionTotalChars').textContent = '-';
-            document.getElementById('currentSessionStartTime').textContent = '-';
-            document.getElementById('currentSessionEndTime').textContent = '-';
-            document.getElementById('currentSessionCharsPerHour').textContent = '-';
+            // No current session - clear session stats
+            const sessionHoursEl = document.getElementById('currentSessionTotalHours');
+            const sessionCharsEl = document.getElementById('currentSessionTotalChars');
+            const sessionStartEl = document.getElementById('currentSessionStartTime');
+            const sessionEndEl = document.getElementById('currentSessionEndTime');
+            const sessionSpeedEl = document.getElementById('currentSessionCharsPerHour');
+            
+            if (sessionHoursEl) sessionHoursEl.textContent = '-';
+            if (sessionCharsEl) sessionCharsEl.textContent = '-';
+            if (sessionStartEl) sessionStartEl.textContent = '-';
+            if (sessionEndEl) sessionEndEl.textContent = '-';
+            if (sessionSpeedEl) sessionSpeedEl.textContent = '-';
             return;
         }
-
-        // Update session status (show game name if available)
-        const statusText = lastSession.gameName ? `Playing: ${lastSession.gameName}` : 'Active session';
-        document.getElementById('currentSessionStatus').textContent = statusText;
 
         // Format session duration
         let hoursDisplay = '-';
@@ -759,157 +1119,206 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('currentSessionTotalChars').textContent = lastSession.totalChars.toLocaleString();
         document.getElementById('currentSessionStartTime').textContent = startTimeDisplay;
         document.getElementById('currentSessionEndTime').textContent = endTimeDisplay;
-        document.getElementById('currentSessionCharsPerHour').textContent = lastSession.readSpeed !== '-' ? lastSession.readSpeed.toLocaleString() : '-';
+        // Use charsPerHour from API (not readSpeed)
+        document.getElementById('currentSessionCharsPerHour').textContent =
+            lastSession.charsPerHour > 0 ? lastSession.charsPerHour.toLocaleString() : '-';
+
+        // Render game metadata if available
+        renderSessionGameMetadata(lastSession);
+    }
+
+    function renderSessionGameMetadata(session) {
+        const gameContentGrid = document.getElementById('gameContentGrid');
+        const noGameDataMessage = document.getElementById('noGameDataMessage');
+        const noGameDataTitle = document.getElementById('noGameDataTitle');
+        const gameMetadata = session.gameMetadata;
+        
+        // Check if we have meaningful game data (image or description)
+        const hasImage = gameMetadata && gameMetadata.image && gameMetadata.image.trim();
+        const hasDescription = gameMetadata && gameMetadata.description && gameMetadata.description.trim();
+        const hasManualOverrides = gameMetadata && gameMetadata.manual_overrides && gameMetadata.manual_overrides.length > 0;
+        
+        // Show message if: no metadata OR (no image AND no description AND no manual overrides)
+        if (!gameMetadata || (!hasImage && !hasDescription && !hasManualOverrides)) {
+            if (gameContentGrid) {
+                gameContentGrid.style.display = 'none';
+            }
+            if (noGameDataMessage) {
+                // Set the game title in the message
+                if (noGameDataTitle && session.gameName) {
+                    noGameDataTitle.textContent = session.gameName;
+                }
+                noGameDataMessage.style.display = 'block';
+            }
+            return;
+        }
+
+        // Hide the message and show the game content grid
+        if (noGameDataMessage) {
+            noGameDataMessage.style.display = 'none';
+        }
+        if (gameContentGrid) {
+            gameContentGrid.style.display = 'flex';
+        }
+
+        // Clear existing content
+        const gamePhotoSection = document.getElementById('gamePhotoSection');
+        const gamePhoto = document.getElementById('gamePhoto');
+        const gameTitleOriginal = document.getElementById('gameTitleOriginal');
+        const gameTitleRomaji = document.getElementById('gameTitleRomaji');
+        const gameTitleEnglish = document.getElementById('gameTitleEnglish');
+        const gameTypeBadge = document.getElementById('gameTypeBadge');
+        const gameDescription = document.getElementById('gameDescription');
+        const descriptionExpandBtn = document.getElementById('descriptionExpandBtn');
+        const gameLinksContainer = document.getElementById('gameLinksContainer');
+        const gameLinksPills = document.getElementById('gameLinksPills');
+
+        // Update photo
+        if (gameMetadata.image && gameMetadata.image.trim()) {
+            let imageSrc = gameMetadata.image.trim();
+            
+            // Handle different image formats
+            if (imageSrc.startsWith('data:image')) {
+                gamePhoto.src = imageSrc;
+            } else if (imageSrc.startsWith('http')) {
+                gamePhoto.src = imageSrc;
+            } else if (imageSrc.startsWith('/9j/') || imageSrc.startsWith('iVBOR')) {
+                const mimeType = imageSrc.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
+                gamePhoto.src = `data:${mimeType};base64,${imageSrc}`;
+            }
+            
+            gamePhotoSection.style.display = 'block';
+            gamePhoto.style.display = 'block';
+        } else {
+            gamePhotoSection.style.display = 'none';
+        }
+
+        // Update titles
+        if (gameMetadata.title_original) {
+            gameTitleOriginal.textContent = gameMetadata.title_original;
+            gameTitleOriginal.style.display = 'block';
+        } else {
+            gameTitleOriginal.style.display = 'none';
+        }
+        
+        if (gameMetadata.title_romaji) {
+            gameTitleRomaji.textContent = gameMetadata.title_romaji;
+            gameTitleRomaji.style.display = 'block';
+        } else {
+            gameTitleRomaji.style.display = 'none';
+        }
+        
+        if (gameMetadata.title_english) {
+            gameTitleEnglish.textContent = gameMetadata.title_english;
+            gameTitleEnglish.style.display = 'block';
+        } else {
+            gameTitleEnglish.style.display = 'none';
+        }
+
+        // Update type badge
+        if (gameMetadata.type) {
+            gameTypeBadge.textContent = gameMetadata.type;
+            gameTypeBadge.style.display = 'inline-block';
+        } else {
+            gameTypeBadge.style.display = 'none';
+        }
+
+        // Update description
+        if (gameMetadata.description) {
+            gameDescription.textContent = gameMetadata.description;
+            gameDescription.classList.remove('expanded');
+            
+            // Show/hide expand button based on description length
+            if (gameMetadata.description.length > 150) {
+                descriptionExpandBtn.style.display = 'block';
+                const expandText = descriptionExpandBtn.querySelector('.expand-text');
+                const collapseText = descriptionExpandBtn.querySelector('.collapse-text');
+                if (expandText) expandText.style.display = 'inline';
+                if (collapseText) collapseText.style.display = 'none';
+            } else {
+                descriptionExpandBtn.style.display = 'none';
+            }
+        } else {
+            gameDescription.textContent = '';
+            descriptionExpandBtn.style.display = 'none';
+        }
+
+        // Update links
+        if (gameMetadata.links && gameMetadata.links.length > 0) {
+            gameLinksPills.innerHTML = '';
+            
+            gameMetadata.links.forEach(link => {
+                if (link.url) {
+                    const pill = document.createElement('a');
+                    pill.href = link.url;
+                    pill.target = '_blank';
+                    pill.rel = 'noopener noreferrer';
+                    pill.className = 'game-link-pill';
+                    pill.textContent = extractDomainName(link.url);
+                    gameLinksPills.appendChild(pill);
+                }
+            });
+            
+            gameLinksContainer.style.display = 'flex';
+        } else {
+            gameLinksContainer.style.display = 'none';
+        }
+    }
+
+    // Function to load today's stats from new API endpoint
+    function loadTodayStats() {
+        fetch('/api/today-stats')
+            .then(response => response.json())
+            .then(data => {
+                // Update today's total hours
+                const totalHours = data.todayTotalHours || 0;
+                let hoursDisplay = '-';
+                if (totalHours > 0) {
+                    const h = Math.floor(totalHours);
+                    const m = Math.round((totalHours - h) * 60);
+                    hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
+                }
+                document.getElementById('todayTotalHours').textContent = hoursDisplay;
+                
+                // Update today's total characters
+                document.getElementById('todayTotalChars').textContent = data.todayTotalChars.toLocaleString();
+                
+                // Update today's sessions count
+                document.getElementById('todaySessions').textContent = data.todaySessions || 0;
+                
+                // Update today's chars/hour
+                document.getElementById('todayCharsPerHour').textContent =
+                    data.todayCharsPerHour > 0 ? data.todayCharsPerHour.toLocaleString() : '-';
+                
+                // Store sessions globally for navigation
+                window.todaySessionDetails = data.sessions || [];
+                
+                // Show the latest session (most recent)
+                if (window.todaySessionDetails.length > 0) {
+                    showSessionAtIndex(window.todaySessionDetails.length - 1);
+                } else {
+                    // No sessions - clear session displays
+                    document.getElementById('currentSessionTotalChars').textContent = '0';
+                    document.getElementById('currentSessionCharsPerHour').textContent = '-';
+                }
+                
+                // Update session navigation buttons
+                updateSessionNavigationButtons();
+            })
+            .catch(error => {
+                console.error('Error fetching today\'s stats:', error);
+                // Set default values on error
+                document.getElementById('todayTotalHours').textContent = '-';
+                document.getElementById('todayTotalChars').textContent = '0';
+                document.getElementById('todaySessions').textContent = '0';
+                document.getElementById('todayCharsPerHour').textContent = '-';
+                document.getElementById('currentSessionTotalChars').textContent = '0';
+                document.getElementById('currentSessionCharsPerHour').textContent = '-';
+            });
     }
 
     // Dashboard functionality
     function loadDashboardData(data = null, end_timestamp = null) {
-        function updateTodayOverview(allLinesData) {
-            // Get today's date string (YYYY-MM-DD), timezone aware (local time)
-            const today = new Date();
-            const pad = n => n.toString().padStart(2, '0');
-            const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-            const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
-            document.getElementById('todayDate').textContent = todayStr;
-
-            // Filter lines for today
-            const todayLines = (allLinesData || []).filter(line => {
-                if (!line.timestamp) return false;
-                const ts = parseFloat(line.timestamp);
-                if (isNaN(ts)) return false;
-                const dateObj = new Date(ts * 1000);
-                const lineDate = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}`;
-                return lineDate === todayStr;
-            });
-
-            // Calculate total characters read today (only valid numbers)
-            const totalChars = todayLines.reduce((sum, line) => {
-                const chars = Number(line.characters);
-                return sum + (isNaN(chars) ? 0 : chars);
-            }, 0);
-
-            // Calculate sessions (count gaps > session threshold as new sessions)
-            let sessions = 0;
-            let sessionGap = window.statsConfig ? window.statsConfig.sessionGapSeconds : 3600;
-            let minimumSessionLength = 300; // 5 minutes minimum session length
-            let sessionDetails = [];
-            if (todayLines.length > 0) {
-                // Sort lines by timestamp
-                const sortedLines = todayLines.slice().sort((a, b) => parseFloat(a.timestamp) - parseFloat(b.timestamp));
-                let currentSession = null;
-                let lastTimestamp = null;
-                let lastGameName = null;
-
-                for (let i = 0; i < sortedLines.length; i++) {
-                    const line = sortedLines[i];
-                    const ts = parseFloat(line.timestamp);
-                    const gameName = line.game_name || '';
-                    const chars = Number(line.characters) || 0;
-
-                    // Determine if new session: gap or new game
-                    const isNewSession =
-                        (lastTimestamp !== null && ts - lastTimestamp > sessionGap) ||
-                        (lastGameName !== null && gameName !== lastGameName);
-
-                    if (!currentSession || isNewSession) {
-                        // Finish previous session
-                        if (currentSession) {
-                            // Calculate read speed for session
-                            if (currentSession.totalSeconds > 0) {
-                                currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
-                            } else {
-                                currentSession.readSpeed = '-';
-                            }
-                            // Only add session if it meets minimum length requirement
-                            if (currentSession.totalSeconds >= minimumSessionLength) {
-                                sessionDetails.push(currentSession);
-                            }
-                        }
-                        // Start new session
-                        currentSession = {
-                            startTime: ts,
-                            endTime: ts,
-                            gameName: gameName,
-                            totalChars: chars,
-                            totalSeconds: 0,
-                            lines: [line]
-                        };
-                    } else {
-                        // Continue current session
-                        currentSession.endTime = ts + afkTimerSeconds;
-                        currentSession.totalChars += chars;
-                        currentSession.lines.push(line);
-                        if (lastTimestamp !== null) {
-                            currentSession.totalSeconds += Math.min(ts - lastTimestamp, afkTimerSeconds);
-                        }
-                    }
-
-                    lastTimestamp = ts;
-                    lastGameName = gameName;
-                }
-
-                // Push last session
-                if (currentSession) {
-                    if (currentSession.totalSeconds > 0) {
-                        currentSession.readSpeed = Math.round(currentSession.totalChars / (currentSession.totalSeconds / 3600));
-                    } else {
-                        currentSession.readSpeed = '-';
-                    }
-                    sessionDetails.push(currentSession);
-                }
-
-                sessions = sessionDetails.length;
-            } else {
-                sessions = 0;
-                sessionDetails = [];
-            }
-
-            // Optionally, you can expose sessionDetails for debugging or further UI use:
-            // console.log(sessionDetails);
-            window.todaySessionDetails = sessionDetails;
-
-            // Calculate total reading time (reuse AFK logic from calculateHeatmapStreaks)
-            let totalSeconds = 0;
-            const timestamps = todayLines
-                .map(l => parseFloat(l.timestamp))
-                .filter(ts => !isNaN(ts))
-                .sort((a, b) => a - b);
-            // Get AFK timer from settings modal if available
-            if (timestamps.length >= 2) {
-                for (let i = 1; i < timestamps.length; i++) {
-                    const gap = timestamps[i] - timestamps[i-1];
-                    totalSeconds += Math.min(gap, afkTimerSeconds);
-                }
-            } else if (timestamps.length === 1) {
-                totalSeconds = 1;
-            }
-            let totalHours = totalSeconds / 3600;
-
-            // Calculate chars/hour
-            let charsPerHour = '-';
-            if (totalChars > 0) {
-                // Avoid division by zero, set minimum time to 1 minute if activity exists
-                if (totalHours <= 0) totalHours = 1/60;
-                charsPerHour = Math.round(totalChars / totalHours).toLocaleString();
-            }
-
-            // Format hours for display
-            let hoursDisplay = '-';
-            if (totalHours > 0) {
-                const h = Math.floor(totalHours);
-                const m = Math.round((totalHours - h) * 60);
-                hoursDisplay = h > 0 ? `${h}h${m > 0 ? ' ' + m + 'm' : ''}` : `${m}m`;
-            }
-
-            document.getElementById('todayTotalHours').textContent = hoursDisplay;
-            document.getElementById('todayTotalChars').textContent = totalChars.toLocaleString();
-            document.getElementById('todaySessions').textContent = sessions;
-            document.getElementById('todayCharsPerHour').textContent = charsPerHour;
-
-            // Update current session overview with the last session
-            showSessionAtIndex(sessionDetails.length - 1);
-        }
-
         function updateOverviewForEndDay(allLinesData, endTimestamp) {
             if (!endTimestamp) return;
 
@@ -920,6 +1329,10 @@ document.addEventListener('DOMContentLoaded', function () {
             const targetDateStr = `${endDateObj.getFullYear()}-${pad(endDateObj.getMonth() + 1)}-${pad(endDateObj.getDate())}`;
             const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             document.getElementById('todayDate').textContent = targetDateStr;
+            
+            // Load today's stats from new API
+            loadTodayStats();
+            return; // Skip old calculation logic below
 
             // Filter lines that fall on the target date
             const targetLines = (allLinesData || []).filter(line => {
@@ -1068,8 +1481,8 @@ document.addEventListener('DOMContentLoaded', function () {
             updateAllGamesDashboard(data.allGamesStats);
             
             if (data.allLinesData) {
-                end_timestamp == null ? updateTodayOverview(data.allLinesData) : updateOverviewForEndDay(data.allLinesData, end_timestamp)
-            }
+            updateOverviewForEndDay(data.allLinesData, end_timestamp);
+                }
 
             hideDashboardLoading();
         } else {
@@ -1081,9 +1494,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (data.currentGameStats && data.allGamesStats) {
                         updateCurrentGameDashboard(data.currentGameStats);
                         updateAllGamesDashboard(data.allGamesStats);
-                        if (data.allLinesData) {
-                            end_timestamp == null ? updateTodayOverview(data.allLinesData) : updateOverviewForEndDay(data.allLinesData, end_timestamp)
-                        }
+                        
+                        // Always fetch today's data live (don't use rollup data for today)
+  
+                    if (data.allLinesData) {
+                        updateOverviewForEndDay(data.allLinesData, end_timestamp);
+                    }
                     } else {
                         showDashboardError();
                     }
@@ -1097,25 +1513,338 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // Helper function to extract and format domain names from URLs
+    function extractDomainName(url) {
+        if (!url) return 'Link';
+        
+        try {
+            // Parse the URL
+            const urlObj = new URL(url);
+            let domain = urlObj.hostname;
+            
+            // Remove 'www.' prefix if present
+            domain = domain.replace(/^www\./, '');
+            
+            // Map common domains to friendly names
+            const domainMap = {
+                'vndb.org': 'VNDB',
+                'myanimelist.net': 'MAL',
+                'anilist.co': 'AniList',
+                'anime-planet.com': 'Anime-Planet',
+                'kitsu.io': 'Kitsu',
+                'anidb.net': 'AniDB',
+                'mangaupdates.com': 'MangaUpdates',
+                'novelupdates.com': 'NovelUpdates',
+                'wikipedia.org': 'Wikipedia',
+                'fandom.com': 'Fandom',
+                'steam.com': 'Steam',
+                'steampowered.com': 'Steam',
+                'store.steampowered.com': 'Steam',
+                "Itch.io": "Itch.io",
+                'gog.com': 'GOG',
+                'epicgames.com': 'Epic Games',
+                'nintendo.com': 'Nintendo',
+                'playstation.com': 'PlayStation',
+                'xbox.com': 'Xbox',
+                'crunchyroll.com': 'Crunchyroll',
+                'hidive.com': 'HIDIVE',
+                'funimation.com': 'Funimation',
+                'animenewsnetwork.com': 'ANN',
+                'tvdb.com': 'TheTVDB',
+                'themoviedb.org': 'TMDB',
+                'imdb.com': 'IMDb',
+                'letterboxd.com': 'Letterboxd',
+                'goodreads.com': 'Goodreads',
+                'bookwalker.jp': 'BookWalker',
+                'dlsite.com': 'DLsite',
+                'jlist.com': 'J-List',
+                'getchu.com': 'Getchu',
+                'erogamescape.dyndns.org': 'ErogameScape',
+                'itch.io': 'Itch.io',
+                'gamejolt.com': 'Game Jolt',
+                'mobygames.com': 'MobyGames',
+                'giantbomb.com': 'GiantBomb',
+                'howlongtobeat.com': 'HowLongToBeat',
+                'backloggd.com': 'Backloggd',
+                'vndb.org': 'VNDB',
+                'mangadex.org': 'MangaDex',
+                'animeuknews.net': 'Anime UK News',
+                'mydramalist.com': 'MyDramaList',
+                'metacritic.com': 'Metacritic',
+                'opencritic.com': 'OpenCritic',
+                'itch.io': 'Itch.io',
+                'indiedb.com': 'IndieDB',
+                'moddb.com': 'ModDB',
+                'romhacking.net': 'Romhacking',
+                'nexusmods.com': 'Nexus Mods',
+                'archiveofourown.org': 'AO3',
+                'fanfiction.net': 'FanFiction.net',
+                'tumblr.com': 'Tumblr',
+                'pixiv.net': 'Pixiv',
+                'deviantart.com': 'DeviantArt',
+                'booth.pm': 'BOOTH',
+                'patreon.com': 'Patreon',
+                'kickstarter.com': 'Kickstarter'
+            };
+            
+            // Check if we have a friendly name for this domain
+            if (domainMap[domain]) {
+                return domainMap[domain];
+            }
+            
+            // Otherwise, capitalize the main domain name
+            const parts = domain.split('.');
+            if (parts.length >= 2) {
+                // Get the second-to-last part (e.g., 'example' from 'example.com')
+                const mainPart = parts[parts.length - 2];
+                return mainPart.charAt(0).toUpperCase() + mainPart.slice(1);
+            }
+            
+            return domain;
+        } catch (e) {
+            // If URL parsing fails, return a generic label
+            return 'Link';
+        }
+    }
+
     function updateCurrentGameDashboard(stats) {
         if (!stats) {
             showNoDashboardData('currentGameCard', 'No current game data available');
             return;
         }
 
-        // Update game name and subtitle
-        document.getElementById('currentGameName').textContent = stats.game_name;
+        // Update subtitle with game name only if title_original is not set
+        // (If title_original exists, it will be shown in the game content grid instead)
+        const currentGameNameEl = document.getElementById('currentGameName');
+        if (stats.title_original && stats.title_original.trim()) {
+            // Hide subtitle when we have a proper title in the game content grid
+            currentGameNameEl.style.display = 'none';
+        } else {
+            // Show game name in subtitle when no title_original is available
+            const gameName = stats.game_name || 'Unknown Game';
+            currentGameNameEl.textContent = gameName;
+            currentGameNameEl.style.display = 'block';
+        }
+        
+        // Handle completion button visibility and state
+        const completionBtn = document.getElementById('gameCompletionBtn');
+        const currentGameCard = document.getElementById('currentGameCard');
+        
+        if (completionBtn) {
+            const completion = stats.progress_percentage || 0;
+            const isCompleted = stats.completed || false;
+            const hasCharacterCount = stats.game_character_count && stats.game_character_count > 0;
+            
+            if (isCompleted) {
+                // Game is already completed - show completed state
+                completionBtn.textContent = 'Completed ✓';
+                completionBtn.disabled = true;
+                completionBtn.classList.add('completed');
+                completionBtn.style.display = 'inline-block';
+                currentGameCard.classList.add('completed');
+            } else if (!hasCharacterCount || completion >= 90) {
+                // Show button if: no character count set OR game is ≥90% complete
+                completionBtn.textContent = 'Mark as completed?';
+                completionBtn.disabled = false;
+                completionBtn.classList.remove('completed');
+                completionBtn.style.display = 'inline-block';
+                currentGameCard.classList.remove('completed');
+            } else {
+                // Game has character count and is <90% complete - hide button
+                completionBtn.style.display = 'none';
+                currentGameCard.classList.remove('completed');
+            }
+        }
+
+        // Check if we have meaningful game data
+        const gameContentGrid = document.getElementById('gameContentGrid');
+        const noGameDataMessage = document.getElementById('noGameDataMessage');
+        const gamePhotoSection = document.getElementById('gamePhotoSection');
+        const gamePhoto = document.getElementById('gamePhoto');
+        
+        // Check if we have meaningful game data (image or description)
+        const hasImage = stats.image && stats.image.trim();
+        const hasDescription = stats.description && stats.description.trim();
+        const hasManualOverrides = stats.manual_overrides && stats.manual_overrides.length > 0;
+        
+        console.log('[DEBUG] Game data check:', {
+            hasImage,
+            hasDescription,
+            hasManualOverrides,
+            manual_overrides: stats.manual_overrides,
+            title_original: stats.title_original,
+            game_name: stats.game_name
+        });
+        
+        // Show message if: no image AND no description AND no manual overrides
+        // (If user has manually edited ANY field, don't show the message)
+        if (!hasImage && !hasDescription && !hasManualOverrides) {
+            console.log('[DEBUG] No meaningful game data and no manual overrides - showing message');
+            if (gameContentGrid) {
+                gameContentGrid.style.display = 'none';
+            }
+            if (noGameDataMessage) {
+                console.log('[DEBUG] Setting noGameDataMessage display to block');
+                // Set the game title in the message
+                const noGameDataTitle = document.getElementById('noGameDataTitle');
+                if (noGameDataTitle) {
+                    const gameTitle = stats.title_original || stats.game_name || 'Game';
+                    noGameDataTitle.textContent = gameTitle;
+                }
+                noGameDataMessage.style.display = 'block';
+            } else {
+                console.log('[DEBUG] noGameDataMessage element not found!');
+            }
+        } else {
+            console.log('[DEBUG] Has meaningful game data or manual overrides - hiding message');
+            // Hide the message and display the content grid
+            if (noGameDataMessage) {
+                noGameDataMessage.style.display = 'none';
+            }
+            gameContentGrid.style.display = 'flex';
+        }
+        
+        // Update game photo with proper error handling
+        console.log('[DEBUG] Game photo data:', {
+            hasImage: !!stats.image,
+            imageLength: stats.image ? stats.image.length : 0,
+            imagePrefix: stats.image ? stats.image.substring(0, 50) : 'none',
+            imageTrimmed: stats.image ? stats.image.trim().substring(0, 50) : 'none'
+        });
+        
+        if (stats.image && stats.image.trim()) {
+            let imageSrc = stats.image.trim();
+            
+            // Check if it's a base64 image or URL
+            if (imageSrc.startsWith('data:image')) {
+                console.log('[DEBUG] Setting base64 image with data URI');
+                gamePhoto.src = imageSrc;
+                gamePhotoSection.style.display = 'block';
+                gamePhoto.style.display = 'block';
+            } else if (imageSrc.startsWith('http')) {
+                console.log('[DEBUG] Setting URL image:', imageSrc);
+                gamePhoto.src = imageSrc;
+                gamePhotoSection.style.display = 'block';
+                gamePhoto.style.display = 'block';
+            } else if (imageSrc.startsWith('/9j/') || imageSrc.startsWith('iVBOR')) {
+                // Raw base64 data without data URI prefix - add it
+                // /9j/ is JPEG, iVBOR is PNG
+                const mimeType = imageSrc.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
+                imageSrc = `data:${mimeType};base64,${imageSrc}`;
+                console.log('[DEBUG] Added data URI prefix to raw base64 data');
+                gamePhoto.src = imageSrc;
+                gamePhotoSection.style.display = 'block';
+                gamePhoto.style.display = 'block';
+            } else {
+                // Invalid image format, hide photo section
+                console.log('[DEBUG] Invalid image format, hiding photo section');
+                gamePhotoSection.style.display = 'none';
+            }
+        } else {
+            console.log('[DEBUG] No image data, hiding photo section');
+            gamePhotoSection.style.display = 'none';
+        }
+            
+            // Update game titles
+            const titleOriginal = document.getElementById('gameTitleOriginal');
+            const titleRomaji = document.getElementById('gameTitleRomaji');
+            const titleEnglish = document.getElementById('gameTitleEnglish');
+            
+            if (stats.title_original) {
+                titleOriginal.textContent = stats.title_original;
+                titleOriginal.style.display = 'block';
+            } else {
+                titleOriginal.style.display = 'none';
+            }
+            
+            if (stats.title_romaji) {
+                titleRomaji.textContent = stats.title_romaji;
+                titleRomaji.style.display = 'block';
+            } else {
+                titleRomaji.style.display = 'none';
+            }
+            
+            if (stats.title_english) {
+                titleEnglish.textContent = stats.title_english;
+                titleEnglish.style.display = 'block';
+            } else {
+                titleEnglish.style.display = 'none';
+            }
+            
+            // Update game type badge
+            const typeBadge = document.getElementById('gameTypeBadge');
+            if (stats.type) {
+                typeBadge.textContent = stats.type;
+                typeBadge.style.display = 'inline-block';
+            } else {
+                typeBadge.style.display = 'none';
+            }
+            
+            // Update game description
+            const description = document.getElementById('gameDescription');
+            const expandBtn = document.getElementById('descriptionExpandBtn');
+            if (stats.description) {
+                description.textContent = stats.description;
+                // Show expand button if description is long (more than ~150 characters)
+                if (stats.description.length > 150) {
+                    expandBtn.style.display = 'block';
+                } else {
+                    expandBtn.style.display = 'none';
+                }
+            } else {
+                description.textContent = '';
+                expandBtn.style.display = 'none';
+            }
+            
+            // Update game links
+            const linksContainer = document.getElementById('gameLinksContainer');
+            const linksPills = document.getElementById('gameLinksPills');
+            if (stats.links && stats.links.length > 0) {
+                // Clear existing pills
+                linksPills.innerHTML = '';
+                
+                // Create a pill for each link
+                stats.links.forEach(link => {
+                    if (link.url) {
+                        const pill = document.createElement('a');
+                        pill.href = link.url;
+                        pill.target = '_blank';
+                        pill.rel = 'noopener noreferrer';
+                        pill.className = 'game-link-pill';
+                        pill.textContent = extractDomainName(link.url);
+                        linksPills.appendChild(pill);
+                    }
+                });
+                
+                // Show the links container
+                linksContainer.style.display = 'flex';
+            } else {
+                // Hide the links container if no links
+                linksContainer.style.display = 'none';
+            }
+            
+            // Update progress bar and timeline
+            const progressContainer = document.getElementById('gameProgressContainer');
+            if (stats.game_character_count > 0) {
+                const percentage = stats.progress_percentage || 0;
+                document.getElementById('gameProgressPercentage').textContent = Math.floor(percentage) + '%';
+                document.getElementById('gameProgressFill').style.width = percentage + '%';
+                
+                // Update timeline dates
+                updateProgressTimeline(stats);
+                
+                progressContainer.style.display = 'block';
+            } else {
+                progressContainer.style.display = 'none';
+            }
+            
+            // Update estimated time left stat
+            updateEstimatedTimeLeft(stats);
 
         // Update main statistics
         document.getElementById('currentTotalChars').textContent = stats.total_characters_formatted;
         document.getElementById('currentTotalTime').textContent = stats.total_time_formatted;
         document.getElementById('currentReadingSpeed').textContent = stats.reading_speed_formatted;
-        document.getElementById('currentSessions').textContent = stats.sessions.toLocaleString();
-
-        // Update progress section
-        document.getElementById('currentMonthlyChars').textContent = stats.monthly_characters_formatted;
-        document.getElementById('currentFirstDate').textContent = stats.first_date;
-        document.getElementById('currentLastDate').textContent = stats.last_date;
 
         // Update streak indicator
         const streakElement = document.getElementById('currentGameStreak');
@@ -1138,7 +1867,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         // Update subtitle
-        const gamesText = stats.unique_games === 1 ? '1 game played' : `${stats.unique_games} games played`;
+        const gamesText = stats.completed_games === 1 ? '1 game completed' : `${stats.completed_games} games completed`;
         document.getElementById('totalGamesCount').textContent = gamesText;
 
         // Update main statistics
@@ -1147,9 +1876,8 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('allReadingSpeed').textContent = stats.reading_speed_formatted;
         document.getElementById('allSessions').textContent = stats.sessions.toLocaleString();
 
-        // Update progress section
-        document.getElementById('allMonthlyChars').textContent = stats.monthly_characters_formatted;
-        document.getElementById('allUniqueGames').textContent = stats.unique_games.toLocaleString();
+        // Update progress section (removed monthly characters)
+        document.getElementById('allUniqueGames').textContent = stats.completed_games.toLocaleString();
         document.getElementById('allTotalSentences').textContent = stats.total_sentences.toLocaleString();
 
         // Update streak indicator
@@ -1234,4 +1962,279 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Global function to retry dashboard loading
     window.loadDashboardData = loadDashboardData;
+    
+    // Description expand/collapse functionality
+    const descriptionExpandBtn = document.getElementById('descriptionExpandBtn');
+    if (descriptionExpandBtn) {
+        descriptionExpandBtn.addEventListener('click', function() {
+            const description = document.getElementById('gameDescription');
+            const expandText = this.querySelector('.expand-text');
+            const collapseText = this.querySelector('.collapse-text');
+            
+            if (description.classList.contains('expanded')) {
+                // Collapse
+                description.classList.remove('expanded');
+                expandText.style.display = 'inline';
+                collapseText.style.display = 'none';
+            } else {
+                // Expand
+                description.classList.add('expanded');
+                expandText.style.display = 'none';
+                collapseText.style.display = 'inline';
+            }
+        });
+    }
+    
+    // Game completion button handler
+    const gameCompletionBtn = document.getElementById('gameCompletionBtn');
+    if (gameCompletionBtn) {
+        gameCompletionBtn.addEventListener('click', async function() {
+            // Don't do anything if already completed
+            if (this.disabled) return;
+            
+            // Get the current game ID from the stats
+            // We need to fetch current stats to get the game_id
+            try {
+                const response = await fetch('/api/stats');
+                if (!response.ok) throw new Error('Failed to fetch stats');
+                
+                const data = await response.json();
+                const currentGameStats = data.currentGameStats;
+                
+                if (!currentGameStats || !currentGameStats.game_name) {
+                    console.error('No current game found');
+                    return;
+                }
+                
+                // Find the game_id by looking up the game
+                // We need to get the game_id from the games management API
+                const gamesResponse = await fetch('/api/games-management');
+                if (!gamesResponse.ok) throw new Error('Failed to fetch games');
+                
+                const gamesData = await gamesResponse.json();
+                const currentGame = gamesData.games.find(g =>
+                    g.title_original === currentGameStats.game_name ||
+                    g.title_original === currentGameStats.title_original
+                );
+                
+                if (!currentGame) {
+                    console.error('Could not find game ID for current game');
+                    return;
+                }
+                
+                // Confirm with user
+                const confirmMsg = `Mark "${currentGame.title_original}" as completed?`;
+                if (!confirm(confirmMsg)) return;
+                
+                // Call the API to mark as complete
+                const markCompleteResponse = await fetch(`/api/games/${currentGame.id}/mark-complete`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!markCompleteResponse.ok) {
+                    const errorData = await markCompleteResponse.json();
+                    throw new Error(errorData.error || 'Failed to mark game as complete');
+                }
+                
+                const result = await markCompleteResponse.json();
+                console.log('Game marked as complete:', result);
+                
+                // Trigger confetti celebration!
+                if (typeof confetti !== 'undefined') {
+                    // Fire confetti from multiple angles for a nice effect
+                    const duration = 3000; // 3 seconds
+                    const animationEnd = Date.now() + duration;
+                    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
+
+                    function randomInRange(min, max) {
+                        return Math.random() * (max - min) + min;
+                    }
+
+                    const interval = setInterval(function() {
+                        const timeLeft = animationEnd - Date.now();
+
+                        if (timeLeft <= 0) {
+                            return clearInterval(interval);
+                        }
+
+                        const particleCount = 50 * (timeLeft / duration);
+                        
+                        // Fire confetti from left side
+                        confetti({
+                            ...defaults,
+                            particleCount,
+                            origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 }
+                        });
+                        
+                        // Fire confetti from right side
+                        confetti({
+                            ...defaults,
+                            particleCount,
+                            origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 }
+                        });
+                    }, 250);
+                }
+                
+                // Update button to completed state
+                this.textContent = 'Completed ✓';
+                this.disabled = true;
+                this.classList.add('completed');
+                
+                // Add completed class to card
+                const currentGameCard = document.getElementById('currentGameCard');
+                if (currentGameCard) {
+                    currentGameCard.classList.add('completed');
+                }
+                
+                // Optionally refresh the dashboard to reflect changes
+                setTimeout(() => {
+                    loadDashboardData();
+                }, 500);
+                
+            } catch (error) {
+                console.error('Error marking game as complete:', error);
+                alert(`Failed to mark game as complete: ${error.message}`);
+            }
+        });
+    }
+
+    // ExStatic Import Functionality
+    const exstaticFileInput = document.getElementById('exstaticFile');
+    const importExstaticBtn = document.getElementById('importExstaticBtn');
+    const importProgress = document.getElementById('importProgress');
+    const importProgressBar = document.getElementById('importProgressBar');
+    const importProgressText = document.getElementById('importProgressText');
+    const importStatus = document.getElementById('importStatus');
+    
+    if (exstaticFileInput && importExstaticBtn) {
+        // Enable/disable import button based on file selection
+        exstaticFileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            // Enable button whenever any file is selected
+            if (file) {
+                importExstaticBtn.disabled = false;
+                importExstaticBtn.style.background = '#2980b9';
+                importExstaticBtn.style.cursor = 'pointer';
+                showImportStatus('', 'info', false);
+            } else {
+                importExstaticBtn.disabled = true;
+                importExstaticBtn.style.background = '#666';
+                importExstaticBtn.style.cursor = 'not-allowed';
+            }
+        });
+        
+        // Handle import button click
+        importExstaticBtn.addEventListener('click', function() {
+            const file = exstaticFileInput.files[0];
+            if (!file) {
+                showImportStatus('Please select a CSV file first.', 'error', true);
+                return;
+            }
+            
+            importExstaticData(file);
+        });
+    }
+    
+    function showImportStatus(message, type, show) {
+        if (!importStatus) return;
+        
+        if (show && message) {
+            importStatus.textContent = message;
+            importStatus.style.display = 'block';
+            
+            // Set appropriate styling based on type
+            if (type === 'error') {
+                importStatus.style.background = 'var(--danger-color)';
+                importStatus.style.color = 'white';
+            } else if (type === 'success') {
+                importStatus.style.background = 'var(--success-color)';
+                importStatus.style.color = 'white';
+            } else if (type === 'info') {
+                importStatus.style.background = 'var(--primary-color)';
+                importStatus.style.color = 'white';
+            } else {
+                importStatus.style.background = 'var(--bg-tertiary)';
+                importStatus.style.color = 'var(--text-primary)';
+            }
+        } else {
+            importStatus.style.display = 'none';
+        }
+    }
+    
+    function showImportProgress(show, percentage = 0) {
+        if (!importProgress || !importProgressBar || !importProgressText) return;
+        
+        if (show) {
+            importProgress.style.display = 'block';
+            importProgressBar.style.width = percentage + '%';
+            importProgressText.textContent = Math.round(percentage) + '%';
+        } else {
+            importProgress.style.display = 'none';
+        }
+    }
+    
+    async function importExstaticData(file) {
+        try {
+            // Disable import button and show progress
+            importExstaticBtn.disabled = true;
+            showImportProgress(true, 0);
+            showImportStatus('Preparing import...', 'info', true);
+            
+            // Create FormData and append the file
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            // Show upload progress
+            showImportProgress(true, 25);
+            showImportStatus('Uploading file...', 'info', true);
+            
+            // Send file to backend
+            const response = await fetch('/api/import-exstatic', {
+                method: 'POST',
+                body: formData
+            });
+            
+            showImportProgress(true, 75);
+            showImportStatus('Processing data...', 'info', true);
+            
+            const result = await response.json();
+            
+            showImportProgress(true, 100);
+            
+            if (response.ok) {
+                // Success
+                const message = `Successfully imported ${result.imported_count || 0} lines from ${result.games_count || 0} games.`;
+                showImportStatus(message, 'success', true);
+                
+                // Reset file input and button
+                exstaticFileInput.value = '';
+                importExstaticBtn.disabled = true;
+                
+                // Hide progress after a delay
+                setTimeout(() => {
+                    showImportProgress(false);
+                    // Optionally refresh the page to show new data
+                    if (result.imported_count > 0) {
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 2000);
+                    }
+                }, 1500);
+            } else {
+                // Error
+                showImportStatus(result.error || 'Import failed. Please try again.', 'error', true);
+                showImportProgress(false);
+            }
+        } catch (error) {
+            console.error('Import error:', error);
+            showImportStatus('Import failed due to network error. Please try again.', 'error', true);
+            showImportProgress(false);
+        } finally {
+            // Re-enable import button only if a file is still selected
+            importExstaticBtn.disabled = !(exstaticFileInput && exstaticFileInput.files && exstaticFileInput.files.length > 0);
+        }
+    }
 });
