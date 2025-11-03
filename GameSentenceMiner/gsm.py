@@ -40,8 +40,7 @@ try:
     import ttkbootstrap as ttk
     from PIL import Image
     try:
-        pass
-        # from pystray import Icon, Menu, MenuItem
+        from pystray import Icon, Menu, MenuItem
     except Exception:
         logger.warning("pystray not installed correctly, tray icon will not work.")
     from watchdog.events import FileSystemEventHandler
