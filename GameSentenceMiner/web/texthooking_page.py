@@ -104,14 +104,15 @@ def add_cache_headers(response):
     if request.path.startswith("/static/"):
         # Check file extension
         if any(request.path.endswith(ext) for ext in [".css", ".js"]):
-            # Cache for 3 days for CSS/JS (local development, updates every few days)
-            # Use must-revalidate to check for updates after expiry
-            response.cache_control.max_age = 259200  # 3 days in seconds
-            response.cache_control.public = True
+            # No cache for CSS/JS - always fetch fresh content
+            response.cache_control.no_cache = True
+            response.cache_control.no_store = True
             response.cache_control.must_revalidate = True
             response.headers["Cache-Control"] = (
-                "public, max-age=259200, must-revalidate"
+                "no-cache, no-store, must-revalidate"
             )
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
         elif any(
             request.path.endswith(ext)
             for ext in [
