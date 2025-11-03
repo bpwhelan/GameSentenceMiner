@@ -70,10 +70,6 @@ const DOM_CACHE = {
     // Heatmap
     heatmapContainer: null,
     
-    // Date inputs
-    fromDateInput: null,
-    toDateInput: null,
-    
     // Session navigation
     prevSessionBtn: null,
     nextSessionBtn: null,
@@ -145,10 +141,6 @@ const DOM_CACHE = {
         
         // Heatmap
         this.heatmapContainer = document.getElementById('heatmapContainer');
-        
-        // Date inputs
-        this.fromDateInput = document.getElementById('fromDate');
-        this.toDateInput = document.getElementById('toDate');
         
         // Session navigation
         this.prevSessionBtn = document.querySelector('.prev-session-btn');
@@ -379,20 +371,8 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // Function to load stats data with optional year filter
-    function loadStatsData(start_timestamp = null, end_timestamp = null) {
+    function loadStatsData() {
         let url = '/api/stats';
-        const params = new URLSearchParams();
-
-        if (start_timestamp && end_timestamp) {
-            // Only filter by timestamps
-            params.append('start', start_timestamp);
-            params.append('end', end_timestamp);
-        }
-
-        const queryString = params.toString();
-        if (queryString) {
-            url += `?${queryString}`;
-        }
         
         return fetch(url)
             .then(response => response.json())
@@ -419,7 +399,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
 
                 // Load dashboard data 
-                loadDashboardData(data, end_timestamp);
+                loadDashboardData(data);
 
                 // Load goal progress chart (always refresh)
                 if (typeof loadGoalProgress === 'function') {
@@ -704,125 +684,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // ================================
-    // Utility to convert date strings to Unix timestamps
-    // Returns start of day for startDate and end of day for endDate
-    // ================================
-    function getUnixTimestamps(startDate, endDate) {
-        const start = new Date(startDate + 'T00:00:00');
-        const startTimestamp = Math.floor(start.getTime() / 1000); // convert ms to s
-
-        const end = new Date(endDate + 'T23:59:59.999');
-        const endTimestamp = Math.floor(end.getTime() / 1000); // convert ms to s
-
-        return { startTimestamp, endTimestamp };
-    }
-    
-    // ================================
-    // Initialize date inputs with sessionStorage or fetch initial values
-    // Dispatches "datesSet" event once dates are set
-    // ================================
-    function initializeDates() {
-        const fromDateInput = document.getElementById('fromDate');
-        const toDateInput = document.getElementById('toDate');
-
-        const fromDate = sessionStorage.getItem("fromDate");
-        const toDate = sessionStorage.getItem("toDate"); 
-
-        if (!(fromDate && toDate)) {
-            fetch('/api/stats')
-                .then(response => response.json())
-                .then(response_json => {
-                    console.log('[DATE_INIT_DEBUG] API response:', response_json);
-                    
-                    // Get first date from API - check if allGamesStats exists and has first_date
-                    let firstDate;
-                    if (response_json && response_json.allGamesStats && response_json.allGamesStats.first_date) {
-                        firstDate = response_json.allGamesStats.first_date;
-                        console.log('[DATE_INIT_DEBUG] Using first_date from API:', firstDate);
-                    } else {
-                        // If no first_date, try to get it from labels (which come from rollup data)
-                        if (response_json && response_json.labels && response_json.labels.length > 0) {
-                            firstDate = response_json.labels[0];
-                            console.log('[DATE_INIT_DEBUG] Using first label as first_date:', firstDate);
-                        } else {
-                            // Last resort: use today as both start and end
-                            const today = new Date();
-                            firstDate = today.toLocaleDateString('en-CA');
-                            console.warn('[DATE_INIT_DEBUG] No data found, using today as first_date:', firstDate);
-                        }
-                    }
-                    fromDateInput.value = firstDate;
-
-                    // Get today's date
-                    const today = new Date();
-                    const toDate = today.toLocaleDateString('en-CA');
-                    toDateInput.value = toDate;
-
-                    // Save in sessionStorage
-                    sessionStorage.setItem("fromDate", firstDate);
-                    sessionStorage.setItem("toDate", toDate);
-
-                    document.dispatchEvent(new Event("datesSet"));
-                })
-                .catch(error => {
-                    console.error('Error initializing dates:', error);
-                    // Fallback to today for both dates on error
-                    const today = new Date();
-                    const todayStr = today.toLocaleDateString('en-CA');
-                    
-                    fromDateInput.value = todayStr;
-                    toDateInput.value = todayStr;
-                    sessionStorage.setItem("fromDate", todayStr);
-                    sessionStorage.setItem("toDate", todayStr);
-                    
-                    document.dispatchEvent(new Event("datesSet"));
-                });
-        } else {
-            // If values already in sessionStorage, set inputs from there
-            fromDateInput.value = fromDate;
-            toDateInput.value = toDate;
-
-            document.dispatchEvent(new Event("datesSet"));
-        }
-    }
-
-    const fromDateInput = document.getElementById('fromDate');
-    const toDateInput = document.getElementById('toDate');
-    const popup = document.getElementById('dateErrorPopup');
-    const closePopupBtn = document.getElementById('closePopupBtn');
-
-    document.addEventListener("datesSet", () => {
-        const fromDate = sessionStorage.getItem("fromDate");
-        const toDate = sessionStorage.getItem("toDate");
-        const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDate, toDate);
-        
-        loadStatsData(startTimestamp, endTimestamp);
-    });
-
-     
-    function handleDateChange() {
-        const fromDateStr = fromDateInput.value;
-        const toDateStr = toDateInput.value;
-
-        sessionStorage.setItem("fromDate", fromDateStr);
-        sessionStorage.setItem("toDate", toDateStr);
-
-        // Validate date order
-        if (fromDateStr && toDateStr && new Date(fromDateStr) > new Date(toDateStr)) {
-            popup.classList.remove("hidden");
-            return; 
-        }
-
-        const { startTimestamp, endTimestamp } = getUnixTimestamps(fromDateStr, toDateStr);
-
-        loadStatsData(startTimestamp, endTimestamp);
-    }
-
-    // Attach listeners to both date inputs
-    fromDateInput.addEventListener("change", handleDateChange);
-    toDateInput.addEventListener("change", handleDateChange);
-
     // Session navigation button handlers
     const prevSessionBtn = document.querySelector('.prev-session-btn');
     const nextSessionBtn = document.querySelector('.next-session-btn');
@@ -908,17 +769,7 @@ document.addEventListener('DOMContentLoaded', function () {
         deleteSession(sessionToDelete);
     });
 
-    // Update navigation buttons whenever sessions are loaded
-    document.addEventListener('datesSet', () => {
-        setTimeout(updateSessionNavigationButtons, 1200);
-    });
-
-    initializeDates();
-
-    // Popup close button
-    closePopupBtn.addEventListener("click", () => {
-        popup.classList.add("hidden");
-    });
+    loadStatsData();
 
     // Function to update goal progress using existing stats data
     async function updateGoalProgressWithData(statsData) {
@@ -1318,14 +1169,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Dashboard functionality
-    function loadDashboardData(data = null, end_timestamp = null) {
-        function updateOverviewForEndDay(allLinesData, endTimestamp) {
-            if (!endTimestamp) return;
-
+    function loadDashboardData(data = null) {
+        function updateOverviewForEndDay(allLinesData) {
             const pad = n => n.toString().padStart(2, '0');
 
             // Determine target date string (YYYY-MM-DD) from the end timestamp
-            const endDateObj = new Date(endTimestamp * 1000);
+            const endDateObj = new Date();
             const targetDateStr = `${endDateObj.getFullYear()}-${pad(endDateObj.getMonth() + 1)}-${pad(endDateObj.getDate())}`;
             const afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
             document.getElementById('todayDate').textContent = targetDateStr;
@@ -1481,7 +1330,7 @@ document.addEventListener('DOMContentLoaded', function () {
             updateAllGamesDashboard(data.allGamesStats);
             
             if (data.allLinesData) {
-            updateOverviewForEndDay(data.allLinesData, end_timestamp);
+            updateOverviewForEndDay(data.allLinesData);
                 }
 
             hideDashboardLoading();
@@ -1498,7 +1347,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         // Always fetch today's data live (don't use rollup data for today)
   
                     if (data.allLinesData) {
-                        updateOverviewForEndDay(data.allLinesData, end_timestamp);
+                        updateOverviewForEndDay(data.allLinesData);
                     }
                     } else {
                         showDashboardError();
