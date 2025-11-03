@@ -985,7 +985,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Check if we have meaningful game data (image or description)
         const hasImage = gameMetadata && gameMetadata.image && gameMetadata.image.trim();
         const hasDescription = gameMetadata && gameMetadata.description && gameMetadata.description.trim();
-        const hasManualOverrides = gameMetadata && gameMetadata.manual_overrides && gameMetadata.manual_overrides.length > 0;
+        const hasManualOverrides = !!(gameMetadata && gameMetadata.manual_overrides && gameMetadata.manual_overrides.length > 0);
         
         // Show message if: no metadata OR (no image AND no description AND no manual overrides)
         if (!gameMetadata || (!hasImage && !hasDescription && !hasManualOverrides)) {
@@ -1512,7 +1512,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Check if we have meaningful game data (image or description)
         const hasImage = stats.image && stats.image.trim();
         const hasDescription = stats.description && stats.description.trim();
-        const hasManualOverrides = stats.manual_overrides && stats.manual_overrides.length > 0;
+        const hasManualOverrides = !!(stats.manual_overrides && stats.manual_overrides.length > 0);
         
         console.log('[DEBUG] Game data check:', {
             hasImage,
