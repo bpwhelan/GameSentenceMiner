@@ -89,6 +89,9 @@ def is_linux():
 def is_windows():
     return platform == 'win32'
 
+def is_mac():
+    return platform == 'darwin'
+
 
 class Locale(Enum):
     English = 'en_us'
@@ -1395,10 +1398,22 @@ is_beangate = os.path.exists("C:/Users/Beangate")
 
 
 def get_ffmpeg_path():
-    return os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if is_windows() else "ffmpeg"
+    path = os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if is_windows() else "ffmpeg"
+    if shutil.which(path) is not None:
+        return path
+    elif is_mac():
+        if shutil.which("/opt/homebrew/bin/ffmpeg") is not None:
+            return "/opt/homebrew/bin/ffmpeg"
+    return path
 
 def get_ffprobe_path():
-    return os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if is_windows() else "ffprobe"
+    path = os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if is_windows() else "ffprobe"
+    if shutil.which(path) is not None:
+        return path
+    elif is_mac():
+        if shutil.which("/opt/homebrew/bin/ffprobe") is not None:
+            return "/opt/homebrew/bin/ffprobe"
+    return path
 
 ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
 
