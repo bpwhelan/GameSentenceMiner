@@ -965,12 +965,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Update the DOM elements
         document.getElementById('currentSessionTotalHours').textContent = hoursDisplay;
-        document.getElementById('currentSessionTotalChars').textContent = lastSession.totalChars.toLocaleString();
+        document.getElementById('currentSessionTotalChars').textContent = Math.round(lastSession.totalChars).toLocaleString();
         document.getElementById('currentSessionStartTime').textContent = startTimeDisplay;
         document.getElementById('currentSessionEndTime').textContent = endTimeDisplay;
         // Use charsPerHour from API (not readSpeed)
         document.getElementById('currentSessionCharsPerHour').textContent =
-            lastSession.charsPerHour > 0 ? lastSession.charsPerHour.toLocaleString() : '-';
+            lastSession.charsPerHour > 0 ? Math.round(lastSession.charsPerHour).toLocaleString() : '-';
 
         // Render game metadata if available
         renderSessionGameMetadata(lastSession);
