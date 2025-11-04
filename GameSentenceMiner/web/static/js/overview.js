@@ -1022,18 +1022,20 @@ document.addEventListener('DOMContentLoaded', function () {
         const gameLinksContainer = document.getElementById('gameLinksContainer');
         const gameLinksPills = document.getElementById('gameLinksPills');
 
-        // Update photo
+        // Update photo - all images are now stored as PNG base64
         if (gameMetadata.image && gameMetadata.image.trim()) {
             let imageSrc = gameMetadata.image.trim();
             
             // Handle different image formats
             if (imageSrc.startsWith('data:image')) {
+                // Already has data URI prefix
                 gamePhoto.src = imageSrc;
             } else if (imageSrc.startsWith('http')) {
+                // External URL
                 gamePhoto.src = imageSrc;
-            } else if (imageSrc.startsWith('/9j/') || imageSrc.startsWith('iVBOR')) {
-                const mimeType = imageSrc.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
-                gamePhoto.src = `data:${mimeType};base64,${imageSrc}`;
+            } else {
+                // Raw base64 data - add PNG data URI prefix (all uploads are converted to PNG)
+                gamePhoto.src = `data:image/png;base64,${imageSrc}`;
             }
             
             gamePhotoSection.style.display = 'block';
@@ -1551,7 +1553,7 @@ document.addEventListener('DOMContentLoaded', function () {
             gameContentGrid.style.display = 'flex';
         }
         
-        // Update game photo with proper error handling
+        // Update game photo - all images are now stored as PNG base64
         console.log('[DEBUG] Game photo data:', {
             hasImage: !!stats.image,
             imageLength: stats.image ? stats.image.length : 0,
@@ -1562,31 +1564,23 @@ document.addEventListener('DOMContentLoaded', function () {
         if (stats.image && stats.image.trim()) {
             let imageSrc = stats.image.trim();
             
-            // Check if it's a base64 image or URL
+            // Handle different image formats
             if (imageSrc.startsWith('data:image')) {
-                console.log('[DEBUG] Setting base64 image with data URI');
+                // Already has data URI prefix
+                console.log('[DEBUG] Setting image with existing data URI');
                 gamePhoto.src = imageSrc;
-                gamePhotoSection.style.display = 'block';
-                gamePhoto.style.display = 'block';
             } else if (imageSrc.startsWith('http')) {
+                // External URL
                 console.log('[DEBUG] Setting URL image:', imageSrc);
                 gamePhoto.src = imageSrc;
-                gamePhotoSection.style.display = 'block';
-                gamePhoto.style.display = 'block';
-            } else if (imageSrc.startsWith('/9j/') || imageSrc.startsWith('iVBOR')) {
-                // Raw base64 data without data URI prefix - add it
-                // /9j/ is JPEG, iVBOR is PNG
-                const mimeType = imageSrc.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
-                imageSrc = `data:${mimeType};base64,${imageSrc}`;
-                console.log('[DEBUG] Added data URI prefix to raw base64 data');
-                gamePhoto.src = imageSrc;
-                gamePhotoSection.style.display = 'block';
-                gamePhoto.style.display = 'block';
             } else {
-                // Invalid image format, hide photo section
-                console.log('[DEBUG] Invalid image format, hiding photo section');
-                gamePhotoSection.style.display = 'none';
+                // Raw base64 data - add PNG data URI prefix (all uploads are converted to PNG)
+                console.log('[DEBUG] Adding PNG data URI prefix to raw base64 data');
+                gamePhoto.src = `data:image/png;base64,${imageSrc}`;
             }
+            
+            gamePhotoSection.style.display = 'block';
+            gamePhoto.style.display = 'block';
         } else {
             console.log('[DEBUG] No image data, hiding photo section');
             gamePhotoSection.style.display = 'none';

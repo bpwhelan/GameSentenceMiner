@@ -447,6 +447,42 @@ function openEditGameModal(game) {
 }
 
 /**
+ * Convert any image file to PNG format using Canvas API
+ * @param {File} file - The image file to convert
+ * @returns {Promise<string>} Base64 PNG data (without data URI prefix)
+ */
+async function convertImageToPNG(file) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const reader = new FileReader();
+        
+        reader.onload = (e) => {
+            img.onload = () => {
+                try {
+                    // Create canvas and draw image
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    
+                    // Convert to PNG base64 (remove data:image/png;base64, prefix)
+                    const pngDataUrl = canvas.toDataURL('image/png');
+                    const pngBase64 = pngDataUrl.split(',')[1];
+                    resolve(pngBase64);
+                } catch (error) {
+                    reject(new Error(`Failed to convert image to PNG: ${error.message}`));
+                }
+            };
+            img.onerror = () => reject(new Error('Failed to load image for conversion'));
+            img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error('Failed to read image file'));
+        reader.readAsDataURL(file);
+    });
+}
+
+/**
  * Save game edits
  */
 async function saveGameEdits() {
@@ -534,20 +570,20 @@ async function saveGameEdits() {
             updateData.links = linksArray;
         }
         
-        // Handle image upload
+        // Handle image upload - convert to PNG format
         const imageFile = document.getElementById('editImageUpload').files[0];
         if (imageFile) {
-            const reader = new FileReader();
-            const imageBase64 = await new Promise((resolve, reject) => {
-                reader.onload = (e) => {
-                    // Extract base64 data (remove data:image/...;base64, prefix)
-                    const base64 = e.target.result.split(',')[1];
-                    resolve(base64);
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(imageFile);
-            });
-            updateData.image = imageBase64;
+            try {
+                const pngBase64 = await convertImageToPNG(imageFile);
+                updateData.image = pngBase64;
+            } catch (error) {
+                console.error('Error converting image:', error);
+                errorDiv.textContent = `Failed to process image: ${error.message}`;
+                errorDiv.style.display = 'block';
+                saveBtn.disabled = false;
+                loadingDiv.style.display = 'none';
+                return;
+            }
         }
         
         // Send update request
@@ -692,20 +728,22 @@ function initializeJitenIntegration() {
         confirmLinkBtn.addEventListener('click', confirmLinkGame);
     }
 
-    // Handle image upload preview
+    // Handle image upload preview - convert to PNG for preview
     const imageUpload = document.getElementById('editImageUpload');
     if (imageUpload) {
-        imageUpload.addEventListener('change', function(e) {
+        imageUpload.addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if (file) {
-                const reader = new FileReader();
-                reader.onload = function(event) {
+                try {
+                    const pngBase64 = await convertImageToPNG(file);
                     const imagePreview = document.getElementById('editImagePreview');
                     const imagePreviewImg = document.getElementById('editImagePreviewImg');
-                    imagePreviewImg.src = event.target.result;
+                    imagePreviewImg.src = `data:image/png;base64,${pngBase64}`;
                     imagePreview.style.display = 'block';
-                };
-                reader.readAsDataURL(file);
+                } catch (error) {
+                    console.error('Error previewing image:', error);
+                    alert(`Failed to preview image: ${error.message}`);
+                }
             }
         });
     }
