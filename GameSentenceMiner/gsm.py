@@ -18,7 +18,7 @@ try:
     import GameSentenceMiner.util.configuration
     from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
     get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
-    is_windows, is_linux, get_ffmpeg_path
+    is_windows, is_linux, get_ffmpeg_path, is_mac
     
     import asyncio
     import os
@@ -701,6 +701,9 @@ def initialize(reloading=False):
             if shutil.which("ffmpeg") is None:
                 os.environ["PATH"] += os.pathsep + \
                     os.path.dirname(get_ffmpeg_path())
+        if is_mac():
+            if shutil.which("ffmpeg") is None:
+                os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
         if get_config().obs.open_obs:
             obs_process = obs.start_obs()
             # obs.connect_to_obs(start_replay=True)
