@@ -34,17 +34,26 @@ def add_jiten_link_to_game(game, deck_id):
     # Check if a Jiten link already exists
     jiten_link_index = None
     for i, link in enumerate(game.links):
-        if "jiten.moe/deck" in link:
+        # Handle both string and object formats for backward compatibility
+        link_url = link if isinstance(link, str) else (link.get("url") if isinstance(link, dict) else "")
+        if "jiten.moe/deck" in link_url:
             jiten_link_index = i
             break
 
+    # Create Jiten link object with proper structure
+    jiten_link = {
+        "url": jiten_url,
+        "linkType": 99,  # Jiten.moe link type
+        "deckId": deck_id
+    }
+
     if jiten_link_index is not None:
         # Update existing Jiten link
-        game.links[jiten_link_index] = jiten_url
+        game.links[jiten_link_index] = jiten_link
         logger.debug(f"Updated existing Jiten link to: {jiten_url}")
     else:
         # Add new Jiten link
-        game.links.append(jiten_url)
+        game.links.append(jiten_link)
         logger.debug(f"Added new Jiten link: {jiten_url}")
 
 
