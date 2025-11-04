@@ -1457,10 +1457,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateCurrentGameDashboard(stats) {
-        console.log('[CHAR_COUNT_DEBUG_JS] updateCurrentGameDashboard called with stats:', stats);
-        console.log('[CHAR_COUNT_DEBUG_JS] total_characters:', stats.total_characters);
-        console.log('[CHAR_COUNT_DEBUG_JS] total_characters_formatted:', stats.total_characters_formatted);
-        
         if (!stats) {
             showNoDashboardData('currentGameCard', 'No current game data available');
             return;
@@ -1520,24 +1516,13 @@ document.addEventListener('DOMContentLoaded', function () {
         const hasDescription = stats.description && stats.description.trim();
         const hasManualOverrides = !!(stats.manual_overrides && stats.manual_overrides.length > 0);
         
-        console.log('[DEBUG] Game data check:', {
-            hasImage,
-            hasDescription,
-            hasManualOverrides,
-            manual_overrides: stats.manual_overrides,
-            title_original: stats.title_original,
-            game_name: stats.game_name
-        });
-        
         // Show message if: no image AND no description AND no manual overrides
         // (If user has manually edited ANY field, don't show the message)
         if (!hasImage && !hasDescription && !hasManualOverrides) {
-            console.log('[DEBUG] No meaningful game data and no manual overrides - showing message');
             if (gameContentGrid) {
                 gameContentGrid.style.display = 'none';
             }
             if (noGameDataMessage) {
-                console.log('[DEBUG] Setting noGameDataMessage display to block');
                 // Set the game title in the message
                 const noGameDataTitle = document.getElementById('noGameDataTitle');
                 if (noGameDataTitle) {
@@ -1545,11 +1530,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     noGameDataTitle.textContent = gameTitle;
                 }
                 noGameDataMessage.style.display = 'block';
-            } else {
-                console.log('[DEBUG] noGameDataMessage element not found!');
             }
         } else {
-            console.log('[DEBUG] Has meaningful game data or manual overrides - hiding message');
             // Hide the message and display the content grid
             if (noGameDataMessage) {
                 noGameDataMessage.style.display = 'none';
@@ -1558,35 +1540,24 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         
         // Update game photo - all images are now stored as PNG base64
-        console.log('[DEBUG] Game photo data:', {
-            hasImage: !!stats.image,
-            imageLength: stats.image ? stats.image.length : 0,
-            imagePrefix: stats.image ? stats.image.substring(0, 50) : 'none',
-            imageTrimmed: stats.image ? stats.image.trim().substring(0, 50) : 'none'
-        });
-        
         if (stats.image && stats.image.trim()) {
             let imageSrc = stats.image.trim();
             
             // Handle different image formats
             if (imageSrc.startsWith('data:image')) {
                 // Already has data URI prefix
-                console.log('[DEBUG] Setting image with existing data URI');
                 gamePhoto.src = imageSrc;
             } else if (imageSrc.startsWith('http')) {
                 // External URL
-                console.log('[DEBUG] Setting URL image:', imageSrc);
                 gamePhoto.src = imageSrc;
             } else {
                 // Raw base64 data - add PNG data URI prefix (all uploads are converted to PNG)
-                console.log('[DEBUG] Adding PNG data URI prefix to raw base64 data');
                 gamePhoto.src = `data:image/png;base64,${imageSrc}`;
             }
             
             gamePhotoSection.style.display = 'block';
             gamePhoto.style.display = 'block';
         } else {
-            console.log('[DEBUG] No image data, hiding photo section');
             gamePhotoSection.style.display = 'none';
         }
             
@@ -1687,7 +1658,6 @@ document.addEventListener('DOMContentLoaded', function () {
             updateEstimatedTimeLeft(stats);
 
         // Update main statistics
-        console.log('[CHAR_COUNT_DEBUG_JS] Setting currentTotalChars to:', stats.total_characters_formatted);
         document.getElementById('currentTotalChars').textContent = stats.total_characters_formatted;
         document.getElementById('currentTotalTime').textContent = stats.total_time_formatted;
         document.getElementById('currentReadingSpeed').textContent = stats.reading_speed_formatted;
