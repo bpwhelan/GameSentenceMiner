@@ -591,13 +591,13 @@ def update_card_from_same_sentence(last_card, lines, game_line):
         time_elapsed += 0.5
         if time_elapsed > 15:
             logger.info(f"Timed out waiting for Anki update for card {last_card.noteId}, retrieving new audio")
-            queue_card_for_processing(last_card, lines)
+            queue_card_for_processing(last_card, lines, game_line)
             return
     anki_result = anki_results[game_line.id]
     
     if anki_result.word == last_card.get_field(get_config().anki.word_field):
         logger.info(f"Same word detected, attempting to get new audio for card {last_card.noteId}")
-        queue_card_for_processing(last_card, lines)
+        queue_card_for_processing(last_card, lines, game_line)
         return
     
     if anki_result.success:
