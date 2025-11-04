@@ -1457,6 +1457,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateCurrentGameDashboard(stats) {
+        console.log('[CHAR_COUNT_DEBUG_JS] updateCurrentGameDashboard called with stats:', stats);
+        console.log('[CHAR_COUNT_DEBUG_JS] total_characters:', stats.total_characters);
+        console.log('[CHAR_COUNT_DEBUG_JS] total_characters_formatted:', stats.total_characters_formatted);
+        
         if (!stats) {
             showNoDashboardData('currentGameCard', 'No current game data available');
             return;
@@ -1683,6 +1687,7 @@ document.addEventListener('DOMContentLoaded', function () {
             updateEstimatedTimeLeft(stats);
 
         // Update main statistics
+        console.log('[CHAR_COUNT_DEBUG_JS] Setting currentTotalChars to:', stats.total_characters_formatted);
         document.getElementById('currentTotalChars').textContent = stats.total_characters_formatted;
         document.getElementById('currentTotalTime').textContent = stats.total_time_formatted;
         document.getElementById('currentReadingSpeed').textContent = stats.reading_speed_formatted;

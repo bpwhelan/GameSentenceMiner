@@ -199,8 +199,10 @@ def register_stats_api_routes(app):
                 today_end = datetime.datetime.combine(
                     today, datetime.time.max
                 ).timestamp()
+                # IMPORTANT: Do NOT use for_stats=True here to ensure consistent character counting
+                # for_stats=True removes punctuation which causes discrepancies with SQL LENGTH()
                 today_lines_for_charts = GameLinesTable.get_lines_filtered_by_timestamp(
-                    start=today_start, end=today_end, for_stats=True
+                    start=today_start, end=today_end, for_stats=False
                 )
 
             cards_mined_last_30_days = {"labels": [], "totals": []}
@@ -615,26 +617,77 @@ def register_stats_api_routes(app):
                         if (line.game_name or "Unknown Game") == current_game_name
                     ]
 
-                    # Fetch historical data for current game
+                    # Fetch historical data for current game (EXCLUDING today to avoid double-counting)
+                    # Calculate today's start timestamp to use as upper bound
+                    today_start_ts = datetime.datetime.combine(
+                        today, datetime.time.min
+                    ).timestamp()
+                    
+                    # Debug logging to verify timestamp calculation
+                    logger.info(f"[CHAR_COUNT_DEBUG] ========== CHARACTER COUNT DEBUG ==========")
+                    logger.info(f"[CHAR_COUNT_DEBUG] Current game: {current_game_name}")
+                    logger.info(f"[CHAR_COUNT_DEBUG] Today start timestamp: {today_start_ts} ({datetime.datetime.fromtimestamp(today_start_ts)})")
+                    logger.info(f"[CHAR_COUNT_DEBUG] Today's lines count: {len(current_game_lines)}")
+                    
+                    # Log timestamps of today's lines to verify they're actually from today
+                    if current_game_lines:
+                        today_timestamps = [float(line.timestamp) for line in current_game_lines]
+                        logger.info(f"[CHAR_COUNT_DEBUG] Today's line timestamps range: {min(today_timestamps)} to {max(today_timestamps)}")
+                        logger.info(f"[CHAR_COUNT_DEBUG] Today's first line time: {datetime.datetime.fromtimestamp(min(today_timestamps))}")
+                        logger.info(f"[CHAR_COUNT_DEBUG] Today's last line time: {datetime.datetime.fromtimestamp(max(today_timestamps))}")
+                    
                     if start_timestamp and end_timestamp:
-                        # If timestamps provided, filter by date range
+                        # If timestamps provided, filter by date range but exclude today
+                        logger.info(f"[CHAR_COUNT_DEBUG] Fetching historical data with timestamp filter: {start_timestamp} to {today_start_ts}")
                         historical_current_game = GameLinesTable._db.fetchall(
-                            f"SELECT * FROM {GameLinesTable._table} WHERE game_name=? AND timestamp >= ? AND timestamp <= ?",
-                            (current_game_name, start_timestamp, end_timestamp),
+                            f"SELECT * FROM {GameLinesTable._table} WHERE game_name=? AND timestamp >= ? AND timestamp < ?",
+                            (current_game_name, start_timestamp, today_start_ts),
                         )
                     else:
-                        # If no timestamps provided, fetch all historical data
+                        # If no timestamps provided, fetch all historical data BEFORE today
+                        logger.info(f"[CHAR_COUNT_DEBUG] Fetching all historical data before today (timestamp < {today_start_ts})")
+                        logger.info(f"[CHAR_COUNT_DEBUG] SQL Query: SELECT * FROM game_lines WHERE game_name='{current_game_name}' AND timestamp < {today_start_ts}")
                         historical_current_game = GameLinesTable._db.fetchall(
-                            f"SELECT * FROM {GameLinesTable._table} WHERE game_name=?",
-                            (current_game_name,),
+                            f"SELECT * FROM {GameLinesTable._table} WHERE game_name=? AND timestamp < ?",
+                            (current_game_name, today_start_ts),
                         )
                     
-                    current_game_lines.extend(
-                        [
-                            GameLinesTable.from_row(row)
-                            for row in historical_current_game
-                        ]
-                    )
+                    logger.info(f"[CHAR_COUNT_DEBUG] Historical lines fetched: {len(historical_current_game)}")
+                    
+                    # Log timestamps of historical lines to verify they're before today
+                    if historical_current_game:
+                        hist_timestamps = [float(row[8]) for row in historical_current_game if len(row) > 8]  # timestamp is at index 8
+                        if hist_timestamps:
+                            logger.info(f"[CHAR_COUNT_DEBUG] Historical line timestamps range: {min(hist_timestamps)} to {max(hist_timestamps)}")
+                            logger.info(f"[CHAR_COUNT_DEBUG] Historical first line time: {datetime.datetime.fromtimestamp(min(hist_timestamps))}")
+                            logger.info(f"[CHAR_COUNT_DEBUG] Historical last line time: {datetime.datetime.fromtimestamp(max(hist_timestamps))}")
+                            # Check if any historical lines are actually from today
+                            today_in_historical = [ts for ts in hist_timestamps if ts >= today_start_ts]
+                            if today_in_historical:
+                                logger.error(f"[CHAR_COUNT_DEBUG] ⚠️ ERROR: Found {len(today_in_historical)} lines from TODAY in historical data!")
+                                logger.error(f"[CHAR_COUNT_DEBUG] This means the timestamp < {today_start_ts} condition is NOT working!")
+                    
+                    # Convert historical rows to GameLinesTable objects (without for_stats cleaning)
+                    historical_lines = [
+                        GameLinesTable.from_row(row)
+                        for row in historical_current_game
+                    ]
+                    
+                    # Calculate character counts for debugging
+                    today_chars = sum(len(line.line_text) if line.line_text else 0 for line in current_game_lines)
+                    historical_chars = sum(len(line.line_text) if line.line_text else 0 for line in historical_lines)
+                    logger.info(f"[CHAR_COUNT_DEBUG] Today's characters: {today_chars:,}")
+                    logger.info(f"[CHAR_COUNT_DEBUG] Historical characters: {historical_chars:,}")
+                    
+                    current_game_lines.extend(historical_lines)
+                    
+                    total_chars = sum(len(line.line_text) if line.line_text else 0 for line in current_game_lines)
+                    logger.info(f"[CHAR_COUNT_DEBUG] Total characters after combining: {total_chars:,}")
+                    logger.info(f"[CHAR_COUNT_DEBUG] Total lines after combining: {len(current_game_lines)}")
+                    logger.info(f"[CHAR_COUNT_DEBUG] Expected: {today_chars:,} + {historical_chars:,} = {today_chars + historical_chars:,}")
+                    if total_chars != (today_chars + historical_chars):
+                        logger.error(f"[CHAR_COUNT_DEBUG] ⚠️ MISMATCH: Total ({total_chars:,}) != Today + Historical ({today_chars + historical_chars:,})")
+                    logger.info(f"[CHAR_COUNT_DEBUG] ==========================================")
 
                     current_game_stats = calculate_current_game_stats(
                         current_game_lines
