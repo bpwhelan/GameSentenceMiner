@@ -638,7 +638,7 @@ def register_stats_api_routes(app):
                     
                     # Convert historical rows to GameLinesTable objects (without for_stats cleaning)
                     historical_lines = [
-                        GameLinesTable.from_row(row)
+                        GameLinesTable.from_row(row, clean_columns=['line_text'])
                         for row in historical_current_game
                     ]
                     
