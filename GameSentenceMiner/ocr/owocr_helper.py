@@ -21,7 +21,7 @@ from rapidfuzz import fuzz
 from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.ss_picker import ScreenCropper
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
-from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory
+from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory, is_windows
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window, get_ocr_config_path
 from GameSentenceMiner.owocr.owocr import run
 from GameSentenceMiner.util.electron_config import get_ocr_ocr2, get_ocr_send_to_clipboard, get_ocr_scan_rate, \
@@ -619,7 +619,6 @@ def process_task_queue():
 
 def run_oneocr(ocr_config: OCRConfig, rectangles, config_check_thread):
     global done
-    print("Running OneOCR")
     screen_area = None
     screen_areas = [",".join(str(c) for c in rect_config.coordinates) for rect_config in rectangles if not rect_config.is_excluded]
     exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, rectangles)))
@@ -808,7 +807,8 @@ if __name__ == "__main__":
                 worker_thread.start()
             websocket_server_thread = WebsocketServerThread(read=True)
             websocket_server_thread.start()
-            add_ss_hotkey(ss_hotkey)
+            if is_windows():
+                add_ss_hotkey(ss_hotkey)
             try:
                 while not done:
                     time.sleep(1)
