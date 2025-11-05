@@ -13,6 +13,8 @@ def handle_error_in_initialization(e):
         sys.exit(1)
 
 Icon = None
+Menu = None
+MenuItem = None
 
 try:
     import GameSentenceMiner.util.configuration
