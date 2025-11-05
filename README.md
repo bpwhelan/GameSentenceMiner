@@ -84,7 +84,7 @@ This feature simplifies the process of launching games and (potentially) hooking
 
 GSM has a statistics page with currently **32 graphs** chock full of pretty data.
 
-![stats](docs/overview.png)
+![stats](docs/images/overview.png)
 
 The stats are not just pretty.
 
@@ -92,23 +92,23 @@ They are designed to help you grow.
 
 Set goals and see exactly what daily tasks you need to do to achieve them:
 
-![stats](docs/goals.png)
+![stats](docs/images/goals.png)
 
 See all the Kanji you've read in whatever order you want:
 
-![stats](docs/kanji_grid.png)
+![stats](docs/images/kanji_grid.png)
 
 And click on them to see every sentence you've read with that Kanji:
 
-![stats](docs/search.png)
+![stats](docs/images/search.png)
 
 Use Anki? Find Kanji you read a lot but aren't in Anki yet
 
-![stats](docs/anki.png)
+![stats](docs/images/anki.png)
 
 Clean up your data, anyway you want with advanced tools.
 
-![stats](docs/db_management.png)
+![stats](docs/images/db_management.png)
 
 These statistics aren't just meant to look pretty, they are meant to help you answer questions:
 * What can I play to maximise both fun and learning?
