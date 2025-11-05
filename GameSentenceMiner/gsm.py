@@ -13,6 +13,8 @@ def handle_error_in_initialization(e):
         sys.exit(1)
 
 Icon = None
+Menu = None
+MenuItem = None
 
 try:
     import GameSentenceMiner.util.configuration
@@ -41,7 +43,7 @@ try:
     from PIL import Image
     try:
         pass
-        # from pystray import Icon, Menu, MenuItem
+        from pystray import Icon, Menu, MenuItem
     except Exception:
         logger.warning("pystray not installed correctly, tray icon will not work.")
     from watchdog.events import FileSystemEventHandler

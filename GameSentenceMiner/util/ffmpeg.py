@@ -228,9 +228,19 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
     output_image = make_unique_file_name(os.path.join(
         get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
     
+    pre_input_args = []
+    pre_input_args_string = ""
+    if get_config().screenshot.custom_ffmpeg_settings:
+        if '-hwaccel' in get_config().screenshot.custom_ffmpeg_settings:
+            hwaccel_args = get_config().screenshot.custom_ffmpeg_settings.split(" ")
+            hwaccel_index = hwaccel_args.index('-hwaccel')
+            pre_input_args.extend(hwaccel_args[hwaccel_index:hwaccel_index + 2])
+            pre_input_args_string = " ".join(pre_input_args)
+    
     # Base command for extracting the frame
     ffmpeg_command = ffmpeg_base_command_list + [
         "-ss", f"{screenshot_timing}",
+    ] + pre_input_args + [
         "-i", f"{video_file}",
         "-vframes", "1"  # Extract only one frame
     ]
@@ -252,7 +262,7 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
         ffmpeg_command.extend(["-vf", ",".join(video_filters)])
 
     if get_config().screenshot.custom_ffmpeg_settings:
-        ffmpeg_command.extend(get_config().screenshot.custom_ffmpeg_settings.replace("\"", "").split(" "))
+        ffmpeg_command.extend(get_config().screenshot.custom_ffmpeg_settings.replace("\"", "").replace(pre_input_args_string, "").split())
     else:
         # Ensure quality settings are strings
         ffmpeg_command.extend(["-compression_level", "6", "-q:v", str(get_config().screenshot.quality)])
@@ -598,14 +608,23 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_resu
 def process_image(image_file):
     output_image = make_unique_file_name(
         os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.{get_config().screenshot.extension}"))
+    
+    pre_input_args = []
+    pre_input_args_string = ""
+    if get_config().screenshot.custom_ffmpeg_settings:
+        if '-hwaccel' in get_config().screenshot.custom_ffmpeg_settings:
+            hwaccel_args = get_config().screenshot.custom_ffmpeg_settings.split()
+            hwaccel_index = hwaccel_args.index('-hwaccel')
+            pre_input_args.extend(hwaccel_args[hwaccel_index:hwaccel_index + 2])
+            pre_input_args_string = " ".join(pre_input_args)
 
     # FFmpeg command to process the input image
-    ffmpeg_command = ffmpeg_base_command_list + [
+    ffmpeg_command = ffmpeg_base_command_list + pre_input_args + [
         "-i", image_file
     ]
 
     if get_config().screenshot.custom_ffmpeg_settings:
-        ffmpeg_command.extend(get_config().screenshot.custom_ffmpeg_settings.split(" "))
+        ffmpeg_command.extend(get_config().screenshot.custom_ffmpeg_settings.replace(pre_input_args_string, "").split())
     else:
         ffmpeg_command.extend(["-compression_level", "6", "-q:v", get_config().screenshot.quality])
 
@@ -769,7 +788,7 @@ def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_o
     command = ffmpeg_base_command_list + [
         "-i", input_file,
         "-map", "0:a"
-    ] + user_ffmpeg_options.replace("\"", "").split(" ") + [
+    ] + user_ffmpeg_options.replace("\"", "").split() + [
                   temp_file
               ]
 
