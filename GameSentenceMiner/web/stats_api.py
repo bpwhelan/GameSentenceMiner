@@ -822,17 +822,49 @@ def register_stats_api_routes(app):
                 logger.error(f"Error processing hourly reading speed: {e}")
                 hourly_reading_speed_data = [0] * 24
 
-            # 9. Calculate peak statistics from combined stats (no all_lines needed!)
+            # 9. Calculate peak statistics from rollup data (actual daily peaks)
             try:
-                # Use rollup data for peak stats
-                # Note: Rollup tracks session peaks, not daily peaks
-                # For daily peaks, we'd need to add max_daily_chars/hours to rollup schema
+                # Calculate true daily peaks by finding max values across all rollup records
+                max_daily_chars = 0
+                max_daily_hours = 0.0
+                
+                # Check rollup data for historical peaks
+                if rollup_stats and start_date_str:
+                    yesterday = today - datetime.timedelta(days=1)
+                    yesterday_str = yesterday.strftime("%Y-%m-%d")
+                    
+                    if start_date_str <= yesterday_str:
+                        rollup_end = (
+                            min(end_date_str, yesterday_str)
+                            if end_date_str
+                            else yesterday_str
+                        )
+                        rollups_for_peaks = StatsRollupTable.get_date_range(
+                            start_date_str, rollup_end
+                        )
+                        
+                        # Find maximum daily values across all rollup records
+                        for rollup in rollups_for_peaks:
+                            if rollup.total_characters > max_daily_chars:
+                                max_daily_chars = rollup.total_characters
+                            
+                            daily_hours = rollup.total_reading_time_seconds / 3600
+                            if daily_hours > max_daily_hours:
+                                max_daily_hours = daily_hours
+                
+                # Check today's live data to see if it sets a new record
+                if live_stats:
+                    today_chars = live_stats.get("total_characters", 0)
+                    today_hours = live_stats.get("total_reading_time_seconds", 0) / 3600
+                    
+                    if today_chars > max_daily_chars:
+                        max_daily_chars = today_chars
+                    if today_hours > max_daily_hours:
+                        max_daily_hours = today_hours
+                
                 peak_daily_stats = {
-                    "max_daily_chars": combined_stats.get("max_chars_in_session", 0),
-                    "max_daily_hours": combined_stats.get(
-                        "max_time_in_session_seconds", 0.0
-                    )
-                    / 3600,
+                    "max_daily_chars": max_daily_chars,
+                    "max_daily_hours": max_daily_hours,
                 }
 
             except Exception as e:
