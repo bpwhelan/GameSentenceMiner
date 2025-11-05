@@ -191,13 +191,16 @@ class BarChartComponent {
                                 if (this.options.tooltipFormatter?.title) {
                                     return this.options.tooltipFormatter.title(context);
                                 }
-                                return context[0].label;
+                                // Get the actual label from the dataset
+                                const index = context[0].dataIndex;
+                                return labels[index];
                             },
                             label: (context) => {
                                 if (this.options.tooltipFormatter?.label) {
                                     return this.options.tooltipFormatter.label(context);
                                 }
-                                const value = context.parsed.y || context.parsed.x;
+                                // For horizontal charts, value is in parsed.x; for vertical, it's in parsed.y
+                                const value = chartConfig.options.indexAxis === 'y' ? context.parsed.x : context.parsed.y;
                                 if (this.options.valueFormatter) {
                                     return this.options.valueFormatter(value);
                                 }
@@ -229,14 +232,14 @@ class BarChartComponent {
                         },
                         ticks: {
                             color: getThemeTextColor(),
-                            callback: (value) => {
+                            callback: function(value) {
                                 // For horizontal charts, Y-axis shows labels (dates, etc.)
-                                if (this.options.type === 'horizontal') {
-                                    return value;
+                                if (chartConfig.options.indexAxis === 'y') {
+                                    return this.getLabelForValue(value);
                                 }
                                 // For vertical charts, Y-axis shows numeric values
-                                if (this.options.yAxisFormatter) {
-                                    return this.options.yAxisFormatter(value);
+                                if (chartConfig.options.yAxisFormatter) {
+                                    return chartConfig.options.yAxisFormatter(value);
                                 }
                                 return value.toLocaleString();
                             }
