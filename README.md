@@ -78,6 +78,43 @@ This is probably the feature I care least about, but if you are lazy like me, yo
 This feature simplifies the process of launching games and (potentially) hooking them, making the entire workflow more efficient.
 
 <img width="2560" height="1392" alt="GameSentenceMiner_1zuov0R9xK" src="https://github.com/user-attachments/assets/205769bb-3dd2-493b-9383-2d6e2ca05c2d" />-->
+---
+
+### Stats
+
+GSM has a statistics page with currently **32 graphs** chock full of pretty data.
+
+![stats](docs/overview.png)
+
+The stats are not just pretty.
+
+They are designed to help you grow.
+
+Set goals and see exactly what daily tasks you need to do to achieve them:
+
+![stats](docs/goals.png)
+
+See all the Kanji you've read in whatever order you want:
+
+![stats](docs/kanji_grid.png)
+
+And click on them to see every sentence you've read with that Kanji:
+
+![stats](docs/search.png)
+
+Use Anki? Find Kanji you read a lot but aren't in Anki yet
+
+![stats](docs/anki.png)
+
+Clean up your data, anyway you want with advanced tools.
+
+![stats](docs/db_management.png)
+
+These statistics aren't just meant to look pretty, they are meant to help you answer questions:
+* What can I play to maximise both fun and learning?
+* Do I read better in the evening, or in the mornings?
+* Am I progressing in this language?
+* How long should I immerse to reach my goals?
 
 ## Basic Requirements
 
