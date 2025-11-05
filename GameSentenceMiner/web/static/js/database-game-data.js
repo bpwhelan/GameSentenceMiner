@@ -125,7 +125,7 @@ function renderGamesList(games, filter = 'all') {
                 ${game.line_count > 0 ? `
                 <div class="game-stats">
                     <span class="stat-item">${game.line_count.toLocaleString()} lines</span>
-                    <span class="stat-item">${game.mined_character_count.toLocaleString()} mined chars</span>
+                    <span class="stat-item">${game.mined_character_count.toLocaleString()} read</span>
                     ${game.jiten_character_count > 0 ? `<span class="stat-item">Total: ${game.jiten_character_count.toLocaleString()} chars (${((game.mined_character_count / game.jiten_character_count) * 100).toFixed(1)}%)</span>` : ''}
                     <span class="stat-item">Started: ${startDate}</span>
                     <span class="stat-item">Last: ${lastPlayed}</span>
@@ -254,7 +254,7 @@ async function loadGamesForManagement() {
                     ${game.line_count > 0 ? `
                     <div class="game-stats">
                         <span class="stat-item">${game.line_count.toLocaleString()} lines</span>
-                        <span class="stat-item">${game.mined_character_count.toLocaleString()} mined chars</span>
+                        <span class="stat-item">${game.mined_character_count.toLocaleString()} read</span>
                         ${game.jiten_character_count > 0 ? `<span class="stat-item">Total: ${game.jiten_character_count.toLocaleString()} chars (${((game.mined_character_count / game.jiten_character_count) * 100).toFixed(1)}%)</span>` : ''}
                         <span class="stat-item">Started: ${startDate}</span>
                         <span class="stat-item">Last: ${lastPlayed}</span>
