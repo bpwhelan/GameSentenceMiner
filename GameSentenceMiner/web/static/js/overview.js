@@ -965,12 +965,25 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Update the DOM elements
         document.getElementById('currentSessionTotalHours').textContent = hoursDisplay;
-        document.getElementById('currentSessionTotalChars').textContent = Math.round(lastSession.totalChars).toLocaleString();
+        
+        // Update Session Chars with native tooltip
+        const sessionCharsEl = document.getElementById('currentSessionTotalChars');
+        const sessionCharsBox = sessionCharsEl.closest('.dashboard-stat-item');
+        sessionCharsEl.textContent = Math.round(lastSession.totalChars).toLocaleString();
+        if (sessionCharsBox) {
+            sessionCharsBox.setAttribute('title', `${lastSession.totalChars.toLocaleString(undefined, {maximumFractionDigits: 2})} characters`);
+        }
+        
         document.getElementById('currentSessionStartTime').textContent = startTimeDisplay;
         document.getElementById('currentSessionEndTime').textContent = endTimeDisplay;
-        // Use charsPerHour from API (not readSpeed)
-        document.getElementById('currentSessionCharsPerHour').textContent =
-            lastSession.charsPerHour > 0 ? Math.round(lastSession.charsPerHour).toLocaleString() : '-';
+        
+        // Update Session Chars/Hour with native tooltip
+        const sessionSpeedEl = document.getElementById('currentSessionCharsPerHour');
+        const sessionSpeedBox = sessionSpeedEl.closest('.dashboard-stat-item');
+        sessionSpeedEl.textContent = lastSession.charsPerHour > 0 ? Math.round(lastSession.charsPerHour).toLocaleString() : '-';
+        if (sessionSpeedBox && lastSession.charsPerHour > 0) {
+            sessionSpeedBox.setAttribute('title', `${lastSession.charsPerHour.toLocaleString(undefined, {maximumFractionDigits: 2})} chars/hour`);
+        }
 
         // Render game metadata if available
         renderSessionGameMetadata(lastSession);
@@ -1131,15 +1144,24 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 document.getElementById('todayTotalHours').textContent = hoursDisplay;
                 
-                // Update today's total characters
-                document.getElementById('todayTotalChars').textContent = data.todayTotalChars.toLocaleString();
+                // Update today's total characters with native tooltip
+                const todayCharsEl = document.getElementById('todayTotalChars');
+                const todayCharsBox = todayCharsEl.closest('.dashboard-stat-item');
+                todayCharsEl.textContent = data.todayTotalChars.toLocaleString();
+                if (todayCharsBox) {
+                    todayCharsBox.setAttribute('title', `${data.todayTotalChars.toLocaleString(undefined, {maximumFractionDigits: 2})} characters`);
+                }
                 
                 // Update today's sessions count
                 document.getElementById('todaySessions').textContent = data.todaySessions || 0;
                 
-                // Update today's chars/hour
-                document.getElementById('todayCharsPerHour').textContent =
-                    data.todayCharsPerHour > 0 ? data.todayCharsPerHour.toLocaleString() : '-';
+                // Update today's chars/hour with native tooltip
+                const todaySpeedEl = document.getElementById('todayCharsPerHour');
+                const todaySpeedBox = todaySpeedEl.closest('.dashboard-stat-item');
+                todaySpeedEl.textContent = data.todayCharsPerHour > 0 ? data.todayCharsPerHour.toLocaleString() : '-';
+                if (todaySpeedBox && data.todayCharsPerHour > 0) {
+                    todaySpeedBox.setAttribute('title', `${data.todayCharsPerHour.toLocaleString(undefined, {maximumFractionDigits: 2})} chars/hour`);
+                }
                 
                 // Store sessions globally for navigation
                 window.todaySessionDetails = data.sessions || [];
@@ -1657,10 +1679,22 @@ document.addEventListener('DOMContentLoaded', function () {
             // Update estimated time left stat
             updateEstimatedTimeLeft(stats);
 
-        // Update main statistics
-        document.getElementById('currentTotalChars').textContent = stats.total_characters_formatted;
+        // Update main statistics with native tooltips
+        const currentTotalCharsEl = document.getElementById('currentTotalChars');
+        const currentTotalCharsBox = currentTotalCharsEl.closest('.dashboard-stat-item');
+        currentTotalCharsEl.textContent = stats.total_characters_formatted;
+        if (currentTotalCharsBox && stats.total_characters) {
+            currentTotalCharsBox.setAttribute('title', `${stats.total_characters.toLocaleString(undefined, {maximumFractionDigits: 2})} characters`);
+        }
+        
         document.getElementById('currentTotalTime').textContent = stats.total_time_formatted;
-        document.getElementById('currentReadingSpeed').textContent = stats.reading_speed_formatted;
+        
+        const currentReadingSpeedEl = document.getElementById('currentReadingSpeed');
+        const currentReadingSpeedBox = currentReadingSpeedEl.closest('.dashboard-stat-item');
+        currentReadingSpeedEl.textContent = stats.reading_speed_formatted;
+        if (currentReadingSpeedBox && stats.reading_speed) {
+            currentReadingSpeedBox.setAttribute('title', `${stats.reading_speed.toLocaleString(undefined, {maximumFractionDigits: 2})} chars/hour`);
+        }
 
         // Update streak indicator
         const streakElement = document.getElementById('currentGameStreak');
@@ -1686,10 +1720,23 @@ document.addEventListener('DOMContentLoaded', function () {
         const gamesText = stats.completed_games === 1 ? '1 game completed' : `${stats.completed_games} games completed`;
         document.getElementById('totalGamesCount').textContent = gamesText;
 
-        // Update main statistics
-        document.getElementById('allTotalChars').textContent = stats.total_characters_formatted;
+        // Update main statistics with native tooltips
+        const allTotalCharsEl = document.getElementById('allTotalChars');
+        const allTotalCharsBox = allTotalCharsEl.closest('.dashboard-stat-item');
+        allTotalCharsEl.textContent = stats.total_characters_formatted;
+        if (allTotalCharsBox && stats.total_characters) {
+            allTotalCharsBox.setAttribute('title', `${stats.total_characters.toLocaleString(undefined, {maximumFractionDigits: 2})} characters`);
+        }
+        
         document.getElementById('allTotalTime').textContent = stats.total_time_formatted;
-        document.getElementById('allReadingSpeed').textContent = stats.reading_speed_formatted;
+        
+        const allReadingSpeedEl = document.getElementById('allReadingSpeed');
+        const allReadingSpeedBox = allReadingSpeedEl.closest('.dashboard-stat-item');
+        allReadingSpeedEl.textContent = stats.reading_speed_formatted;
+        if (allReadingSpeedBox && stats.reading_speed) {
+            allReadingSpeedBox.setAttribute('title', `${stats.reading_speed.toLocaleString(undefined, {maximumFractionDigits: 2})} chars/hour`);
+        }
+        
         document.getElementById('allSessions').textContent = stats.sessions.toLocaleString();
 
         // Update progress section (removed monthly characters)
