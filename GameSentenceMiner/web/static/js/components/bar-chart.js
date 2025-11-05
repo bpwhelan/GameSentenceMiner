@@ -230,18 +230,20 @@ class BarChartComponent {
                         ticks: {
                             color: getThemeTextColor(),
                             callback: (value) => {
-                                if (this.options.type === 'horizontal' && this.options.valueFormatter) {
+                                // For horizontal charts, Y-axis shows labels (dates, etc.)
+                                if (this.options.type === 'horizontal') {
                                     return value;
                                 }
-                                if (this.options.type === 'vertical' && this.options.yAxisFormatter) {
+                                // For vertical charts, Y-axis shows numeric values
+                                if (this.options.yAxisFormatter) {
                                     return this.options.yAxisFormatter(value);
                                 }
                                 return value.toLocaleString();
                             }
                         },
                         grid: {
-                            color: getCurrentTheme() === 'dark' 
-                                ? 'rgba(255, 255, 255, 0.1)' 
+                            color: getCurrentTheme() === 'dark'
+                                ? 'rgba(255, 255, 255, 0.1)'
                                 : 'rgba(0, 0, 0, 0.1)'
                         }
                     },
@@ -256,11 +258,11 @@ class BarChartComponent {
                             maxRotation: this.options.maxRotation || 45,
                             minRotation: this.options.minRotation || 45,
                             callback: function(value) {
-                                // For horizontal charts with value formatter, format the value
-                                if (chartConfig.options.indexAxis === 'y' && chartConfig.data.labels) {
-                                    return chartConfig.data.labels[value] || value;
+                                // For horizontal charts, X-axis shows numeric values
+                                if (chartConfig.options.indexAxis === 'y') {
+                                    return value.toLocaleString();
                                 }
-                                // For vertical charts, just return the value (label)
+                                // For vertical charts, X-axis shows labels
                                 return this.getLabelForValue(value);
                             }
                         },
