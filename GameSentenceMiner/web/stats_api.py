@@ -1936,7 +1936,7 @@ def register_stats_api_routes(app):
             config = get_stats_config()
             afk_timer_seconds = config.afk_timer_seconds
             session_gap_seconds = config.session_gap_seconds
-            minimum_session_length = 300  # 5 minutes
+            minimum_session_length = 0  # 5 minutes
 
             # Get today's date range
             today = datetime.date.today()
@@ -1944,7 +1944,7 @@ def register_stats_api_routes(app):
                 today, datetime.time.min
             ).timestamp()
             today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
-
+    
             # Query all game lines for today
             today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
                 start=today_start, end=today_end, for_stats=True

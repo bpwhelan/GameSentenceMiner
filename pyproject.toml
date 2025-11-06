@@ -61,6 +61,7 @@ dependencies = [
   "openai~=2.6.0",
   "pynput~=1.8.1",
   "flask-compress~=1.15",
+  "meikiocr>=0.1.1",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will

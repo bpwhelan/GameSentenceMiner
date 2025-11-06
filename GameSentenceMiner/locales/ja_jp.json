@@ -427,6 +427,10 @@
             "label": "OBSを閉じる:",
             "tooltip": "GSM終了時にOBSを閉じます。"
           },
+          "obs_path": {
+            "label": "OBSパス:",
+            "tooltip": "OBS実行ファイルのパス。空欄の場合はデフォルトパスを使用します。"
+          },
           "host": {
             "label": "ホスト:",
             "tooltip": "OBS WebSocketサーバーのホストアドレス。"

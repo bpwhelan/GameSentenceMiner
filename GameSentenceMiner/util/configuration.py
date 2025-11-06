@@ -568,10 +568,13 @@ class OBS:
     password: str = "your_password"
     get_game_from_scene: bool = True
     minimum_replay_size: int = 0
-    
-    def __post__init__(self):
+    obs_path: str = ''
+
+    def __post_init__(self):
         # Force get_game_from_scene to be True
         self.get_game_from_scene = True
+        if not self.obs_path:
+            self.obs_path = os.path.join(get_app_directory(), "obs-studio/bin/64bit/obs64.exe") if is_windows() else "/usr/bin/obs"
 
 
 @dataclass_json

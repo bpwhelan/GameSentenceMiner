@@ -428,6 +428,10 @@
             "label": "关闭 OBS:",
             "tooltip": "GSM 关闭时关闭 OBS。"
           },
+          "obs_path": {
+            "label": "OBS 路径:",
+            "tooltip": "OBS 可执行文件的路径。留空使用默认路径。"
+          },
           "host": {
             "label": "主机:",
             "tooltip": "OBS WebSocket 服务器的主机地址。"

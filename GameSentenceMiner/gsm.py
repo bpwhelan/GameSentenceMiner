@@ -36,7 +36,6 @@ try:
     import signal
     import datetime
     from subprocess import Popen
-    os.environ.pop('TCL_LIBRARY', None)
 
     import keyboard
     import ttkbootstrap as ttk
@@ -563,6 +562,15 @@ gsm_tray = GSMTray()
 def close_obs():
     obs.disconnect_from_obs()
     if obs.obs_process_pid:
+        if is_linux() or is_mac():
+            try:
+                os.kill(obs.obs_process_pid, signal.SIGTERM)
+                print(f"OBS (PID {obs.obs_process_pid}) has been terminated.")
+                if os.path.exists(obs.OBS_PID_FILE):
+                    os.remove(obs.OBS_PID_FILE)
+            except Exception as e:
+                print(f"Error terminating OBS: {e}")
+            return
         try:
             subprocess.run(["taskkill", "/PID", str(obs.obs_process_pid),
                            "/F"], check=True, capture_output=True, text=True)

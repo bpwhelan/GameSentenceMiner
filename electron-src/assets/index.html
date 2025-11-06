@@ -247,7 +247,7 @@
                     </h2>
                     <div id="setup-collapsible-content" class="collapsible-content" style="display: block;">
                         <div class="form-group">
-                            <!-- <button id="install-recommended-btn">Install OwOCR</button> -->
+                            <p style="text-align: center;">OwOCR is already installed.</p>
                             <div id="dependency-select-group" class="input-group">
                                 <label for="dependency-select">Optional:</label>
                                 <select id="dependency-select">
@@ -268,8 +268,7 @@
                                 <button id="install-selected-dep" class="secondary">Install</button>
                                 <div class="tooltip">❓
                                     <span class="tooltiptext">Install the selected dependency. If unsure, choose a
-                                        recommended option. Google Lens, and OneOCR are now installed with "Install
-                                        OwOCR" button.</span>
+                                        recommended option.</span>
                                 </div>
                             </div>
                         </div>
@@ -340,7 +339,8 @@
                                     <option value="" disabled selected>Select Stability OCR</option>
                                     <!-- <option value="glens">Google Lens</option> -->
                                     <option value="oneocr">OneOCR (Recommended)</option>
-                                    <option value="meiki_text_detector">Meiki Text Detector (Experimental, Fast)</option>
+                                    <option value="meiki_text_detector">Meiki Text Detector (Experimental, Faster)</option>
+                                    <!-- <option value="meikiocr">Meiki OCR (Experimental, Fast)</option> -->
                                     <option value="alivetext">Apple Live Text (Mac Only)</option>
                                     <!-- <option value="gemini">Gemini</option> -->
                                     <!-- <option value="qwenv2">Qwen2-VL</option> -->
@@ -364,15 +364,16 @@
                                 </label>
                                 <select id="ocr2-input">
                                     <option value="" disabled selected>Select Main OCR</option>
-                                    <option value="glens">Google Lens (Recommended)</option>
-                                    <option value="bing">Bing</option>
-                                    <option value="oneocr">OneOCR</option>
-                                    <option value="gemini">Gemini</option>
+                                    <option value="glens">Google Lens (Accurate, Recommended)</option>
+                                    <option value="bing">Bing (Accurate) </option>
+                                    <option value="oneocr">OneOCR (Fast)</option>
+                                    <option value="meikiocr">Meiki OCR (Experimental, JP Only)</option>
+                                    <option value="gemini">Gemini (Accurate, API Key Required)</option>
                                     <!-- <option value="qwenv2">Qwen2-VL</option> -->
                                     <!-- <option value="easyocr">EasyOCR</option>
-                                    <option value="rapidocr">RapidOCR</option>
-                                    <option value="mangaocr">MangaOCR</option>
-                                    <option value="winrtocr">WindowsOCR</option> -->
+                                    <option value="rapidocr">RapidOCR</option> -->
+                                    <option value="mangaocr">MangaOCR (Not Recommended/Tested)</option>
+                                    <!-- <option value="winrtocr">WindowsOCR (Inaccurate, use OneOCR)</option> -->
                                     <option value="gvision">Google Vision</option>
                                     <option value="azure">Azure Image Analysis</option>
                                     <option value="ocrspace">OCRSpace</option>
@@ -381,7 +382,14 @@
                                 </select>
                             </div>
                             <div id="language-select-group" class="input-group">
-                                <label for="languageSelect">Language:</label>
+                                <label for="languageSelect", class="tooltip-indicator">
+                                    Language:
+                                    <span class="tooltiptext tooltiptext-right">
+                                        Select the language for OCR Processing. This ensures only blocks with the correct characters are captured.
+                                        <br>
+                                        Note: All Latin Languages (English, Spanish, French, German, etc.) are supported under English.
+                                    </span>
+                                </label>
                                 <select id="languageSelect">
                                     <option value="ja">Japanese</option>
                                     <option value="zh">Chinese</option>
@@ -713,6 +721,7 @@
                     "Qwen2-VL": { ansi: "\x1b[90m", html: "color: #808080;" },
                     "Local LLM OCR": { ansi: "\x1b[95m", html: "color: #D6A4FF;" },
                     "Meiki": { ansi: "\x1b[91m", html: "color: crimson;" },
+                    "MeikiOCR": { ansi: "\x1b[91m", html: "color: crimson;" },
                 };
 
                 function getEngineColor(engine, ansi = true) {

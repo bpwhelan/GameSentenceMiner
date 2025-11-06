@@ -395,6 +395,7 @@ class ConfigApp:
         self.obs_password_value = tk.StringVar(value=self.settings.obs.password)
         self.obs_open_obs_value = tk.BooleanVar(value=self.settings.obs.open_obs)
         self.obs_close_obs_value = tk.BooleanVar(value=self.settings.obs.close_obs)
+        self.obs_path_value = tk.StringVar(value=self.settings.obs.obs_path)
         self.obs_minimum_replay_size_value = tk.StringVar(value=str(self.settings.obs.minimum_replay_size))
         self.automatically_manage_replay_buffer_value = tk.BooleanVar(value=self.settings.obs.automatically_manage_replay_buffer)
         
@@ -720,6 +721,7 @@ class ConfigApp:
             obs=OBS(
                 open_obs=self.obs_open_obs_value.get(),
                 close_obs=self.obs_close_obs_value.get(),
+                obs_path=self.obs_path_value.get(),
                 host=self.obs_host_value.get(),
                 port=int(self.obs_port_value.get()),
                 password=self.obs_password_value.get(),
@@ -1957,6 +1959,16 @@ class ConfigApp:
                              row=self.current_row, column=0)
         ttk.Checkbutton(obs_frame, variable=self.obs_close_obs_value, bootstyle="round-toggle").grid(row=self.current_row,
                                                                                            column=1, sticky='W', pady=2)
+        self.current_row += 1
+
+        obs_path_i18n = obs_i18n.get('obs_path', {})
+        browse_text = self.i18n.get('buttons', {}).get('browse', 'Browse')
+        HoverInfoLabelWidget(obs_frame, text=obs_path_i18n.get('label', '...'), tooltip=obs_path_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        obs_path_entry = ttk.Entry(obs_frame, width=50, textvariable=self.obs_path_value)
+        obs_path_entry.grid(row=self.current_row, column=1, sticky='EW', pady=2)
+        ttk.Button(obs_frame, text=browse_text, command=lambda: self.browse_file(obs_path_entry),
+                   bootstyle="outline").grid(row=self.current_row, column=2, padx=5, pady=2)
         self.current_row += 1
 
         host_i18n = obs_i18n.get('host', {})

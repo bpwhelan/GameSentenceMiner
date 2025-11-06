@@ -34,6 +34,7 @@ export interface SteamGame {
     executablePath: string;
     runAgent: boolean;
     runTextractor: boolean;
+    agentDelay: number;
 }
 
 function launchSteamGame(gameIdOrExecutable: number | string): number | null {
@@ -129,6 +130,10 @@ export async function launchSteamGameID(name: string, shouldLaunchAgent: boolean
 
     if (selectedGame) {
         if (selectedGame.runTextractor) {
+            if (selectedGame.agentDelay && selectedGame.agentDelay > 0) {
+                console.log(`Waiting for ${selectedGame.agentDelay} seconds before launching Textractor...`);
+                await new Promise(resolve => setTimeout(resolve, selectedGame.agentDelay * 1000));
+            }
             const textractorPath = getTextractorPath();
             const textractorDir = path.dirname(textractorPath);
             const textractorProcess = execFile(textractorPath, {windowsHide: false, cwd: textractorDir});
@@ -140,8 +145,12 @@ export async function launchSteamGameID(name: string, shouldLaunchAgent: boolean
             const steamPid = launchSteamGame(selectedGame.id);
         }
         if (selectedGame.runAgent) {
-            setTimeout(() => {
+            setTimeout(async () => {
                 if (shouldLaunchAgent) {
+                    if (selectedGame.agentDelay && selectedGame.agentDelay > 0) {
+                        console.log(`Waiting for ${selectedGame.agentDelay} seconds before launching Agent...`);
+                        await new Promise(resolve => setTimeout(resolve, selectedGame.agentDelay * 1000));
+                    }
                     getPidByProcessName(selectedGame.processName).then((gamePid) => {
                         if (gamePid === -1) {
                             console.warn(`Game process not found for Process Name: ${selectedGame.processName}, need to manually connect!`);
@@ -343,7 +352,8 @@ export function registerSteamIPC() {
                             scene,
                             executablePath,
                             runAgent,
-                            runTextractor
+                            runTextractor,
+                            agentDelay
                         } = config;
                         const games = getSteamGames() || [];
                         const newGame = {
@@ -354,7 +364,8 @@ export function registerSteamIPC() {
                             scene: scene,
                             executablePath: executablePath,
                             runAgent: runAgent,
-                            runTextractor: runTextractor
+                            runTextractor: runTextractor,
+                            agentDelay: agentDelay
                         };
                         games.push(newGame);
                         setSteamGames(games);

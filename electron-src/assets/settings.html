@@ -60,6 +60,16 @@
                 <label for="runOverlayOnStartup">Run Overlay on Startup:</label>
                 <input type="checkbox" id="runOverlayOnStartup">
             </div>
+
+            <div class="input-group">
+                <label for="runManualOCROnStartup">Run Manual OCR on Startup:</label>
+                <input type="checkbox" id="runManualOCROnStartup">
+                <span class="tooltip tooltip-bottom tooltip-right">❓
+                    <span class="tooltiptext">
+                        Automatically starts manual OCR mode when the application launches.
+                    </span>
+                </span>
+            </div>
     </div>
 </div>
 
@@ -149,6 +159,7 @@
         const runWindowTransparencyToolBtn = document.getElementById('runWindowTransparencyToolBtn');
         const runWindowTransparencyToolOnStartupCheckbox = document.getElementById('runWindowTransparencyToolOnStartup');
         const runOverlayOnStartupCheckbox = document.getElementById('runOverlayOnStartup');
+        const runManualOCROnStartupCheckbox = document.getElementById('runManualOCROnStartup');
         const obsSceneSelector = document.getElementById('obs-ocr-scene-selector');
 
         // ====================================================================
@@ -240,6 +251,7 @@
                 windowTransparencyTargetInput.value = settings.windowTransparencyTarget || '';
                 runWindowTransparencyToolOnStartupCheckbox.checked = settings.runWindowTransparencyToolOnStartup || false;
                 runOverlayOnStartupCheckbox.checked = settings.runOverlayOnStartup || false;
+                runManualOCROnStartupCheckbox.checked = settings.runManualOCROnStartup || false;
                 // autoRunWindowTransparencyToolCheckbox.checked = settings.autoRunWindowTransparencyTool || false;
                 // pullPreReleasesCheckbox.checked = settings.pullPreReleases || false;
             }
@@ -273,6 +285,7 @@
                 windowTransparencyTarget: windowTransparencyTargetInput.value.trim(),
                 runWindowTransparencyToolOnStartup: runWindowTransparencyToolOnStartupCheckbox.checked,
                 runOverlayOnStartup: runOverlayOnStartupCheckbox.checked,
+                runManualOCROnStartup: runManualOCROnStartupCheckbox.checked,
                 obsOcrScenes: Array.from(obsSceneSelector.selectedOptions).map(option => option.value)
             };
             await ipcRenderer.invoke('settings.saveSettings', settings);
@@ -286,7 +299,8 @@
             windowTransparencyToolHotkeyInput,
             startConsoleMinimizedCheckbox,
             runWindowTransparencyToolOnStartupCheckbox,
-            runOverlayOnStartupCheckbox
+            runOverlayOnStartupCheckbox,
+            runManualOCROnStartupCheckbox
         ].forEach(element => {
             element.addEventListener('change', async () => {
                 await saveSettings();

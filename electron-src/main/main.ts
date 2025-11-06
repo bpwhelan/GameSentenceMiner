@@ -18,6 +18,7 @@ import {
     execFileAsync,
     getAssetsDir,
     getGSMBaseDir,
+    getSanitizedPythonEnv,
     isConnected,
     isDev,
     isWindows,
@@ -37,6 +38,7 @@ import {
     getPullPreReleases,
     getRunOverlayOnStartup,
     getRunWindowTransparencyToolOnStartup,
+    getRunManualOCROnStartup,
     getStartConsoleMinimized,
     setPythonPath,
     setWindowName,
@@ -53,7 +55,7 @@ import {
     stopWindowTransparencyTool,
     window_transparency_process,
 } from './ui/settings.js';
-import { registerOCRUtilsIPC, startOCR, stopOCR } from './ui/ocr.js';
+import { registerOCRUtilsIPC, startOCR, stopOCR, startManualOCR } from './ui/ocr.js';
 import * as fs from 'node:fs';
 import archiver from 'archiver';
 import { registerFrontPageIPC, runOverlay } from './ui/front.js';
@@ -355,7 +357,9 @@ async function runCommand(
     stderr: boolean
 ): Promise<void> {
     return new Promise((resolve, reject) => {
-        const proc = spawn(command, args);
+        const proc = spawn(command, args, {
+            env: getSanitizedPythonEnv()
+        });
 
         if (stdout) {
             proc.stdout.on('data', (data) => {
@@ -394,7 +398,9 @@ async function cleanCache(): Promise<void> {
  */
 function runGSM(command: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
-        const proc = spawn(command, args);
+        const proc = spawn(command, args, {
+            env: getSanitizedPythonEnv()
+        });
 
         pyProc = proc;
 
@@ -726,6 +732,10 @@ async function processArgsAndStartSettings() {
     if (getRunWindowTransparencyToolOnStartup()) {
         runWindowTransparencyTool();
     }
+
+    if (getRunManualOCROnStartup()) {
+        startManualOCR();
+    }
 }
 
 app.disableHardwareAcceleration();
@@ -875,7 +885,7 @@ async function restartGSM(): Promise<void> {
     });
 }
 
-export { closeGSM, restartGSM };
+export { closeGSM, restartGSM, closeAllPythonProcesses };
 
 export async function stopScripts(): Promise<void> {
     if (window_transparency_process && !window_transparency_process.killed) {

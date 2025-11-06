@@ -119,11 +119,6 @@
         const obsStatusBtn = document.getElementById('obs-status');
         const sceneSelect = document.getElementById('sceneSelect');
         const windowSelect = document.getElementById('windowSelect');
-        let osInfo = {
-            isWindows: true,
-            isMac: false,
-            isLinux: false
-        };
 
 
         obsStatusBtn.addEventListener('click', async () => {
@@ -155,7 +150,7 @@
         });
 
         function getWindows(showLoading = true) {
-            if (osInfo && osInfo.isWindows === false) {
+            if (isWindows === false) {
                 return;
             }
             // Remember the previously selected window
@@ -390,10 +385,10 @@
 
         async function applyOSSpecificUI() {
             // Get OS info from shared state (set by index.html)
-            systemInfo = await sharedState.getState('systemInfo');
+            let systemInfo = await sharedState.getState('systemInfo');
 
             if (systemInfo) {
-                osInmfo = systemInfo;
+                let osInfo = systemInfo;
                 console.log('Using OS info from shared state:', systemInfo);
 
                 // Disable "Run Overlay" button and help icon on non-Windows
@@ -403,7 +398,7 @@
                 const createNewSceneBtn = document.getElementById('createNewSceneBtn');
                 const createNewSceneGameBtn = document.getElementById('createNewSceneGameBtn');
 
-                if (osInfo.isWindows) {
+                if (isWindows) {
                     if (runOverlayBtn) {
                         runOverlayBtn.disabled = false;
                         runOverlayBtn.style.opacity = '1';

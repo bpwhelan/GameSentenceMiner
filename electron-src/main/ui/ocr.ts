@@ -25,7 +25,8 @@ import {
     setKeepNewline,
     setUseObsAsSource,
 } from '../store.js';
-import { isQuitting, mainWindow } from '../main.js';
+import { getSanitizedPythonEnv } from '../util.js';
+import { closeAllPythonProcesses, isQuitting, mainWindow, restartGSM } from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
 import {
     BASE_DIR,
@@ -60,6 +61,7 @@ async function runScreenSelector(windowTitle: string) {
 
         const process = spawn(getPythonPath(), args, {
             detached: false,
+            env: getSanitizedPythonEnv()
         });
 
         process.stdout?.on('data', (data: Buffer) => {
@@ -117,7 +119,9 @@ function runOCR(command: string[]) {
     mainWindow?.webContents.send('ocr-started');
 
     // 3. Spawn the new process and store it in a local variable.
-    const newOcrProcess = spawn(executable, args);
+    const newOcrProcess = spawn(executable, args, {
+        env: getSanitizedPythonEnv()
+    });
     ocrProcess = newOcrProcess; // Assign to the global variable.
 
     // 4. Capture and log standard output from the process.
@@ -168,7 +172,9 @@ async function runCommandAndLog(command: string[]): Promise<void> {
         }
 
         console.log(`Starting process with command: ${executable} ${args.join(' ')}`);
-        const process = spawn(executable, args);
+        const process = spawn(executable, args, {
+            env: getSanitizedPythonEnv()
+        });
 
         process.stdout?.on('data', (data: Buffer) => {
             const log = data.toString().trim();
@@ -263,9 +269,46 @@ export function stopOCR() {
     }
 }
 
+export function startManualOCR() {
+    if (!ocrProcess) {
+        const ocr_config = getOCRConfig();
+        const ocr1 = ocr_config.twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
+        const command = [
+            `${getPythonPath()}`,
+            `-m`,
+            `GameSentenceMiner.ocr.owocr_helper`,
+            `--language`,
+            `${ocr_config.language}`,
+            `--ocr1`,
+            `${ocr_config.ocr2}`,
+            `--ocr2`,
+            `${ocr_config.ocr2}`,
+            `--window`,
+            `${ocr_config.window_name}`,
+            `--manual`,
+        ];
+        if (ocr_config.ocr_screenshots) command.push('--clipboard');
+        if (ocr_config.sendToClipboard) command.push('--clipboard-output');
+        if (ocr_config.furigana_filter_sensitivity > 0)
+            command.push(
+                '--furigana_filter_sensitivity',
+                `${ocr_config.furigana_filter_sensitivity}`
+            );
+        if (ocr_config.areaSelectOcrHotkey)
+            command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey}`);
+        if (ocr_config.manualOcrHotkey)
+            command.push('--manual_ocr_hotkey', `${ocr_config.manualOcrHotkey}`);
+        if (ocr_config.useWindowForConfig) command.push('--use_window_for_config');
+        if (ocr_config.keep_newline) command.push('--keep_newline');
+        if (ocr_config.useObsAsOCRSource) command.push('--obs_ocr');
+        runOCR(command);
+    }
+}
+
 export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.install-recommended-deps', async () => {
         const pythonPath = getPythonPath();
+        await closeAllPythonProcesses();
         mainWindow?.webContents.send('ocr-log', `Downloading OneOCR files...`);
         const dependencies = [
             'jaconv',
@@ -332,11 +375,13 @@ export function registerOCRUtilsIPC() {
             `\x1b[32mAll recommended dependencies installed successfully.\x1b[0m`
         );
         mainWindow?.webContents.send('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
+        await restartGSM();
         // setTimeout(() => mainWindow?.webContents.send('ocr-log', 'COMMAND_FINISHED'), 5000);
     });
 
     ipcMain.on('ocr.install-selected-dep', async (_, dependency: string) => {
         const pythonPath = getPythonPath();
+        await closeAllPythonProcesses();
         let command: string[];
         if (dependency.includes('pip')) {
             command = [
@@ -358,9 +403,12 @@ export function registerOCRUtilsIPC() {
             `\x1b[32mInstalled ${dependency} successfully.\x1b[0m`
         );
         mainWindow?.webContents.send('ocr-log', `\x1b[32mYou can now close this console.\x1b[0m`);
+        await restartGSM();
     });
 
     ipcMain.on('ocr.uninstall-selected-dep', async (_, dependency: string) => {
+        const pythonPath = getPythonPath();
+        await closeAllPythonProcesses();
         const response = await dialog.showMessageBox(mainWindow!, {
             type: 'question',
             buttons: ['Yes', 'No'],
@@ -393,6 +441,7 @@ export function registerOCRUtilsIPC() {
         } else {
             mainWindow?.webContents.send('ocr-log', `Uninstall canceled for ${dependency}.`);
         }
+        await restartGSM();
     });
 
     ipcMain.on('ocr.run-screen-selector', async (_, window_title: string) => {

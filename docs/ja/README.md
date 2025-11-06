@@ -1,16 +1,16 @@
-# GameSentenceMiner (GSM)
+# GSM - ゲーム向けイマージョンツールキット
 
 ### [English](../../README.md) | 日本語 | [简体中文](../zh/README.md)
 
-ゲームを使った言語学習を支援するために設計されたアプリケーションです。ゲーム版の「[asbplayer](https://github.com/killergerbah/asbplayer)」を目指しています。
+ゲームを使った言語学習を支援するために設計されたアプリケーションです。
 
 ショートデモ（まずはこちらをご覧ください）： https://www.youtube.com/watch?v=FeFBL7py6HY
 
-インストール方法： https://youtu.be/h5ksXallc-o
+インストール方法： https://www.youtube.com/watch?v=sVL9omRbGc4
 
 Discord： https://discord.gg/yP8Qse6bb8
 
-## 主な機能
+## 機能 - [Ankiカードの強化](#ankiカードの強化) | [OCR](#ocr) | [オーバーレイ](#オーバーレイ) | [統計](#統計)
 
 ### Ankiカードの強化
 
@@ -53,7 +53,17 @@ GSMは[OwOCR](https://github.com/AuroraWright/owocr/)のフォークを実行し
 
 https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
-### ゲームランチャー機能（開発中）
+---
+
+### オーバーレイ
+
+GSMは、画面上でYomitanによる辞書検索を可能にするオーバーレイ機能も備えています。オーバーレイが有効になっている場合、GSMに任意のソースからテキストイベントが入ってくるたびに、画面を一度スキャンします。その後、ゲーム内の実際の文字にカーソルを合わせることで、Yomitanでの検索やマイニングが可能になります。
+
+https://youtu.be/m1MweBsHbwI
+
+![l0qGasWkoH](https://github.com/user-attachments/assets/c8374705-efa0-497b-b979-113fae8a1e31)
+
+<!--### ゲームランチャー機能（開発中）
 
 これはおそらく私が最も力を入れていない機能ですが、私のように面倒くさがりな方には役立つかもしれません。
 
@@ -63,7 +73,45 @@ https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
 この機能は、ゲームの起動と（将来的には）フックのプロセスを簡素化し、ワークフロー全体をより効率的にします。
 
-<img width="2560" height="1392" alt="GameSentenceMiner_1zuov0R9xK" src="https://github.com/user-attachments/assets/205769bb-3dd2-493b-9383-2d6e2ca05c2d" />
+<img width="2560" height="1392" alt="GameSentenceMiner_1zuov0R9xK" src="https://github.com/user-attachments/assets/205769bb-3dd2-493b-9383-2d6e2ca05c2d" />-->
+
+---
+
+### 統計
+
+GSMには、現在**32種類のグラフ**を備えた統計ページがあり、充実したデータを視覚化できます。
+
+![stats](../../docs/images/overview2.png)
+
+この統計は、ただ見た目が良いだけではありません。
+
+あなたの成長を助けるために設計されています。
+
+目標を設定し、それを達成するために毎日必要なタスクを正確に確認できます：
+
+![stats](../../docs/images/goals2.png)
+
+読んだすべての漢字を、好きな順序で表示できます：
+
+![stats](../../docs/images/kanji_grid2.png)
+
+そして、それらをクリックすると、その漢字を含むすべての文章を見ることができます：
+
+![stats](../../docs/images/search2.png)
+
+Ankiを使っていますか？よく読む漢字だけど、まだAnkiに入っていない漢字を見つけられます：
+
+![stats](../../docs/images/anki2.png)
+
+高度なツールで、好きな方法でデータをクリーンアップできます。
+
+![stats](../../docs/images/db_management2.png)
+
+これらの統計は、ただ見た目を良くするためだけでなく、以下のような質問に答えるために設計されています：
+* 楽しさと学習の両方を最大化できるゲームは何か？
+* 夕方と朝、どちらの方が読解力が高いか？
+* この言語で上達しているか？
+* 目標を達成するために、どのくらいイマージョンすべきか？
 
 ## 必要なもの
 
@@ -107,6 +155,12 @@ GSMには、理想的とは言えないフックに対応するための設定�
 
 *   https://github.com/Saplling/transparent-texthooker-overlay
 
+*   [exSTATic](https://github.com/KamWithK/exSTATic) - GSMの統計機能のインスピレーション
+
+*   [Kanji Grid](https://github.com/Kuuuube/kanjigrid)
+
+*   [Jiten.moe（メタデータ提供）](https://jiten.moe)
+
 ## 寄付
 
-もしこのプロジェクトや他の私のプロジェクトが役に立ったと感じたら、[GitHub Sponsors](https://github.com/sponsors/bpwhelan)、[Ko-fi](https://ko-fi.com/beangate)、または[Patreon](https://www.patreon.com/GameSentenceMiner)を通じて私の活動を支援していただけると幸いです。
+もしこのプロジェクトや他の私のプロジェクトが役に立ったと感じたら、[GitHub Sponsors](https://github.com/sponsors/bpwhelan)または[Ko-fi](https://ko-fi.com/beangate)を通じて私の活動を支援していただけると幸いです。

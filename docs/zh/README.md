@@ -1,16 +1,16 @@
-# GameSentenceMiner (GSM)
+# GSM - 游戏沉浸工具包
 
 ### [English](../../README.md) | [日本語](../ja/README.md) | 简体中文
 
-一款旨在通过游戏辅助语言学习的应用程序。目标是成为游戏领域的“[asbplayer](https://github.com/killergerbah/asbplayer)”。
+一款旨在通过游戏辅助语言学习的应用程序。
 
 简短演示（请先观看）： https://www.youtube.com/watch?v=FeFBL7py6HY
 
-安装教程： https://youtu.be/h5ksXallc-o
+安装教程： https://www.youtube.com/watch?v=sVL9omRbGc4
 
 Discord： https://discord.gg/yP8Qse6bb8
 
-## 功能特性
+## 功能特性 - [Anki 卡片增强](#anki-卡片增强) | [OCR](#ocr) | [覆层](#覆层) | [统计](#统计)
 
 ### Anki 卡片增强
 
@@ -53,7 +53,17 @@ GSM 运行 [OwOCR](https://github.com/AuroraWright/owocr/) 的一个分支，为
 
 https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
-### 游戏启动器功能 (开发中)
+---
+
+### 覆层
+
+GSM 还提供了一个覆层功能，可以在屏幕上进行 Yomitan 词典查询。当覆层开启时，每当 GSM 收到来自任何源的文本事件时，它都会扫描屏幕一次。然后您可以将鼠标悬停在游戏中的实际字符上，进行 Yomitan 查询和词条挖掘。
+
+https://youtu.be/m1MweBsHbwI
+
+![l0qGasWkoH](https://github.com/user-attachments/assets/c8374705-efa0-497b-b979-113fae8a1e31)
+
+<!--### 游戏启动器功能 (开发中)
 
 这可能是我最不关心的功能，但如果您和我一样懒，也许会觉得它很有用。
 
@@ -63,7 +73,45 @@ https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
 此功能简化了启动游戏和（未来可能）注入钩子的过程，使整个工作流程更加高效。
 
-<img width="2560" height="1392" alt="GameSentenceMiner_1zuov0R9xK" src="https://github.com/user-attachments/assets/205769bb-3dd2-493b-9383-2d6e2ca05c2d" />
+<img width="2560" height="1392" alt="GameSentenceMiner_1zuov0R9xK" src="https://github.com/user-attachments/assets/205769bb-3dd2-493b-9383-2d6e2ca05c2d" />-->
+
+---
+
+### 统计
+
+GSM 拥有一个统计页面，目前提供 **32 个图表**，充满了精美的数据可视化。
+
+![stats](../../docs/images/overview2.png)
+
+这些统计数据不仅仅是好看。
+
+它们旨在帮助您成长。
+
+设定目标，准确了解实现目标需要完成的日常任务：
+
+![stats](../../docs/images/goals2.png)
+
+以您想要的任何顺序查看所有已阅读的汉字：
+
+![stats](../../docs/images/kanji_grid2.png)
+
+点击它们可以查看包含该汉字的每个句子：
+
+![stats](../../docs/images/search2.png)
+
+使用 Anki？查找您经常阅读但尚未加入 Anki 的汉字：
+
+![stats](../../docs/images/anki2.png)
+
+使用高级工具，以您想要的任何方式清理数据。
+
+![stats](../../docs/images/db_management2.png)
+
+这些统计数据不仅仅是为了好看，它们旨在帮助您回答以下问题：
+* 我可以玩什么游戏来最大化乐趣和学习效果？
+* 我是在晚上还是在早上阅读得更好？
+* 我在这门语言上有进步吗？
+* 我应该沉浸多长时间才能达到我的目标？
 
 ## 基本要求
 
@@ -107,6 +155,12 @@ GSM 提供了一些设置来适应不太理想的文本钩子。但是，如果�
 
 *   https://github.com/Saplling/transparent-texthooker-overlay
 
+*   [exSTATic](https://github.com/KamWithK/exSTATic) - GSM 统计功能的灵感来源
+
+*   [Kanji Grid](https://github.com/Kuuuube/kanjigrid)
+
+*   [Jiten.moe 提供元数据](https://jiten.moe)
+
 ## 赞助
 
-如果您觉得这个项目或我的其他项目对您有帮助，请考虑通过 [GitHub Sponsors](https://github.com/sponsors/bpwhelan)、[Ko-fi](https://ko-fi.com/beangate) 或 [Patreon](https://www.patreon.com/GameSentenceMiner) 支持我的工作。
+如果您觉得这个项目或我的其他项目对您有帮助，请考虑通过 [GitHub Sponsors](https://github.com/sponsors/bpwhelan) 或 [Ko-fi](https://ko-fi.com/beangate) 支持我的工作。
