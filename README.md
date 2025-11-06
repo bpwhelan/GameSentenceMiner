@@ -162,7 +162,9 @@ If you encounter issues, please ask for help in my [Discord](https://discord.gg/
 
 * [Kanji Grid](https://github.com/Kuuuube/kanjigrid)
 
-* [Jiten.moe for metadata](https://jiten.moe)
+* [Jiten.moe](https://jiten.moe) for metadata
+
+* [MeikiOCR](https://github.com/rtr46/meikiocr) by [rtr46](https://github.com/rtr46). Make sure to check out his cool project [Meikipop](https://github.com/rtr46/meikidroid) if you need something simpler than GSM Overlay.
 
 ## Donations
 
