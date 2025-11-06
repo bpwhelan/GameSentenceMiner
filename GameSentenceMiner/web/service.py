@@ -1,4 +1,5 @@
 import os
+import shlex
 import shutil
 import subprocess
 import threading
@@ -125,8 +126,7 @@ def handle_texthooker_button(video_path=''):
                 os.startfile(screenshot)
             return
     except Exception as e:
-        logger.error(f"Error Playing Audio/Video: {e}")
-        logger.debug(f"Error Playing Audio/Video: {e}", exc_info=True)
+        logger.error(f"Error Playing Audio/Video: {e}", exc_info=True)
         return
     finally:
         gsm_state.previous_replay = video_path
@@ -153,13 +153,16 @@ def play_video_in_external(line, filepath):
     start, _, _, _ = get_video_timings(filepath, line)
 
     if start:
-        if "vlc" in get_config().advanced.video_player_path:
-            command.extend(["--start-time", convert_to_vlc_seconds(start), '--one-instance'])
+        if "vlc" in get_config().advanced.video_player_path.lower():
+            # VLC uses --start-time with seconds (float or int)
+            command.extend(["--start-time", str(start), '--one-instance'])
         else:
-            command.extend(["--start", convert_to_vlc_seconds(start)])
+            # MPV and most other players use --start with seconds
+            command.extend([f"--start={start}"])
     command.append(os.path.normpath(filepath))
 
-    logger.info(" ".join(command))
+    # Use shlex.join for proper shell-escaped logging (runnable command)
+    logger.info(shlex.join(command))
 
 
 
@@ -170,14 +173,4 @@ def play_video_in_external(line, filepath):
         logger.error("VLC not found. Make sure it's installed and in your PATH.")
     except Exception as e:
         logger.error(f"An error occurred: {e}")
-
-
-def convert_to_vlc_seconds(time_str):
-    """Converts HH:MM:SS.milliseconds to VLC-compatible seconds."""
-    try:
-        hours, minutes, seconds_ms = time_str.split(":")
-        seconds, milliseconds = seconds_ms.split(".")
-        total_seconds = (int(hours) * 3600) + (int(minutes) * 60) + int(seconds) + (int(milliseconds) / 1000.0)
-        return str(total_seconds)
-    except ValueError:
-        return "Invalid time format"
+        
