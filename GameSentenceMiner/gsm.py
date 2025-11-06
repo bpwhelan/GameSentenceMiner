@@ -36,13 +36,11 @@ try:
     import signal
     import datetime
     from subprocess import Popen
-    os.environ.pop('TCL_LIBRARY', None)
 
     import keyboard
     import ttkbootstrap as ttk
     from PIL import Image
     try:
-        pass
         from pystray import Icon, Menu, MenuItem
     except Exception:
         logger.warning("pystray not installed correctly, tray icon will not work.")
@@ -564,6 +562,15 @@ gsm_tray = GSMTray()
 def close_obs():
     obs.disconnect_from_obs()
     if obs.obs_process_pid:
+        if is_linux() or is_mac():
+            try:
+                os.kill(obs.obs_process_pid, signal.SIGTERM)
+                print(f"OBS (PID {obs.obs_process_pid}) has been terminated.")
+                if os.path.exists(obs.OBS_PID_FILE):
+                    os.remove(obs.OBS_PID_FILE)
+            except Exception as e:
+                print(f"Error terminating OBS: {e}")
+            return
         try:
             subprocess.run(["taskkill", "/PID", str(obs.obs_process_pid),
                            "/F"], check=True, capture_output=True, text=True)
@@ -706,6 +713,34 @@ def initialize(reloading=False):
         if is_mac():
             if shutil.which("ffmpeg") is None:
                 os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
+                
+        # Check for due cron jobs on startup
+        try:
+            from GameSentenceMiner.util.cron.run_crons import run_due_crons
+            logger.info("Checking for due cron jobs...")
+            run_due_crons()
+        except Exception as e:
+            logger.warning(f"Failed to check cron jobs on startup: {e}")
+        
+        # Check if rollup table needs initial population (version upgrade migration)
+        try:
+            from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
+            from GameSentenceMiner.util.db import GameLinesTable
+            from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
+            
+            # Check if we have game lines but no rollup data
+            first_rollup = StatsRollupTable.get_first_date()
+            has_game_lines = GameLinesTable._db.fetchone(
+                f"SELECT COUNT(*) FROM {GameLinesTable._table}"
+            )[0] > 0
+            
+            if has_game_lines and not first_rollup:
+                logger.info("Detected existing data without rollup table - running initial rollup generation...")
+                logger.info("This is a one-time migration for version upgrades. Please wait...")
+                rollup_result = run_daily_rollup()
+                logger.info(f"Initial rollup complete: processed {rollup_result.get('processed', 0)} dates")
+        except Exception as e:
+            logger.warning(f"Failed to check/populate rollup table on startup: {e}")
         if get_config().obs.open_obs:
             obs_process = obs.start_obs()
             # obs.connect_to_obs(start_replay=True)

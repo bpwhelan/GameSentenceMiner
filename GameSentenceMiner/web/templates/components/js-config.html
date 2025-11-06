@@ -6,26 +6,26 @@
 </script>
 {% endif %}
 
-<!-- Include shared JavaScript first (required dependency) -->
-<script src="/static/js/shared.js"></script>
+<!-- Include shared JavaScript first (required dependency) - deferred to not block rendering -->
+<script src="/static/js/shared.js" defer></script>
 
 {% if include_kanji_grid_js | default(false) %}
-<script src="/static/js/kanji-grid.js"></script>
+<script src="/static/js/kanji-grid.js" defer></script>
 {% endif %}
 
 {% if include_heatmap_js | default(false) %}
-<script src="/static/js/heatmap.js"></script>
+<script src="/static/js/heatmap.js" defer></script>
 {% endif %}
 
 {% if page_specific_js %}
-<!-- Include page-specific JavaScript -->
-<script src="/static/js/{{ page_specific_js }}"></script>
+<!-- Include page-specific JavaScript - deferred to not block rendering -->
+<script src="/static/js/{{ page_specific_js }}" defer></script>
 {% endif %}
 
 {% if additional_js %}
-<!-- Additional JavaScript files -->
+<!-- Additional JavaScript files - deferred to not block rendering -->
 {% for js_file in additional_js %}
-<script src="/static/js/{{ js_file }}"></script>
+<script src="/static/js/{{ js_file }}" defer></script>
 {% endfor %}
 {% endif %}
 

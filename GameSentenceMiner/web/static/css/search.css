@@ -1,5 +1,168 @@
 /* Search Page Specific Styles */
 
+/* Toggle Advanced Search Button */
+.toggle-advanced-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.toggle-advanced-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-color);
+}
+
+.toggle-advanced-btn:active {
+    transform: translateY(1px);
+}
+
+.toggle-advanced-btn #toggleIcon {
+    font-size: 12px;
+    transition: transform 0.2s ease;
+}
+
+/* Date Range Component Styling for Search Page */
+.search-container .date-range {
+    margin-top: 20px;
+    margin-bottom: 20px;
+}
+
+.search-container .dashboard-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.search-container .dashboard-card-header {
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.search-container .dashboard-card-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+
+.search-container .dashboard-card-icon {
+    font-size: 18px;
+}
+
+.search-container .dashboard-date-range {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: flex-end;
+}
+
+.search-container .dashboard-date-item {
+    flex: 1;
+    min-width: 150px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.search-container .dashboard-date-item label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.search-container .dashboard-date-input {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.search-container .dashboard-date-input:hover {
+    border-color: var(--accent-color);
+}
+
+.search-container .dashboard-date-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.search-container .dashboard-date-presets {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.search-container .dashboard-presets-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.search-container .dashboard-presets-select {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.search-container .dashboard-presets-select:hover {
+    border-color: var(--accent-color);
+}
+
+.search-container .dashboard-presets-select:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Tooltip styling for date inputs */
+.search-container .tooltip {
+    position: relative;
+}
+
+.search-container .tooltip:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 10px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 1000;
+    margin-bottom: 5px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
 /* Checkbox styling for search results */
 .line-checkbox {
     margin-top: 4px;
@@ -54,6 +217,61 @@
     }
 }
 
+/* Duplicate Detection Section Styles */
+#duplicateDetectionSection {
+    transition: all 0.3s ease;
+}
+
+#duplicateDetectionSection .form-group {
+    margin-bottom: 0;
+}
+
+#duplicateDetectionSection .form-input {
+    font-size: 14px;
+    transition: border-color 0.2s ease;
+}
+
+#duplicateDetectionSection .form-input:hover {
+    border-color: var(--accent-color);
+}
+
+#duplicateDetectionSection .form-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+#duplicateDetectionSection .checkbox-input:hover {
+    opacity: 0.8;
+}
+
+#duplicateDetectionSection .checkbox-label:hover {
+    color: var(--accent-color);
+}
+
+#toggleDuplicateDetection {
+    background: var(--bg-primary);
+    transition: all 0.2s ease;
+}
+
+#toggleDuplicateDetection:hover {
+    background: var(--bg-tertiary);
+    transform: translateY(-1px);
+}
+
+#searchDuplicatesBtn {
+    transition: all 0.2s ease;
+}
+
+#searchDuplicatesBtn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+#searchDuplicatesBtn:active {
+    transform: translateY(0);
+}
+
 /* Search-specific responsive styles */
 @media (max-width: 768px) {
     .navigation {
@@ -64,5 +282,13 @@
         display: block;
         margin: 5px 0;
         text-align: center;
+    }
+    
+    #duplicateDetectionSection {
+        padding: 12px;
+    }
+    
+    #duplicateDetectionSection .form-input {
+        font-size: 16px; /* Prevent zoom on mobile */
     }
 }

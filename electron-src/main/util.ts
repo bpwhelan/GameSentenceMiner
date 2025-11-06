@@ -92,9 +92,58 @@ export async function isConnected() {
     }
 }
 
+/**
+ * Creates a sanitized environment for running managed Python instances.
+ * Removes environment variables that could interfere with the isolated Python installation.
+ */
+export function getSanitizedPythonEnv(): NodeJS.ProcessEnv {
+    const env = { ...process.env };
+    
+    // Remove Python-specific variables that could cause conflicts
+    const varsToRemove = [
+        // Tk/Tcl libraries
+        'TCL_LIBRARY',
+        'TK_LIBRARY',
+        // Python paths
+        'PYTHONPATH',
+        'PYTHONHOME',
+        'PYTHONSTARTUP',
+        'PYTHONUSERBASE',
+        // Virtual environments
+        'VIRTUAL_ENV',
+        'CONDA_PREFIX',
+        'CONDA_DEFAULT_ENV',
+        'CONDA_PYTHON_EXE',
+        'CONDA_SHLVL',
+        // Python version managers
+        'PYENV_ROOT',
+        'PYENV_VERSION',
+        'PYENV_SHELL',
+        'PYENV_VIRTUAL_ENV',
+        // Poetry
+        'POETRY_ACTIVE',
+        'POETRY_HOME',
+        // Pip configuration
+        'PIP_CONFIG_FILE',
+        'PIP_REQUIRE_VIRTUALENV',
+    ];
+    
+    varsToRemove.forEach(varName => {
+        delete env[varName];
+    });
+    
+    // Set variables to isolate the Python instance
+    // env['PYTHONNOUSERSITE'] = '1';  // Prevent loading user site-packages
+    env['PYTHONIOENCODING'] = 'utf-8';  // Ensure consistent encoding
+    
+    return env;
+}
+
 export async function runPythonScript(pythonPath: string, args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-        const process = spawn(pythonPath, args);
+        const process = spawn(pythonPath, args, {
+            env: getSanitizedPythonEnv()
+        });
 
         let output = '';
         process.stdout.on('data', (data) => {

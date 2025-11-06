@@ -4,8 +4,8 @@ import { ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getOrInstallPython, reinstallPython } from '../python/python_downloader.js';
-import { runPipInstall, closeGSM, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
-import { BASE_DIR, execFileAsync, PACKAGE_NAME } from '../util.js';
+import { runPipInstall, closeAllPythonProcesses, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
+import { BASE_DIR, execFileAsync, PACKAGE_NAME, getSanitizedPythonEnv } from '../util.js';
 
 let consoleProcess: ChildProcess | null = null;
 
@@ -26,6 +26,7 @@ export async function pipInstallWithLogging(
         const proc = spawn(pythonPath, ['-m', 'uv', 'pip', '--no-progress', ...pipArgs], {
             stdio: ['ignore', 'pipe', 'pipe'],
             cwd: cwd || BASE_DIR,
+            env: getSanitizedPythonEnv()
         });
         if (proc.stdout) {
             proc.stdout.on('data', (data) => {
@@ -53,7 +54,7 @@ export function registerPythonIPC() {
     ipcMain.handle('python.installCudaPackage', async (_, cudaVersion: string) => {
         try {
             const pythonPath = await getOrInstallPython();
-            await closeGSM();
+            await closeAllPythonProcesses();
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
@@ -115,7 +116,7 @@ export function registerPythonIPC() {
     ipcMain.handle('python.installWhisperX', async () => {
         try {
             const pythonPath = await getOrInstallPython();
-            await closeGSM();
+            await closeAllPythonProcesses();
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
             if (pyProc) {
@@ -140,7 +141,7 @@ export function registerPythonIPC() {
         try {
             console.log('Starting GSM repair - removing Python directory and reinstalling...');
 
-            await closeGSM();
+            await closeAllPythonProcesses();
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
@@ -178,6 +179,7 @@ export function registerPythonIPC() {
                 {
                     stdio: 'inherit',
                     cwd: BASE_DIR,
+                    env: getSanitizedPythonEnv()
                 }
             );
 
@@ -209,7 +211,7 @@ export function registerPythonIPC() {
     ipcMain.handle('python.installCustomPackage', async (_, packageName: string) => {
         try {
             const pythonPath = await getOrInstallPython();
-            await closeGSM();
+            await closeAllPythonProcesses();
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
             if (pyProc) {
@@ -299,7 +301,7 @@ export function registerPythonIPC() {
     ipcMain.handle('python.reinstallPackage', async (_, packageName: string) => {
         try {
             const pythonPath = await getOrInstallPython();
-            await closeGSM();
+            await closeAllPythonProcesses();
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
@@ -315,6 +317,7 @@ export function registerPythonIPC() {
                 {
                     stdio: 'inherit',
                     cwd: BASE_DIR,
+                    env: getSanitizedPythonEnv()
                 }
             );
 
@@ -337,6 +340,7 @@ export function registerPythonIPC() {
                 {
                     stdio: 'inherit',
                     cwd: BASE_DIR,
+                    env: getSanitizedPythonEnv()
                 }
             );
 

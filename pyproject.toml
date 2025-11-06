@@ -59,7 +59,9 @@ dependencies = [
   "torchaudio==2.8.0",
   "pillow~=12.0.0",
   "openai~=2.6.0",
-  "pynput~=1.8.1"
+  "pynput~=1.8.1",
+  "flask-compress~=1.15",
+  "meikiocr~=0.1.1",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
@@ -72,5 +74,5 @@ gamesentenceminer = "GameSentenceMiner.gsm:main"
 packages = { find = { include = ["GameSentenceMiner*"] } }
 
 [tool.setuptools.package-data]
-"GameSentenceMiner.web" = ["static/*", "static/css/*", "static/js/*", "templates/*", "templates/components/*", "templates/components/kanji_grid/*"]
+"GameSentenceMiner.web" = ["**/*"]
 "GameSentenceMiner" = ["assets/*", "locales/*"]

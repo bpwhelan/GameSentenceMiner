@@ -222,34 +222,40 @@ class HeatmapRenderer {
                         const activity = yearData[dateStr] || 0;
                         
                         if (activity > 0 && maxActivity > 0) {
-                            // Calculate percentage of maximum activity
-                            const percentage = (activity / maxActivity) * 100;
-                            
-                            // Assign discrete color levels based on percentage thresholds
-                            let colorLevel;
-                            if (percentage <= 25) {
-                                colorLevel = 1; // Light green
-                            } else if (percentage <= 50) {
-                                colorLevel = 2; // Medium green
-                            } else if (percentage <= 75) {
-                                colorLevel = 3; // Dark green
+                            // Check if custom color function is provided
+                            if (this.customColorFunction) {
+                                cell.style.backgroundColor = this.customColorFunction(activity, maxActivity);
                             } else {
-                                colorLevel = 4; // Darkest green
+                                // Default color calculation
+                                // Calculate percentage of maximum activity
+                                const percentage = (activity / maxActivity) * 100;
+                                
+                                // Assign discrete color levels based on percentage thresholds
+                                let colorLevel;
+                                if (percentage <= 25) {
+                                    colorLevel = 1; // Light green
+                                } else if (percentage <= 50) {
+                                    colorLevel = 2; // Medium green
+                                } else if (percentage <= 75) {
+                                    colorLevel = 3; // Dark green
+                                } else {
+                                    colorLevel = 4; // Darkest green
+                                }
+                                
+                                // Define discrete colors for each level
+                                const colors = {
+                                    1: '#c6e48b', // Light green (1-25%)
+                                    2: '#7bc96f', // Medium green (26-50%)
+                                    3: '#239a3b', // Dark green (51-75%)
+                                    4: '#196127'  // Darkest green (76-100%)
+                                };
+                                
+                                cell.style.backgroundColor = colors[colorLevel];
                             }
-                            
-                            // Define discrete colors for each level
-                            const colors = {
-                                1: '#c6e48b', // Light green (1-25%)
-                                2: '#7bc96f', // Medium green (26-50%)
-                                3: '#239a3b', // Dark green (51-75%)
-                                4: '#196127'  // Darkest green (76-100%)
-                            };
-                            
-                            cell.style.backgroundColor = colors[colorLevel];
                         }
                         
                         // Format tooltip based on metric type
-                        const activityLabel = this.metricName === 'sentences' 
+                        const activityLabel = this.metricName === 'sentences'
                             ? `sentence${activity !== 1 ? 's' : ''} mined`
                             : `${this.metricLabel}`;
                         cell.title = `${dateStr}: ${activity} ${activityLabel}`;

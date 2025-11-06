@@ -517,6 +517,62 @@ function escapeRegex(string) {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function safeJoinArray(arr, separator = ', ') {
+    /**
+     * Safely join an array with proper type checking and fallbacks.
+     * Handles various data types that might be returned from API responses.
+     *
+     * @param {*} arr - The value to join (should be an array, but handles other types)
+     * @param {string} separator - The separator to use for joining
+     * @returns {string} - The joined string or appropriate fallback
+     */
+    if (!arr) {
+        return '';
+    }
+    
+    if (Array.isArray(arr)) {
+        return arr.join(separator);
+    }
+    
+    if (typeof arr === 'string') {
+        return arr;
+    }
+    
+    // Handle other types by converting to string
+    return String(arr);
+}
+
+function logApiResponse(operation, response, result) {
+    /**
+     * Log API response details for debugging purposes.
+     *
+     * @param {string} operation - The operation being performed
+     * @param {Response} response - The fetch response object
+     * @param {*} result - The parsed JSON result
+     */
+    console.group(`🔍 API Response Debug: ${operation}`);
+    console.log('Response status:', response.status, response.statusText);
+    console.log('Response OK:', response.ok);
+    console.log('Result object:', result);
+    
+    // Print FULL API response as formatted JSON
+    console.log('%c📋 FULL API RESPONSE (JSON):', 'color: #00ff00; font-weight: bold; font-size: 14px;');
+    console.log(JSON.stringify(result, null, 2));
+    
+    if (result && typeof result === 'object') {
+        Object.keys(result).forEach(key => {
+            const value = result[key];
+            console.log(`${key}:`, {
+                value,
+                type: typeof value,
+                isArray: Array.isArray(value),
+                length: Array.isArray(value) ? value.length : 'N/A'
+            });
+        });
+    }
+    console.groupEnd();
+}
+
 // Screenshot functionality
 function initializeScreenshotButton() {
     const screenshotButton = document.getElementById('screenshotToggle');
@@ -525,61 +581,159 @@ function initializeScreenshotButton() {
         return; // Screenshot button not available on this page
     }
     
-    screenshotButton.addEventListener('click', takeScreenshot);
+    screenshotButton.addEventListener('click', exportPageToPDF);
 }
 
-async function takeScreenshot() {
+// Lazy-load libraries
+let html2canvasLoaded = false;
+let html2canvasLoading = false;
+let jsPDFLoaded = false;
+let jsPDFLoading = false;
+
+// Lazy-load html2canvas
+async function loadHtml2Canvas() {
+    if (html2canvasLoaded) return true;
+    if (html2canvasLoading) {
+        return new Promise(resolve => {
+            const check = setInterval(() => {
+                if (html2canvasLoaded) {
+                    clearInterval(check);
+                    resolve(true);
+                }
+            }, 100);
+        });
+    }
+
+    html2canvasLoading = true;
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+        script.onload = () => {
+            html2canvasLoaded = true;
+            html2canvasLoading = false;
+            resolve(true);
+        };
+        script.onerror = () => {
+            html2canvasLoading = false;
+            reject(new Error('Failed to load html2canvas'));
+        };
+        document.head.appendChild(script);
+    });
+}
+
+// Lazy-load jsPDF
+async function loadJsPDF() {
+    if (jsPDFLoaded) return true;
+    if (jsPDFLoading) {
+        return new Promise(resolve => {
+            const check = setInterval(() => {
+                if (jsPDFLoaded) {
+                    clearInterval(check);
+                    resolve(true);
+                }
+            }, 100);
+        });
+    }
+
+    jsPDFLoading = true;
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        script.onload = () => {
+            jsPDFLoaded = true;
+            jsPDFLoading = false;
+            resolve(true);
+        };
+        script.onerror = () => {
+            jsPDFLoading = false;
+            reject(new Error('Failed to load jsPDF'));
+        };
+        document.head.appendChild(script);
+    });
+}
+
+// Capture page and export as PDF
+async function exportPageToPDF() {
     try {
-        // Check if html2canvas is available
+        console.log('Starting PDF export...');
+        
+        // Load libraries
         if (typeof html2canvas === 'undefined') {
-            console.error('html2canvas library not loaded');
-            return;
+            console.log('Loading html2canvas...');
+            await loadHtml2Canvas();
         }
-        
-        // Generate timestamp for filename
+        if (typeof window.jspdf === 'undefined') {
+            console.log('Loading jsPDF...');
+            await loadJsPDF();
+        }
+
+        const { jsPDF } = window.jspdf;
+
+        // Create timestamped filename
         const now = new Date();
-        const timestamp = now.getFullYear() + '-' +
-                         String(now.getMonth() + 1).padStart(2, '0') + '-' +
-                         String(now.getDate()).padStart(2, '0') + '_' +
-                         String(now.getHours()).padStart(2, '0') + '-' +
-                         String(now.getMinutes()).padStart(2, '0') + '-' +
-                         String(now.getSeconds()).padStart(2, '0');
-        
-        const filename = `screenshot_${timestamp}.png`;
-        
-        // Capture the entire page
+        const timestamp =
+            now.getFullYear() + '-' +
+            String(now.getMonth() + 1).padStart(2, '0') + '-' +
+            String(now.getDate()).padStart(2, '0') + '_' +
+            String(now.getHours()).padStart(2, '0') + '-' +
+            String(now.getMinutes()).padStart(2, '0') + '-' +
+            String(now.getSeconds()).padStart(2, '0');
+        const filename = `GSM_STATS_${timestamp}.pdf`;
+
+        console.log('Capturing page screenshot...');
+        // Take a screenshot of the full page with high quality for sharp text
         const canvas = await html2canvas(document.body, {
             useCORS: true,
             allowTaint: true,
-            scale: 1,
+            scale: 2.5,  // Higher scale for sharper text (2.5x resolution)
             scrollX: 0,
             scrollY: 0,
             width: document.body.scrollWidth,
-            height: document.body.scrollHeight
+            height: document.body.scrollHeight,
+            logging: false,
+            imageTimeout: 0,
+            removeContainer: true
         });
-        
-        // Convert canvas to blob
-        canvas.toBlob(function(blob) {
-            // Create download link
-            const link = document.createElement('a');
-            link.download = filename;
-            link.href = URL.createObjectURL(blob);
-            
-            // Trigger download
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            // Clean up the URL object after a short delay to avoid race condition
-            setTimeout(function() {
-                URL.revokeObjectURL(link.href);
-            }, 100);
-        }, 'image/png');
-        
+
+        console.log('Converting to image...');
+        // Use JPEG with high quality for better file size vs quality balance
+        const imgData = canvas.toDataURL('image/jpeg', 0.80);
+
+        console.log('Creating PDF...');
+        // PDF setup (A4)
+        const pdf = new jsPDF('p', 'pt', 'a4');
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+
+        const imgWidth = pageWidth;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+        let heightLeft = imgHeight;
+        let position = 0;
+
+        // Add first page with SLOW compression for better quality
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'SLOW');
+        heightLeft -= pageHeight;
+
+        // Add more pages if needed
+        while (heightLeft > 0) {
+            position = heightLeft - imgHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'SLOW');
+            heightLeft -= pageHeight;
+        }
+
+        console.log('Saving PDF...');
+        // Download
+        pdf.save(filename);
+        console.log('PDF export complete!');
+
     } catch (error) {
-        console.error('Screenshot failed:', error);
+        console.error('PDF export failed:', error);
+        alert('Failed to export PDF: ' + error.message);
     }
 }
+
 
 // Initialize shared functionality when DOM loads
 document.addEventListener('DOMContentLoaded', function() {

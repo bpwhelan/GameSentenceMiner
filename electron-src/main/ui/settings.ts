@@ -23,7 +23,10 @@ import {
     setWindowTransparencyToolHotkey,
     store,
     getRunOverlayOnStartup,
+    getRunManualOCROnStartup,
+    setRunManualOCROnStartup,
 } from '../store.js';
+import { getSanitizedPythonEnv } from '../util.js';
 import { webSocketManager } from '../communication/websocket.js';
 import { reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall } from '../main.js';
@@ -44,6 +47,7 @@ export function registerSettingsIPC() {
             windowTransparencyTarget: store.get('windowTransparencyTarget') || '', // Default to empty string if not set
             runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
             runOverlayOnStartup: getRunOverlayOnStartup(),
+            runManualOCROnStartup: getRunManualOCROnStartup(),
             obsOcrScenes: store.get('obsOcrScenes') || [], // Default to empty array if not set
         };
     });
@@ -58,6 +62,7 @@ export function registerSettingsIPC() {
         setWindowTransparencyTarget(settings.windowTransparencyTarget);
         setRunWindowTransparencyToolOnStartup(settings.runWindowTransparencyToolOnStartup);
         setRunOverlayOnStartup(settings.runOverlayOnStartup);
+        setRunManualOCROnStartup(settings.runManualOCROnStartup);
         setObsOcrScenes(settings.obsOcrScenes || []); // Ensure it's always an array
         return { success: true };
     });
@@ -161,7 +166,9 @@ export function runWindowTransparencyTool() {
         hotkey,
         '--window',
         getWindowTransparencyTarget(),
-    ]);
+    ], {
+        env: getSanitizedPythonEnv()
+    });
     window_transparency_process.stdout.on('data', (data: any) => {
         console.log(`Window Transparency Tool: ${data}`);
     });

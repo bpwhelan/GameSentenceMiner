@@ -37,7 +37,7 @@ def get_queued_gui_errors():
 connection_pool: 'OBSConnectionPool' = None
 event_client: obs.EventClient = None
 obs_process_pid = None
-OBS_PID_FILE = os.path.join(configuration.get_app_directory(), 'obs-studio', 'obs_pid.txt')
+OBS_PID_FILE = os.path.join(configuration.get_app_directory(), 'obs_pid.txt')
 obs_connection_manager = None
 logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 connecting = False
@@ -257,6 +257,9 @@ def get_base_obs_dir():
     return os.path.join(configuration.get_app_directory(), 'obs-studio')
     
 def get_obs_path():
+    config = get_config()
+    if config.obs.obs_path:
+        return config.obs.obs_path
     return os.path.join(configuration.get_app_directory(), 'obs-studio/bin/64bit/obs64.exe')
 
 def is_process_running(pid):

@@ -428,6 +428,10 @@
             "label": "Close OBS:",
             "tooltip": "Close OBS when the GSM closes."
           },
+          "obs_path": {
+            "label": "OBS Path:",
+            "tooltip": "Path to the OBS executable. Leave blank to use the default path."
+          },
           "host": {
             "label": "Host:",
             "tooltip": "Host address for the OBS WebSocket server."

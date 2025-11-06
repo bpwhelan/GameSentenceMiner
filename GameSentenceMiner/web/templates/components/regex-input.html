@@ -1,0 +1,160 @@
+<!-- Reusable Regex Input Component
+     Parameters (set via data attributes on container):
+     - data-show-exact-text: "true" to show exact text input (for deletion use case)
+     - data-preset-id: ID prefix for preset select (default: "presetPatterns")
+     - data-custom-id: ID prefix for custom regex input (default: "customRegex")
+     - data-case-id: ID prefix for case sensitive checkbox (default: "caseSensitive")
+     - data-regex-id: ID prefix for use regex checkbox (default: "useRegex")
+     - data-exact-id: ID prefix for exact text textarea (default: "exactText")
+-->
+
+<div class="regex-input-component">
+    <div class="form-group">
+        <label class="form-label">Preset Patterns:</label>
+        <select class="form-input regex-preset-select">
+            <option value="">Select a preset pattern...</option>
+            <option value="everything">Everything</option>
+            <option value="lines_over_50">Lines over 50 characters</option>
+            <option value="lines_over_100">Lines over 100 characters</option>
+            <option value="non_japanese">Non-Japanese text</option>
+            <option value="ascii_only">ASCII-only lines</option>
+            <option value="empty_lines">Empty or whitespace-only lines</option>
+            <option value="numbers_only">Lines with numbers only</option>
+            <option value="single_char">Single character lines</option>
+            <option value="repeated_chars">Lines with repeated characters (3+ times)</option>
+        </select>
+        <small style="color: var(--text-tertiary); font-size: 12px;">
+            Select a common pattern or create a custom regex below.
+        </small>
+    </div>
+    
+    <div class="form-group">
+        <label class="form-label">Custom Regex Pattern:</label>
+        <input type="text" class="form-input regex-custom-input" placeholder="Enter custom regex pattern (e.g., ^.{0,10}$ for lines 10 chars or less)">
+        <small style="color: var(--text-tertiary); font-size: 12px;">
+            Use regex syntax. Leave empty to use exact text matching below.
+        </small>
+    </div>
+    
+    <div class="regex-exact-text-group" style="display: none;">
+        <div class="form-group">
+            <label class="form-label">Exact Text to Match:</label>
+            <textarea class="form-textarea regex-exact-textarea" rows="4" placeholder="Enter exact text lines to match, one per line..."></textarea>
+            <small style="color: var(--text-tertiary); font-size: 12px;">
+                Each line will be treated as an exact match. Only used if no regex pattern is provided.
+            </small>
+        </div>
+    </div>
+    
+    <div class="form-group">
+        <div class="checkbox-container">
+            <input type="checkbox" class="checkbox-input regex-case-checkbox">
+            <label class="checkbox-label">Case sensitive matching</label>
+        </div>
+    </div>
+    
+    <div class="form-group">
+        <div class="checkbox-container">
+            <input type="checkbox" class="checkbox-input regex-mode-checkbox">
+            <label class="checkbox-label">Treat custom pattern as regex</label>
+        </div>
+    </div>
+</div>
+
+<style>
+.regex-input-component {
+    width: 100%;
+}
+
+.regex-input-component .form-group {
+    margin-bottom: 15px;
+}
+
+.regex-input-component .form-label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.regex-input-component .form-input,
+.regex-input-component .form-textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+}
+
+.regex-input-component .form-input:focus,
+.regex-input-component .form-textarea:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.regex-input-component .checkbox-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.regex-input-component .checkbox-input {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.regex-input-component .checkbox-label {
+    cursor: pointer;
+    user-select: none;
+    color: var(--text-primary);
+}
+</style>
+
+<script>
+// Initialize regex component functionality
+(function() {
+    // This script runs when the component is loaded
+    // The parent page's JavaScript should handle the actual logic
+    // by accessing the component's elements via their classes
+    
+    // Add event listener for preset pattern selection
+    document.addEventListener('DOMContentLoaded', function() {
+        const presetSelects = document.querySelectorAll('.regex-preset-select');
+        
+        presetSelects.forEach(select => {
+            select.addEventListener('change', function() {
+                const customInput = this.closest('.regex-input-component').querySelector('.regex-custom-input');
+                const regexCheckbox = this.closest('.regex-input-component').querySelector('.regex-mode-checkbox');
+                
+                if (this.value) {
+                    // Import and use the pattern
+                    import('/static/js/regex-patterns.js').then(module => {
+                        const pattern = module.getPattern(this.value);
+                        if (pattern && customInput) {
+                            customInput.value = pattern;
+                            customInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            if (regexCheckbox) {
+                                regexCheckbox.checked = true;
+                                regexCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                        }
+                    });
+                } else {
+                    if (customInput) {
+                        customInput.value = '';
+                        customInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                    if (regexCheckbox) {
+                        regexCheckbox.checked = false;
+                        regexCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }
+            });
+        });
+    });
+})();
+</script>

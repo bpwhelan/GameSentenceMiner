@@ -10,6 +10,29 @@
     border: 1px solid var(--border-color);
 }
 
+.chart-toggle-btn {
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.chart-toggle-btn:hover {
+    background: #0056b3;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.chart-toggle-btn:active {
+    transform: translateY(0);
+}
+
 .heatmap-year {
     margin-bottom: 30px;
 }
@@ -441,6 +464,204 @@
 .goal-progress-error-message {
     font-size: 16px;
     margin-bottom: 16px;
+}
+
+/* ================================
+   Game Milestones Card Styles
+================================ */
+.game-milestones {
+    margin-bottom: 24px;
+}
+
+.game-milestones-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    margin-top: 16px;
+}
+
+.milestone-game-card {
+    background: var(--bg-tertiary);
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    transition: all 0.3s ease;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.milestone-game-card:hover {
+    background: var(--border-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--shadow-color);
+}
+
+.milestone-game-image-container {
+    flex-shrink: 0;
+}
+
+.milestone-game-image {
+    width: 120px;
+    height: 160px;
+    object-fit: cover;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.milestone-game-image.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    opacity: 0.3;
+}
+
+.milestone-game-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.milestone-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-tertiary);
+    margin-bottom: 4px;
+}
+
+.milestone-label.oldest {
+    color: #e6dc2e;
+}
+
+.milestone-label.newest {
+    color: #2ee6e0;
+}
+
+.milestone-game-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.3;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.milestone-game-subtitle {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-bottom: 8px;
+}
+
+.milestone-game-details {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.milestone-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.milestone-detail-icon {
+    font-size: 14px;
+    opacity: 0.7;
+}
+
+.milestone-detail-label {
+    font-weight: 600;
+    color: var(--text-tertiary);
+    min-width: 80px;
+}
+
+.milestone-detail-value {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.milestone-type-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    background: var(--accent-color);
+    color: white;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.milestone-no-data {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-tertiary);
+    font-style: italic;
+    grid-column: 1 / -1;
+}
+
+.milestone-no-data::before {
+    content: '📅';
+    display: block;
+    font-size: 48px;
+    margin-bottom: 12px;
+    opacity: 0.5;
+}
+
+/* Responsive Design for Game Milestones */
+@media (max-width: 768px) {
+    .game-milestones-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    
+    .milestone-game-card {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+    
+    .milestone-game-info {
+        align-items: center;
+    }
+    
+    .milestone-game-details {
+        align-items: center;
+    }
+    
+    .milestone-detail-row {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 480px) {
+    .milestone-game-image {
+        width: 100px;
+        height: 133px;
+    }
+    
+    .milestone-game-title {
+        font-size: 16px;
+    }
+    
+    .milestone-game-subtitle {
+        font-size: 12px;
+    }
 }
 
 /* Dashboard card, stats grid, progress section, streak indicator, and date range styles are now in dashboard-shared.css */

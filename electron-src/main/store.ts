@@ -71,6 +71,7 @@ export interface LaunchableGame {
     type: HookableGameType;
     isHeader?: boolean; // Used to indicate if this is a header for grouping games
     scene?: ObsScene; // OBS scene name for the game
+    agentDelay?: number; // Delay before starting agent scripts
 }
 
 export interface OCRGame {
@@ -101,6 +102,7 @@ interface StoreConfig {
     runOverlayOnStartup: boolean; // Whether to run the overlay on startup
     obsOcrScenes: string[];
     pullPreReleases: boolean;
+    runManualOCROnStartup: boolean;
     pythonPath: string;
     VN: VNConfig;
     steam: SteamConfig;
@@ -166,6 +168,7 @@ export const store = new Store<StoreConfig>({
         runOverlayOnStartup: false, // Whether to run the overlay on startup    
         obsOcrScenes: [],
         pullPreReleases: false,
+        runManualOCROnStartup: false,
     },
     cwd: "electron"
 });
@@ -255,6 +258,14 @@ export function getPullPreReleases(): boolean {
 
 export function setPullPreReleases(pull: boolean): void {
     store.set("pullPreReleases", pull);
+}
+
+export function getRunManualOCROnStartup(): boolean {
+    return store.get("runManualOCROnStartup");
+}
+
+export function setRunManualOCROnStartup(run: boolean): void {
+    store.set("runManualOCROnStartup", run);
 }
 
 //OCR

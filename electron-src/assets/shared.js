@@ -26,6 +26,13 @@ window.clipboard = clipboard;
 
 // Internal listener registry
 const _stateListeners = new Map();
+const isWindows = process.platform === 'win32';
+const isMac = process.platform === 'darwin';
+const isLinux = process.platform === 'linux';
+
+// const isWindows = false;
+// const isMac = true;
+// const isLinux = false;
 
 /**
  * Set a state value. Notifies all windows/iframes of the change.
