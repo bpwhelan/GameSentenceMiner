@@ -35,6 +35,10 @@
         "to": "resources/GameSentenceMiner"
       },
       {
+        "from": "GSM_Overlay/out",
+        "to": "resources/GSM_Overlay"
+      },
+      {
         "from": "pyproject.toml",
         "to": "resources/pyproject.toml"
       }
