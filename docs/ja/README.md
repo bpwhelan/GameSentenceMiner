@@ -1,3 +1,17 @@
+<p align="center">
+    <img src="https://github.com/bpwhelan/GameSentenceMiner/blob/main/icon.png?raw=true" width="75" height="75" style="border-radius: 16px" alt="gamesentenceminer" />
+</p>
+
+<div align="center">
+
+[![Github All Releases](https://img.shields.io/github/downloads/bpwhelan/GameSentenceMiner/total.svg)](https://github.com/bpwhelan/GameSentenceMiner/releases)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/bpwhelan)](https://github.com/sponsors/bpwhelan)
+[![Ko-Fi](https://img.shields.io/badge/donate-ko--fi-ed6760?label=donate)](https://ko-fi.com/beangate)
+[![GitHub License](https://img.shields.io/github/license/bpwhelan/GameSentenceMiner)](https://github.com/bpwhelan/GameSentenceMiner?tab=GPL-3.0-1-ov-file)
+[![Discord](https://img.shields.io/discord/1286409772383342664?color=%237785cc)](https://discord.gg/yP8Qse6bb8)
+
+</div>
+
 # GSM - ゲーム向けイマージョンツールキット
 
 ### [English](../../README.md) | 日本語 | [简体中文](../zh/README.md)
