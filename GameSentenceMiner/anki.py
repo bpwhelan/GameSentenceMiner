@@ -411,7 +411,13 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
                 text = text_inside_underline[0].replace(" ", "").replace('\n', '').strip()
                 note['fields'][get_config().anki.sentence_field] = game_line.text.replace(text_inside_underline[0], f"<u>{text}</u>")
                 logger.info(f"Preserved underline Tag for Sentence: {note['fields'][get_config().anki.sentence_field]}")
-        
+        if """<span class="highlight">""" in sentence_in_anki:
+            text_inside_span = re.findall(r'<span class="highlight">(.*?)</span>', sentence_in_anki)
+            if text_inside_span:
+                text = text_inside_span[0].replace(" ", "").replace('\n', '').strip()
+                note['fields'][get_config().anki.sentence_field] = game_line.text.replace(text_inside_span[0], f'<span class="highlight">{text}</span>')
+                logger.info(f"Preserved span Tag for Sentence: {note['fields'][get_config().anki.sentence_field]}")
+
         if get_config().anki.sentence_field not in note['fields']:
             logger.info("No HTML tags found to preserve, just fixing spacing")
             note['fields'][get_config().anki.sentence_field] = game_line.text
