@@ -392,27 +392,25 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
     if get_config().overlay.websocket_port and texthooking_page.overlay_server_thread.has_clients():
         sentence_in_anki = last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
         logger.info("Found matching line in Anki, Preserving HTML and fix spacing!")
-        if "<b>" in sentence_in_anki:
-            text_inside_bold = re.findall(r'<b>(.*?)</b>', sentence_in_anki)
-            logger.info(text_inside_bold)
-            if text_inside_bold:
-                text = text_inside_bold[0].replace(" ", "").replace('\n', '').strip()
-                note['fields'][get_config().anki.sentence_field] = game_line.text.replace(text_inside_bold[0], f"<b>{text}</b>")
-                logger.info(f"Preserved bold Tag for Sentence: {note['fields'][get_config().anki.sentence_field]}")
-        if "<i>" in sentence_in_anki:
-            text_inside_italic = re.findall(r'<i>(.*?)</i>', sentence_in_anki)
-            if text_inside_italic:
-                text = text_inside_italic[0].replace(" ", "").replace('\n', '').strip()
-                note['fields'][get_config().anki.sentence_field] = game_line.text.replace(text_inside_italic[0], f"<i>{text}</i>")
-                logger.info(f"Preserved italic Tag for Sentence: {note['fields'][get_config().anki.sentence_field]}")
-        if "<u>" in sentence_in_anki:
-            text_inside_underline = re.findall(r'<u>(.*?)</u>', sentence_in_anki)
-            if text_inside_underline:
-                text = text_inside_underline[0].replace(" ", "").replace('\n', '').strip()
-                note['fields'][get_config().anki.sentence_field] = game_line.text.replace(text_inside_underline[0], f"<u>{text}</u>")
-                logger.info(f"Preserved underline Tag for Sentence: {note['fields'][get_config().anki.sentence_field]}")
+
+        html_tag_pattern = r'<(\w+)(\s+[^>]*)?>(.*?)</\1>'
+        matches = re.findall(html_tag_pattern, sentence_in_anki)
         
-        if get_config().anki.sentence_field not in note['fields']:
+        if matches:
+            updated_sentence = game_line.text
+            for tag_name, attrs, text_inside_tag in matches:
+                cleaned_text = text_inside_tag.replace(" ", "").replace('\n', '').replace('\r', '').strip()
+                updated_sentence = updated_sentence.replace(
+                    text_inside_tag,
+                    f"<{tag_name}{attrs}>{cleaned_text}</{tag_name}>"
+                )
+                if attrs:
+                    logger.info(f"Preserved <{tag_name} {attrs}> tag for Sentence")
+                else:
+                    logger.info(f"Preserved <{tag_name}> tag for Sentence")
+            note['fields'][get_config().anki.sentence_field] = updated_sentence
+            logger.info(f"Preserved HTML tags for Sentence: {note['fields'][get_config().anki.sentence_field]}")
+        else:
             logger.info("No HTML tags found to preserve, just fixing spacing")
             note['fields'][get_config().anki.sentence_field] = game_line.text
     if selected_lines:
