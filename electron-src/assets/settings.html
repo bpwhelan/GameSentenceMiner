@@ -11,67 +11,103 @@
 <body>
     <!-- Include shared module with ipcRenderer, clipboard, and sharedState -->
     <script src="shared.js"></script>
-    <div class="card">
-        <h2>Settings</h2>
+    <div class="grid-container">
+        <div class="card">
+            <h2>Settings</h2>
 
-        <div class="form-group">
-            <div class="input-group">
-                <label for="autoUpdateGSMApp">Auto Update:</label>
-                <input type="checkbox" id="autoUpdateGSMApp">
+            <div class="form-group">
+                <div class="input-group">
+                    <label for="autoUpdateGSMApp">Auto Update:</label>
+                    <input type="checkbox" id="autoUpdateGSMApp">
+                </div>
+
+                <!-- <div class="input-group">
+                    <label for="autoUpdateElectron">Auto Update GSM Electron App:</label>
+                    <input type="checkbox" id="autoUpdateElectron">
+                    <span class="tooltip tooltip-bottom tooltip-right">❓
+                        <span class="tooltiptext">
+                            Automatically updates the GSM Electron application to the latest version. This is the
+                            application you are on.
+                        </span>
+                    </span>
+                </div> -->
+
+                <div class="input-group">
+                    <label for="startConsoleMinimized">Start Console Minimized:</label>
+                    <input type="checkbox" id="startConsoleMinimized">
+                    <span class="tooltip tooltip-bottom tooltip-right">❓
+                        <span class="tooltiptext">
+                            Starts the console in a minimized state when the application launches.
+                        </span>
+                    </span>
+                </div>
+
+                <div class="input-group">
+                    <label for="showYuzuTab">Show Yuzu Launcher:</label>
+                    <input type="checkbox" id="showYuzuTab">
+                    <span class="tooltip tooltip-bottom tooltip-right">❓
+                        <span class="tooltiptext">
+                            Enables or disables the Yuzu Launcher tab in the launcher interface.
+                        </span>
+                    </span>
+                </div>
+
+                <div class="input-group">
+                    <label for="runWindowTransparencyToolOnStartup">Run Window Transparency Tool on Startup:</label>
+                    <input type="checkbox" id="runWindowTransparencyToolOnStartup">
+                </div>
+
+                <div class="input-group">
+                    <label for="runOverlayOnStartup">Run Overlay on Startup:</label>
+                    <input type="checkbox" id="runOverlayOnStartup">
+                </div>
+
+                <div class="input-group">
+                    <label for="runManualOCROnStartup">Run Manual OCR on Startup:</label>
+                    <input type="checkbox" id="runManualOCROnStartup">
+                    <span class="tooltip tooltip-bottom tooltip-right">❓
+                        <span class="tooltiptext">
+                            Automatically starts manual OCR mode when the application launches.
+                        </span>
+                    </span>
+                </div>
             </div>
-
-            <!-- <div class="input-group">
-                <label for="autoUpdateElectron">Auto Update GSM Electron App:</label>
-                <input type="checkbox" id="autoUpdateElectron">
-                <span class="tooltip tooltip-bottom tooltip-right">❓
+        </div>
+        <div class="card">
+            <h2>Visibility Settings</h2>
+            <div class="form-group">
+                <div class="input-group">
+                    <label for="visible-tabs-selector">Visible Tabs:</label>
+                    <select id="visible-tabs-selector" multiple>
+                        <option value="launcher">Game Launcher</option>
+                        <option value="stats">Stats</option>
+                        <option value="python">Python</option>
+                        <option value="console">Console</option>
+                    </select>
+                    <span class="tooltip tooltip-left">❓
+                        <span class="tooltiptext">
+                            Select which tabs should be visible in the main interface. Hold Ctrl/Cmd to select multiple tabs.
+                        </span>
+                    </span>
+                </div>
+            </div>
+            <div class="input-group">
+                <label for="stats-endpoint-selector">Stats Target:</label>
+                <select id="stats-endpoint-selector">
+                    <option value="overview">Overview</option>
+                    <option value="stats">Statistics</option>
+                    <option value="goals">Goals</option>
+                    <option value="anki_stats">Anki Stats</option>
+                    <option value="search">Search</option>
+                </select>
+                <span class="tooltip tooltip-left">❓
                     <span class="tooltiptext">
-                        Automatically updates the GSM Electron application to the latest version. This is the
-                        application you are on.
+                        Select which endpoint the Stats tab should default to when opened.
                     </span>
                 </span>
-            </div> -->
-
-            <div class="input-group">
-                <label for="startConsoleMinimized">Start Console Minimized:</label>
-                <input type="checkbox" id="startConsoleMinimized">
-                <span class="tooltip tooltip-bottom tooltip-right">❓
-                    <span class="tooltiptext">
-                        Starts the console in a minimized state when the application launches.
-                    </span>
-                </span>
             </div>
-
-            <div class="input-group">
-                <label for="showYuzuTab">Show Yuzu Launcher:</label>
-                <input type="checkbox" id="showYuzuTab">
-                <span class="tooltip tooltip-bottom tooltip-right">❓
-                    <span class="tooltiptext">
-                        Enables or disables the Yuzu Launcher tab in the launcher interface.
-                    </span>
-                </span>
-            </div>
-
-            <div class="input-group">
-                <label for="runWindowTransparencyToolOnStartup">Run Window Transparency Tool on Startup:</label>
-                <input type="checkbox" id="runWindowTransparencyToolOnStartup">
-            </div>
-
-            <div class="input-group">
-                <label for="runOverlayOnStartup">Run Overlay on Startup:</label>
-                <input type="checkbox" id="runOverlayOnStartup">
-            </div>
-
-            <div class="input-group">
-                <label for="runManualOCROnStartup">Run Manual OCR on Startup:</label>
-                <input type="checkbox" id="runManualOCROnStartup">
-                <span class="tooltip tooltip-bottom tooltip-right">❓
-                    <span class="tooltiptext">
-                        Automatically starts manual OCR mode when the application launches.
-                    </span>
-                </span>
-            </div>
+        </div>
     </div>
-</div>
 
     <div class="form-group" style="margin-top: 20px;">
         <button id="openGSMSettingsBtn">Open GSM Settings</button>
@@ -125,7 +161,8 @@
                 </select>
                 <span class="tooltip tooltip-left">❓
                     <span class="tooltiptext">
-                        Select OBS scenes to automatically start OCR on. Multiple scenes can be selected. This will start OCR when one of selected scenes are activated, or if they are activated on startup.
+                        Select OBS scenes to automatically start OCR on. Multiple scenes can be selected. This will
+                        start OCR when one of selected scenes are activated, or if they are activated on startup.
                     </span>
                 </span>
             </div>
@@ -161,18 +198,20 @@
         const runOverlayOnStartupCheckbox = document.getElementById('runOverlayOnStartup');
         const runManualOCROnStartupCheckbox = document.getElementById('runManualOCROnStartup');
         const obsSceneSelector = document.getElementById('obs-ocr-scene-selector');
+        const visibleTabsSelector = document.getElementById('visible-tabs-selector');
+        const statsEndpointSelector = document.getElementById('stats-endpoint-selector');
 
         // ====================================================================
         // Shared State Example: Use OS info from index.html to hide Windows-only features
         // ====================================================================
-        
+
         async function applyOSSpecificUI() {
             // Get OS info from shared state (set by index.html)
             const osInfo = await sharedState.getState('systemInfo');
-            
+
             if (osInfo) {
                 console.log('Using OS info from shared state:', osInfo);
-                
+
                 // Hide Window Transparency Tool card on non-Windows
                 const windowTransparencyCard = document.getElementById('window-transparency-card');
                 if (windowTransparencyCard) {
@@ -183,7 +222,7 @@
                         console.log('Window Transparency Tool hidden - not running on Windows');
                     }
                 }
-                
+
                 // Hide "Run Overlay on Startup" option on non-Windows
                 const runOverlayGroup = runOverlayOnStartupCheckbox.parentElement;
                 if (runOverlayGroup) {
@@ -194,7 +233,7 @@
                         console.log('Run Overlay option hidden - not running on Windows');
                     }
                 }
-                
+
                 // Hide "Run Window Transparency Tool on Startup" option on non-Windows
                 const runTransparencyGroup = runWindowTransparencyToolOnStartupCheckbox.parentElement;
                 if (runTransparencyGroup) {
@@ -209,7 +248,7 @@
                 console.log('OS info not yet available in shared state - will apply when available');
             }
         }
-        
+
         // Listen for OS info changes (in case it gets set after page loads)
         sharedState.onStateChanged('systemInfo', (osInfo) => {
             console.log('System info updated in shared state:', osInfo);
@@ -233,7 +272,37 @@
             saveSettings();
         });
 
+        // Allow clicking selected options to deselect them
+        obsSceneSelector.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            const option = e.target;
+            if (option.tagName === 'OPTION') {
+                option.selected = !option.selected;
+                // Trigger change event manually
+                obsSceneSelector.dispatchEvent(new Event('change'));
+            }
+        });
+
         obsSceneSelector.addEventListener('change', async () => {
+            saveSettings();
+        });
+
+        // Allow clicking selected options to deselect them
+        visibleTabsSelector.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            const option = e.target;
+            if (option.tagName === 'OPTION') {
+                option.selected = !option.selected;
+                // Trigger change event manually
+                visibleTabsSelector.dispatchEvent(new Event('change'));
+            }
+        });
+
+        visibleTabsSelector.addEventListener('change', async () => {
+            saveSettings();
+        });
+
+        statsEndpointSelector.addEventListener('change', async () => {
             saveSettings();
         });
 
@@ -254,6 +323,17 @@
                 runManualOCROnStartupCheckbox.checked = settings.runManualOCROnStartup || false;
                 // autoRunWindowTransparencyToolCheckbox.checked = settings.autoRunWindowTransparencyTool || false;
                 // pullPreReleasesCheckbox.checked = settings.pullPreReleases || false;
+                
+                // Set visible tabs - default to all tabs visible if not set
+                const defaultVisibleTabs = ['launcher', 'stats', 'python', 'console'];
+                const visibleTabs = settings.visibleTabs || defaultVisibleTabs;
+                Array.from(visibleTabsSelector.options).forEach(option => {
+                    option.selected = visibleTabs.includes(option.value);
+                });
+                
+                // Set stats endpoint - default to 'overview' if not set
+                const statsEndpoint = settings.statsEndpoint || 'overview';
+                statsEndpointSelector.value = statsEndpoint;
             }
             ipcRenderer.invoke('obs.getScenes').then(scenes => {
                 const obsSceneSelector = document.getElementById('obs-ocr-scene-selector');
@@ -286,7 +366,9 @@
                 runWindowTransparencyToolOnStartup: runWindowTransparencyToolOnStartupCheckbox.checked,
                 runOverlayOnStartup: runOverlayOnStartupCheckbox.checked,
                 runManualOCROnStartup: runManualOCROnStartupCheckbox.checked,
-                obsOcrScenes: Array.from(obsSceneSelector.selectedOptions).map(option => option.value)
+                obsOcrScenes: Array.from(obsSceneSelector.selectedOptions).map(option => option.value),
+                visibleTabs: Array.from(visibleTabsSelector.selectedOptions).map(option => option.value),
+                statsEndpoint: statsEndpointSelector.value
             };
             await ipcRenderer.invoke('settings.saveSettings', settings);
         }
@@ -334,7 +416,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             // Apply OS-specific UI changes
             applyOSSpecificUI();
-            
+
             // Load settings
             loadSettings();
         });

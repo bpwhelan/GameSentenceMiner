@@ -25,6 +25,10 @@ import {
     getRunOverlayOnStartup,
     getRunManualOCROnStartup,
     setRunManualOCROnStartup,
+    getVisibleTabs,
+    setVisibleTabs,
+    getStatsEndpoint,
+    setStatsEndpoint,
 } from '../store.js';
 import { getSanitizedPythonEnv } from '../util.js';
 import { webSocketManager } from '../communication/websocket.js';
@@ -49,6 +53,8 @@ export function registerSettingsIPC() {
             runOverlayOnStartup: getRunOverlayOnStartup(),
             runManualOCROnStartup: getRunManualOCROnStartup(),
             obsOcrScenes: store.get('obsOcrScenes') || [], // Default to empty array if not set
+            visibleTabs: getVisibleTabs(),
+            statsEndpoint: getStatsEndpoint(),
         };
     });
 
@@ -64,6 +70,8 @@ export function registerSettingsIPC() {
         setRunOverlayOnStartup(settings.runOverlayOnStartup);
         setRunManualOCROnStartup(settings.runManualOCROnStartup);
         setObsOcrScenes(settings.obsOcrScenes || []); // Ensure it's always an array
+        setVisibleTabs(settings.visibleTabs || ['launcher', 'stats', 'python', 'console']); // Ensure it's always an array
+        setStatsEndpoint(settings.statsEndpoint || 'overview'); // Ensure it has a default
         return { success: true };
     });
 

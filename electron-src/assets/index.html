@@ -103,9 +103,9 @@
         <!--        <button class="tab-button" data-tab="steam">Steam</button>-->
         <!--        <button class="tab-button" data-tab="vn">VN</button>-->
         <!--        <button class="tab-button" data-tab="yuzu" id="yuzu-button" style="display: none;">Yuzu</button>-->
-        <button class="tab-button" data-tab="settings">Settings</button>
         <button class="tab-button" data-tab="python">Python</button>
         <button class="tab-button" data-tab="stats">Stats</button>
+        <button class="tab-button" data-tab="settings">Settings</button>
         <button class="tab-button" data-tab="console">Console</button>
     </div>
     <div id="launcher" class="tab-content">
@@ -1432,6 +1432,23 @@
                 // } else {
                 //     document.getElementById('yuzu-button').style.display = 'none';
                 // }
+                
+                // Handle visible tabs
+                const visibleTabs = settings.visibleTabs || ['launcher', 'stats', 'python', 'console'];
+                const controllableTabs = ['launcher', 'stats', 'python', 'console'];
+                
+                controllableTabs.forEach(tabId => {
+                    const tabButton = document.querySelector(`[data-tab="${tabId}"]`);
+                    if (tabButton) {
+                        if (visibleTabs.includes(tabId)) {
+                            tabButton.style.display = '';
+                            tabButton.style.pointerEvents = 'auto';
+                        } else {
+                            tabButton.style.display = 'none';
+                            tabButton.style.pointerEvents = 'none';
+                        }
+                    }
+                });
             }
         }
 
@@ -1462,7 +1479,7 @@
         // loadNewPage("console.html")
         let fitInterval;
         document.querySelectorAll('.tab-button').forEach(button => {
-            button.addEventListener('click', () => {
+            button.addEventListener('click', async () => {
                 // Remove active class from all buttons and content
                 document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
                 document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -1487,9 +1504,11 @@
                 }
 
                 if (tabId === 'stats') {
-                    // Load localhost:55000/overview into the iframe
+                    // Load the configured stats endpoint into the iframe
+                    const settings = await ipcRenderer.invoke('settings.getSettings');
+                    const statsEndpoint = settings?.statsEndpoint || 'overview';
                     const statsIframe = document.querySelector('#stats iframe');
-                    statsIframe.src = "http://localhost:55000/overview"; // Force reload
+                    statsIframe.src = `http://localhost:55000/${statsEndpoint}`; // Load with configured endpoint
                 }
 
                 if (tabId === 'launcher') {

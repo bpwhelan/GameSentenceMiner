@@ -140,7 +140,13 @@ def run_agent_and_hook(pname, agent_script):
 #         return subprocess.run(command, shell=shell, input=input, capture_output=capture_output, timeout=timeout,
 #                               check=check, **kwargs)
 def remove_html_and_cloze_tags(text):
-    text = re.sub(r'<.*?>', '', re.sub(r'{{c\d+::(.*?)(::.*?)?}}', r'\1', text))
+    """
+    Removes HTML, Migaku, and Anki cloze tags from the input text.
+    1. Removes HTML tags enclosed in <...>
+    2. Removes Anki cloze tags of the form {{c1::text::hint}} or {{c1::text}}
+    3. Removes Migaku tags of the form [text]
+    """
+    text = re.sub(r'<.*?>', '', re.sub(r'{{c\d+::(.*?)(::.*?)?}}', r'\1', re.sub(r'\[.*?\]', '', text)))
     return text
 
 

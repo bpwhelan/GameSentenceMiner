@@ -103,6 +103,8 @@ interface StoreConfig {
     obsOcrScenes: string[];
     pullPreReleases: boolean;
     runManualOCROnStartup: boolean;
+    visibleTabs: string[]; // Array of visible tab IDs
+    statsEndpoint: string; // Stats tab endpoint
     pythonPath: string;
     VN: VNConfig;
     steam: SteamConfig;
@@ -169,6 +171,8 @@ export const store = new Store<StoreConfig>({
         obsOcrScenes: [],
         pullPreReleases: false,
         runManualOCROnStartup: false,
+        visibleTabs: ['launcher', 'stats', 'python', 'console'], // Default all tabs visible
+        statsEndpoint: 'overview', // Default stats endpoint
     },
     cwd: "electron"
 });
@@ -266,6 +270,22 @@ export function getRunManualOCROnStartup(): boolean {
 
 export function setRunManualOCROnStartup(run: boolean): void {
     store.set("runManualOCROnStartup", run);
+}
+
+export function getVisibleTabs(): string[] {
+    return store.get("visibleTabs", ['launcher', 'stats', 'python', 'console']);
+}
+
+export function setVisibleTabs(tabs: string[]): void {
+    store.set("visibleTabs", tabs);
+}
+
+export function getStatsEndpoint(): string {
+    return store.get("statsEndpoint", 'overview');
+}
+
+export function setStatsEndpoint(endpoint: string): void {
+    store.set("statsEndpoint", endpoint);
 }
 
 //OCR

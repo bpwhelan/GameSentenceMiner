@@ -994,6 +994,14 @@ class ConfigApp:
         ttk.Combobox(self.general_tab, textvariable=self.native_language_value, values=CommonLanguages.get_all_names_pretty(), state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
         
+        features_i18n = self.i18n.get('tabs', {}).get('features', {})
+        notify_i18n = features_i18n.get('notify_on_update', {})
+        HoverInfoLabelWidget(self.general_tab, text=notify_i18n.get('label', '...'), tooltip=notify_i18n.get('tooltip', '...'),
+                             row=self.current_row, column=0)
+        ttk.Checkbutton(self.general_tab, variable=self.notify_on_update_value, bootstyle="round-toggle").grid(
+            row=self.current_row, column=1, sticky='W', pady=2)
+        self.current_row += 1
+        
         if is_beangate:
             ttk.Button(self.general_tab, text=self.i18n.get('buttons', {}).get('run_function', 'Run Function'), command=self.test_func, bootstyle="info").grid(
                 row=self.current_row, column=0, pady=5
@@ -1631,13 +1639,6 @@ class ConfigApp:
 
         features_frame = self.features_tab
         features_i18n = self.i18n.get('tabs', {}).get('features', {})
-
-        notify_i18n = features_i18n.get('notify_on_update', {})
-        HoverInfoLabelWidget(features_frame, text=notify_i18n.get('label', '...'), tooltip=notify_i18n.get('tooltip', '...'),
-                             row=self.current_row, column=0)
-        ttk.Checkbutton(features_frame, variable=self.notify_on_update_value, bootstyle="round-toggle").grid(
-            row=self.current_row, column=1, sticky='W', pady=2)
-        self.current_row += 1
 
         open_edit_i18n = features_i18n.get('open_anki_edit', {})
         HoverInfoLabelWidget(features_frame, text=open_edit_i18n.get('label', '...'),
