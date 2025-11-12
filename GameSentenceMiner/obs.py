@@ -773,7 +773,7 @@ def get_screenshot_PIL_from_source(source_name, compression=75, img_format='png'
                 return None
             time.sleep(0.1)
         except Exception as e:
-            logger.error(f"Error getting screenshot from source '{source_name}': {e}")
+            # logger.error(f"Error getting screenshot from source '{source_name}': {e}")
             return None
     
     return None
@@ -843,6 +843,13 @@ def get_screenshot_PIL(source_name=None, compression=75, img_format='png', width
         key=lambda x: priority_map.get(x.get('inputKind'), 999)
     )
     
+    if len(sorted_sources) == 1:
+        only_source = sorted_sources[0]
+        if return_source_dict:
+            return only_source
+        img = get_screenshot_PIL_from_source(only_source.get('sourceName'), compression, img_format, width, height, retry)
+        return img
+    
     # Try each source in priority order
     for source in sorted_sources:
         found_source_name = source.get('sourceName')
@@ -862,8 +869,6 @@ def get_screenshot_PIL(source_name=None, compression=75, img_format='png', width
                 
                 if not is_empty:
                     return source if return_source_dict else img
-                else:
-                    logger.debug(f"Source '{found_source_name}' returned an empty image, trying next source")
             except Exception as e:
                 logger.warning(f"Failed to validate image from source '{found_source_name}': {e}")
                 # If validation fails, still return the image as it might be valid

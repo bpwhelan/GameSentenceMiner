@@ -574,7 +574,12 @@ class OBS:
         # Force get_game_from_scene to be True
         self.get_game_from_scene = True
         if not self.obs_path:
-            self.obs_path = os.path.join(get_app_directory(), "obs-studio/bin/64bit/obs64.exe") if is_windows() else "/usr/bin/obs"
+            if is_windows():
+                self.obs_path = os.path.join(get_app_directory(), "obs-studio/bin/64bit/obs64.exe")
+            elif is_linux():
+                self.obs_path = "/usr/bin/obs"
+            elif is_mac():
+                self.obs_path = "/opt/homebrew/bin/obs"
 
 
 @dataclass_json
@@ -1132,6 +1137,10 @@ def get_log_path():
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return path
 
+def get_error_log_path():
+    path = os.path.join(get_app_directory(), "logs", 'error.log')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return path
 
 temp_directory = ''
 
@@ -1287,6 +1296,17 @@ rotating_handler = RotatingFileHandler(
 rotating_handler.setLevel(logging.DEBUG)
 rotating_handler.setFormatter(formatter)
 logger.addHandler(rotating_handler)
+
+error_handler = RotatingFileHandler(
+    get_error_log_path(),
+    maxBytes=5 * 1024 * 1024,  # 5MB
+    backupCount=1,
+    encoding='utf-8'
+)
+error_handler.setLevel(logging.ERROR)
+error_handler.setFormatter(formatter)
+error_handler.addFilter(lambda record: record.levelno >= logging.ERROR)
+logger.addHandler(error_handler)
 
 DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
 

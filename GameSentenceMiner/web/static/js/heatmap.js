@@ -289,6 +289,8 @@ class HeatmapRenderer {
             
             // Format the third metric label based on type
             const thirdMetricLabel = this.metricName === 'sentences' ? 'Avg Daily Mining' : 'Avg Daily Time';
+            const fourthMetricLabel = this.metricName === 'sentences' ? 'Avg Last 7 Days' : 'Avg Daily Time Last 7 Days';
+            const fifthMetricLabel = this.metricName === 'sentences' ? "Avg Last 30 Days" : "Avg Daily Time Last 30 Days";
             
             streaksDiv.innerHTML = `
                 <div class="heatmap-streak-item">
@@ -304,6 +306,22 @@ class HeatmapRenderer {
                     <div class="heatmap-streak-label">${thirdMetricLabel}</div>
                 </div>
             `;
+            if (streaks.avgDaily7 !== undefined) {
+                streaksDiv.innerHTML += `
+                <div class="heatmap-streak-item">
+                    <div class="heatmap-streak-number">${streaks.avgDaily7}</div>
+                    <div class="heatmap-streak-label">${fourthMetricLabel}</div>
+                </div>
+                `;
+            }
+            if (streaks.avgDaily30 !== undefined) {
+                streaksDiv.innerHTML += `
+                <div class="heatmap-streak-item">
+                    <div class="heatmap-streak-number">${streaks.avgDaily30}</div>
+                    <div class="heatmap-streak-label">${fifthMetricLabel}</div>
+                </div>
+                `;
+            }
             mainWrapper.appendChild(streaksDiv);
             yearDiv.appendChild(mainWrapper);
             

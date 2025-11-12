@@ -263,34 +263,82 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
         
-        // Calculate average daily time for this year
+        // Helper function to format average time
+        const formatAvgTime = (avgHours) => {
+            if (avgHours < 1) {
+                const minutes = Math.round(avgHours * 60);
+                return `${minutes}m`;
+            } else {
+                const hours = Math.floor(avgHours);
+                const minutes = Math.round((avgHours - hours) * 60);
+                return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+            }
+        };
+
+        // Calculate average daily time for this year, last 30 days, and last 7 days
         let avgDailyTime = "-";
+        let avgDaily30 = "-";
+        let avgDaily7 = "-";
+        
         if (allLinesForYear && allLinesForYear.length > 0) {
             // Check if we have pre-calculated reading time from rollup data
             const hasReadingTimeData = allLinesForYear.some(line => line.reading_time_seconds !== undefined);
+            
+            // Get date ranges
+            const now = new Date();
+            const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+            const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
             
             if (hasReadingTimeData) {
                 // Use pre-calculated reading time from rollup data (FAST!)
                 let totalHours = 0;
                 let activeDays = 0;
+                let totalHours30 = 0;
+                let activeDays30 = 0;
+                let totalHours7 = 0;
+                let activeDays7 = 0;
                 
                 for (const line of allLinesForYear) {
                     if (line.reading_time_seconds !== undefined && line.reading_time_seconds > 0) {
-                        totalHours += line.reading_time_seconds / 3600;
+                        const hours = line.reading_time_seconds / 3600;
+                        
+                        // All year
+                        totalHours += hours;
                         activeDays++;
+                        
+                        // Parse the date from the line (assuming line has a date field)
+                        // If not, we'll need to use timestamp
+                        let lineDate;
+                        if (line.date) {
+                            lineDate = new Date(line.date);
+                        } else if (line.timestamp) {
+                            lineDate = new Date(parseFloat(line.timestamp) * 1000);
+                        }
+                        
+                        if (lineDate) {
+                            // Last 30 days
+                            if (lineDate >= thirtyDaysAgo) {
+                                totalHours30 += hours;
+                                activeDays30++;
+                            }
+                            
+                            // Last 7 days
+                            if (lineDate >= sevenDaysAgo) {
+                                totalHours7 += hours;
+                                activeDays7++;
+                            }
+                        }
                     }
                 }
                 
                 if (activeDays > 0) {
-                    const avgHours = totalHours / activeDays;
-                    if (avgHours < 1) {
-                        const minutes = Math.round(avgHours * 60);
-                        avgDailyTime = `${minutes}m`;
-                    } else {
-                        const hours = Math.floor(avgHours);
-                        const minutes = Math.round((avgHours - hours) * 60);
-                        avgDailyTime = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-                    }
+                    avgDailyTime = formatAvgTime(totalHours / activeDays);
+                }
+                if (activeDays30 > 0) {
+                    avgDaily30 = formatAvgTime(totalHours30 / activeDays30);
+                }
+                if (activeDays7 > 0) {
+                    avgDaily7 = formatAvgTime(totalHours7 / activeDays7);
                 }
             } else {
                 // Fallback: Calculate from individual timestamps (for today's data)
@@ -309,44 +357,63 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Calculate reading time for each day with activity
                 let totalHours = 0;
                 let activeDays = 0;
+                let totalHours30 = 0;
+                let activeDays30 = 0;
+                let totalHours7 = 0;
+                let activeDays7 = 0;
                 let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
 
                 for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
+                    let dayReadingTime = 0;
+                    
                     if (timestamps.length >= 2) {
                         timestamps.sort((a, b) => a - b);
-                        let dayReadingTime = 0;
 
                         for (let i = 1; i < timestamps.length; i++) {
                             const gap = timestamps[i] - timestamps[i-1];
                             dayReadingTime += Math.min(gap, afkTimerSeconds);
                         }
-
-                        if (dayReadingTime > 0) {
-                            totalHours += dayReadingTime / 3600;
-                            activeDays++;
-                        }
                     } else if (timestamps.length === 1) {
                         // Single timestamp - count as minimal activity (1 second)
-                        totalHours += 1 / 3600;
+                        dayReadingTime = 1;
+                    }
+
+                    if (dayReadingTime > 0) {
+                        const dayHours = dayReadingTime / 3600;
+                        const dayDate = new Date(dateStr);
+                        
+                        // All year
+                        totalHours += dayHours;
                         activeDays++;
+                        
+                        // Last 30 days
+                        if (dayDate >= thirtyDaysAgo) {
+                            totalHours30 += dayHours;
+                            activeDays30++;
+                        }
+                        
+                        // Last 7 days
+                        if (dayDate >= sevenDaysAgo) {
+                            totalHours7 += dayHours;
+                            activeDays7++;
+                        }
                     }
                 }
                 
                 if (activeDays > 0) {
-                    const avgHours = totalHours / activeDays;
-                    if (avgHours < 1) {
-                        const minutes = Math.round(avgHours * 60);
-                        avgDailyTime = `${minutes}m`;
-                    } else {
-                        const hours = Math.floor(avgHours);
-                        const minutes = Math.round((avgHours - hours) * 60);
-                        avgDailyTime = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-                    }
+                    avgDailyTime = formatAvgTime(totalHours / activeDays);
+                }
+                if (activeDays30 > 0) {
+                    avgDaily30 = formatAvgTime(totalHours30 / activeDays30);
+                }
+                if (activeDays7 > 0) {
+                    avgDaily7 = formatAvgTime(totalHours7 / activeDays7);
                 }
             }
         }
+        console.log({ longestStreak, currentStreak, avgDaily: avgDailyTime, avgDaily30, avgDaily7 })
         
-        return { longestStreak, currentStreak, avgDaily: avgDailyTime };
+        return { longestStreak, currentStreak, avgDaily: avgDailyTime, avgDaily30, avgDaily7 };
     }
     
     // Initialize heatmap renderer with custom configuration for activity tracking

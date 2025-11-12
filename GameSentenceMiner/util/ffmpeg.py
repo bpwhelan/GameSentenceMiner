@@ -509,9 +509,10 @@ def find_black_bars(video_file, screenshot_timing):
                 logger.debug(f"Crop would be {crop_width}x{crop_height} ({area_ratio:.1%} of original area)")
                 logger.debug(f"Original aspect ratio: {orig_aspect:.3f}, Crop aspect ratio: {crop_aspect:.3f}, Difference: {aspect_diff:.1%}")
                 
-                # If the crop is within 1% of the original aspect ratio, don't crop
-                if aspect_diff < 0.01:
-                    logger.info("Detected crop does not significantly change aspect ratio. Skipping crop.")
+                # If the crop would remove less than 5% of the video area, skip it
+                # This prevents cropping when black bars are minimal
+                if area_ratio > 0.95:
+                    logger.info(f"Detected crop would only remove {(1-area_ratio):.1%} of video area. Skipping crop.")
                     return None
                 
                 # Safeguards:

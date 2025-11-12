@@ -285,8 +285,8 @@
         "features": {
           "title": "Features",
           "notify_on_update": {
-            "label": "Notify on Update:",
-            "tooltip": "Notify the user when an update occurs."
+            "label": "Notify on Anki Card Update:",
+            "tooltip": "Notify the user when GSM updates an Anki card."
           },
           "open_anki_edit": {
             "label": "Open Anki Note in Edit View:",
