@@ -43,7 +43,6 @@ dependencies = [
   "regex~=2025.10.23",
   "opencv-python~=4.12.0.88",
   "scikit-image~=0.25.2",
-  "owocr==1.9.1",
   "oneocr==1.0.10",
   "google-genai~=1.46.0",
   "sounddevice~=0.5.2",
@@ -59,9 +58,16 @@ dependencies = [
   "torchaudio==2.8.0",
   "pillow~=12.0.0",
   "openai~=2.6.0",
-  "pynput~=1.8.1",
+  "pynput<=1.7.8",
   "flask-compress~=1.15",
   "meikiocr~=0.1.1",
+  "jaconv>=0.4.0",
+  "loguru>=0.7.3",
+  "pyperclipfix>=1.9.4",
+  "desktop-notifier>=6.1.0",
+  "mss>=10.1.0",
+  "pyobjc>=10.3.1 ; sys_platform == 'darwin'",
+  "evdev-binary>=1.9.2 ; sys_platform == 'linux'"
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
