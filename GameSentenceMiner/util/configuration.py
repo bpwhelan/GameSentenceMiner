@@ -37,7 +37,7 @@ WHISPER_TINY = 'tiny'
 WHISPER_BASE = 'base'
 WHISPER_SMALL = 'small'
 WHISPER_MEDIUM = 'medium'
-WHISPER_LARGE = 'large'
+WHSIPER_LARGE = 'large'
 WHISPER_TURBO = 'turbo'
 
 AI_GEMINI = 'Gemini'
