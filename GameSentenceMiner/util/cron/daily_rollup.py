@@ -192,7 +192,7 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
         else:
             # DEBUG: Log lines without game_id
             if hasattr(line, 'game_name') and line.game_name:
-                lines_without_game_id.append(line)
+                lines_without_game_id.add(line)
                 
     if lines_without_game_id:
         logger.debug(f"[ROLLUP_GAME_ACTIVITY] {len(lines_without_game_id)} lines without game_id on {date_str}")
