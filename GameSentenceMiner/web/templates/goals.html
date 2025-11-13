@@ -106,7 +106,7 @@
                     <form id="customGoalForm">
                         <div style="margin-bottom: 15px;">
                             <label for="goalName" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                Goal Name <span style="color: var(--danger-color);">*</span>
+                                Goal Name
                             </label>
                             <input type="text" id="goalName" name="goalName" required
                                 style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
@@ -115,7 +115,7 @@
 
                         <div style="margin-bottom: 15px;">
                             <label for="goalMetricType" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                Metric Type <span style="color: var(--danger-color);">*</span>
+                                Metric Type
                             </label>
                             <select id="goalMetricType" name="goalMetricType" required
                                 style="width: 95%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
@@ -123,35 +123,36 @@
                                 <option value="hours">Reading Hours</option>
                                 <option value="characters">Characters Read</option>
                                 <option value="games">Games Completed</option>
+                                <option value="custom">Custom (Daily Checkbox)</option>
                             </select>
                         </div>
 
-                        <div style="margin-bottom: 15px;">
+                        <div id="goalTargetValueContainer" style="margin-bottom: 15px;">
                             <label for="goalTargetValue" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                Target Value <span style="color: var(--danger-color);">*</span>
+                                Target Value
                             </label>
-                            <input type="number" id="goalTargetValue" name="goalTargetValue" required min="1"
+                            <input type="number" id="goalTargetValue" name="goalTargetValue" min="1"
                                 style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                                placeholder="e.g., 1000000">
+                                placeholder="e.g., 1000000" readonly>
                             <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
                                 The target amount you want to achieve
                             </small>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                        <div id="goalDatesContainer" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
                             <div>
                                 <label for="goalStartDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    Start Date <span style="color: var(--danger-color);">*</span>
+                                    Start Date
                                 </label>
-                                <input type="date" id="goalStartDate" name="goalStartDate" required
-                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <input type="date" id="goalStartDate" name="goalStartDate"
+                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;" readonly>
                             </div>
                             <div>
                                 <label for="goalEndDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    End Date <span style="color: var(--danger-color);">*</span>
+                                    End Date
                                 </label>
-                                <input type="date" id="goalEndDate" name="goalEndDate" required
-                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <input type="date" id="goalEndDate" name="goalEndDate"
+                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;" readonly>
                             </div>
                         </div>
 

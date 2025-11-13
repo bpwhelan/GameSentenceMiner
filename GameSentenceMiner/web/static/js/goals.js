@@ -2,6 +2,163 @@
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
 // ================================
+// Custom Goal Checkbox Manager Module
+// ================================
+const CustomGoalCheckboxManager = {
+    STORAGE_KEY: 'gsm_custom_goal_checkboxes',
+    
+    // Get today's date string in YYYY-MM-DD format
+    getTodayDateString() {
+        const today = new Date();
+        return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    },
+    
+    // Get all checkbox states from localStorage
+    getAll() {
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEY);
+            return stored ? JSON.parse(stored) : {};
+        } catch (error) {
+            console.error('Error reading checkbox states from localStorage:', error);
+            return {};
+        }
+    },
+    
+    // Save all checkbox states to localStorage
+    saveAll(states) {
+        try {
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(states));
+            return true;
+        } catch (error) {
+            console.error('Error saving checkbox states to localStorage:', error);
+            return false;
+        }
+    },
+    
+    // Get state for a specific goal
+    getState(goalId) {
+        const allStates = this.getAll();
+        return allStates[goalId] || {
+            completionDates: [],
+            currentStreak: 0,
+            longestStreak: 0,
+            lastCheckedDate: null,
+            lastResetDate: null
+        };
+    },
+    
+    // Check if goal is completed today
+    isCompletedToday(goalId) {
+        const state = this.getState(goalId);
+        const today = this.getTodayDateString();
+        return state.lastCheckedDate === today;
+    },
+    
+    // Check if goal needs reset (new day)
+    needsReset(goalId) {
+        const state = this.getState(goalId);
+        const today = this.getTodayDateString();
+        return state.lastResetDate !== today;
+    },
+    
+    // Reset checkbox for new day
+    resetForNewDay(goalId) {
+        const allStates = this.getAll();
+        const state = this.getState(goalId);
+        const today = this.getTodayDateString();
+        
+        state.lastResetDate = today;
+        allStates[goalId] = state;
+        
+        this.saveAll(allStates);
+        return state;
+    },
+    
+    // Calculate streak from completion dates
+    calculateStreak(completionDates) {
+        if (!completionDates || completionDates.length === 0) {
+            return 0;
+        }
+        
+        // Sort dates in descending order (most recent first)
+        const sortedDates = [...completionDates].sort((a, b) => b.localeCompare(a));
+        
+        const today = this.getTodayDateString();
+        let streak = 0;
+        let currentDate = new Date(today);
+        
+        // Check if today is completed
+        if (sortedDates[0] === today) {
+            streak = 1;
+            currentDate.setDate(currentDate.getDate() - 1);
+        } else {
+            // If today is not completed, check if yesterday was
+            currentDate.setDate(currentDate.getDate() - 1);
+            const yesterday = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+            
+            if (sortedDates[0] !== yesterday) {
+                return 0; // Streak is broken
+            }
+            streak = 1;
+            currentDate.setDate(currentDate.getDate() - 1);
+        }
+        
+        // Count consecutive days backwards
+        for (let i = (sortedDates[0] === today ? 1 : 1); i < sortedDates.length; i++) {
+            const expectedDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+            
+            if (sortedDates[i] === expectedDate) {
+                streak++;
+                currentDate.setDate(currentDate.getDate() - 1);
+            } else {
+                break; // Streak is broken
+            }
+        }
+        
+        return streak;
+    },
+    
+    // Mark goal as completed for today
+    markCompleted(goalId) {
+        const allStates = this.getAll();
+        const state = this.getState(goalId);
+        const today = this.getTodayDateString();
+        
+        // Add today to completion dates if not already there
+        if (!state.completionDates.includes(today)) {
+            state.completionDates.push(today);
+        }
+        
+        state.lastCheckedDate = today;
+        state.lastResetDate = today;
+        
+        // Calculate current streak
+        state.currentStreak = this.calculateStreak(state.completionDates);
+        
+        // Update longest streak if current is higher
+        if (state.currentStreak > state.longestStreak) {
+            state.longestStreak = state.currentStreak;
+        }
+        
+        allStates[goalId] = state;
+        this.saveAll(allStates);
+        
+        return state;
+    },
+    
+    // Initialize or reset all custom goals for new day
+    initializeForNewDay() {
+        const customGoals = CustomGoalsManager.getAll().filter(g => g.metricType === 'custom');
+        
+        for (const goal of customGoals) {
+            if (this.needsReset(goal.id)) {
+                this.resetForNewDay(goal.id);
+            }
+        }
+    }
+};
+
+// ================================
 // Custom Goals Manager Module
 // ================================
 const CustomGoalsManager = {
@@ -30,6 +187,8 @@ const CustomGoalsManager = {
         const todayStr = today.toISOString().split('T')[0];
         
         return this.getAll().filter(goal => {
+            // Custom goals are always active
+            if (goal.metricType === 'custom') return true;
             return goal.endDate >= todayStr;
         });
     },
@@ -41,6 +200,8 @@ const CustomGoalsManager = {
         const todayStr = today.toISOString().split('T')[0];
         
         return this.getAll().filter(goal => {
+            // Custom goals are always in progress
+            if (goal.metricType === 'custom') return true;
             return goal.startDate <= todayStr && goal.endDate >= todayStr;
         });
     },
@@ -114,7 +275,8 @@ const CustomGoalsManager = {
         const icons = {
             'hours': '⏱️',
             'characters': '📖',
-            'games': '🎮'
+            'games': '🎮',
+            'custom': '✅'
         };
         return icons[metricType] || '🎯';
     },
@@ -127,24 +289,27 @@ const CustomGoalsManager = {
             errors.push('Goal name is required');
         }
         
-        if (!goalData.metricType || !['hours', 'characters', 'games'].includes(goalData.metricType)) {
-            errors.push('Valid metric type is required (hours, characters, or games)');
+        if (!goalData.metricType || !['hours', 'characters', 'games', 'custom'].includes(goalData.metricType)) {
+            errors.push('Valid metric type is required (hours, characters, games, or custom)');
         }
         
-        if (!goalData.targetValue || goalData.targetValue <= 0) {
-            errors.push('Target value must be greater than 0');
-        }
-        
-        if (!goalData.startDate) {
-            errors.push('Start date is required');
-        }
-        
-        if (!goalData.endDate) {
-            errors.push('End date is required');
-        }
-        
-        if (goalData.startDate && goalData.endDate && goalData.startDate > goalData.endDate) {
-            errors.push('End date must be after start date');
+        // For custom goals, targetValue, startDate, and endDate are optional
+        if (goalData.metricType !== 'custom') {
+            if (!goalData.targetValue || goalData.targetValue <= 0) {
+                errors.push('Target value must be greater than 0');
+            }
+            
+            if (!goalData.startDate) {
+                errors.push('Start date is required');
+            }
+            
+            if (!goalData.endDate) {
+                errors.push('End date is required');
+            }
+            
+            if (goalData.startDate && goalData.endDate && goalData.startDate > goalData.endDate) {
+                errors.push('End date must be after start date');
+            }
         }
         
         return errors;
@@ -152,6 +317,9 @@ const CustomGoalsManager = {
 };
 
 document.addEventListener('DOMContentLoaded', function () {
+    
+    // Initialize checkbox states for new day
+    CustomGoalCheckboxManager.initializeForNewDay();
     
     // Helper function to format large numbers
     function formatGoalNumber(num) {
@@ -224,6 +392,47 @@ document.addEventListener('DOMContentLoaded', function () {
     
     // Helper function to render a custom goal card
     function renderCustomGoalCard(goal, currentProgress, dailyAverage) {
+        // Handle custom metric type differently
+        if (goal.metricType === 'custom') {
+            const state = CustomGoalCheckboxManager.getState(goal.id);
+            
+            return `
+                <div class="goal-progress-item custom-goal-item custom-goal-checkbox-item" data-goal-id="${goal.id}">
+                    <div class="goal-progress-header">
+                        <div class="goal-progress-label">
+                            <span class="goal-icon">${goal.icon}</span>
+                            ${goal.name}
+                        </div>
+                    </div>
+                    <div class="custom-goal-streak-display" style="margin: 12px 0; padding: 12px; background: var(--bg-secondary); border-radius: 8px; border: 2px solid var(--border-color);">
+                        <div style="display: flex; justify-content: space-around; gap: 20px;">
+                            <div style="text-align: center;">
+                                <div style="font-size: 2em; font-weight: 700; color: var(--success-color);">${state.currentStreak}</div>
+                                <div style="font-size: 0.85em; color: var(--text-tertiary); margin-top: 4px;">Current Streak</div>
+                            </div>
+                            <div style="text-align: center;">
+                                <div style="font-size: 2em; font-weight: 700; color: var(--primary-color);">${state.longestStreak}</div>
+                                <div style="font-size: 0.85em; color: var(--text-tertiary); margin-top: 4px;">Longest Streak</div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 12px; text-align: center; font-size: 0.9em; color: var(--text-secondary);">
+                            <span style="opacity: 0.8;">🔥</span>
+                            <span style="margin-left: 4px;">${state.completionDates.length} days completed</span>
+                        </div>
+                    </div>
+                    <div class="custom-goal-actions" style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
+                        <button onclick="editCustomGoal('${goal.id}')" class="goal-action-btn edit-btn" title="Edit goal">
+                            ✏️ Edit
+                        </button>
+                        <button onclick="deleteCustomGoal('${goal.id}')" class="goal-action-btn delete-btn" title="Delete goal">
+                            🗑️ Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Regular goal rendering
         const percentage = Math.min(100, (currentProgress / goal.targetValue) * 100);
         const formattedCurrent = goal.metricType === 'hours' ? Math.floor(currentProgress).toLocaleString() :
                                  goal.metricType === 'characters' ? formatGoalNumber(currentProgress) :
@@ -322,13 +531,20 @@ document.addEventListener('DOMContentLoaded', function () {
                 console.log(`Rendering ${customGoals.length} custom goals`);
                 for (const goal of customGoals) {
                     console.log('Processing goal:', goal);
-                    const progress = await calculateCustomGoalProgress(goal);
-                    const dailyAvg = goal.metricType === 'hours' ? dailyHoursAvg :
-                                    goal.metricType === 'characters' ? dailyCharsAvg :
-                                    dailyGamesAvg;
-                    console.log(`Goal "${goal.name}" progress: ${progress}, daily avg: ${dailyAvg}`);
-                    const cardHTML = renderCustomGoalCard(goal, progress, dailyAvg);
-                    goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                    
+                    // For custom goals, skip API call
+                    if (goal.metricType === 'custom') {
+                        const cardHTML = renderCustomGoalCard(goal, 0, 0);
+                        goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                    } else {
+                        const progress = await calculateCustomGoalProgress(goal);
+                        const dailyAvg = goal.metricType === 'hours' ? dailyHoursAvg :
+                                        goal.metricType === 'characters' ? dailyCharsAvg :
+                                        dailyGamesAvg;
+                        console.log(`Goal "${goal.name}" progress: ${progress}, daily avg: ${dailyAvg}`);
+                        const cardHTML = renderCustomGoalCard(goal, progress, dailyAvg);
+                        goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                    }
                 }
             } else {
                 console.log('No custom goals to render');
@@ -458,6 +674,32 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Helper function to render a custom goal today item
     function renderCustomGoalTodayItem(goal, todayData) {
+        // Handle custom metric type with checkbox
+        if (goal.metricType === 'custom') {
+            const isCompleted = CustomGoalCheckboxManager.isCompletedToday(goal.id);
+            const checkboxClass = isCompleted ? 'custom-goal-checkbox-checked' : '';
+            const disabledAttr = isCompleted ? 'disabled' : '';
+            
+            return `
+                <div class="dashboard-stat-item goal-stat-item custom-goal-checkbox-item tooltip ${checkboxClass}"
+                     data-tooltip="Click to mark ${goal.name} as complete for today"
+                     data-goal-id="${goal.id}"
+                     style="display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important;">
+                    <div class="custom-goal-checkbox-container" onclick="handleCustomGoalCheckboxClick('${goal.id}')" ${disabledAttr}
+                         style="display: flex !important; flex-direction: column !important; align-items: center !important; gap: 16px !important; padding: 16px 8px !important; width: 100% !important; cursor: pointer !important;">
+                        <div class="custom-goal-title" style="display: flex !important; align-items: center !important; gap: 8px !important; font-size: 16px !important; font-weight: 700 !important; color: var(--text-primary) !important; text-align: center !important;">
+                            <span class="goal-icon">${goal.icon}</span>
+                            <span>${goal.name}</span>
+                        </div>
+                        <div class="custom-goal-checkbox" style="width: 48px !important; height: 48px !important; border: 3px solid var(--border-color) !important; border-radius: 10px !important; display: flex !important; align-items: center !important; justify-content: center !important; background: var(--bg-tertiary) !important;">
+                            <span class="custom-goal-checkbox-icon" style="font-size: 28px !important; font-weight: 700 !important; color: ${isCompleted ? 'white' : 'transparent'} !important;">${isCompleted ? '✓' : ''}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Regular goal rendering
         const metricLabels = {
             'hours': 'Hours',
             'characters': 'Characters',
@@ -497,6 +739,39 @@ document.addEventListener('DOMContentLoaded', function () {
             </div>
         `;
     }
+    
+    // Global function to handle custom goal checkbox clicks
+    window.handleCustomGoalCheckboxClick = function(goalId) {
+        const isCompleted = CustomGoalCheckboxManager.isCompletedToday(goalId);
+        
+        if (isCompleted) {
+            return; // Already completed today, ignore click
+        }
+        
+        // Mark as completed
+        const state = CustomGoalCheckboxManager.markCompleted(goalId);
+        
+        // Update UI
+        const checkboxItem = document.querySelector(`.custom-goal-checkbox-item[data-goal-id="${goalId}"]`);
+        if (checkboxItem) {
+            checkboxItem.classList.add('custom-goal-checkbox-checked');
+            const checkbox = checkboxItem.querySelector('.custom-goal-checkbox');
+            const icon = checkboxItem.querySelector('.custom-goal-checkbox-icon');
+            if (icon) {
+                icon.textContent = '✓';
+            }
+            
+            // Disable further clicks
+            const container = checkboxItem.querySelector('.custom-goal-checkbox-container');
+            if (container) {
+                container.setAttribute('disabled', 'true');
+                container.style.cursor = 'not-allowed';
+            }
+        }
+        
+        // Reload goal progress to update streak display
+        loadGoalProgress();
+    };
 
     // Function to load today's goals
     async function loadTodayGoals() {
@@ -522,36 +797,43 @@ document.addEventListener('DOMContentLoaded', function () {
             if (customGoals.length > 0) {
                 console.log(`Loading today progress for ${customGoals.length} custom goals`);
                 for (const goal of customGoals) {
-                    try {
-                        const response = await fetch('/api/goals/today-progress', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                goal_id: goal.id,
-                                metric_type: goal.metricType,
-                                target_value: goal.targetValue,
-                                start_date: goal.startDate,
-                                end_date: goal.endDate
-                            })
-                        });
-                        
-                        if (!response.ok) {
-                            console.error(`Failed to fetch today progress for goal ${goal.id}`);
-                            continue;
+                    // Handle custom metric type differently
+                    if (goal.metricType === 'custom') {
+                        hasAnyTarget = true;
+                        const itemHTML = renderCustomGoalTodayItem(goal, null);
+                        todayGoalsStats.insertAdjacentHTML('beforeend', itemHTML);
+                    } else {
+                        try {
+                            const response = await fetch('/api/goals/today-progress', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    goal_id: goal.id,
+                                    metric_type: goal.metricType,
+                                    target_value: goal.targetValue,
+                                    start_date: goal.startDate,
+                                    end_date: goal.endDate
+                                })
+                            });
+                            
+                            if (!response.ok) {
+                                console.error(`Failed to fetch today progress for goal ${goal.id}`);
+                                continue;
+                            }
+                            
+                            const todayData = await response.json();
+                            
+                            // Only show if has target and not expired/not started
+                            if (todayData.has_target && !todayData.expired && !todayData.not_started) {
+                                hasAnyTarget = true;
+                                const itemHTML = renderCustomGoalTodayItem(goal, todayData);
+                                todayGoalsStats.insertAdjacentHTML('beforeend', itemHTML);
+                            }
+                        } catch (error) {
+                            console.error(`Error loading today progress for goal ${goal.id}:`, error);
                         }
-                        
-                        const todayData = await response.json();
-                        
-                        // Only show if has target and not expired/not started
-                        if (todayData.has_target && !todayData.expired && !todayData.not_started) {
-                            hasAnyTarget = true;
-                            const itemHTML = renderCustomGoalTodayItem(goal, todayData);
-                            todayGoalsStats.insertAdjacentHTML('beforeend', itemHTML);
-                        }
-                    } catch (error) {
-                        console.error(`Error loading today progress for goal ${goal.id}:`, error);
                     }
                 }
             }

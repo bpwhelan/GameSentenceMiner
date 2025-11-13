@@ -1189,4 +1189,150 @@
     .stats-table th {
         font-size: 11px;
     }
+
+/* ================================
+   Custom Goal Checkbox Styles
+================================ */
+.custom-goal-checkbox-item {
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+/* Override dashboard-stat-item styles for checkbox items */
+.dashboard-stat-item.goal-stat-item.custom-goal-checkbox-item {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0 !important;
+}
+
+.dashboard-stat-item.goal-stat-item.custom-goal-checkbox-item .custom-goal-checkbox-container {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 16px !important;
+    padding: 16px 8px !important;
+    cursor: pointer !important;
+    user-select: none !important;
+    width: 100% !important;
+}
+
+.custom-goal-checkbox-container[disabled] {
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.custom-goal-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-align: center;
+}
+
+.custom-goal-checkbox {
+    width: 48px;
+    height: 48px;
+    border: 3px solid var(--border-color);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.custom-goal-checkbox-icon {
+    font-size: 28px;
+    font-weight: 700;
+    color: transparent;
+    transition: all 0.3s ease;
+}
+
+/* Hover state */
+.custom-goal-checkbox-item:not(.custom-goal-checkbox-checked):hover .custom-goal-checkbox {
+    border-color: var(--success-color);
+    background: rgba(34, 197, 94, 0.1);
+    transform: scale(1.05);
+}
+
+/* Checked state */
+.custom-goal-checkbox-checked {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.1) 100%);
+    border: 2px solid rgba(34, 197, 94, 0.4);
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+}
+
+.custom-goal-checkbox-checked .custom-goal-checkbox {
+    background: var(--success-color);
+    border-color: var(--success-color);
+    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+}
+
+.custom-goal-checkbox-checked .custom-goal-checkbox-icon {
+    color: white;
+    animation: checkmark-pop 0.3s ease;
+}
+
+.custom-goal-checkbox-checked .custom-goal-checkbox-label {
+    color: var(--success-color);
+}
+
+@keyframes checkmark-pop {
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.2);
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Responsive design for custom goal checkboxes */
+@media (max-width: 768px) {
+    .custom-goal-checkbox {
+        width: 44px;
+        height: 44px;
+    }
+    
+    .custom-goal-checkbox-icon {
+        font-size: 24px;
+    }
+    
+    .custom-goal-title {
+        font-size: 15px;
+    }
+    
+    .custom-goal-checkbox-container {
+        gap: 14px;
+        padding: 14px 8px;
+    }
+}
+
+@media (max-width: 480px) {
+    .custom-goal-checkbox {
+        width: 40px;
+        height: 40px;
+    }
+    
+    .custom-goal-checkbox-icon {
+        font-size: 22px;
+    }
+    
+    .custom-goal-title {
+        font-size: 14px;
+    }
+    
+    .custom-goal-checkbox-container {
+        gap: 12px;
+        padding: 12px 8px;
+    }
 }
