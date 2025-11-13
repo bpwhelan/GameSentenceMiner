@@ -196,7 +196,7 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
                 
     if lines_without_game_id:
         logger.debug(f"[ROLLUP_GAME_ACTIVITY] {len(lines_without_game_id)} lines without game_id on {date_str}")
-        for line in lines_without_game_id:
+        for line in lines_without_game_id[:5]:  # Log up to first 5 lines
             logger.debug(f"  Line ID {line.id} with game_name '{getattr(line, 'game_name', 'N/A')}'")    
             
     # Calculate time spent per game and get game titles
