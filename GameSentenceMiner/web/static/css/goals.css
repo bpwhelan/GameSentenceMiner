@@ -1,0 +1,80 @@
+/* Goals Page Specific Styles - Custom Goal Checkboxes */
+
+/* Base styles for checkbox items */
+.dashboard-stat-item.goal-stat-item.custom-goal-checkbox-item {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* Checkbox container */
+.custom-goal-checkbox-container {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 16px !important;
+    padding: 16px 8px !important;
+    width: 100% !important;
+    cursor: pointer !important;
+}
+
+.custom-goal-checkbox-container[disabled] {
+    cursor: not-allowed !important;
+    opacity: 0.7;
+}
+
+/* Goal title */
+.custom-goal-title {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    color: var(--text-primary) !important;
+    text-align: center !important;
+}
+
+/* Checkbox box */
+.custom-goal-checkbox {
+    width: 48px !important;
+    height: 48px !important;
+    border: 3px solid var(--border-color) !important;
+    border-radius: 10px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: var(--bg-tertiary) !important;
+    transition: all 0.3s ease;
+}
+
+/* Checkbox icon */
+.custom-goal-checkbox-icon {
+    font-size: 28px !important;
+    font-weight: 700 !important;
+}
+
+/* Checked state - green glow like goal-met items */
+.dashboard-stat-item.custom-goal-checkbox-item.custom-goal-checkbox-checked {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.1) 100%) !important;
+    border: 2px solid rgba(34, 197, 94, 0.4) !important;
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.2) !important;
+}
+
+/* Checked checkbox - white background with green border and checkmark */
+.custom-goal-checkbox-checked .custom-goal-checkbox {
+    background: white !important;
+    border-color: #22c55e !important;
+    border-width: 3px !important;
+    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3) !important;
+}
+
+/* Green checkmark */
+.custom-goal-checkbox-checked .custom-goal-checkbox-icon {
+    color: #22c55e !important;
+}
+
+/* Checked title - green color */
+.custom-goal-checkbox-checked .custom-goal-title {
+    color: #22c55e !important;
+}

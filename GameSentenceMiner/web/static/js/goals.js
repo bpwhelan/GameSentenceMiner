@@ -683,16 +683,14 @@ document.addEventListener('DOMContentLoaded', function () {
             return `
                 <div class="dashboard-stat-item goal-stat-item custom-goal-checkbox-item tooltip ${checkboxClass}"
                      data-tooltip="Click to mark ${goal.name} as complete for today"
-                     data-goal-id="${goal.id}"
-                     style="display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important;">
-                    <div class="custom-goal-checkbox-container" onclick="handleCustomGoalCheckboxClick('${goal.id}')" ${disabledAttr}
-                         style="display: flex !important; flex-direction: column !important; align-items: center !important; gap: 16px !important; padding: 16px 8px !important; width: 100% !important; cursor: pointer !important;">
-                        <div class="custom-goal-title" style="display: flex !important; align-items: center !important; gap: 8px !important; font-size: 16px !important; font-weight: 700 !important; color: var(--text-primary) !important; text-align: center !important;">
+                     data-goal-id="${goal.id}">
+                    <div class="custom-goal-checkbox-container" onclick="handleCustomGoalCheckboxClick('${goal.id}')" ${disabledAttr}>
+                        <div class="custom-goal-title">
                             <span class="goal-icon">${goal.icon}</span>
                             <span>${goal.name}</span>
                         </div>
-                        <div class="custom-goal-checkbox" style="width: 48px !important; height: 48px !important; border: 3px solid var(--border-color) !important; border-radius: 10px !important; display: flex !important; align-items: center !important; justify-content: center !important; background: var(--bg-tertiary) !important;">
-                            <span class="custom-goal-checkbox-icon" style="font-size: 28px !important; font-weight: 700 !important; color: ${isCompleted ? 'white' : 'transparent'} !important;">${isCompleted ? '✓' : ''}</span>
+                        <div class="custom-goal-checkbox">
+                            <span class="custom-goal-checkbox-icon">${isCompleted ? '✓' : ''}</span>
                         </div>
                     </div>
                 </div>
@@ -755,7 +753,6 @@ document.addEventListener('DOMContentLoaded', function () {
         const checkboxItem = document.querySelector(`.custom-goal-checkbox-item[data-goal-id="${goalId}"]`);
         if (checkboxItem) {
             checkboxItem.classList.add('custom-goal-checkbox-checked');
-            const checkbox = checkboxItem.querySelector('.custom-goal-checkbox');
             const icon = checkboxItem.querySelector('.custom-goal-checkbox-icon');
             if (icon) {
                 icon.textContent = '✓';
@@ -765,7 +762,6 @@ document.addEventListener('DOMContentLoaded', function () {
             const container = checkboxItem.querySelector('.custom-goal-checkbox-container');
             if (container) {
                 container.setAttribute('disabled', 'true');
-                container.style.cursor = 'not-allowed';
             }
         }
         
