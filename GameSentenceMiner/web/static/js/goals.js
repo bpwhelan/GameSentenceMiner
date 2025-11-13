@@ -1029,6 +1029,55 @@ document.addEventListener('DOMContentLoaded', function () {
     
     let editingGoalId = null;
     
+    // Function to update form field visibility based on metric type
+    function updateFormFieldsVisibility() {
+        const metricType = document.getElementById('goalMetricType').value;
+        const targetValueContainer = document.getElementById('goalTargetValueContainer');
+        const datesContainer = document.getElementById('goalDatesContainer');
+        const helpText = document.getElementById('customGoalHelpText');
+        const targetValueInput = document.getElementById('goalTargetValue');
+        const startDateInput = document.getElementById('goalStartDate');
+        const endDateInput = document.getElementById('goalEndDate');
+        
+        if (metricType === 'custom') {
+            // Hide fields for custom goals - use display none for complete removal
+            targetValueContainer.style.display = 'none';
+            datesContainer.style.display = 'none';
+            helpText.style.display = 'block';
+            
+            // Remove required attributes
+            targetValueInput.removeAttribute('required');
+            startDateInput.removeAttribute('required');
+            endDateInput.removeAttribute('required');
+            
+            // Clear values to prevent validation issues
+            targetValueInput.value = '';
+            startDateInput.value = '';
+            endDateInput.value = '';
+        } else if (metricType) {
+            // Show fields for regular goals
+            targetValueContainer.style.display = 'block';
+            datesContainer.style.display = 'grid';
+            helpText.style.display = 'none';
+            
+            // Add required attributes back
+            targetValueInput.setAttribute('required', 'required');
+            startDateInput.setAttribute('required', 'required');
+            endDateInput.setAttribute('required', 'required');
+        } else {
+            // No metric type selected - hide help text but show fields
+            helpText.style.display = 'none';
+            targetValueContainer.style.display = 'block';
+            datesContainer.style.display = 'grid';
+        }
+    }
+    
+    // Add event listener to metric type select
+    const goalMetricTypeSelect = document.getElementById('goalMetricType');
+    if (goalMetricTypeSelect) {
+        goalMetricTypeSelect.addEventListener('change', updateFormFieldsVisibility);
+    }
+    
     // Open modal for creating new goal
     if (addCustomGoalBtn) {
         addCustomGoalBtn.addEventListener('click', function() {
@@ -1038,6 +1087,8 @@ document.addEventListener('DOMContentLoaded', function () {
             customGoalModal.style.display = 'flex';
             customGoalModal.classList.add('show');
             clearCustomGoalMessages();
+            // Reset field visibility
+            updateFormFieldsVisibility();
         });
     }
     
@@ -1146,14 +1197,17 @@ document.addEventListener('DOMContentLoaded', function () {
         
         document.getElementById('goalName').value = goal.name;
         document.getElementById('goalMetricType').value = goal.metricType;
-        document.getElementById('goalTargetValue').value = goal.targetValue;
-        document.getElementById('goalStartDate').value = goal.startDate;
-        document.getElementById('goalEndDate').value = goal.endDate;
+        document.getElementById('goalTargetValue').value = goal.targetValue || '';
+        document.getElementById('goalStartDate').value = goal.startDate || '';
+        document.getElementById('goalEndDate').value = goal.endDate || '';
         document.getElementById('goalIcon').value = goal.icon;
         
         customGoalModal.style.display = 'flex';
         customGoalModal.classList.add('show');
         clearCustomGoalMessages();
+        
+        // Update field visibility based on goal type
+        updateFormFieldsVisibility();
     };
     
     // Function to delete custom goal

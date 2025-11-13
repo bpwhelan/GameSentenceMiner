@@ -78,3 +78,32 @@
 .custom-goal-checkbox-checked .custom-goal-title {
     color: #22c55e !important;
 }
+
+/* Form field transitions for show/hide */
+.goal-form-field {
+    transition: opacity 0.3s ease, max-height 0.3s ease, margin 0.3s ease;
+    opacity: 1;
+    max-height: 500px;
+    overflow: hidden;
+}
+
+.goal-form-field.hidden {
+    opacity: 0;
+    max-height: 0;
+    margin: 0 !important;
+    pointer-events: none;
+}
+
+/* Help text transitions */
+.custom-goal-help-text {
+    transition: opacity 0.3s ease, max-height 0.3s ease, margin 0.3s ease;
+    opacity: 1;
+    max-height: 200px;
+    overflow: hidden;
+}
+
+.custom-goal-help-text.hidden {
+    opacity: 0;
+    max-height: 0;
+    margin: 0 !important;
+}
