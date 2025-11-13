@@ -20,7 +20,7 @@ from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.configuration import Config, Locale, logger, CommonLanguages, ProfileConfig, General, Paths, \
     Anki, Features, Screenshot, Audio, OBS, Hotkeys, VAD, Overlay, Ai, Advanced, OverlayEngine, get_app_directory, \
-    get_config, is_beangate, AVAILABLE_LANGUAGES, WHISPER_LARGE, WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, \
+    get_config, is_beangate, AVAILABLE_LANGUAGES, WHSIPER_LARGE, WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, \
     WHISPER_MEDIUM, WHISPER_TURBO, SILERO, WHISPER, OFF, gsm_state, DEFAULT_CONFIG, get_latest_version, \
     get_current_version, AI_GEMINI, AI_GROQ, AI_OPENAI, save_full_config, get_default_anki_media_collection_path
 from GameSentenceMiner.util.db import AIModelsTable
@@ -1274,7 +1274,7 @@ class ConfigApp:
         HoverInfoLabelWidget(vad_frame, text=whisper_i18n.get('label', '...'), tooltip=whisper_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
         ttk.Combobox(vad_frame, textvariable=self.whisper_model_value, values=[WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM,
-                                                             WHISPER_LARGE, WHISPER_TURBO], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
+                                                             WHSIPER_LARGE, WHISPER_TURBO], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         selected_model_i18n = vad_i18n.get('selected_model', {})
