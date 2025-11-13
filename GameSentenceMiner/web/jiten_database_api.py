@@ -355,6 +355,14 @@ def register_jiten_database_api_routes(app):
 
             logger.info(f"Linked game {game_id} to jiten.moe deck {deck_id}")
 
+            # Trigger stats rollup after linking game
+            try:
+                logger.info("Triggering stats rollup after game link")
+                run_daily_rollup()
+            except Exception as rollup_error:
+                logger.error(f"Stats rollup failed after game link: {rollup_error}")
+                # Don't fail the link operation if rollup fails
+
             return jsonify(
                 {
                     "success": True,
