@@ -1,6 +1,156 @@
 // Goals Page JavaScript
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
+// ================================
+// Custom Goals Manager Module
+// ================================
+const CustomGoalsManager = {
+    STORAGE_KEY: 'gsm_custom_goals',
+    
+    // Generate unique ID for goals
+    generateId() {
+        return 'goal_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    },
+    
+    // Get all custom goals from localStorage
+    getAll() {
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEY);
+            return stored ? JSON.parse(stored) : [];
+        } catch (error) {
+            console.error('Error reading custom goals from localStorage:', error);
+            return [];
+        }
+    },
+    
+    // Get active goals (within current date or future)
+    getActive() {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayStr = today.toISOString().split('T')[0];
+        
+        return this.getAll().filter(goal => {
+            return goal.endDate >= todayStr;
+        });
+    },
+    
+    // Get goals that are currently in progress (today is within date range)
+    getInProgress() {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayStr = today.toISOString().split('T')[0];
+        
+        return this.getAll().filter(goal => {
+            return goal.startDate <= todayStr && goal.endDate >= todayStr;
+        });
+    },
+    
+    // Save all goals to localStorage
+    saveAll(goals) {
+        try {
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(goals));
+            return true;
+        } catch (error) {
+            console.error('Error saving custom goals to localStorage:', error);
+            return false;
+        }
+    },
+    
+    // Create new goal
+    create(goalData) {
+        const goals = this.getAll();
+        const newGoal = {
+            id: this.generateId(),
+            name: goalData.name,
+            metricType: goalData.metricType,
+            targetValue: goalData.targetValue,
+            startDate: goalData.startDate,
+            endDate: goalData.endDate,
+            icon: goalData.icon || this.getDefaultIcon(goalData.metricType),
+            createdAt: Date.now()
+        };
+        
+        goals.push(newGoal);
+        this.saveAll(goals);
+        return newGoal;
+    },
+    
+    // Update existing goal
+    update(id, goalData) {
+        const goals = this.getAll();
+        const index = goals.findIndex(g => g.id === id);
+        
+        if (index === -1) {
+            return false;
+        }
+        
+        goals[index] = {
+            ...goals[index],
+            name: goalData.name,
+            metricType: goalData.metricType,
+            targetValue: goalData.targetValue,
+            startDate: goalData.startDate,
+            endDate: goalData.endDate,
+            icon: goalData.icon || goals[index].icon
+        };
+        
+        return this.saveAll(goals);
+    },
+    
+    // Delete goal
+    delete(id) {
+        const goals = this.getAll();
+        const filtered = goals.filter(g => g.id !== id);
+        return this.saveAll(filtered);
+    },
+    
+    // Get goal by ID
+    getById(id) {
+        return this.getAll().find(g => g.id === id);
+    },
+    
+    // Get default icon for metric type
+    getDefaultIcon(metricType) {
+        const icons = {
+            'hours': '⏱️',
+            'characters': '📖',
+            'games': '🎮'
+        };
+        return icons[metricType] || '🎯';
+    },
+    
+    // Validate goal data
+    validate(goalData) {
+        const errors = [];
+        
+        if (!goalData.name || goalData.name.trim() === '') {
+            errors.push('Goal name is required');
+        }
+        
+        if (!goalData.metricType || !['hours', 'characters', 'games'].includes(goalData.metricType)) {
+            errors.push('Valid metric type is required (hours, characters, or games)');
+        }
+        
+        if (!goalData.targetValue || goalData.targetValue <= 0) {
+            errors.push('Target value must be greater than 0');
+        }
+        
+        if (!goalData.startDate) {
+            errors.push('Start date is required');
+        }
+        
+        if (!goalData.endDate) {
+            errors.push('End date is required');
+        }
+        
+        if (goalData.startDate && goalData.endDate && goalData.startDate > goalData.endDate) {
+            errors.push('End date must be after start date');
+        }
+        
+        return errors;
+    }
+};
+
 document.addEventListener('DOMContentLoaded', function () {
     
     // Helper function to format large numbers
@@ -40,6 +190,106 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             progressElement.classList.add('completion-0');
         }
+    }
+
+    // Helper function to calculate progress for custom goal within date range
+    function calculateCustomGoalProgress(allLinesData, goal) {
+        if (!allLinesData || allLinesData.length === 0) {
+            return 0;
+        }
+        
+        const startDate = new Date(goal.startDate);
+        const endDate = new Date(goal.endDate);
+        endDate.setHours(23, 59, 59, 999); // Include the entire end date
+        
+        const filteredData = allLinesData.filter(line => {
+            const lineDate = new Date(line.timestamp * 1000);
+            return lineDate >= startDate && lineDate <= endDate;
+        });
+        
+        if (filteredData.length === 0) {
+            return 0;
+        }
+        
+        if (goal.metricType === 'hours') {
+            const dailyTimestamps = {};
+            for (const line of filteredData) {
+                const ts = parseFloat(line.timestamp);
+                if (isNaN(ts)) continue;
+                const dateObj = new Date(ts * 1000);
+                const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                if (!dailyTimestamps[dateStr]) {
+                    dailyTimestamps[dateStr] = [];
+                }
+                dailyTimestamps[dateStr].push(ts);
+            }
+            
+            let totalHours = 0;
+            const afkTimerSeconds = 120;
+            for (const timestamps of Object.values(dailyTimestamps)) {
+                if (timestamps.length >= 2) {
+                    timestamps.sort((a, b) => a - b);
+                    for (let i = 1; i < timestamps.length; i++) {
+                        const gap = timestamps[i] - timestamps[i-1];
+                        totalHours += Math.min(gap, afkTimerSeconds) / 3600;
+                    }
+                } else if (timestamps.length === 1) {
+                    totalHours += 1 / 3600;
+                }
+            }
+            return totalHours;
+        } else if (goal.metricType === 'characters') {
+            return filteredData.reduce((sum, line) => sum + (line.characters || 0), 0);
+        } else if (goal.metricType === 'games') {
+            const uniqueGames = new Set(filteredData.map(line => line.game_name));
+            return uniqueGames.size;
+        }
+        
+        return 0;
+    }
+    
+    // Helper function to render a custom goal card
+    function renderCustomGoalCard(goal, currentProgress, dailyAverage) {
+        const percentage = Math.min(100, (currentProgress / goal.targetValue) * 100);
+        const formattedCurrent = goal.metricType === 'hours' ? Math.floor(currentProgress).toLocaleString() :
+                                 goal.metricType === 'characters' ? formatGoalNumber(currentProgress) :
+                                 currentProgress.toLocaleString();
+        const formattedTarget = goal.metricType === 'hours' ? goal.targetValue.toLocaleString() :
+                                goal.metricType === 'characters' ? formatGoalNumber(goal.targetValue) :
+                                goal.targetValue.toLocaleString();
+        
+        const progressBarClass = `completion-${Math.floor(percentage / 25) * 25}`;
+        
+        return `
+            <div class="goal-progress-item custom-goal-item" data-goal-id="${goal.id}">
+                <div class="goal-progress-header">
+                    <div class="goal-progress-label">
+                        <span class="goal-icon">${goal.icon}</span>
+                        ${goal.name}
+                    </div>
+                    <div class="goal-progress-values">
+                        <span class="goal-current">${formattedCurrent}</span>
+                        <span class="goal-separator">/</span>
+                        <span class="goal-target">${formattedTarget}</span>
+                    </div>
+                </div>
+                <div class="goal-progress-bar">
+                    <div class="goal-progress-fill ${progressBarClass}" style="width: ${percentage}%"></div>
+                </div>
+                <div class="goal-progress-info">
+                    <span class="goal-percentage">${Math.floor(percentage)}%</span>
+                    <span class="goal-projection">${formatProjection(currentProgress, goal.targetValue, dailyAverage)}</span>
+                </div>
+                <div class="custom-goal-actions" style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
+                    <button onclick="editCustomGoal('${goal.id}')" class="goal-action-btn edit-btn" title="Edit goal">
+                        ✏️ Edit
+                    </button>
+                    <button onclick="deleteCustomGoal('${goal.id}')" class="goal-action-btn delete-btn" title="Delete goal">
+                        🗑️ Delete
+                    </button>
+                </div>
+            </div>
+        `;
     }
 
     // Function to load goal progress chart
@@ -119,6 +369,26 @@ document.addEventListener('DOMContentLoaded', function () {
             gamesProgressBar.style.width = gamesPercentage + '%';
             gamesProgressBar.setAttribute('data-percentage', Math.floor(gamesPercentage / 25) * 25);
             updateProgressBarColor(gamesProgressBar, gamesPercentage);
+            
+            // Load and render custom goals
+            const customGoals = CustomGoalsManager.getActive();
+            const goalProgressGrid = document.querySelector('.goal-progress-grid');
+            
+            // Remove existing custom goal cards
+            const existingCustomGoals = goalProgressGrid.querySelectorAll('.custom-goal-item');
+            existingCustomGoals.forEach(el => el.remove());
+            
+            // Add custom goal cards
+            if (customGoals.length > 0) {
+                customGoals.forEach(goal => {
+                    const progress = calculateCustomGoalProgress(allLinesData, goal);
+                    const dailyAvg = goal.metricType === 'hours' ? dailyHoursAvg :
+                                    goal.metricType === 'characters' ? dailyCharsAvg :
+                                    dailyGamesAvg;
+                    const cardHTML = renderCustomGoalCard(goal, progress, dailyAvg);
+                    goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                });
+            }
             
             goalProgressLoading.style.display = 'none';
             
@@ -525,6 +795,164 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('Error loading goal projections:', error);
         }
     }
+
+    // ================================
+    // Custom Goal Modal Functionality
+    // ================================
+    const customGoalModal = document.getElementById('customGoalModal');
+    const addCustomGoalBtn = document.getElementById('addCustomGoalBtn');
+    const closeCustomGoalModal = document.getElementById('closeCustomGoalModal');
+    const cancelCustomGoalBtn = document.getElementById('cancelCustomGoalBtn');
+    const saveCustomGoalBtn = document.getElementById('saveCustomGoalBtn');
+    const customGoalForm = document.getElementById('customGoalForm');
+    const customGoalError = document.getElementById('customGoalError');
+    const customGoalSuccess = document.getElementById('customGoalSuccess');
+    const customGoalModalTitle = document.getElementById('customGoalModalTitle');
+    
+    let editingGoalId = null;
+    
+    // Open modal for creating new goal
+    if (addCustomGoalBtn) {
+        addCustomGoalBtn.addEventListener('click', function() {
+            editingGoalId = null;
+            customGoalModalTitle.textContent = 'Add Custom Goal';
+            customGoalForm.reset();
+            customGoalModal.style.display = 'flex';
+            customGoalModal.classList.add('show');
+            clearCustomGoalMessages();
+        });
+    }
+    
+    // Close custom goal modal function
+    function closeCustomGoalModalFunc() {
+        customGoalModal.style.display = 'none';
+        customGoalModal.classList.remove('show');
+        customGoalForm.reset();
+        editingGoalId = null;
+        clearCustomGoalMessages();
+    }
+    
+    if (closeCustomGoalModal) {
+        closeCustomGoalModal.addEventListener('click', closeCustomGoalModalFunc);
+    }
+    
+    if (cancelCustomGoalBtn) {
+        cancelCustomGoalBtn.addEventListener('click', closeCustomGoalModalFunc);
+    }
+    
+    // Clear error/success messages
+    function clearCustomGoalMessages() {
+        if (customGoalError) customGoalError.style.display = 'none';
+        if (customGoalSuccess) customGoalSuccess.style.display = 'none';
+    }
+    
+    // Show error message
+    function showCustomGoalError(message) {
+        if (customGoalError) {
+            customGoalError.textContent = message;
+            customGoalError.style.display = 'block';
+        }
+        if (customGoalSuccess) {
+            customGoalSuccess.style.display = 'none';
+        }
+    }
+    
+    // Show success message
+    function showCustomGoalSuccess(message) {
+        if (customGoalSuccess) {
+            customGoalSuccess.textContent = message;
+            customGoalSuccess.style.display = 'block';
+        }
+        if (customGoalError) {
+            customGoalError.style.display = 'none';
+        }
+    }
+    
+    // Save custom goal (create or update)
+    if (saveCustomGoalBtn) {
+        saveCustomGoalBtn.addEventListener('click', function() {
+            clearCustomGoalMessages();
+            
+            const goalData = {
+                name: document.getElementById('goalName').value.trim(),
+                metricType: document.getElementById('goalMetricType').value,
+                targetValue: parseInt(document.getElementById('goalTargetValue').value),
+                startDate: document.getElementById('goalStartDate').value,
+                endDate: document.getElementById('goalEndDate').value,
+                icon: document.getElementById('goalIcon').value.trim()
+            };
+            
+            // Validate
+            const errors = CustomGoalsManager.validate(goalData);
+            if (errors.length > 0) {
+                showCustomGoalError(errors.join(', '));
+                return;
+            }
+            
+            try {
+                if (editingGoalId) {
+                    // Update existing goal
+                    CustomGoalsManager.update(editingGoalId, goalData);
+                    showCustomGoalSuccess('Goal updated successfully!');
+                } else {
+                    // Create new goal
+                    CustomGoalsManager.create(goalData);
+                    showCustomGoalSuccess('Goal created successfully!');
+                }
+                
+                // Reload goal displays
+                setTimeout(() => {
+                    loadGoalProgress();
+                    loadTodayGoals();
+                    loadGoalProjections();
+                    closeCustomGoalModalFunc();
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Error saving custom goal:', error);
+                showCustomGoalError('Failed to save goal: ' + error.message);
+            }
+        });
+    }
+    
+    // Function to open edit modal for existing goal
+    window.editCustomGoal = function(goalId) {
+        const goal = CustomGoalsManager.getById(goalId);
+        if (!goal) {
+            alert('Goal not found');
+            return;
+        }
+        
+        editingGoalId = goalId;
+        customGoalModalTitle.textContent = 'Edit Custom Goal';
+        
+        document.getElementById('goalName').value = goal.name;
+        document.getElementById('goalMetricType').value = goal.metricType;
+        document.getElementById('goalTargetValue').value = goal.targetValue;
+        document.getElementById('goalStartDate').value = goal.startDate;
+        document.getElementById('goalEndDate').value = goal.endDate;
+        document.getElementById('goalIcon').value = goal.icon;
+        
+        customGoalModal.style.display = 'flex';
+        customGoalModal.classList.add('show');
+        clearCustomGoalMessages();
+    };
+    
+    // Function to delete custom goal
+    window.deleteCustomGoal = function(goalId) {
+        const goal = CustomGoalsManager.getById(goalId);
+        if (!goal) {
+            alert('Goal not found');
+            return;
+        }
+        
+        if (confirm(`Are you sure you want to delete the goal "${goal.name}"?`)) {
+            CustomGoalsManager.delete(goalId);
+            loadGoalProgress();
+            loadTodayGoals();
+            loadGoalProjections();
+        }
+    };
 
     // Load initial data
     loadGoalProgress();

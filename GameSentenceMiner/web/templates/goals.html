@@ -8,7 +8,13 @@
 <body>
 
     <div class="container">
-        <h1>GSM - Goals</h1>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h1 style="margin: 0;">GSM - Goals</h1>
+            <button id="addCustomGoalBtn" class="control-btn" style="display: flex; align-items: center; gap: 8px;">
+                <span>➕</span>
+                <span>Add Custom Goal</span>
+            </button>
+        </div>
 
         <!-- Include shared navigation -->
         {% include 'components/navigation.html' %}
@@ -208,6 +214,94 @@
                         <div class="dashboard-progress-value positive" id="gamesProjectionStatus">-</div>
                         <div class="dashboard-progress-label">Games Status</div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom Goal Modal -->
+        <div id="customGoalModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="customGoalModalTitle">Add Custom Goal</h3>
+                    <span class="close-btn" id="closeCustomGoalModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        Create a custom goal to track your progress over a specific time period.
+                    </p>
+                    <form id="customGoalForm">
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalName" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Goal Name <span style="color: var(--danger-color);">*</span>
+                            </label>
+                            <input type="text" id="goalName" name="goalName" required
+                                style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="e.g., Read 1M characters in January">
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalMetricType" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Metric Type <span style="color: var(--danger-color);">*</span>
+                            </label>
+                            <select id="goalMetricType" name="goalMetricType" required
+                                style="width: 95%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <option value="">Select metric type...</option>
+                                <option value="hours">Reading Hours</option>
+                                <option value="characters">Characters Read</option>
+                                <option value="games">Games Completed</option>
+                            </select>
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalTargetValue" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Target Value <span style="color: var(--danger-color);">*</span>
+                            </label>
+                            <input type="number" id="goalTargetValue" name="goalTargetValue" required min="1"
+                                style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="e.g., 1000000">
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                The target amount you want to achieve
+                            </small>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div>
+                                <label for="goalStartDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                    Start Date <span style="color: var(--danger-color);">*</span>
+                                </label>
+                                <input type="date" id="goalStartDate" name="goalStartDate" required
+                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                            </div>
+                            <div>
+                                <label for="goalEndDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                    End Date <span style="color: var(--danger-color);">*</span>
+                                </label>
+                                <input type="date" id="goalEndDate" name="goalEndDate" required
+                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalIcon" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Icon (Optional)
+                            </label>
+                            <input type="text" id="goalIcon" name="goalIcon" maxlength="2"
+                                style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="e.g., 🎯 (leave empty for default)">
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Enter an emoji to represent this goal
+                            </small>
+                        </div>
+                    </form>
+
+                    <div id="customGoalError" style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+                    </div>
+                    <div id="customGoalSuccess" style="display: none; background: var(--success-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelCustomGoalBtn" class="cancel-btn">Cancel</button>
+                    <button id="saveCustomGoalBtn" class="confirm-delete-btn">Save Goal</button>
                 </div>
             </div>
         </div>

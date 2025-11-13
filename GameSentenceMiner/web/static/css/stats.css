@@ -719,6 +719,59 @@
 
 /* Popup styles are now in popups-shared.css */
 
+/* Custom Goal Action Buttons */
+.custom-goal-actions {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.custom-goal-item:hover .custom-goal-actions {
+    opacity: 1;
+}
+
+.goal-action-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.goal-action-btn.edit-btn {
+    background: var(--accent-color);
+    color: white;
+}
+
+.goal-action-btn.edit-btn:hover {
+    background: #0056b3;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+}
+
+.goal-action-btn.delete-btn {
+    background: var(--danger-color);
+    color: white;
+}
+
+.goal-action-btn.delete-btn:hover {
+    background: #c82333;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
+}
+
+.custom-goal-item {
+    position: relative;
+}
+
 /* Responsive Design for Goal Progress Chart */
 @media (max-width: 768px) {
     .goal-progress-grid {
@@ -770,6 +823,16 @@
     
     .goal-progress-bar {
         height: 10px;
+    }
+    
+    .custom-goal-actions {
+        opacity: 1;
+        flex-direction: column;
+    }
+    
+    .goal-action-btn {
+        width: 100%;
+        justify-content: center;
     }
 }
 
