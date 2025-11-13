@@ -163,7 +163,7 @@ def get_scene_ocr_config_path(use_window_as_config=False, window=""):
         else:
             scene = sanitize_filename(obs.get_current_scene() or "Default")
     except Exception as e:
-        logger.warning(f"Error getting OBS scene: {e}. Using default config name.")
+        print(f"Error getting OBS scene: {e}. Using default config name.")
         scene = "Default"
     return os.path.join(ocr_config_dir, f"{scene}.json")
 
