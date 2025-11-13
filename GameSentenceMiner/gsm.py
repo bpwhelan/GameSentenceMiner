@@ -36,6 +36,7 @@ try:
     import signal
     import datetime
     from subprocess import Popen
+    from queue import Queue
 
     import keyboard
     import ttkbootstrap as ttk
@@ -85,8 +86,8 @@ try:
     logger.debug(f"[Import] anki: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.ui import config_gui
-    logger.debug(f"[Import] config_gui: {time.time() - start_time:.3f}s")
+    from GameSentenceMiner.ui import qt_main
+    logger.debug(f"[Import] qt_main: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util import configuration, notification, ffmpeg
@@ -147,7 +148,8 @@ if is_windows():
     import win32api
 
 procs_to_close = []
-settings_window: config_gui.ConfigApp = None
+# settings_window: config_gui.ConfigApp = None
+settings_window = None
 obs_paused = False
 root = None
 file_watcher_observer = None  # Global observer for file watching
@@ -396,7 +398,7 @@ def create_image():
 
 def open_settings():
     obs.update_current_game()
-    settings_window.show()
+    settings_window.show_window()
 
 
 def play_most_recent_audio():
@@ -458,12 +460,37 @@ class GSMTray(threading.Thread):
         if not Icon:
             logger.warning("Tray icon functionality is not available.")
             return
-        def run_anki_confirmation_window():
-            settings_window.show_anki_confirmation_dialog(expression="こんにちは",
-                sentence="こんにちは、世界！元気ですか？",
-                screenshot_path="test_image.png",
-                audio_path="C:/path/to/my/audio.mp3",
-                translation="Hello world! How are you?")
+        
+        def run_test_windows_thread():
+            print("\n--- Test Windows ---")
+            print("1. Anki Confirmation Dialog")
+            print("2. Screenshot Selector")
+            print("3. Furigana Filter Preview")
+            print("4. Area Selector")
+            print("5. Screen Cropper")
+            choice = input("Enter choice: ")
+            gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            if choice == "1":
+                anki_data = {
+                    "expression": "こんにちは",
+                    "sentence": "こんにちは、世界！元気ですか？",
+                    "screenshot_path": r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
+                    "audio_path": r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
+                    "translation": "Hello world! How are you?",
+                    "screenshot_timestamp": 0
+                }
+                settings_window.show_anki_confirmation_dialog(anki_data)
+            elif choice == "2":
+                settings_window._launch_screenshot_selector_signal.emit()
+            elif choice == "3":
+                settings_window._launch_furigana_filter_preview_signal.emit()
+            elif choice == "4":
+                settings_window._launch_area_selector_signal.emit()
+            elif choice == "5":
+                settings_window._launch_screen_cropper_signal.emit()
+
+        def run_test_windows():
+            run_new_thread(run_test_windows_thread)
 
         self.profile_menu = Menu(
             *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, self.switch_profile) for
@@ -478,7 +505,6 @@ class GSMTray(threading.Thread):
             MenuItem("Toggle Replay Buffer", self.play_pause),
             MenuItem("Restart OBS", restart_obs),
             MenuItem("Switch Profile", self.profile_menu),
-            MenuItem("Run Test Code", run_anki_confirmation_window),
             MenuItem("Exit", exit_program)
         )
         
@@ -520,7 +546,6 @@ class GSMTray(threading.Thread):
         get_master_config().current_profile = item.text
         switch_profile_and_save(item.text)
         settings_window.reload_settings()
-        self.update_icon()
         if get_config().restart_required(prev_config):
             send_restart_signal()
 
@@ -641,8 +666,11 @@ def cleanup():
             except Exception as e:
                 logger.error(
                     f"Error removing temporary video file {video}: {e}")
-
-        settings_window.window.destroy()
+        
+        # Shutdown Qt application
+        from GameSentenceMiner.ui import qt_main
+        qt_main.shutdown_qt_app()
+            
         # time.sleep(5)
         logger.info("Cleanup complete.")
     except Exception as e:
@@ -836,8 +864,10 @@ async def register_scene_switcher_callback():
         switch_to = None
 
         if len(matching_configs) > 1:
-            selected_scene = settings_window.show_scene_selection(
-                matched_configs=matching_configs)
+            result_queue = Queue()
+            settings_window.show_scene_selection(
+                matching_configs, result_queue)
+            selected_scene = result_queue.get()
             if selected_scene:
                 switch_to = selected_scene
             else:
@@ -852,7 +882,6 @@ async def register_scene_switcher_callback():
             get_master_config().current_profile = switch_to
             switch_profile_and_save(switch_to)
             settings_window.reload_settings()
-            gsm_tray.update_icon()
 
     await obs.register_scene_change_callback(scene_switcher_callback)
 
@@ -893,10 +922,10 @@ async def async_main(reloading=False):
     try:
         global root, settings_window
         initialize(reloading)
-        root = ttk.Window(themename='darkly')
-        start_time = time.time()
-        settings_window = config_gui.ConfigApp(root)
-        gsm_state.config_app = settings_window
+        # root = ttk.Window(themename='darkly')
+        # Initialize the config window manager
+        settings_window = qt_main.get_config_window()
+        # gsm_state.config_app = settings_window
         initialize_async()
         if is_windows():
             register_hotkeys()
@@ -918,23 +947,17 @@ async def async_main(reloading=False):
 
         gsm_status.ready = True
         gsm_status.status = "Ready"
-        try:
-            if get_config().general.open_config_on_startup:
-                root.after(50, settings_window.show)
-            if Icon:
-                root.after(50, gsm_tray.start)
-            # root.after(100, settings_window.show_anki_confirmation_dialog(expression="こんにちは",
-            #     sentence="こんにちは、世界！元気ですか？",
-            #     screenshot_path="test_image.png",
-            #     audio_path="C:/path/to/my/audio.mp3",
-            #     translation="Hello world! How are you?"))
-            if Icon:
-                settings_window.add_save_hook(gsm_tray.update_icon)
-            settings_window.add_save_hook(on_config_changed)
-            settings_window.on_exit = exit_program
-            root.mainloop()
-        except KeyboardInterrupt:
-            cleanup()
+        
+        # Start tray icon in background
+        if Icon:
+            gsm_tray.start()
+        
+        logger.info("Starting Qt on main thread...")
+        # This blocks until Qt event loop closes - must be called from main thread
+        qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
+        
+    except KeyboardInterrupt:
+        cleanup()
     except Exception as e:
         handle_error_in_initialization(e)
 

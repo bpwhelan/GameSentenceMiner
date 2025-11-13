@@ -17,9 +17,11 @@ import mss.tools
 import websockets
 from PIL import Image
 from rapidfuzz import fuzz
+from PyQt6.QtCore import QObject, pyqtSignal
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ocr.ss_picker import ScreenCropper
+from GameSentenceMiner.ocr.owocr_area_selector_qt import show_area_selector  # from GameSentenceMiner.ocr.owocr_area_selector_webview import show_area_selector
+from GameSentenceMiner.ocr.ss_picker_qt import show_screen_cropper  # from GameSentenceMiner.ocr.ss_picker import ScreenCropper
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory, is_windows
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window, get_ocr_config_path
@@ -609,8 +611,13 @@ def process_task_queue():
             task = second_ocr_queue.get()
             if task is None:  # Exit signal
                 break
-            ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image = task
-            second_ocr_processor.do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image)
+            ignore_furigana_filter = False
+            ignore_previous_result = False
+            if len(task) == 7:
+                ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result = task
+            else:
+                ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image = task
+            second_ocr_processor.do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result)
         except Exception as e:
             logger.exception(f"Error processing task: {e}")
         finally:
@@ -651,11 +658,44 @@ def run_oneocr(ocr_config: OCRConfig, rectangles, config_check_thread):
     except Exception as e:
         logger.exception(f"Error running OneOCR: {e}")
     done = True
+    # Quit Qt app if running
+    try:
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app:
+            app.quit()
+    except Exception:
+        pass
 
+
+# Thread-safe Qt signal wrapper for calling GUI functions from hotkey threads
+class ScreenCropperSignals(QObject):
+    """QObject with signals for thread-safe screen cropper invocation"""
+    show_screen_cropper_signal = pyqtSignal(object)  # callback parameter
+    
+    def __init__(self):
+        super().__init__()
+        # Connect signal to handler
+        self.show_screen_cropper_signal.connect(self._show_screen_cropper_impl)
+    
+    def _show_screen_cropper_impl(self, callback):
+        """Actually show the screen cropper (runs on GUI thread)"""
+        show_screen_cropper(on_complete=callback)
+    
+    def show_screen_cropper_threadsafe(self, callback):
+        """Thread-safe method to show screen cropper"""
+        self.show_screen_cropper_signal.emit(callback)
+
+
+# Global instance (will be created when Qt app exists)
+_screen_cropper_signals = None
 
 
 def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
     import keyboard
+    
+    # We'll create the signal helper when the Qt app is available
+    global _screen_cropper_signals
 
     def ocr_secondary_rectangles():
         logger.info("Running secondary OCR rectangles...")
@@ -667,11 +707,26 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
             second_ocr_processor.do_second_ocr("", datetime.now(), new_img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
 
     filtering = TextFiltering(lang=get_ocr_language())
-    cropper = ScreenCropper()
-    def capture():
-        print("Taking screenshot...")
-        img = cropper.run()
-        second_ocr_processor.do_second_ocr("", datetime.now(), img, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
+    
+    def capture():  # from GameSentenceMiner.ocr.ss_picker: cropper = ScreenCropper()
+        global _screen_cropper_signals
+        print("Taking screenshot via screen cropper...")
+        
+        def on_cropped(cropped_img):  # from GameSentenceMiner.ocr.ss_picker: img = cropper.run()
+            global second_ocr_queue
+            cropped_img.show()
+            if cropped_img:
+                second_ocr_queue.put(("", datetime.now(), cropped_img, filtering, None, True, True))
+                # second_ocr_processor.do_second_ocr("", datetime.now(), cropped_img, filtering, ignore_furigana_filter=True, ignore_previous_result=True)
+            else:
+                logger.info("Screen cropper cancelled")
+        
+        # Create signal helper on first use if needed
+        if _screen_cropper_signals is None:
+            _screen_cropper_signals = ScreenCropperSignals()
+        
+        # Use thread-safe signal to show screen cropper from hotkey thread
+        settings_window._launch_screen_cropper_signal.emit(on_cropped)
     def capture_main_monitor():
         print("Taking screenshot of main monitor...")
         with mss.mss() as sct:
@@ -721,7 +776,7 @@ def set_force_stable_hotkey():
 
 if __name__ == "__main__":
     try:
-        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline, obs_ocr, manual
+        global ocr1, ocr2, twopassocr, language, ss_clipboard, ss, ocr_config, furigana_filter_sensitivity, area_select_ocr_hotkey, window, optimize_second_scan, use_window_for_config, keep_newline, obs_ocr, manual, settings_window
         import sys
 
         import argparse
@@ -802,16 +857,18 @@ if __name__ == "__main__":
             oneocr_threads = []
             ocr_thread = threading.Thread(target=run_oneocr, args=(ocr_config, rectangles, config_check_thread), daemon=True)
             ocr_thread.start()
-            if not manual:
-                worker_thread = threading.Thread(target=process_task_queue, daemon=True)
-                worker_thread.start()
+            # Always start worker thread to process manual screenshots from screen cropper
+            worker_thread = threading.Thread(target=process_task_queue, daemon=True)
+            worker_thread.start()
             websocket_server_thread = WebsocketServerThread(read=True)
             websocket_server_thread.start()
             if is_windows():
                 add_ss_hotkey(ss_hotkey)
             try:
-                while not done:
-                    time.sleep(1)
+                # Run Qt event loop instead of sleep loop - this allows Qt dialogs to work
+                import GameSentenceMiner.ui.qt_main as qt_main
+                settings_window = qt_main.get_config_window()
+                qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
             except KeyboardInterrupt:
                 pass
         else:

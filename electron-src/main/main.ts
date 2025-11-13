@@ -307,6 +307,17 @@ async function _updateGSMInternal(
                 );
             }
 
+            try {
+                await runCommand(
+                    pythonPath,
+                    ['-m', 'uv', 'pip', 'install', 'pynput~=1.9.2'],
+                    true,
+                    true
+                );
+            } catch (err) {
+                log.error('Failed to install pynput package, owocrhotkeys will not work on Linux/Mac:', err);
+            }
+
             log.info('Python update completed successfully.');
             new Notification({
                 title: 'Update Successful',

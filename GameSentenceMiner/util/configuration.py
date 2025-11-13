@@ -96,13 +96,13 @@ def is_mac():
 class Locale(Enum):
     English = 'en_us'
     日本語 = 'ja_jp'
-    한국어 = 'ko_kr'
+    # 한국어 = 'ko_kr'
     中文 = 'zh_cn'
     Español = 'es_es'
-    Français = 'fr_fr'
-    Deutsch = 'de_de'
-    Italiano = 'it_it'
-    Русский = 'ru_ru'
+    # Français = 'fr_fr'
+    # Deutsch = 'de_de'
+    # Italiano = 'it_it'
+    # Русский = 'ru_ru'
 
     @classmethod
     def from_any(cls, value: str) -> 'Locale':

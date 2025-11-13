@@ -7,6 +7,7 @@
       },
       "buttons": {
         "save": "Save Settings",
+        "save_success": "✓ Settings Saved Successfully!",
         "sync_changes": {
           "label": "Sync Changes to Profiles",
           "tooltip": "Sync changes made to all profiles."
@@ -109,7 +110,7 @@
             "tooltip_info": "Every Label in settings has a tooltip with more information if you hover over them."
           },
           "locale": {
-            "label": "Language:",
+            "label": "Display Language:",
             "tooltip": "Select the application's language. This will change the interface language."
           }
         },

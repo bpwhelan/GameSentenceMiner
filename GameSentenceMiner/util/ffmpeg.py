@@ -9,10 +9,12 @@ from pathlib import Path
 import subprocess
 from pathlib import Path
 import shutil
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from GameSentenceMiner.ui.config_gui import ConfigApp
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ui.config_gui import ConfigApp
 from GameSentenceMiner.util.configuration import ffmpeg_base_command_list, get_ffprobe_path, get_master_config, logger, get_config, \
     get_temporary_directory, gsm_state, is_linux, ffmpeg_base_command_list_info, KNOWN_ASPECT_RATIOS
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name, get_file_modification_time
