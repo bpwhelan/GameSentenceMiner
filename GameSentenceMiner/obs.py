@@ -75,8 +75,8 @@ class OBSConnectionPool:
             if client:
                 try:
                     client.disconnect()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Error disconnecting client during cleanup: {e}")
         self._clients = [None] * self.size
         logger.info("Disconnected all clients in OBSConnectionPool.")
 
@@ -89,12 +89,12 @@ class OBSConnectionPool:
             return
         try:
             client.get_version()
-        except Exception:
-            logger.info(f"Reconnecting client {index} in pool.")
+        except Exception as e:
+            logger.info(f"Reconnecting client {index} in pool due to error: {e}")
             try:
                 client.disconnect()
-            except Exception:
-                pass
+            except Exception as disconnect_error:
+                logger.debug(f"Error disconnecting client {index} during reconnect: {disconnect_error}")
             self._clients[index] = obs.ReqClient(**self.connection_kwargs)
 
     @contextlib.contextmanager
@@ -226,8 +226,8 @@ class OBSConnectionManager(threading.Thread):
             else:
                 is_empty = extrema[0] == extrema[1]
             return is_empty
-        except Exception:
-            logger.warning("Failed to check image extrema for emptiness.")
+        except Exception as e:
+            logger.warning(f"Failed to check image extrema for emptiness: {e}")
             return False
 
     def run(self):
@@ -283,19 +283,19 @@ def start_obs(force_restart=False):
                             process = psutil.Process(obs_process_pid)
                             process.terminate()
                             process.wait(timeout=10)
-                            print("OBS process terminated for restart.")
+                            logger.info("OBS process terminated for restart.")
                         except Exception as e:
-                            print(f"Error terminating OBS process: {e}")
+                            logger.error(f"Error terminating OBS process: {e}")
                     else:
                         return obs_process_pid
             except ValueError:
-                print("Invalid PID found in file. Launching new OBS instance.")
+                logger.warning("Invalid PID found in file. Launching new OBS instance.")
             except OSError:
-                print("No process found with the stored PID. Launching new OBS instance.")   
+                logger.warning("No process found with the stored PID. Launching new OBS instance.")   
 
     obs_path = get_obs_path()
     if not os.path.exists(obs_path):
-        print(f"OBS not found at {obs_path}. Please install OBS.")
+        logger.error(f"OBS not found at {obs_path}. Please install OBS.")
         return None
     try:
         sentinel_folder = os.path.join(configuration.get_app_directory(), 'obs-studio', 'config', 'obs-studio', '.sentinel')
@@ -305,18 +305,18 @@ def start_obs(force_restart=False):
                     shutil.rmtree(sentinel_folder)
                 else:
                     os.remove(sentinel_folder)
-                print(f"Deleted sentinel folder: {sentinel_folder}")
+                logger.debug(f"Deleted sentinel folder: {sentinel_folder}")
             except Exception as e:
-                print(f"Failed to delete sentinel folder: {e}")
+                logger.warning(f"Failed to delete sentinel folder: {e}")
         
         obs_process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable', '--startreplaybuffer', ], cwd=os.path.dirname(obs_path))
         obs_process_pid = obs_process.pid
         with open(OBS_PID_FILE, "w") as f:
             f.write(str(obs_process_pid))
-        print(f"OBS launched with PID: {obs_process_pid}")
+        logger.info(f"OBS launched with PID: {obs_process_pid}")
         return obs_process_pid
     except Exception as e:
-        print(f"Error launching OBS: {e}")
+        logger.error(f"Error launching OBS: {e}")
         return None
 
 async def wait_for_obs_connected():
