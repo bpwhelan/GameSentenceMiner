@@ -354,6 +354,10 @@ function getIconPath(size: number = 0): string {
     return path.join(getAssetsDir(), filename);
 }
 
+function getProjectPathInAssets(): string {
+    return path.join(getAssetsDir(), 'projects');
+}
+
 /**
  * Runs a command and returns a promise that resolves when the command exits.
  * @param command The command to run.
@@ -651,6 +655,10 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
 
     await checkAndInstallUV(pythonPath);
 
+    // TODO REMOVE THIS/COMMENT THIS
+    console.log('Starting GameSentenceMiner...');
+    return await runGSM(pythonPath, ['-m', 'uv', 'run', path.join(getGSMBaseDir(), "GameSentenceMiner", "gsm.py")]);
+
     if (!isInstalled) {
         console.log(`${APP_NAME} is not installed. Installing now...`);
         try {
@@ -749,7 +757,6 @@ async function processArgsAndStartSettings() {
     }
 }
 
-app.disableHardwareAcceleration();
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 
 if (!app.requestSingleInstanceLock()) {

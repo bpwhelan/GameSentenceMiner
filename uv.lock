@@ -881,7 +881,6 @@ dependencies = [
     { name = "psutil" },
     { name = "pygetwindow", marker = "sys_platform == 'win32'" },
     { name = "pyobjc", marker = "sys_platform == 'darwin'" },
-    { name = "pyperclip" },
     { name = "pyperclipfix" },
     { name = "pyqt6" },
     { name = "pyqtdarktheme" },
@@ -918,7 +917,7 @@ requires-dist = [
     { name = "groq", specifier = "~=0.33.0" },
     { name = "jaconv", specifier = "~=0.4.0" },
     { name = "keyboard", specifier = "~=0.13.5" },
-    { name = "langid", specifier = ">=1.1.6" },
+    { name = "langid", specifier = "~=1.1.6" },
     { name = "loguru", specifier = "~=0.7.3" },
     { name = "matplotlib", specifier = "~=3.10.6" },
     { name = "meikiocr", specifier = "~=0.1.1" },
@@ -933,11 +932,10 @@ requires-dist = [
     { name = "psutil", specifier = "~=7.1.0" },
     { name = "pygetwindow", marker = "sys_platform == 'win32'", specifier = "==0.0.9" },
     { name = "pyobjc", marker = "sys_platform == 'darwin'", specifier = "~=10.3.1" },
-    { name = "pyperclip", specifier = "~=1.9.0" },
     { name = "pyperclipfix", specifier = ">=1.9.4" },
     { name = "pyqt6", specifier = "~=6.10.0" },
     { name = "pyqtdarktheme", specifier = "~=2.1.0" },
-    { name = "pysbd", specifier = ">=0.3.4" },
+    { name = "pysbd", specifier = "~=0.3.4" },
     { name = "pystray", specifier = "~=0.19.5" },
     { name = "pywin32", marker = "sys_platform == 'win32'", specifier = "==311" },
     { name = "rapidfuzz", specifier = "~=3.10.0" },
@@ -4822,12 +4820,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/f2/a5/181488fc2b9d093e3
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/5e/1aa9a93198c6b64513c9d7752de7422c06402de6600a8767da1524f9570b/pyparsing-3.2.5-py3-none-any.whl", hash = "sha256:e38a4f02064cf41fe6593d328d0512495ad1f3d8a91c4f73fc401b3079a59a5e", size = 113890, upload-time = "2025-09-21T04:11:04.117Z" },
 ]
-
-[[package]]
-name = "pyperclip"
-version = "1.9.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/30/23/2f0a3efc4d6a32f3b63cdff36cd398d9701d26cda58e3ab97ac79fb5e60d/pyperclip-1.9.0.tar.gz", hash = "sha256:b7de0142ddc81bfc5c7507eea19da920b92252b548b96186caf94a5e2527d310", size = 20961, upload-time = "2024-06-18T20:38:48.401Z" }
 
 [[package]]
 name = "pyperclipfix"
