@@ -32,9 +32,9 @@ class ScreenshotSelectorDialog(QDialog):
     A modal dialog that extracts frames from a video around a specific timestamp
     and allows the user to select the best one.
     """
-    def __init__(self, parent, config_app, video_path, timestamp, mode='beginning'):
+    def __init__(self, parent, video_path, timestamp, mode='beginning'):
         super().__init__(parent)
-        self.config_app = config_app
+        self.parent = parent
         self.selected_path = None  # This will store the final result
         
         # Set window properties
@@ -273,13 +273,12 @@ class ScreenshotSelectorDialog(QDialog):
         event.accept()
 
 
-def show_screenshot_selector(parent, config_app, video_path, timestamp, mode='beginning', on_complete=None):
+def show_screenshot_selector(parent, video_path, timestamp, mode='beginning', on_complete=None):
     """
     Show the screenshot selector dialog and return the selected path.
     
     Args:
-        parent: Parent widget
-        config_app: Config application reference
+        parent: Config application reference
         video_path: Path to the video file
         timestamp: Timestamp to extract frames from
         mode: 'beginning', 'middle', or 'end'
@@ -293,7 +292,7 @@ def show_screenshot_selector(parent, config_app, video_path, timestamp, mode='be
     if app is None:
         app = QApplication(sys.argv)
     
-    dialog = ScreenshotSelectorDialog(parent, config_app, video_path, timestamp, mode)
+    dialog = ScreenshotSelectorDialog(parent, video_path, timestamp, mode)
     result = dialog.exec()
     
     selected_path = dialog.selected_path if result == QDialog.DialogCode.Accepted else None
@@ -315,7 +314,6 @@ if __name__ == "__main__":
     if os.path.exists(video_path):
         result = show_screenshot_selector(
             parent=None,
-            config_app=None,
             video_path=video_path,
             timestamp=10.0,
             mode='middle'

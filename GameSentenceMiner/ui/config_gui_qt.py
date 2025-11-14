@@ -16,15 +16,12 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QIcon
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ui.anki_confirmation_qt import AnkiConfirmationDialog
-from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
-from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter_preview
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.configuration import (Config, Locale, logger, CommonLanguages, ProfileConfig, General,
                                                   Paths, Anki, Features, Screenshot, Audio, OBS, Hotkeys, VAD,
                                                   Overlay, Ai, Advanced, OverlayEngine, get_app_directory,
-                                                  get_config, is_beangate, AVAILABLE_LANGUAGES, WHSIPER_LARGE,
+                                                  get_config, is_beangate, AVAILABLE_LANGUAGES, WHISPER_LARGE,
                                                   WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM,
                                                   WHISPER_TURBO, SILERO, WHISPER, OFF, gsm_state, DEFAULT_CONFIG,
                                                   get_latest_version, get_current_version, AI_GEMINI, AI_GROQ,
@@ -39,7 +36,6 @@ RECOMMENDED_GROQ_MODELS = ['meta-llama/llama-4-maverick-17b-128e-instruct',
                            'openai/gpt-oss-120b']
 RECOMMENDED_GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemma-3-27b-it"]
 on_save = []
-
 
 class FastTooltipStyle(QProxyStyle):
     """Custom style to make tooltips appear faster (reduced hover delay)."""
@@ -114,13 +110,7 @@ class ConfigWindow(QWidget):
     _show_window_signal = pyqtSignal()
     _close_window_signal = pyqtSignal()
     _reload_settings_signal = pyqtSignal()
-    _show_scene_selection_signal = pyqtSignal(list, object)
-    _show_anki_confirmation_signal = pyqtSignal(dict)
     _quit_app_signal = pyqtSignal()
-    _launch_screenshot_selector_signal = pyqtSignal()
-    _launch_furigana_filter_preview_signal = pyqtSignal()
-    _launch_area_selector_signal = pyqtSignal()
-    _launch_screen_cropper_signal = pyqtSignal(object)
     
     def __init__(self):
         super().__init__()
@@ -133,7 +123,7 @@ class ConfigWindow(QWidget):
         self.default_master_settings = Config.new()
         self.default_settings = self.default_master_settings.get_config()
         self.i18n = load_localization(self.master_config.get_locale())
-
+        
         # --- Window Setup ---
         self._update_window_title()
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.Window)  # Ensure it's a standalone window
@@ -164,13 +154,7 @@ class ConfigWindow(QWidget):
         self._show_window_signal.connect(self._show_window_impl)
         self._close_window_signal.connect(self._close_window_impl)
         self._reload_settings_signal.connect(self._reload_settings_impl)
-        self._show_scene_selection_signal.connect(self._show_scene_selection_impl)
-        self._show_anki_confirmation_signal.connect(self._show_anki_confirmation_impl)
         self._quit_app_signal.connect(QApplication.instance().quit)
-        self._launch_screenshot_selector_signal.connect(self._launch_screenshot_selector_impl)
-        self._launch_furigana_filter_preview_signal.connect(self._launch_furigana_filter_preview_impl)
-        self._launch_area_selector_signal.connect(self._launch_area_selector_impl)
-        self._launch_screen_cropper_signal.connect(self._launch_screen_cropper_impl)
 
         # --- Periodic OBS Error Check ---
         self.obs_error_timer = QTimer(self)
@@ -230,82 +214,12 @@ class ConfigWindow(QWidget):
             self.load_settings_to_ui()
             self._update_window_title()
 
-    def show_scene_selection(self, matched_configs, result_queue):
-        """
-        Shows the scene selection dialog.
-        Thread-safe: Can be called from any thread.
-        """
-        self._show_scene_selection_signal.emit(matched_configs, result_queue)
-
-    def _show_scene_selection_impl(self, matched_configs, result_queue):
-        """Internal implementation of show_scene_selection that runs on the GUI thread."""
-        i18n = self.i18n.get('dialogs', {}).get('scene_selection', {})
-        dialog = QInputDialog()
-        dialog.setOptions(QInputDialog.InputDialogOption.UseListViewForComboBoxItems)
-        dialog.setComboBoxItems(matched_configs)
-        dialog.setWindowTitle(i18n.get('title', 'Select Profile'))
-        dialog.setLabelText(i18n.get('prompt', 'Multiple profiles match this scene. Please select one:'))
-        
-        result = dialog.textValue() if dialog.exec() == QInputDialog.DialogCode.Accepted else None
-        result_queue.put(result)
-
-    def show_anki_confirmation_dialog(self, anki_data):
-        """
-        Shows the anki confirmation dialog.
-        Thread-safe: Can be called from any thread.
-        """
-        self._show_anki_confirmation_signal.emit(anki_data)
-
-    def _show_anki_confirmation_impl(self, anki_data):
-        """Internal implementation of show_anki_confirmation_dialog that runs on the GUI thread."""
-        dialog = AnkiConfirmationDialog(self, self, **anki_data)
-        return dialog.exec()
-
-    def _launch_screenshot_selector_impl(self):
-        # This is a test function, so we need some dummy data
-        video_path = "test.mp4" # A dummy video path
-        if not os.path.exists(video_path):
-            # Create a dummy file
-            with open(video_path, "w") as f:
-                f.write("dummy video")
-        self.screenshot_selector = show_screenshot_selector(self, video_path, "10.0", 'middle', lambda x: logger.info(f"Screenshot selected: {x}"))
-
-    def _launch_furigana_filter_preview_impl(self):
-        # show_furigana_filter_preview will get the screenshot internally
-        self.furigana_filter_preview = show_furigana_filter_preview(current_sensitivity=50, on_complete=lambda x: logger.info(f"Sensitivity selected: {x}"))
-
-    def _launch_area_selector_impl(self):
-        from GameSentenceMiner.ocr.owocr_area_selector_qt import show_area_selector
-        self.area_selector = show_area_selector("dummy_window", on_complete=lambda x: logger.info(f"Area selected: {x}"))
-
-    def _launch_screen_cropper_impl(self, on_complete):
-        from GameSentenceMiner.ocr.ss_picker_qt import show_screen_cropper
-        self.screen_cropper = show_screen_cropper(on_complete=on_complete)
-
     def add_save_hook(self, func):
         if func not in on_save:
             on_save.append(func)
 
     def set_test_func(self, func):
         self.test_func = func
-
-    # --- Dialog Launchers ---
-    def show_screenshot_selector(self, video_path, timestamp, mode='beginning'):
-        result_container = {'path': None}
-        def on_complete(selected_path):
-            result_container['path'] = selected_path
-
-        show_screenshot_selector(self, video_path, str(timestamp), mode, on_complete)
-        return result_container['path']
-
-    def show_minimum_character_size_selector(self, current_size):
-        result_container = {'sensitivity': None}
-        def on_complete(selected_sensitivity):
-            result_container['sensitivity'] = selected_sensitivity
-
-        # show_furigana_filter_preview will get the screenshot internally
-        show_furigana_filter_preview(current_sensitivity=current_size, title_suffix="OBS", on_complete=on_complete)
-        return result_container['sensitivity']
 
     def show_save_success_indicator(self):
         """Shows a temporary success indicator that fades out after a few seconds."""
@@ -531,17 +445,6 @@ class ConfigWindow(QWidget):
         self.settings = get_config()
         for func in on_save:
             func()
-
-    def reload_settings(self, force_refresh=False):
-        new_config = configuration.load_config()
-        current_config = new_config.get_config()
-        
-        if force_refresh or current_config.name != self.settings.name or self.settings.config_changed(current_config):
-            logger.info("Config changed, reloading UI.")
-            self.master_config = new_config
-            self.settings = current_config
-            self.load_settings_to_ui()
-            self._update_window_title()
 
     # --- UI Event Handlers (Slots) ---
     def _on_profile_changed(self):
@@ -1351,7 +1254,7 @@ class ConfigWindow(QWidget):
         self.language_combo.addItems(AVAILABLE_LANGUAGES)
         self.language_combo.setCurrentText(s.vad.language)
         self.whisper_model_combo.clear()
-        self.whisper_model_combo.addItems([WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM, WHSIPER_LARGE, WHISPER_TURBO])
+        self.whisper_model_combo.addItems([WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM, WHISPER_LARGE, WHISPER_TURBO])
         self.whisper_model_combo.setCurrentText(s.vad.whisper_model)
         self.selected_vad_model_combo.clear()
         self.selected_vad_model_combo.addItems([SILERO, WHISPER])
@@ -1634,8 +1537,9 @@ class ConfigWindow(QWidget):
             QMessageBox.critical(self, "Error", f"Could not run audio offset tool. Error: {e}")
 
     def open_minimum_character_size_selector(self):
+        from GameSentenceMiner.ui.qt_main import launch_minimum_character_size_selector
         current_size = int(self.overlay_minimum_character_size_edit.text() or 0)
-        new_size = self.show_minimum_character_size_selector(current_size)
+        new_size = launch_minimum_character_size_selector(current_size)
         if new_size is not None:
             self.overlay_minimum_character_size_edit.setText(str(new_size))
 
@@ -1708,6 +1612,7 @@ def get_config_window_manager():
         _config_window = ConfigWindow()
     
     return _config_window
+
 
 
 def start_qt(show_immediately=True):

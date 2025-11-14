@@ -37,7 +37,7 @@ WHISPER_TINY = 'tiny'
 WHISPER_BASE = 'base'
 WHISPER_SMALL = 'small'
 WHISPER_MEDIUM = 'medium'
-WHSIPER_LARGE = 'large'
+WHISPER_LARGE = 'large'
 WHISPER_TURBO = 'turbo'
 
 AI_GEMINI = 'Gemini'
@@ -1338,6 +1338,7 @@ except Exception as e:
 class GsmAppState:
     def __init__(self):
         self.config_app = None
+        self.dialog_manager = None
         self.line_for_audio = None
         self.line_for_screenshot = None
         self.anki_note_for_screenshot = None

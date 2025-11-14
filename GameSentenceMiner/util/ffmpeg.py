@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui import ConfigApp
+    from GameSentenceMiner.ui.qt_main import DialogManager
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.configuration import ffmpeg_base_command_list, get_ffprobe_path, get_master_config, logger, get_config, \
@@ -179,8 +180,8 @@ def call_frame_extractor(video_path, timestamp):
         str: The path of the selected image, or None on error.
     """
     try:
-        config_app: ConfigApp = gsm_state.config_app
-        return config_app.show_screenshot_selector(video_path, timestamp, get_config().screenshot.screenshot_timing_setting)
+        dialog_manager: 'DialogManager' = gsm_state.dialog_manager
+        return dialog_manager.screenshot_selector_sync(video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting)
         # logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp)]))
 
         # # Run the script using subprocess.run()

@@ -1,8 +1,8 @@
 import argparse
 import json
 import sys
-from PyQt6.QtWidgets import QApplication, QWidget
-from PyQt6.QtCore import Qt, QRect, QPoint
+from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel
+from PyQt6.QtCore import Qt, QRect
 from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage, QBrush
 from PIL import Image
 
@@ -39,6 +39,80 @@ def scale_down_width_height(width, height):
         return width, height
 
 
+class ControlPanelWidget(QWidget):
+    """Separate control panel window with buttons for all actions."""
+    
+    def __init__(self, parent_selector):
+        super().__init__()
+        self.parent_selector = parent_selector
+        self.init_ui()
+    
+    def init_ui(self):
+        """Initialize the control panel UI."""
+        self.setWindowTitle("Controls")
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        
+        # Create layout
+        layout = QVBoxLayout()
+        layout.setSpacing(5)
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Instructions label
+        instructions = QLabel(
+            "How to Use:\n"
+            "• Left Click + Drag: Create a capture area (green).\n"
+            "• Shift + Left Click + Drag: Create an exclusion area (orange).\n"
+            "• Ctrl + Left Click + Drag: Create a secondary (menu) area (purple).\n"
+            "• Right-Click on a box: Delete it."
+        )
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+        
+        # Buttons
+        save_btn = QPushButton("Save and Quit (Ctrl+S)")
+        save_btn.clicked.connect(self.parent_selector.save_and_quit)
+        layout.addWidget(save_btn)
+        
+        undo_btn = QPushButton("Undo (Ctrl+Z)")
+        undo_btn.clicked.connect(self.parent_selector.undo)
+        layout.addWidget(undo_btn)
+        
+        redo_btn = QPushButton("Redo (Ctrl+Y)")
+        redo_btn.clicked.connect(self.parent_selector.redo)
+        layout.addWidget(redo_btn)
+        
+        toggle_instructions_btn = QPushButton("Toggle Instructions (I)")
+        toggle_instructions_btn.clicked.connect(self.toggle_instructions)
+        layout.addWidget(toggle_instructions_btn)
+        
+        quit_btn = QPushButton("Quit without Saving (Esc)")
+        quit_btn.clicked.connect(self.parent_selector.close)
+        layout.addWidget(quit_btn)
+        
+        self.setLayout(layout)
+        
+        # Position at top-left of screen
+        screen = QApplication.primaryScreen()
+        if screen:
+            screen_geometry = screen.geometry()
+            self.move(screen_geometry.x() + 10, screen_geometry.y() + 10)
+        else:
+            self.move(10, 10)
+        
+        self.setFixedWidth(350)
+    
+    def toggle_instructions(self):
+        """Toggle instructions visibility on main selector."""
+        self.parent_selector.instructions_visible = not self.parent_selector.instructions_visible
+        self.parent_selector.update()
+    
+    def closeEvent(self, event):
+        """When control panel closes, also close the main selector."""
+        if self.parent_selector:
+            self.parent_selector.close()
+        event.accept()
+
+
 class OWOCRAreaSelectorWidget(QWidget):
     def __init__(self, window_name, use_window_as_config=False, use_obs_screenshot=False, on_complete=None):
         super().__init__()
@@ -46,6 +120,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.use_window_as_config = use_window_as_config
         self.use_obs_screenshot = use_obs_screenshot
         self.on_complete = on_complete
+        self.scene = None
         
         self.screenshot_img = None
         self.pixmap = None
@@ -67,6 +142,8 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.instructions_dimmed = False
         self.instructions_rect = QRect(20, 20, 400, 280)  # Panel position and size
         
+        self.control_panel = None  # Control panel widget
+        
         # Initialize
         self._initialize()
         self.init_ui()
@@ -75,6 +152,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         """Initialize OBS connection and capture screenshot."""
         try:
             obs.connect_to_obs_sync()
+            self.scene = obs.get_current_scene()
             
             if self.use_obs_screenshot:
                 self._init_obs_screenshot()
@@ -110,7 +188,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         
         self.screenshot_img = obs.get_screenshot_PIL(compression=100, img_format='jpg')
         if not self.screenshot_img:
-            raise RuntimeError("Failed to get OBS screenshot")
+            raise RuntimeError("Failed to get OBS screenshot, is OBS running with a valid video source?")
         
         # Scale down for performance
         self.screenshot_img = self.screenshot_img.resize(
@@ -263,6 +341,10 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.show()
         self.activateWindow()
         self.raise_()
+        
+        # Create and show control panel
+        self.control_panel = ControlPanelWidget(self)
+        self.control_panel.show()
     
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -535,6 +617,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             })
         
         config_data = {
+            "scene": self.scene,
             "coordinate_system": COORD_SYSTEM_PERCENTAGE,
             "rectangles": output_rectangles,
             "window_geometry": win_geom
@@ -554,6 +637,11 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.close()
     
     def closeEvent(self, event):
+        # Close control panel if it exists
+        if self.control_panel:
+            self.control_panel.close()
+            self.control_panel = None
+        
         if self.on_complete:
             # Return the rectangles in the expected format
             result_rectangles = []
@@ -624,7 +712,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="OWOCR Area Selector")
     parser.add_argument("window_name", nargs='?', default="", help="Target window name")
     parser.add_argument("--use-window-as-config", action="store_true", help="Use window name for config")
-    parser.add_argument("--use-obs-screenshot", action="store_true", default=True, help="Use OBS screenshot")
+    parser.add_argument("--obs", action="store_true", default=True, help="Use OBS screenshot")
     
     args = parser.parse_args()
     
@@ -633,4 +721,4 @@ if __name__ == "__main__":
     def on_complete(rectangles):
         logger.info(f"Completed with {len(rectangles)} rectangles")
     
-    show_area_selector(args.window_name, args.use_window_as_config, args.use_obs_screenshot, on_complete)
+    show_area_selector(args.window_name, args.use_window_as_config, args.obs, on_complete)

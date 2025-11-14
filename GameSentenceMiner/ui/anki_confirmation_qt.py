@@ -205,41 +205,38 @@ class AnkiConfirmationDialog(QDialog):
         self.setLayout(main_layout)
     
     def _get_different_screenshot(self):
-        from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
+        from GameSentenceMiner.ui.qt_main import launch_screenshot_selector
         video_path = gsm_state.current_replay
         
-        def on_screenshot_selected(selected_path):
-            if not selected_path:
-                return
-            
-            self.screenshot_path = selected_path
-            try:
-                img = Image.open(self.screenshot_path)
-                img.thumbnail((400, 300))
-                # Convert PIL to QPixmap
-                if img.mode in ('RGBA', 'LA', 'P'):
-                    if img.mode == 'P':
-                        img = img.convert('RGBA')
-                    rgb_img = Image.new('RGB', img.size, (255, 255, 255))
-                    rgb_img.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
-                    img = rgb_img
-                
-                img_data = img.tobytes('raw', 'RGB')
-                qimage = QImage(img_data, img.width, img.height, img.width * 3, QImage.Format.Format_RGB888)
-                self.photo_pixmap = QPixmap.fromImage(qimage)
-                self.image_label.setPixmap(self.photo_pixmap)
-                self.image_label.setText("")
-            except Exception as e:
-                logger.error(f"Error updating screenshot: {e}")
-        
-        show_screenshot_selector(
-            self.config_app,
-            self.config_app,
+        # Use the dialog manager to show screenshot selector
+        selected_path = launch_screenshot_selector(
             video_path,
             self.screenshot_timestamp,
-            mode=get_config().screenshot.screenshot_timing_setting,
-            on_complete=on_screenshot_selected
+            mode=get_config().screenshot.screenshot_timing_setting
         )
+        
+        if not selected_path:
+            return
+        
+        self.screenshot_path = selected_path
+        try:
+            img = Image.open(self.screenshot_path)
+            img.thumbnail((400, 300))
+            # Convert PIL to QPixmap
+            if img.mode in ('RGBA', 'LA', 'P'):
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+                rgb_img.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = rgb_img
+            
+            img_data = img.tobytes('raw', 'RGB')
+            qimage = QImage(img_data, img.width, img.height, img.width * 3, QImage.Format.Format_RGB888)
+            self.photo_pixmap = QPixmap.fromImage(qimage)
+            self.image_label.setPixmap(self.photo_pixmap)
+            self.image_label.setText("")
+        except Exception as e:
+            logger.error(f"Error updating screenshot: {e}")
     
     def _play_audio(self, audio_path):
         if not os.path.isfile(audio_path):
@@ -375,7 +372,12 @@ class AnkiConfirmationDialog(QDialog):
     def closeEvent(self, event):
         """Handle window close event"""
         self._cleanup_audio()
-        event.ignore()  # Block closing via X button like the Tk version
+        # Don't block closing via accept/reject, only block direct X button close
+        # If result is set, it means a button was clicked and we should allow close
+        if self.result is not None:
+            event.accept()
+        else:
+            event.ignore()  # Block closing via X button only
         
     def exec(self):
         """Override exec to ensure proper cleanup"""

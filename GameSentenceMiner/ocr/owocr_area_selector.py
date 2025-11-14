@@ -603,12 +603,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Screen Selector Arguments")
     parser.add_argument("window_title", nargs="?", default="", help="Target window title")
-    parser.add_argument("--obs_ocr", action="store_true", default=True, help="Use OBS screenshot")
+    parser.add_argument("--obs", action="store_true", default=True, help="Use OBS screenshot")
     parser.add_argument("--use_window_for_config", action="store_true", help="Use window for config")
     args = parser.parse_args()
 
     target_window_title = args.window_title
-    use_obs_screenshot = args.obs_ocr
+    use_obs_screenshot = args.obs
     use_window_as_config = args.use_window_for_config
 
     print(f"Arguments: Window Title='{target_window_title}', Use OBS Screenshot={use_obs_screenshot}, Use Window for Config={use_window_as_config}")

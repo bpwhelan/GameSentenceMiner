@@ -20,7 +20,7 @@ try:
     import GameSentenceMiner.util.configuration
     from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
     get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
-    is_windows, is_linux, get_ffmpeg_path, is_mac
+    is_windows, is_linux, get_ffmpeg_path, is_mac, is_dev
     
     import asyncio
     import os
@@ -462,6 +462,14 @@ class GSMTray(threading.Thread):
             return
         
         def run_test_windows_thread():
+            from GameSentenceMiner.ui.qt_main import (
+                launch_anki_confirmation, 
+                launch_screenshot_selector,
+                launch_screen_cropper,
+                launch_area_selector,
+                launch_furigana_filter_preview
+            )
+            
             print("\n--- Test Windows ---")
             print("1. Anki Confirmation Dialog")
             print("2. Screenshot Selector")
@@ -471,23 +479,27 @@ class GSMTray(threading.Thread):
             choice = input("Enter choice: ")
             gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
             if choice == "1":
-                anki_data = {
-                    "expression": "こんにちは",
-                    "sentence": "こんにちは、世界！元気ですか？",
-                    "screenshot_path": r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
-                    "audio_path": r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
-                    "translation": "Hello world! How are you?",
-                    "screenshot_timestamp": 0
-                }
-                settings_window.show_anki_confirmation_dialog(anki_data)
+                result = launch_anki_confirmation(
+                    expression="こんにちは",
+                    sentence="こんにちは、世界！元気ですか？",
+                    screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
+                    audio_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
+                    translation="Hello world! How are you?",
+                    screenshot_timestamp=0
+                )
+                print(f"Result: {result}")
             elif choice == "2":
-                settings_window._launch_screenshot_selector_signal.emit()
+                result = launch_screenshot_selector(gsm_state.current_replay, 10, 'middle')
+                print(f"Selected screenshot: {result}")
             elif choice == "3":
-                settings_window._launch_furigana_filter_preview_signal.emit()
+                result = launch_furigana_filter_preview(current_sensitivity=50)
+                print(f"Sensitivity: {result}")
             elif choice == "4":
-                settings_window._launch_area_selector_signal.emit()
+                result = launch_area_selector(window_name="", use_obs_screenshot=True)
+                print(f"Area: {result}")
             elif choice == "5":
-                settings_window._launch_screen_cropper_signal.emit()
+                result = launch_screen_cropper()
+                print(f"Cropped image: {result}")
 
         def run_test_windows():
             run_new_thread(run_test_windows_thread)
@@ -497,8 +509,8 @@ class GSMTray(threading.Thread):
               profile in
               get_master_config().get_all_profile_names()]
         )
-
-        menu = Menu(
+        
+        menu_items = [
             MenuItem("Open Settings", open_settings, default=True),
             MenuItem("Open Texthooker", texthooking_page.open_texthooker),
             MenuItem("Open Log", open_log),
@@ -506,6 +518,13 @@ class GSMTray(threading.Thread):
             MenuItem("Restart OBS", restart_obs),
             MenuItem("Switch Profile", self.profile_menu),
             MenuItem("Exit", exit_program)
+        ]
+        
+        if is_dev:
+            menu_items.append(MenuItem("Run Test Windows", lambda icon, item: run_test_windows()))
+
+        menu = Menu(
+            *menu_items
         )
         
         self.icon = Icon("TrayApp", create_image(), "GameSentenceMiner", menu)
@@ -854,6 +873,7 @@ def async_loop():
 
 async def register_scene_switcher_callback():
     def scene_switcher_callback(scene):
+        from GameSentenceMiner.ui.qt_main import launch_scene_selection
         logger.info(f"Scene changed to: {scene}")
         gsm_state.current_game = obs.get_current_game()
         all_configured_scenes = [
@@ -864,10 +884,7 @@ async def register_scene_switcher_callback():
         switch_to = None
 
         if len(matching_configs) > 1:
-            result_queue = Queue()
-            settings_window.show_scene_selection(
-                matching_configs, result_queue)
-            selected_scene = result_queue.get()
+            selected_scene = launch_scene_selection(matching_configs)
             if selected_scene:
                 switch_to = selected_scene
             else:
@@ -925,7 +942,7 @@ async def async_main(reloading=False):
         # root = ttk.Window(themename='darkly')
         # Initialize the config window manager
         settings_window = qt_main.get_config_window()
-        # gsm_state.config_app = settings_window
+        gsm_state.config_app = settings_window
         initialize_async()
         if is_windows():
             register_hotkeys()
