@@ -30,6 +30,27 @@
                 <p class="dashboard-card-subtitle" id="todayGoalsDate">Loading...</p>
             </div>
             
+            <!-- Streak Display Section -->
+            <div id="dailiesStreakSection" class="dailies-streak-section" style="display: none;">
+                <div class="streak-display-container">
+                    <div class="streak-item">
+                        <div class="streak-value" id="currentStreakValue">0</div>
+                        <div class="streak-label">🔥 Current Streak</div>
+                    </div>
+                    <div class="streak-item">
+                        <div class="streak-value longest-streak" id="longestStreakValue">0</div>
+                        <div class="streak-label">🏆 Longest Streak</div>
+                    </div>
+                </div>
+                
+                <!-- Complete Dailies Button -->
+                <button id="completeDailiesBtn" class="complete-dailies-btn">
+                    Complete Dailies?
+                </button>
+                
+                <div id="dailiesMessage" class="dailies-message" style="display: none;"></div>
+            </div>
+            
             <div id="noTargetsMessage" class="no-targets-message" style="display: none; text-align: center; padding: 40px 20px; color: var(--text-tertiary); font-style: italic;">
                 Set target dates in settings to see your daily goals
             </div>
@@ -124,6 +145,7 @@
                                 <option value="hours">Reading Hours</option>
                                 <option value="characters">Characters Read</option>
                                 <option value="games">Games Completed</option>
+                                <option value="cards">Cards Mined</option>
                                 <option value="custom">Custom (Daily Checkbox)</option>
                             </select>
                         </div>

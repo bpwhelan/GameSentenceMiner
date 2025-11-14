@@ -666,8 +666,8 @@ class GoalsTable(SQLiteDBTable):
         latest = cls.get_latest()
         
         if not latest:
-            # First entry ever
-            return 0
+            # First entry ever - start streak at 1
+            return 1
         
         # Parse dates
         try:

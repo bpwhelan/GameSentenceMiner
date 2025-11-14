@@ -276,6 +276,7 @@ const CustomGoalsManager = {
             'hours': '⏱️',
             'characters': '📖',
             'games': '🎮',
+            'cards': '🎴',
             'custom': '✅'
         };
         return icons[metricType] || '🎯';
@@ -289,8 +290,8 @@ const CustomGoalsManager = {
             errors.push('Goal name is required');
         }
         
-        if (!goalData.metricType || !['hours', 'characters', 'games', 'custom'].includes(goalData.metricType)) {
-            errors.push('Valid metric type is required (hours, characters, games, or custom)');
+        if (!goalData.metricType || !['hours', 'characters', 'games', 'cards', 'custom'].includes(goalData.metricType)) {
+            errors.push('Valid metric type is required (hours, characters, games, cards, or custom)');
         }
         
         // For custom goals, targetValue, startDate, and endDate are optional
@@ -1226,7 +1227,204 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     };
 
+    // ================================
+    // Dailies Streak Functionality
+    // ================================
+    
+    // Function to load and display dailies streak
+    async function loadDailiesStreak() {
+        try {
+            const response = await fetch('/api/goals/current_streak');
+            if (!response.ok) {
+                throw new Error('Failed to fetch streak data');
+            }
+            
+            const data = await response.json();
+            const currentStreak = data.streak || 0;
+            const lastCompletionDate = data.last_completion_date;
+            
+            // Update streak display
+            document.getElementById('currentStreakValue').textContent = currentStreak;
+            
+            // For longest streak, we need to check if there's a stored value
+            // For now, we'll use current streak as longest (API doesn't track longest separately yet)
+            // In a real implementation, you'd want to track this in the database
+            const longestStreak = Math.max(currentStreak, parseInt(localStorage.getItem('gsm_longest_dailies_streak') || '0'));
+            document.getElementById('longestStreakValue').textContent = longestStreak;
+            
+            // Store longest streak in localStorage
+            if (currentStreak > longestStreak) {
+                localStorage.setItem('gsm_longest_dailies_streak', currentStreak.toString());
+            }
+            
+            // Show the streak section
+            document.getElementById('dailiesStreakSection').style.display = 'block';
+            
+            // Check if already completed today
+            const today = new Date().toISOString().split('T')[0];
+            const isCompletedToday = lastCompletionDate === today;
+            
+            const completeDailiesBtn = document.getElementById('completeDailiesBtn');
+            if (isCompletedToday) {
+                completeDailiesBtn.textContent = 'Completed Today ✓';
+                completeDailiesBtn.disabled = true;
+            }
+            
+        } catch (error) {
+            console.error('Error loading dailies streak:', error);
+            // Still show the section with 0 streak
+            document.getElementById('dailiesStreakSection').style.display = 'block';
+        }
+    }
+    
+    // Function to trigger confetti celebration with streak-based scaling
+    function triggerStreakConfetti(streak) {
+        if (typeof confetti === 'undefined') {
+            console.warn('Confetti library not loaded');
+            return;
+        }
+        
+        // Calculate particle count: linear scaling from 50 to 200, capped at 100 days
+        const effectiveStreak = Math.min(streak, 100);
+        const particleCount = Math.floor(50 + (effectiveStreak * 1.5));
+        
+        // Fire confetti from multiple angles for a nice effect
+        const duration = 3000;
+        const animationEnd = Date.now() + duration;
+        
+        const fireConfetti = () => {
+            const timeLeft = animationEnd - Date.now();
+            
+            if (timeLeft <= 0) {
+                return;
+            }
+            
+            // Fire from left side
+            confetti({
+                particleCount: Math.floor(particleCount / 3),
+                angle: 60,
+                spread: 55,
+                origin: { x: 0, y: 0.6 },
+                colors: ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e']
+            });
+            
+            // Fire from center
+            confetti({
+                particleCount: Math.floor(particleCount / 3),
+                angle: 90,
+                spread: 70,
+                origin: { x: 0.5, y: 0.6 },
+                colors: ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e']
+            });
+            
+            // Fire from right side
+            confetti({
+                particleCount: Math.floor(particleCount / 3),
+                angle: 120,
+                spread: 55,
+                origin: { x: 1, y: 0.6 },
+                colors: ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e']
+            });
+            
+            // Continue animation for higher streaks
+            if (streak > 7) {
+                requestAnimationFrame(fireConfetti);
+            }
+        };
+        
+        fireConfetti();
+    }
+    
+    // Function to handle Complete Dailies button click
+    async function handleCompleteDailies() {
+        const completeDailiesBtn = document.getElementById('completeDailiesBtn');
+        const dailiesMessage = document.getElementById('dailiesMessage');
+        
+        // Disable button during processing
+        completeDailiesBtn.disabled = true;
+        completeDailiesBtn.textContent = 'Processing...';
+        
+        try {
+            // Get current goals from localStorage
+            let currentGoals = CustomGoalsManager.getAll();
+            
+            // If localStorage is empty, try fetching from database
+            if (!currentGoals || currentGoals.length === 0) {
+                try {
+                    const goalsResponse = await fetch('/api/goals/latest_goals');
+                    if (goalsResponse.ok) {
+                        const goalsData = await goalsResponse.json();
+                        currentGoals = goalsData.current_goals || [];
+                    }
+                } catch (error) {
+                    console.warn('Could not fetch goals from database, using empty array:', error);
+                    currentGoals = [];
+                }
+            }
+            
+            // Call the API
+            const response = await fetch('/api/goals/complete_todays_dailies', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    current_goals: currentGoals
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to complete dailies');
+            }
+            
+            // Success!
+            const newStreak = data.streak;
+            
+            // Update streak display
+            document.getElementById('currentStreakValue').textContent = newStreak;
+            
+            // Update longest streak if needed
+            const currentLongest = parseInt(document.getElementById('longestStreakValue').textContent);
+            if (newStreak > currentLongest) {
+                document.getElementById('longestStreakValue').textContent = newStreak;
+                localStorage.setItem('gsm_longest_dailies_streak', newStreak.toString());
+            }
+            
+            // Update button
+            completeDailiesBtn.textContent = 'Completed Today ✓';
+            
+            // Show success message
+            dailiesMessage.textContent = data.message || `Dailies completed! Current streak: ${newStreak} days 🔥`;
+            dailiesMessage.className = 'dailies-message success';
+            dailiesMessage.style.display = 'block';
+            
+            // Trigger confetti celebration!
+            triggerStreakConfetti(newStreak);
+            
+        } catch (error) {
+            console.error('Error completing dailies:', error);
+            
+            // Show error message
+            dailiesMessage.textContent = error.message || 'Failed to complete dailies. Please try again.';
+            dailiesMessage.className = 'dailies-message error';
+            dailiesMessage.style.display = 'block';
+            
+            // Re-enable button on error
+            completeDailiesBtn.disabled = false;
+            completeDailiesBtn.textContent = 'Complete Dailies?';
+        }
+    }
+    
+    // Attach event listener to Complete Dailies button
+    const completeDailiesBtn = document.getElementById('completeDailiesBtn');
+    if (completeDailiesBtn) {
+        completeDailiesBtn.addEventListener('click', handleCompleteDailies);
+    }
+    
     // Load initial data
+    loadDailiesStreak();
     loadGoalProgress();
     loadTodayGoals();
     loadGoalProjections();
