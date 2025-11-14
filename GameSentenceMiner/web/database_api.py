@@ -1485,6 +1485,12 @@ def register_database_api_routes(app):
 
             # Begin database transaction for merge
             try:
+                # Get the target game's game_id (pick the first one we find)
+                target_game_id_result = GameLinesTable._db.fetchone(
+                    f"SELECT game_id FROM {GameLinesTable._table} WHERE game_name = ? LIMIT 1",
+                    (target_game,)
+                )
+                target_game_id = target_game_id_result[0] if target_game_id_result else None
                 # Perform the merge operation within transaction
                 lines_moved = 0
                 for game_name in games_to_merge:
@@ -1496,8 +1502,8 @@ def register_database_api_routes(app):
                             "Unexpected table name in GameLinesTable._table"
                         )
                     GameLinesTable._db.execute(
-                        "UPDATE game_lines SET game_name=?, original_game_name=COALESCE(original_game_name, ?) WHERE game_name=?",
-                        (target_game, game_name, game_name),
+                          "UPDATE game_lines SET game_name=?, game_id=?, original_game_name=COALESCE(original_game_name, ?) WHERE game_name=?",
+                        (target_game, target_game_id, game_name, game_name),
                         commit=True,
                     )
 

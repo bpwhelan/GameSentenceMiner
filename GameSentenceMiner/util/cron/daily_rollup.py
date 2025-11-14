@@ -175,11 +175,11 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
     game_data = defaultdict(lambda: {'chars': 0, 'lines': 0, 'timestamps': [], 'game_name': None})
     game_ids = set()
         
-    lines_without_game_id = set()
+    lines_without_game_id = []
     for line in lines:
         if line.game_id and line.game_id.strip():
             game_id = str(line.game_id)
-            game_ids.add(game_id)
+            game_ids.append(game_id)
             
             chars = len(line.line_text) if line.line_text else 0
             game_data[game_id]['chars'] += chars
