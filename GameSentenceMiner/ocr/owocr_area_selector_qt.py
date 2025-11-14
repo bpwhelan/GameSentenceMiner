@@ -1,9 +1,9 @@
 import argparse
 import json
 import sys
-from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel
-from PyQt6.QtCore import Qt, QRect
-from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage, QBrush
+from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMenu
+from PyQt6.QtCore import Qt, QRect, QTimer
+from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage, QBrush, QAction
 from PIL import Image
 
 from GameSentenceMiner import obs
@@ -140,9 +140,15 @@ class OWOCRAreaSelectorWidget(QWidget):
         
         self.instructions_visible = True
         self.instructions_dimmed = False
-        self.instructions_rect = QRect(20, 20, 400, 280)  # Panel position and size
+        self.instructions_rect = QRect(20, 20, 400, 320)  # Panel position and size (increased height)
         
         self.control_panel = None  # Control panel widget
+        
+        # Long-press detection for save menu
+        self.long_press_timer = QTimer()
+        self.long_press_timer.timeout.connect(self._show_save_menu)
+        self.long_press_pos = None
+        self.long_press_active = False
         
         # Initialize
         self._initialize()
@@ -411,7 +417,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         panel_x = 20
         panel_y = 20
         panel_width = 400
-        panel_height = 280
+        panel_height = 320
         
         # Determine opacity based on hover state
         alpha = 50 if self.instructions_dimmed else 230
@@ -438,12 +444,13 @@ class OWOCRAreaSelectorWidget(QWidget):
             "• Shift + Left Click + Drag: Exclusion area (orange)",
             "• Ctrl + Left Click + Drag: Secondary area (purple)",
             "• Right-Click on box: Delete it",
+            "• Right-Click empty space: Menu",
             "",
-            "Hotkeys:",
-            "• Ctrl + S: Save and Quit",
-            "• Ctrl + Z / Ctrl + Y: Undo / Redo",
-            "• I: Toggle these instructions",
-            "• Esc: Quit without saving"
+            "Save Options (No Keyboard Needed!):",
+            "• Double-Click empty space",
+            "• Middle Mouse Button",
+            "• Long-press (1s) empty space",
+            "• Ctrl + S or use Control Panel"
         ]
         
         for line in instructions:
@@ -460,10 +467,30 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.is_drawing = True
             self.drawing_excluded = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             self.drawing_secondary = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            
+            # Start long-press timer (1 second)
+            self.long_press_pos = event.pos()
+            self.long_press_active = True
+            self.long_press_timer.start(1000)
+            
             self.update()
+        elif event.button() == Qt.MouseButton.MiddleButton:
+            # Middle mouse button to save
+            logger.info("Middle mouse button pressed - saving")
+            self.save_and_quit()
         elif event.button() == Qt.MouseButton.RightButton:
-            # Delete rectangle at this position
-            self._delete_rectangle_at(event.pos())
+            # Check if clicking on a rectangle first
+            rect_clicked = False
+            for i, rect in enumerate(self.rectangles):
+                if (rect['x'] <= event.pos().x() <= rect['x'] + rect['w'] and
+                    rect['y'] <= event.pos().y() <= rect['y'] + rect['h']):
+                    self._delete_rectangle_at(event.pos())
+                    rect_clicked = True
+                    break
+            
+            # If not on a rectangle, show context menu
+            if not rect_clicked:
+                self._show_context_menu(event.pos())
     
     def mouseMoveEvent(self, event):
         """Handle mouse movement for drawing and hover detection."""
@@ -474,6 +501,13 @@ class OWOCRAreaSelectorWidget(QWidget):
                 self.instructions_dimmed = mouse_over_panel
                 self.update()  # Trigger repaint
         
+        # Cancel long-press if mouse moves too much
+        if self.long_press_active and self.long_press_pos:
+            distance = (event.pos() - self.long_press_pos).manhattanLength()
+            if distance > 10:  # 10 pixel threshold
+                self.long_press_timer.stop()
+                self.long_press_active = False
+        
         # Handle drawing
         if self.is_drawing:
             self.current_pos = event.pos()
@@ -481,6 +515,10 @@ class OWOCRAreaSelectorWidget(QWidget):
     
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.is_drawing:
+            # Stop long-press timer
+            self.long_press_timer.stop()
+            self.long_press_active = False
+            
             self.is_drawing = False
             self.current_pos = event.pos()
             
@@ -534,6 +572,96 @@ class OWOCRAreaSelectorWidget(QWidget):
                 logger.info(f"Deleted rectangle at index {i}")
                 self.update()
                 break
+    
+    def _show_context_menu(self, pos):
+        """Show context menu with save/quit options."""
+        menu = QMenu(self)
+        
+        # Draw options (at top level)
+        draw_normal_action = QAction("🟢 Draw Normal Capture Area", self)
+        draw_normal_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=False, secondary=False))
+        menu.addAction(draw_normal_action)
+        
+        draw_exclusion_action = QAction("🟠 Draw Exclusion Area", self)
+        draw_exclusion_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=True, secondary=False))
+        menu.addAction(draw_exclusion_action)
+        
+        draw_secondary_action = QAction("🟣 Draw Secondary (Menu) Area", self)
+        draw_secondary_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=False, secondary=True))
+        menu.addAction(draw_secondary_action)
+        
+        menu.addSeparator()
+        
+        save_action = QAction("💾 Save and Quit", self)
+        save_action.triggered.connect(lambda: QTimer.singleShot(0, self.save_and_quit))
+        menu.addAction(save_action)
+        
+        menu.addSeparator()
+        
+        undo_action = QAction("↶ Undo", self)
+        undo_action.triggered.connect(self.undo)
+        undo_action.setEnabled(len(self.undo_stack) > 0)
+        menu.addAction(undo_action)
+        
+        redo_action = QAction("↷ Redo", self)
+        redo_action.triggered.connect(self.redo)
+        redo_action.setEnabled(len(self.redo_stack) > 0)
+        menu.addAction(redo_action)
+        
+        menu.addSeparator()
+        
+        toggle_instructions_action = QAction("Toggle Instructions", self)
+        toggle_instructions_action.triggered.connect(lambda: setattr(self, 'instructions_visible', not self.instructions_visible) or self.update())
+        menu.addAction(toggle_instructions_action)
+        
+        menu.addSeparator()
+        
+        quit_action = QAction("❌ Quit without Saving", self)
+        quit_action.triggered.connect(lambda: QTimer.singleShot(0, self.close))
+        menu.addAction(quit_action)
+        
+        # Show menu at cursor position
+        menu.exec(self.mapToGlobal(pos))
+    
+    def _start_box_drawing(self, pos, excluded=False, secondary=False):
+        """Start drawing a box from the context menu position."""
+        # Simulate starting a box draw
+        self.start_pos = pos
+        self.current_pos = pos
+        self.is_drawing = True
+        self.drawing_excluded = excluded
+        self.drawing_secondary = secondary
+        self.update()
+        
+        # Set cursor to indicate drawing mode
+        if excluded:
+            logger.info("Started drawing exclusion area from menu")
+        elif secondary:
+            logger.info("Started drawing secondary area from menu")
+        else:
+            logger.info("Started drawing normal capture area from menu")
+    
+    def _show_save_menu(self):
+        """Show save menu after long-press."""
+        if self.long_press_active and self.long_press_pos:
+            logger.info("Long-press detected - showing save menu")
+            self._show_context_menu(self.long_press_pos)
+            self.long_press_active = False
+    
+    def mouseDoubleClickEvent(self, event):
+        """Handle double-click to save."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Check if double-clicking on empty space (not on a rectangle)
+            on_rectangle = False
+            for rect in self.rectangles:
+                if (rect['x'] <= event.pos().x() <= rect['x'] + rect['w'] and
+                    rect['y'] <= event.pos().y() <= rect['y'] + rect['h']):
+                    on_rectangle = True
+                    break
+            
+            if not on_rectangle:
+                logger.info("Double-click detected - saving")
+                self.save_and_quit()
     
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
@@ -670,13 +798,14 @@ class OWOCRAreaSelectorWidget(QWidget):
             
             self.on_complete(result_rectangles)
         
-        # Ensure the widget is properly destroyed
-        self.deleteLater()
+        # Accept the close event
         event.accept()
         
-        # If we're the only window, quit the application
-        if QApplication.instance() and len(QApplication.topLevelWidgets()) == 1:
-            QApplication.instance().quit()
+        # Ensure the widget is properly destroyed
+        self.deleteLater()
+        
+        # Quit the application after a brief delay to ensure cleanup
+        QTimer.singleShot(100, lambda: QApplication.instance().quit() if QApplication.instance() else None)
 
 
 def show_area_selector(window_name, use_window_as_config=False, use_obs_screenshot=False, on_complete=None):
