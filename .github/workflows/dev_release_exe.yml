@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - develop # Or your default branch
+  pull_request:    # <--- ADD THIS
+    branches:
+      - develop   # Or any other branches you want to allow PRs for
   workflow_dispatch: # Allow manual trigger
 
 # Grant read permissions for checking releases and write for uploading assets
