@@ -631,6 +631,15 @@ wheels = [
 ]
 
 [[package]]
+name = "darkdetect"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/48/2e/346667de53b48417e6237efd9d076d6530c413666fcbc381adbfeff21ce7/darkdetect-0.7.1.tar.gz", hash = "sha256:47be3cf5134432ddb616bbffc927237718407914993c82809983e7ccebf49013", size = 6976, upload-time = "2022-07-18T21:10:27.64Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/63/bd/b31abc8fcaab163e0b9501020309dd9094b47d609035a23e6ec0a0a8ba10/darkdetect-0.7.1-py2.py3-none-any.whl", hash = "sha256:3efe69f8ecd5f1b7f4fbb0d1d93f656b0e493c45cc49222380ffe2a529cbc866", size = 8199, upload-time = "2022-07-18T21:10:26.178Z" },
+]
+
+[[package]]
 name = "dataclasses-json"
 version = "0.6.7"
 source = { registry = "https://pypi.org/simple" }
@@ -843,7 +852,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2.20.2"
+version = "2.20.5"
 source = { editable = "." }
 dependencies = [
     { name = "betterproto" },
@@ -857,6 +866,7 @@ dependencies = [
     { name = "groq" },
     { name = "jaconv" },
     { name = "keyboard" },
+    { name = "langid" },
     { name = "loguru" },
     { name = "matplotlib" },
     { name = "meikiocr" },
@@ -874,6 +884,8 @@ dependencies = [
     { name = "pyperclip" },
     { name = "pyperclipfix" },
     { name = "pyqt6" },
+    { name = "pyqtdarktheme" },
+    { name = "pysbd" },
     { name = "pystray" },
     { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "rapidfuzz" },
@@ -904,9 +916,10 @@ requires-dist = [
     { name = "flask-compress", specifier = "~=1.15" },
     { name = "google-genai", specifier = "~=1.46.0" },
     { name = "groq", specifier = "~=0.33.0" },
-    { name = "jaconv", specifier = ">=0.4.0" },
+    { name = "jaconv", specifier = "~=0.4.0" },
     { name = "keyboard", specifier = "~=0.13.5" },
-    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "langid", specifier = ">=1.1.6" },
+    { name = "loguru", specifier = "~=0.7.3" },
     { name = "matplotlib", specifier = "~=3.10.6" },
     { name = "meikiocr", specifier = "~=0.1.1" },
     { name = "mss", specifier = ">=10.1.0" },
@@ -919,10 +932,12 @@ requires-dist = [
     { name = "plyer", specifier = "~=2.1.0" },
     { name = "psutil", specifier = "~=7.1.0" },
     { name = "pygetwindow", marker = "sys_platform == 'win32'", specifier = "==0.0.9" },
-    { name = "pyobjc", marker = "sys_platform == 'darwin'", specifier = ">=10.3.1" },
+    { name = "pyobjc", marker = "sys_platform == 'darwin'", specifier = "~=10.3.1" },
     { name = "pyperclip", specifier = "~=1.9.0" },
     { name = "pyperclipfix", specifier = ">=1.9.4" },
-    { name = "pyqt6", specifier = ">=6.10.0" },
+    { name = "pyqt6", specifier = "~=6.10.0" },
+    { name = "pyqtdarktheme", specifier = "~=2.1.0" },
+    { name = "pysbd", specifier = ">=0.3.4" },
     { name = "pystray", specifier = "~=0.19.5" },
     { name = "pywin32", marker = "sys_platform == 'win32'", specifier = "==311" },
     { name = "rapidfuzz", specifier = "~=3.10.0" },
@@ -1333,6 +1348,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/da/e3/dbd2ecdce306f1d07a1aaf324817ee993aab7aee9db47ceac757deabafbe/kiwisolver-1.4.9-pp311-pypy311_pp73-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:464415881e4801295659462c49461a24fb107c140de781d55518c4b80cb6790f", size = 78009, upload-time = "2025-08-10T21:27:46.376Z" },
     { url = "https://files.pythonhosted.org/packages/da/e9/0d4add7873a73e462aeb45c036a2dead2562b825aa46ba326727b3f31016/kiwisolver-1.4.9-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:fb940820c63a9590d31d88b815e7a3aa5915cad3ce735ab45f0c730b39547de1", size = 73929, upload-time = "2025-08-10T21:27:48.236Z" },
 ]
+
+[[package]]
+name = "langid"
+version = "1.1.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ea/4c/0fb7d900d3b0b9c8703be316fbddffecdab23c64e1b46c7a83561d78bd43/langid-1.1.6.tar.gz", hash = "sha256:044bcae1912dab85c33d8e98f2811b8f4ff1213e5e9a9e9510137b84da2cb293", size = 1925978, upload-time = "2016-04-05T22:34:15.786Z" }
 
 [[package]]
 name = "lazy-loader"
@@ -4885,6 +4909,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pyqtdarktheme"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "darkdetect" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5c/f1/786feaad7a333072b34a913dbe38aef94b5ae43ad188934f5d70007aea79/pyqtdarktheme-2.1.0.tar.gz", hash = "sha256:5f8274ddfa3a5481ed9743cdb0f9debfeb7ff695b3a0d202a8104361d17dadb8", size = 42186, upload-time = "2022-12-25T08:33:11.662Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/12/cd/8ce0ac84e9f68dc549edcc5cbdeac7511439c5f7ee6c05f1f8826ef05d44/pyqtdarktheme-2.1.0-py3-none-any.whl", hash = "sha256:8739d99502230fbaca42551ea033c9ae31c81c4ebfec2f1ffde38f32a18bea7a", size = 54242, upload-time = "2022-12-25T08:33:10.125Z" },
+]
+
+[[package]]
 name = "pyreadline3"
 version = "3.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -4898,6 +4934,14 @@ name = "pyrect"
 version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/cb/04/2ba023d5f771b645f7be0c281cdacdcd939fe13d1deb331fc5ed1a6b3a98/PyRect-0.2.0.tar.gz", hash = "sha256:f65155f6df9b929b67caffbd57c0947c5ae5449d3b580d178074bffb47a09b78", size = 17219, upload-time = "2022-03-16T04:45:52.36Z" }
+
+[[package]]
+name = "pysbd"
+version = "0.3.4"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/0a/c99fb7d7e176f8b176ef19704a32e6a9c6aafdf19ef75a187f701fc15801/pysbd-0.3.4-py3-none-any.whl", hash = "sha256:cd838939b7b0b185fcf86b0baf6636667dfb6e474743beeff878e9f42e022953", size = 71082, upload-time = "2021-02-11T16:36:33.351Z" },
+]
 
 [[package]]
 name = "pystray"

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - develop # Or your default branch
+      - qt6-clean
   pull_request:    # <--- ADD THIS
     branches:
       - develop   # Or any other branches you want to allow PRs for

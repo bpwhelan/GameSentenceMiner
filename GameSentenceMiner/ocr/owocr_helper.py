@@ -234,8 +234,8 @@ def save_result_image(img, pre_crop_image=None):
 async def send_result(text, time):
     if text:
         if get_ocr_send_to_clipboard():
-            import pyperclip
-            pyperclip.copy(text)
+            import pyperclipfix
+            pyperclipfix.copy(text)
         try:
             await websocket_server_thread.send_text(text, time)
         except Exception as e:
@@ -685,7 +685,7 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
         print("Taking screenshot via screen cropper...")
         
         # Use the dialog manager's synchronous method
-        cropped_img = launch_screen_cropper(transparent_mode=True)
+        cropped_img = launch_screen_cropper(transparent_mode=False)
         
         global second_ocr_queue
         if cropped_img:

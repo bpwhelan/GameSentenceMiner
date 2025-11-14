@@ -25,7 +25,6 @@ dependencies = [
   "requests~=2.32.5",
   "watchdog~=6.0.0",
   "DateTime~=5.5",
-  "pyperclip~=1.9.0",
   "soundfile~=0.13.1",
   "toml~=0.10.2",
   "psutil~=7.1.0",
@@ -60,13 +59,16 @@ dependencies = [
   "openai~=2.6.0",
   "flask-compress~=1.15",
   "meikiocr~=0.1.1",
-  "jaconv>=0.4.0",
-  "loguru>=0.7.3",
+  "jaconv~=0.4.0",
+  "loguru~=0.7.3",
   "pyperclipfix>=1.9.4",
   "desktop-notifier>=6.1.0",
   "mss>=10.1.0",
-  "pyobjc>=10.3.1 ; sys_platform == 'darwin'",
+  "pyobjc~=10.3.1 ; sys_platform == 'darwin'",
   "pyqt6~=6.10.0",
+  "pyqtdarktheme~=2.1.0",
+  "langid~=1.1.6",
+  "pysbd~=0.3.4",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will

@@ -461,48 +461,39 @@ class GSMTray(threading.Thread):
             logger.warning("Tray icon functionality is not available.")
             return
         
-        def run_test_windows_thread():
-            from GameSentenceMiner.ui.qt_main import (
-                launch_anki_confirmation, 
-                launch_screenshot_selector,
-                launch_screen_cropper,
-                launch_area_selector,
-                launch_furigana_filter_preview
-            )
-            
-            print("\n--- Test Windows ---")
-            print("1. Anki Confirmation Dialog")
-            print("2. Screenshot Selector")
-            print("3. Furigana Filter Preview")
-            print("4. Area Selector")
-            print("5. Screen Cropper")
-            choice = input("Enter choice: ")
+        def test_anki_confirmation(icon, item):
+            from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
             gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
-            if choice == "1":
-                result = launch_anki_confirmation(
-                    expression="こんにちは",
-                    sentence="こんにちは、世界！元気ですか？",
-                    screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
-                    audio_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
-                    translation="Hello world! How are you?",
-                    screenshot_timestamp=0
-                )
-                print(f"Result: {result}")
-            elif choice == "2":
-                result = launch_screenshot_selector(gsm_state.current_replay, 10, 'middle')
-                print(f"Selected screenshot: {result}")
-            elif choice == "3":
-                result = launch_furigana_filter_preview(current_sensitivity=50)
-                print(f"Sensitivity: {result}")
-            elif choice == "4":
-                result = launch_area_selector(window_name="", use_obs_screenshot=True)
-                print(f"Area: {result}")
-            elif choice == "5":
-                result = launch_screen_cropper()
-                print(f"Cropped image: {result}")
-
-        def run_test_windows():
-            run_new_thread(run_test_windows_thread)
+            result = launch_anki_confirmation(
+                expression="こんにちは",
+                sentence="こんにちは、世界！元気ですか？",
+                screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
+                audio_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
+                translation="Hello world! How are you?",
+                screenshot_timestamp=0
+            )
+            print(f"Anki Confirmation Result: {result}")
+        
+        def test_screenshot_selector(icon, item):
+            from GameSentenceMiner.ui.qt_main import launch_screenshot_selector
+            gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            result = launch_screenshot_selector(gsm_state.current_replay, 10, 'middle')
+            print(f"Screenshot Selector Result: {result}")
+        
+        def test_furigana_filter(icon, item):
+            from GameSentenceMiner.ui.qt_main import launch_furigana_filter_preview
+            result = launch_furigana_filter_preview(current_sensitivity=50)
+            print(f"Furigana Filter Result: {result}")
+        
+        def test_area_selector(icon, item):
+            from GameSentenceMiner.ui.qt_main import launch_area_selector
+            result = launch_area_selector(window_name="", use_obs_screenshot=True)
+            print(f"Area Selector Result: {result}")
+        
+        def test_screen_cropper(icon, item):
+            from GameSentenceMiner.ui.qt_main import launch_screen_cropper
+            result = launch_screen_cropper()
+            print(f"Screen Cropper Result: {result}")
 
         self.profile_menu = Menu(
             *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, self.switch_profile) for
@@ -521,7 +512,14 @@ class GSMTray(threading.Thread):
         ]
         
         if is_dev:
-            menu_items.append(MenuItem("Run Test Windows", lambda icon, item: run_test_windows()))
+            test_menu = Menu(
+                MenuItem("Anki Confirmation Dialog", test_anki_confirmation),
+                MenuItem("Screenshot Selector", test_screenshot_selector),
+                MenuItem("Furigana Filter Preview", test_furigana_filter),
+                MenuItem("Area Selector", test_area_selector),
+                MenuItem("Screen Cropper", test_screen_cropper)
+            )
+            menu_items.insert(-1, MenuItem("Test Windows", test_menu))
 
         menu = Menu(
             *menu_items

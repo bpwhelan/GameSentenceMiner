@@ -1,7 +1,7 @@
 import sys
 import threading
 import regex
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton
+from PyQt6.QtWidgets import QApplication, QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor
 from PIL import Image
@@ -140,14 +140,15 @@ class FuriganaFilterCanvas(QWidget):
         painter.restore()
 
 
-class FuriganaFilterVisualizer(QMainWindow):
-    def __init__(self, image: Image.Image, current_furigana_sensitivity: int = 0):
-        super().__init__()
+class FuriganaFilterVisualizer(QDialog):
+    def __init__(self, image: Image.Image, current_furigana_sensitivity: int = 0, parent=None):
+        super().__init__(parent)
         self.image = image
         self.ocr1_result = None
         self.ocr2_result = None
         self.current_ocr = 1
         self.title_prefix = "Furigana Filter Visualizer"
+        self.result_value = None
         
         self.words_data = []
         self.lines_data = []
@@ -156,14 +157,11 @@ class FuriganaFilterVisualizer(QMainWindow):
         
         # Set up UI
         self.setWindowTitle(f"{self.title_prefix} - Lens")
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
+        self.setModal(True)
         
-        # Create central widget
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        
-        # Main layout
-        main_layout = QVBoxLayout(central_widget)
+        # Main layout (QDialog doesn't need a central widget)
+        main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         
         # Canvas
@@ -253,8 +251,7 @@ class FuriganaFilterVisualizer(QMainWindow):
         self.update_filter_visualization(self.slider.value())
     
     def on_ok(self):
-        print(f"RESULT:[{self.slider.value()}]")
-        self.close()
+        self.accept()
     
     def swap_ocr(self):
         self.current_ocr = 2 if self.current_ocr == 1 else 1
@@ -425,7 +422,7 @@ def scale_down_width_height(width, height):
         return width, height
 
 
-def show_furigana_filter_preview(image: Image.Image = None, current_sensitivity: int = 0, on_complete=None, title_suffix="", use_overlay=False):
+def show_furigana_filter_preview(image: Image.Image = None, current_sensitivity: int = 0, on_complete=None, title_suffix="", for_overlay=False, parent=None):
     """
     Show the furigana filter preview window and return the selected sensitivity.
     
@@ -434,14 +431,15 @@ def show_furigana_filter_preview(image: Image.Image = None, current_sensitivity:
         current_sensitivity: Initial sensitivity value
         on_complete: Callback function to be called with the result
         title_suffix: Suffix for the window title
-        use_overlay: If True and image is None, capture from overlay monitor instead of OBS
+        for_overlay: If True and image is None, capture from overlay monitor instead of OBS
+        parent: Parent widget for the dialog
     
     Returns:
-        The window instance.
+        The selected sensitivity value or None if cancelled.
     """
     # Get screenshot if not provided
     if image is None:
-        if use_overlay:
+        if for_overlay:
             logger.info("Using overlay mode - capturing from configured monitor...")
             try:
                 screenshot_img = get_overlay_screenshot()
@@ -455,7 +453,7 @@ def show_furigana_filter_preview(image: Image.Image = None, current_sensitivity:
         else:
             logger.info("Taking OBS screenshot...")
             screenshot_img = obs.get_screenshot_PIL(compression=90, img_format='jpg')
-            
+            title_suffix = obs.get_current_game()
             if not screenshot_img:
                 logger.error("Failed to get screenshot from OBS.")
                 return None
@@ -466,25 +464,14 @@ def show_furigana_filter_preview(image: Image.Image = None, current_sensitivity:
             Image.LANCZOS
         )
         
-        source_type = "overlay monitor" if use_overlay else "OBS"
+        source_type = "overlay monitor" if for_overlay else "OBS"
         logger.info(f"Screenshot received from {source_type} ({screenshot_img.width}x{screenshot_img.height}).")
     else:
         screenshot_img = image
     
-    app = QApplication.instance()
-    created_app = False
-    if app is None:
-        app = QApplication(sys.argv)
-        created_app = True
-    
-    window = FuriganaFilterVisualizer(screenshot_img, current_sensitivity)
-    window.set_title_prefix(f"Furigana Filter Visualizer - {title_suffix}")
-    if on_complete:
-        # Replace the original on_ok with a lambda that calls the on_complete callback
-        window.ok_button.clicked.disconnect()
-        window.ok_button.clicked.connect(lambda: (on_complete(window.slider.value()), window.close()))
-
-    window.show()
+    # Create dialog
+    dialog = FuriganaFilterVisualizer(screenshot_img, current_sensitivity, parent=parent)
+    dialog.set_title_prefix(f"Furigana Filter Visualizer - {title_suffix}")
     
     # Set up OCR worker
     signals = OCRWorkerSignals()
@@ -498,13 +485,20 @@ def show_furigana_filter_preview(image: Image.Image = None, current_sensitivity:
             logger.error(f"Error in OCR background thread: {e}")
             signals.finished.emit(None, None)
     
-    signals.finished.connect(window.update_with_ocr_data)
+    signals.finished.connect(dialog.update_with_ocr_data)
     threading.Thread(target=ocr_worker, daemon=True).start()
     
-    if created_app:
-        app.exec()
+    # Show dialog modally (blocks until user closes it)
+    result = dialog.exec()
     
-    return window
+    # Get the selected value if accepted
+    selected_value = dialog.slider.value() if result == QDialog.DialogCode.Accepted else None
+    
+    # Call callback if provided
+    if on_complete:
+        on_complete(selected_value)
+    
+    return selected_value
 
 
 def main():
@@ -560,17 +554,15 @@ def main():
     source_type = "overlay monitor" if use_overlay else "OBS"
     logger.info(f"Screenshot received from {source_type} ({screenshot_img.width}x{screenshot_img.height}).")
     
-    app = QApplication(sys.argv)
+    _ = QApplication(sys.argv)  # Ensure QApplication exists for standalone usage
     
-    window = FuriganaFilterVisualizer(screenshot_img, current_furigana_sensitivity)
+    dialog = FuriganaFilterVisualizer(screenshot_img, current_furigana_sensitivity)
     
     # Update window title to reflect source
     if use_overlay:
         overlay_config = get_overlay_config()
         monitor_num = overlay_config.monitor_to_capture + 1
-        window.set_title_prefix(f"Furigana Filter Visualizer - Overlay Monitor {monitor_num}")
-    
-    window.show()
+        dialog.set_title_prefix(f"Furigana Filter Visualizer - Overlay Monitor {monitor_num}")
     
     # Set up OCR worker
     signals = OCRWorkerSignals()
@@ -584,10 +576,15 @@ def main():
             logger.error(f"Error in OCR background thread: {e}")
             signals.finished.emit(None, None)
     
-    signals.finished.connect(window.update_with_ocr_data)
+    signals.finished.connect(dialog.update_with_ocr_data)
     threading.Thread(target=ocr_worker, daemon=True).start()
     
-    sys.exit(app.exec())
+    # Show dialog and get result
+    result = dialog.exec()
+    if result == QDialog.DialogCode.Accepted:
+        print(f"RESULT:[{dialog.slider.value()}]")
+    
+    sys.exit(0)
 
 
 if __name__ == "__main__":

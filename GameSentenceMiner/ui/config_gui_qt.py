@@ -129,6 +129,10 @@ class ConfigWindow(QWidget):
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.Window)  # Ensure it's a standalone window
         self.resize(800, 700)
         
+        # Set window icon explicitly
+        from GameSentenceMiner.util.configuration import get_pickaxe_png_path
+        self.setWindowIcon(QIcon(get_pickaxe_png_path()))
+        
         # --- Enable mouse tracking for faster tooltip response ---
         self.setMouseTracking(True)
 
@@ -1539,9 +1543,10 @@ class ConfigWindow(QWidget):
     def open_minimum_character_size_selector(self):
         from GameSentenceMiner.ui.qt_main import launch_minimum_character_size_selector
         current_size = int(self.overlay_minimum_character_size_edit.text() or 0)
-        new_size = launch_minimum_character_size_selector(current_size)
+        new_size = launch_minimum_character_size_selector(current_size, for_overlay=True)
         if new_size is not None:
             self.overlay_minimum_character_size_edit.setText(str(new_size))
+        self.save_settings()
 
     def get_online_models(self):
         ai_models = AIModelsTable.one()

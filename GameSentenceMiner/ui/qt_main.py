@@ -6,13 +6,14 @@ from functools import partial
 
 from PyQt6.QtWidgets import QApplication, QInputDialog
 from PyQt6.QtCore import QObject, pyqtSignal, Qt
+from PyQt6.QtGui import QIcon
 
 from GameSentenceMiner.ui.anki_confirmation_qt import show_anki_confirmation
 from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
 from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter_preview
 from GameSentenceMiner.ocr.ss_picker_qt import show_screen_cropper
 from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
-from GameSentenceMiner.util.configuration import gsm_state
+from GameSentenceMiner.util.configuration import get_pickaxe_png_path, gsm_state
 
 _qt_app = None
 _config_window = None
@@ -153,14 +154,14 @@ class DialogManager(QObject):
     # 6. Minimum Character Size Selector (Furigana Filter Preview)
     # =========================================================================
 
-    def _logic_minimum_char_size(self, current_size, callback):
-        show_furigana_filter_preview(current_sensitivity=current_size, title_suffix="OBS", on_complete=callback)
+    def _logic_minimum_char_size(self, current_size, for_overlay, callback):
+        show_furigana_filter_preview(current_sensitivity=current_size, on_complete=callback, for_overlay=for_overlay)
 
     async def minimum_char_size_async(self, current_size):
         return await self._run_async(lambda cb: self._logic_minimum_char_size(current_size, cb))
 
-    def minimum_char_size_sync(self, current_size):
-        return self._run_sync(lambda cb: self._logic_minimum_char_size(current_size, cb))
+    def minimum_char_size_sync(self, current_size, for_overlay=False):
+        return self._run_sync(lambda cb: self._logic_minimum_char_size(current_size, for_overlay, cb))
 
     # =========================================================================
     # 7. Area Selector
@@ -195,6 +196,7 @@ def get_qt_app():
     Get or create the global QApplication instance.
     """
     global _qt_app, _dialog_manager
+    import qdarktheme
     if _qt_app is None:
         _qt_app = QApplication.instance()
         if _qt_app is None:
@@ -202,6 +204,11 @@ def get_qt_app():
             _qt_app.setApplicationName("GameSentenceMiner")
             _qt_app.setQuitOnLastWindowClosed(False)
             
+    # Setup dark theme
+    qdarktheme.setup_theme()
+    # Set Icon 
+    pickaxe_path = get_pickaxe_png_path()
+    _qt_app.setWindowIcon(QIcon(pickaxe_path))
     # Initialize the manager once the App exists
     if _dialog_manager is None:
         _dialog_manager = DialogManager()
@@ -288,12 +295,12 @@ def launch_scene_selection(matched_configs):
     """
     return get_dialog_manager().scene_selection_sync(matched_configs)
 
-def launch_minimum_character_size_selector(current_size):
+def launch_minimum_character_size_selector(current_size, for_overlay=False):
     """
     Launch minimum character size selector. Thread-safe, blocking.
     Returns: Selected size or None
     """
-    return get_dialog_manager().minimum_char_size_sync(current_size)
+    return get_dialog_manager().minimum_char_size_sync(current_size, for_overlay)
 
 def launch_area_selector(window_name="", use_obs_screenshot=False):
     """

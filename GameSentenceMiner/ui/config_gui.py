@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, scrolledtext, font
 from PIL import Image, ImageTk
 
-import pyperclip
+import pyperclipfix as pyperclip
 import ttkbootstrap as ttk
 
 from GameSentenceMiner import obs
