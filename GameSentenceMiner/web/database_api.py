@@ -1502,7 +1502,7 @@ def register_database_api_routes(app):
                             "Unexpected table name in GameLinesTable._table"
                         )
                     GameLinesTable._db.execute(
-                          "UPDATE game_lines SET game_name=?, game_id=?, original_game_name=COALESCE(original_game_name, ?) WHERE game_name=?",
+                        "UPDATE game_lines SET game_name=?, game_id=?, original_game_name=COALESCE(original_game_name, ?) WHERE game_name=?",
                         (target_game, target_game_id, game_name, game_name),
                         commit=True,
                     )
