@@ -10,7 +10,7 @@ import json
 from flask import request, jsonify
 
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.db import GameLinesTable
+from GameSentenceMiner.util.db import GameLinesTable, GoalsTable
 from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.configuration import logger
 from GameSentenceMiner.web.rollup_stats import (
@@ -426,3 +426,152 @@ def register_goals_api_routes(app):
         except Exception as e:
             logger.error(f"Error calculating goal projection: {e}", exc_info=True)
             return jsonify({"error": "Failed to calculate projection"}), 500
+    
+    @app.route("/api/goals/complete_todays_dailies", methods=["POST"])
+    def api_complete_todays_dailies():
+        """
+        Complete today's dailies and update streak.
+        Creates a new entry in the goals table for today.
+        
+        Request body:
+        {
+            "current_goals": [...]  # Array of goal objects from localStorage
+        }
+        
+        Returns:
+        {
+            "success": true,
+            "date": "2025-01-14",
+            "streak": 5,
+            "message": "Dailies completed! Current streak: 5 days"
+        }
+        """
+        try:
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({"success": False, "error": "No data provided"}), 400
+            
+            current_goals = data.get("current_goals", [])
+            
+            # Get today's date in YYYY-MM-DD format
+            today = datetime.date.today()
+            today_str = today.strftime("%Y-%m-%d")
+            
+            # Check if entry already exists for today
+            existing_entry = GoalsTable.get_by_date(today_str)
+            if existing_entry:
+                return jsonify({
+                    "success": False,
+                    "error": "Dailies already completed for today",
+                    "existing_streak": existing_entry.streak,
+                    "date": today_str
+                }), 400
+            
+            # Calculate streak for today
+            streak = GoalsTable.calculate_streak(today_str)
+            
+            # Convert current_goals to JSON string
+            current_goals_json = json.dumps(current_goals)
+            
+            # Create new entry
+            new_entry = GoalsTable.create_entry(
+                date_str=today_str,
+                streak=streak,
+                current_goals_json=current_goals_json
+            )
+            
+            logger.info(f"Dailies completed for {today_str} with streak: {streak}")
+            
+            return jsonify({
+                "success": True,
+                "date": today_str,
+                "streak": streak,
+                "message": f"Dailies completed! Current streak: {streak} days"
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error completing today's dailies: {e}", exc_info=True)
+            return jsonify({"success": False, "error": "Failed to complete dailies"}), 500
+    
+    @app.route("/api/goals/current_streak", methods=["GET"])
+    def api_get_current_streak():
+        """
+        Get the current streak from the latest goals entry.
+        
+        Returns:
+        {
+            "streak": 5,
+            "last_completion_date": "2025-01-14"
+        }
+        """
+        try:
+            latest_entry = GoalsTable.get_latest()
+            
+            if not latest_entry:
+                return jsonify({
+                    "streak": 0,
+                    "last_completion_date": None
+                }), 200
+            
+            # Check if streak is still valid (latest entry should be today or yesterday)
+            today = datetime.date.today()
+            try:
+                latest_date = datetime.datetime.strptime(latest_entry.date, '%Y-%m-%d').date()
+                yesterday = today - datetime.timedelta(days=1)
+                
+                # If latest entry is older than yesterday, streak is broken
+                if latest_date < yesterday:
+                    current_streak = 0
+                else:
+                    current_streak = latest_entry.streak
+                    
+            except (ValueError, AttributeError):
+                current_streak = 0
+            
+            return jsonify({
+                "streak": current_streak,
+                "last_completion_date": latest_entry.date
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error getting current streak: {e}", exc_info=True)
+            return jsonify({"error": "Failed to get current streak"}), 500
+    
+    @app.route("/api/goals/latest_goals", methods=["GET"])
+    def api_get_latest_goals():
+        """
+        Get the latest goals entry with date, streak, and current_goals.
+        
+        Returns:
+        {
+            "date": "2025-01-14",
+            "current_goals": [...],  # Parsed JSON array
+            "streak": 5
+        }
+        """
+        try:
+            latest_entry = GoalsTable.get_latest()
+            
+            if not latest_entry:
+                return jsonify({
+                    "date": None,
+                    "current_goals": [],
+                    "streak": 0
+                }), 200
+            
+            # Parse current_goals JSON string
+            try:
+                current_goals = json.loads(latest_entry.current_goals)
+            except json.JSONDecodeError:
+                current_goals = []
+            
+            return jsonify({
+                "date": latest_entry.date,
+                "current_goals": current_goals,
+                "streak": latest_entry.streak
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error getting latest goals: {e}", exc_info=True)
+            return jsonify({"error": "Failed to get latest goals"}), 500

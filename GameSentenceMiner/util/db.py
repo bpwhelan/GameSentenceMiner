@@ -615,6 +615,78 @@ class GameLinesTable(SQLiteDBTable):
         clean_columns = ['line_text'] if for_stats else []
         return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
 
+
+class GoalsTable(SQLiteDBTable):
+    """
+    Table for tracking daily goal completions and streaks.
+    One entry per day when user completes their dailies.
+    """
+    _table = 'goals'
+    _fields = ['date', 'streak', 'current_goals']
+    _types = [int,  # Includes primary key type
+              str, int, str]
+    _pk = 'id'
+    _auto_increment = True
+
+    def __init__(self, id: Optional[int] = None, date: Optional[str] = None,
+                 streak: int = 0, current_goals: Optional[str] = None):
+        self.id = id
+        self.date = date if date is not None else ''
+        self.streak = streak
+        self.current_goals = current_goals if current_goals is not None else '[]'
+
+    @classmethod
+    def get_by_date(cls, date_str: str) -> Optional['GoalsTable']:
+        """Get goals entry for a specific date (YYYY-MM-DD format)."""
+        row = cls._db.fetchone(
+            f"SELECT * FROM {cls._table} WHERE date=?", (date_str,))
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def get_latest(cls) -> Optional['GoalsTable']:
+        """Get the most recent goals entry."""
+        row = cls._db.fetchone(
+            f"SELECT * FROM {cls._table} ORDER BY date DESC LIMIT 1")
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def create_entry(cls, date_str: str, streak: int, current_goals_json: str) -> 'GoalsTable':
+        """Create a new goals entry for a specific date."""
+        new_entry = cls(date=date_str, streak=streak, current_goals=current_goals_json)
+        new_entry.save()
+        return new_entry
+
+    @classmethod
+    def calculate_streak(cls, today_str: str) -> int:
+        """
+        Calculate the streak for today based on the latest entry.
+        Returns 0 if this is the first entry or if streak is broken.
+        Returns previous_streak + 1 if dates are consecutive.
+        """
+        latest = cls.get_latest()
+        
+        if not latest:
+            # First entry ever
+            return 0
+        
+        # Parse dates
+        try:
+            from datetime import datetime, timedelta
+            latest_date = datetime.strptime(latest.date, '%Y-%m-%d').date()
+            today_date = datetime.strptime(today_str, '%Y-%m-%d').date()
+            yesterday = today_date - timedelta(days=1)
+            
+            # Check if latest entry is from yesterday (consecutive)
+            if latest_date == yesterday:
+                return latest.streak + 1
+            else:
+                # Streak is broken
+                return 0
+                
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Error calculating streak: {e}")
+            return 0
+
 # Ensure database directory exists and return path
 def get_db_directory(test=False, delete_test=False) -> str:
     if platform == 'win32':  # Windows
@@ -683,7 +755,7 @@ from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.cron_table import CronTable
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 
-for cls in [AIModelsTable, GameLinesTable, GamesTable, CronTable, StatsRollupTable]:
+for cls in [AIModelsTable, GameLinesTable, GoalsTable, GamesTable, CronTable, StatsRollupTable]:
     cls.set_db(gsm_db)
     # Uncomment to start fresh every time
     # cls.drop()
