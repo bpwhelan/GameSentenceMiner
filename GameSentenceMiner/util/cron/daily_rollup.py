@@ -175,7 +175,7 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
     game_data = defaultdict(lambda: {'chars': 0, 'lines': 0, 'timestamps': [], 'game_name': None})
     game_ids = set()
         
-    lines_without_game_id = set()
+    lines_without_game_id = []
     for line in lines:
         if line.game_id and line.game_id.strip():
             game_id = str(line.game_id)
@@ -192,8 +192,8 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
         else:
             # DEBUG: Log lines without game_id
             if hasattr(line, 'game_name') and line.game_name:
-                lines_without_game_id.add(line)
-                
+                lines_without_game_id.append(line)
+    
     if lines_without_game_id:
         logger.debug(f"[ROLLUP_GAME_ACTIVITY] {len(lines_without_game_id)} lines without game_id on {date_str}")
         for line in lines_without_game_id[:5]:  # Log up to first 5 lines
