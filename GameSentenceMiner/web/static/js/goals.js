@@ -980,6 +980,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                 goal_id: goal.id,
                                 metric_type: goal.metricType,
                                 target_value: goal.targetValue,
+                                start_date: goal.startDate,
                                 end_date: goal.endDate
                             })
                         });

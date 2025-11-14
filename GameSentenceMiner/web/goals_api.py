@@ -72,6 +72,14 @@ def register_goals_api_routes(app):
             # Calculate progress based on metric type
             today = datetime.date.today()
             
+            # If goal hasn't started yet, return 0 progress
+            if today < start_date:
+                return jsonify({
+                    "progress": 0,
+                    "daily_average": 0,
+                    "days_in_range": (end_date - start_date).days + 1
+                }), 200
+            
             # Determine if we need to include today's live data
             include_today = end_date >= today
             
@@ -294,6 +302,7 @@ def register_goals_api_routes(app):
             "goal_id": "goal_xxx",
             "metric_type": "hours" | "characters" | "games" | "cards",
             "target_value": <number>,
+            "start_date": "YYYY-MM-DD",
             "end_date": "YYYY-MM-DD"
         }
         
@@ -317,18 +326,20 @@ def register_goals_api_routes(app):
             goal_id = data.get("goal_id")
             metric_type = data.get("metric_type")
             target_value = data.get("target_value")
+            start_date_str = data.get("start_date")
             end_date_str = data.get("end_date")
             
             # Validate required fields
-            if not all([goal_id, metric_type, target_value, end_date_str]):
+            if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
                 return jsonify({"error": "Missing required fields"}), 400
             
             # Validate metric type - only allow the 4 core metrics
             if metric_type not in ["hours", "characters", "games", "cards"]:
                 return jsonify({"error": "Invalid metric_type. Must be hours, characters, games, or cards"}), 400
             
-            # Parse end date
+            # Parse dates
             try:
+                start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
                 end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
                 today = datetime.date.today()
             except ValueError as e:
@@ -429,8 +440,16 @@ def register_goals_api_routes(app):
                     current_total = total_cards_all
             
             # Calculate projection
-            days_until_target = (end_date - today).days
-            projected_value = current_total + (avg_daily * days_until_target)
+            # For future goals, calculate from start_date; for active/past goals, from today
+            if today < start_date:
+                # Goal hasn't started yet - project from start date with 0 current progress
+                days_until_target = (end_date - start_date).days + 1
+                projected_value = avg_daily * days_until_target
+                current_total = 0
+            else:
+                # Goal is active or in the past - project from today
+                days_until_target = (end_date - today).days
+                projected_value = current_total + (avg_daily * days_until_target)
             
             # Calculate percentage difference
             if target_value > 0:
