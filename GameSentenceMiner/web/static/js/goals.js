@@ -702,7 +702,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const metricLabels = {
             'hours': 'Hours',
             'characters': 'Characters',
-            'games': 'Games'
+            'games': 'Games',
+            'cards': 'Cards Mined'
         };
         
         const metricLabel = metricLabels[goal.metricType] || 'Progress';
@@ -715,6 +716,9 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (goal.metricType === 'characters') {
             formattedProgress = formatGoalNumber(todayData.progress);
             formattedRequired = formatGoalNumber(todayData.required);
+        } else if (goal.metricType === 'cards') {
+            formattedProgress = todayData.progress.toLocaleString();
+            formattedRequired = todayData.required.toLocaleString();
         } else {
             formattedProgress = todayData.progress.toLocaleString();
             formattedRequired = todayData.required.toLocaleString();

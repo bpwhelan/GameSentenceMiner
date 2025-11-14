@@ -173,7 +173,7 @@ def register_goals_api_routes(app):
             if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
                 return jsonify({"error": "Missing required fields"}), 400
             
-            if metric_type not in ["hours", "characters", "games"]:
+            if metric_type not in ["hours", "characters", "games", "cards"]:
                 return jsonify({"error": "Invalid metric_type"}), 400
             
             # Parse dates
@@ -228,6 +228,24 @@ def register_goals_api_routes(app):
                 total_progress = combined_stats.get("total_characters", 0)
             elif metric_type == "games":
                 total_progress = combined_stats.get("unique_games_played", 0)
+            elif metric_type == "cards":
+                # Calculate total cards from rollup stats + today
+                total_progress = 0
+                if rollup_stats:
+                    # Sum anki_cards_created from rollups
+                    rollups = StatsRollupTable.get_date_range(
+                        start_date.strftime("%Y-%m-%d"),
+                        yesterday.strftime("%Y-%m-%d")
+                    )
+                    for rollup in rollups:
+                        total_progress += rollup.anki_cards_created or 0
+                
+                # Add today's cards
+                if today_lines:
+                    for line in today_lines:
+                        if (line.audio_in_anki and line.audio_in_anki.strip()) or \
+                           (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
+                            total_progress += 1
             
             # Extract today's progress
             today_progress = 0
@@ -238,6 +256,13 @@ def register_goals_api_routes(app):
                     today_progress = live_stats.get("total_characters", 0)
                 elif metric_type == "games":
                     today_progress = live_stats.get("unique_games_played", 0)
+                elif metric_type == "cards":
+                    # Count today's cards
+                    if today_lines:
+                        for line in today_lines:
+                            if (line.audio_in_anki and line.audio_in_anki.strip()) or \
+                               (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
+                                today_progress += 1
             
             # Calculate days remaining (including today)
             days_remaining = (end_date - today).days + 1

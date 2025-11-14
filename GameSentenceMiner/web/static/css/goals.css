@@ -207,3 +207,17 @@
     max-height: 0;
     margin: 0 !important;
 }
+
+/* Override dashboard-stats-grid for Dailies section to match Goal Progress Chart layout */
+.today-goals .dashboard-stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 24px;
+}
+
+/* Responsive adjustments for Dailies grid */
+@media (max-width: 768px) {
+    .today-goals .dashboard-stats-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+}
