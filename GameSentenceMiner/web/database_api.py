@@ -1485,9 +1485,9 @@ def register_database_api_routes(app):
 
             # Begin database transaction for merge
             try:
-                # Get the target game's game_id (pick the first one we find)
+                # Get the target game's game_id (pick the first valid one we find)
                 target_game_id_result = GameLinesTable._db.fetchone(
-                    f"SELECT game_id FROM {GameLinesTable._table} WHERE game_name = ? LIMIT 1",
+                    f"SELECT game_id FROM {GameLinesTable._table} WHERE game_name = ? AND game_id IS NOT NULL AND game_id != '' LIMIT 1",
                     (target_game,)
                 )
                 target_game_id = target_game_id_result[0] if target_game_id_result else None
