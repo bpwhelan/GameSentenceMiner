@@ -7,6 +7,7 @@ Provides data for calculating progress on user-defined goals with date ranges.
 
 import datetime
 import json
+import time
 from flask import request, jsonify
 
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
@@ -556,12 +557,13 @@ def register_goals_api_routes(app):
             current_goals_json = json.dumps(current_goals)
             goals_settings_json = json.dumps(goals_settings)
             
-            # Create new entry
+            # Create new entry with current Unix timestamp
             new_entry = GoalsTable.create_entry(
                 date_str=today_str,
                 streak=streak,
                 current_goals_json=current_goals_json,
-                goals_settings_json=goals_settings_json
+                goals_settings_json=goals_settings_json,
+                last_updated=time.time()
             )
             
             logger.info(f"Dailies completed for {today_str} with streak: {streak}")
