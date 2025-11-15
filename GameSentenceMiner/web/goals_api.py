@@ -164,6 +164,7 @@ def register_goals_api_routes(app):
         """
         Calculate today's required progress for a custom goal.
         Shows what needs to be accomplished today to stay on track.
+        Applies easy days percentage reduction based on current day of week.
         
         Request body:
         {
@@ -171,12 +172,13 @@ def register_goals_api_routes(app):
             "metric_type": "hours" | "characters" | "games",
             "target_value": <number>,
             "start_date": "YYYY-MM-DD",
-            "end_date": "YYYY-MM-DD"
+            "end_date": "YYYY-MM-DD",
+            "goals_settings": {...}  # Optional: includes easyDays settings
         }
         
         Returns:
         {
-            "required": <number>,  # What needs to be done today
+            "required": <number>,  # What needs to be done today (adjusted for easy days)
             "progress": <number>,  # What has been done today
             "has_target": true,
             "days_remaining": <number>,
@@ -194,6 +196,7 @@ def register_goals_api_routes(app):
             target_value = data.get("target_value")
             start_date_str = data.get("start_date")
             end_date_str = data.get("end_date")
+            goals_settings = data.get("goals_settings", {})
             
             # Validate required fields
             if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
@@ -219,6 +222,16 @@ def register_goals_api_routes(app):
                     "expired": today > end_date,
                     "not_started": today < start_date
                 }), 200
+            
+            # Get easy day percentage for today
+            day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+            today_day_index = today.weekday()  # 0=Monday, 6=Sunday
+            today_day_name = day_names[today_day_index]
+            
+            # Get easy days settings, default to 100% if not provided
+            easy_days = goals_settings.get('easyDays', {}) if goals_settings else {}
+            easy_day_percentage = easy_days.get(today_day_name, 100)
+            easy_day_multiplier = easy_day_percentage / 100.0
             
             # Calculate total progress from start_date to yesterday
             yesterday = today - datetime.timedelta(days=1)
@@ -297,12 +310,16 @@ def register_goals_api_routes(app):
             remaining_work = max(0, target_value - total_progress)
             daily_required = remaining_work / days_remaining if days_remaining > 0 else 0
             
+            # Apply easy day multiplier to reduce today's requirement
+            daily_required_adjusted = daily_required * easy_day_multiplier
+            
             return jsonify({
-                "required": round(daily_required, 2) if metric_type == "hours" else int(daily_required),
+                "required": round(daily_required_adjusted, 2) if metric_type == "hours" else int(daily_required_adjusted),
                 "progress": round(today_progress, 2) if metric_type == "hours" else int(today_progress),
                 "has_target": True,
                 "days_remaining": days_remaining,
-                "total_progress": round(total_progress, 2) if metric_type == "hours" else int(total_progress)
+                "total_progress": round(total_progress, 2) if metric_type == "hours" else int(total_progress),
+                "easy_day_percentage": easy_day_percentage
             }), 200
             
         except Exception as e:
@@ -497,7 +514,8 @@ def register_goals_api_routes(app):
         
         Request body:
         {
-            "current_goals": [...]  # Array of goal objects from localStorage
+            "current_goals": [...],  # Array of goal objects from localStorage
+            "goals_settings": {...}  # Settings object including easyDays
         }
         
         Returns:
@@ -515,6 +533,7 @@ def register_goals_api_routes(app):
                 return jsonify({"success": False, "error": "No data provided"}), 400
             
             current_goals = data.get("current_goals", [])
+            goals_settings = data.get("goals_settings", {})
             
             # Get today's date in YYYY-MM-DD format
             today = datetime.date.today()
@@ -533,14 +552,16 @@ def register_goals_api_routes(app):
             # Calculate streak for today
             streak = GoalsTable.calculate_streak(today_str)
             
-            # Convert current_goals to JSON string
+            # Convert current_goals and goals_settings to JSON strings
             current_goals_json = json.dumps(current_goals)
+            goals_settings_json = json.dumps(goals_settings)
             
             # Create new entry
             new_entry = GoalsTable.create_entry(
                 date_str=today_str,
                 streak=streak,
-                current_goals_json=current_goals_json
+                current_goals_json=current_goals_json,
+                goals_settings_json=goals_settings_json
             )
             
             logger.info(f"Dailies completed for {today_str} with streak: {streak}")
@@ -603,12 +624,13 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/latest_goals", methods=["GET"])
     def api_get_latest_goals():
         """
-        Get the latest goals entry with date, streak, and current_goals.
+        Get the latest goals entry with date, streak, current_goals, and goals_settings.
         
         Returns:
         {
             "date": "2025-01-14",
             "current_goals": [...],  # Parsed JSON array
+            "goals_settings": {...},  # Parsed JSON object
             "streak": 5
         }
         """
@@ -619,18 +641,35 @@ def register_goals_api_routes(app):
                 return jsonify({
                     "date": None,
                     "current_goals": [],
+                    "goals_settings": {},
                     "streak": 0
                 }), 200
             
-            # Parse current_goals JSON string
-            try:
-                current_goals = json.loads(latest_entry.current_goals)
-            except json.JSONDecodeError:
-                current_goals = []
+            # Parse current_goals - may already be parsed by database layer
+            if isinstance(latest_entry.current_goals, str):
+                try:
+                    current_goals = json.loads(latest_entry.current_goals)
+                except json.JSONDecodeError:
+                    current_goals = []
+            else:
+                current_goals = latest_entry.current_goals if latest_entry.current_goals else []
+            
+            # Parse goals_settings - may already be parsed by database layer
+            if hasattr(latest_entry, 'goals_settings'):
+                if isinstance(latest_entry.goals_settings, str):
+                    try:
+                        goals_settings = json.loads(latest_entry.goals_settings) if latest_entry.goals_settings else {}
+                    except json.JSONDecodeError:
+                        goals_settings = {}
+                else:
+                    goals_settings = latest_entry.goals_settings if latest_entry.goals_settings else {}
+            else:
+                goals_settings = {}
             
             return jsonify({
                 "date": latest_entry.date,
                 "current_goals": current_goals,
+                "goals_settings": goals_settings,
                 "streak": latest_entry.streak
             }), 200
             

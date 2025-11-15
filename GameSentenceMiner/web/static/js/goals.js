@@ -2,6 +2,65 @@
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
 // ================================
+// Easy Days Manager Module
+// ================================
+const EasyDaysManager = {
+    STORAGE_KEY: 'gsm_easy_days_settings',
+    
+    // Get default settings (all days at 100%)
+    getDefaultSettings() {
+        return {
+            monday: 100,
+            tuesday: 100,
+            wednesday: 100,
+            thursday: 100,
+            friday: 100,
+            saturday: 100,
+            sunday: 100
+        };
+    },
+    
+    // Get settings from localStorage
+    getSettings() {
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEY);
+            if (stored) {
+                return JSON.parse(stored);
+            }
+            return this.getDefaultSettings();
+        } catch (error) {
+            console.error('Error reading easy days settings from localStorage:', error);
+            return this.getDefaultSettings();
+        }
+    },
+    
+    // Save settings to localStorage with validation
+    saveSettings(settings) {
+        // Validate: at least one day must be at 100%
+        const values = Object.values(settings);
+        const hasFullDay = values.some(val => val === 100);
+        
+        if (!hasFullDay) {
+            return {
+                success: false,
+                error: 'At least one day must be set to 100%'
+            };
+        }
+        
+        try {
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(settings));
+            return { success: true };
+        } catch (error) {
+            console.error('Error saving easy days settings to localStorage:', error);
+            return {
+                success: false,
+                error: 'Failed to save settings'
+            };
+        }
+    }
+};
+
+// ================================
 // Custom Goal Checkbox Manager Module
 // ================================
 const CustomGoalCheckboxManager = {
@@ -789,6 +848,12 @@ document.addEventListener('DOMContentLoaded', function () {
                         todayGoalsStats.insertAdjacentHTML('beforeend', itemHTML);
                     } else {
                         try {
+                            // Get easy days settings to pass to API
+                            const easyDaysSettings = EasyDaysManager.getSettings();
+                            const goalsSettings = {
+                                easyDays: easyDaysSettings
+                            };
+                            
                             const response = await fetch('/api/goals/today-progress', {
                                 method: 'POST',
                                 headers: {
@@ -799,7 +864,8 @@ document.addEventListener('DOMContentLoaded', function () {
                                     metric_type: goal.metricType,
                                     target_value: goal.targetValue,
                                     start_date: goal.startDate,
-                                    end_date: goal.endDate
+                                    end_date: goal.endDate,
+                                    goals_settings: goalsSettings
                                 })
                             });
                             
@@ -1361,6 +1427,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
             
+            // Get easy days settings
+            const easyDaysSettings = EasyDaysManager.getSettings();
+            
+            // Prepare goals_settings object
+            const goalsSettings = {
+                easyDays: easyDaysSettings
+            };
+            
             // Call the API
             const response = await fetch('/api/goals/complete_todays_dailies', {
                 method: 'POST',
@@ -1368,7 +1442,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    current_goals: currentGoals
+                    current_goals: currentGoals,
+                    goals_settings: goalsSettings
                 })
             });
             
@@ -1428,6 +1503,76 @@ document.addEventListener('DOMContentLoaded', function () {
     loadTodayGoals();
     loadGoalProjections();
 
+    // ================================
+    // Easy Days Settings UI Functions
+    // ================================
+    
+    // Load easy days settings into UI
+    function loadEasyDaysUI() {
+        const settings = EasyDaysManager.getSettings();
+        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        
+        days.forEach(day => {
+            const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
+            const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
+            
+            if (slider && valueDisplay) {
+                slider.value = settings[day];
+                valueDisplay.textContent = settings[day] + '%';
+            }
+        });
+    }
+    
+    // Setup slider event listeners to update value displays
+    function setupEasyDaySliders() {
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        
+        days.forEach(day => {
+            const slider = document.getElementById(`easyDay${day}`);
+            const valueDisplay = document.getElementById(`easyDay${day}Value`);
+            
+            if (slider && valueDisplay) {
+                slider.addEventListener('input', function() {
+                    valueDisplay.textContent = this.value + '%';
+                });
+            }
+        });
+    }
+    
+    // Initialize easy days settings from localStorage or database
+    async function initializeEasyDaysSettings() {
+        // Try localStorage first
+        const stored = localStorage.getItem(EasyDaysManager.STORAGE_KEY);
+        
+        if (!stored) {
+            // If not in localStorage, try to fetch from database
+            try {
+                const response = await fetch('/api/goals/latest_goals');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.goals_settings) {
+                        // Parse goals_settings JSON and extract easy days
+                        try {
+                            const goalsSettings = typeof data.goals_settings === 'string'
+                                ? JSON.parse(data.goals_settings)
+                                : data.goals_settings;
+                            
+                            if (goalsSettings && goalsSettings.easyDays) {
+                                // Save to localStorage
+                                localStorage.setItem(EasyDaysManager.STORAGE_KEY, JSON.stringify(goalsSettings.easyDays));
+                                console.log('Loaded easy days settings from database');
+                            }
+                        } catch (parseError) {
+                            console.warn('Could not parse goals_settings from database:', parseError);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('Could not fetch goals settings from database:', error);
+            }
+        }
+    }
+
     // Settings modal functionality
     const settingsModal = document.getElementById('settingsModal');
     const settingsToggle = document.getElementById('settingsToggle');
@@ -1435,10 +1580,16 @@ document.addEventListener('DOMContentLoaded', function () {
     const cancelSettingsBtn = document.getElementById('cancelSettingsBtn');
     const saveSettingsBtn = document.getElementById('saveSettingsBtn');
     const settingsForm = document.getElementById('settingsForm');
+    const settingsError = document.getElementById('settingsError');
+    const settingsSuccess = document.getElementById('settingsSuccess');
+
+    // Setup easy day sliders
+    setupEasyDaySliders();
 
     // Open settings modal
     if (settingsToggle) {
         settingsToggle.addEventListener('click', function() {
+            loadEasyDaysUI();
             settingsModal.style.display = 'flex';
             settingsModal.classList.add('show');
         });
@@ -1465,13 +1616,48 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // Save settings (currently no settings to save for goals page)
+    // Save settings
     if (saveSettingsBtn) {
         saveSettingsBtn.addEventListener('click', async function() {
-            // Close modal since there are no settings to save
-            closeModal();
+            // Clear previous messages
+            if (settingsError) settingsError.style.display = 'none';
+            if (settingsSuccess) settingsSuccess.style.display = 'none';
+            
+            // Read all slider values
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            const settings = {};
+            
+            days.forEach(day => {
+                const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
+                if (slider) {
+                    settings[day] = parseInt(slider.value);
+                }
+            });
+            
+            // Validate and save
+            const result = EasyDaysManager.saveSettings(settings);
+            
+            if (result.success) {
+                if (settingsSuccess) {
+                    settingsSuccess.textContent = 'Settings saved successfully!';
+                    settingsSuccess.style.display = 'block';
+                }
+                
+                // Close modal after a short delay
+                setTimeout(() => {
+                    closeModal();
+                }, 1000);
+            } else {
+                if (settingsError) {
+                    settingsError.textContent = result.error;
+                    settingsError.style.display = 'block';
+                }
+            }
         });
     }
+    
+    // Initialize easy days settings on page load
+    initializeEasyDaysSettings();
 
     // Make functions globally available
     window.loadGoalProgress = loadGoalProgress;

@@ -233,10 +233,73 @@
                         Use custom goals to track your reading progress over specific time periods.
                     </p>
                     <form id="settingsForm">
-                        <!-- Settings form is kept for potential future use -->
-                        <p style="color: var(--text-tertiary); font-style: italic; text-align: center; padding: 20px;">
-                            No settings available. Use the "Add Custom Goal" button to create goals.
-                        </p>
+                        <!-- Easy Days Section -->
+                        <div style="margin-bottom: 30px;">
+                            <h4 style="color: var(--text-primary); margin-bottom: 15px; font-size: 16px; font-weight: 600;">
+                                📅 Easy Days
+                            </h4>
+                            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                                Set reduced goal percentages for specific days. At least one day must remain at 100%.
+                            </p>
+                            
+                            <div id="easyDaysContainer" style="display: flex; flex-direction: column; gap: 15px;">
+                                <!-- Monday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Monday</label>
+                                    <input type="range" id="easyDayMonday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayMondayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Tuesday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Tuesday</label>
+                                    <input type="range" id="easyDayTuesday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayTuesdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Wednesday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Wednesday</label>
+                                    <input type="range" id="easyDayWednesday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayWednesdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Thursday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Thursday</label>
+                                    <input type="range" id="easyDayThursday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayThursdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Friday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Friday</label>
+                                    <input type="range" id="easyDayFriday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayFridayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Saturday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Saturday</label>
+                                    <input type="range" id="easyDaySaturday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDaySaturdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Sunday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Sunday</label>
+                                    <input type="range" id="easyDaySunday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDaySundayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                            </div>
+                        </div>
                     </form>
 
                     <div id="settingsError"
