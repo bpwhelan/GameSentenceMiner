@@ -405,22 +405,6 @@ document.addEventListener('DOMContentLoaded', function () {
                             ${goal.name}
                         </div>
                     </div>
-                    <div class="custom-goal-streak-display" style="margin: 12px 0; padding: 12px; background: var(--bg-secondary); border-radius: 8px; border: 2px solid var(--border-color);">
-                        <div style="display: flex; justify-content: space-around; gap: 20px;">
-                            <div style="text-align: center;">
-                                <div style="font-size: 2em; font-weight: 700; color: var(--success-color);">${state.currentStreak}</div>
-                                <div style="font-size: 0.85em; color: var(--text-tertiary); margin-top: 4px;">Current Streak</div>
-                            </div>
-                            <div style="text-align: center;">
-                                <div style="font-size: 2em; font-weight: 700; color: var(--primary-color);">${state.longestStreak}</div>
-                                <div style="font-size: 0.85em; color: var(--text-tertiary); margin-top: 4px;">Longest Streak</div>
-                            </div>
-                        </div>
-                        <div style="margin-top: 12px; text-align: center; font-size: 0.9em; color: var(--text-secondary);">
-                            <span style="opacity: 0.8;">🔥</span>
-                            <span style="margin-left: 4px;">${state.completionDates.length} days completed</span>
-                        </div>
-                    </div>
                     <div class="custom-goal-actions" style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
                         <button onclick="editCustomGoal('${goal.id}')" class="goal-action-btn edit-btn" title="Edit goal">
                             ✏️ Edit
@@ -826,8 +810,8 @@ document.addEventListener('DOMContentLoaded', function () {
                             
                             const todayData = await response.json();
                             
-                            // Only show if has target and not expired/not started
-                            if (todayData.has_target && !todayData.expired && !todayData.not_started) {
+                            // Only show if has target and not expired/not started and required value is not 0
+                            if (todayData.has_target && !todayData.expired && !todayData.not_started && todayData.required !== 0) {
                                 hasAnyTarget = true;
                                 const itemHTML = renderCustomGoalTodayItem(goal, todayData);
                                 todayGoalsStats.insertAdjacentHTML('beforeend', itemHTML);
@@ -960,11 +944,21 @@ document.addEventListener('DOMContentLoaded', function () {
             const existingCustomSummaries = projectionProgress.querySelectorAll('.custom-goal-projection-summary');
             existingCustomSummaries.forEach(el => el.remove());
             
-            // Filter for only the 4 core metrics
+            // Filter for only the 4 core metrics and goals that have started
             const coreMetrics = ['hours', 'characters', 'games', 'cards'];
-            const customGoalsWithProjections = customGoals.filter(goal =>
-                coreMetrics.includes(goal.metricType)
-            );
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const todayStr = today.toISOString().split('T')[0];
+            
+            const customGoalsWithProjections = customGoals.filter(goal => {
+                // Must be a core metric
+                if (!coreMetrics.includes(goal.metricType)) return false;
+                
+                // Must have started (today >= start_date)
+                if (goal.startDate && goal.startDate > todayStr) return false;
+                
+                return true;
+            });
             
             // Add custom goal projection items
             if (customGoalsWithProjections.length > 0) {

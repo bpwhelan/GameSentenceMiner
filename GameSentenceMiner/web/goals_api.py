@@ -30,7 +30,7 @@ def register_goals_api_routes(app):
         
         Request body:
         {
-            "metric_type": "hours" | "characters" | "games",
+            "metric_type": "hours" | "characters" | "games" | "cards",
             "start_date": "YYYY-MM-DD",
             "end_date": "YYYY-MM-DD"
         }
@@ -56,8 +56,8 @@ def register_goals_api_routes(app):
             if not metric_type or not start_date_str or not end_date_str:
                 return jsonify({"error": "Missing required fields: metric_type, start_date, end_date"}), 400
             
-            if metric_type not in ["hours", "characters", "games"]:
-                return jsonify({"error": "Invalid metric_type. Must be 'hours', 'characters', or 'games'"}), 400
+            if metric_type not in ["hours", "characters", "games", "cards"]:
+                return jsonify({"error": "Invalid metric_type. Must be 'hours', 'characters', 'games', or 'cards'"}), 400
             
             # Parse dates
             try:
@@ -124,6 +124,24 @@ def register_goals_api_routes(app):
                 progress = combined_stats.get("total_characters", 0)
             elif metric_type == "games":
                 progress = combined_stats.get("unique_games_played", 0)
+            elif metric_type == "cards":
+                # Calculate total cards from rollup stats + today
+                progress = 0
+                if start_date <= rollup_end_date:
+                    # Sum anki_cards_created from rollups
+                    rollups = StatsRollupTable.get_date_range(
+                        start_date.strftime("%Y-%m-%d"),
+                        rollup_end_date.strftime("%Y-%m-%d")
+                    )
+                    for rollup in rollups:
+                        progress += rollup.anki_cards_created or 0
+                
+                # Add today's cards if included in range
+                if include_today and today_lines:
+                    for line in today_lines:
+                        if (line.audio_in_anki and line.audio_in_anki.strip()) or \
+                           (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
+                            progress += 1
             
             # Calculate days in range
             days_in_range = (end_date - start_date).days + 1

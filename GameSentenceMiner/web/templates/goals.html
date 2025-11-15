@@ -9,16 +9,20 @@
 <body>
 
     <div class="container">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: center; align-items: center; margin-bottom: 20px;">
             <h1 style="margin: 0;">GSM - Goals</h1>
+        </div>
+
+        <!-- Include shared navigation -->
+        {% include 'components/navigation.html' %}
+        
+        <!-- Add Custom Goal Button -->
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
             <button id="addCustomGoalBtn" class="control-btn" style="display: flex; align-items: center; gap: 8px;">
                 <span>➕</span>
                 <span>Add Custom Goal</span>
             </button>
         </div>
-
-        <!-- Include shared navigation -->
-        {% include 'components/navigation.html' %}
 
                 <!-- Goals Today Card -->
         <div class="dashboard-card today-goals" id="todayGoalsCard" style="margin-bottom: 30px;">
