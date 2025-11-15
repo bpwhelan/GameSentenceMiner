@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - develop # Or your default branch
+      - qt6-clean
+  pull_request:    # <--- ADD THIS
+    branches:
+      - develop   # Or any other branches you want to allow PRs for
   workflow_dispatch: # Allow manual trigger
 
 # Grant read permissions for checking releases and write for uploading assets
@@ -80,7 +84,7 @@ jobs:
             dist/*.blockmap
   electron-build-linux:
     runs-on: ubuntu-latest
-    needs: electron-build-windows
+    # needs: electron-build-windows
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -113,7 +117,7 @@ jobs:
           path: dist/*.AppImage
   electron-build-mac:
     runs-on: macos-latest
-    needs: electron-build-windows
+    # needs: electron-build-windows
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

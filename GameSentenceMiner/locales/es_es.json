@@ -1,0 +1,704 @@
+{
+  "python": {
+    "config": {
+      "app": {
+        "title": "Configuración de GameSentenceMiner",
+        "title_with_profile": "Configuración de GameSentenceMiner - {profile_name}"
+      },
+      "buttons": {
+        "save": "Guardar Configuración",
+        "save_success": "✓ ¡Configuración Guardada Exitosamente!",
+        "sync_changes": {
+          "label": "Sincronizar Cambios a Perfiles",
+          "tooltip": "Sincronizar cambios realizados a todos los perfiles."
+        },
+        "reset_to_default": {
+          "text": "Restablecer Valores Predeterminados",
+          "tooltip": "Restablecer la configuración de la pestaña actual a los valores predeterminados."
+        },
+        "browse": "Examinar",
+        "ok": "OK",
+        "run_function": "Ejecutar Función"
+      },
+      "tabs": {
+        "key_settings": {
+          "title": "Configuración Clave",
+          "description": "Una interfaz de configuración simplificada para una configuración rápida.",
+          "key_settings": {
+            "label": "Configuración Clave",
+            "tooltip": "Estas son las configuraciones más importantes para la configuración rápida. Todas estas configuraciones están duplicadas de otras pestañas."
+          },
+          "anki_enabled": {
+            "label": "Anki Habilitado:",
+            "tooltip": "Habilitar o deshabilitar la integración con Anki."
+          },
+          "obs_enabled": {
+            "label": "OBS Habilitado:",
+            "tooltip": "Habilitar o deshabilitar la integración con OBS."
+          },
+          "audio_enabled": {
+            "label": "Audio Habilitado:",
+            "tooltip": "Habilitar o deshabilitar el procesamiento de audio."
+          },
+          "screenshot_enabled": {
+            "label": "Captura de Pantalla Habilitada:",
+            "tooltip": "Habilitar o deshabilitar el procesamiento de capturas de pantalla."
+          },
+          "vad_enabled": {
+            "label": "VAD Habilitado:",
+            "tooltip": "Habilitar o deshabilitar el procesamiento de Detección de Actividad de Voz (VAD)."
+          },
+          "ai_enabled": {
+            "label": "IA Habilitada:",
+            "tooltip": "Habilitar o deshabilitar la integración con IA."
+          }
+        },
+        "general": {
+          "title": "General",
+          "websocket_enabled": {
+            "label": "WebSocket Habilitado:",
+            "tooltip": "Habilitar o deshabilitar la comunicación WebSocket. Habilitar esto deshabilitará el monitor del portapapeles."
+          },
+          "clipboard_enabled": {
+            "label": "Portapapeles Habilitado:",
+            "tooltip": "Habilitar o deshabilitar el monitoreo del portapapeles."
+          },
+          "allow_both_simultaneously": {
+            "label": "Permitir Ambos Simultáneamente:",
+            "tooltip": "Habilitar para permitir que GSM acepte entrada tanto del portapapeles como de websocket al mismo tiempo."
+          },
+          "merge_sequential_text": {
+            "label": "Fusionar Texto Secuencial Coincidente:",
+            "tooltip": "Habilitar para fusionar texto secuencial coincidente en una sola entrada. Diseñado para la función de Reconocimiento de Voz de Luna. Muy específico."
+          },
+          "websocket_uri": {
+            "label": "URI de WebSocket:",
+            "tooltip": "URI de WebSocket para conectar. Permite Valores Separados por Comas para Conectar Múltiples."
+          },
+          "texthook_regex": {
+            "label": "Regex de Reemplazo de TextHook:",
+            "tooltip": "Regex para ejecutar reemplazo en la entrada de texthook, configúrelo igual que en su página de texthook."
+          },
+          "open_config_on_startup": {
+            "label": "Abrir Configuración al Iniciar:",
+            "tooltip": "Si abrir la configuración cuando el script inicia."
+          },
+          "open_texthooker_on_startup": {
+            "label": "Abrir GSM Texthooker al Iniciar:",
+            "tooltip": "Si abrir la página de Texthooking cuando el script inicia."
+          },
+          "texthooker_port": {
+            "label": "Puerto de GSM Texthooker:",
+            "tooltip": "Puerto para que el Texthooker se ejecute. Solo cambie si sabe lo que está haciendo."
+          },
+          "current_version": {
+            "label": "Versión Actual:",
+            "tooltip": "La versión actual de la aplicación."
+          },
+          "latest_version": {
+            "label": "Última Versión:",
+            "tooltip": "La última versión disponible de la aplicación."
+          },
+          "native_language": {
+            "label": "Idioma Nativo:",
+            "tooltip": "Seleccione su idioma nativo. Esto se usa para varias funciones, pero no cambiará la apariencia de GSM."
+          },
+          "legend": {
+            "important": "Indica configuraciones importantes/requeridas.",
+            "advanced": "Destaca Funciones Avanzadas que pueden causar problemas.",
+            "recommended": "Indica configuraciones Recomendadas, pero completamente opcionales.",
+            "tooltip_info": "Cada Etiqueta en la configuración tiene un tooltip con más información si pasa el cursor sobre ellas."
+          },
+          "locale": {
+            "label": "Idioma de Visualización:",
+            "tooltip": "Seleccione el idioma de la aplicación. Esto cambiará el idioma de la interfaz."
+          }
+        },
+        "paths": {
+          "title": "Rutas",
+          "folder_to_watch": {
+            "label": "Ruta de Repetición de OBS:",
+            "tooltip": "Ruta donde se guardarán las Repeticiones de OBS. Esto debería estar configurado para usted."
+          },
+          "output_folder": {
+            "label": "Carpeta de Salida Espejo:",
+            "tooltip": "Ruta donde se guardarán todos los archivos exportados (capturas de pantalla, audio, etc.) además de Anki. Útil para acceder a archivos fuera de Anki. (Opcional)"
+          },
+          "copy_temp_files_to_output_folder": {
+            "label": "Habilitado:",
+            "tooltip": "Si copiar archivos temporales a la carpeta de salida."
+          },
+          "open_output_folder_on_card_creation": {
+            "label": "Abrir Carpeta de Salida al Crear Tarjeta:",
+            "tooltip": "Abrir la carpeta de salida cuando se crea una tarjeta. Útil para acceso rápido a archivos."
+          },
+          "copy_trimmed_replay_to_output_folder": {
+            "label": "Copiar Repetición Recortada a Carpeta de Salida:",
+            "tooltip": "Copiar una repetición recortada aproximadamente a la carpeta de salida."
+          },
+          "remove_video": {
+            "label": "Eliminar Repetición:",
+            "tooltip": "Eliminar repetición de la carpeta de salida de OBS."
+          },
+          "remove_audio": {
+            "label": "Eliminar Audio de la Carpeta:",
+            "tooltip": "Eliminar audio de la salida. Esto no afecta a Anki, solo a la carpeta de destino de audio."
+          },
+          "remove_screenshot": {
+            "label": "Eliminar Captura de Pantalla de la Carpeta:",
+            "tooltip": "Eliminar capturas de pantalla de la carpeta de destino de capturas de pantalla. Esto no afecta a Anki, solo a la carpeta de destino de capturas de pantalla."
+          }
+        },
+        "anki": {
+          "title": "Anki",
+          "update_anki": {
+            "label": "Actualizar Anki:",
+            "tooltip": "Actualizar automáticamente Anki con nuevos datos."
+          },
+          "show_update_confirmation_dialog": {
+            "label": "Mostrar Diálogo de Confirmación de Actualización:",
+            "tooltip": "Mostrar un diálogo de confirmación antes de actualizar tarjetas de Anki."
+          },
+          "url": {
+            "label": "URL de Anki:",
+            "tooltip": "La URL para conectarse a su instancia de Anki."
+          },
+          "sentence_field": {
+            "label": "Campo de Oración:",
+            "tooltip": "Campo en Anki para la oración principal."
+          },
+          "sentence_audio_field": {
+            "label": "Campo de Audio de Oración:",
+            "tooltip": "Campo en Anki para audio asociado con la oración. Dejar en blanco para deshabilitar el procesamiento de audio."
+          },
+          "picture_field": {
+            "label": "Campo de Imagen:",
+            "tooltip": "Campo en Anki para imágenes asociadas."
+          },
+          "word_field": {
+            "label": "Campo de Palabra:",
+            "tooltip": "Campo en Anki para palabras individuales."
+          },
+          "previous_sentence_field": {
+            "label": "Campo de Oración Anterior:",
+            "tooltip": "Campo en Anki para la línea de diálogo anterior. Si está vacío, no se poblará"
+          },
+          "previous_image_field": {
+            "label": "Campo de Captura de Línea de Voz Anterior:",
+            "tooltip": "Campo en Anki para la captura de pantalla de la línea anterior. Si está vacío, no se poblará"
+          },
+          "video_field": {
+            "label": "Campo de Video:",
+            "tooltip": "Campo en Anki para videos asociados. Este será un video codificado en AV1 de la Línea de Voz Recortada por VAD, si no se encuentra voz, esto estará vacío. (OPCIONAL)"
+          },
+          "custom_tags": {
+            "label": "Agregar Etiquetas:",
+            "tooltip": "Etiquetas personalizadas separadas por comas para las tarjetas de Anki."
+          },
+          "game_name_field": {
+            "label": "Campo de Nombre del Juego:",
+            "tooltip": "Campo en Anki para el nombre del juego. Si está vacío, el nombre del juego no se agregará como campo. (OPCIONAL)"
+          },
+          "tags_to_check": {
+            "label": "Etiquetas en las que trabajar:",
+            "tooltip": "Etiquetas Separadas por Comas, el script solo hará 1 clic en tarjetas con estas etiquetas (Se recomienda dejar vacío, o usar Perfil de Yomitan para agregar etiqueta personalizada desde la página de texthooker)"
+          },
+          "add_game_tag": {
+            "label": "Agregar Juego como Etiqueta:",
+            "tooltip": "Incluir una etiqueta para el juego en la tarjeta de Anki."
+          },
+          "parent_tag": {
+            "label": "Etiqueta Padre del Juego:",
+            "tooltip": "Etiqueta padre para la Etiqueta del Juego. Si está vacío, no se agregará etiqueta padre. i.e. Game::{Game_Title}. Puede pensar en esto como una \"Carpeta\" para sus etiquetas"
+          },
+          "overwrite_audio": {
+            "label": "Sobrescribir Audio:",
+            "tooltip": "Sobrescribir audio existente en tarjetas de Anki."
+          },
+          "overwrite_picture": {
+            "label": "Sobrescribir Imagen:",
+            "tooltip": "Sobrescribir imágenes existentes en tarjetas de Anki."
+          },
+          "multi_overwrites_sentence": {
+            "label": "Minería de Múltiples Líneas Sobrescribe Oración:",
+            "tooltip": "Al usar Minería de Múltiples Líneas, sobrescribir la oración con una concatenación de las líneas seleccionadas."
+          }
+        },
+        "vad": {
+          "title": "VAD",
+          "do_postprocessing": {
+            "label": "Post-procesamiento de Detección de Voz:",
+            "tooltip": "Habilitar el post-procesamiento de audio para recortar solo la línea de voz."
+          },
+          "language": {
+            "label": "Idioma:",
+            "tooltip": "Seleccione el idioma para VAD. Esto se usa solo para Whisper."
+          },
+          "whisper_model": {
+            "label": "Modelo de Whisper:",
+            "tooltip": "Seleccione el tamaño del modelo de Whisper para VAD."
+          },
+          "selected_model": {
+            "label": "Seleccionar Modelo VAD:",
+            "tooltip": "Seleccione qué modelo VAD usar."
+          },
+          "backup_model": {
+            "label": "Modelo VAD de Respaldo:",
+            "tooltip": "Seleccione qué modelo usar como respaldo si no se encuentra audio."
+          },
+          "add_on_no_results": {
+            "label": "Agregar Audio sin Resultados:",
+            "tooltip": "Agregar audio incluso si VAD no encuentra resultados."
+          },
+          "audio_end_offset": {
+            "label": "Desplazamiento de Fin de Audio:",
+            "tooltip": "Desplazamiento en segundos desde el final del video para extraer."
+          },
+          "trim_beginning": {
+            "label": "Recortar Inicio:",
+            "tooltip": "Desplazamiento de inicio después del recorte VAD, Solo activo si \"Recortar Inicio\" está ACTIVADO. Valores negativos = más tiempo al inicio"
+          },
+          "beginning_offset": {
+            "label": "Desplazamiento de Inicio:",
+            "tooltip": "Desplazamiento de inicio después del recorte VAD, Solo activo si \"Recortar Inicio\" está ACTIVADO. Valores negativos = más tiempo al inicio"
+          },
+          "cut_and_splice": {
+            "label": "Cortar y Empalmar Segmentos de Voz:",
+            "tooltip": "Cortar Segmentos de Voz Detectados y Pegarlos de nuevo juntos. Más Relleno = Más Espacio entre líneas de voz."
+          },
+          "splice_padding": {
+            "label": "Relleno:",
+            "tooltip": "Cortar Segmentos de Voz Detectados y Pegarlos de nuevo juntos. Más Relleno = Más Espacio entre líneas de voz."
+          },
+          "use_cpu_for_inference": {
+            "label": "Forzar CPU:",
+            "tooltip": "Incluso si CUDA está instalado, usar CPU para Whisper"
+          },
+          "use_tts_as_fallback": {
+            "label": "Usar TTS como Respaldo:",
+            "tooltip": "Usar Texto a Voz como respaldo cuando no se encuentra audio."
+          },
+          "tts_url": {
+            "label": "URL de TTS:",
+            "tooltip": "URL para el servicio de Texto a Voz. Use $s como marcador de posición para el texto."
+          },
+          "use_vad_filter_for_whisper": {
+            "label": "Usar filtro VAD para Whisper:",
+            "tooltip": "Usar filtro VAD para mejorar la detección de Whisper."
+          }
+        },
+        "features": {
+          "title": "Características",
+          "notify_on_update": {
+            "label": "Notificar al Actualizar Tarjeta de Anki:",
+            "tooltip": "Notificar al usuario cuando GSM actualiza una tarjeta de Anki."
+          },
+          "open_anki_edit": {
+            "label": "Abrir Nota de Anki en Vista de Edición:",
+            "tooltip": "Abrir automáticamente Anki para edición después de actualizar."
+          },
+          "open_anki_browser": {
+            "label": "Abrir Nota de Anki en Vista de Navegador:",
+            "tooltip": "Abrir nota de Anki en el navegador después de actualizar."
+          },
+          "browser_query": {
+            "label": "Consulta del Navegador:",
+            "tooltip": "Consulta para usar al abrir notas de Anki en el navegador. Ej: 'Added:1'"
+          },
+          "backfill_audio": {
+            "label": "Rellenar Audio:",
+            "tooltip": "Rellenar datos de audio para entradas existentes."
+          },
+          "full_auto": {
+            "label": "Modo Totalmente Automático:",
+            "tooltip": "Creación de tarjetas de Anki con 1 clic de Yomitan."
+          },
+          "generate_longplay": {
+            "label": "Generar Longplay:",
+            "tooltip": "Generar un video longplay combinando todas las repeticiones."
+          }
+        },
+        "screenshot": {
+          "title": "Captura de Pantalla",
+          "enabled": {
+            "label": "Habilitado:",
+            "tooltip": "Habilitar o deshabilitar el procesamiento de capturas de pantalla."
+          },
+          "width": {
+            "label": "Ancho:",
+            "tooltip": "Ancho de la captura de pantalla en píxeles."
+          },
+          "height": {
+            "label": "Alto:",
+            "tooltip": "Alto de la captura de pantalla en píxeles."
+          },
+          "quality": {
+            "label": "Calidad:",
+            "tooltip": "Calidad de la captura de pantalla (0-100)."
+          },
+          "extension": {
+            "label": "Extensión:",
+            "tooltip": "Extensión de archivo para el formato de captura de pantalla."
+          },
+          "animated": {
+            "label": "Animado:",
+            "tooltip": "Habilitar para crear una captura de pantalla animada. Será un archivo webm codificado con AV1. Todas las configuraciones debajo de esto no son aplicables con esto ACTIVADO."
+          },
+          "ffmpeg_options": {
+            "label": "Opciones de Re-codificación de FFmpeg:",
+            "tooltip": "Opciones personalizadas de FFmpeg para re-codificar capturas de pantalla."
+          },
+          "timing": {
+            "label": "Tiempo de Captura de Pantalla:",
+            "tooltip": "Seleccione cuándo tomar la captura de pantalla en relación con la línea: inicio, medio o fin."
+          },
+          "offset": {
+            "label": "Desplazamiento de Captura de Pantalla:",
+            "tooltip": "Tiempo en segundos para desplazar la captura de pantalla según la configuración de Tiempo anterior (casi siempre debe ser positivo, puede ser negativo si usa \"medio\")"
+          },
+          "use_selector": {
+            "label": "Usar Selector de Captura de Pantalla para cada tarjeta:",
+            "tooltip": "Habilitar para usar el selector de captura de pantalla para elegir el punto de captura de pantalla en cada tarjeta."
+          },
+          "hotkey": {
+            "label": "Tecla Rápida para Tomar Captura de Pantalla:",
+            "tooltip": "Tecla rápida para tomar una captura de pantalla."
+          },
+          "hotkey_updates_anki": {
+            "label": "Tecla Rápida de Captura de Pantalla Actualiza Anki:",
+            "tooltip": "Habilitar para permitir que la tecla rápida/botón de Captura de Pantalla actualice la última tarjeta de Anki."
+          },
+          "trim_black_bars": {
+            "label": "Recortar Barras Negras:",
+            "tooltip": "Recortar automáticamente las barras negras de las capturas de pantalla. Útil para juegos con letterboxing/pillarboxing (ej., juegos 4:3 en pantallas 16:9)."
+          }
+        },
+        "audio": {
+          "title": "Audio",
+          "enabled": {
+            "label": "Habilitado:",
+            "tooltip": "Habilitar o deshabilitar el procesamiento de audio."
+          },
+          "extension": {
+            "label": "Extensión de Audio:",
+            "tooltip": "Extensión de archivo para archivos de audio."
+          },
+          "beginning_offset": {
+            "label": "Desplazamiento de Inicio de Extracción de Audio:",
+            "tooltip": "Desplazamiento en segundos desde el inicio del video para extraer (Generalmente debe ser negativo o 0). Si encuentra que el inicio de su audio está cortado, intente disminuir este valor."
+          },
+          "find_offset_button": "Encontrar Desplazamiento (WIP)",
+          "end_offset": {
+            "label": "Desplazamiento de Fin de Extracción de Audio:",
+            "tooltip": "Desplazamiento en segundos para recortar desde el final antes de que comience el procesamiento VAD. Advertencia: Puede resultar en pérdida de audio si es negativo."
+          },
+          "ffmpeg_preset": {
+            "label": "Opciones de Preset de FFmpeg:",
+            "tooltip": "Seleccione una opción de preset de FFmpeg para re-codificar capturas de pantalla.",
+            "options": {
+              "no_reencode": "Sin Re-codificación",
+              "fade_in": "Simple Fade-in, Evita Recorte de Audio (Predeterminado)",
+              "loudness_norm": "Normalización simple de volumen (Lo más simple, Comience aquí)",
+              "downmix_norm": "Mezcla a mono con normalización (¿Recomendado?)",
+              "downmix_norm_low_bitrate": "Mezcla a mono, 30kbps, normalizado (¿Óptimo?)",
+              "custom": "Personalizado"
+            }
+          },
+          "ffmpeg_options": {
+            "label": "Opciones de Re-codificación de FFmpeg:",
+            "tooltip": "Opciones personalizadas de FFmpeg para re-codificar archivos de audio."
+          },
+          "anki_media_collection": {
+            "label": "Colección de Medios de Anki:",
+            "tooltip": "Ruta de la Colección de Medios de Anki, utilizada para la herramienta de recorte externa. SIN BARRA FINAL"
+          },
+          "external_tool": {
+            "label": "Herramienta Externa de Edición de Audio:",
+            "tooltip": "Ruta a la herramienta externa que abre el audio para recorte manual. Recomiendo OcenAudio para edición in-situ."
+          },
+          "external_tool_enabled": {
+            "label": "Habilitado:",
+            "tooltip": "Enviar Audio a Herramienta Externa para Edición."
+          },
+          "install_ocenaudio_button": "Instalar Ocenaudio",
+          "get_anki_media_button": "Obtener Colección de Medios de Anki"
+        },
+        "obs": {
+          "title": "OBS",
+          "enabled": {
+            "label": "Habilitado:",
+            "tooltip": "Habilitar o deshabilitar la integración con OBS."
+          },
+          "open_obs": {
+            "label": "Abrir OBS:",
+            "tooltip": "Abrir OBS cuando GSM inicia."
+          },
+          "close_obs": {
+            "label": "Cerrar OBS:",
+            "tooltip": "Cerrar OBS cuando GSM se cierra."
+          },
+          "obs_path": {
+            "label": "Ruta de OBS:",
+            "tooltip": "Ruta al ejecutable de OBS. Dejar en blanco para usar la ruta predeterminada."
+          },
+          "host": {
+            "label": "Host:",
+            "tooltip": "Dirección del host para el servidor WebSocket de OBS."
+          },
+          "port": {
+            "label": "Puerto:",
+            "tooltip": "Número de puerto para el servidor WebSocket de OBS."
+          },
+          "password": {
+            "label": "Contraseña:",
+            "tooltip": "Contraseña para el servidor WebSocket de OBS."
+          },
+          "game_from_scene": {
+            "label": "Obtener Juego del Nombre de Escena:",
+            "tooltip": "Cambia el Juego Actual al Nombre de Escena"
+          },
+          "min_replay_size": {
+            "label": "Tamaño Mínimo de Repetición (KB):",
+            "tooltip": "Tamaño Mínimo de Repetición para Repeticiones de OBS en KB. Si la Repetición está Por Debajo de esto, Audio/Captura de Pantalla No se capturará."
+          },
+          "turn_off_replay_buffer_management": {
+            "label": "Desactivar Gestión de Búfer de Repetición:",
+            "tooltip": "Deshabilitar la Gestión del Búfer de Repetición de OBS. Esto es útil si desea administrar manualmente el búfer de repetición en OBS."
+          }
+        },
+        "profiles": {
+          "title": "Perfiles",
+          "select_profile": {
+            "label": "Seleccionar Perfil:",
+            "tooltip": "Seleccione un perfil para cargar su configuración."
+          },
+          "add_button": "Agregar Perfil",
+          "copy_button": "Copiar Perfil",
+          "delete_button": "Eliminar Configuración",
+          "obs_scene": {
+            "label": "Escena de OBS (Cambio Automático de Perfil):",
+            "tooltip": "Seleccione una escena de OBS para asociar con este perfil. (Opcional)"
+          },
+          "refresh_scenes_button": "Actualizar Escenas",
+          "switch_to_default": {
+            "label": "Cambiar a Predeterminado Si No Se Encuentra:",
+            "tooltip": "Habilitar para cambiar al perfil predeterminado si la escena de OBS seleccionada no se encuentra."
+          }
+        },
+        "advanced": {
+          "title": "Avanzado",
+          "player_note": "Nota: Solo uno de estos tendrá efecto, priorizando audio.",
+          "audio_player_path": {
+            "label": "Ruta del Reproductor de Audio:",
+            "tooltip": "Ruta al ejecutable del reproductor de audio. Abrirá el Audio recortado"
+          },
+          "video_player_path": {
+            "label": "Ruta del Reproductor de Video:",
+            "tooltip": "Ruta al ejecutable del reproductor de video. Buscará la ubicación de la línea en la repetición"
+          },
+          "play_latest_hotkey": {
+            "label": "Tecla Rápida para Reproducir Último Video/Audio:",
+            "tooltip": "Tecla rápida para recortar y reproducir el último audio."
+          },
+          "multiline_linebreak": {
+            "label": "Salto de Línea Multi-línea:",
+            "tooltip": "Salto de línea para minería multi-línea. Esto va entre cada oración"
+          },
+          "multiline_storage_field": {
+            "label": "Campo de Almacenamiento de Oración Multi-Línea:",
+            "tooltip": "Campo en Anki para almacenar temporalmente la oración multi-línea."
+          },
+          "ocr_port": {
+            "label": "Puerto WebSocket de OCR:",
+            "tooltip": "Puerto para comunicación WebSocket de OCR. GSM también escuchará en este puerto"
+          },
+          "texthooker_comm_port": {
+            "label": "Puerto WebSocket de Comunicación de Texthooker:",
+            "tooltip": "Puerto para comunicación WebSocket de GSM Texthooker."
+          },
+          "plaintext_export_port": {
+            "label": "Puerto de Exportación WebSocket de Texto Plano/JL:",
+            "tooltip": "Puerto al que GSM enviará texto plano. Útil para integrar con otras herramientas como JL."
+          },
+          "reset_line_hotkey": {
+            "label": "Tecla Rápida para Restablecer Línea:",
+            "tooltip": "Tecla rápida para restablecer la línea de diálogo actual."
+          },
+          "polling_rate": {
+            "label": "Tasa de Sondeo:",
+            "tooltip": "Velocidad a la que Anki verificará las actualizaciones (en milisegundos)."
+          },
+          "localhost_bind_address": {
+            "label": "Dirección de Enlace de Localhost:",
+            "tooltip": "Dirección de enlace para el servidor local."
+          },
+          "current_version": {
+            "label": "Versión Actual:",
+            "tooltip": "La versión actual de la aplicación."
+          },
+          "latest_version": {
+            "label": "Última Versión:",
+            "tooltip": "La última versión disponible de la aplicación."
+          }
+        },
+        "ai": {
+          "title": "IA",
+          "enabled": {
+            "label": "Agregar a Anki:",
+            "tooltip": "Habilitar o deshabilitar Agregar Resultado de IA a Anki."
+          },
+          "provider": {
+            "label": "Proveedor:",
+            "tooltip": "Seleccione el proveedor de IA."
+          },
+          "gemini_model": {
+            "label": "Modelo de IA Gemini:",
+            "tooltip": "Seleccione el modelo de IA a usar."
+          },
+          "gemini_api_key": {
+            "label": "Clave API de Gemini:",
+            "tooltip": "Clave API para el proveedor de IA seleccionado (solo Gemini actualmente)."
+          },
+          "groq_model": {
+            "label": "Modelo de IA Groq:",
+            "tooltip": "Seleccione el modelo de IA Groq a usar."
+          },
+          "groq_api_key": {
+            "label": "Clave API de Groq:",
+            "tooltip": "Clave API para el proveedor de IA Groq."
+          },
+          "local_model": {
+            "label": "Modelo de IA Local:",
+            "tooltip": "Modelo de IA Local a Usar, Solo se admite traducción muy básica en este momento. Puede requerir alguna otra configuración, pero no lo sé."
+          },
+          "openai_model": {
+            "label": "Modelo de OpenAI:",
+            "tooltip": "Seleccione el modelo de OpenAI a usar."
+          },
+          "openai_apikey": {
+            "label": "Clave API de OpenAI:",
+            "tooltip": "Clave API para el proveedor de OpenAI."
+          },
+          "openai_url": {
+            "label": "URL de API de OpenAI:",
+            "tooltip": "URL personalizada para la API de OpenAI. Dejar en blanco para usar la predeterminada."
+          },
+          "anki_field": {
+            "label": "Campo de Anki:",
+            "tooltip": "Campo en Anki para contenido generado por IA."
+          },
+          "context_length": {
+            "label": "Longitud de Contexto de Diálogo:",
+            "tooltip": "Número de líneas anteriores/siguientes para incluir como contexto para IA. 0 para deshabilitar. -1 para tantas como sea posible (Usar con Precaución)"
+          },
+          "use_canned_translation": {
+            "label": "Usar Prompt de Traducción Predefinido:",
+            "tooltip": "Usar un prompt de traducción predefinido para IA."
+          },
+          "use_canned_context": {
+            "label": "Usar Prompt de Contexto Predefinido:",
+            "tooltip": "Usar un prompt de contexto predefinido para IA."
+          },
+          "custom_prompt": {
+            "label": "Prompt Personalizado:",
+            "tooltip": "Prompt personalizado para procesamiento de IA."
+          },
+          "custom_texthooker_prompt": {
+            "label": "Prompt Personalizado de Texthooker:",
+            "tooltip": "Prompt personalizado para procesamiento de texthooker con IA."
+          }
+        },
+        "overlay": {
+          "title": "Superposición",
+          "websocket_port": {
+            "label": "Puerto WebSocket de Superposición:",
+            "tooltip": "Puerto para la comunicación WebSocket de superposición. Utilizado para funciones experimentales de superposición."
+          },
+          "overlay_monitor": {
+            "label": "Monitor para Capturar:",
+            "tooltip": "Seleccione el monitor para capturar (índice basado en 1).",
+            "not_detected": "OwOCR No Detectado"
+          },
+          "overlay_engine": {
+            "label": "Motor de Superposición:",
+            "tooltip": "Seleccione el motor OCR para la superposición. Si usa lens y está en Windows, usará OneOCR para optimizar el escaneo."
+          },
+          "periodic": {
+            "label": "Captura Periódica:",
+            "tooltip": "Habilitar captura periódica de la pantalla para Superposición. Nota, aún necesita texto fluyendo hacia GSM para que la minería funcione."
+          },
+          "periodic_interval": {
+            "label": "Intervalo de Captura (Segundos):",
+            "tooltip": "Intervalo en segundos para captura periódica de pantalla."
+          },
+          "periodic_ratio": {
+            "label": "Relación de Coincidencia Periódica:",
+            "tooltip": "Relación (0-1) utilizada durante el escaneo periódico para determinar cuánto de la región debe coincidir para contar como detectado. Más alto = Menos Estricto, más Escaneo."
+          },
+          "scan_delay": {
+            "label": "Retraso de Escaneo:",
+            "tooltip": "Retraso entre escaneos en milisegundos."
+          },
+          "number_of_local_scans_per_event": {
+            "label": "Escaneos Locales por Evento de Texto:",
+            "tooltip": "Cuántos escaneos locales realizar por evento de texto (agente, textractor, etc.) antes de detenerse o enviar resultados al motor OCR. Retraso de .1s entre escaneos por ahora."
+          },
+          "minimum_character_size": {
+            "label": "Tamaño Mínimo de Carácter:",
+            "tooltip": "Tamaño mínimo de carácter para detección OCR."
+          }
+        },
+        "wip": {
+          "title": "WIP",
+          "warning_experimental": "Advertencia: Estas funciones son experimentales y pueden no funcionar como se espera.",
+          "warning_overlay_deps": "La superposición requiere que se instalen las dependencias de OwOCR y requiere que se ejecute una aplicación externa.",
+          "error_setup": "Error al configurar la pestaña WIP"
+        }
+      },
+      "dialogs": {
+        "reset_to_default": {
+          "title": "Restablecer a Predeterminado",
+          "message": "¿Está seguro de que desea restablecer toda la configuración en esta pestaña a los valores predeterminados?"
+        },
+        "select_profile": {
+          "title": "Seleccionar Perfil",
+          "message": "Múltiples perfiles coinciden con la escena actual. Por favor seleccione el perfil:"
+        },
+        "config_error": {
+          "title": "Error de Configuración",
+          "full_auto_and_backfill": "¡No se puede tener el modo Totalmente Automático y Rellenar activados al mismo tiempo! Nota: Rellenar es un flujo de trabajo muy específico.",
+          "no_input_method": "No se puede tener tanto el Portapapeles como el WebSocket deshabilitados."
+        },
+        "offset_copied": {
+          "title": "Portapapeles",
+          "message": "¡Desplazamiento copiado al portapapeles!"
+        },
+        "add_profile": {
+          "title": "Entrada",
+          "prompt": "Ingrese el nombre del nuevo perfil:"
+        },
+        "copy_profile": {
+          "title": "Entrada",
+          "prompt": "Ingrese el nombre del nuevo perfil:"
+        },
+        "delete_profile": {
+          "title": "Confirmar Eliminación",
+          "message": "¿Está seguro de que desea eliminar el perfil '{profile_name}'?",
+          "error_title": "Error",
+          "error_cannot_delete_default": "No se puede eliminar el perfil Predeterminado."
+        },
+        "install_ocenaudio": {
+          "title": "¿Descargar OcenAudio?",
+          "message": "¿Le gustaría descargar e instalar OcenAudio? Es un software gratuito de edición de audio que funciona extremadamente bien con GSM.",
+          "downloading_message": "Descargando OcenAudio...",
+          "success_title": "OcenAudio Descargado",
+          "success_message": "OcenAudio ha sido descargado e instalado. Puede encontrarlo en {path}."
+        },
+        "set_anki_media": {
+          "title": "¿Establecer Colección de Medios de Anki Predeterminada?",
+          "message": "¿Le gustaría establecer la ruta predeterminada de la colección de medios de Anki? Esto ayudará al script a encontrar la colección de medios para recorte externo.\n\nPredeterminado: %APPDATA%/Anki2/User 1/collection.media"
+        }
+      }
+    }
+  }
+}

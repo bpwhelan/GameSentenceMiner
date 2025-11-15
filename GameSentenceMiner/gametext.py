@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
 
-import pyperclip
+import pyperclipfix as pyperclip
 import requests
 import websockets
 from websockets import InvalidStatus

@@ -74,9 +74,19 @@ export function getResourcesDir(): string {
 }
 
 export function getOverlayPath(): string {
+    // Overlay builds are produced per-platform into folders named like
+    // gsm_overlay-<platform>-<arch> (e.g. gsm_overlay-win32-x64, gsm_overlay-linux-x64).
+    const arch = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : process.arch;
+    const platformName = getPlatform();
+    const dirName = `gsm_overlay-${platformName}-${arch}`;
     return isDev
-        ? path.join(__dirname, "../../GSM_Overlay/out/gsm_overlay-win32-x64") // Development path
-        : path.join(process.resourcesPath, "GSM_Overlay/gsm_overlay-win32-x64"); // Production (ASAR-safe)
+        ? path.join(__dirname, `../../GSM_Overlay/out/${dirName}`) // Development path
+        : path.join(process.resourcesPath, `GSM_Overlay/${dirName}`); // Production (ASAR-safe)
+}
+
+export function getOverlayExecName(): string {
+    // On Windows the executable ends with .exe, on other platforms it's a naked executable.
+    return isWindows() ? 'gsm_overlay.exe' : 'gsm_overlay';
 }
 
 export function sanitizeFilename(filename: string): string {

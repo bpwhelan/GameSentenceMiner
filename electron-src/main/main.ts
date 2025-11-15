@@ -307,6 +307,17 @@ async function _updateGSMInternal(
                 );
             }
 
+            try {
+                await runCommand(
+                    pythonPath,
+                    ['-m', 'uv', 'pip', 'install', 'pynput~=1.9.2'],
+                    true,
+                    true
+                );
+            } catch (err) {
+                log.error('Failed to install pynput package, owocrhotkeys will not work on Linux/Mac:', err);
+            }
+
             log.info('Python update completed successfully.');
             new Notification({
                 title: 'Update Successful',
@@ -341,6 +352,10 @@ function getIconPath(size: number = 0): string {
         filename = 'gsm.ico';
     }
     return path.join(getAssetsDir(), filename);
+}
+
+function getProjectPathInAssets(): string {
+    return path.join(getAssetsDir(), 'projects');
 }
 
 /**
@@ -632,6 +647,28 @@ export async function checkAndInstallUV(pythonPath: string): Promise<void> {
     }
 }
 
+export async function checkAndInstallPython311(pythonPath: string): Promise<void> {
+    // run commands uv python install 3.11, uv pin 3.11
+    try {
+        await execFileAsync(pythonPath, [
+            '-m',
+            'uv',
+            'python',
+            'install',
+            '3.11',
+        ]);
+        await execFileAsync(pythonPath, [
+            '-m',
+            'uv',
+            'pin',
+            '3.11',
+        ]);
+    } catch (err) {
+        console.error('Failed to install or pin Python 3.11:', err);
+        process.exit(1);
+    }
+}
+
 /**
  * Ensures GameSentenceMiner is installed before running it.
  */
@@ -640,12 +677,17 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
 
     await checkAndInstallUV(pythonPath);
 
+    // TODO REMOVE THIS/COMMENT THIS
+    // console.log('Starting GameSentenceMiner...');
+    // return await runGSM(pythonPath, ['-m', 'uv', 'run', path.join(getGSMBaseDir(), "GameSentenceMiner", "gsm.py")]);
+
     if (!isInstalled) {
         console.log(`${APP_NAME} is not installed. Installing now...`);
         try {
+            const pkg = isDev ? "." : PACKAGE_NAME;
             await runCommand(
                 pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--prerelease=allow', PACKAGE_NAME],
+                ['-m', 'uv', 'pip', 'install', '--prerelease=allow', pkg],
                 true,
                 true
             );
@@ -738,7 +780,6 @@ async function processArgsAndStartSettings() {
     }
 }
 
-app.disableHardwareAcceleration();
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 
 if (!app.requestSingleInstanceLock()) {

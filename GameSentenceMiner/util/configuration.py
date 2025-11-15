@@ -37,7 +37,7 @@ WHISPER_TINY = 'tiny'
 WHISPER_BASE = 'base'
 WHISPER_SMALL = 'small'
 WHISPER_MEDIUM = 'medium'
-WHSIPER_LARGE = 'large'
+WHISPER_LARGE = 'large'
 WHISPER_TURBO = 'turbo'
 
 AI_GEMINI = 'Gemini'
@@ -96,13 +96,13 @@ def is_mac():
 class Locale(Enum):
     English = 'en_us'
     日本語 = 'ja_jp'
-    한국어 = 'ko_kr'
+    # 한국어 = 'ko_kr'
     中文 = 'zh_cn'
     Español = 'es_es'
-    Français = 'fr_fr'
-    Deutsch = 'de_de'
-    Italiano = 'it_it'
-    Русский = 'ru_ru'
+    # Français = 'fr_fr'
+    # Deutsch = 'de_de'
+    # Italiano = 'it_it'
+    # Русский = 'ru_ru'
 
     @classmethod
     def from_any(cls, value: str) -> 'Locale':
@@ -1338,6 +1338,7 @@ except Exception as e:
 class GsmAppState:
     def __init__(self):
         self.config_app = None
+        self.dialog_manager = None
         self.line_for_audio = None
         self.line_for_screenshot = None
         self.anki_note_for_screenshot = None
@@ -1438,9 +1439,15 @@ def get_ffprobe_path():
             return "/opt/homebrew/bin/ffprobe"
     return path
 
+def get_pickaxe_png_path():
+    package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(package_root, "assets", "pickaxe.png")
+    return path
+
 ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
 
 ffmpeg_base_command_list_info = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "info", '-nostdin']
+
 
 
 # logger.debug(f"Running in development mode: {is_dev}")

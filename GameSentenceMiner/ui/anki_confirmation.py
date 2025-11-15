@@ -177,34 +177,29 @@ class AnkiConfirmationDialog(tk.Toplevel):
         
         
     def _get_different_screenshot(self):
+        from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector  # from GameSentenceMiner.ui.screenshot_selector import ScreenshotSelectorDialog
         video_path = gsm_state.current_replay
-        new_screenshot_path = self.config_app.show_screenshot_selector(
-            video_path, self.screenshot_timestamp, mode=get_config().screenshot.screenshot_timing_setting
-        )
-
-        # If the user cancels the selector, it might return None or an empty string
-        if not new_screenshot_path:
-            return
-
-        self.screenshot_path = new_screenshot_path # Update the path to be returned later
-
-        try:
-            img = Image.open(self.screenshot_path)
-            img.thumbnail((400, 300))
-            # Create the new image object
-            self.photo_image = ImageTk.PhotoImage(img)
-
-            # <<< CHANGED: Step 2 - Update the label with the new image
-            self.image_label.config(image=self.photo_image, text="") # Clear any previous error text
-            
-            # This is crucial! Keep a reference to the new image object on the widget
-            # itself, so it doesn't get garbage-collected.
-            self.image_label.image = self.photo_image
         
-        except Exception as e:
-            # Handle cases where the newly selected file is invalid
-            self.image_label.config(image=None, text=f"Could not load new image:\n{e}", foreground="red")
-            self.image_label.image = None # Clear old image reference
+        def on_screenshot_selected(selected_path):  # from GameSentenceMiner.ui.screenshot_selector: new_screenshot_path = self.config_app.show_screenshot_selector(...)
+            if not selected_path:
+                return
+            
+            self.screenshot_path = selected_path
+            try:
+                img = Image.open(self.screenshot_path)
+                img.thumbnail((400, 300))
+                self.photo_image = ImageTk.PhotoImage(img)
+                self.image_label.config(image=self.photo_image, text="")
+            except Exception as e:
+                logger.error(f"Error updating screenshot: {e}")
+        
+        show_screenshot_selector(
+            self.config_app,
+            video_path,
+            self.screenshot_timestamp,
+            mode=get_config().screenshot.screenshot_timing_setting,
+            on_complete=on_screenshot_selected
+        )
 
 
     def _play_audio(self, audio_path):

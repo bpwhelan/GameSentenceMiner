@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { BASE_DIR, getOverlayPath, getResourcesDir, isDev } from '../util.js';
+import { BASE_DIR, getOverlayPath, getResourcesDir, isDev, getOverlayExecName } from '../util.js';
 import {
     getFrontPageState,
     getSteamGames,
@@ -109,7 +109,7 @@ export async function runOverlay() {
     //     }
     //     overlayProcess = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'start'], { detached: false, stdio: ['ignore', 'ignore', 'ignore'], cwd: overlayDir });
     // } else {
-    const overlayPath = path.join(getOverlayPath(), 'gsm_overlay.exe');
+    const overlayPath = path.join(getOverlayPath(), getOverlayExecName());
     if (fs.existsSync(overlayPath)) {
         const { spawn } = await import('child_process');
         overlayProcess = spawn(overlayPath, [], { detached: false, stdio: 'ignore' });

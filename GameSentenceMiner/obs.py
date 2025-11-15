@@ -377,6 +377,9 @@ def get_obs_websocket_config_values():
 
 async def connect_to_obs(retry=5, connections=2, check_output=False):
     global connection_pool, obs_connection_manager, event_client, connecting
+    if connection_pool:
+        return
+    
     if is_windows():
         get_obs_websocket_config_values()
 
@@ -423,7 +426,53 @@ async def connect_to_obs(retry=5, connections=2, check_output=False):
     connecting = False
 
 def connect_to_obs_sync(retry=2, connections=2, check_output=False):
-    asyncio.run(connect_to_obs(retry=retry, connections=connections, check_output=check_output))
+    global connection_pool, obs_connection_manager, event_client, connecting
+    if connection_pool:
+        return
+    if is_windows():
+        get_obs_websocket_config_values()
+    
+    while True:
+        connecting = True
+        try:
+            pool_kwargs = {
+                'host': get_config().obs.host,
+                'port': get_config().obs.port,
+                'password': get_config().obs.password,
+                'timeout': 3,
+            }
+            connection_pool = OBSConnectionPool(size=connections, **pool_kwargs)
+            connection_pool.connect_all()
+
+            with connection_pool.get_client() as client:
+                client.get_version() # Test one connection to confirm it works
+
+            event_client = obs.EventClient(
+                host=get_config().obs.host,
+                port=get_config().obs.port,
+                password=get_config().obs.password,
+                timeout=1,
+            )
+            gsm_status.obs_connected = True
+            logger.info("Connected to OBS WebSocket.")
+            if not obs_connection_manager:
+                obs_connection_manager = OBSConnectionManager(check_output=check_output)
+                obs_connection_manager.start()
+            update_current_game()
+            if get_config().features.generate_longplay and check_output:
+                start_recording(True)
+            break  # Exit the loop once connected
+        except Exception as e:
+            if retry <= 0:
+                gsm_status.obs_connected = False
+                logger.error(f"Failed to connect to OBS WebSocket: {e}")
+                connection_pool = None
+                event_client = None
+                connecting = False
+                break
+            time.sleep(1)
+            retry -= 1
+    connecting = False
 
 
 def disconnect_from_obs():

@@ -10,17 +10,17 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, scrolledtext, font
 from PIL import Image, ImageTk
 
-import pyperclip
+import pyperclipfix as pyperclip
 import ttkbootstrap as ttk
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.ui.anki_confirmation import AnkiConfirmationDialog
-from GameSentenceMiner.ui.screenshot_selector import ScreenshotSelectorDialog
+from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector  # from GameSentenceMiner.ui.screenshot_selector import ScreenshotSelectorDialog
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.configuration import Config, Locale, logger, CommonLanguages, ProfileConfig, General, Paths, \
     Anki, Features, Screenshot, Audio, OBS, Hotkeys, VAD, Overlay, Ai, Advanced, OverlayEngine, get_app_directory, \
-    get_config, is_beangate, AVAILABLE_LANGUAGES, WHSIPER_LARGE, WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, \
+    get_config, is_beangate, AVAILABLE_LANGUAGES, WHISPER_LARGE, WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, \
     WHISPER_MEDIUM, WHISPER_TURBO, SILERO, WHISPER, OFF, gsm_state, DEFAULT_CONFIG, get_latest_version, \
     get_current_version, AI_GEMINI, AI_GROQ, AI_OPENAI, save_full_config, get_default_anki_media_collection_path
 from GameSentenceMiner.util.db import AIModelsTable
@@ -317,7 +317,7 @@ class ConfigApp:
                                         screenshot_timestamp=ss_timestamp)
         return dialog.result
     
-    def show_screenshot_selector(self, video_path, timestamp, mode='beginning'):
+    def show_screenshot_selector_tkinter(self, video_path, timestamp, mode='beginning'):
         """
         Displays a modal dialog for the user to select the best screenshot from
         a series of extracted video frames.
@@ -331,14 +331,17 @@ class ConfigApp:
         Returns:
             str: The file path of the image the user selected, or None if they canceled.
         """
-        dialog = ScreenshotSelectorDialog(self.window,
-                                          self,
-                                          video_path=video_path,
-                                          timestamp=str(timestamp), # Ensure it's a string for ffmpeg
-                                          mode=mode)
+        # Qt implementation - non-modal with callback
+        result_container = {'path': None}
         
-        print(dialog.selected_path)
-        return dialog.selected_path
+        def on_complete(selected_path):
+            result_container['path'] = selected_path
+        
+        show_screenshot_selector(self, self, video_path, str(timestamp), mode, on_complete)  # from GameSentenceMiner.ui.screenshot_selector: dialog = ScreenshotSelectorDialog(self.window, self, video_path=video_path, timestamp=str(timestamp), mode=mode)
+        
+        # For compatibility with existing code expecting synchronous behavior
+        # This won't work well with Qt's async nature, but maintains the interface
+        return result_container['path']
     
     
     # IMPLEMENT LATER,FOR NOW JUST RUN THE FILE
@@ -363,14 +366,18 @@ class ConfigApp:
             current_sensitivity (int): The current sensitivity setting.
         Returns: int: The selected sensitivity setting, or None if canceled.
         """
-        # Run the file directly with the current python interpreter and get stdout
-        result = subprocess.run([sys.executable, '-m', 'GameSentenceMiner.tools.furigana_filter_preview', str(current_size), 'overlay'], capture_output=True, text=True)
-        if result.returncode == 0:
-            # Parse the output for RESULT:[value]
-            match = re.search(r"RESULT:\[(\d+)\]", result.stdout)
-            if match:
-                return int(match.group(1))
-        return None
+        from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter_preview  # from GameSentenceMiner.tools.furigana_filter_preview subprocess.run
+        
+        result_container = {'sensitivity': None}
+        
+        def on_complete(selected_sensitivity):
+            result_container['sensitivity'] = selected_sensitivity
+        
+        # show_furigana_filter_preview will get the screenshot internally
+        show_furigana_filter_preview(current_sensitivity=current_size, title_suffix="OBS", on_complete=on_complete)
+        
+        # For compatibility with existing code expecting synchronous behavior
+        return result_container['sensitivity']
 
     def create_vars(self):
         """
@@ -1274,7 +1281,7 @@ class ConfigApp:
         HoverInfoLabelWidget(vad_frame, text=whisper_i18n.get('label', '...'), tooltip=whisper_i18n.get('tooltip', '...'),
                              row=self.current_row, column=0)
         ttk.Combobox(vad_frame, textvariable=self.whisper_model_value, values=[WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM,
-                                                             WHSIPER_LARGE, WHISPER_TURBO], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
+                                                             WHISPER_LARGE, WHISPER_TURBO], state="readonly").grid(row=self.current_row, column=1, sticky='EW', pady=2)
         self.current_row += 1
 
         selected_model_i18n = vad_i18n.get('selected_model', {})
