@@ -251,16 +251,36 @@ class OverlayProcessor:
 
     def _get_full_screenshot(self) -> Tuple[Image.Image | None, int, int]:
         """Captures a screenshot of the configured monitor."""
-        if not mss:
-            raise RuntimeError("MSS screenshot library is not installed.")
-        with mss.mss() as sct:
-            monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)  # Get primary monitor work area
-            sct_img = sct.grab(monitor)
-            img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
-            
-            img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
-                
-            return img, monitor['width'], monitor['height']
+        # Prefer MSS (X11) when available, but fall back to OBS/other methods on Wayland
+        wayland = os.environ.get('XDG_SESSION_TYPE', '').lower() == 'wayland' or bool(os.environ.get('WAYLAND_DISPLAY'))
+
+        if mss and not wayland:
+            try:
+                with mss.mss() as sct:
+                    monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)  # Get primary monitor work area
+                    sct_img = sct.grab(monitor)
+                    img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+                    img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
+                    return img, monitor['width'], monitor['height']
+            except Exception as e:
+                # MSS (X11) failed (commonly XGetImage on Wayland or permission issues). Fall back below.
+                logger.debug(f"MSS screenshot failed: {e}")
+
+        # Fallback: try OBS-based screenshot (if OBS is connected and has a suitable source)
+        try:
+            logger.debug("Attempting fallback screenshot via OBS sources")
+            obs_img = get_screenshot_PIL(compression=75, img_format='png', width=None, height=None)
+            if obs_img is not None:
+                # get_screenshot_PIL returns a PIL Image already
+                # Try to infer monitor size from the image
+                w, h = obs_img.size
+                obs_img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
+                return obs_img.convert('RGBA'), w, h
+        except Exception as e:
+            logger.debug(f"OBS fallback screenshot failed: {e}")
+
+        # As a last resort, raise an informative error
+        raise RuntimeError("Failed to capture screen: MSS unavailable or failed and OBS fallback unavailable. On Wayland you must run with a portal or use an OBS source.")
 
     def _create_composite_image(
         self, 
