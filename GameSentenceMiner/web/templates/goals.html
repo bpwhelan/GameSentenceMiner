@@ -4,14 +4,66 @@
 {% set page_title = 'GSM - Goals' %}
 {% set page_specific_css = 'stats.css' %}
 {% include 'components/html-head.html' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/goals.css') }}">
 
 <body>
 
     <div class="container">
-        <h1>GSM - Goals</h1>
+        <div style="display: flex; justify-content: center; align-items: center; margin-bottom: 20px;">
+            <h1 style="margin: 0;">GSM - Goals</h1>
+        </div>
 
         <!-- Include shared navigation -->
         {% include 'components/navigation.html' %}
+        
+        <!-- Add Custom Goal Button -->
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+            <button id="addCustomGoalBtn" class="control-btn" style="display: flex; align-items: center; gap: 8px;">
+                <span>➕</span>
+                <span>Add Custom Goal</span>
+            </button>
+        </div>
+
+                <!-- Goals Today Card -->
+        <div class="dashboard-card today-goals" id="todayGoalsCard" style="margin-bottom: 30px;">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">📅</span>
+                    Dailies
+                </h3>
+                <p class="dashboard-card-subtitle" id="todayGoalsDate">Loading...</p>
+            </div>
+            
+            <!-- Streak Display Section -->
+            <div id="dailiesStreakSection" class="dailies-streak-section" style="display: none;">
+                <div class="streak-display-container">
+                    <div class="streak-item">
+                        <div class="streak-value" id="currentStreakValue">0</div>
+                        <div class="streak-label">🔥 Current Streak</div>
+                    </div>
+                    <div class="streak-item">
+                        <div class="streak-value longest-streak" id="longestStreakValue">0</div>
+                        <div class="streak-label">🏆 Longest Streak</div>
+                    </div>
+                </div>
+                
+                <!-- Complete Dailies Button -->
+                <button id="completeDailiesBtn" class="complete-dailies-btn">
+                    Complete Dailies?
+                </button>
+                
+                <div id="dailiesMessage" class="dailies-message" style="display: none;"></div>
+            </div>
+            
+            <div id="noTargetsMessage" class="no-targets-message" style="display: none; text-align: center; padding: 40px 20px; color: var(--text-tertiary); font-style: italic;">
+                Set target dates in settings to see your daily goals
+            </div>
+
+            <div class="dashboard-stats-grid" id="todayGoalsStats">
+                <!-- Custom goals will be dynamically inserted here -->
+            </div>
+
+        </div>
 
         <!-- Goal Progress Chart -->
         <div class="dashboard-card goal-progress-chart" id="goalProgressChart" style="margin-bottom: 30px;">
@@ -24,71 +76,7 @@
             </div>
 
             <div class="goal-progress-grid">
-                <!-- Reading Hours Goal -->
-                <div class="goal-progress-item">
-                    <div class="goal-progress-header">
-                        <div class="goal-progress-label">
-                            <span class="goal-icon">⏱️</span>
-                            Reading Hours
-                        </div>
-                        <div class="goal-progress-values">
-                            <span class="goal-current" id="goalHoursCurrent">-</span>
-                            <span class="goal-separator">/</span>
-                            <span class="goal-target" id="goalHoursTarget">-</span>
-                        </div>
-                    </div>
-                    <div class="goal-progress-bar">
-                        <div class="goal-progress-fill" id="goalHoursProgress" data-percentage="0"></div>
-                    </div>
-                    <div class="goal-progress-info">
-                        <span class="goal-percentage" id="goalHoursPercentage">0%</span>
-                        <span class="goal-projection" id="goalHoursProjection">-</span>
-                    </div>
-                </div>
-
-                <!-- Character Count Goal -->
-                <div class="goal-progress-item">
-                    <div class="goal-progress-header">
-                        <div class="goal-progress-label">
-                            <span class="goal-icon">📖</span>
-                            Characters Read
-                        </div>
-                        <div class="goal-progress-values">
-                            <span class="goal-current" id="goalCharsCurrent">-</span>
-                            <span class="goal-separator">/</span>
-                            <span class="goal-target" id="goalCharsTarget">-</span>
-                        </div>
-                    </div>
-                    <div class="goal-progress-bar">
-                        <div class="goal-progress-fill" id="goalCharsProgress" data-percentage="0"></div>
-                    </div>
-                    <div class="goal-progress-info">
-                        <span class="goal-percentage" id="goalCharsPercentage">0%</span>
-                        <span class="goal-projection" id="goalCharsProjection">-</span>
-                    </div>
-                </div>
-
-                <!-- Games Goal -->
-                <div class="goal-progress-item">
-                    <div class="goal-progress-header">
-                        <div class="goal-progress-label">
-                            <span class="goal-icon">🎮</span>
-                            Games
-                        </div>
-                        <div class="goal-progress-values">
-                            <span class="goal-current" id="goalGamesCurrent">-</span>
-                            <span class="goal-separator">/</span>
-                            <span class="goal-target" id="goalGamesTarget">-</span>
-                        </div>
-                    </div>
-                    <div class="goal-progress-bar">
-                        <div class="goal-progress-fill" id="goalGamesProgress" data-percentage="0"></div>
-                    </div>
-                    <div class="goal-progress-info">
-                        <span class="goal-percentage" id="goalGamesPercentage">0%</span>
-                        <span class="goal-projection" id="goalGamesProjection">-</span>
-                    </div>
-                </div>
+                <!-- Custom goals will be dynamically inserted here -->
             </div>
 
             <!-- Loading/Error states -->
@@ -101,66 +89,6 @@
                 <div class="goal-progress-error-icon">⚠️</div>
                 <div class="goal-progress-error-message">Failed to load goal progress</div>
                 <button class="retry-btn" onclick="loadGoalProgress()">Retry</button>
-            </div>
-        </div>
-
-        <!-- Goals Today Card -->
-        <div class="dashboard-card today-goals" id="todayGoalsCard" style="margin-bottom: 30px;">
-            <div class="dashboard-card-header">
-                <h3 class="dashboard-card-title">
-                    <span class="dashboard-card-icon">📅</span>
-                    Goals Today
-                </h3>
-                <p class="dashboard-card-subtitle" id="todayGoalsDate">Loading...</p>
-            </div>
-            
-            <div id="noTargetsMessage" class="no-targets-message" style="display: none; text-align: center; padding: 40px 20px; color: var(--text-tertiary); font-style: italic;">
-                Set target dates in settings to see your daily goals
-            </div>
-
-            <div class="dashboard-stats-grid" id="todayGoalsStats">
-                <div class="dashboard-stat-item goal-stat-item tooltip" data-tooltip="Your progress toward today's hours goal" id="hoursGoalItem" style="display: none;">
-                    <span class="dashboard-stat-value">
-                        <span id="todayHoursProgress">-</span>
-                        <span class="goal-separator">/</span>
-                        <span id="todayHoursRequired">-</span>
-                    </span>
-                    <span class="dashboard-stat-label">Hours Required</span>
-                </div>
-                <div class="dashboard-stat-item goal-stat-item tooltip" data-tooltip="Your progress toward today's character goal" id="charsGoalItem" style="display: none;">
-                    <span class="dashboard-stat-value">
-                        <span id="todayCharsProgress">-</span>
-                        <span class="goal-separator">/</span>
-                        <span id="todayCharsRequired">-</span>
-                    </span>
-                    <span class="dashboard-stat-label">Characters Required</span>
-                </div>
-                <div class="dashboard-stat-item goal-stat-item tooltip" data-tooltip="Your progress toward today's cards mined goal" id="cardsGoalItem" style="display: none;">
-                    <span class="dashboard-stat-value">
-                        <span id="todayCardsProgress">-</span>
-                        <span class="goal-separator">/</span>
-                        <span id="todayCardsRequired">-</span>
-                    </span>
-                    <span class="dashboard-stat-label">Cards Mined</span>
-                </div>
-            </div>
-
-            <div class="dashboard-progress-section" id="todayGoalsProgress" style="display: none;">
-                <div class="dashboard-progress-title">Daily Progress</div>
-                <div class="dashboard-progress-items">
-                    <div class="dashboard-progress-item" id="hoursDaysRemaining" style="display: none;">
-                        <div class="dashboard-progress-value neutral" id="hoursRemainingValue">-</div>
-                        <div class="dashboard-progress-label">Days Until Hours Goal</div>
-                    </div>
-                    <div class="dashboard-progress-item" id="charsDaysRemaining" style="display: none;">
-                        <div class="dashboard-progress-value neutral" id="charsRemainingValue">-</div>
-                        <div class="dashboard-progress-label">Days Until Chars Goal</div>
-                    </div>
-                    <div class="dashboard-progress-item" id="gamesDaysRemaining" style="display: none;">
-                        <div class="dashboard-progress-value neutral" id="gamesRemainingValue">-</div>
-                        <div class="dashboard-progress-label">Days Until Games Goal</div>
-                    </div>
-                </div>
             </div>
         </div>
 
@@ -179,35 +107,165 @@
             </div>
 
             <div class="dashboard-stats-grid" id="projectionStats">
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total hours you'll have by your target date" id="hoursProjectionItem" style="display: none;">
-                    <span class="dashboard-stat-value" id="projectionHoursValue">-</span>
-                    <span class="dashboard-stat-label" id="hoursProjectionLabel">Total Hours by Target</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total characters you'll have by your target date" id="charsProjectionItem" style="display: none;">
-                    <span class="dashboard-stat-value" id="projectionCharsValue">-</span>
-                    <span class="dashboard-stat-label" id="charsProjectionLabel">Total Characters by Target</span>
-                </div>
-                <div class="dashboard-stat-item tooltip" data-tooltip="Total games you'll have by your target date" id="gamesProjectionItem" style="display: none;">
-                    <span class="dashboard-stat-value" id="projectionGamesValue">-</span>
-                    <span class="dashboard-stat-label">Total Games by Target</span>
-                </div>
+                <!-- Custom goals will be dynamically inserted here -->
             </div>
 
             <div class="dashboard-progress-section" id="projectionProgress" style="display: none;">
                 <div class="dashboard-progress-title">Projection Summary</div>
                 <div class="dashboard-progress-items">
-                    <div class="dashboard-progress-item" id="hoursProjectionSummary" style="display: none;">
-                        <div class="dashboard-progress-value positive" id="hoursProjectionStatus">-</div>
-                        <div class="dashboard-progress-label">Hours Status</div>
+                    <!-- Custom goal summaries will be dynamically inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom Goal Modal -->
+        <div id="customGoalModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="customGoalModalTitle">Add Custom Goal</h3>
+                    <span class="close-btn" id="closeCustomGoalModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        Create a custom goal to track your progress over a specific time period.
+                    </p>
+                    <form id="customGoalForm">
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalName" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Goal Name
+                            </label>
+                            <input type="text" id="goalName" name="goalName" required
+                                style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="e.g., Read 1M characters in January">
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalMetricType" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Metric Type
+                            </label>
+                            <select id="goalMetricType" name="goalMetricType" required
+                                style="width: 95%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <option value="">Select metric type...</option>
+                                <option value="hours">Reading Hours</option>
+                                <option value="characters">Characters Read</option>
+                                <option value="games">Games Completed</option>
+                                <option value="cards">Cards Mined</option>
+                                <option value="custom">Custom (Daily Checkbox)</option>
+                            </select>
+                        </div>
+
+                        <!-- Help text for Custom goals -->
+                        <div id="customGoalHelpText" class="custom-goal-help-text" style="display: none; margin-bottom: 20px; padding: 12px; background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(22, 163, 74, 0.05) 100%); border-left: 4px solid #22c55e; border-radius: 6px;">
+                            <div style="display: flex; align-items: start; gap: 10px;">
+                                <span style="font-size: 20px;">✅</span>
+                                <div>
+                                    <strong style="color: var(--text-primary); display: block; margin-bottom: 4px;">Daily Habit Tracker</strong>
+                                    <p style="color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;">
+                                        Custom goals are for tracking daily habits with a simple checkbox. No targets or dates needed - just mark it complete each day to build your streak!
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="goalTargetValueContainer" class="goal-form-field" style="margin-bottom: 15px;">
+                            <label for="goalTargetValue" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Target Value
+                            </label>
+                            <input type="number" id="goalTargetValue" name="goalTargetValue" min="1"
+                                style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="e.g., 1000000">
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                The target amount you want to achieve
+                            </small>
+                        </div>
+
+                        <div id="goalDatesContainer" class="goal-form-field" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div>
+                                <label for="goalStartDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                    Start Date
+                                </label>
+                                <input type="date" id="goalStartDate" name="goalStartDate"
+                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                            </div>
+                            <div>
+                                <label for="goalEndDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                    End Date
+                                </label>
+                                <input type="date" id="goalEndDate" name="goalEndDate"
+                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalIcon" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Icon (Optional)
+                            </label>
+                            <input type="text" id="goalIcon" name="goalIcon" maxlength="2"
+                                style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                placeholder="e.g., 🎯 (leave empty for default)">
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Enter an emoji to represent this goal
+                            </small>
+                        </div>
+                    </form>
+
+                    <div id="customGoalError" style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
                     </div>
-                    <div class="dashboard-progress-item" id="charsProjectionSummary" style="display: none;">
-                        <div class="dashboard-progress-value positive" id="charsProjectionStatus">-</div>
-                        <div class="dashboard-progress-label">Characters Status</div>
+                    <div id="customGoalSuccess" style="display: none; background: var(--success-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
                     </div>
-                    <div class="dashboard-progress-item" id="gamesProjectionSummary" style="display: none;">
-                        <div class="dashboard-progress-value positive" id="gamesProjectionStatus">-</div>
-                        <div class="dashboard-progress-label">Games Status</div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelCustomGoalBtn" class="cancel-btn">Cancel</button>
+                    <button id="saveCustomGoalBtn" class="confirm-delete-btn">Save Goal</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Complete Dailies Confirmation Modal -->
+        <div id="completeDailiesModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Complete Today's Dailies?</h3>
+                    <span class="close-btn" id="closeCompleteDailiesModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        Here's what you'll need to accomplish tomorrow to stay on track:
+                    </p>
+                    
+                    <!-- Loading state -->
+                    <div id="tomorrowRequirementsLoading" style="display: none; text-align: center; padding: 20px;">
+                        <div class="spinner" style="margin: 0 auto 10px;"></div>
+                        <span style="color: var(--text-secondary);">Calculating tomorrow's requirements...</span>
                     </div>
+                    
+                    <!-- Error state -->
+                    <div id="tomorrowRequirementsError" style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+                    </div>
+                    
+                    <!-- Requirements table -->
+                    <div id="tomorrowRequirementsTable" style="display: none;">
+                        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border-color);">
+                                    <th style="text-align: left; padding: 12px 8px; color: var(--text-primary); font-weight: 600;">Goal</th>
+                                    <th style="text-align: right; padding: 12px 8px; color: var(--text-primary); font-weight: 600;">Required Tomorrow</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tomorrowRequirementsBody">
+                                <!-- Requirements will be inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- No requirements message -->
+                    <div id="noRequirementsTomorrow" style="display: none; text-align: center; padding: 30px 20px; color: var(--text-secondary); font-style: italic;">
+                        🎉 No goals require action tomorrow! Enjoy your easy day.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelCompleteDailiesBtn" class="cancel-btn">Cancel</button>
+                    <button id="confirmCompleteDailiesBtn" class="confirm-delete-btn">Complete Today</button>
                 </div>
             </div>
         </div>
@@ -221,127 +279,74 @@
                 </div>
                 <div class="modal-body">
                     <p style="color: var(--text-secondary); margin-bottom: 20px;">
-                        Configure your reading goals and target dates.
+                        Use custom goals to track your reading progress over specific time periods.
                     </p>
                     <form id="settingsForm">
-                        <!-- Reading Goals Section -->
-                        <div style="margin-bottom: 20px;">
-                            <label
-                                style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                Reading Goals Configuration
-                            </label>
+                        <!-- Easy Days Section -->
+                        <div style="margin-bottom: 30px;">
+                            <h4 style="color: var(--text-primary); margin-bottom: 15px; font-size: 16px; font-weight: 600;">
+                                📅 Easy Days
+                            </h4>
                             <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
-                                Set your long-term reading targets and deadlines for tracking progress.
+                                Set reduced goal percentages for specific days. At least one day must remain at 100%.
                             </p>
-
-                            <div style="margin-bottom: 15px;">
-                                <label for="readingHoursTarget"
-                                    style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    Reading Hours Target
-                                </label>
-                                <input type="number" id="readingHoursTarget" name="reading_hours_target" min="1"
-                                    max="10000"
-                                    style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                                    placeholder="1500">
-                                <small
-                                    style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                                    Total reading hours goal (1-10,000 hours) - Default: 1500 hours
-                                </small>
-                            </div>
-
-                            <div style="margin-bottom: 15px;">
-                                <label for="readingHoursTargetDate"
-                                    style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    Reading Hours Target Date
-                                </label>
-                                <input type="date" id="readingHoursTargetDate" name="reading_hours_target_date"
-                                    style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
-                                <small
-                                    style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                                    Target date to achieve your reading hours goal
-                                </small>
-                            </div>
-
-                            <div style="margin-bottom: 15px;">
-                                <label for="characterCountTarget"
-                                    style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    Character Count Target
-                                </label>
-                                <input type="number" id="characterCountTarget" name="character_count_target" min="1000"
-                                    max="1000000000"
-                                    style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                                    placeholder="25000000">
-                                <small
-                                    style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                                    Total characters read goal (1,000-1,000,000,000) - Default: 25 million
-                                </small>
-                            </div>
-
-                            <div style="margin-bottom: 15px;">
-                                <label for="characterCountTargetDate"
-                                    style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    Character Count Target Date
-                                </label>
-                                <input type="date" id="characterCountTargetDate" name="character_count_target_date"
-                                    style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
-                                <small
-                                    style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                                    Target date to achieve your character count goal
-                                </small>
-                            </div>
-
-                            <div style="margin-bottom: 15px;">
-                                <label for="gamesTarget"
-                                    style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    Games/Visual Novels Target
-                                </label>
-                                <input type="number" id="gamesTarget" name="games_target" min="0" max="1000"
-                                    style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                                    placeholder="100">
-                                <small
-                                    style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                                    Number of games/visual novels to complete (0-1,000) - Set to 0 to hide this goal - Default: 100
-                                </small>
-                            </div>
-
-                            <div style="margin-bottom: 15px;">
-                                <label for="gamesTargetDate"
-                                    style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    Games/Visual Novels Target Date
-                                </label>
-                                <input type="date" id="gamesTargetDate" name="games_target_date"
-                                    style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                                    data-date-format="yyyy-mm-dd">
-                                <small
-                                    style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                                    Target date to achieve your games goal (Format: YYYY-MM-DD)
-                                </small>
-                            </div>
-                        </div>
-
-                        <!-- Daily Goals Section -->
-                        <div style="margin-bottom: 20px;">
-                            <label
-                                style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                Daily Goals Configuration
-                            </label>
-                            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
-                                Set your daily targets for tracking progress.
-                            </p>
-
-                            <div style="margin-bottom: 15px;">
-                                <label for="cardsMinedDailyTarget"
-                                    style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    Cards Mined Daily Target
-                                </label>
-                                <input type="number" id="cardsMinedDailyTarget" name="cards_mined_daily_target" min="0"
-                                    max="1000"
-                                    style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                                    placeholder="10">
-                                <small
-                                    style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                                    Number of cards to mine per day (0-1,000) - Default: 10 cards
-                                </small>
+                            
+                            <div id="easyDaysContainer" style="display: flex; flex-direction: column; gap: 15px;">
+                                <!-- Monday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Monday</label>
+                                    <input type="range" id="easyDayMonday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayMondayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Tuesday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Tuesday</label>
+                                    <input type="range" id="easyDayTuesday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayTuesdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Wednesday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Wednesday</label>
+                                    <input type="range" id="easyDayWednesday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayWednesdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Thursday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Thursday</label>
+                                    <input type="range" id="easyDayThursday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayThursdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Friday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Friday</label>
+                                    <input type="range" id="easyDayFriday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDayFridayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Saturday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Saturday</label>
+                                    <input type="range" id="easyDaySaturday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDaySaturdayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
+                                
+                                <!-- Sunday -->
+                                <div class="easy-day-row" style="display: flex; align-items: center; gap: 15px;">
+                                    <label style="min-width: 100px; font-weight: 500; color: var(--text-primary);">Sunday</label>
+                                    <input type="range" id="easyDaySunday" min="0" max="100" step="25" value="100"
+                                           style="flex: 1;" class="easy-day-slider">
+                                    <span id="easyDaySundayValue" style="min-width: 50px; text-align: right; font-weight: 600; color: var(--text-primary);">100%</span>
+                                </div>
                             </div>
                         </div>
                     </form>
@@ -361,26 +366,8 @@
         </div>
     </div>
 
-    {% set hours_target = stats_config.reading_hours_target | default(1500) %}
-    {% set chars_target = stats_config.character_count_target | default(25000000) %}
-    {% set games_target = stats_config.games_target | default(100) %}
-    {% set hours_target_date = stats_config.reading_hours_target_date | default('') %}
-    {% set chars_target_date = stats_config.character_count_target_date | default('') %}
-    {% set games_target_date = stats_config.games_target_date | default('') %}
-    {% set cards_daily_target = stats_config.cards_mined_daily_target | default(10) %}
-
-    {% set stats_config_vars = {
-        'readingHoursTarget': hours_target,
-        'characterCountTarget': chars_target,
-        'gamesTarget': games_target,
-        'readingHoursTargetDate': hours_target_date,
-        'characterCountTargetDate': chars_target_date,
-        'gamesTargetDate': games_target_date,
-        'cardsMinedDailyTarget': cards_daily_target
-    } %}
-
     <!-- Include shared JavaScript configuration -->
-    {% set config_vars = stats_config_vars %}
+    {% set config_vars = {} %}
     {% set config_object_name = 'statsConfig' %}
     {% set page_specific_js = 'goals.js' %}
     {% include 'components/js-config.html' %}
