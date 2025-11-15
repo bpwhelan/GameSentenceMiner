@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.20.5"
+version = "2.20.6"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -66,6 +66,8 @@ dependencies = [
   "desktop-notifier>=6.1.0",
   "mss>=10.1.0",
   "pyobjc>=10.3.1 ; sys_platform == 'darwin'",
+"pybsd",
+"langid",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
