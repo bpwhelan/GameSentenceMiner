@@ -163,7 +163,7 @@ const CustomGoalCheckboxManager = {
         }
         
         // Count consecutive days backwards
-        for (let i = (sortedDates[0] === today ? 1 : 1); i < sortedDates.length; i++) {
+        for (let i = 1; i < sortedDates.length; i++) {
             const expectedDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
             
             if (sortedDates[i] === expectedDate) {
@@ -225,7 +225,7 @@ const CustomGoalsManager = {
     
     // Generate unique ID for goals
     generateId() {
-        return 'goal_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        return 'goal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11);
     },
     
     // Get all custom goals from localStorage
