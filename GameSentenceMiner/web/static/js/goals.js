@@ -1400,14 +1400,127 @@ document.addEventListener('DOMContentLoaded', function () {
         fireConfetti();
     }
     
-    // Function to handle Complete Dailies button click
+    // Function to show the complete dailies confirmation modal
+    async function showCompleteDailiesModal() {
+        const modal = document.getElementById('completeDailiesModal');
+        const loadingDiv = document.getElementById('tomorrowRequirementsLoading');
+        const errorDiv = document.getElementById('tomorrowRequirementsError');
+        const tableDiv = document.getElementById('tomorrowRequirementsTable');
+        const noRequirementsDiv = document.getElementById('noRequirementsTomorrow');
+        const tbody = document.getElementById('tomorrowRequirementsBody');
+        
+        // Show modal
+        modal.style.display = 'flex';
+        modal.classList.add('show');
+        
+        // Show loading state
+        loadingDiv.style.display = 'block';
+        errorDiv.style.display = 'none';
+        tableDiv.style.display = 'none';
+        noRequirementsDiv.style.display = 'none';
+        tbody.innerHTML = '';
+        
+        try {
+            // Get current goals from localStorage
+            let currentGoals = CustomGoalsManager.getAll();
+            
+            // If localStorage is empty, try fetching from database
+            if (!currentGoals || currentGoals.length === 0) {
+                try {
+                    const goalsResponse = await fetch('/api/goals/latest_goals');
+                    if (goalsResponse.ok) {
+                        const goalsData = await goalsResponse.json();
+                        currentGoals = goalsData.current_goals || [];
+                    }
+                } catch (error) {
+                    console.warn('Could not fetch goals from database, using empty array:', error);
+                    currentGoals = [];
+                }
+            }
+            
+            // Get easy days settings
+            const easyDaysSettings = EasyDaysManager.getSettings();
+            
+            // Prepare goals_settings object
+            const goalsSettings = {
+                easyDays: easyDaysSettings
+            };
+            
+            // Fetch tomorrow's requirements
+            const response = await fetch('/api/goals/tomorrow-requirements', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    current_goals: currentGoals,
+                    goals_settings: goalsSettings
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to fetch tomorrow\'s requirements');
+            }
+            
+            const data = await response.json();
+            const requirements = data.requirements || [];
+            
+            // Hide loading
+            loadingDiv.style.display = 'none';
+            
+            if (requirements.length === 0) {
+                // Show no requirements message
+                noRequirementsDiv.style.display = 'block';
+            } else {
+                // Populate table
+                requirements.forEach(req => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>
+                            <div class="goal-name-cell">
+                                <span class="goal-icon">${req.goal_icon}</span>
+                                <span>${req.goal_name}</span>
+                            </div>
+                        </td>
+                        <td style="text-align: right;">
+                            <span class="requirement-value">${req.formatted_required}</span>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+                
+                tableDiv.style.display = 'block';
+            }
+            
+        } catch (error) {
+            console.error('Error fetching tomorrow\'s requirements:', error);
+            loadingDiv.style.display = 'none';
+            errorDiv.textContent = error.message || 'Failed to load tomorrow\'s requirements';
+            errorDiv.style.display = 'block';
+        }
+    }
+    
+    // Function to close the complete dailies modal
+    function closeCompleteDailiesModal() {
+        const modal = document.getElementById('completeDailiesModal');
+        modal.style.display = 'none';
+        modal.classList.remove('show');
+    }
+    
+    // Function to handle Complete Dailies button click (now shows modal)
     async function handleCompleteDailies() {
+        showCompleteDailiesModal();
+    }
+    
+    // Function to actually complete dailies (called from modal confirmation)
+    async function confirmCompleteDailies() {
         const completeDailiesBtn = document.getElementById('completeDailiesBtn');
         const dailiesMessage = document.getElementById('dailiesMessage');
+        const confirmBtn = document.getElementById('confirmCompleteDailiesBtn');
         
-        // Disable button during processing
-        completeDailiesBtn.disabled = true;
-        completeDailiesBtn.textContent = 'Processing...';
+        // Disable confirm button during processing
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Processing...';
         
         try {
             // Get current goals from localStorage
@@ -1453,7 +1566,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 throw new Error(data.error || 'Failed to complete dailies');
             }
             
-            // Success!
+            // Success! Close modal
+            closeCompleteDailiesModal();
+            
             const newStreak = data.streak;
             
             // Update streak display
@@ -1467,6 +1582,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             
             // Update button
+            completeDailiesBtn.disabled = true;
             completeDailiesBtn.textContent = 'Completed Today ✓';
             
             // Show success message
@@ -1480,14 +1596,17 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (error) {
             console.error('Error completing dailies:', error);
             
+            // Close modal
+            closeCompleteDailiesModal();
+            
             // Show error message
             dailiesMessage.textContent = error.message || 'Failed to complete dailies. Please try again.';
             dailiesMessage.className = 'dailies-message error';
             dailiesMessage.style.display = 'block';
             
-            // Re-enable button on error
-            completeDailiesBtn.disabled = false;
-            completeDailiesBtn.textContent = 'Complete Dailies?';
+            // Re-enable confirm button
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = 'Complete Today';
         }
     }
     
@@ -1495,6 +1614,32 @@ document.addEventListener('DOMContentLoaded', function () {
     const completeDailiesBtn = document.getElementById('completeDailiesBtn');
     if (completeDailiesBtn) {
         completeDailiesBtn.addEventListener('click', handleCompleteDailies);
+    }
+    
+    // Complete Dailies Modal event listeners
+    const closeCompleteDailiesModalBtn = document.getElementById('closeCompleteDailiesModal');
+    if (closeCompleteDailiesModalBtn) {
+        closeCompleteDailiesModalBtn.addEventListener('click', closeCompleteDailiesModal);
+    }
+    
+    const cancelCompleteDailiesBtn = document.getElementById('cancelCompleteDailiesBtn');
+    if (cancelCompleteDailiesBtn) {
+        cancelCompleteDailiesBtn.addEventListener('click', closeCompleteDailiesModal);
+    }
+    
+    const confirmCompleteDailiesBtn = document.getElementById('confirmCompleteDailiesBtn');
+    if (confirmCompleteDailiesBtn) {
+        confirmCompleteDailiesBtn.addEventListener('click', confirmCompleteDailies);
+    }
+    
+    // Close modal when clicking outside
+    const completeDailiesModal = document.getElementById('completeDailiesModal');
+    if (completeDailiesModal) {
+        completeDailiesModal.addEventListener('click', function(e) {
+            if (e.target === completeDailiesModal) {
+                closeCompleteDailiesModal();
+            }
+        });
     }
     
     // Load initial data

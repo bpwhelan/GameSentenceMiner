@@ -221,6 +221,55 @@
             </div>
         </div>
 
+        <!-- Complete Dailies Confirmation Modal -->
+        <div id="completeDailiesModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Complete Today's Dailies?</h3>
+                    <span class="close-btn" id="closeCompleteDailiesModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        Here's what you'll need to accomplish tomorrow to stay on track:
+                    </p>
+                    
+                    <!-- Loading state -->
+                    <div id="tomorrowRequirementsLoading" style="display: none; text-align: center; padding: 20px;">
+                        <div class="spinner" style="margin: 0 auto 10px;"></div>
+                        <span style="color: var(--text-secondary);">Calculating tomorrow's requirements...</span>
+                    </div>
+                    
+                    <!-- Error state -->
+                    <div id="tomorrowRequirementsError" style="display: none; background: var(--danger-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+                    </div>
+                    
+                    <!-- Requirements table -->
+                    <div id="tomorrowRequirementsTable" style="display: none;">
+                        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border-color);">
+                                    <th style="text-align: left; padding: 12px 8px; color: var(--text-primary); font-weight: 600;">Goal</th>
+                                    <th style="text-align: right; padding: 12px 8px; color: var(--text-primary); font-weight: 600;">Required Tomorrow</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tomorrowRequirementsBody">
+                                <!-- Requirements will be inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- No requirements message -->
+                    <div id="noRequirementsTomorrow" style="display: none; text-align: center; padding: 30px 20px; color: var(--text-secondary); font-style: italic;">
+                        🎉 No goals require action tomorrow! Enjoy your easy day.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelCompleteDailiesBtn" class="cancel-btn">Cancel</button>
+                    <button id="confirmCompleteDailiesBtn" class="confirm-delete-btn">Complete Today</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Settings Modal -->
         <div id="settingsModal" class="modal">
             <div class="modal-content">

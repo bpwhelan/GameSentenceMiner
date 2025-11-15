@@ -676,3 +676,187 @@ def register_goals_api_routes(app):
         except Exception as e:
             logger.error(f"Error getting latest goals: {e}", exc_info=True)
             return jsonify({"error": "Failed to get latest goals"}), 500
+    
+    @app.route("/api/goals/tomorrow-requirements", methods=["POST"])
+    def api_tomorrow_requirements():
+        """
+        Calculate tomorrow's requirements for all active goals.
+        Filters out custom goals and goals with 0 requirement tomorrow.
+        
+        Request body:
+        {
+            "current_goals": [...],  # Array of goal objects from localStorage
+            "goals_settings": {...}  # Settings object including easyDays
+        }
+        
+        Returns:
+        {
+            "requirements": [
+                {
+                    "goal_name": "Read for 6 hours in October",
+                    "goal_icon": "⏱️",
+                    "metric_type": "hours",
+                    "required_tomorrow": 1.5,
+                    "formatted_required": "1h 30m"
+                }
+            ]
+        }
+        """
+        try:
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+            
+            current_goals = data.get("current_goals", [])
+            goals_settings = data.get("goals_settings", {})
+            
+            # Get tomorrow's date
+            today = datetime.date.today()
+            tomorrow = today + datetime.timedelta(days=1)
+            tomorrow_str = tomorrow.strftime("%Y-%m-%d")
+            
+            # Get easy day percentage for tomorrow
+            day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+            tomorrow_day_index = tomorrow.weekday()  # 0=Monday, 6=Sunday
+            tomorrow_day_name = day_names[tomorrow_day_index]
+            
+            # Get easy days settings, default to 100% if not provided
+            easy_days = goals_settings.get('easyDays', {}) if goals_settings else {}
+            tomorrow_easy_percentage = easy_days.get(tomorrow_day_name, 100)
+            tomorrow_multiplier = tomorrow_easy_percentage / 100.0
+            
+            requirements = []
+            
+            # Process each goal
+            for goal in current_goals:
+                # Skip custom goals (they don't have numeric requirements)
+                if goal.get('metricType') == 'custom':
+                    continue
+                
+                metric_type = goal.get('metricType')
+                target_value = goal.get('targetValue')
+                start_date_str = goal.get('startDate')
+                end_date_str = goal.get('endDate')
+                goal_name = goal.get('name', 'Unknown Goal')
+                goal_icon = goal.get('icon', '🎯')
+                
+                # Validate required fields
+                if not all([metric_type, target_value, start_date_str, end_date_str]):
+                    continue
+                
+                # Parse dates
+                try:
+                    start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+                    end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
+                except ValueError:
+                    continue
+                
+                # Check if goal is active tomorrow
+                if tomorrow < start_date or tomorrow > end_date:
+                    continue
+                
+                # Calculate total progress up to today
+                yesterday = today - datetime.timedelta(days=1)
+                
+                rollup_stats = None
+                if start_date <= yesterday:
+                    rollups = StatsRollupTable.get_date_range(
+                        start_date.strftime("%Y-%m-%d"),
+                        yesterday.strftime("%Y-%m-%d")
+                    )
+                    if rollups:
+                        rollup_stats = aggregate_rollup_data(rollups)
+                
+                # Get today's live data
+                today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
+                today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
+                today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
+                    start=today_start, end=today_end, for_stats=True
+                )
+                
+                live_stats = None
+                if today_lines:
+                    live_stats = calculate_live_stats_for_today(today_lines)
+                
+                # Combine stats for total progress
+                combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
+                
+                # Extract total progress
+                total_progress = 0
+                if metric_type == "hours":
+                    total_progress = combined_stats.get("total_reading_time_seconds", 0) / 3600
+                elif metric_type == "characters":
+                    total_progress = combined_stats.get("total_characters", 0)
+                elif metric_type == "games":
+                    total_progress = combined_stats.get("unique_games_played", 0)
+                elif metric_type == "cards":
+                    # Calculate total cards from rollup stats + today
+                    total_progress = 0
+                    if rollup_stats:
+                        rollups = StatsRollupTable.get_date_range(
+                            start_date.strftime("%Y-%m-%d"),
+                            yesterday.strftime("%Y-%m-%d")
+                        )
+                        for rollup in rollups:
+                            total_progress += rollup.anki_cards_created or 0
+                    
+                    if today_lines:
+                        for line in today_lines:
+                            if (line.audio_in_anki and line.audio_in_anki.strip()) or \
+                               (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
+                                total_progress += 1
+                
+                # Calculate days remaining from tomorrow to end date (inclusive)
+                days_remaining = (end_date - tomorrow).days + 1
+                
+                if days_remaining <= 0:
+                    continue
+                
+                # Calculate daily requirement for tomorrow
+                remaining_work = max(0, target_value - total_progress)
+                daily_required = remaining_work / days_remaining
+                
+                # Apply easy day multiplier for tomorrow
+                daily_required_adjusted = daily_required * tomorrow_multiplier
+                
+                # Skip if no requirement tomorrow
+                if daily_required_adjusted <= 0:
+                    continue
+                
+                # Format the requirement based on metric type
+                if metric_type == "hours":
+                    hours = int(daily_required_adjusted)
+                    minutes = int((daily_required_adjusted - hours) * 60)
+                    if hours > 0:
+                        formatted = f"{hours}h" + (f" {minutes}m" if minutes > 0 else "")
+                    else:
+                        formatted = f"{minutes}m"
+                    required_value = round(daily_required_adjusted, 2)
+                elif metric_type == "characters":
+                    required_value = int(daily_required_adjusted)
+                    if required_value >= 1000000:
+                        formatted = f"{required_value / 1000000:.1f}M"
+                    elif required_value >= 1000:
+                        formatted = f"{required_value / 1000:.1f}K"
+                    else:
+                        formatted = str(required_value)
+                else:
+                    required_value = int(daily_required_adjusted)
+                    formatted = str(required_value)
+                
+                requirements.append({
+                    "goal_name": goal_name,
+                    "goal_icon": goal_icon,
+                    "metric_type": metric_type,
+                    "required_tomorrow": required_value,
+                    "formatted_required": formatted
+                })
+            
+            return jsonify({
+                "requirements": requirements
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error calculating tomorrow's requirements: {e}", exc_info=True)
+            return jsonify({"error": "Failed to calculate tomorrow's requirements"}), 500
