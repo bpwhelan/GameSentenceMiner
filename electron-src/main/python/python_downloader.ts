@@ -363,14 +363,54 @@ async function createVenvWithHomebrewPython(): Promise<void> {
 }
 
 /**
+ * Verifies the venv Python executable works.
+ */
+async function verifyVenvPython(): Promise<boolean> {
+    const venvPython = getPythonExecutablePath();
+    
+    if (!fs.existsSync(venvPython)) {
+        console.error(`Venv Python not found at: ${venvPython}`);
+        return false;
+    }
+    
+    try {
+        // Test that Python runs
+        await execFileAsync(venvPython, ['--version']);
+        console.log(`Venv Python verified at: ${venvPython}`);
+        return true;
+    } catch (error: any) {
+        console.error(`Venv Python exists but doesn't work: ${error.message || error}`);
+        return false;
+    }
+}
+
+/**
  * Uninstalls Python 3.11 globally from Homebrew after venv setup.
+ * Only uninstalls if the venv Python is verified to work independently.
  */
 async function uninstallHomebrewPythonGlobally(): Promise<void> {
-    console.log('Uninstalling global Python 3.11 from Homebrew...');
+    console.log('Verifying venv before uninstalling global Python...');
+    
+    // First verify the venv works
+    const venvWorks = await verifyVenvPython();
+    if (!venvWorks) {
+        console.warn('Venv Python is not working, skipping global Python uninstall to avoid breaking the venv');
+        return;
+    }
+    
+    console.log('Venv verified, uninstalling global Python 3.11 from Homebrew...');
     
     try {
         await execFileAsync('brew', ['uninstall', 'python@3.11']);
         console.log('Python 3.11 uninstalled globally from Homebrew');
+        
+        // Verify venv still works after uninstall
+        const stillWorks = await verifyVenvPython();
+        if (!stillWorks) {
+            console.error('WARNING: Venv stopped working after uninstalling global Python!');
+            console.error('Attempting to reinstall Python...');
+            await execFileAsync('brew', ['install', 'python@3.11']);
+        }
     } catch (error: any) {
         // Don't throw on uninstall errors, just log them
         console.warn(`Failed to uninstall Python globally (this is non-critical): ${error.message || error}`);
@@ -390,7 +430,15 @@ async function _performHomebrewInstallation(): Promise<void> {
     // Create virtual environment
     await createVenvWithHomebrewPython();
 
-    // Uninstall Python globally
+    // Verify venv works before attempting to uninstall global Python
+    console.log('Verifying virtual environment installation...');
+    const venvPath = getPythonExecutablePath();
+    if (!fs.existsSync(venvPath)) {
+        throw new Error(`Virtual environment Python not found at expected path: ${venvPath}`);
+    }
+    console.log(`Virtual environment Python found at: ${venvPath}`);
+
+    // Uninstall Python globally (optional, will be skipped if it would break the venv)
     await uninstallHomebrewPythonGlobally();
 }
 
