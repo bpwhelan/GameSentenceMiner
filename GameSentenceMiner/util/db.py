@@ -622,19 +622,18 @@ class GoalsTable(SQLiteDBTable):
     One entry per day when user completes their dailies.
     """
     _table = 'goals'
-    _fields = ['date', 'streak', 'longest_streak', 'current_goals', 'goals_settings', 'last_updated']
+    _fields = ['date', 'streak', 'current_goals', 'goals_settings', 'last_updated']
     _types = [int,  # Includes primary key type
-              str, int, int, str, str, float]
+              str, int, str, str, float]
     _pk = 'id'
     _auto_increment = True
 
     def __init__(self, id: Optional[int] = None, date: Optional[str] = None,
-                 streak: int = 0, longest_streak: int = 0, current_goals: Optional[str] = None,
+                 streak: int = 0, current_goals: Optional[str] = None,
                  goals_settings: Optional[str] = None, last_updated: Optional[float] = None):
         self.id = id
         self.date = date if date is not None else ''
         self.streak = streak
-        self.longest_streak = longest_streak
         self.current_goals = current_goals if current_goals is not None else '[]'
         self.goals_settings = goals_settings if goals_settings is not None else '{}'
         self.last_updated = last_updated
@@ -654,11 +653,10 @@ class GoalsTable(SQLiteDBTable):
         return cls.from_row(row) if row else None
 
     @classmethod
-    def create_entry(cls, date_str: str, streak: int, longest_streak: int, current_goals_json: str,
+    def create_entry(cls, date_str: str, streak: int, current_goals_json: str,
                      goals_settings_json: Optional[str] = None, last_updated: Optional[float] = None) -> 'GoalsTable':
         """Create a new goals entry for a specific date."""
-        new_entry = cls(date=date_str, streak=streak, longest_streak=longest_streak,
-                       current_goals=current_goals_json,
+        new_entry = cls(date=date_str, streak=streak, current_goals=current_goals_json,
                        goals_settings=goals_settings_json if goals_settings_json else '{}',
                        last_updated=last_updated if last_updated is not None else time.time())
         new_entry.save()
@@ -671,7 +669,7 @@ class GoalsTable(SQLiteDBTable):
         Returns tuple of (current_streak, longest_streak).
         
         Current streak: consecutive days ending today or yesterday
-        Longest streak: maximum consecutive days from all historical data
+        Longest streak: maximum consecutive days from all historical data (stored in goals_settings JSON)
         """
         latest = cls.get_latest()
         
@@ -698,8 +696,17 @@ class GoalsTable(SQLiteDBTable):
             logger.error(f"Error calculating current streak: {e}")
             current_streak = 1
         
-        # Calculate longest streak from all entries
-        longest_streak = max(current_streak, latest.longest_streak if latest.longest_streak else 0)
+        # Get longest streak from goals_settings JSON
+        previous_longest = 0
+        try:
+            if latest.goals_settings:
+                settings = json.loads(latest.goals_settings) if isinstance(latest.goals_settings, str) else latest.goals_settings
+                previous_longest = settings.get('longestStreak', 0)
+        except (json.JSONDecodeError, AttributeError):
+            previous_longest = 0
+        
+        # Calculate new longest streak
+        longest_streak = max(current_streak, previous_longest)
         
         return (current_streak, longest_streak)
 

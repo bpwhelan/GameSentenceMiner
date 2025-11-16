@@ -689,6 +689,9 @@ def register_goals_api_routes(app):
             # Calculate streak for today (returns tuple of current_streak, longest_streak)
             current_streak, longest_streak = GoalsTable.calculate_streak(today_str)
             
+            # Add longest_streak to goals_settings
+            goals_settings['longestStreak'] = longest_streak
+            
             # Convert current_goals and goals_settings to JSON strings
             current_goals_json = json.dumps(current_goals)
             goals_settings_json = json.dumps(goals_settings)
@@ -697,7 +700,6 @@ def register_goals_api_routes(app):
             new_entry = GoalsTable.create_entry(
                 date_str=today_str,
                 streak=current_streak,
-                longest_streak=longest_streak,
                 current_goals_json=current_goals_json,
                 goals_settings_json=goals_settings_json,
                 last_updated=time.time()
@@ -754,8 +756,14 @@ def register_goals_api_routes(app):
             except (ValueError, AttributeError):
                 current_streak = 0
             
-            # Get longest streak (always preserved even if current streak is broken)
-            longest_streak = latest_entry.longest_streak if hasattr(latest_entry, 'longest_streak') and latest_entry.longest_streak else 0
+            # Get longest streak from goals_settings JSON (always preserved even if current streak is broken)
+            longest_streak = 0
+            try:
+                if latest_entry.goals_settings:
+                    settings = json.loads(latest_entry.goals_settings) if isinstance(latest_entry.goals_settings, str) else latest_entry.goals_settings
+                    longest_streak = settings.get('longestStreak', 0)
+            except (json.JSONDecodeError, AttributeError):
+                longest_streak = 0
             
             return jsonify({
                 "streak": current_streak,
