@@ -823,8 +823,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     <span>${formattedProgress}</span>
                     <span class="goal-separator">/</span>
                     <span>${formattedRequired}</span>
+                    <span style="margin-left: 4px;">${metricLabel}</span>
                 </span>
-                <span class="dashboard-stat-label">${goal.name} - ${metricLabel} Required</span>
+                <span class="dashboard-stat-label">${goal.name}</span>
             </div>
         `;
     }
