@@ -1,3 +1,4 @@
+print("Top of gsm.py")
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
 def handle_error_in_initialization(e):

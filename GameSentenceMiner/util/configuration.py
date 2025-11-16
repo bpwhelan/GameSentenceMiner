@@ -1,3 +1,4 @@
+print("Top of configuration.py")
 import dataclasses
 import json
 import logging
