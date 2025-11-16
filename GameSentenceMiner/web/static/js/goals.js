@@ -2,6 +2,77 @@
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
 // ================================
+// Shared Utility Functions
+// ================================
+const GoalsUtils = {
+    // Format date as YYYY-MM-DD
+    formatDateString(date) {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    },
+    
+    // Get today's date string
+    getTodayDateString() {
+        return this.formatDateString(new Date());
+    },
+    
+    // Metric labels mapping
+    getMetricLabels() {
+        return {
+            'hours': 'Hours',
+            'characters': 'Characters',
+            'games': 'Games',
+            'cards': 'Cards Mined'
+        };
+    },
+    
+    // Capitalize first letter of a string
+    capitalize(str) {
+        return str.charAt(0).toUpperCase() + str.slice(1);
+    },
+    
+    // Get goals from localStorage or database
+    async getGoalsWithFallback() {
+        let currentGoals = CustomGoalsManager.getAll();
+        
+        if (!currentGoals || currentGoals.length === 0) {
+            try {
+                const goalsResponse = await fetch('/api/goals/latest_goals');
+                if (goalsResponse.ok) {
+                    const goalsData = await goalsResponse.json();
+                    currentGoals = goalsData.current_goals || [];
+                }
+            } catch (error) {
+                console.warn('Could not fetch goals from database, using empty array:', error);
+                currentGoals = [];
+            }
+        }
+        
+        return currentGoals;
+    },
+    
+    // Prepare goals settings object with easy days
+    prepareGoalsSettings() {
+        return {
+            easyDays: EasyDaysManager.getSettings()
+        };
+    },
+    
+    // Render action buttons for goal cards
+    renderActionButtons(goalId) {
+        return `
+            <div class="custom-goal-actions" style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
+                <button onclick="editCustomGoal('${goalId}')" class="goal-action-btn edit-btn" title="Edit goal">
+                    ✏️ Edit
+                </button>
+                <button onclick="deleteCustomGoal('${goalId}')" class="goal-action-btn delete-btn" title="Delete goal">
+                    🗑️ Delete
+                </button>
+            </div>
+        `;
+    }
+};
+
+// ================================
 // Easy Days Manager Module
 // ================================
 const EasyDaysManager = {
@@ -68,8 +139,7 @@ const CustomGoalCheckboxManager = {
     
     // Get today's date string in YYYY-MM-DD format
     getTodayDateString() {
-        const today = new Date();
-        return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        return GoalsUtils.getTodayDateString();
     },
     
     // Get all checkbox states from localStorage
@@ -153,7 +223,7 @@ const CustomGoalCheckboxManager = {
         } else {
             // If today is not completed, check if yesterday was
             currentDate.setDate(currentDate.getDate() - 1);
-            const yesterday = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+            const yesterday = GoalsUtils.formatDateString(currentDate);
             
             if (sortedDates[0] !== yesterday) {
                 return 0; // Streak is broken
@@ -164,7 +234,7 @@ const CustomGoalCheckboxManager = {
         
         // Count consecutive days backwards
         for (let i = 1; i < sortedDates.length; i++) {
-            const expectedDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+            const expectedDate = GoalsUtils.formatDateString(currentDate);
             
             if (sortedDates[i] === expectedDate) {
                 streak++;
@@ -464,14 +534,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             ${goal.name}
                         </div>
                     </div>
-                    <div class="custom-goal-actions" style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
-                        <button onclick="editCustomGoal('${goal.id}')" class="goal-action-btn edit-btn" title="Edit goal">
-                            ✏️ Edit
-                        </button>
-                        <button onclick="deleteCustomGoal('${goal.id}')" class="goal-action-btn delete-btn" title="Delete goal">
-                            🗑️ Delete
-                        </button>
-                    </div>
+                    ${GoalsUtils.renderActionButtons(goal.id)}
                 </div>
             `;
         }
@@ -519,14 +582,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <span class="goal-percentage">${Math.floor(percentage)}%</span>
                     <span class="goal-projection">${formatProjection(currentProgress, goal.targetValue, dailyAverage)}</span>
                 </div>
-                <div class="custom-goal-actions" style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
-                    <button onclick="editCustomGoal('${goal.id}')" class="goal-action-btn edit-btn" title="Edit goal">
-                        ✏️ Edit
-                    </button>
-                    <button onclick="deleteCustomGoal('${goal.id}')" class="goal-action-btn delete-btn" title="Delete goal">
-                        🗑️ Delete
-                    </button>
-                </div>
+                ${GoalsUtils.renderActionButtons(goal.id)}
             </div>
         `;
     }
@@ -629,7 +685,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const ts = parseFloat(line.timestamp);
                 if (isNaN(ts)) continue;
                 const dateObj = new Date(ts * 1000);
-                const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                const dateStr = GoalsUtils.formatDateString(dateObj);
                 if (!dailyTimestamps[dateStr]) {
                     dailyTimestamps[dateStr] = [];
                 }
@@ -655,7 +711,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const ts = parseFloat(line.timestamp);
                 if (isNaN(ts)) continue;
                 const dateObj = new Date(ts * 1000);
-                const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                const dateStr = GoalsUtils.formatDateString(dateObj);
                 dailyTotals[dateStr] = (dailyTotals[dateStr] || 0) + (line.characters || 0);
             }
         } else if (metricType === 'games') {
@@ -664,7 +720,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const ts = parseFloat(line.timestamp);
                 if (isNaN(ts)) continue;
                 const dateObj = new Date(ts * 1000);
-                const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                const dateStr = GoalsUtils.formatDateString(dateObj);
                 if (!dailyGames[dateStr]) {
                     dailyGames[dateStr] = new Set();
                 }
@@ -742,13 +798,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         
         // Regular goal rendering
-        const metricLabels = {
-            'hours': 'Hours',
-            'characters': 'Characters',
-            'games': 'Games',
-            'cards': 'Cards Mined'
-        };
-        
+        const metricLabels = GoalsUtils.getMetricLabels();
         const metricLabel = metricLabels[goal.metricType] || 'Progress';
         
         // Format values based on metric type
@@ -823,8 +873,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const response = await fetch('/api/goals-today');
             if (!response.ok) throw new Error('Failed to fetch today goals');
             
-            const today = new Date();
-            const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            const dateStr = GoalsUtils.getTodayDateString();
             document.getElementById('todayGoalsDate').textContent = dateStr;
             
             let hasAnyTarget = false;
@@ -848,11 +897,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         todayGoalsStats.insertAdjacentHTML('beforeend', itemHTML);
                     } else {
                         try {
-                            // Get easy days settings to pass to API
-                            const easyDaysSettings = EasyDaysManager.getSettings();
-                            const goalsSettings = {
-                                easyDays: easyDaysSettings
-                            };
+                            const goalsSettings = GoalsUtils.prepareGoalsSettings();
                             
                             const response = await fetch('/api/goals/today-progress', {
                                 method: 'POST',
@@ -905,13 +950,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Helper function to render a custom goal projection item
     function renderCustomGoalProjectionItem(goal, projectionData) {
-        const metricLabels = {
-            'hours': 'Hours',
-            'characters': 'Characters',
-            'games': 'Games',
-            'cards': 'Cards Mined'
-        };
-        
+        const metricLabels = GoalsUtils.getMetricLabels();
         const metricLabel = metricLabels[goal.metricType] || 'Progress';
         
         // Format projected value based on metric type
@@ -1421,30 +1460,8 @@ document.addEventListener('DOMContentLoaded', function () {
         tbody.innerHTML = '';
         
         try {
-            // Get current goals from localStorage
-            let currentGoals = CustomGoalsManager.getAll();
-            
-            // If localStorage is empty, try fetching from database
-            if (!currentGoals || currentGoals.length === 0) {
-                try {
-                    const goalsResponse = await fetch('/api/goals/latest_goals');
-                    if (goalsResponse.ok) {
-                        const goalsData = await goalsResponse.json();
-                        currentGoals = goalsData.current_goals || [];
-                    }
-                } catch (error) {
-                    console.warn('Could not fetch goals from database, using empty array:', error);
-                    currentGoals = [];
-                }
-            }
-            
-            // Get easy days settings
-            const easyDaysSettings = EasyDaysManager.getSettings();
-            
-            // Prepare goals_settings object
-            const goalsSettings = {
-                easyDays: easyDaysSettings
-            };
+            const currentGoals = await GoalsUtils.getGoalsWithFallback();
+            const goalsSettings = GoalsUtils.prepareGoalsSettings();
             
             // Fetch tomorrow's requirements
             const response = await fetch('/api/goals/tomorrow-requirements', {
@@ -1523,30 +1540,8 @@ document.addEventListener('DOMContentLoaded', function () {
         confirmBtn.textContent = 'Processing...';
         
         try {
-            // Get current goals from localStorage
-            let currentGoals = CustomGoalsManager.getAll();
-            
-            // If localStorage is empty, try fetching from database
-            if (!currentGoals || currentGoals.length === 0) {
-                try {
-                    const goalsResponse = await fetch('/api/goals/latest_goals');
-                    if (goalsResponse.ok) {
-                        const goalsData = await goalsResponse.json();
-                        currentGoals = goalsData.current_goals || [];
-                    }
-                } catch (error) {
-                    console.warn('Could not fetch goals from database, using empty array:', error);
-                    currentGoals = [];
-                }
-            }
-            
-            // Get easy days settings
-            const easyDaysSettings = EasyDaysManager.getSettings();
-            
-            // Prepare goals_settings object
-            const goalsSettings = {
-                easyDays: easyDaysSettings
-            };
+            const currentGoals = await GoalsUtils.getGoalsWithFallback();
+            const goalsSettings = GoalsUtils.prepareGoalsSettings();
             
             // Call the API
             const response = await fetch('/api/goals/complete_todays_dailies', {
