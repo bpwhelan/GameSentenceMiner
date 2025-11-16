@@ -686,7 +686,7 @@ def register_goals_api_routes(app):
                 return jsonify({
                     "progress": 0,
                     "daily_average": 0,
-                    "days_in_range": (end_date - start_date).days + 1
+                    "days_in_range": max(1, (end_date - start_date).days + 1)
                 }), 200
             
             # Determine if we need to include today's live data
