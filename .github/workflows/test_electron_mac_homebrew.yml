@@ -19,6 +19,11 @@ jobs:
         with:
           submodules: true
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Check if Homebrew is installed
         id: check_brew
         run: |

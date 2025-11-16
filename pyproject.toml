@@ -32,7 +32,6 @@ dependencies = [
   "plyer~=2.1.0",
   "keyboard~=0.13.5",
   "websockets~=15.0.1",
-  "ttkbootstrap~=1.10.1",
   "dataclasses_json~=0.6.7",
   "betterproto==2.0.0b7",
   "obsws-python~=1.8.0",
