@@ -142,7 +142,8 @@
                                 <option value="characters">Characters Read</option>
                                 <option value="games">Games Completed</option>
                                 <option value="cards">Cards Mined</option>
-                                <option value="mature_cards">Mature Anki Cards</option>
+                                <!--<option value="mature_cards">Mature Anki Cards</option>-->
+                                <!---Not only counts cards that matured today, but also mature cards that stayed mature so its not a good metric. Will need a new AnkiConnect endpoint or to loop through all cards and see their history and work out if they were matured today or not-->
                                 <!-- <option value="anki_backlog">Clear Anki Backlog</option> -->
                                 <!-- Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later -->
                                 <option value="custom">Custom (Daily Checkbox)</option>
