@@ -47,25 +47,13 @@
       "target": "nsis",
       "icon": "assets/gsm.ico",
       "sign": false,
-      "artifactName": "${productName}-Setup-${version}.${ext}",
-      "extraFiles": [
-        {
-          "from": "GSM_Overlay/out",
-          "to": "resources/GSM_Overlay"
-        }
-      ]
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "mac": {
       "target": "dmg"
     },
     "linux": {
-      "target": "AppImage",
-      "extraFiles": [
-        {
-          "from": "GSM_Overlay/out",
-          "to": "resources/GSM_Overlay"
-        }
-      ]
+      "target": "AppImage"
     },
     "publish": [
       {
