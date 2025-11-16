@@ -10,6 +10,24 @@ const ALLOWED_METRIC_TYPES = ['hours', 'characters', 'games', 'cards', 'mature_c
 // Shared Utility Functions
 // ================================
 const GoalsUtils = {
+    // Get user's timezone
+    getUserTimezone() {
+        try {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone;
+        } catch (e) {
+            console.warn('Could not detect timezone, defaulting to UTC:', e);
+            return 'UTC';
+        }
+    },
+    
+    // Get headers with timezone for API requests
+    getHeadersWithTimezone() {
+        return {
+            'Content-Type': 'application/json',
+            'X-Timezone': this.getUserTimezone()
+        };
+    },
+    
     // Format date as YYYY-MM-DD
     formatDateString(date) {
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -550,9 +568,7 @@ document.addEventListener('DOMContentLoaded', function () {
             
             const response = await fetch('/api/goals/progress', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: GoalsUtils.getHeadersWithTimezone(),
                 body: JSON.stringify({
                     metric_type: goal.metricType,
                     start_date: goal.startDate,
@@ -961,9 +977,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             
                             const response = await fetch('/api/goals/today-progress', {
                                 method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                },
+                                headers: GoalsUtils.getHeadersWithTimezone(),
                                 body: JSON.stringify({
                                     goal_id: goal.id,
                                     metric_type: goal.metricType,
@@ -1129,9 +1143,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         
                         const response = await fetch('/api/goals/projection', {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
+                            headers: GoalsUtils.getHeadersWithTimezone(),
                             body: JSON.stringify({
                                 goal_id: goal.id,
                                 metric_type: goal.metricType,
@@ -1442,8 +1454,10 @@ document.addEventListener('DOMContentLoaded', function () {
             const lastCompletionDate = data.last_completion_date;
             
             // Update streak displays from database
+            // If current streak is higher than longest streak, show current as longest too
+            const displayLongestStreak = Math.max(currentStreak, longestStreak);
             document.getElementById('currentStreakValue').textContent = currentStreak;
-            document.getElementById('longestStreakValue').textContent = longestStreak;
+            document.getElementById('longestStreakValue').textContent = displayLongestStreak;
             
             // Show the streak section
             document.getElementById('dailiesStreakSection').style.display = 'block';
@@ -1550,9 +1564,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Fetch tomorrow's requirements
             const response = await fetch('/api/goals/tomorrow-requirements', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: GoalsUtils.getHeadersWithTimezone(),
                 body: JSON.stringify({
                     current_goals: currentGoals,
                     goals_settings: goalsSettings
@@ -1630,9 +1642,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Call the API
             const response = await fetch('/api/goals/complete_todays_dailies', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: GoalsUtils.getHeadersWithTimezone(),
                 body: JSON.stringify({
                     current_goals: currentGoals,
                     goals_settings: goalsSettings
@@ -1654,8 +1664,10 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('currentStreakValue').textContent = newStreak;
             
             // Update longest streak from API response
+            // If current streak is higher than longest streak, show current as longest too
             const newLongestStreak = data.longest_streak || newStreak;
-            document.getElementById('longestStreakValue').textContent = newLongestStreak;
+            const displayLongestStreak = Math.max(newStreak, newLongestStreak);
+            document.getElementById('longestStreakValue').textContent = displayLongestStreak;
             
             // Update button
             completeDailiesBtn.disabled = true;

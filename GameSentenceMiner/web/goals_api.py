@@ -8,6 +8,7 @@ Provides data for calculating progress on user-defined goals with date ranges.
 import datetime
 import json
 import time
+import pytz
 from flask import request, jsonify
 
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
@@ -22,6 +23,36 @@ from GameSentenceMiner.web.rollup_stats import (
 
 
 # Helper Functions
+
+def get_user_timezone():
+    """
+    Extract user's timezone from request headers or fallback to UTC.
+    Returns pytz timezone object.
+    
+    The frontend should send timezone via X-Timezone header using:
+    Intl.DateTimeFormat().resolvedOptions().timeZone
+    """
+    tz_str = request.headers.get('X-Timezone', 'UTC')
+    try:
+        return pytz.timezone(tz_str)
+    except pytz.exceptions.UnknownTimeZoneError:
+        logger.warning(f"Unknown timezone: {tz_str}, falling back to UTC")
+        return pytz.UTC
+
+
+def get_today_in_timezone(tz=None):
+    """
+    Get today's date in the specified timezone.
+    
+    Args:
+        tz: pytz timezone object. If None, uses UTC.
+        
+    Returns:
+        date object representing today in the specified timezone
+    """
+    if tz is None:
+        tz = pytz.UTC
+    return datetime.datetime.now(tz).date()
 
 def parse_and_validate_dates(start_date_str, end_date_str):
     """
@@ -647,7 +678,8 @@ def register_goals_api_routes(app):
                 return jsonify({"error": "start_date must be before or equal to end_date"}), 400
             
             # Calculate progress based on metric type
-            today = datetime.date.today()
+            user_tz = get_user_timezone()
+            today = get_today_in_timezone(user_tz)
             
             # If goal hasn't started yet, return 0 progress
             if today < start_date:
@@ -758,7 +790,8 @@ def register_goals_api_routes(app):
             # Parse dates
             try:
                 start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
-                today = datetime.date.today()
+                user_tz = get_user_timezone()
+                today = get_today_in_timezone(user_tz)
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
             
@@ -885,7 +918,8 @@ def register_goals_api_routes(app):
             # Parse dates
             try:
                 start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
-                today = datetime.date.today()
+                user_tz = get_user_timezone()
+                today = get_today_in_timezone(user_tz)
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
             
@@ -1110,8 +1144,9 @@ def register_goals_api_routes(app):
             current_goals = data.get("current_goals", [])
             goals_settings = data.get("goals_settings", {})
             
-            # Get today's date in YYYY-MM-DD format
-            today = datetime.date.today()
+            # Get today's date in YYYY-MM-DD format (using user's timezone)
+            user_tz = get_user_timezone()
+            today = get_today_in_timezone(user_tz)
             today_str = today.strftime("%Y-%m-%d")
             
             # Check if entry already exists for today
@@ -1125,7 +1160,7 @@ def register_goals_api_routes(app):
                 }), 400
             
             # Calculate streak for today (returns tuple of current_streak, longest_streak)
-            current_streak, longest_streak = GoalsTable.calculate_streak(today_str)
+            current_streak, longest_streak = GoalsTable.calculate_streak(today_str, str(user_tz))
             
             # Add longest_streak to goals_settings
             goals_settings['longestStreak'] = longest_streak
@@ -1137,7 +1172,6 @@ def register_goals_api_routes(app):
             # Create new entry with current Unix timestamp
             new_entry = GoalsTable.create_entry(
                 date_str=today_str,
-                streak=current_streak,
                 current_goals_json=current_goals_json,
                 goals_settings_json=goals_settings_json,
                 last_updated=time.time()
@@ -1180,7 +1214,8 @@ def register_goals_api_routes(app):
                 }), 200
             
             # Check if streak is still valid (latest entry should be today or yesterday)
-            today = datetime.date.today()
+            user_tz = get_user_timezone()
+            today = get_today_in_timezone(user_tz)
             try:
                 latest_date = datetime.datetime.strptime(latest_entry.date, '%Y-%m-%d').date()
                 yesterday = today - datetime.timedelta(days=1)
@@ -1261,8 +1296,7 @@ def register_goals_api_routes(app):
             return jsonify({
                 "date": latest_entry.date,
                 "current_goals": current_goals,
-                "goals_settings": goals_settings,
-                "streak": latest_entry.streak
+                "goals_settings": goals_settings
             }), 200
             
         except Exception as e:
@@ -1303,8 +1337,9 @@ def register_goals_api_routes(app):
             current_goals = data.get("current_goals", [])
             goals_settings = data.get("goals_settings", {})
             
-            # Get tomorrow's date
-            today = datetime.date.today()
+            # Get tomorrow's date (using user's timezone)
+            user_tz = get_user_timezone()
+            today = get_today_in_timezone(user_tz)
             tomorrow = today + datetime.timedelta(days=1)
             tomorrow_str = tomorrow.strftime("%Y-%m-%d")
             

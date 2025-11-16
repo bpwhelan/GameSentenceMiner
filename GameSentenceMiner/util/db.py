@@ -622,18 +622,17 @@ class GoalsTable(SQLiteDBTable):
     One entry per day when user completes their dailies.
     """
     _table = 'goals'
-    _fields = ['date', 'streak', 'current_goals', 'goals_settings', 'last_updated']
+    _fields = ['date', 'current_goals', 'goals_settings', 'last_updated']
     _types = [int,  # Includes primary key type
-              str, int, str, str, float]
+              str, str, str, float]
     _pk = 'id'
     _auto_increment = True
 
     def __init__(self, id: Optional[int] = None, date: Optional[str] = None,
-                 streak: int = 0, current_goals: Optional[str] = None,
+                 current_goals: Optional[str] = None,
                  goals_settings: Optional[str] = None, last_updated: Optional[float] = None):
         self.id = id
         self.date = date if date is not None else ''
-        self.streak = streak
         self.current_goals = current_goals if current_goals is not None else '[]'
         self.goals_settings = goals_settings if goals_settings is not None else '{}'
         self.last_updated = last_updated
@@ -653,17 +652,17 @@ class GoalsTable(SQLiteDBTable):
         return cls.from_row(row) if row else None
 
     @classmethod
-    def create_entry(cls, date_str: str, streak: int, current_goals_json: str,
+    def create_entry(cls, date_str: str, current_goals_json: str,
                      goals_settings_json: Optional[str] = None, last_updated: Optional[float] = None) -> 'GoalsTable':
         """Create a new goals entry for a specific date."""
-        new_entry = cls(date=date_str, streak=streak, current_goals=current_goals_json,
+        new_entry = cls(date=date_str, current_goals=current_goals_json,
                        goals_settings=goals_settings_json if goals_settings_json else '{}',
                        last_updated=last_updated if last_updated is not None else time.time())
         new_entry.save()
         return new_entry
 
     @classmethod
-    def calculate_streak(cls, today_str: str) -> Tuple[int, int]:
+    def calculate_streak(cls, today_str: str, timezone_str: str = 'UTC') -> Tuple[int, int]:
         """
         Calculate the current streak and longest streak for today.
         Returns tuple of (current_streak, longest_streak).
@@ -673,6 +672,10 @@ class GoalsTable(SQLiteDBTable):
         your streak will continue, allowing you to maintain your streak even if you finish dailies a day late.
         
         Longest streak: maximum consecutive days from all historical data (stored in goals_settings JSON).
+        
+        Args:
+            today_str: Date string in YYYY-MM-DD format (should be in user's local timezone)
+            timezone_str: IANA timezone string (e.g., 'Asia/Tokyo', 'UTC') - used for logging only
         """
         latest = cls.get_latest()
         
