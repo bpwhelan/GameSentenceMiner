@@ -975,11 +975,29 @@ async def async_main(reloading=False):
 
 
 def main():
-    logger.info("Starting GSM")
-    try:
-        asyncio.run(async_main())
-    except Exception as e:
-        handle_error_in_initialization(e)
+        logger.info("Starting GSM")
+        import sys
+        if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+                print("""
+GameSentenceMiner (GSM) - Visual Novel and Game Sentence Mining Tool
+
+Usage:
+    python -m GameSentenceMiner.gsm [options]
+
+Options:
+    -h, --help        Show this help message and exit
+
+Description:
+    GameSentenceMiner is a tool for mining sentences, screenshots, and audio from games and visual novels.
+    It provides a GUI for configuration, hotkeys for mining, and integration with Anki.
+
+For more information, see: https://github.com/bpwhelan/GameSentenceMiner
+                """)
+                sys.exit(0)
+        try:
+                asyncio.run(async_main())
+        except Exception as e:
+                handle_error_in_initialization(e)
 
 
 if __name__ == "__main__":
