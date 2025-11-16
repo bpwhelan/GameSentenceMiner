@@ -1,11 +1,9 @@
 import sys
 import asyncio
-import threading
 from queue import Queue
-from functools import partial
 
 from PyQt6.QtWidgets import QApplication, QInputDialog
-from PyQt6.QtCore import QObject, pyqtSignal, Qt
+from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QIcon
 
 from GameSentenceMiner.ui.anki_confirmation_qt import show_anki_confirmation
@@ -13,7 +11,7 @@ from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
 from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter_preview
 from GameSentenceMiner.ocr.ss_picker_qt import show_screen_cropper
 from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
-from GameSentenceMiner.util.configuration import get_pickaxe_png_path, gsm_state
+from GameSentenceMiner.util.configuration import get_pickaxe_png_path, gsm_state, logger
 
 _qt_app = None
 _config_window = None
@@ -191,6 +189,30 @@ class DialogManager(QObject):
         return self._run_sync(lambda cb: self._logic_furigana_preview(current_sensitivity, cb))
 
 
+def send_to_clipboard(text):
+    """
+    Thread-safe clipboard setter. Can be called from any thread.
+    Uses the DialogManager to execute on the main GUI thread.
+    """
+    def set_clipboard():
+        app = QApplication.instance()
+        if app is None:
+            logger.error("Cannot set clipboard: QApplication is not running")
+            return
+        clipboard = app.clipboard()
+        try:
+            clipboard.setText(str(text))
+            logger.debug(f"Clipboard set successfully: {text[:50]}...")
+        except Exception as e:
+            logger.error(f"Error setting clipboard: {e}")
+    
+    # Get the dialog manager and use its signal to run on GUI thread
+    manager = get_dialog_manager()
+    if manager:
+        manager._execute_on_gui_thread.emit(set_clipboard)
+    else:
+        logger.error("DialogManager not available for clipboard operation")
+
 def get_qt_app():
     """
     Get or create the global QApplication instance.
@@ -321,7 +343,7 @@ if __name__ == "__main__":
     import os
     from PIL import Image
     import tempfile
-    import time
+    # time not needed in this test block
     
     # Start the app in a separate thread to simulate the real environment
     # where the GUI loop runs on Main, and we might call from workers.
@@ -345,7 +367,8 @@ if __name__ == "__main__":
         temp_screenshot = os.path.join(tempfile.gettempdir(), "test_screenshot.png")
         test_img.save(temp_screenshot)
         temp_audio = os.path.join(tempfile.gettempdir(), "test_audio.opus")
-        with open(temp_audio, 'wb') as f: f.write(b"dummy")
+        with open(temp_audio, 'wb') as f:
+            f.write(b"dummy")
         
         print("Launching Anki Dialog...")
         # Calling the wrapper
@@ -353,8 +376,10 @@ if __name__ == "__main__":
         print(f"Result: {result}")
         
         # Cleanup
-        if os.path.exists(temp_screenshot): os.remove(temp_screenshot)
-        if os.path.exists(temp_audio): os.remove(temp_audio)
+        if os.path.exists(temp_screenshot):
+            os.remove(temp_screenshot)
+        if os.path.exists(temp_audio):
+            os.remove(temp_audio)
 
     elif choice == "2":
         vid = input("Video path: ")

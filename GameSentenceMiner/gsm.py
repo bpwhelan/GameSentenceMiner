@@ -72,11 +72,6 @@ try:
         f"[Import] download_tools (download_obs_if_needed, download_ffmpeg_if_needed): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.communication.send import send_restart_signal
-    logger.debug(
-        f"[Import] send_restart_signal: {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
     from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
     logger.debug(
         f"[Import] gsm_utils (wait_for_stable_file, make_unique_file_name, run_new_thread): {time.time() - start_time:.3f}s")
@@ -103,16 +98,19 @@ try:
     logger.debug(f"[Import] obs: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.communication import Message
-    logger.debug(f"[Import] Message: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.communication.websocket import connect_websocket, register_websocket_message_handler, FunctionName
+    from GameSentenceMiner.util.communication.electron_ipc import (
+        register_command_handler,
+        start_ipc_listener_in_thread,
+        FunctionName,
+        announce_connected,
+    )
     logger.debug(
-        f"[Import] websocket (connect_websocket, register_websocket_message_handler, FunctionName): {time.time() - start_time:.3f}s")
+        f"[Import] stdout-ipc (register_command_handler, start_ipc_listener_in_thread, FunctionName): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.ffmpeg import get_audio_and_trim, get_video_timings
+    from GameSentenceMiner.util.ffmpeg import get_audio_and_trim
     logger.debug(
         f"[Import] util.ffmpeg (get_audio_and_trim, get_video_timings, get_ffmpeg_path): {time.time() - start_time:.3f}s")
 
@@ -122,7 +120,7 @@ try:
         f"[Import] obs.check_obs_folder_is_correct: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.text_log import GameLine, get_text_event, get_mined_line, get_all_lines, game_log
+    from GameSentenceMiner.util.text_log import get_mined_line, get_all_lines
     logger.debug(
         f"[Import] util.text_log (GameLine, get_text_event, get_mined_line, get_all_lines, game_log): {time.time() - start_time:.3f}s")
 
@@ -795,7 +793,10 @@ def initialize(reloading=False):
         os.makedirs(get_config().paths.output_folder, exist_ok=True)
         set_get_audio_from_video_callback(VideoToAudioHandler.get_audio)
     initial_checks()
-    register_websocket_message_handler(handle_websocket_message)
+    # Initialize stdout/stdin IPC listener for Electron commands
+    start_ipc_listener_in_thread()
+    register_command_handler(handle_ipc_command)
+    announce_connected()
     # if get_config().vad.do_vad_postprocessing:
     #     if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
     #         vosk_helper.get_vosk_model()
@@ -804,45 +805,41 @@ def initialize(reloading=False):
 
 
 def initialize_async():
-    tasks = [connect_websocket]
     threads = []
-    tasks.append(anki.start_monitoring_anki)
-    for task in tasks:
-        threads.append(run_new_thread(task))
+    threads.append(run_new_thread(anki.start_monitoring_anki))
     return threads
 
 
-def handle_websocket_message(message: Message):
-    logger.info(f"WebSocket Message Received: {message.to_json()}")
+def handle_ipc_command(cmd: dict):
+    logger.info(f"IPC Command Received: {cmd}")
     try:
-        match FunctionName(message.function):
-            case FunctionName.QUIT:
-                cleanup()
-                sys.exit(0)
-            case FunctionName.QUIT_OBS:
-                close_obs()
-            case FunctionName.START_OBS:
-                obs.start_obs(force_restart=not gsm_status.obs_connected)
-            case FunctionName.OPEN_SETTINGS:
-                open_settings()
-            case FunctionName.OPEN_TEXTHOOKER:
-                texthooking_page.open_texthooker()
-            case FunctionName.OPEN_LOG:
-                open_log()
-            case FunctionName.TOGGLE_REPLAY_BUFFER:
-                obs.toggle_replay_buffer()
-            case FunctionName.RESTART_OBS:
-                restart_obs()
-            case FunctionName.EXIT:
-                cleanup()
-                sys.exit(0)
-            case FunctionName.CONNECT:
-                logger.debug("Electron WSS connected")
-            case _:
-                logger.debug(
-                    f"unknown message from electron websocket: {message.to_json()}")
+        function = cmd.get("function")
+        if function == FunctionName.QUIT.value:
+            cleanup()
+            sys.exit(0)
+        elif function == FunctionName.QUIT_OBS.value:
+            close_obs()
+        elif function == FunctionName.START_OBS.value:
+            obs.start_obs(force_restart=not gsm_status.obs_connected)
+        elif function == FunctionName.OPEN_SETTINGS.value:
+            open_settings()
+        elif function == FunctionName.OPEN_TEXTHOOKER.value:
+            texthooking_page.open_texthooker()
+        elif function == FunctionName.OPEN_LOG.value:
+            open_log()
+        elif function == FunctionName.TOGGLE_REPLAY_BUFFER.value:
+            obs.toggle_replay_buffer()
+        elif function == FunctionName.RESTART_OBS.value:
+            restart_obs()
+        elif function == FunctionName.EXIT.value:
+            cleanup()
+            sys.exit(0)
+        elif function == FunctionName.CONNECT.value:
+            logger.debug("Electron reported connect")
+        else:
+            logger.debug(f"Unknown IPC command: {cmd}")
     except Exception as e:
-        logger.debug(f"Error handling websocket message: {e}")
+        logger.debug(f"Error handling IPC command: {e}")
 
 
 def initialize_text_monitor():
@@ -949,7 +946,6 @@ async def async_main(reloading=False):
         run_new_thread(run_text_hooker_page)
         run_new_thread(async_loop).join()
 
-        logger.info("Initialization complete. Happy Mining! がんばれ！")
 
         # await check_if_script_is_running()
         # await log_current_pid()
@@ -968,6 +964,7 @@ async def async_main(reloading=False):
             gsm_tray.start()
         
         logger.info("Starting Qt on main thread...")
+        logger.info("Initialization complete. Happy Mining! がんばれ！")
         # This blocks until Qt event loop closes - must be called from main thread
         qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
         

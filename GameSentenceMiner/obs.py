@@ -129,7 +129,7 @@ class OBSConnectionManager(threading.Thread):
         self.daemon = True
         self.running = True
         self.should_check_output = check_output
-        self.check_connection_interval = 1
+        self.check_connection_interval = 5
         self.counter = 0
         self.last_replay_buffer_status = None
         self.no_output_timestamp = None
@@ -201,7 +201,7 @@ class OBSConnectionManager(threading.Thread):
             self.no_output_timestamp = None
             return errors
         
-        img = get_screenshot_PIL(compression=75, img_format='jpg', width=1280, height=720)
+        img = get_screenshot_PIL(compression=50, img_format='jpg', width=640, height=360)
         is_empty = self.is_image_empty(img) if img else True
 
         if not is_empty:
@@ -238,7 +238,7 @@ class OBSConnectionManager(threading.Thread):
             if not self._check_obs_connection():
                 continue
 
-            if self.counter % 5 == 0:
+            if self.counter % 2 == 0:
                 try:
                     errors = self._manage_replay_buffer_and_utils()
                     if errors != self.last_errors:

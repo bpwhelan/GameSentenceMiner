@@ -234,8 +234,8 @@ def save_result_image(img, pre_crop_image=None):
 async def send_result(text, time):
     if text:
         if get_ocr_send_to_clipboard():
-            import pyperclipfix
-            pyperclipfix.copy(text)
+            from GameSentenceMiner.ui.qt_main import send_to_clipboard
+            send_to_clipboard(text)
         try:
             await websocket_server_thread.send_text(text, time)
         except Exception as e:

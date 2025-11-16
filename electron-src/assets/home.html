@@ -119,6 +119,7 @@
         const obsStatusBtn = document.getElementById('obs-status');
         const sceneSelect = document.getElementById('sceneSelect');
         const windowSelect = document.getElementById('windowSelect');
+        let windows = [];
 
 
         obsStatusBtn.addEventListener('click', async () => {
@@ -173,6 +174,7 @@
                 if (previousSelection && windows.some(w => w.value === previousSelection)) {
                     windowSelect.value = previousSelection;
                 }
+                windows = windowsRes;
             });
         }
 
@@ -225,11 +227,13 @@
 
         document.getElementById('createNewSceneBtn').addEventListener('click', () => {
             const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
+            const windowDataFromOBS = windows.filter(w => w.value === selectedWindow.value);
             console.log(selectedWindow)
             const windowData = {
                 title: selectedWindow.textContent,
                 value: selectedWindow.value,
                 sceneName: selectedWindow.textContent,
+                captureSource: windowDataFromOBS[0].captureMode || 'window',
             };
             console.log(windowData)
             ipcRenderer.invoke('obs.createScene', windowData);

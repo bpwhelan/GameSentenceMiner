@@ -1,3 +1,4 @@
+from datetime import time
 import os
 import sys
 import requests
@@ -14,6 +15,7 @@ from GameSentenceMiner.util.audio_player import AudioPlayer
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name
 
 
+# TODO: Add option to keep the audio even if VAD didn't catch anything
 class AnkiConfirmationDialog(QDialog):
     """
     A modal dialog to confirm Anki card details and choose an audio option.
@@ -25,6 +27,7 @@ class AnkiConfirmationDialog(QDialog):
         self.translation_text = None
         self.sentence_text = None
         self.sentence = sentence  # Store sentence text for TTS
+        self.selector_open = False
         
         # Initialize screenshot_path here, will be updated by button if needed
         self.screenshot_path = screenshot_path
@@ -134,7 +137,7 @@ class AnkiConfirmationDialog(QDialog):
         grid_layout.addWidget(self.image_label, row, 1, Qt.AlignmentFlag.AlignLeft)
         
         # Screenshot selector button
-        screenshot_button = QPushButton("Open Screenshot Selector")
+        screenshot_button = QPushButton("Select New Screenshot")
         screenshot_button.clicked.connect(self._get_different_screenshot)
         grid_layout.addWidget(screenshot_button, row, 2, Qt.AlignmentFlag.AlignLeft)
         row += 1
@@ -207,13 +210,15 @@ class AnkiConfirmationDialog(QDialog):
     def _get_different_screenshot(self):
         from GameSentenceMiner.ui.qt_main import launch_screenshot_selector
         video_path = gsm_state.current_replay
-        
+        self.selector_open = True
         # Use the dialog manager to show screenshot selector
         selected_path = launch_screenshot_selector(
             video_path,
             self.screenshot_timestamp,
             mode=get_config().screenshot.screenshot_timing_setting
         )
+        
+        self.selector_open = False
         
         if not selected_path:
             return
@@ -270,6 +275,8 @@ class AnkiConfirmationDialog(QDialog):
     
     def _update_audio_button(self):
         """Update the audio button text and style based on playing state"""
+        while not self.selector_open:
+            time.sleep(0.1)
         if self.audio_button:
             if self.audio_player.is_playing:
                 self.audio_button.setText("⏹ Stop")

@@ -141,9 +141,6 @@ class OverlayProcessor:
         try:
             if self.config.overlay.websocket_port and all([GoogleLens, get_regex]):
                 logger.info("Initializing OCR engines...")
-                if OneOCR:
-                    self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
-                self.lens = GoogleLens(lang=get_ocr_language(), get_furigana_sens_from_file=False)
                 self.ocr_language = get_ocr_language()
                 self.regex = get_regex(self.ocr_language)
                 logger.info("OCR engines initialized.")
@@ -174,7 +171,10 @@ class OverlayProcessor:
                 await self.current_task
             except asyncio.CancelledError:
                 logger.info("Previous OCR task was cancelled")
-        
+        if OneOCR and not self.oneocr:
+            self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+        if GoogleLens and not self.lens:
+            self.lens = GoogleLens(lang=get_ocr_language(), get_furigana_sens_from_file=False)
         # Start new task
         self.current_task = asyncio.create_task(self.find_box_for_sentence(sentence_to_check, check_against_last))
         try:
@@ -269,7 +269,7 @@ class OverlayProcessor:
         # Fallback: try OBS-based screenshot (if OBS is connected and has a suitable source)
         try:
             logger.debug("Attempting fallback screenshot via OBS sources")
-            obs_img = get_screenshot_PIL(compression=75, img_format='png', width=None, height=None)
+            obs_img = get_screenshot_PIL(compression=100, img_format='jpg', width=None, height=None)
             if obs_img is not None:
                 # get_screenshot_PIL returns a PIL Image already
                 # Try to infer monitor size from the image
@@ -492,6 +492,8 @@ class OverlayProcessor:
                 word_list = []
 
                 for word in line.get("words", []):
+                    if self.ocr_language not in ['ja', 'zh', 'ko']:
+                        word["plain_text"] += word["text_separator"]
                     word_text = word.get("plain_text", "")
                     line_text_parts.append(word_text)
                     
@@ -590,6 +592,9 @@ class OverlayProcessor:
             converted_results.append(converted_item)
             for word in converted_item.get("words", []):
                 word_bbox = word.get("bounding_rect", {})
+                # If not japanese/chinese/korean, add a space after each word
+                if self.ocr_language not in ['ja', 'zh', 'ko']:
+                    word["text"] += " "
                 if word_bbox:
                     word["bounding_rect"] = {
                         key: (value / monitor_width if "x" in key else value / monitor_height)

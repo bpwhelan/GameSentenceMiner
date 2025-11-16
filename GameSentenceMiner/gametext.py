@@ -95,6 +95,7 @@ async def monitor_clipboard():
     global current_line, last_clipboard
     current_line = pyperclip.paste()
     send_message_on_resume = False
+    time_received = datetime.now()
     while True:
         if not get_config().general.use_clipboard:
             gsm_status.clipboard_enabled = False
@@ -116,9 +117,9 @@ async def monitor_clipboard():
             if is_message_rate_limited("clipboard"):
                 continue  # Drop message due to rate limiting
             last_clipboard = current_clipboard
-            await handle_new_text_event(current_clipboard)
-
-        await asyncio.sleep(0.05)
+            await handle_new_text_event(current_clipboard, line_time=time_received)
+        time_received = datetime.now()
+        await asyncio.sleep(0.2)
 
 
 async def listen_websockets():
@@ -134,6 +135,7 @@ async def listen_websockets():
             "2333": "LunaTranslator"
         }
         likely_websocket_name = next((f" ({name})" for port, name in websocket_names.items() if port in uri), "")
+        reconnect_sleep = 1
         while True:
             if not get_config().general.use_websocket:
                 await asyncio.sleep(1)
@@ -182,7 +184,8 @@ async def listen_websockets():
                     else:
                         logger.warning(f"Texthooker WebSocket {uri}{likely_websocket_name} disconnected. Attempting to reconnect...")
                     websocket_connected[uri] = False
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(reconnect_sleep)
+                    reconnect_sleep += max(5, reconnect_sleep + 1)
 
     websocket_tasks = []
     if ',' in get_config().general.websocket_uri:

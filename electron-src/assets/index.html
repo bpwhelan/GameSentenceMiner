@@ -9,7 +9,17 @@
     <link rel="stylesheet" href="xterm.css" />
     <script src="xterm.js"></script>
     <script src="xterm-addon-fit.js"></script>
+
     <style>
+        html, body {
+            overflow: auto;
+            height: 100%;
+            scrollbar-width: none; /* Firefox */
+        }
+        html::-webkit-scrollbar, body::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Edge */
+        }
+
         body.index {
             margin: 0;
             padding: 0;
@@ -19,7 +29,6 @@
             font-family: Arial, sans-serif;
             display: flex;
             flex-direction: column;
-            /*overflow: hidden; !* Add this line *!*/
         }
 
         .tab-bar {
@@ -99,13 +108,13 @@
     <div id="main-tab-bar" class="tab-bar">
         <button class="tab-button active" data-tab="obs">Home</button>
         <button class="tab-button" data-tab="ocr">OCR</button>
+        <button class="tab-button" data-tab="stats">Stats</button>
         <button class="tab-button" data-tab="launcher">Game Launcher</button>
         <!--        <button class="tab-button" data-tab="steam">Steam</button>-->
         <!--        <button class="tab-button" data-tab="vn">VN</button>-->
         <!--        <button class="tab-button" data-tab="yuzu" id="yuzu-button" style="display: none;">Yuzu</button>-->
-        <button class="tab-button" data-tab="python">Python</button>
-        <button class="tab-button" data-tab="stats">Stats</button>
         <button class="tab-button" data-tab="settings">Settings</button>
+        <button class="tab-button" data-tab="python">Python</button>
         <button class="tab-button" data-tab="console">Console</button>
     </div>
     <div id="launcher" class="tab-content">
@@ -1365,6 +1374,10 @@
                     const transcription = data.split("Transcribe:")[1].trim();
                     term.write(`\x1b[32mTranscription: ${transcription}\x1b[0m`); // Green text for transcriptions
                     return
+                }
+                if (data.includes("Initialization complete")) {
+                    term.write(`\x1b[32m${data}\x1b[0m`); // Green text for initialization complete
+                    return;
                 }
                 // if (data.includes("GameSentenceMiner - "))
                 //     data = data.split("GameSentenceMiner - ")[1];

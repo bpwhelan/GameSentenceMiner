@@ -17,7 +17,6 @@ from GameSentenceMiner import obs
 from GameSentenceMiner.ui.anki_confirmation import AnkiConfirmationDialog
 from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector  # from GameSentenceMiner.ui.screenshot_selector import ScreenshotSelectorDialog
 from GameSentenceMiner.util import configuration
-from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.configuration import Config, Locale, logger, CommonLanguages, ProfileConfig, General, Paths, \
     Anki, Features, Screenshot, Audio, OBS, Hotkeys, VAD, Overlay, Ai, Advanced, OverlayEngine, get_app_directory, \
     get_config, is_beangate, AVAILABLE_LANGUAGES, WHISPER_LARGE, WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, \
@@ -843,7 +842,6 @@ class ConfigApp:
 
         if self.master_config.get_config().restart_required(prev_config):
             logger.info("Restart Required for some settings to take affect!")
-            asyncio.run(send_restart_signal())
 
         settings_saved = True
         configuration.reload_config()

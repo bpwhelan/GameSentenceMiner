@@ -23,7 +23,7 @@
     "files": [
       "dist/main/**/*",
       "electron-src/main/index.html",
-      "gsm.ico"
+      "assets/*"
     ],
     "extraFiles": [
       {
@@ -45,7 +45,7 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "gsm.ico",
+      "icon": "assets/gsm.ico",
       "sign": false,
       "artifactName": "${productName}-Setup-${version}.${ext}",
       "extraFiles": [

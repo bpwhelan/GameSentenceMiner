@@ -17,7 +17,6 @@ from PyQt6.QtGui import QIcon
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.util import configuration
-from GameSentenceMiner.util.communication.send import send_restart_signal
 from GameSentenceMiner.util.configuration import (Config, Locale, logger, CommonLanguages, ProfileConfig, General,
                                                   Paths, Anki, Features, Screenshot, Audio, OBS, Hotkeys, VAD,
                                                   Overlay, Ai, Advanced, OverlayEngine, get_app_directory,
@@ -443,7 +442,6 @@ class ConfigWindow(QWidget):
 
         if self.master_config.get_config().restart_required(prev_config):
             logger.info("Restart Required for some settings to take affect!")
-            asyncio.run(send_restart_signal())
         
         configuration.reload_config()
         self.settings = get_config()

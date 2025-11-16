@@ -5,7 +5,7 @@
 <div align="center">
 
 [![Github All Releases](https://img.shields.io/github/downloads/bpwhelan/GameSentenceMiner/total.svg)](https://github.com/bpwhelan/GameSentenceMiner/releases)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/gamesentenceminer?label=pip)](https://pypi.org/project/gamesentenceminer/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/GameSentenceMiner)](https://pypi.org/project/gamesentenceminer/)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/bpwhelan)](https://github.com/sponsors/bpwhelan)
 [![Ko-Fi](https://img.shields.io/badge/donate-ko--fi-ed6760?label=donate)](https://ko-fi.com/beangate)
 [![GitHub License](https://img.shields.io/github/license/bpwhelan/GameSentenceMiner)](https://github.com/bpwhelan/GameSentenceMiner?tab=GPL-3.0-1-ov-file)
