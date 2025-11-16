@@ -1287,9 +1287,12 @@ def switch_profile_and_save(profile_name):
     save_full_config(config_instance)
     return config_instance.get_config()
 
+print("before logger setup")
 
+print("before sys reconfigure")
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
+print("after sys reconfigure")
 
 logger = logging.getLogger(logger_name)
 # Set the base level to DEBUG so that all messages are captured
@@ -1328,8 +1331,12 @@ error_handler.setFormatter(formatter)
 error_handler.addFilter(lambda record: record.levelno >= logging.ERROR)
 logger.addHandler(error_handler)
 
-DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
+print("after logger setup")
 
+print("before DB_PATH setup")
+
+DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
+print("after DB_PATH setup")
 
 # Clean up files in log directory older than 7 days
 def cleanup_old_logs(days=7):
@@ -1433,6 +1440,8 @@ def is_running_from_source():
     return False
 
 
+print("before global stuff")
+
 gsm_status = GsmStatus()
 anki_results = {}
 gsm_state = GsmAppState()
@@ -1468,6 +1477,7 @@ ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "err
 
 ffmpeg_base_command_list_info = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "info", '-nostdin']
 
+print("end of configuration")
 
 
 # logger.debug(f"Running in development mode: {is_dev}")
