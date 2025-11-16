@@ -21,6 +21,238 @@ from GameSentenceMiner.web.rollup_stats import (
 )
 
 
+# Helper Functions
+
+def parse_and_validate_dates(start_date_str, end_date_str):
+    """
+    Parse and validate date strings in YYYY-MM-DD format.
+    
+    Args:
+        start_date_str: Start date string
+        end_date_str: End date string
+        
+    Returns:
+        tuple: (start_date, end_date) as date objects
+        
+    Raises:
+        ValueError: If date format is invalid
+    """
+    try:
+        start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
+        return start_date, end_date
+    except ValueError as e:
+        raise ValueError(f"Invalid date format: {str(e)}")
+
+
+def validate_metric_type(metric_type, allowed_types=None):
+    """
+    Validate that metric_type is one of the allowed types.
+    
+    Args:
+        metric_type: The metric type to validate
+        allowed_types: List of allowed types (defaults to standard 4 metrics)
+        
+    Returns:
+        bool: True if valid
+        
+    Raises:
+        ValueError: If metric_type is not in allowed_types
+    """
+    if allowed_types is None:
+        allowed_types = ["hours", "characters", "games", "cards"]
+    
+    if metric_type not in allowed_types:
+        raise ValueError(f"Invalid metric_type. Must be one of: {', '.join(allowed_types)}")
+    
+    return True
+
+
+def get_todays_live_data(today):
+    """
+    Fetch today's game lines and calculate live statistics.
+    
+    Args:
+        today: date object for today
+        
+    Returns:
+        tuple: (today_lines, live_stats) where live_stats may be None
+    """
+    today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
+    today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
+    today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
+        start=today_start, end=today_end, for_stats=True
+    )
+    
+    live_stats = None
+    if today_lines:
+        live_stats = calculate_live_stats_for_today(today_lines)
+    
+    return today_lines, live_stats
+
+
+def count_cards_from_lines(lines):
+    """
+    Count Anki cards from game lines.
+    A line counts as a card if it has audio_in_anki OR screenshot_in_anki.
+    
+    Args:
+        lines: List of game line objects
+        
+    Returns:
+        int: Number of cards
+    """
+    if not lines:
+        return 0
+    
+    count = 0
+    for line in lines:
+        if (line.audio_in_anki and line.audio_in_anki.strip()) or \
+           (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
+            count += 1
+    
+    return count
+
+
+def get_rollup_stats_for_range(start_date, end_date):
+    """
+    Fetch and aggregate rollup statistics for a date range.
+    
+    Args:
+        start_date: Start date (date object or string)
+        end_date: End date (date object or string)
+        
+    Returns:
+        dict: Aggregated rollup stats or None if no rollups found
+    """
+    # Convert to strings if date objects
+    if isinstance(start_date, datetime.date):
+        start_date = start_date.strftime("%Y-%m-%d")
+    if isinstance(end_date, datetime.date):
+        end_date = end_date.strftime("%Y-%m-%d")
+    
+    rollups = StatsRollupTable.get_date_range(start_date, end_date)
+    
+    if rollups:
+        return aggregate_rollup_data(rollups)
+    
+    return None
+
+
+def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_stats=None, start_date=None, yesterday=None):
+    """
+    Extract progress value from combined stats based on metric type.
+    For 'cards' metric, requires additional parameters to calculate from rollups and lines.
+    
+    Args:
+        combined_stats: Combined rollup and live stats dictionary
+        metric_type: Type of metric ("hours", "characters", "games", "cards")
+        today_lines: Today's game lines (required for cards)
+        rollup_stats: Rollup stats (used to check if we need to query for cards)
+        start_date: Start date for card calculation
+        yesterday: Yesterday's date for card calculation
+        
+    Returns:
+        float or int: The metric value
+    """
+    if metric_type == "hours":
+        return combined_stats.get("total_reading_time_seconds", 0) / 3600
+    elif metric_type == "characters":
+        return combined_stats.get("total_characters", 0)
+    elif metric_type == "games":
+        return combined_stats.get("unique_games_played", 0)
+    elif metric_type == "cards":
+        # Cards require special handling - sum from rollups + today's lines
+        total_cards = 0
+        
+        # Sum from rollups if we have the date range
+        if start_date and yesterday:
+            rollups = StatsRollupTable.get_date_range(
+                start_date.strftime("%Y-%m-%d"),
+                yesterday.strftime("%Y-%m-%d")
+            )
+            for rollup in rollups:
+                total_cards += rollup.anki_cards_created or 0
+        
+        # Add today's cards
+        if today_lines:
+            total_cards += count_cards_from_lines(today_lines)
+        
+        return total_cards
+    
+    return 0
+
+
+def calculate_easy_day_multiplier(date, goals_settings):
+    """
+    Calculate the easy day multiplier for a given date based on goals settings.
+    
+    Args:
+        date: date object
+        goals_settings: Dictionary containing easyDays settings
+        
+    Returns:
+        float: Multiplier between 0.0 and 1.0 (percentage / 100)
+    """
+    day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+    day_index = date.weekday()  # 0=Monday, 6=Sunday
+    day_name = day_names[day_index]
+    
+    # Get easy days settings, default to 100% if not provided
+    easy_days = goals_settings.get('easyDays', {}) if goals_settings else {}
+    easy_day_percentage = easy_days.get(day_name, 100)
+    
+    return easy_day_percentage / 100.0
+
+
+def format_metric_value(value, metric_type):
+    """
+    Format a metric value for JSON response based on metric type.
+    Hours are rounded to 2 decimal places, others are converted to integers.
+    
+    Args:
+        value: The numeric value to format
+        metric_type: Type of metric
+        
+    Returns:
+        float or int: Formatted value
+    """
+    if metric_type == "hours":
+        return round(value, 2)
+    else:
+        return int(value)
+
+
+def format_requirement_display(value, metric_type):
+    """
+    Format a requirement value for human-readable display.
+    
+    Args:
+        value: The numeric value
+        metric_type: Type of metric
+        
+    Returns:
+        str: Formatted display string (e.g., "1h 30m", "1.5K", "5")
+    """
+    if metric_type == "hours":
+        hours = int(value)
+        minutes = int((value - hours) * 60)
+        if hours > 0:
+            return f"{hours}h" + (f" {minutes}m" if minutes > 0 else "")
+        else:
+            return f"{minutes}m"
+    elif metric_type == "characters":
+        int_value = int(value)
+        if int_value >= 1000000:
+            return f"{int_value / 1000000:.1f}M"
+        elif int_value >= 1000:
+            return f"{int_value / 1000:.1f}K"
+        else:
+            return str(int_value)
+    else:
+        return str(int(value))
+
+
 def register_goals_api_routes(app):
     """Register goals API routes with the Flask app."""
 
@@ -57,15 +289,17 @@ def register_goals_api_routes(app):
             if not metric_type or not start_date_str or not end_date_str:
                 return jsonify({"error": "Missing required fields: metric_type, start_date, end_date"}), 400
             
-            if metric_type not in ["hours", "characters", "games", "cards"]:
-                return jsonify({"error": "Invalid metric_type. Must be 'hours', 'characters', 'games', or 'cards'"}), 400
+            # Validate metric type
+            try:
+                validate_metric_type(metric_type)
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
             
             # Parse dates
             try:
-                start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
-                end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
+                start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
             except ValueError as e:
-                return jsonify({"error": f"Invalid date format: {str(e)}"}), 400
+                return jsonify({"error": str(e)}), 400
             
             if start_date > end_date:
                 return jsonify({"error": "start_date must be before or equal to end_date"}), 400
@@ -94,55 +328,24 @@ def register_goals_api_routes(app):
             # Only query rollups if we have historical dates
             rollup_stats = None
             if start_date <= rollup_end_date:
-                rollups = StatsRollupTable.get_date_range(
-                    start_date.strftime("%Y-%m-%d"),
-                    rollup_end_date.strftime("%Y-%m-%d")
-                )
-                
-                if rollups:
-                    rollup_stats = aggregate_rollup_data(rollups)
+                rollup_stats = get_rollup_stats_for_range(start_date, rollup_end_date)
             
             # Get today's live data if needed
+            today_lines = None
             live_stats = None
             if include_today:
-                today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
-                today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
-                today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                    start=today_start, end=today_end, for_stats=True
-                )
-                
-                if today_lines:
-                    live_stats = calculate_live_stats_for_today(today_lines)
+                today_lines, live_stats = get_todays_live_data(today)
             
             # Combine rollup and live stats
             combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
             
             # Extract progress based on metric type
-            progress = 0
-            if metric_type == "hours":
-                progress = combined_stats.get("total_reading_time_seconds", 0) / 3600
-            elif metric_type == "characters":
-                progress = combined_stats.get("total_characters", 0)
-            elif metric_type == "games":
-                progress = combined_stats.get("unique_games_played", 0)
-            elif metric_type == "cards":
-                # Calculate total cards from rollup stats + today
-                progress = 0
-                if start_date <= rollup_end_date:
-                    # Sum anki_cards_created from rollups
-                    rollups = StatsRollupTable.get_date_range(
-                        start_date.strftime("%Y-%m-%d"),
-                        rollup_end_date.strftime("%Y-%m-%d")
-                    )
-                    for rollup in rollups:
-                        progress += rollup.anki_cards_created or 0
-                
-                # Add today's cards if included in range
-                if include_today and today_lines:
-                    for line in today_lines:
-                        if (line.audio_in_anki and line.audio_in_anki.strip()) or \
-                           (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
-                            progress += 1
+            progress = extract_metric_value(
+                combined_stats, metric_type,
+                today_lines=today_lines if include_today else None,
+                start_date=start_date if start_date <= rollup_end_date else None,
+                yesterday=rollup_end_date if start_date <= rollup_end_date else None
+            )
             
             # Calculate days in range
             days_in_range = (end_date - start_date).days + 1
@@ -151,8 +354,8 @@ def register_goals_api_routes(app):
             daily_average = progress / days_in_range if days_in_range > 0 else 0
             
             return jsonify({
-                "progress": round(progress, 2) if metric_type == "hours" else int(progress),
-                "daily_average": round(daily_average, 2) if metric_type == "hours" else int(daily_average),
+                "progress": format_metric_value(progress, metric_type),
+                "daily_average": format_metric_value(daily_average, metric_type),
                 "days_in_range": days_in_range
             }), 200
             
@@ -203,16 +406,18 @@ def register_goals_api_routes(app):
             if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
                 return jsonify({"error": "Missing required fields"}), 400
             
-            if metric_type not in ["hours", "characters", "games", "cards"]:
-                return jsonify({"error": "Invalid metric_type"}), 400
+            # Validate metric type
+            try:
+                validate_metric_type(metric_type)
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
             
             # Parse dates
             try:
-                start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
-                end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
+                start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
                 today = datetime.date.today()
             except ValueError as e:
-                return jsonify({"error": f"Invalid date format: {str(e)}"}), 400
+                return jsonify({"error": str(e)}), 400
             
             # Check if goal is currently active
             if today < start_date or today > end_date:
@@ -224,85 +429,41 @@ def register_goals_api_routes(app):
                     "not_started": today < start_date
                 }), 200
             
-            # Get easy day percentage for today
-            day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-            today_day_index = today.weekday()  # 0=Monday, 6=Sunday
-            today_day_name = day_names[today_day_index]
-            
-            # Get easy days settings, default to 100% if not provided
-            easy_days = goals_settings.get('easyDays', {}) if goals_settings else {}
-            easy_day_percentage = easy_days.get(today_day_name, 100)
-            easy_day_multiplier = easy_day_percentage / 100.0
+            # Get easy day multiplier for today
+            easy_day_multiplier = calculate_easy_day_multiplier(today, goals_settings)
+            easy_day_percentage = int(easy_day_multiplier * 100)
             
             # Calculate total progress from start_date to yesterday
             yesterday = today - datetime.timedelta(days=1)
             
             rollup_stats = None
             if start_date <= yesterday:
-                rollups = StatsRollupTable.get_date_range(
-                    start_date.strftime("%Y-%m-%d"),
-                    yesterday.strftime("%Y-%m-%d")
-                )
-                if rollups:
-                    rollup_stats = aggregate_rollup_data(rollups)
+                rollup_stats = get_rollup_stats_for_range(start_date, yesterday)
             
             # Get today's live data
-            today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
-            today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
-            today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                start=today_start, end=today_end, for_stats=True
-            )
-            
-            live_stats = None
-            if today_lines:
-                live_stats = calculate_live_stats_for_today(today_lines)
+            today_lines, live_stats = get_todays_live_data(today)
             
             # Combine stats for total progress
             combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
             
             # Extract total progress
-            total_progress = 0
-            if metric_type == "hours":
-                total_progress = combined_stats.get("total_reading_time_seconds", 0) / 3600
-            elif metric_type == "characters":
-                total_progress = combined_stats.get("total_characters", 0)
-            elif metric_type == "games":
-                total_progress = combined_stats.get("unique_games_played", 0)
-            elif metric_type == "cards":
-                # Calculate total cards from rollup stats + today
-                total_progress = 0
-                if rollup_stats:
-                    # Sum anki_cards_created from rollups
-                    rollups = StatsRollupTable.get_date_range(
-                        start_date.strftime("%Y-%m-%d"),
-                        yesterday.strftime("%Y-%m-%d")
-                    )
-                    for rollup in rollups:
-                        total_progress += rollup.anki_cards_created or 0
-                
-                # Add today's cards
-                if today_lines:
-                    for line in today_lines:
-                        if (line.audio_in_anki and line.audio_in_anki.strip()) or \
-                           (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
-                            total_progress += 1
+            total_progress = extract_metric_value(
+                combined_stats, metric_type,
+                today_lines=today_lines,
+                start_date=start_date if start_date <= yesterday else None,
+                yesterday=yesterday if start_date <= yesterday else None
+            )
             
             # Extract today's progress
             today_progress = 0
             if live_stats:
-                if metric_type == "hours":
-                    today_progress = live_stats.get("total_reading_time_seconds", 0) / 3600
-                elif metric_type == "characters":
-                    today_progress = live_stats.get("total_characters", 0)
-                elif metric_type == "games":
-                    today_progress = live_stats.get("unique_games_played", 0)
-                elif metric_type == "cards":
-                    # Count today's cards
-                    if today_lines:
-                        for line in today_lines:
-                            if (line.audio_in_anki and line.audio_in_anki.strip()) or \
-                               (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
-                                today_progress += 1
+                today_stats_only = combine_rollup_and_live_stats(None, live_stats)
+                today_progress = extract_metric_value(
+                    today_stats_only, metric_type,
+                    today_lines=today_lines,
+                    start_date=None,
+                    yesterday=None
+                )
             
             # Calculate days remaining (including today)
             days_remaining = (end_date - today).days + 1
@@ -315,11 +476,11 @@ def register_goals_api_routes(app):
             daily_required_adjusted = daily_required * easy_day_multiplier
             
             return jsonify({
-                "required": round(daily_required_adjusted, 2) if metric_type == "hours" else int(daily_required_adjusted),
-                "progress": round(today_progress, 2) if metric_type == "hours" else int(today_progress),
+                "required": format_metric_value(daily_required_adjusted, metric_type),
+                "progress": format_metric_value(today_progress, metric_type),
                 "has_target": True,
                 "days_remaining": days_remaining,
-                "total_progress": round(total_progress, 2) if metric_type == "hours" else int(total_progress),
+                "total_progress": format_metric_value(total_progress, metric_type),
                 "easy_day_percentage": easy_day_percentage
             }), 200
             
@@ -369,17 +530,18 @@ def register_goals_api_routes(app):
             if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
                 return jsonify({"error": "Missing required fields"}), 400
             
-            # Validate metric type - only allow the 4 core metrics
-            if metric_type not in ["hours", "characters", "games", "cards"]:
-                return jsonify({"error": "Invalid metric_type. Must be hours, characters, games, or cards"}), 400
+            # Validate metric type
+            try:
+                validate_metric_type(metric_type)
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
             
             # Parse dates
             try:
-                start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
-                end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
+                start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
                 today = datetime.date.today()
             except ValueError as e:
-                return jsonify({"error": f"Invalid date format: {str(e)}"}), 400
+                return jsonify({"error": str(e)}), 400
             
             # Calculate 30-day average (same as built-in goals)
             thirty_days_ago = today - datetime.timedelta(days=30)
@@ -391,30 +553,13 @@ def register_goals_api_routes(app):
             rollups_30d = StatsRollupTable.get_date_range(thirty_days_ago_str, yesterday_str)
             
             # Get today's live data
-            today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
-            today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
-            today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                start=today_start, end=today_end, for_stats=True
-            )
-            
-            live_stats_today = None
-            if today_lines:
-                live_stats_today = calculate_live_stats_for_today(today_lines)
+            today_lines, live_stats_today = get_todays_live_data(today)
             
             # Calculate 30-day average based on metric type
             if metric_type == "cards":
-                # For cards, count lines with audio_in_anki OR screenshot_in_anki
-                total_cards = 0
-                for rollup in rollups_30d:
-                    total_cards += rollup.anki_cards_created or 0
-                
-                # Add today's cards
-                if today_lines:
-                    for line in today_lines:
-                        if (line.audio_in_anki and line.audio_in_anki.strip()) or \
-                           (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
-                            total_cards += 1
-                
+                # For cards, count from rollups + today
+                total_cards = sum(r.anki_cards_created or 0 for r in rollups_30d)
+                total_cards += count_cards_from_lines(today_lines)
                 avg_daily = total_cards / 30
                 
             else:
@@ -459,21 +604,12 @@ def register_goals_api_routes(app):
                 rollup_stats_all = aggregate_rollup_data(all_rollups) if all_rollups else None
                 combined_stats_all = combine_rollup_and_live_stats(rollup_stats_all, live_stats_today)
                 
-                if metric_type == "hours":
-                    current_total = combined_stats_all.get("total_reading_time_seconds", 0) / 3600
-                elif metric_type == "characters":
-                    current_total = combined_stats_all.get("total_characters", 0)
-                elif metric_type == "games":
-                    current_total = combined_stats_all.get("unique_games_played", 0)
-                elif metric_type == "cards":
-                    # Calculate total cards from all rollups + today
-                    total_cards_all = sum(r.anki_cards_created or 0 for r in all_rollups)
-                    if today_lines:
-                        for line in today_lines:
-                            if (line.audio_in_anki and line.audio_in_anki.strip()) or \
-                               (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
-                                total_cards_all += 1
-                    current_total = total_cards_all
+                current_total = extract_metric_value(
+                    combined_stats_all, metric_type,
+                    today_lines=today_lines,
+                    start_date=datetime.datetime.strptime(first_rollup_date, "%Y-%m-%d").date(),
+                    yesterday=yesterday
+                )
             
             # Calculate projection
             # For future goals, calculate from start_date; for active/past goals, from today
@@ -494,10 +630,10 @@ def register_goals_api_routes(app):
                 percent_diff = 0
             
             return jsonify({
-                "projection": round(projected_value, 2) if metric_type == "hours" else int(projected_value),
+                "projection": format_metric_value(projected_value, metric_type),
                 "target": target_value,
-                "current": round(current_total, 2) if metric_type == "hours" else int(current_total),
-                "daily_average": round(avg_daily, 2) if metric_type == "hours" else int(avg_daily),
+                "current": format_metric_value(current_total, metric_type),
+                "daily_average": format_metric_value(avg_daily, metric_type),
                 "end_date": end_date_str,
                 "days_until_target": days_until_target,
                 "percent_difference": round(percent_diff, 2)
@@ -718,15 +854,8 @@ def register_goals_api_routes(app):
             tomorrow = today + datetime.timedelta(days=1)
             tomorrow_str = tomorrow.strftime("%Y-%m-%d")
             
-            # Get easy day percentage for tomorrow
-            day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-            tomorrow_day_index = tomorrow.weekday()  # 0=Monday, 6=Sunday
-            tomorrow_day_name = day_names[tomorrow_day_index]
-            
-            # Get easy days settings, default to 100% if not provided
-            easy_days = goals_settings.get('easyDays', {}) if goals_settings else {}
-            tomorrow_easy_percentage = easy_days.get(tomorrow_day_name, 100)
-            tomorrow_multiplier = tomorrow_easy_percentage / 100.0
+            # Get easy day multiplier for tomorrow
+            tomorrow_multiplier = calculate_easy_day_multiplier(tomorrow, goals_settings)
             
             requirements = []
             
@@ -749,8 +878,7 @@ def register_goals_api_routes(app):
                 
                 # Parse dates
                 try:
-                    start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
-                    end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
+                    start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
                 except ValueError:
                     continue
                 
@@ -763,51 +891,21 @@ def register_goals_api_routes(app):
                 
                 rollup_stats = None
                 if start_date <= yesterday:
-                    rollups = StatsRollupTable.get_date_range(
-                        start_date.strftime("%Y-%m-%d"),
-                        yesterday.strftime("%Y-%m-%d")
-                    )
-                    if rollups:
-                        rollup_stats = aggregate_rollup_data(rollups)
+                    rollup_stats = get_rollup_stats_for_range(start_date, yesterday)
                 
                 # Get today's live data
-                today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
-                today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
-                today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                    start=today_start, end=today_end, for_stats=True
-                )
-                
-                live_stats = None
-                if today_lines:
-                    live_stats = calculate_live_stats_for_today(today_lines)
+                today_lines, live_stats = get_todays_live_data(today)
                 
                 # Combine stats for total progress
                 combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
                 
                 # Extract total progress
-                total_progress = 0
-                if metric_type == "hours":
-                    total_progress = combined_stats.get("total_reading_time_seconds", 0) / 3600
-                elif metric_type == "characters":
-                    total_progress = combined_stats.get("total_characters", 0)
-                elif metric_type == "games":
-                    total_progress = combined_stats.get("unique_games_played", 0)
-                elif metric_type == "cards":
-                    # Calculate total cards from rollup stats + today
-                    total_progress = 0
-                    if rollup_stats:
-                        rollups = StatsRollupTable.get_date_range(
-                            start_date.strftime("%Y-%m-%d"),
-                            yesterday.strftime("%Y-%m-%d")
-                        )
-                        for rollup in rollups:
-                            total_progress += rollup.anki_cards_created or 0
-                    
-                    if today_lines:
-                        for line in today_lines:
-                            if (line.audio_in_anki and line.audio_in_anki.strip()) or \
-                               (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
-                                total_progress += 1
+                total_progress = extract_metric_value(
+                    combined_stats, metric_type,
+                    today_lines=today_lines,
+                    start_date=start_date if start_date <= yesterday else None,
+                    yesterday=yesterday if start_date <= yesterday else None
+                )
                 
                 # Calculate days remaining from tomorrow to end date (inclusive)
                 days_remaining = (end_date - tomorrow).days + 1
@@ -827,25 +925,8 @@ def register_goals_api_routes(app):
                     continue
                 
                 # Format the requirement based on metric type
-                if metric_type == "hours":
-                    hours = int(daily_required_adjusted)
-                    minutes = int((daily_required_adjusted - hours) * 60)
-                    if hours > 0:
-                        formatted = f"{hours}h" + (f" {minutes}m" if minutes > 0 else "")
-                    else:
-                        formatted = f"{minutes}m"
-                    required_value = round(daily_required_adjusted, 2)
-                elif metric_type == "characters":
-                    required_value = int(daily_required_adjusted)
-                    if required_value >= 1000000:
-                        formatted = f"{required_value / 1000000:.1f}M"
-                    elif required_value >= 1000:
-                        formatted = f"{required_value / 1000:.1f}K"
-                    else:
-                        formatted = str(required_value)
-                else:
-                    required_value = int(daily_required_adjusted)
-                    formatted = str(required_value)
+                required_value = format_metric_value(daily_required_adjusted, metric_type)
+                formatted = format_requirement_display(daily_required_adjusted, metric_type)
                 
                 requirements.append({
                     "goal_name": goal_name,

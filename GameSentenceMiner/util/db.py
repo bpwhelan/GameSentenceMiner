@@ -666,7 +666,7 @@ class GoalsTable(SQLiteDBTable):
     def calculate_streak(cls, today_str: str) -> int:
         """
         Calculate the streak for today based on the latest entry.
-        Returns 0 if this is the first entry or if streak is broken.
+        Returns 1 if this is the first entry or if streak is broken.
         Returns previous_streak + 1 if dates are consecutive.
         """
         latest = cls.get_latest()
