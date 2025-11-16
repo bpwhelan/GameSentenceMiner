@@ -107,8 +107,7 @@ def count_cards_from_lines(lines):
     
     count = 0
     for line in lines:
-        if (line.audio_in_anki and line.audio_in_anki.strip()) or \
-           (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
+        if (line.audio_in_anki or '').strip() or (line.screenshot_in_anki or '').strip():
             count += 1
     
     return count

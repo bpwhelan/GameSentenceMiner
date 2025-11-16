@@ -163,7 +163,7 @@
 
 /* Checked checkbox - white background with green border and checkmark */
 .custom-goal-checkbox-checked .custom-goal-checkbox {
-    background: white !important;
+    background: var(--bg-primary) !important;
     border-color: #22c55e !important;
     border-width: 3px !important;
     box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3) !important;
