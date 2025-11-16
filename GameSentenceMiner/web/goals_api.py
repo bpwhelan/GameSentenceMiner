@@ -667,7 +667,7 @@ def register_goals_api_routes(app):
             else:
                 rollup_end_date = end_date
             
-            # Only query rollups if we have historical dates
+            # Only query rollups if we have historical dates and valid date range
             rollup_stats = None
             if start_date <= rollup_end_date:
                 rollup_stats = get_rollup_stats_for_range(start_date, rollup_end_date)

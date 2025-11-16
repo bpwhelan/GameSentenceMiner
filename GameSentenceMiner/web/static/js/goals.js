@@ -2,6 +2,11 @@
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
 // ================================
+// Constants
+// ================================
+const ALLOWED_METRIC_TYPES = ['hours', 'characters', 'games', 'cards', 'mature_cards', /* 'anki_backlog', */ 'custom'];
+
+// ================================
 // Shared Utility Functions
 // ================================
 const GoalsUtils = {
@@ -454,7 +459,7 @@ const CustomGoalsManager = {
             errors.push('Goal name is required');
         }
         
-        if (!goalData.metricType || !['hours', 'characters', 'games', 'cards', 'mature_cards', /* 'anki_backlog', */ 'custom'].includes(goalData.metricType)) {
+        if (!goalData.metricType || !ALLOWED_METRIC_TYPES.includes(goalData.metricType)) {
             errors.push('Valid metric type is required (hours, characters, games, cards, mature_cards, or custom)');
         }
         
@@ -488,6 +493,11 @@ const CustomGoalsManager = {
         return errors;
     }
 };
+
+// ================================
+// Module-level cache for date string conversions
+// ================================
+const dateStrCache = new Map();
 
 document.addEventListener('DOMContentLoaded', function () {
     
@@ -724,8 +734,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         let dailyTotals = {};
         
-        // Cache for date string conversions to avoid redundant calculations
-        const dateStrCache = new Map();
+        // Helper function to get cached date string
         const getDateStr = (timestamp) => {
             if (!dateStrCache.has(timestamp)) {
                 const dateObj = new Date(timestamp * 1000);
