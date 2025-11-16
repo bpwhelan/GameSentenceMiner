@@ -1289,7 +1289,7 @@ def switch_profile_and_save(profile_name):
 
 print("before logger setup")
 
-print("before sys reconfigure")
+print("before sys reconfigure??")
 try:
     # On macOS, reconfigure() can cause CFData assertion failures
     # Only reconfigure on Windows where it's actually needed
