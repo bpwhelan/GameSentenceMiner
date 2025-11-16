@@ -59,7 +59,13 @@
       "target": "dmg"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "extraFiles": [
+        {
+          "from": "GSM_Overlay/out",
+          "to": "resources/GSM_Overlay"
+        }
+      ]
     },
     "publish": [
       {
