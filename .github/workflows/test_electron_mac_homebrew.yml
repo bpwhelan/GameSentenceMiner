@@ -1,0 +1,82 @@
+name: Test Electron App on macOS with Homebrew
+
+on:
+  push:
+    branches:
+      - develop
+      - test_mac_uv
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+jobs:
+  test-electron-mac:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Check if Homebrew is installed
+        id: check_brew
+        run: |
+          if command -v brew &> /dev/null; then
+            echo "brew_installed=true" >> $GITHUB_OUTPUT
+            echo "Homebrew is already installed"
+          else
+            echo "brew_installed=false" >> $GITHUB_OUTPUT
+            echo "Homebrew is not installed"
+          fi
+
+      - name: Install Homebrew
+        if: steps.check_brew.outputs.brew_installed == 'false'
+        run: |
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+          eval "$(/opt/homebrew/bin/brew shellenv)"
+
+      - name: Install Python 3.11 with Homebrew
+        run: |
+          brew install python@3.11
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '21'
+
+      - name: Convert Handlebar files to LF line endings
+        run: |
+          find ./GSM_Overlay/yomitan/data/templates -name "*.handlebars" -exec sed -i '' 's/\r$//' {} \;
+
+      - name: Build Overlay
+        working-directory: ./GSM_Overlay
+        run: |
+          npm install
+          npm run package
+
+      - name: Install dependencies
+        run: |
+          npm install
+
+      - name: Build Electron app
+        run: |
+          npm run build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Start Electron app (headless test)
+        run: |
+          # Run the app in the background for a few seconds to test it starts
+          timeout 60s npm run start || true
+          echo "Electron app test completed"
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-homebrew-test-logs
+          path: |
+            *.log
+            **/*.log

@@ -3,9 +3,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { Downloader } from 'nodejs-file-downloader';
 import * as tar from 'tar';
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
-import { BASE_DIR, execFileAsync, getPlatform, isWindows } from '../util.js';
+import { BASE_DIR, execFileAsync, getPlatform, isWindows, isMacOS } from '../util.js';
 import { mainWindow } from '../main.js';
 import { dialog } from 'electron';
 
@@ -216,6 +216,184 @@ async function ensureUvInstalled(): Promise<void> {
     }
 }
 
+// --- Homebrew Installation (macOS only) ---
+
+/**
+ * Checks if Homebrew is installed on macOS.
+ */
+async function isHomebrewInstalled(): Promise<boolean> {
+    if (!isMacOS()) return false;
+    
+    try {
+        await execFileAsync('/bin/bash', ['-c', 'which brew']);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Installs Homebrew on macOS with user confirmation.
+ */
+async function installHomebrew(): Promise<void> {
+    if (!isMacOS()) {
+        throw new Error('Homebrew installation is only supported on macOS');
+    }
+
+    const response = await dialog.showMessageBox(mainWindow!, {
+        type: 'question',
+        buttons: ['Yes', 'No'],
+        defaultId: 0,
+        title: 'Install Homebrew',
+        message: 'Homebrew is required to install Python on macOS. Would you like to install it now?',
+        detail: 'This will run the official Homebrew installation script.',
+    });
+
+    if (response.response !== 0) {
+        throw new Error('User declined Homebrew installation');
+    }
+
+    console.log('Installing Homebrew...');
+    mainWindow?.webContents.send('notification', {
+        title: 'Installing Homebrew',
+        message: 'Installing Homebrew package manager. This may take a few minutes and may require your password...',
+    });
+
+    try {
+        // Run the official Homebrew installation script
+        // The script will handle prompting for password if needed
+        const installScript = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
+        
+        // Use spawn instead of execFile for interactive scripts
+        await new Promise<void>((resolve, reject) => {
+            const brewInstall = spawn('/bin/bash', ['-c', installScript], {
+                stdio: 'inherit', // This allows the script to interact with the terminal
+            });
+            
+            brewInstall.on('close', (code: number) => {
+                if (code === 0) {
+                    resolve();
+                } else {
+                    reject(new Error(`Homebrew installation exited with code ${code}`));
+                }
+            });
+            
+            brewInstall.on('error', (err: Error) => {
+                reject(err);
+            });
+        });
+        
+        console.log('Homebrew installed successfully');
+    } catch (error: any) {
+        console.error(`Failed to install Homebrew: ${error.message || error}`);
+        throw new Error(`Homebrew installation failed: ${error.message || error}`);
+    }
+}
+
+/**
+ * Ensures Homebrew is installed on macOS.
+ */
+async function ensureHomebrewInstalled(): Promise<void> {
+    if (!isMacOS()) return;
+
+    if (await isHomebrewInstalled()) {
+        console.log('Homebrew is already installed');
+        return;
+    }
+
+    await installHomebrew();
+}
+
+/**
+ * Installs Python 3.11 using Homebrew on macOS.
+ */
+async function installPythonWithHomebrew(): Promise<void> {
+    console.log('Installing Python 3.11 with Homebrew...');
+    
+    try {
+        // Install Python 3.11
+        await execFileAsync('brew', ['install', 'python@3.11']);
+        console.log('Python 3.11 installed successfully via Homebrew');
+    } catch (error: any) {
+        console.error(`Failed to install Python with Homebrew: ${error.message || error}`);
+        throw error;
+    }
+}
+
+/**
+ * Creates a virtual environment using the Homebrew-installed Python.
+ */
+async function createVenvWithHomebrewPython(): Promise<void> {
+    console.log(`Creating virtual environment at ${VENV_DIR}...`);
+    
+    try {
+        fs.mkdirSync(path.dirname(VENV_DIR), { recursive: true });
+        
+        // Use the Homebrew Python 3.11 to create venv
+        const homebrewPython = '/opt/homebrew/bin/python3.11'; // ARM Mac
+        const homebrewPythonIntel = '/usr/local/bin/python3.11'; // Intel Mac
+        
+        // Try ARM path first, fall back to Intel
+        let pythonBin = homebrewPython;
+        if (!fs.existsSync(homebrewPython)) {
+            if (fs.existsSync(homebrewPythonIntel)) {
+                pythonBin = homebrewPythonIntel;
+            } else {
+                throw new Error('Could not find Homebrew Python 3.11 installation');
+            }
+        }
+        
+        await execFileAsync(pythonBin, ['-m', 'venv', VENV_DIR]);
+        console.log(`Virtual environment created successfully at ${VENV_DIR}`);
+        
+        // Ensure pip is installed in the venv
+        console.log('Ensuring pip is installed in the virtual environment...');
+        const venvPython = getPythonExecutablePath();
+        await execFileAsync(venvPython, ['-m', 'ensurepip', '--upgrade']);
+        console.log('pip ensured successfully');
+        
+        // Upgrade pip to latest version
+        console.log('Upgrading pip to latest version...');
+        await execFileAsync(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip']);
+        console.log('pip upgraded successfully');
+    } catch (error: any) {
+        console.error(`Failed to create virtual environment: ${error.message || error}`);
+        throw error;
+    }
+}
+
+/**
+ * Uninstalls Python 3.11 globally from Homebrew after venv setup.
+ */
+async function uninstallHomebrewPythonGlobally(): Promise<void> {
+    console.log('Uninstalling global Python 3.11 from Homebrew...');
+    
+    try {
+        await execFileAsync('brew', ['uninstall', 'python@3.11']);
+        console.log('Python 3.11 uninstalled globally from Homebrew');
+    } catch (error: any) {
+        // Don't throw on uninstall errors, just log them
+        console.warn(`Failed to uninstall Python globally (this is non-critical): ${error.message || error}`);
+    }
+}
+
+/**
+ * Performs the installation of Python using Homebrew (macOS only).
+ */
+async function _performHomebrewInstallation(): Promise<void> {
+    // Ensure Homebrew is installed
+    await ensureHomebrewInstalled();
+
+    // Install Python 3.11 using Homebrew
+    await installPythonWithHomebrew();
+
+    // Create virtual environment
+    await createVenvWithHomebrewPython();
+
+    // Uninstall Python globally
+    await uninstallHomebrewPythonGlobally();
+}
+
 /**
  * Performs the actual installation of Python using uv.
  */
@@ -284,10 +462,17 @@ export async function getOrInstallPython(): Promise<string> {
     console.log('Python not found. Starting installation process...');
     mainWindow?.webContents.send('notification', {
         title: 'Python Setup',
-        message: 'Installing Python using uv. This may take a moment...',
+        message: isMacOS() 
+            ? 'Installing Python using Homebrew. This may take a few minutes...'
+            : 'Installing Python using uv. This may take a moment...',
     });
 
-    await _performInstallation();
+    // Use Homebrew on macOS, uv on other platforms
+    if (isMacOS()) {
+        await _performHomebrewInstallation();
+    } else {
+        await _performInstallation();
+    }
 
     const pythonExecutablePath = getPythonExecutablePath();
     if (!fs.existsSync(pythonExecutablePath)) {

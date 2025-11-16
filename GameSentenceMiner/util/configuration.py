@@ -1285,68 +1285,68 @@ print("before sys reconfigure??")
 #     traceback.print_exc()
 
 print(f"DEBUG: Creating logger for '{logger_name}'")
-# logger = logging.getLogger(logger_name)
+logger = logging.getLogger(logger_name)
 # Set the base level to DEBUG so that all messages are captured
-# logger.setLevel(logging.DEBUG)
-# print(f"DEBUG: Creating formatter")
-# formatter = logging.Formatter(
-#     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger.setLevel(logging.DEBUG)
+print(f"DEBUG: Creating formatter")
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# # Create console handler with level INFO
-# print(f"DEBUG: Creating console handler")
-# console_handler = logging.StreamHandler(sys.stdout)
-# console_handler.setLevel(logging.INFO)
+# Create console handler with level INFO
+print(f"DEBUG: Creating console handler")
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.INFO)
 
-# console_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
 
-# print(f"DEBUG: Adding console handler to logger")
-# logger.addHandler(console_handler)
+print(f"DEBUG: Adding console handler to logger")
+logger.addHandler(console_handler)
 
-# print(f"DEBUG: Getting log path")
-# file_path = get_log_path()
-# print(f"DEBUG: Log path is: {file_path}")
-# # Use RotatingFileHandler for automatic log rotation
-# print(f"DEBUG: Creating rotating file handler")
-# try:
-#     rotating_handler = RotatingFileHandler(
-#         file_path, 
-#         maxBytes=10 * 1024 * 1024,  # 10MB
-#         backupCount=5 if logger_name == "GameSentenceMiner" else 0,  # Keep more logs for OCR and Overlay
-#         encoding='utf-8'
-#     )
-#     print(f"DEBUG: Rotating handler created successfully")
-#     rotating_handler.setLevel(logging.DEBUG)
-#     rotating_handler.setFormatter(formatter)
-#     print(f"DEBUG: Adding rotating handler to logger")
-#     logger.addHandler(rotating_handler)
-#     print(f"DEBUG: Rotating handler added successfully")
-# except Exception as e:
-#     print(f"ERROR: Failed to create rotating handler: {e}")
-#     import traceback
-#     traceback.print_exc()
+print(f"DEBUG: Getting log path")
+file_path = get_log_path()
+print(f"DEBUG: Log path is: {file_path}")
+# Use RotatingFileHandler for automatic log rotation
+print(f"DEBUG: Creating rotating file handler")
+try:
+    rotating_handler = RotatingFileHandler(
+        file_path, 
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5 if logger_name == "GameSentenceMiner" else 0,  # Keep more logs for OCR and Overlay
+        encoding='utf-8'
+    )
+    print(f"DEBUG: Rotating handler created successfully")
+    rotating_handler.setLevel(logging.DEBUG)
+    rotating_handler.setFormatter(formatter)
+    print(f"DEBUG: Adding rotating handler to logger")
+    logger.addHandler(rotating_handler)
+    print(f"DEBUG: Rotating handler added successfully")
+except Exception as e:
+    print(f"ERROR: Failed to create rotating handler: {e}")
+    import traceback
+    traceback.print_exc()
 
-# print(f"DEBUG: Getting error log path")
-# error_log_path = get_error_log_path()
-# print(f"DEBUG: Error log path is: {error_log_path}")
-# print(f"DEBUG: Creating error handler")
-# try:
-#     error_handler = RotatingFileHandler(
-#         error_log_path,
-#         maxBytes=5 * 1024 * 1024,  # 5MB
-#         backupCount=1,
-#         encoding='utf-8'
-#     )
-#     print(f"DEBUG: Error handler created successfully")
-#     error_handler.setLevel(logging.ERROR)
-#     error_handler.setFormatter(formatter)
-#     error_handler.addFilter(lambda record: record.levelno >= logging.ERROR)
-#     print(f"DEBUG: Adding error handler to logger")
-#     logger.addHandler(error_handler)
-#     print(f"DEBUG: Error handler added successfully")
-# except Exception as e:
-#     print(f"ERROR: Failed to create error handler: {e}")
-#     import traceback
-#     traceback.print_exc()
+print(f"DEBUG: Getting error log path")
+error_log_path = get_error_log_path()
+print(f"DEBUG: Error log path is: {error_log_path}")
+print(f"DEBUG: Creating error handler")
+try:
+    error_handler = RotatingFileHandler(
+        error_log_path,
+        maxBytes=5 * 1024 * 1024,  # 5MB
+        backupCount=1,
+        encoding='utf-8'
+    )
+    print(f"DEBUG: Error handler created successfully")
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(formatter)
+    error_handler.addFilter(lambda record: record.levelno >= logging.ERROR)
+    print(f"DEBUG: Adding error handler to logger")
+    logger.addHandler(error_handler)
+    print(f"DEBUG: Error handler added successfully")
+except Exception as e:
+    print(f"ERROR: Failed to create error handler: {e}")
+    import traceback
+    traceback.print_exc()
 
 print("after logger setup")
 
@@ -1373,10 +1373,10 @@ def cleanup_old_logs(days=7):
                     except Exception as e:
                         logger.error(f"Error deleting file {file_path}: {e}")
 
-# try:
-#     cleanup_old_logs()
-# except Exception as e:
-#     logger.warning(f"Error during log cleanup: {e}")
+try:
+    cleanup_old_logs()
+except Exception as e:
+    logger.warning(f"Error during log cleanup: {e}")
 
 
 class GsmAppState:
@@ -1459,10 +1459,10 @@ def is_running_from_source():
 
 print("before global stuff")
 
-# gsm_status = GsmStatus()
-# anki_results = {}
-# gsm_state = GsmAppState()
-# is_dev = is_running_from_source()
+gsm_status = GsmStatus()
+anki_results = {}
+gsm_state = GsmAppState()
+is_dev = is_running_from_source()
 
 is_beangate = os.path.exists("C:/Users/Beangate")
 
