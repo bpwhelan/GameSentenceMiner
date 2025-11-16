@@ -77,47 +77,47 @@ jobs:
         run: |
           source python_venv/bin/activate
           python -m GameSentenceMiner.gsm --help
-#   test-mac-312:
-#     runs-on: macos-26
-#     steps:
-#       - name: Checkout repository
-#         uses: actions/checkout@v4
-#       - name: Install uv
-#         run: |
-#           pip install uv
-#       - name: Install Python 3.12 with uv
-#         run: |
-#           uv python install 3.12
-#       - name: Create venv and seed
-#         run: |
-#           uv venv --python 3.12 --seed python_venv
-#       - name: Activate venv and install package
-#         run: |
-#           source python_venv/bin/activate
-#           uv pip install .
-#       - name: Run app
-#         run: |
-#           source python_venv/bin/activate
-#           python -m GameSentenceMiner.gsm --help
-#   test-mac-313:
-#     runs-on: macos-26
-#     steps:
-#       - name: Checkout repository
-#         uses: actions/checkout@v4
-#       - name: Install uv
-#         run: |
-#           pip install uv
-#       - name: Install Python 3.13 with uv
-#         run: |
-#           uv python install 3.13
-#       - name: Create venv and seed
-#         run: |
-#           uv venv --python 3.13 --seed python_venv
-#       - name: Activate venv and install package
-#         run: |
-#           source python_venv/bin/activate
-#           uv pip install .
-#       - name: Run app
-#         run: |
-#           source python_venv/bin/activate
-#           python -m GameSentenceMiner.gsm --help
+  test-mac-312:
+    runs-on: macos-26
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install uv
+        run: |
+          pip install uv
+      - name: Install Python 3.12 with uv
+        run: |
+          uv python install 3.12
+      - name: Create venv and seed
+        run: |
+          uv venv --python 3.12 --seed python_venv
+      - name: Activate venv and install package
+        run: |
+          source python_venv/bin/activate
+          uv pip install .
+      - name: Run app
+        run: |
+          source python_venv/bin/activate
+          python -m GameSentenceMiner.gsm --help
+  test-mac-313:
+    runs-on: macos-26
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install uv
+        run: |
+          pip install uv
+      - name: Install Python 3.13 with uv
+        run: |
+          uv python install 3.13
+      - name: Create venv and seed
+        run: |
+          uv venv --python 3.13 --seed python_venv
+      - name: Activate venv and install package
+        run: |
+          source python_venv/bin/activate
+          uv pip install .
+      - name: Run app
+        run: |
+          source python_venv/bin/activate
+          python -m GameSentenceMiner.gsm --help
