@@ -995,28 +995,21 @@ document.addEventListener('DOMContentLoaded', function () {
             statusClass = 'dashboard-progress-value';
         }
         
-        return {
-            statItemHTML: `
-                <div class="dashboard-stat-item custom-goal-projection-item tooltip"
-                     data-tooltip="Total ${metricLabel.toLowerCase()} you'll have by ${formattedTargetDate}"
-                     data-goal-id="${goal.id}">
-                    <span class="dashboard-stat-value">
-                        <span class="goal-icon" style="margin-right: 4px;">${goal.icon}</span>
-                        ${formattedProjection}
-                    </span>
-                    <span class="dashboard-stat-label">${goal.name} by ${formattedTargetDate}</span>
+        // Return combined HTML with status summary inside the box
+        return `
+            <div class="dashboard-stat-item custom-goal-projection-item tooltip"
+                 data-tooltip="Total ${metricLabel.toLowerCase()} you'll have by ${formattedTargetDate}"
+                 data-goal-id="${goal.id}">
+                <span class="dashboard-stat-value">
+                    <span class="goal-icon" style="margin-right: 4px;">${goal.icon}</span>
+                    ${formattedProjection}
+                </span>
+                <span class="dashboard-stat-label">${goal.name} by ${formattedTargetDate}</span>
+                <div class="projection-status ${statusClass}" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color); ${percentDiff < -5 ? 'color: var(--warning-color);' : ''} ${percentDiff < -15 ? 'color: var(--danger-color);' : ''}">
+                    ${statusHTML}
                 </div>
-            `,
-            summaryItemHTML: `
-                <div class="dashboard-progress-item custom-goal-projection-summary"
-                     data-goal-id="${goal.id}">
-                    <div class="${statusClass}" style="${percentDiff < -5 ? 'color: var(--warning-color);' : ''} ${percentDiff < -15 ? 'color: var(--danger-color);' : ''}">
-                        ${statusHTML}
-                    </div>
-                    <div class="dashboard-progress-label">${goal.name} Status</div>
-                </div>
-            `
-        };
+            </div>
+        `;
     }
 
     // Function to load goal projections
@@ -1027,13 +1020,15 @@ document.addEventListener('DOMContentLoaded', function () {
             // Load custom goals projections (only for 4 core metrics)
             const customGoals = CustomGoalsManager.getActive();
             const projectionStats = document.getElementById('projectionStats');
-            const projectionProgress = document.querySelector('#projectionProgress .dashboard-progress-items');
+            
+            // If projectionStats doesn't exist (not on overview page), skip this function
+            if (!projectionStats) {
+                return;
+            }
             
             // Remove existing custom goal projection items
             const existingCustomStats = projectionStats.querySelectorAll('.custom-goal-projection-item');
             existingCustomStats.forEach(el => el.remove());
-            const existingCustomSummaries = projectionProgress.querySelectorAll('.custom-goal-projection-summary');
-            existingCustomSummaries.forEach(el => el.remove());
             
             // Filter for only the 4 core metrics and goals that have started
             const coreMetrics = ['hours', 'characters', 'games', 'cards'];
@@ -1078,10 +1073,9 @@ document.addEventListener('DOMContentLoaded', function () {
                         const projectionData = await response.json();
                         hasAnyProjection = true;
                         
-                        // Render both stat item and summary
+                        // Render combined stat item with status inside
                         const rendered = renderCustomGoalProjectionItem(goal, projectionData);
-                        projectionStats.insertAdjacentHTML('beforeend', rendered.statItemHTML);
-                        projectionProgress.insertAdjacentHTML('beforeend', rendered.summaryItemHTML);
+                        projectionStats.insertAdjacentHTML('beforeend', rendered);
                         
                     } catch (error) {
                         console.error(`Error loading projection for goal ${goal.id}:`, error);
@@ -1093,11 +1087,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (hasAnyProjection) {
                 document.getElementById('noProjectionsMessage').style.display = 'none';
                 document.getElementById('projectionStats').style.display = 'grid';
-                document.getElementById('projectionProgress').style.display = 'block';
             } else {
                 document.getElementById('noProjectionsMessage').style.display = 'block';
                 document.getElementById('projectionStats').style.display = 'none';
-                document.getElementById('projectionProgress').style.display = 'none';
             }
             
         } catch (error) {

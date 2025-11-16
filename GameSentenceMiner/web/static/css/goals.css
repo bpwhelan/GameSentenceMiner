@@ -222,6 +222,30 @@
     }
 }
 
+/* Projection stats grid - 3 column layout like goal-progress-grid */
+#projectionStats {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important;
+    gap: 24px !important;
+}
+
+/* Projection status styling inside boxes */
+.projection-status {
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+.projection-status.positive {
+    color: var(--success-color);
+}
+
+/* Responsive adjustments for projection grid */
+@media (max-width: 768px) {
+    #projectionStats {
+        grid-template-columns: 1fr !important;
+        gap: 16px !important;
+    }
+}
+
 /* Complete Dailies Confirmation Modal Styles */
 #completeDailiesModal .modal-content {
     max-width: 600px;

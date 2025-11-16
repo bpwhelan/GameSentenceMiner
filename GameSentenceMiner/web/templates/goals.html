@@ -91,6 +91,25 @@
             </div>
         </div>
 
+        <!-- Goal Projections Card -->
+        <div class="dashboard-card goal-projections-chart" id="goalProjectionsChart" style="margin-bottom: 30px;">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">📊</span>
+                    Your Stats by Goal Date
+                </h3>
+                <p class="dashboard-card-subtitle">Based on your 30-day average reading pace</p>
+            </div>
+
+            <div id="noProjectionsMessage" class="no-targets-message" style="display: none; text-align: center; padding: 40px 20px; color: var(--text-tertiary); font-style: italic;">
+                Create goals with target dates to see your projections
+            </div>
+
+            <div class="dashboard-stats-grid" id="projectionStats">
+                <!-- Projection items will be dynamically inserted here -->
+            </div>
+        </div>
+
         <!-- Custom Goal Modal -->
         <div id="customGoalModal" class="modal">
             <div class="modal-content">
