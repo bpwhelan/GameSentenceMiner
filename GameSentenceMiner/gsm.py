@@ -315,12 +315,18 @@ class VideoToAudioHandler(FileSystemEventHandler):
             video_path, game_line, next_line_time, anki_card_creation_time)
         if temporary:
             return ffmpeg.convert_audio_to_wav_lossless(trimmed_audio)
-        if not get_config().vad.do_vad_postprocessing:
-            return trimmed_audio, VADResult(True, start_time, end_time, "No VAD"), trimmed_audio, start_time, end_time
-        vad_trimmed_audio = make_unique_file_name(
-            f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
         final_audio_output = make_unique_file_name(os.path.join(get_temporary_directory(),
                                                                 f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
+        if not get_config().vad.do_vad_postprocessing:
+            if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
+                ffmpeg.reencode_file_with_user_config(trimmed_audio, final_audio_output,
+                                                    get_config().audio.ffmpeg_reencode_options_to_use)
+            else:
+                shutil.move(trimmed_audio, final_audio_output)
+            return final_audio_output, VADResult(True, start_time, end_time, "No VAD", output_audio=final_audio_output), trimmed_audio, start_time, end_time
+        
+        vad_trimmed_audio = make_unique_file_name(
+            f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}")
 
         vad_result = vad_processor.trim_audio_with_vad(
             trimmed_audio, vad_trimmed_audio, game_line, full_text)
