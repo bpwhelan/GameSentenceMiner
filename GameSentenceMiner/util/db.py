@@ -686,8 +686,8 @@ class GoalsTable(SQLiteDBTable):
             if latest_date == yesterday:
                 return latest.streak + 1
             else:
-                # Streak is broken
-                return 0
+                # Streak is broken, start new streak at 1
+                return 1
                 
         except (ValueError, AttributeError) as e:
             logger.error(f"Error calculating streak: {e}")
