@@ -622,18 +622,19 @@ class GoalsTable(SQLiteDBTable):
     One entry per day when user completes their dailies.
     """
     _table = 'goals'
-    _fields = ['date', 'streak', 'current_goals', 'goals_settings', 'last_updated']
+    _fields = ['date', 'streak', 'longest_streak', 'current_goals', 'goals_settings', 'last_updated']
     _types = [int,  # Includes primary key type
-              str, int, str, str, float]
+              str, int, int, str, str, float]
     _pk = 'id'
     _auto_increment = True
 
     def __init__(self, id: Optional[int] = None, date: Optional[str] = None,
-                 streak: int = 0, current_goals: Optional[str] = None,
+                 streak: int = 0, longest_streak: int = 0, current_goals: Optional[str] = None,
                  goals_settings: Optional[str] = None, last_updated: Optional[float] = None):
         self.id = id
         self.date = date if date is not None else ''
         self.streak = streak
+        self.longest_streak = longest_streak
         self.current_goals = current_goals if current_goals is not None else '[]'
         self.goals_settings = goals_settings if goals_settings is not None else '{}'
         self.last_updated = last_updated
@@ -653,29 +654,33 @@ class GoalsTable(SQLiteDBTable):
         return cls.from_row(row) if row else None
 
     @classmethod
-    def create_entry(cls, date_str: str, streak: int, current_goals_json: str,
+    def create_entry(cls, date_str: str, streak: int, longest_streak: int, current_goals_json: str,
                      goals_settings_json: Optional[str] = None, last_updated: Optional[float] = None) -> 'GoalsTable':
         """Create a new goals entry for a specific date."""
-        new_entry = cls(date=date_str, streak=streak, current_goals=current_goals_json,
+        new_entry = cls(date=date_str, streak=streak, longest_streak=longest_streak,
+                       current_goals=current_goals_json,
                        goals_settings=goals_settings_json if goals_settings_json else '{}',
                        last_updated=last_updated if last_updated is not None else time.time())
         new_entry.save()
         return new_entry
 
     @classmethod
-    def calculate_streak(cls, today_str: str) -> int:
+    def calculate_streak(cls, today_str: str) -> Tuple[int, int]:
         """
-        Calculate the streak for today based on the latest entry.
-        Returns 1 if this is the first entry or if streak is broken.
-        Returns previous_streak + 1 if dates are consecutive.
+        Calculate the current streak and longest streak for today.
+        Returns tuple of (current_streak, longest_streak).
+        
+        Current streak: consecutive days ending today or yesterday
+        Longest streak: maximum consecutive days from all historical data
         """
         latest = cls.get_latest()
         
         if not latest:
-            # First entry ever - start streak at 1
-            return 1
+            # First entry ever - start both streaks at 1
+            return (1, 1)
         
-        # Parse dates
+        # Calculate current streak
+        current_streak = 1
         try:
             from datetime import datetime, timedelta
             latest_date = datetime.strptime(latest.date, '%Y-%m-%d').date()
@@ -684,14 +689,19 @@ class GoalsTable(SQLiteDBTable):
             
             # Check if latest entry is from yesterday (consecutive)
             if latest_date == yesterday:
-                return latest.streak + 1
+                current_streak = latest.streak + 1
             else:
-                # Streak is broken
-                return 0
+                # Streak is broken, start fresh
+                current_streak = 1
                 
         except (ValueError, AttributeError) as e:
-            logger.error(f"Error calculating streak: {e}")
-            return 0
+            logger.error(f"Error calculating current streak: {e}")
+            current_streak = 1
+        
+        # Calculate longest streak from all entries
+        longest_streak = max(current_streak, latest.longest_streak if latest.longest_streak else 0)
+        
+        return (current_streak, longest_streak)
 
 # Ensure database directory exists and return path
 def get_db_directory(test=False, delete_test=False) -> str:

@@ -212,35 +212,21 @@ const CustomGoalCheckboxManager = {
         // Sort dates in descending order (most recent first)
         const sortedDates = [...completionDates].sort((a, b) => b.localeCompare(a));
         
-        const today = this.getTodayDateString();
-        let streak = 0;
-        let currentDate = new Date(today);
+        // Start from the most recent completion date
+        let streak = 1;
+        let prevDate = new Date(sortedDates[0]);
         
-        // Check if today is completed
-        if (sortedDates[0] === today) {
-            streak = 1;
-            currentDate.setDate(currentDate.getDate() - 1);
-        } else {
-            // If today is not completed, check if yesterday was
-            currentDate.setDate(currentDate.getDate() - 1);
-            const yesterday = GoalsUtils.formatDateString(currentDate);
-            
-            if (sortedDates[0] !== yesterday) {
-                return 0; // Streak is broken
-            }
-            streak = 1;
-            currentDate.setDate(currentDate.getDate() - 1);
-        }
-        
-        // Count consecutive days backwards
+        // Count consecutive days backwards from the most recent date
         for (let i = 1; i < sortedDates.length; i++) {
-            const expectedDate = GoalsUtils.formatDateString(currentDate);
+            // Calculate expected previous date
+            prevDate.setDate(prevDate.getDate() - 1);
+            const expectedDate = GoalsUtils.formatDateString(prevDate);
             
             if (sortedDates[i] === expectedDate) {
                 streak++;
-                currentDate.setDate(currentDate.getDate() - 1);
             } else {
-                break; // Streak is broken
+                // Streak is broken, stop counting
+                break;
             }
         }
         
@@ -1345,21 +1331,12 @@ document.addEventListener('DOMContentLoaded', function () {
             
             const data = await response.json();
             const currentStreak = data.streak || 0;
+            const longestStreak = data.longest_streak || 0;
             const lastCompletionDate = data.last_completion_date;
             
-            // Update streak display
+            // Update streak displays from database
             document.getElementById('currentStreakValue').textContent = currentStreak;
-            
-            // For longest streak, we need to check if there's a stored value
-            // For now, we'll use current streak as longest (API doesn't track longest separately yet)
-            // In a real implementation, you'd want to track this in the database
-            const longestStreak = Math.max(currentStreak, parseInt(localStorage.getItem('gsm_longest_dailies_streak') || '0'));
             document.getElementById('longestStreakValue').textContent = longestStreak;
-            
-            // Store longest streak in localStorage
-            if (currentStreak > longestStreak) {
-                localStorage.setItem('gsm_longest_dailies_streak', currentStreak.toString());
-            }
             
             // Show the streak section
             document.getElementById('dailiesStreakSection').style.display = 'block';
@@ -1566,15 +1543,12 @@ document.addEventListener('DOMContentLoaded', function () {
             
             const newStreak = data.streak;
             
-            // Update streak display
+            // Update streak displays from API response
             document.getElementById('currentStreakValue').textContent = newStreak;
             
-            // Update longest streak if needed
-            const currentLongest = parseInt(document.getElementById('longestStreakValue').textContent);
-            if (newStreak > currentLongest) {
-                document.getElementById('longestStreakValue').textContent = newStreak;
-                localStorage.setItem('gsm_longest_dailies_streak', newStreak.toString());
-            }
+            // Update longest streak from API response
+            const newLongestStreak = data.longest_streak || newStreak;
+            document.getElementById('longestStreakValue').textContent = newLongestStreak;
             
             // Update button
             completeDailiesBtn.disabled = true;

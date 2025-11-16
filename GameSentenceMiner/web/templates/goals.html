@@ -70,9 +70,8 @@
             <div class="dashboard-card-header">
                 <h3 class="dashboard-card-title">
                     <span class="dashboard-card-icon">🎯</span>
-                    Goal Progress Chart
+                    Goals
                 </h3>
-                <p class="dashboard-card-subtitle">Track your reading goals and projected completion dates</p>
             </div>
 
             <div class="goal-progress-grid">
@@ -89,32 +88,6 @@
                 <div class="goal-progress-error-icon">⚠️</div>
                 <div class="goal-progress-error-message">Failed to load goal progress</div>
                 <button class="retry-btn" onclick="loadGoalProgress()">Retry</button>
-            </div>
-        </div>
-
-        <!-- Your Stats by Goal Date Card -->
-        <div class="dashboard-card projection-card" id="projectionCard" style="margin-bottom: 30px;">
-            <div class="dashboard-card-header">
-                <h3 class="dashboard-card-title">
-                    <span class="dashboard-card-icon">📊</span>
-                    Your Stats by Goal Date
-                </h3>
-                <p class="dashboard-card-subtitle">Based on your 30-day average reading pace</p>
-            </div>
-
-            <div id="noProjectionsMessage" class="no-targets-message" style="display: none; text-align: center; padding: 40px 20px; color: var(--text-tertiary); font-style: italic;">
-                Set target dates in settings to see projections
-            </div>
-
-            <div class="dashboard-stats-grid" id="projectionStats">
-                <!-- Custom goals will be dynamically inserted here -->
-            </div>
-
-            <div class="dashboard-progress-section" id="projectionProgress" style="display: none;">
-                <div class="dashboard-progress-title">Projection Summary</div>
-                <div class="dashboard-progress-items">
-                    <!-- Custom goal summaries will be dynamically inserted here -->
-                </div>
             </div>
         </div>
 
@@ -230,7 +203,7 @@
                 </div>
                 <div class="modal-body">
                     <p style="color: var(--text-secondary); margin-bottom: 20px;">
-                        Here's what you'll need to accomplish tomorrow to stay on track:
+                        Dailies tomorrow:
                     </p>
                     
                     <!-- Loading state -->

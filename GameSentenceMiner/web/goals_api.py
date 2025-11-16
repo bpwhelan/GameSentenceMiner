@@ -686,8 +686,8 @@ def register_goals_api_routes(app):
                     "date": today_str
                 }), 400
             
-            # Calculate streak for today
-            streak = GoalsTable.calculate_streak(today_str)
+            # Calculate streak for today (returns tuple of current_streak, longest_streak)
+            current_streak, longest_streak = GoalsTable.calculate_streak(today_str)
             
             # Convert current_goals and goals_settings to JSON strings
             current_goals_json = json.dumps(current_goals)
@@ -696,19 +696,21 @@ def register_goals_api_routes(app):
             # Create new entry with current Unix timestamp
             new_entry = GoalsTable.create_entry(
                 date_str=today_str,
-                streak=streak,
+                streak=current_streak,
+                longest_streak=longest_streak,
                 current_goals_json=current_goals_json,
                 goals_settings_json=goals_settings_json,
                 last_updated=time.time()
             )
             
-            logger.info(f"Dailies completed for {today_str} with streak: {streak}")
+            logger.info(f"Dailies completed for {today_str} with streak: {current_streak}, longest: {longest_streak}")
             
             return jsonify({
                 "success": True,
                 "date": today_str,
-                "streak": streak,
-                "message": f"Dailies completed! Current streak: {streak} days"
+                "streak": current_streak,
+                "longest_streak": longest_streak,
+                "message": f"Dailies completed! Current streak: {current_streak} days"
             }), 200
             
         except Exception as e:
@@ -718,11 +720,12 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/current_streak", methods=["GET"])
     def api_get_current_streak():
         """
-        Get the current streak from the latest goals entry.
+        Get the current streak and longest streak from the latest goals entry.
         
         Returns:
         {
             "streak": 5,
+            "longest_streak": 10,
             "last_completion_date": "2025-01-14"
         }
         """
@@ -732,6 +735,7 @@ def register_goals_api_routes(app):
             if not latest_entry:
                 return jsonify({
                     "streak": 0,
+                    "longest_streak": 0,
                     "last_completion_date": None
                 }), 200
             
@@ -750,8 +754,12 @@ def register_goals_api_routes(app):
             except (ValueError, AttributeError):
                 current_streak = 0
             
+            # Get longest streak (always preserved even if current streak is broken)
+            longest_streak = latest_entry.longest_streak if hasattr(latest_entry, 'longest_streak') and latest_entry.longest_streak else 0
+            
             return jsonify({
                 "streak": current_streak,
+                "longest_streak": longest_streak,
                 "last_completion_date": latest_entry.date
             }), 200
             
