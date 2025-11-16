@@ -1285,7 +1285,7 @@ print("before sys reconfigure??")
 #     traceback.print_exc()
 
 print(f"DEBUG: Creating logger for '{logger_name}'")
-logger = logging.getLogger(logger_name)
+# logger = logging.getLogger(logger_name)
 # Set the base level to DEBUG so that all messages are captured
 # logger.setLevel(logging.DEBUG)
 # print(f"DEBUG: Creating formatter")
@@ -1373,10 +1373,10 @@ def cleanup_old_logs(days=7):
                     except Exception as e:
                         logger.error(f"Error deleting file {file_path}: {e}")
 
-try:
-    cleanup_old_logs()
-except Exception as e:
-    logger.warning(f"Error during log cleanup: {e}")
+# try:
+#     cleanup_old_logs()
+# except Exception as e:
+#     logger.warning(f"Error during log cleanup: {e}")
 
 
 class GsmAppState:
@@ -1459,10 +1459,10 @@ def is_running_from_source():
 
 print("before global stuff")
 
-gsm_status = GsmStatus()
-anki_results = {}
-gsm_state = GsmAppState()
-is_dev = is_running_from_source()
+# gsm_status = GsmStatus()
+# anki_results = {}
+# gsm_state = GsmAppState()
+# is_dev = is_running_from_source()
 
 is_beangate = os.path.exists("C:/Users/Beangate")
 
