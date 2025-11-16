@@ -492,7 +492,7 @@ class OverlayProcessor:
                 word_list = []
 
                 for word in line.get("words", []):
-                    if self.ocr_language not in ['ja', 'zh', 'ko']:
+                    if self.ocr_language not in ['ja', 'zh', 'ko', 'th', 'lo', 'km', 'my', 'bo']:
                         word["plain_text"] += word["text_separator"]
                     word_text = word.get("plain_text", "")
                     line_text_parts.append(word_text)
@@ -592,8 +592,8 @@ class OverlayProcessor:
             converted_results.append(converted_item)
             for word in converted_item.get("words", []):
                 word_bbox = word.get("bounding_rect", {})
-                # If not japanese/chinese/korean, add a space after each word
-                if self.ocr_language not in ['ja', 'zh', 'ko']:
+                # If not CJK or Southeast Asian script, add a space after each word
+                if self.ocr_language not in ['ja', 'zh', 'ko', 'th', 'lo', 'km', 'my', 'bo']:
                     word["text"] += " "
                 if word_bbox:
                     word["bounding_rect"] = {
