@@ -1290,19 +1290,19 @@ def switch_profile_and_save(profile_name):
 print("before logger setup")
 
 print("before sys reconfigure??")
-try:
-    # On macOS, reconfigure() can cause CFData assertion failures
-    # Only reconfigure on Windows where it's actually needed
-    if is_windows():
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
-        print("after sys reconfigure - Windows")
-    else:
-        print("after sys reconfigure - skipped on non-Windows platform")
-except Exception as e:
-    print(f"Warning: Could not reconfigure stdout/stderr encoding: {e}")
-    import traceback
-    traceback.print_exc()
+# try:
+#     # On macOS, reconfigure() can cause CFData assertion failures
+#     # Only reconfigure on Windows where it's actually needed
+#     if is_windows():
+#         sys.stdout.reconfigure(encoding='utf-8')
+#         sys.stderr.reconfigure(encoding='utf-8')
+#         print("after sys reconfigure - Windows")
+#     else:
+#         print("after sys reconfigure - skipped on non-Windows platform")
+# except Exception as e:
+#     print(f"Warning: Could not reconfigure stdout/stderr encoding: {e}")
+#     import traceback
+#     traceback.print_exc()
 
 print(f"DEBUG: Creating logger for '{logger_name}'")
 logger = logging.getLogger(logger_name)
