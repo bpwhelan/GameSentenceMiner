@@ -623,8 +623,13 @@ class GoalsTable(SQLiteDBTable):
     """
     _table = 'goals'
     _fields = ['date', 'current_goals', 'goals_settings', 'last_updated']
-    _types = [int,  # Includes primary key type
-              str, str, str, float]
+    _types = [
+        int,   # id (primary key)
+        str,   # date
+        str,   # current_goals
+        str,   # goals_settings
+        float  # last_updated
+    ]
     _pk = 'id'
     _auto_increment = True
 
