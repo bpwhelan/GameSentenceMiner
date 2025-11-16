@@ -1,3 +1,4 @@
+print("Top of gsm.py!")
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
 def handle_error_in_initialization(e):
@@ -21,7 +22,7 @@ try:
     from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
     get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
     is_windows, is_linux, get_ffmpeg_path, is_mac, is_dev
-    
+    print("Imported configuration.")
     import asyncio
     import os
     import shutil
@@ -36,66 +37,71 @@ try:
     import signal
     import datetime
     from subprocess import Popen
-    from queue import Queue
+    
+    print("Imported standard libraries")
 
     import keyboard
-    import ttkbootstrap as ttk
+    print("Imported keyboard")
     from PIL import Image
+    print("Imported PIL Image")
     try:
         from pystray import Icon, Menu, MenuItem
     except Exception:
         logger.warning("pystray not installed correctly, tray icon will not work.")
+    print("Imported pystray")
     from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
+    print("Imported watchdog")
     import psutil
+    print("Imported psutil")
 
     start_time = time.time()
 
-    logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] configuration: {time.time() - start_time:.3f}s")
     
     start_time = time.time()
     from GameSentenceMiner.util.get_overlay_coords import init_overlay_processor
     from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags, add_srt_line
-    logger.debug(f"[Import] get_overlay_coords (OverlayThread, remove_html_and_cloze_tags): {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] get_overlay_coords (OverlayThread, remove_html_and_cloze_tags): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.model import VADResult
-    logger.debug(f"[Import] VADResult model: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] VADResult model: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.vad import vad_processor
-    logger.debug(f"[Import] vad_processor: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] vad_processor: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed, write_obs_configs, download_oneocr_dlls_if_needed
-    logger.debug(
+    logger.info(
         f"[Import] download_tools (download_obs_if_needed, download_ffmpeg_if_needed): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
-    logger.debug(
+    logger.info(
         f"[Import] gsm_utils (wait_for_stable_file, make_unique_file_name, run_new_thread): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner import anki
-    logger.debug(f"[Import] anki: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] anki: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.ui import qt_main
-    logger.debug(f"[Import] qt_main: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] qt_main: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util import configuration, notification, ffmpeg
-    logger.debug(
+    logger.info(
         f"[Import] util (configuration, notification, ffmpeg): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner import gametext
-    logger.debug(f"[Import] gametext: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] gametext: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner import obs
-    logger.debug(f"[Import] obs: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] obs: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
 
@@ -106,37 +112,37 @@ try:
         FunctionName,
         announce_connected,
     )
-    logger.debug(
+    logger.info(
         f"[Import] stdout-ipc (register_command_handler, start_ipc_listener_in_thread, FunctionName): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.ffmpeg import get_audio_and_trim
-    logger.debug(
+    logger.info(
         f"[Import] util.ffmpeg (get_audio_and_trim, get_video_timings, get_ffmpeg_path): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.obs import check_obs_folder_is_correct
-    logger.debug(
+    logger.info(
         f"[Import] obs.check_obs_folder_is_correct: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.text_log import get_mined_line, get_all_lines
-    logger.debug(
+    logger.info(
         f"[Import] util.text_log (GameLine, get_text_event, get_mined_line, get_all_lines, game_log): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web import texthooking_page
-    logger.debug(
+    logger.info(
         f"[Import] web.texthooking_page: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web.service import handle_texthooker_button, set_get_audio_from_video_callback
-    logger.debug(
+    logger.info(
         f"[Import] web.service (handle_texthooker_button, set_get_audio_from_video_callback): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
-    logger.debug(
+    logger.info(
         f"[Import] web.texthooking_page.run_text_hooker_page: {time.time() - start_time:.3f}s")
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows

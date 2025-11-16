@@ -376,8 +376,6 @@ let iconStyle = "";
 
 const availableIcons = ['gsm', 'gsm_cute', 'gsm_jacked', 'gsm_cursed'];
 
-console.log(getIconStyle());
-
 if (getIconStyle().includes('random')) {
     const randomIndex = Math.floor(Math.random() * availableIcons.length);
     const selectedIcon = availableIcons[randomIndex];
@@ -643,20 +641,33 @@ async function createWindow() {
 }
 
 function createTray() {
-    tray = new Tray(getIconPath(true));
-    const contextMenu = Menu.buildFromTemplate([
-        { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
-        { label: 'Restart Python App', click: () => restartGSM() },
-        { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
-        { label: 'Quit', click: () => quit() },
-    ]);
+    try {
+        const iconPath = getIconPath(true);
+        
+        // Check if icon file exists before creating tray
+        if (!fs.existsSync(iconPath)) {
+            console.warn(`Tray icon not found at ${iconPath}, skipping tray creation`);
+            return;
+        }
+        
+        tray = new Tray(iconPath);
+        const contextMenu = Menu.buildFromTemplate([
+            { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
+            { label: 'Restart Python App', click: () => restartGSM() },
+            { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
+            { label: 'Quit', click: () => quit() },
+        ]);
 
-    tray.setToolTip('GameSentenceMiner');
-    tray.setContextMenu(contextMenu);
+        tray.setToolTip('GameSentenceMiner');
+        tray.setContextMenu(contextMenu);
 
-    tray.on('click', () => {
-        showWindow();
-    });
+        tray.on('click', () => {
+            showWindow();
+        });
+    } catch (error) {
+        console.error('Failed to create tray:', error);
+        // Don't throw - tray is optional, app can continue without it
+    }
 }
 
 function showWindow() {
