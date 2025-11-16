@@ -430,16 +430,19 @@ async function _performHomebrewInstallation(): Promise<void> {
     // Create virtual environment
     await createVenvWithHomebrewPython();
 
-    // Verify venv works before attempting to uninstall global Python
+    // Verify venv works
     console.log('Verifying virtual environment installation...');
     const venvPath = getPythonExecutablePath();
     if (!fs.existsSync(venvPath)) {
         throw new Error(`Virtual environment Python not found at expected path: ${venvPath}`);
     }
     console.log(`Virtual environment Python found at: ${venvPath}`);
-
-    // Uninstall Python globally (optional, will be skipped if it would break the venv)
-    await uninstallHomebrewPythonGlobally();
+    
+    // Note: We intentionally do NOT uninstall the global Python 3.11 installation.
+    // This prevents breaking the venv (which may use symlinks) and avoids interfering
+    // with any existing Python installations the user may have. The venv is isolated
+    // and will use its own Python regardless of what's installed globally.
+    console.log('Python 3.11 installation complete. Global installation left intact to avoid conflicts.');
 }
 
 /**
