@@ -75,7 +75,12 @@ jobs:
           uv pip install .
       - name: Run app
         run: |
-          python_venv/bin/python -m GameSentenceMiner.gsm --help
+          python_venv/bin/python -m GameSentenceMiner.gsm --help > gsm_run_output.txt 2>&1
+      - name: Upload GSM run output
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm_run_output
+          path: gsm_run_output.txt
 #   test-mac-312:
 #     runs-on: macos-26
 #     steps:
