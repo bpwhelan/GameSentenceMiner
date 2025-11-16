@@ -1,47 +1,27 @@
-print("Top of configuration.py")
 import dataclasses
-print("Dataclasses imported successfully")
 import json
-print("JSON imported successfully")
 import logging
-print("Logging imported successfully")
 import os
-print("OS imported successfully")
 import shutil
-print("Shutil imported successfully")
 import threading
-print("Threading imported successfully")
 import inspect
-print("Inspect imported successfully")
 import re
-print("RE imported successfully")
 
 from dataclasses import dataclass, field
-print("1")
 from logging.handlers import RotatingFileHandler
-print("2")
 from os.path import expanduser
-print("3")
 from sys import platform
-print("4")
 import time
-print("5")
 from typing import Any, List, Dict
-print("6")
 import sys
-print("7")
 from enum import Enum
-print("8")
 
 import toml
-print("9")
 from dataclasses_json import dataclass_json
-print("10")
 
 from importlib import metadata
-print("11")
 
-
+print("configuration.py imports successful")
 
 
 OFF = 'OFF'

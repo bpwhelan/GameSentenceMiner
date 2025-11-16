@@ -1,6 +1,4 @@
-print("Top of gsm.py")
-import sys 
-print(sys.stdout, sys.stderr)
+print("Top of gsm.py!")
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
 def handle_error_in_initialization(e):
@@ -24,7 +22,7 @@ try:
     from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
     get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
     is_windows, is_linux, get_ffmpeg_path, is_mac, is_dev
-    print("Imported configuration")
+    print("Imported configuration.")
     import asyncio
     import os
     import shutil
