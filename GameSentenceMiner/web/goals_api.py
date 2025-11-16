@@ -235,7 +235,7 @@ def format_requirement_display(value, metric_type):
     """
     if metric_type == "hours":
         hours = int(value)
-        minutes = int((value - hours) * 60)
+        minutes = int(round((value - hours) * 60))
         if hours > 0:
             return f"{hours}h" + (f" {minutes}m" if minutes > 0 else "")
         else:

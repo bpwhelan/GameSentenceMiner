@@ -668,8 +668,11 @@ class GoalsTable(SQLiteDBTable):
         Calculate the current streak and longest streak for today.
         Returns tuple of (current_streak, longest_streak).
         
-        Current streak: consecutive days ending today or yesterday
-        Longest streak: maximum consecutive days from all historical data (stored in goals_settings JSON)
+        Current streak: consecutive days ending today or yesterday.
+        This means that if you complete yesterday's goals today (i.e., you missed marking them as complete on the actual day),
+        your streak will continue, allowing you to maintain your streak even if you finish dailies a day late.
+        
+        Longest streak: maximum consecutive days from all historical data (stored in goals_settings JSON).
         """
         latest = cls.get_latest()
         

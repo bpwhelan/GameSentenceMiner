@@ -665,13 +665,22 @@ document.addEventListener('DOMContentLoaded', function () {
 
         let dailyTotals = {};
         
+        // Cache for date string conversions to avoid redundant calculations
+        const dateStrCache = new Map();
+        const getDateStr = (timestamp) => {
+            if (!dateStrCache.has(timestamp)) {
+                const dateObj = new Date(timestamp * 1000);
+                dateStrCache.set(timestamp, GoalsUtils.formatDateString(dateObj));
+            }
+            return dateStrCache.get(timestamp);
+        };
+        
         if (metricType === 'hours') {
             const dailyTimestamps = {};
             for (const line of recentData) {
                 const ts = parseFloat(line.timestamp);
                 if (isNaN(ts)) continue;
-                const dateObj = new Date(ts * 1000);
-                const dateStr = GoalsUtils.formatDateString(dateObj);
+                const dateStr = getDateStr(ts);
                 if (!dailyTimestamps[dateStr]) {
                     dailyTimestamps[dateStr] = [];
                 }
@@ -696,8 +705,7 @@ document.addEventListener('DOMContentLoaded', function () {
             for (const line of recentData) {
                 const ts = parseFloat(line.timestamp);
                 if (isNaN(ts)) continue;
-                const dateObj = new Date(ts * 1000);
-                const dateStr = GoalsUtils.formatDateString(dateObj);
+                const dateStr = getDateStr(ts);
                 dailyTotals[dateStr] = (dailyTotals[dateStr] || 0) + (line.characters || 0);
             }
         } else if (metricType === 'games') {
@@ -705,8 +713,7 @@ document.addEventListener('DOMContentLoaded', function () {
             for (const line of recentData) {
                 const ts = parseFloat(line.timestamp);
                 if (isNaN(ts)) continue;
-                const dateObj = new Date(ts * 1000);
-                const dateStr = GoalsUtils.formatDateString(dateObj);
+                const dateStr = getDateStr(ts);
                 if (!dailyGames[dateStr]) {
                     dailyGames[dateStr] = new Set();
                 }
@@ -856,9 +863,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Function to load today's goals
     async function loadTodayGoals() {
         try {
-            const response = await fetch('/api/goals-today');
-            if (!response.ok) throw new Error('Failed to fetch today goals');
-            
+            // Note: Client-side date calculation is intentional to respect user's local timezone
             const dateStr = GoalsUtils.getTodayDateString();
             document.getElementById('todayGoalsDate').textContent = dateStr;
             

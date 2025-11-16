@@ -729,7 +729,10 @@
     transition: opacity 0.3s ease;
 }
 
-.custom-goal-item:hover .custom-goal-actions {
+.custom-goal-item:hover .custom-goal-actions,
+.custom-goal-item:focus-within .custom-goal-actions,
+.custom-goal-actions:focus,
+.custom-goal-actions:focus-within {
     opacity: 1;
 }
 
