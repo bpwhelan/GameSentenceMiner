@@ -51,7 +51,7 @@ def validate_metric_type(metric_type, allowed_types=None):
     
     Args:
         metric_type: The metric type to validate
-        allowed_types: List of allowed types (defaults to standard 4 metrics)
+        allowed_types: List of allowed types (defaults to standard 6 metrics)
         
     Returns:
         bool: True if valid
@@ -60,7 +60,7 @@ def validate_metric_type(metric_type, allowed_types=None):
         ValueError: If metric_type is not in allowed_types
     """
     if allowed_types is None:
-        allowed_types = ["hours", "characters", "games", "cards"]
+        allowed_types = ["hours", "characters", "games", "cards", "mature_cards", "anki_backlog"]
     
     if metric_type not in allowed_types:
         raise ValueError(f"Invalid metric_type. Must be one of: {', '.join(allowed_types)}")
@@ -113,6 +113,315 @@ def count_cards_from_lines(lines):
     return count
 
 
+def query_anki_connect_mature_cards(deck_name=None, start_date=None, for_today=False):
+    """
+    Query AnkiConnect for mature cards (interval > 21 days).
+    Optionally filters by cards added since a specific start date.
+    
+    Args:
+        deck_name: Optional deck name to filter by. If None or empty, searches all decks.
+        start_date: Optional start date (date object) to filter cards added since that date.
+        for_today: If True, queries for cards that matured today (rated=0 ivl>=21)
+        
+    Returns:
+        tuple: (card_count, error_message) where error_message is None on success
+    """
+    import urllib.request
+    import urllib.error
+    
+    try:
+        # Build the query string
+        query_parts = []
+        
+        # Add deck filter
+        if deck_name and deck_name.strip():
+            query_parts.append(f'deck:"{deck_name}"')
+        else:
+            query_parts.append('deck:"*"')
+        
+        if for_today:
+            # Query for cards that matured today (became mature today)
+            # rated=0 means reviewed today, ivl>=21 means interval is at least 21 days
+            query_parts.append('prop:rated=0')
+            query_parts.append('prop:ivl>=21')
+        else:
+            # Query for all mature cards (interval > 21 days)
+            query_parts.append('prop:ivl>21')
+            
+            # Add date filter if start_date is provided
+            if start_date:
+                # Calculate days ago from start_date to today
+                today = datetime.date.today()
+                days_ago = (today - start_date).days
+                
+                # Use added:X to filter cards added within the past X days
+                # This ensures we only count cards that were added since the goal started
+                if days_ago >= 0:
+                    query_parts.append(f'added:{days_ago + 1}')  # +1 to include start_date itself
+        
+        query = ' '.join(query_parts)
+        logger.debug(f"AnkiConnect query: {query}")
+        
+        # Prepare AnkiConnect request
+        request_data = {
+            "action": "findCards",
+            "version": 6,
+            "params": {
+                "query": query
+            }
+        }
+        
+        request_json = json.dumps(request_data).encode('utf-8')
+        
+        # Make request to AnkiConnect (with timeout)
+        req = urllib.request.Request(
+            'http://127.0.0.1:8765',
+            data=request_json,
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        with urllib.request.urlopen(req, timeout=5) as response:
+            response_data = json.loads(response.read().decode('utf-8'))
+            
+            # Check for AnkiConnect errors
+            if response_data.get('error') is not None:
+                error_msg = response_data.get('error', 'Unknown AnkiConnect error')
+                logger.warning(f"AnkiConnect error: {error_msg}")
+                return (0, f"AnkiConnect error: {error_msg}")
+            
+            # Get the result (list of card IDs)
+            card_ids = response_data.get('result', [])
+            return (len(card_ids), None)
+            
+    except urllib.error.URLError as e:
+        error_msg = "AnkiConnect not available. Please ensure Anki is running with AnkiConnect installed."
+        logger.warning(f"AnkiConnect connection error: {e}")
+        return (0, error_msg)
+    except Exception as e:
+        error_msg = f"Error querying AnkiConnect: {str(e)}"
+        logger.error(f"AnkiConnect query error: {e}", exc_info=True)
+        return (0, error_msg)
+
+
+def query_anki_connect_new_cards(deck_name=None):
+    """
+    Query AnkiConnect for new cards (cards that haven't been studied yet).
+    
+    Args:
+        deck_name: Optional deck name to filter by. If None or empty, searches all decks.
+        
+    Returns:
+        tuple: (card_count, error_message) where error_message is None on success
+    """
+    import urllib.request
+    import urllib.error
+    
+    try:
+        # Build the query string
+        query_parts = []
+        
+        # Add deck filter
+        if deck_name and deck_name.strip():
+            query_parts.append(f'deck:"{deck_name}"')
+        else:
+            query_parts.append('deck:"*"')
+        
+        # Query for new cards
+        query_parts.append('is:new')
+        
+        query = ' '.join(query_parts)
+        logger.debug(f"AnkiConnect new cards query: {query}")
+        
+        # Prepare AnkiConnect request
+        request_data = {
+            "action": "findCards",
+            "version": 6,
+            "params": {
+                "query": query
+            }
+        }
+        
+        request_json = json.dumps(request_data).encode('utf-8')
+        
+        # Make request to AnkiConnect (with timeout)
+        req = urllib.request.Request(
+            'http://127.0.0.1:8765',
+            data=request_json,
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        with urllib.request.urlopen(req, timeout=5) as response:
+            response_data = json.loads(response.read().decode('utf-8'))
+            
+            # Check for AnkiConnect errors
+            if response_data.get('error') is not None:
+                error_msg = response_data.get('error', 'Unknown AnkiConnect error')
+                logger.warning(f"AnkiConnect error: {error_msg}")
+                return (0, f"AnkiConnect error: {error_msg}")
+            
+            # Get the result (list of card IDs)
+            card_ids = response_data.get('result', [])
+            return (len(card_ids), None)
+            
+    except urllib.error.URLError as e:
+        error_msg = "AnkiConnect not available. Please ensure Anki is running with AnkiConnect installed."
+        logger.warning(f"AnkiConnect connection error: {e}")
+        return (0, error_msg)
+    except Exception as e:
+        error_msg = f"Error querying AnkiConnect: {str(e)}"
+        logger.error(f"AnkiConnect query error: {e}", exc_info=True)
+        return (0, error_msg)
+
+
+def query_anki_connect_new_cards_cleared_on_day(deck_name=None, days_ago=0):
+    """
+    Query AnkiConnect for cards that were cleared from new status on a specific day.
+    Uses rated=X to find cards reviewed X days ago that are no longer new.
+    
+    Args:
+        deck_name: Optional deck name to filter by. If None or empty, searches all decks.
+        days_ago: Number of days ago to check (0 = today, 7 = 7 days ago, etc.)
+        
+    Returns:
+        tuple: (card_count, error_message) where error_message is None on success
+    """
+    import urllib.request
+    import urllib.error
+    
+    try:
+        # Build the query string
+        query_parts = []
+        
+        # Add deck filter
+        if deck_name and deck_name.strip():
+            query_parts.append(f'deck:"{deck_name}"')
+        else:
+            query_parts.append('deck:"*"')
+        
+        # Query for cards that were reviewed X days ago and are NOT new anymore
+        # Anki uses negative numbers for past days: rated:-7 means 7 days ago
+        query_parts.append(f'prop:rated=-{days_ago}')
+        query_parts.append('-is:new')
+        
+        query = ' '.join(query_parts)
+        logger.debug(f"AnkiConnect new cards cleared query for {days_ago} days ago: {query}")
+        
+        # Prepare AnkiConnect request
+        request_data = {
+            "action": "findCards",
+            "version": 6,
+            "params": {
+                "query": query
+            }
+        }
+        
+        request_json = json.dumps(request_data).encode('utf-8')
+        
+        # Make request to AnkiConnect (with timeout)
+        req = urllib.request.Request(
+            'http://127.0.0.1:8765',
+            data=request_json,
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        with urllib.request.urlopen(req, timeout=5) as response:
+            response_data = json.loads(response.read().decode('utf-8'))
+            
+            # Check for AnkiConnect errors
+            if response_data.get('error') is not None:
+                error_msg = response_data.get('error', 'Unknown AnkiConnect error')
+                logger.warning(f"AnkiConnect error: {error_msg}")
+                return (0, f"AnkiConnect error: {error_msg}")
+            
+            # Get the result (list of card IDs)
+            card_ids = response_data.get('result', [])
+            return (len(card_ids), None)
+            
+    except urllib.error.URLError as e:
+        error_msg = "AnkiConnect not available. Please ensure Anki is running with AnkiConnect installed."
+        logger.warning(f"AnkiConnect connection error: {e}")
+        return (0, error_msg)
+    except Exception as e:
+        error_msg = f"Error querying AnkiConnect: {str(e)}"
+        logger.error(f"AnkiConnect query error: {e}", exc_info=True)
+        return (0, error_msg)
+
+
+def query_anki_connect_mature_cards_on_day(deck_name=None, days_ago=0):
+    """
+    Query AnkiConnect for cards that matured on a specific day.
+    Uses rated=X to find cards reviewed X days ago with interval >= 21 days.
+    
+    Args:
+        deck_name: Optional deck name to filter by. If None or empty, searches all decks.
+        days_ago: Number of days ago to check (0 = today, 7 = 7 days ago, etc.)
+        
+    Returns:
+        tuple: (card_count, error_message) where error_message is None on success
+    """
+    import urllib.request
+    import urllib.error
+    
+    try:
+        # Build the query string
+        query_parts = []
+        
+        # Add deck filter
+        if deck_name and deck_name.strip():
+            query_parts.append(f'deck:"{deck_name}"')
+        else:
+            query_parts.append('deck:"*"')
+        
+        # Query for cards that matured on this specific day
+        # Anki uses negative numbers for past days: rated:-7 means 7 days ago
+        # rated=-X means reviewed X days ago, ivl>=21 means interval is at least 21 days
+        query_parts.append(f'prop:rated=-{days_ago}')
+        query_parts.append('prop:ivl>=21')
+        
+        query = ' '.join(query_parts)
+        logger.debug(f"AnkiConnect mature cards query for {days_ago} days ago: {query}")
+        
+        # Prepare AnkiConnect request
+        request_data = {
+            "action": "findCards",
+            "version": 6,
+            "params": {
+                "query": query
+            }
+        }
+        
+        request_json = json.dumps(request_data).encode('utf-8')
+        
+        # Make request to AnkiConnect (with timeout)
+        req = urllib.request.Request(
+            'http://127.0.0.1:8765',
+            data=request_json,
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        with urllib.request.urlopen(req, timeout=5) as response:
+            response_data = json.loads(response.read().decode('utf-8'))
+            
+            # Check for AnkiConnect errors
+            if response_data.get('error') is not None:
+                error_msg = response_data.get('error', 'Unknown AnkiConnect error')
+                logger.warning(f"AnkiConnect error: {error_msg}")
+                return (0, f"AnkiConnect error: {error_msg}")
+            
+            # Get the result (list of card IDs)
+            card_ids = response_data.get('result', [])
+            return (len(card_ids), None)
+            
+    except urllib.error.URLError as e:
+        error_msg = "AnkiConnect not available. Please ensure Anki is running with AnkiConnect installed."
+        logger.warning(f"AnkiConnect connection error: {e}")
+        return (0, error_msg)
+    except Exception as e:
+        error_msg = f"Error querying AnkiConnect: {str(e)}"
+        logger.error(f"AnkiConnect query error: {e}", exc_info=True)
+        return (0, error_msg)
+
+
 def get_rollup_stats_for_range(start_date, end_date):
     """
     Fetch and aggregate rollup statistics for a date range.
@@ -138,18 +447,21 @@ def get_rollup_stats_for_range(start_date, end_date):
     return None
 
 
-def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_stats=None, start_date=None, yesterday=None):
+def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_stats=None, start_date=None, yesterday=None, goals_settings=None, for_today_only=False):
     """
     Extract progress value from combined stats based on metric type.
     For 'cards' metric, requires additional parameters to calculate from rollups and lines.
+    For 'mature_cards' metric, queries AnkiConnect directly.
     
     Args:
         combined_stats: Combined rollup and live stats dictionary
-        metric_type: Type of metric ("hours", "characters", "games", "cards")
+        metric_type: Type of metric ("hours", "characters", "games", "cards", "mature_cards")
         today_lines: Today's game lines (required for cards)
         rollup_stats: Rollup stats (used to check if we need to query for cards)
         start_date: Start date for card calculation
         yesterday: Yesterday's date for card calculation
+        goals_settings: Goals settings dict (required for mature_cards to get deck name)
+        for_today_only: If True, for mature_cards returns cards that matured today
         
     Returns:
         float or int: The metric value
@@ -178,6 +490,35 @@ def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_s
             total_cards += count_cards_from_lines(today_lines)
         
         return total_cards
+    elif metric_type == "mature_cards":
+        # Query AnkiConnect for mature cards
+        deck_name = None
+        if goals_settings:
+            anki_settings = goals_settings.get('ankiConnect', {})
+            deck_name = anki_settings.get('deckName', '')
+        
+        # If for_today_only, query for cards that matured today
+        # Otherwise, query for all mature cards added since start_date
+        card_count, error = query_anki_connect_mature_cards(
+            deck_name,
+            start_date if not for_today_only else None,
+            for_today=for_today_only
+        )
+        if error:
+            logger.warning(f"Mature cards query failed: {error}")
+        return card_count
+    elif metric_type == "anki_backlog":
+        # Query AnkiConnect for new cards (backlog)
+        deck_name = None
+        if goals_settings:
+            anki_settings = goals_settings.get('ankiConnect', {})
+            deck_name = anki_settings.get('deckName', '')
+        
+        # Query for current new cards count
+        card_count, error = query_anki_connect_new_cards(deck_name)
+        if error:
+            logger.warning(f"New cards query failed: {error}")
+        return card_count
     
     return 0
 
@@ -262,9 +603,10 @@ def register_goals_api_routes(app):
         
         Request body:
         {
-            "metric_type": "hours" | "characters" | "games" | "cards",
+            "metric_type": "hours" | "characters" | "games" | "cards" | "mature_cards",
             "start_date": "YYYY-MM-DD",
-            "end_date": "YYYY-MM-DD"
+            "end_date": "YYYY-MM-DD",
+            "goals_settings": {...}  # Optional: required for mature_cards
         }
         
         Returns:
@@ -283,6 +625,7 @@ def register_goals_api_routes(app):
             metric_type = data.get("metric_type")
             start_date_str = data.get("start_date")
             end_date_str = data.get("end_date")
+            goals_settings = data.get("goals_settings", {})
             
             # Validate required fields
             if not metric_type or not start_date_str or not end_date_str:
@@ -343,7 +686,8 @@ def register_goals_api_routes(app):
                 combined_stats, metric_type,
                 today_lines=today_lines if include_today else None,
                 start_date=start_date if start_date <= rollup_end_date else None,
-                yesterday=rollup_end_date if start_date <= rollup_end_date else None
+                yesterday=rollup_end_date if start_date <= rollup_end_date else None,
+                goals_settings=goals_settings
             )
             
             # Calculate days in range
@@ -450,7 +794,8 @@ def register_goals_api_routes(app):
                 combined_stats, metric_type,
                 today_lines=today_lines,
                 start_date=start_date if start_date <= yesterday else None,
-                yesterday=yesterday if start_date <= yesterday else None
+                yesterday=yesterday if start_date <= yesterday else None,
+                goals_settings=goals_settings
             )
             
             # Extract today's progress
@@ -461,7 +806,9 @@ def register_goals_api_routes(app):
                     today_stats_only, metric_type,
                     today_lines=today_lines,
                     start_date=None,
-                    yesterday=None
+                    yesterday=None,
+                    goals_settings=goals_settings,
+                    for_today_only=True  # For mature_cards, get cards that matured today
                 )
             
             # Calculate days remaining (including today)
@@ -560,7 +907,57 @@ def register_goals_api_routes(app):
                 total_cards = sum(r.anki_cards_created or 0 for r in rollups_30d)
                 total_cards += count_cards_from_lines(today_lines)
                 avg_daily = total_cards / 30
+            elif metric_type == "mature_cards":
+                # For mature_cards, calculate daily growth by sampling cards that matured on specific days
+                # Query for cards that matured: today, 7 days ago, 14 days ago, 21 days ago
+                deck_name = None
+                goals_settings_param = data.get("goals_settings", {})
+                if goals_settings_param:
+                    anki_settings = goals_settings_param.get('ankiConnect', {})
+                    deck_name = anki_settings.get('deckName', '')
                 
+                sample_days = [0, 7, 14, 21]  # Days ago to sample
+                mature_counts = []
+                
+                for days_ago in sample_days:
+                    # Query for cards that matured on this specific day
+                    # rated=X means reviewed X days ago, ivl>=21 means interval is at least 21 days
+                    card_count, error = query_anki_connect_mature_cards_on_day(deck_name, days_ago)
+                    if error:
+                        logger.warning(f"Mature cards query for {days_ago} days ago failed: {error}")
+                    else:
+                        mature_counts.append(card_count)
+                
+                # Calculate average daily mature card growth
+                if mature_counts:
+                    avg_daily = sum(mature_counts) / len(mature_counts)
+                else:
+                    avg_daily = 0
+            elif metric_type == "anki_backlog":
+                # For anki_backlog, calculate daily clearance rate by sampling cards cleared on specific days
+                # Query for cards cleared: today, 7 days ago, 14 days ago, 21 days ago
+                deck_name = None
+                goals_settings_param = data.get("goals_settings", {})
+                if goals_settings_param:
+                    anki_settings = goals_settings_param.get('ankiConnect', {})
+                    deck_name = anki_settings.get('deckName', '')
+                
+                sample_days = [0, 7, 14, 21]  # Days ago to sample
+                cleared_counts = []
+                
+                for days_ago in sample_days:
+                    # Query for cards that were cleared from new status on this specific day
+                    card_count, error = query_anki_connect_new_cards_cleared_on_day(deck_name, days_ago)
+                    if error:
+                        logger.warning(f"New cards cleared query for {days_ago} days ago failed: {error}")
+                    else:
+                        cleared_counts.append(card_count)
+                
+                # Calculate average daily clearance rate
+                if cleared_counts:
+                    avg_daily = sum(cleared_counts) / len(cleared_counts)
+                else:
+                    avg_daily = 0
             else:
                 # For hours, characters, games - use existing rollup aggregation
                 total_value = 0
@@ -603,12 +1000,37 @@ def register_goals_api_routes(app):
                 rollup_stats_all = aggregate_rollup_data(all_rollups) if all_rollups else None
                 combined_stats_all = combine_rollup_and_live_stats(rollup_stats_all, live_stats_today)
                 
-                current_total = extract_metric_value(
-                    combined_stats_all, metric_type,
-                    today_lines=today_lines,
-                    start_date=datetime.datetime.strptime(first_rollup_date, "%Y-%m-%d").date(),
-                    yesterday=yesterday
-                )
+                # For mature_cards and anki_backlog, we want the total current count, not filtered by start_date
+                if metric_type == "mature_cards":
+                    deck_name = None
+                    goals_settings_param = data.get("goals_settings", {})
+                    if goals_settings_param:
+                        anki_settings = goals_settings_param.get('ankiConnect', {})
+                        deck_name = anki_settings.get('deckName', '')
+                    
+                    # Query for all current mature cards (no start_date filter)
+                    current_total, error = query_anki_connect_mature_cards(deck_name, start_date=None, for_today=False)
+                    if error:
+                        logger.warning(f"Mature cards query failed: {error}")
+                elif metric_type == "anki_backlog":
+                    deck_name = None
+                    goals_settings_param = data.get("goals_settings", {})
+                    if goals_settings_param:
+                        anki_settings = goals_settings_param.get('ankiConnect', {})
+                        deck_name = anki_settings.get('deckName', '')
+                    
+                    # Query for all current new cards (backlog)
+                    current_total, error = query_anki_connect_new_cards(deck_name)
+                    if error:
+                        logger.warning(f"New cards query failed: {error}")
+                else:
+                    current_total = extract_metric_value(
+                        combined_stats_all, metric_type,
+                        today_lines=today_lines,
+                        start_date=datetime.datetime.strptime(first_rollup_date, "%Y-%m-%d").date(),
+                        yesterday=yesterday,
+                        goals_settings=data.get("goals_settings", {})
+                    )
             
             # Calculate projection
             # For future goals, calculate from start_date; for active/past goals, from today
@@ -620,10 +1042,27 @@ def register_goals_api_routes(app):
             else:
                 # Goal is active or in the past - project from today
                 days_until_target = (end_date - today).days
-                projected_value = current_total + (avg_daily * days_until_target)
+                # For anki_backlog, projection decreases (backlog - clearance rate)
+                if metric_type == "anki_backlog":
+                    projected_value = max(0, current_total - (avg_daily * days_until_target))
+                else:
+                    projected_value = current_total + (avg_daily * days_until_target)
             
             # Calculate percentage difference
-            if target_value > 0:
+            # For anki_backlog, we want to show progress toward 0, so invert the calculation
+            if metric_type == "anki_backlog":
+                # For backlog: lower projection is better (closer to target of 0)
+                # If projected_value < target, that's good (ahead of pace)
+                # If projected_value > target, that's bad (behind pace)
+                if target_value > 0:
+                    percent_diff = ((target_value - projected_value) / target_value) * 100
+                else:
+                    # Target is 0, so calculate based on how much we'll clear
+                    if current_total > 0:
+                        percent_diff = ((current_total - projected_value) / current_total) * 100
+                    else:
+                        percent_diff = 0
+            elif target_value > 0:
                 percent_diff = ((projected_value - target_value) / target_value) * 100
             else:
                 percent_diff = 0
@@ -919,7 +1358,8 @@ def register_goals_api_routes(app):
                     combined_stats, metric_type,
                     today_lines=today_lines,
                     start_date=start_date if start_date <= yesterday else None,
-                    yesterday=yesterday if start_date <= yesterday else None
+                    yesterday=yesterday if start_date <= yesterday else None,
+                    goals_settings=goals_settings
                 )
                 
                 # Calculate days remaining from tomorrow to end date (inclusive)

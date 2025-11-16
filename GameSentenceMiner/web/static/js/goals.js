@@ -21,7 +21,10 @@ const GoalsUtils = {
             'hours': 'Hours',
             'characters': 'Characters',
             'games': 'Games',
-            'cards': 'Cards Mined'
+            'cards': 'Cards Mined',
+            'mature_cards': 'Mature Anki Cards'
+            // 'anki_backlog': 'New Cards'
+            // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
         };
     },
     
@@ -50,10 +53,11 @@ const GoalsUtils = {
         return currentGoals;
     },
     
-    // Prepare goals settings object with easy days
+    // Prepare goals settings object with easy days and AnkiConnect settings
     prepareGoalsSettings() {
         return {
-            easyDays: EasyDaysManager.getSettings()
+            easyDays: EasyDaysManager.getSettings(),
+            ankiConnect: AnkiConnectManager.getSettings()
         };
     },
     
@@ -69,6 +73,48 @@ const GoalsUtils = {
                 </button>
             </div>
         `;
+    }
+};
+
+// ================================
+// AnkiConnect Manager Module
+// ================================
+const AnkiConnectManager = {
+    STORAGE_KEY: 'gsm_anki_connect_settings',
+    
+    // Get default settings
+    getDefaultSettings() {
+        return {
+            deckName: ''
+        };
+    },
+    
+    // Get settings from localStorage
+    getSettings() {
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEY);
+            if (stored) {
+                return JSON.parse(stored);
+            }
+            return this.getDefaultSettings();
+        } catch (error) {
+            console.error('Error reading AnkiConnect settings from localStorage:', error);
+            return this.getDefaultSettings();
+        }
+    },
+    
+    // Save settings to localStorage
+    saveSettings(settings) {
+        try {
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(settings));
+            return { success: true };
+        } catch (error) {
+            console.error('Error saving AnkiConnect settings to localStorage:', error);
+            return {
+                success: false,
+                error: 'Failed to save settings'
+            };
+        }
     }
 };
 
@@ -392,6 +438,9 @@ const CustomGoalsManager = {
             'characters': '📖',
             'games': '🎮',
             'cards': '🎴',
+            'mature_cards': '📚',
+            // 'anki_backlog': '📥',
+            // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
             'custom': '✅'
         };
         return icons[metricType] || '🎯';
@@ -405,12 +454,13 @@ const CustomGoalsManager = {
             errors.push('Goal name is required');
         }
         
-        if (!goalData.metricType || !['hours', 'characters', 'games', 'cards', 'custom'].includes(goalData.metricType)) {
-            errors.push('Valid metric type is required (hours, characters, games, cards, or custom)');
+        if (!goalData.metricType || !['hours', 'characters', 'games', 'cards', 'mature_cards', /* 'anki_backlog', */ 'custom'].includes(goalData.metricType)) {
+            errors.push('Valid metric type is required (hours, characters, games, cards, mature_cards, or custom)');
         }
         
-        // For custom goals, targetValue, startDate, and endDate are optional
-        if (goalData.metricType !== 'custom') {
+        // For custom goals, targetValue and startDate are optional
+        // For anki_backlog goals (commented out), targetValue and startDate are optional
+        if (goalData.metricType !== 'custom' /* && goalData.metricType !== 'anki_backlog' */) {
             if (!goalData.targetValue || goalData.targetValue <= 0) {
                 errors.push('Target value must be greater than 0');
             }
@@ -427,6 +477,13 @@ const CustomGoalsManager = {
                 errors.push('End date must be after start date');
             }
         }
+        // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
+        /* else if (goalData.metricType === 'anki_backlog') {
+            // For anki_backlog, only end date is required
+            if (!goalData.endDate) {
+                errors.push('End date is required for backlog goals');
+            }
+        } */
         
         return errors;
     }
@@ -479,6 +536,8 @@ document.addEventListener('DOMContentLoaded', function () {
     // Helper function to calculate progress for custom goal within date range using API
     async function calculateCustomGoalProgress(goal) {
         try {
+            const goalsSettings = GoalsUtils.prepareGoalsSettings();
+            
             const response = await fetch('/api/goals/progress', {
                 method: 'POST',
                 headers: {
@@ -487,7 +546,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 body: JSON.stringify({
                     metric_type: goal.metricType,
                     start_date: goal.startDate,
-                    end_date: goal.endDate
+                    end_date: goal.endDate,
+                    goals_settings: goalsSettings
                 })
             });
             
@@ -566,7 +626,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 </div>
                 <div class="goal-progress-info">
                     <span class="goal-percentage">${Math.floor(percentage)}%</span>
-                    <span class="goal-projection">${formatProjection(currentProgress, goal.targetValue, dailyAverage)}</span>
                 </div>
                 ${GoalsUtils.renderActionButtons(goal.id)}
             </div>
@@ -802,7 +861,7 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (goal.metricType === 'characters') {
             formattedProgress = formatGoalNumber(todayData.progress);
             formattedRequired = formatGoalNumber(todayData.required);
-        } else if (goal.metricType === 'cards') {
+        } else if (goal.metricType === 'cards' || goal.metricType === 'mature_cards' /* || goal.metricType === 'anki_backlog' */) {
             formattedProgress = todayData.progress.toLocaleString();
             formattedRequired = todayData.required.toLocaleString();
         } else {
@@ -1036,8 +1095,8 @@ document.addEventListener('DOMContentLoaded', function () {
             const existingCustomStats = projectionStats.querySelectorAll('.custom-goal-projection-item');
             existingCustomStats.forEach(el => el.remove());
             
-            // Filter for only the 4 core metrics and goals that have started
-            const coreMetrics = ['hours', 'characters', 'games', 'cards'];
+            // Filter for only the 5 core metrics and goals that have started
+            const coreMetrics = ['hours', 'characters', 'games', 'cards', 'mature_cards'];
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             const todayStr = today.toISOString().split('T')[0];
@@ -1057,6 +1116,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 console.log(`Loading projections for ${customGoalsWithProjections.length} custom goals`);
                 for (const goal of customGoalsWithProjections) {
                     try {
+                        const goalsSettings = GoalsUtils.prepareGoalsSettings();
+                        
                         const response = await fetch('/api/goals/projection', {
                             method: 'POST',
                             headers: {
@@ -1067,7 +1128,8 @@ document.addEventListener('DOMContentLoaded', function () {
                                 metric_type: goal.metricType,
                                 target_value: goal.targetValue,
                                 start_date: goal.startDate,
-                                end_date: goal.endDate
+                                end_date: goal.endDate,
+                                goals_settings: goalsSettings
                             })
                         });
                         
@@ -1123,16 +1185,20 @@ document.addEventListener('DOMContentLoaded', function () {
         const metricType = document.getElementById('goalMetricType').value;
         const targetValueContainer = document.getElementById('goalTargetValueContainer');
         const datesContainer = document.getElementById('goalDatesContainer');
-        const helpText = document.getElementById('customGoalHelpText');
+        const startDateContainer = document.getElementById('goalStartDateContainer');
+        const customHelpText = document.getElementById('customGoalHelpText');
+        const ankiBacklogHelpText = document.getElementById('ankiBacklogHelpText');
         const targetValueInput = document.getElementById('goalTargetValue');
         const startDateInput = document.getElementById('goalStartDate');
         const endDateInput = document.getElementById('goalEndDate');
+        const endDateLabel = document.getElementById('goalEndDateLabel');
         
         if (metricType === 'custom') {
             // Hide fields for custom goals - use display none for complete removal
             targetValueContainer.style.display = 'none';
             datesContainer.style.display = 'none';
-            helpText.style.display = 'block';
+            customHelpText.style.display = 'block';
+            if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
             
             // Remove required attributes
             targetValueInput.removeAttribute('required');
@@ -1143,11 +1209,34 @@ document.addEventListener('DOMContentLoaded', function () {
             targetValueInput.value = '';
             startDateInput.value = '';
             endDateInput.value = '';
-        } else if (metricType) {
+        }
+        // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
+        /* else if (metricType === 'anki_backlog') {
+            // For anki_backlog, hide target value and start date, only show end date
+            targetValueContainer.style.display = 'none';
+            datesContainer.style.display = 'grid';
+            if (startDateContainer) startDateContainer.style.display = 'none';
+            customHelpText.style.display = 'none';
+            if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'block';
+            if (endDateLabel) endDateLabel.textContent = 'Clear Backlog By';
+            
+            // Remove required attributes for target and start date
+            targetValueInput.removeAttribute('required');
+            startDateInput.removeAttribute('required');
+            endDateInput.setAttribute('required', 'required');
+            
+            // Clear target value and start date
+            targetValueInput.value = '';
+            startDateInput.value = '';
+        } */
+        else if (metricType) {
             // Show fields for regular goals
             targetValueContainer.style.display = 'block';
             datesContainer.style.display = 'grid';
-            helpText.style.display = 'none';
+            if (startDateContainer) startDateContainer.style.display = 'block';
+            customHelpText.style.display = 'none';
+            if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
+            if (endDateLabel) endDateLabel.textContent = 'End Date';
             
             // Add required attributes back
             targetValueInput.setAttribute('required', 'required');
@@ -1155,9 +1244,12 @@ document.addEventListener('DOMContentLoaded', function () {
             endDateInput.setAttribute('required', 'required');
         } else {
             // No metric type selected - hide help text but show fields
-            helpText.style.display = 'none';
+            customHelpText.style.display = 'none';
+            if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
             targetValueContainer.style.display = 'block';
             datesContainer.style.display = 'grid';
+            if (startDateContainer) startDateContainer.style.display = 'block';
+            if (endDateLabel) endDateLabel.textContent = 'End Date';
         }
     }
     
@@ -1231,14 +1323,22 @@ document.addEventListener('DOMContentLoaded', function () {
         saveCustomGoalBtn.addEventListener('click', function() {
             clearCustomGoalMessages();
             
+            const metricType = document.getElementById('goalMetricType').value;
             const goalData = {
                 name: document.getElementById('goalName').value.trim(),
-                metricType: document.getElementById('goalMetricType').value,
+                metricType: metricType,
                 targetValue: parseInt(document.getElementById('goalTargetValue').value),
                 startDate: document.getElementById('goalStartDate').value,
                 endDate: document.getElementById('goalEndDate').value,
                 icon: document.getElementById('goalIcon').value.trim()
             };
+            
+            // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
+            /* // For anki_backlog, set defaults for optional fields
+            if (metricType === 'anki_backlog') {
+                goalData.targetValue = 0;  // Always target 0 (clear all backlog)
+                goalData.startDate = GoalsUtils.getTodayDateString();  // Start today
+            } */
             
             // Validate
             const errors = CustomGoalsManager.validate(goalData);
@@ -1674,6 +1774,12 @@ document.addEventListener('DOMContentLoaded', function () {
                                 localStorage.setItem(EasyDaysManager.STORAGE_KEY, JSON.stringify(goalsSettings.easyDays));
                                 console.log('Loaded easy days settings from database');
                             }
+                            
+                            if (goalsSettings && goalsSettings.ankiConnect) {
+                                // Save AnkiConnect settings to localStorage
+                                localStorage.setItem(AnkiConnectManager.STORAGE_KEY, JSON.stringify(goalsSettings.ankiConnect));
+                                console.log('Loaded AnkiConnect settings from database');
+                            }
                         } catch (parseError) {
                             console.warn('Could not parse goals_settings from database:', parseError);
                         }
@@ -1698,10 +1804,21 @@ document.addEventListener('DOMContentLoaded', function () {
     // Setup easy day sliders
     setupEasyDaySliders();
 
+    // Load AnkiConnect settings into UI
+    function loadAnkiConnectUI() {
+        const settings = AnkiConnectManager.getSettings();
+        const deckNameInput = document.getElementById('ankiDeckName');
+        
+        if (deckNameInput) {
+            deckNameInput.value = settings.deckName || '';
+        }
+    }
+    
     // Open settings modal
     if (settingsToggle) {
         settingsToggle.addEventListener('click', function() {
             loadEasyDaysUI();
+            loadAnkiConnectUI();
             settingsModal.style.display = 'flex';
             settingsModal.classList.add('show');
         });
@@ -1737,19 +1854,36 @@ document.addEventListener('DOMContentLoaded', function () {
             
             // Read all slider values
             const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-            const settings = {};
+            const easyDaysSettings = {};
             
             days.forEach(day => {
                 const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
                 if (slider) {
-                    settings[day] = parseInt(slider.value);
+                    easyDaysSettings[day] = parseInt(slider.value);
                 }
             });
             
-            // Validate and save
-            const result = EasyDaysManager.saveSettings(settings);
+            // Read AnkiConnect settings
+            const deckNameInput = document.getElementById('ankiDeckName');
+            const ankiConnectSettings = {
+                deckName: deckNameInput ? deckNameInput.value.trim() : ''
+            };
             
-            if (result.success) {
+            // Validate and save easy days
+            const easyDaysResult = EasyDaysManager.saveSettings(easyDaysSettings);
+            
+            if (!easyDaysResult.success) {
+                if (settingsError) {
+                    settingsError.textContent = easyDaysResult.error;
+                    settingsError.style.display = 'block';
+                }
+                return;
+            }
+            
+            // Save AnkiConnect settings
+            const ankiResult = AnkiConnectManager.saveSettings(ankiConnectSettings);
+            
+            if (ankiResult.success) {
                 if (settingsSuccess) {
                     settingsSuccess.textContent = 'Settings saved successfully!';
                     settingsSuccess.style.display = 'block';
@@ -1761,7 +1895,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 }, 1000);
             } else {
                 if (settingsError) {
-                    settingsError.textContent = result.error;
+                    settingsError.textContent = ankiResult.error;
                     settingsError.style.display = 'block';
                 }
             }

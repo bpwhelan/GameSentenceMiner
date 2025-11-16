@@ -142,6 +142,9 @@
                                 <option value="characters">Characters Read</option>
                                 <option value="games">Games Completed</option>
                                 <option value="cards">Cards Mined</option>
+                                <option value="mature_cards">Mature Anki Cards</option>
+                                <!-- <option value="anki_backlog">Clear Anki Backlog</option> -->
+                                <!-- Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later -->
                                 <option value="custom">Custom (Daily Checkbox)</option>
                             </select>
                         </div>
@@ -159,6 +162,20 @@
                             </div>
                         </div>
 
+                        <!-- Help text for Anki Backlog goals -->
+                        <!-- Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later -->
+                        <!-- <div id="ankiBacklogHelpText" class="anki-backlog-help-text" style="display: none; margin-bottom: 20px; padding: 12px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(79, 70, 229, 0.05) 100%); border-left: 4px solid #6366f1; border-radius: 6px;">
+                            <div style="display: flex; align-items: start; gap: 10px;">
+                                <span style="font-size: 20px;">📥</span>
+                                <div>
+                                    <strong style="color: var(--text-primary); display: block; margin-bottom: 4px;">Clear Your Anki Backlog</strong>
+                                    <p style="color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;">
+                                        This goal helps you clear your Anki new cards backlog. Just set when you want it cleared by, and we'll calculate how many new cards you need to study daily. The system tracks your current backlog and clearance rate automatically.
+                                    </p>
+                                </div>
+                            </div>
+                        </div> -->
+
                         <div id="goalTargetValueContainer" class="goal-form-field" style="margin-bottom: 15px;">
                             <label for="goalTargetValue" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
                                 Target Value
@@ -172,16 +189,16 @@
                         </div>
 
                         <div id="goalDatesContainer" class="goal-form-field" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                            <div>
+                            <div id="goalStartDateContainer">
                                 <label for="goalStartDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
                                     Start Date
                                 </label>
                                 <input type="date" id="goalStartDate" name="goalStartDate"
                                     style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
                             </div>
-                            <div>
+                            <div id="goalEndDateContainer">
                                 <label for="goalEndDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    End Date
+                                    <span id="goalEndDateLabel">End Date</span>
                                 </label>
                                 <input type="date" id="goalEndDate" name="goalEndDate"
                                     style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
@@ -274,6 +291,28 @@
                         Use custom goals to track your reading progress over specific time periods.
                     </p>
                     <form id="settingsForm">
+                        <!-- AnkiConnect Settings Section -->
+                        <div style="margin-bottom: 30px;">
+                            <h4 style="color: var(--text-primary); margin-bottom: 15px; font-size: 16px; font-weight: 600;">
+                                📚 AnkiConnect Settings
+                            </h4>
+                            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                                Configure deck name for tracking mature Anki cards (cards with interval > 21 days).
+                            </p>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <label for="ankiDeckName" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                    Deck Name
+                                </label>
+                                <input type="text" id="ankiDeckName" name="ankiDeckName"
+                                    style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                    placeholder="e.g., Japanese::Mining (leave empty for all decks)">
+                                <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                    Specify the Anki deck to track mature cards from. Leave empty to track all decks.
+                                </small>
+                            </div>
+                        </div>
+                        
                         <!-- Easy Days Section -->
                         <div style="margin-bottom: 30px;">
                             <h4 style="color: var(--text-primary); margin-bottom: 15px; font-size: 16px; font-weight: 600;">
