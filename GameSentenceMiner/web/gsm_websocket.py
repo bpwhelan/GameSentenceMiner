@@ -52,10 +52,18 @@ class WebsocketServerThread(threading.Thread):
                         await websocket.send('False')
                     except websockets.exceptions.ConnectionClosedOK:
                         pass
-        except websockets.exceptions.ConnectionClosedError:
-            pass
+        except (websockets.exceptions.ConnectionClosedError, 
+                websockets.exceptions.ConnectionClosedOK,
+                EOFError,
+                ConnectionResetError,
+                OSError) as e:
+            # Handle various connection closure scenarios silently
+            logger.debug(f"WebSocket connection closed: {type(e).__name__}")
+        except Exception as e:
+            # Log unexpected errors but don't crash
+            logger.warning(f"Unexpected error in WebSocket handler: {e}")
         finally:
-            self.clients.remove(websocket)
+            self.clients.discard(websocket)
 
     async def send_text(self, text):
         if text:
@@ -75,6 +83,10 @@ class WebsocketServerThread(threading.Thread):
             self._loop = asyncio.get_running_loop()
             self._stop_event = stop_event = asyncio.Event()
             self._event.set()
+            retry_count = 0
+            max_retries = 5
+            base_delay = 1
+            
             while True:
                 try:
                     self.server = start_server = websockets.serve(
@@ -84,12 +96,28 @@ class WebsocketServerThread(threading.Thread):
                         max_size=1000000000,
                     )
                     async with start_server:
+                        # Reset retry count on successful start
+                        retry_count = 0
                         await stop_event.wait()
                     return
+                except OSError as e:
+                    # Port binding issues, address in use, etc.
+                    logger.error(f"WebSocket server OS error: {e}")
+                    retry_count += 1
+                    if retry_count > max_retries:
+                        logger.error("WebSocket server failed after maximum retries. Stopping.")
+                        return
+                    delay = min(base_delay * (2 ** (retry_count - 1)), 30)
+                    logger.warning(f"Retrying WebSocket server in {delay}s... (attempt {retry_count}/{max_retries})")
+                    await asyncio.sleep(delay)
                 except Exception as e:
-                    logger.warning(
-                        f"WebSocket server encountered an error: {e}. Retrying...")
-                    await asyncio.sleep(1)
+                    logger.error(f"WebSocket server encountered an unexpected error: {e}. Retrying...")
+                    retry_count += 1
+                    if retry_count > max_retries:
+                        logger.error("WebSocket server failed after maximum retries. Stopping.")
+                        return
+                    delay = min(base_delay * (2 ** (retry_count - 1)), 30)
+                    await asyncio.sleep(delay)
 
         asyncio.run(main())
 
