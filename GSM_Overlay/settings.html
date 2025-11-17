@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+      color: #ffffff;
+      margin: 0;
+      padding: 16px;
+      min-height: 100vh;
+      line-height: 1.4;
+    }
+
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 20px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+
+    h3 {
+      margin: 0 0 20px 0;
+      font-size: 22px;
+      font-weight: 600;
+      text-align: center;
+      background: linear-gradient(135deg, #ffffff 0%, #cccccc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .setting-group {
+      margin-bottom: 16px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .setting-group h4 {
+      margin: 0 0 10px 0;
+      font-size: 13px;
+      font-weight: 500;
+      color: #cccccc;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #e0e0e0;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      transition: all 0.2s ease;
+    }
+
+    label:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    label:last-child {
+      margin-bottom: 0;
+    }
+
+    .label-text {
+      flex: 1;
+      margin-right: 12px;
+    }
+
+    .input-container {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    input[type="text"],
+    input[type="number"] {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      padding: 6px 10px;
+      color: #ffffff;
+      font-size: 13px;
+      min-width: 180px;
+      transition: all 0.2s ease;
+    }
+
+    input[type="text"]:focus,
+    input[type="number"]:focus {
+      outline: none;
+      border-color: #4CAF50;
+      background: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+    }
+
+    input[type="text"]:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    input[type="checkbox"] {
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+
+    input[type="checkbox"]:checked {
+      background: #4CAF50;
+      border-color: #4CAF50;
+    }
+
+    input[type="checkbox"]:checked::after {
+      content: "✓";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 11px;
+      font-weight: bold;
+    }
+
+    input[type="checkbox"]:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .status-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-left: 6px;
+      transition: all 0.2s ease;
+      box-shadow: 0 0 6px rgba(0, 0, 0, 0.3);
+    }
+
+    .status-indicator.connected {
+      background-color: #4CAF50;
+      box-shadow: 0 0 6px rgba(76, 175, 80, 0.5);
+    }
+
+    .status-indicator.disconnected {
+      background-color: #f44336;
+      box-shadow: 0 0 6px rgba(244, 67, 54, 0.5);
+    }
+
+    .guide-button {
+      background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+      display: inline-block;
+      margin-left: 6px;
+    }
+
+    .guide-button:hover {
+      background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+    }
+
+    .hotkey-info {
+      font-size: 11px;
+      color: #888;
+      margin-top: 2px;
+      font-style: italic;
+    }
+
+    /* Hotkey capture styling */
+    input:focus.capturing-hotkey {
+      background: rgba(76, 175, 80, 0.2) !important;
+      border-color: #4CAF50 !important;
+      box-shadow: 0 0 8px rgba(76, 175, 80, 0.3) !important;
+    }
+
+    input.capturing-hotkey::placeholder {
+      color: #4CAF50 !important;
+      font-style: italic;
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 12px;
+      }
+
+      .container {
+        padding: 16px;
+      }
+
+      label {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .label-text {
+        margin-right: 0;
+        margin-bottom: 6px;
+      }
+
+      input[type="text"],
+      input[type="number"] {
+        min-width: 100%;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h3>Overlay Settings</h3>
+
+    <div class="setting-group">
+      <h4>Display</h4>
+      <label>
+        <span class="label-text">Font Size</span>
+        <input type="number" id="fontSize" value="42" min="8" max="200" />
+      </label>
+    </div>
+
+    <div class="setting-group">
+      <h4>WebSocket Connections</h4>
+      <label>
+        <span class="label-text">Primary WebSocket URL</span>
+        <div class="input-container">
+          <input type="text" id="wsUrl1" value="ws://localhost:6677/api/ws/text/origin" />
+          <span id="wsstatus1" class="status-indicator connected"></span>
+        </div>
+      </label>
+      <label>
+        <span class="label-text">Secondary WebSocket URL</span>
+        <div class="input-container">
+          <input type="text" id="wsUrl2" value="ws://localhost:6677" />
+          <span id="wsstatus2" class="status-indicator connected"></span>
+        </div>
+      </label>
+    </div>
+
+    <div class="setting-group">
+      <h4>Behavior</h4>
+      <label>
+        <span class="label-text">Hide Main Box on Startup</span>
+        <input type="checkbox" id="hideOnStartup" />
+      </label>
+      <label>
+        <span class="label-text">Enable Magpie Compatibility</span>
+        <input type="checkbox" id="magpieCompatibility" />
+      </label>
+      <label>
+        <span class="label-text">Show Fading Border Around Detected Text</span>
+        <input type="checkbox" id="showTextBackground" />
+      </label>
+      <label>
+        <span class="label-text">Auto-Minimize After Inactivity (minutes, 0 disables)</span>
+        <input type="number" id="afkTimer" value="5" min="0" max="60" />
+      </label>
+      <label>
+        <span class="label-text">Hide "Ready" Indicator</span>
+        <input type="checkbox" id="hideReadyIndicator" />
+      </label>
+    </div>
+
+    <div class="setting-group">
+      <h4>Manual Mode</h4>
+      <label>
+        <span class="label-text">Only Show Overlay on Hotkey (Enabled)</span>
+        <input type="checkbox" id="manualMode" />
+      </label>
+      <label>
+        <span class="label-text">Focus Overlay in Manual Mode</span>
+        <input type="checkbox" id="focusOnHotkey" />
+      </label>
+    </div>
+
+    <div class="setting-group">
+      <h4>Hotkeys</h4>
+      <label>
+        <span class="label-text">
+          Show Overlay Hotkey
+          <div class="hotkey-info">Press to temporarily show overlay in manual mode</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key
+            (modifiers optional)</div>
+          <div id="ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning:
+            Ctrl key may interfere with game controls (text skipping)</div>
+        </span>
+        <div class="input-container">
+          <input type="text" id="showHotkey" value="Shift + Space"
+            title="Enter a valid hotkey (e.g., Shift + Space)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
+      </label>
+      <label>
+        <span class="label-text">
+          Open Yomitan Settings
+          <div class="hotkey-info">Fixed hotkey (cannot be changed)</div>
+        </span>
+        <input type="text" id="yomitanSettingsHotkey" value="Alt + Shift + Y" disabled />
+      </label>
+      <label>
+        <span class="label-text">
+          Open Settings
+          <div class="hotkey-info">Fixed hotkey (cannot be changed)</div>
+        </span>
+        <input type="text" id="settingsHotkey" value="Alt + Shift + S" disabled />
+      </label>
+      <label>
+        <span class="label-text">
+          Hide Main Box
+          <div class="hotkey-info">Fixed hotkey (cannot be changed)</div>
+        </span>
+        <input type="text" id="hideHotkey" value="Alt + Shift + H" disabled />
+      </label>
+      <label>
+        <span class="label-text">
+          Minimize Overlay
+          <div class="hotkey-info">Fixed hotkey (cannot be changed)</div>
+        </span>
+        <input type="text" id="minimizeHotkey" value="Alt + Shift + J" disabled />
+      </label>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require("electron");
+
+    // Settings that are not supported on Linux
+    const disabledOnLinuxSettings = ['magpieCompatibility'];
+
+    // Immediately disable listed settings when running on Linux so UI is non-interactive
+    try {
+      if (typeof process !== 'undefined' && process.platform === 'linux') {
+        disabledOnLinuxSettings.forEach((settingId) => {
+          const el = document.getElementById(settingId);
+          if (el) {
+            el.disabled = true;
+            el.title = 'This setting is disabled on Linux.';
+          }
+        });
+      }
+    } catch (e) {
+      // ignore if process is not available
+    }
+
+    // Unified settings change handler
+    // element is optional - if provided we'll check element.disabled there
+    function handleSettingChange(settingKey, value, element) {
+      // If the control element is disabled, ignore the change
+      try {
+        if (element && element.disabled) return;
+      } catch (e) {
+        // ignore
+      }
+
+      // If this setting is configured to be disabled on Linux, ignore attempts to change it
+      try {
+        if (typeof process !== 'undefined' && process.platform === 'linux' && disabledOnLinuxSettings.includes(settingKey)) {
+          return;
+        }
+      } catch (e) {
+        // In case process is not available, silently continue
+      }
+
+      console.log(`Setting changed: ${settingKey} = ${value}`);
+      ipcRenderer.send("setting-changed", { key: settingKey, value: value });
+    }
+
+    // Attach event listeners to all setting controls
+    document.getElementById("fontSize").addEventListener("input", (event) => {
+      handleSettingChange("fontSize", parseInt(event.target.value));
+    });
+
+    document.getElementById("wsUrl1").addEventListener("blur", (event) => {
+      handleSettingChange("weburl1", event.target.value);
+    });
+
+    document.getElementById("wsUrl2").addEventListener("blur", (event) => {
+      handleSettingChange("weburl2", event.target.value);
+    });
+
+    document.getElementById("hideOnStartup").addEventListener("change", (event) => {
+      handleSettingChange("hideOnStartup", event.target.checked);
+    });
+
+    document.getElementById("magpieCompatibility").addEventListener("change", (event) => {
+      handleSettingChange("magpieCompatibility", event.target.checked, event.target);
+    });
+
+    document.getElementById("manualMode").addEventListener("change", (event) => {
+      handleSettingChange("manualMode", event.target.checked);
+    });
+
+    document.getElementById("showTextBackground").addEventListener("change", (event) => {
+      handleSettingChange("showTextBackground", event.target.checked);
+    });
+
+    document.getElementById("focusOnHotkey").addEventListener("change", (event) => {
+      handleSettingChange("focusOnHotkey", event.target.checked);
+    });
+
+    document.getElementById("hideReadyIndicator").addEventListener("change", (event) => {
+      handleSettingChange("hideReadyIndicator", event.target.checked);
+    });
+
+    document.getElementById("afkTimer").addEventListener("input", (event) => {
+      let value = parseInt(event.target.value);
+      if (isNaN(value) || value < 0) value = 0;
+      if (value > 60) value = 60; // Max 60 minutes
+      event.target.value = value; // Clamp value in input
+      handleSettingChange("afkTimer", value);
+    });
+
+    document.getElementById("afkTimer").addEventListener("blur", (event) => {
+      let value = parseInt(event.target.value);
+      if (isNaN(value) || value < 0) value = 0;
+      if (value > 60) value = 60; // Max 60 minutes
+      event.target.value = value; // Clamp value in input
+      handleSettingChange("afkTimer", value);
+    });
+
+    // Smart hotkey capture for manual mode hotkey
+    let isCapturingHotkey = false;
+
+    // Initialize hotkey input with smart capture
+    initializeHotkeyInput("showHotkey", {
+      warningElementId: "ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "showHotkey"
+    });
+
+    // Reusable hotkey input initialization function
+    function initializeHotkeyInput(inputId, options = {}) {
+      const {
+        warningElementId = null,
+        showCtrlWarning = false,
+        placeholder = "Press keys...",
+        settingKey = inputId,
+        onCapture = null,
+        onValidate = null
+      } = options;
+
+      const input = document.getElementById(inputId);
+      if (!input) return;
+
+      let isCapturing = false;
+
+      input.addEventListener("focus", (event) => {
+        isCapturing = true;
+        event.target.value = placeholder;
+        event.target.classList.add("capturing-hotkey");
+      });
+
+      input.addEventListener("blur", (event) => {
+        isCapturing = false;
+        event.target.classList.remove("capturing-hotkey");
+
+        // Handle Ctrl warning
+        if (showCtrlWarning && warningElementId) {
+          updateCtrlWarning(event.target.value, warningElementId);
+        }
+
+        // Only validate and send if we have a real hotkey, not the placeholder
+        if (event.target.value !== placeholder && event.target.value.trim() !== "") {
+          if (validateHotkey(event.target.value)) {
+            if (onValidate) {
+              onValidate(event.target.value);
+            } else {
+              handleSettingChange(settingKey, event.target.value);
+            }
+          } else {
+            alert("Invalid hotkey format. Please use the format: Modifier + Key (e.g., Shift + Space)");
+          }
+        }
+      });
+
+      input.addEventListener("keydown", (event) => {
+        if (!isCapturing) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const accelerator = captureKeyboardEvent(event);
+        if (accelerator) {
+          event.target.value = accelerator;
+          if (onCapture) {
+            onCapture(accelerator);
+          }
+        }
+      });
+
+      input.addEventListener("keyup", (event) => {
+        if (isCapturing && event.target.value !== placeholder) {
+          // Handle Ctrl warning
+          if (showCtrlWarning && warningElementId) {
+            updateCtrlWarning(event.target.value, warningElementId);
+          }
+
+          // Auto-apply the hotkey after a short delay
+          setTimeout(() => {
+            if (validateHotkey(event.target.value)) {
+              if (onValidate) {
+                onValidate(event.target.value);
+              } else {
+                handleSettingChange(settingKey, event.target.value);
+              }
+              event.target.blur(); // Exit capture mode
+            }
+          }, 500);
+        }
+      });
+    }
+
+    // Capture keyboard event and convert to accelerator format
+    function captureKeyboardEvent(event) {
+      const keys = [];
+      const modifiers = [];
+
+      // Capture modifiers in the correct order for Electron
+      if (event.ctrlKey || event.metaKey) modifiers.push(event.metaKey ? 'Cmd' : 'Ctrl');
+      if (event.altKey) modifiers.push('Alt');
+      if (event.shiftKey) modifiers.push('Shift');
+
+      // Map special keys to Electron accelerator format
+      const keyMap = {
+        ' ': 'Space',
+        'Enter': 'Return',
+        'Escape': 'Escape',
+        'Backspace': 'Backspace',
+        'Delete': 'Delete',
+        'Tab': 'Tab',
+        'ArrowUp': 'Up',
+        'ArrowDown': 'Down',
+        'ArrowLeft': 'Left',
+        'ArrowRight': 'Right',
+        'Home': 'Home',
+        'End': 'End',
+        'PageUp': 'PageUp',
+        'PageDown': 'PageDown',
+        'Insert': 'Insert',
+        'F1': 'F1', 'F2': 'F2', 'F3': 'F3', 'F4': 'F4',
+        'F5': 'F5', 'F6': 'F6', 'F7': 'F7', 'F8': 'F8',
+        'F9': 'F9', 'F10': 'F10', 'F11': 'F11', 'F12': 'F12',
+        'F13': 'F13', 'F14': 'F14', 'F15': 'F15', 'F16': 'F16',
+        'F17': 'F17', 'F18': 'F18', 'F19': 'F19', 'F20': 'F20',
+        'F21': 'F21', 'F22': 'F22', 'F23': 'F23', 'F24': 'F24'
+      };
+
+      // Get the main key
+      let mainKey = '';
+      if (keyMap[event.key]) {
+        mainKey = keyMap[event.key];
+      } else if (event.key.length === 1) {
+        // Single character keys (letters, numbers, symbols)
+        mainKey = event.key.toUpperCase();
+      } else if (event.key.startsWith('Digit')) {
+        // Number keys
+        mainKey = event.key.replace('Digit', '');
+      } else if (event.key.startsWith('Key')) {
+        // Letter keys  
+        mainKey = event.key.replace('Key', '');
+      } else {
+        // Use the key as-is for other cases
+        mainKey = event.key;
+      }
+
+      // Don't allow modifier-only combinations
+      if (!mainKey || ['Control', 'Alt', 'Shift', 'Meta', 'Cmd'].includes(mainKey)) {
+        return null;
+      }
+
+      // Build the accelerator string
+      let accelerator;
+      if (modifiers.length > 0) {
+        accelerator = [...modifiers, mainKey].join('+');
+      } else {
+        accelerator = mainKey;
+      }
+
+      return accelerator;
+    }
+
+    // Update Ctrl warning visibility
+    function updateCtrlWarning(hotkey, warningElementId) {
+      const warningElement = document.getElementById(warningElementId);
+      if (!warningElement) return;
+
+      if (hotkey && hotkey.includes('Ctrl')) {
+        warningElement.style.display = 'block';
+      } else {
+        warningElement.style.display = 'none';
+      }
+    }
+
+    // Initialize settings preload handler with Ctrl warning support
+    function initializeSettingsPreload(hotkeySettings = []) {
+      ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
+        const { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, manualMode, showHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer } = userSettings;
+        document.getElementById("fontSize").value = fontSize;
+        document.getElementById("wsUrl1").value = weburl1;
+        document.getElementById("manualMode").checked = manualMode;
+        document.getElementById("showHotkey").value = showHotkey;
+        document.getElementById("wsUrl2").value = weburl2;
+        updateWebSocketStatus("ws1", websocketStates.ws1);
+        updateWebSocketStatus("ws2", websocketStates.ws2);
+        document.getElementById("hideOnStartup").checked = hideOnStartup;
+        document.getElementById("magpieCompatibility").checked = magpieCompatibility;
+        document.getElementById("showTextBackground").checked = showTextBackground;
+        document.getElementById("focusOnHotkey").checked = focusOnHotkey;
+        document.getElementById("afkTimer").value = afkTimer;
+        document.getElementById("hideReadyIndicator").checked = userSettings.hideReadyIndicator;
+
+        // Handle Ctrl warnings for configured hotkey settings
+        hotkeySettings.forEach(({ inputId, warningElementId, settingKey }) => {
+          const hotkeyValue = userSettings[settingKey];
+          if (hotkeyValue && warningElementId) {
+            updateCtrlWarning(hotkeyValue, warningElementId);
+          }
+        });
+      });
+    }
+
+    // Initialize with current hotkey settings configuration
+    initializeSettingsPreload([
+      {
+        inputId: "showHotkey",
+        warningElementId: "ctrl-warning",
+        settingKey: "showHotkey"
+      }
+    ]);
+
+    function validateHotkey(hotkey) {
+      if (!hotkey || hotkey.trim() === "" || hotkey === "Press keys..." || hotkey === "Add a modifier key (Ctrl, Alt, Shift)") {
+        return false;
+      }
+
+      // Valid modifiers for Electron accelerators
+      const validModifiers = ['Ctrl', 'Cmd', 'Alt', 'Shift'];
+      const validKeys = [
+        // Letters
+        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+        // Numbers
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+        // Function keys
+        'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
+        'F13', 'F14', 'F15', 'F16', 'F17', 'F18', 'F19', 'F20', 'F21', 'F22', 'F23', 'F24',
+        // Special keys
+        'Space', 'Return', 'Escape', 'Backspace', 'Delete', 'Tab',
+        'Up', 'Down', 'Left', 'Right', 'Home', 'End', 'PageUp', 'PageDown', 'Insert',
+        // Symbols (common ones)
+        '+', '-', '=', '[', ']', '\\', ';', "'", ',', '.', '/', '`',
+        '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_'
+      ];
+
+      const parts = hotkey.split('+').map(part => part.trim());
+
+      // Single key (no modifiers) - just validate the key itself
+      if (parts.length === 1) {
+        return validKeys.includes(parts[0]);
+      }
+
+      // Multiple parts - last part is the main key, others are modifiers
+      const mainKey = parts[parts.length - 1];
+      const modifiers = parts.slice(0, -1);
+
+      // Check if all modifiers are valid
+      for (const modifier of modifiers) {
+        if (!validModifiers.includes(modifier)) {
+          return false;
+        }
+      }
+
+      // Check if main key is valid
+      if (!validKeys.includes(mainKey)) {
+        return false;
+      }
+
+      return true;
+    }
+
+    // Handle settings preload
+    ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
+      const { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, manualMode, showHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer } = userSettings;
+      document.getElementById("fontSize").value = fontSize;
+      document.getElementById("wsUrl1").value = weburl1;
+      document.getElementById("manualMode").checked = manualMode;
+      document.getElementById("showHotkey").value = showHotkey;
+      document.getElementById("wsUrl2").value = weburl2;
+      updateWebSocketStatus("ws1", websocketStates.ws1);
+      updateWebSocketStatus("ws2", websocketStates.ws2);
+      document.getElementById("hideOnStartup").checked = hideOnStartup;
+      document.getElementById("magpieCompatibility").checked = magpieCompatibility;
+      document.getElementById("showTextBackground").checked = showTextBackground;
+      document.getElementById("focusOnHotkey").checked = focusOnHotkey;
+      document.getElementById("afkTimer").value = afkTimer;
+      document.getElementById("hideReadyIndicator").checked = userSettings.hideReadyIndicator;
+
+      // Show/hide Ctrl warning based on loaded hotkey
+      const ctrlWarning = document.getElementById('ctrl-warning');
+      if (showHotkey && showHotkey.includes('Ctrl')) {
+        ctrlWarning.style.display = 'block';
+      } else {
+        ctrlWarning.style.display = 'none';
+      }
+    });
+
+    // Handle websocket status updates
+    function updateWebSocketStatus(type, isConnected) {
+      const statusElement = document.getElementById(type === "ws1" ? "wsstatus1" : "wsstatus2");
+      statusElement.className = `status-indicator ${isConnected ? "connected" : "disconnected"}`;
+    }
+
+    ipcRenderer.on("websocket-closed", (event, type) => {
+      updateWebSocketStatus(type, false);
+    });
+
+    ipcRenderer.on("websocket-opened", (event, type) => {
+      updateWebSocketStatus(type, true);
+    });
+  </script>
+</body>
+
+</html>

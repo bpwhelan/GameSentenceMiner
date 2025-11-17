@@ -1,4 +1,43 @@
 /* Shared CSS for GSM Web Application */
+/* ========================================================= */
+/* === GLOBAL CUSTOM SCROLLBAR STYLES === */
+/* ========================================================= */
+
+/* Firefox */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #5a5a5a #232323;
+}
+
+/* WebKit browsers (Chrome, Safari, Edge) */
+*::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+*::-webkit-scrollbar-track {
+    background: #232323;
+    border-radius: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: #5a5a5a;
+    border-radius: 10px;
+    border: 2px solid #232323;
+    transition: background 0.2s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: #6a6a6a;
+}
+
+*::-webkit-scrollbar-thumb:active {
+    background: #7a7a7a;
+}
+
+*::-webkit-scrollbar-corner {
+    background: #232323;
+}
 
 /* Base Styles */
 body {

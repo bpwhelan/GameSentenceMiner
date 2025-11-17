@@ -235,12 +235,19 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
     use_voice = True
     translation = game_line.TL if hasattr(game_line, 'TL') else ''
     if config.anki.show_update_confirmation_dialog and not use_existing_files:
-        config_app: 'ConfigApp' = gsm_state.config_app
+        from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
         sentence = note['fields'].get(config.anki.sentence_field, last_note.get_field(config.anki.sentence_field))
         
-        use_voice, sentence, translation, new_ss_path, add_nsfw_tag, new_audio_path = config_app.show_anki_confirmation_dialog(
+        result = launch_anki_confirmation(
             tango, sentence, assets.screenshot_path, assets.audio_path if update_audio_flag else None, translation, ss_time
         )
+        
+        if result is None:
+            # Dialog was cancelled
+            logger.info("Anki confirmation dialog was cancelled")
+            return
+        
+        use_voice, sentence, translation, new_ss_path, add_nsfw_tag, new_audio_path = result
         note['fields'][config.anki.sentence_field] = sentence
         note['fields'][config.ai.anki_field] = translation
         assets.screenshot_path = new_ss_path or assets.screenshot_path
@@ -388,8 +395,9 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
         game_line = get_text_event(last_note)
     sentences = []
     sentences_text = ''
-    
-    if get_config().overlay.websocket_port and texthooking_page.overlay_server_thread.has_clients():
+    tags_lower = [tag.lower() for tag in last_note.tags]
+
+    if get_config().overlay.websocket_port and texthooking_page.overlay_server_thread.has_clients() and 'overlay' in tags_lower:
         sentence_in_anki = last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
         logger.info("Found matching line in Anki, Preserving HTML and fix spacing!")
 

@@ -23,7 +23,7 @@
     "files": [
       "dist/main/**/*",
       "electron-src/main/index.html",
-      "gsm.ico"
+      "assets/*"
     ],
     "extraFiles": [
       {
@@ -35,21 +35,19 @@
         "to": "resources/GameSentenceMiner"
       },
       {
+        "from": "GSM_Overlay/out",
+        "to": "resources/GSM_Overlay"
+      },
+      {
         "from": "pyproject.toml",
         "to": "resources/pyproject.toml"
       }
     ],
     "win": {
       "target": "nsis",
-      "icon": "gsm.ico",
+      "icon": "assets/gsm.ico",
       "sign": false,
-      "artifactName": "${productName}-Setup-${version}.${ext}",
-      "extraFiles": [
-        {
-          "from": "GSM_Overlay/out",
-          "to": "resources/GSM_Overlay"
-        }
-      ]
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "mac": {
       "target": "dmg"

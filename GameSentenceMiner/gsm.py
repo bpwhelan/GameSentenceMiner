@@ -1,3 +1,4 @@
+print("Top of gsm.py!")
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
 def handle_error_in_initialization(e):
@@ -20,8 +21,8 @@ try:
     import GameSentenceMiner.util.configuration
     from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
     get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
-    is_windows, is_linux, get_ffmpeg_path, is_mac
-    
+    is_windows, is_linux, get_ffmpeg_path, is_mac, is_dev
+    print("Imported configuration.")
     import asyncio
     import os
     import shutil
@@ -36,108 +37,112 @@ try:
     import signal
     import datetime
     from subprocess import Popen
+    
+    print("Imported standard libraries")
 
     import keyboard
-    import ttkbootstrap as ttk
+    print("Imported keyboard")
     from PIL import Image
+    print("Imported PIL Image")
     try:
         from pystray import Icon, Menu, MenuItem
     except Exception:
         logger.warning("pystray not installed correctly, tray icon will not work.")
+    print("Imported pystray")
     from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
+    print("Imported watchdog")
     import psutil
+    print("Imported psutil")
 
     start_time = time.time()
 
-    logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] configuration: {time.time() - start_time:.3f}s")
     
     start_time = time.time()
     from GameSentenceMiner.util.get_overlay_coords import init_overlay_processor
     from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags, add_srt_line
-    logger.debug(f"[Import] get_overlay_coords (OverlayThread, remove_html_and_cloze_tags): {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] get_overlay_coords (OverlayThread, remove_html_and_cloze_tags): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.model import VADResult
-    logger.debug(f"[Import] VADResult model: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] VADResult model: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.vad import vad_processor
-    logger.debug(f"[Import] vad_processor: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] vad_processor: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed, write_obs_configs, download_oneocr_dlls_if_needed
-    logger.debug(
+    logger.info(
         f"[Import] download_tools (download_obs_if_needed, download_ffmpeg_if_needed): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.communication.send import send_restart_signal
-    logger.debug(
-        f"[Import] send_restart_signal: {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
     from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
-    logger.debug(
+    logger.info(
         f"[Import] gsm_utils (wait_for_stable_file, make_unique_file_name, run_new_thread): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner import anki
-    logger.debug(f"[Import] anki: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] anki: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.ui import config_gui
-    logger.debug(f"[Import] config_gui: {time.time() - start_time:.3f}s")
+    from GameSentenceMiner.ui import qt_main
+    logger.info(f"[Import] qt_main: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util import configuration, notification, ffmpeg
-    logger.debug(
+    logger.info(
         f"[Import] util (configuration, notification, ffmpeg): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner import gametext
-    logger.debug(f"[Import] gametext: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] gametext: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner import obs
-    logger.debug(f"[Import] obs: {time.time() - start_time:.3f}s")
+    logger.info(f"[Import] obs: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.communication import Message
-    logger.debug(f"[Import] Message: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.communication.websocket import connect_websocket, register_websocket_message_handler, FunctionName
-    logger.debug(
-        f"[Import] websocket (connect_websocket, register_websocket_message_handler, FunctionName): {time.time() - start_time:.3f}s")
+    from GameSentenceMiner.util.communication.electron_ipc import (
+        register_command_handler,
+        start_ipc_listener_in_thread,
+        FunctionName,
+        announce_connected,
+    )
+    logger.info(
+        f"[Import] stdout-ipc (register_command_handler, start_ipc_listener_in_thread, FunctionName): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.ffmpeg import get_audio_and_trim, get_video_timings
-    logger.debug(
+    from GameSentenceMiner.util.ffmpeg import get_audio_and_trim
+    logger.info(
         f"[Import] util.ffmpeg (get_audio_and_trim, get_video_timings, get_ffmpeg_path): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.obs import check_obs_folder_is_correct
-    logger.debug(
+    logger.info(
         f"[Import] obs.check_obs_folder_is_correct: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.text_log import GameLine, get_text_event, get_mined_line, get_all_lines, game_log
-    logger.debug(
+    from GameSentenceMiner.util.text_log import get_mined_line, get_all_lines
+    logger.info(
         f"[Import] util.text_log (GameLine, get_text_event, get_mined_line, get_all_lines, game_log): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web import texthooking_page
-    logger.debug(
+    logger.info(
         f"[Import] web.texthooking_page: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web.service import handle_texthooker_button, set_get_audio_from_video_callback
-    logger.debug(
+    logger.info(
         f"[Import] web.service (handle_texthooker_button, set_get_audio_from_video_callback): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
-    logger.debug(
+    logger.info(
         f"[Import] web.texthooking_page.run_text_hooker_page: {time.time() - start_time:.3f}s")
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
@@ -147,7 +152,8 @@ if is_windows():
     import win32api
 
 procs_to_close = []
-settings_window: config_gui.ConfigApp = None
+# settings_window: config_gui.ConfigApp = None
+settings_window = None
 obs_paused = False
 root = None
 file_watcher_observer = None  # Global observer for file watching
@@ -402,7 +408,7 @@ def create_image():
 
 def open_settings():
     obs.update_current_game()
-    settings_window.show()
+    settings_window.show_window()
 
 
 def play_most_recent_audio():
@@ -464,28 +470,69 @@ class GSMTray(threading.Thread):
         if not Icon:
             logger.warning("Tray icon functionality is not available.")
             return
-        def run_anki_confirmation_window():
-            settings_window.show_anki_confirmation_dialog(expression="こんにちは",
+        
+        def test_anki_confirmation(icon, item):
+            from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
+            gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            result = launch_anki_confirmation(
+                expression="こんにちは",
                 sentence="こんにちは、世界！元気ですか？",
-                screenshot_path="test_image.png",
-                audio_path="C:/path/to/my/audio.mp3",
-                translation="Hello world! How are you?")
+                screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
+                audio_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
+                translation="Hello world! How are you?",
+                screenshot_timestamp=0
+            )
+            print(f"Anki Confirmation Result: {result}")
+        
+        def test_screenshot_selector(icon, item):
+            from GameSentenceMiner.ui.qt_main import launch_screenshot_selector
+            gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            result = launch_screenshot_selector(gsm_state.current_replay, 10, 'middle')
+            print(f"Screenshot Selector Result: {result}")
+        
+        def test_furigana_filter(icon, item):
+            from GameSentenceMiner.ui.qt_main import launch_furigana_filter_preview
+            result = launch_furigana_filter_preview(current_sensitivity=50)
+            print(f"Furigana Filter Result: {result}")
+        
+        def test_area_selector(icon, item):
+            from GameSentenceMiner.ui.qt_main import launch_area_selector
+            result = launch_area_selector(window_name="", use_obs_screenshot=True)
+            print(f"Area Selector Result: {result}")
+        
+        def test_screen_cropper(icon, item):
+            from GameSentenceMiner.ui.qt_main import launch_screen_cropper
+            result = launch_screen_cropper()
+            print(f"Screen Cropper Result: {result}")
 
         self.profile_menu = Menu(
             *[MenuItem(("Active: " if profile == get_master_config().current_profile else "") + profile, self.switch_profile) for
               profile in
               get_master_config().get_all_profile_names()]
         )
-
-        menu = Menu(
+        
+        menu_items = [
             MenuItem("Open Settings", open_settings, default=True),
             MenuItem("Open Texthooker", texthooking_page.open_texthooker),
             MenuItem("Open Log", open_log),
             MenuItem("Toggle Replay Buffer", self.play_pause),
             MenuItem("Restart OBS", restart_obs),
             MenuItem("Switch Profile", self.profile_menu),
-            MenuItem("Run Test Code", run_anki_confirmation_window),
             MenuItem("Exit", exit_program)
+        ]
+        
+        if is_dev:
+            test_menu = Menu(
+                MenuItem("Anki Confirmation Dialog", test_anki_confirmation),
+                MenuItem("Screenshot Selector", test_screenshot_selector),
+                MenuItem("Furigana Filter Preview", test_furigana_filter),
+                MenuItem("Area Selector", test_area_selector),
+                MenuItem("Screen Cropper", test_screen_cropper)
+            )
+            menu_items.insert(-1, MenuItem("Test Windows", test_menu))
+
+        menu = Menu(
+            *menu_items
         )
         
         self.icon = Icon("TrayApp", create_image(), "GameSentenceMiner", menu)
@@ -526,7 +573,6 @@ class GSMTray(threading.Thread):
         get_master_config().current_profile = item.text
         switch_profile_and_save(item.text)
         settings_window.reload_settings()
-        self.update_icon()
         if get_config().restart_required(prev_config):
             send_restart_signal()
 
@@ -647,8 +693,11 @@ def cleanup():
             except Exception as e:
                 logger.error(
                     f"Error removing temporary video file {video}: {e}")
-
-        settings_window.window.destroy()
+        
+        # Shutdown Qt application
+        from GameSentenceMiner.ui import qt_main
+        qt_main.shutdown_qt_app()
+            
         # time.sleep(5)
         logger.info("Cleanup complete.")
     except Exception as e:
@@ -756,7 +805,10 @@ def initialize(reloading=False):
         os.makedirs(get_config().paths.output_folder, exist_ok=True)
         set_get_audio_from_video_callback(VideoToAudioHandler.get_audio)
     initial_checks()
-    register_websocket_message_handler(handle_websocket_message)
+    # Initialize stdout/stdin IPC listener for Electron commands
+    start_ipc_listener_in_thread()
+    register_command_handler(handle_ipc_command)
+    announce_connected()
     # if get_config().vad.do_vad_postprocessing:
     #     if VOSK in (get_config().vad.backup_vad_model, get_config().vad.selected_vad_model):
     #         vosk_helper.get_vosk_model()
@@ -765,45 +817,41 @@ def initialize(reloading=False):
 
 
 def initialize_async():
-    tasks = [connect_websocket]
     threads = []
-    tasks.append(anki.start_monitoring_anki)
-    for task in tasks:
-        threads.append(run_new_thread(task))
+    threads.append(run_new_thread(anki.start_monitoring_anki))
     return threads
 
 
-def handle_websocket_message(message: Message):
-    logger.info(f"WebSocket Message Received: {message.to_json()}")
+def handle_ipc_command(cmd: dict):
+    logger.info(f"IPC Command Received: {cmd}")
     try:
-        match FunctionName(message.function):
-            case FunctionName.QUIT:
-                cleanup()
-                sys.exit(0)
-            case FunctionName.QUIT_OBS:
-                close_obs()
-            case FunctionName.START_OBS:
-                obs.start_obs(force_restart=not gsm_status.obs_connected)
-            case FunctionName.OPEN_SETTINGS:
-                open_settings()
-            case FunctionName.OPEN_TEXTHOOKER:
-                texthooking_page.open_texthooker()
-            case FunctionName.OPEN_LOG:
-                open_log()
-            case FunctionName.TOGGLE_REPLAY_BUFFER:
-                obs.toggle_replay_buffer()
-            case FunctionName.RESTART_OBS:
-                restart_obs()
-            case FunctionName.EXIT:
-                cleanup()
-                sys.exit(0)
-            case FunctionName.CONNECT:
-                logger.debug("Electron WSS connected")
-            case _:
-                logger.debug(
-                    f"unknown message from electron websocket: {message.to_json()}")
+        function = cmd.get("function")
+        if function == FunctionName.QUIT.value:
+            cleanup()
+            sys.exit(0)
+        elif function == FunctionName.QUIT_OBS.value:
+            close_obs()
+        elif function == FunctionName.START_OBS.value:
+            obs.start_obs(force_restart=not gsm_status.obs_connected)
+        elif function == FunctionName.OPEN_SETTINGS.value:
+            open_settings()
+        elif function == FunctionName.OPEN_TEXTHOOKER.value:
+            texthooking_page.open_texthooker()
+        elif function == FunctionName.OPEN_LOG.value:
+            open_log()
+        elif function == FunctionName.TOGGLE_REPLAY_BUFFER.value:
+            obs.toggle_replay_buffer()
+        elif function == FunctionName.RESTART_OBS.value:
+            restart_obs()
+        elif function == FunctionName.EXIT.value:
+            cleanup()
+            sys.exit(0)
+        elif function == FunctionName.CONNECT.value:
+            logger.debug("Electron reported connect")
+        else:
+            logger.debug(f"Unknown IPC command: {cmd}")
     except Exception as e:
-        logger.debug(f"Error handling websocket message: {e}")
+        logger.debug(f"Error handling IPC command: {e}")
 
 
 def initialize_text_monitor():
@@ -832,6 +880,7 @@ def async_loop():
 
 async def register_scene_switcher_callback():
     def scene_switcher_callback(scene):
+        from GameSentenceMiner.ui.qt_main import launch_scene_selection
         logger.info(f"Scene changed to: {scene}")
         gsm_state.current_game = obs.get_current_game()
         all_configured_scenes = [
@@ -842,8 +891,7 @@ async def register_scene_switcher_callback():
         switch_to = None
 
         if len(matching_configs) > 1:
-            selected_scene = settings_window.show_scene_selection(
-                matched_configs=matching_configs)
+            selected_scene = launch_scene_selection(matching_configs)
             if selected_scene:
                 switch_to = selected_scene
             else:
@@ -858,7 +906,6 @@ async def register_scene_switcher_callback():
             get_master_config().current_profile = switch_to
             switch_profile_and_save(switch_to)
             settings_window.reload_settings()
-            gsm_tray.update_icon()
 
     await obs.register_scene_change_callback(scene_switcher_callback)
 
@@ -899,9 +946,9 @@ async def async_main(reloading=False):
     try:
         global root, settings_window
         initialize(reloading)
-        root = ttk.Window(themename='darkly')
-        start_time = time.time()
-        settings_window = config_gui.ConfigApp(root)
+        # root = ttk.Window(themename='darkly')
+        # Initialize the config window manager
+        settings_window = qt_main.get_config_window()
         gsm_state.config_app = settings_window
         initialize_async()
         if is_windows():
@@ -911,7 +958,6 @@ async def async_main(reloading=False):
         run_new_thread(run_text_hooker_page)
         run_new_thread(async_loop).join()
 
-        logger.info("Initialization complete. Happy Mining! がんばれ！")
 
         # await check_if_script_is_running()
         # await log_current_pid()
@@ -924,33 +970,46 @@ async def async_main(reloading=False):
 
         gsm_status.ready = True
         gsm_status.status = "Ready"
-        try:
-            if get_config().general.open_config_on_startup:
-                root.after(50, settings_window.show)
-            if Icon:
-                root.after(50, gsm_tray.start)
-            # root.after(100, settings_window.show_anki_confirmation_dialog(expression="こんにちは",
-            #     sentence="こんにちは、世界！元気ですか？",
-            #     screenshot_path="test_image.png",
-            #     audio_path="C:/path/to/my/audio.mp3",
-            #     translation="Hello world! How are you?"))
-            if Icon:
-                settings_window.add_save_hook(gsm_tray.update_icon)
-            settings_window.add_save_hook(on_config_changed)
-            settings_window.on_exit = exit_program
-            root.mainloop()
-        except KeyboardInterrupt:
-            cleanup()
+        
+        # Start tray icon in background
+        if Icon:
+            gsm_tray.start()
+        
+        logger.info("Starting Qt on main thread...")
+        logger.info("Initialization complete. Happy Mining! がんばれ！")
+        # This blocks until Qt event loop closes - must be called from main thread
+        qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
+        
+    except KeyboardInterrupt:
+        cleanup()
     except Exception as e:
         handle_error_in_initialization(e)
 
 
 def main():
-    logger.info("Starting GSM")
-    try:
-        asyncio.run(async_main())
-    except Exception as e:
-        handle_error_in_initialization(e)
+        logger.info("Starting GSM")
+        import sys
+        if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+                print("""
+GameSentenceMiner (GSM) - Visual Novel and Game Sentence Mining Tool
+
+Usage:
+    python -m GameSentenceMiner.gsm [options]
+
+Options:
+    -h, --help        Show this help message and exit
+
+Description:
+    GameSentenceMiner is a tool for mining sentences, screenshots, and audio from games and visual novels.
+    It provides a GUI for configuration, hotkeys for mining, and integration with Anki.
+
+For more information, see: https://github.com/bpwhelan/GameSentenceMiner
+                """)
+                sys.exit(0)
+        try:
+                asyncio.run(async_main())
+        except Exception as e:
+                handle_error_in_initialization(e)
 
 
 if __name__ == "__main__":

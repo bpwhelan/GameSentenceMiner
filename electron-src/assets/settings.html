@@ -6,6 +6,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Settings</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* Custom multi-select styling for dark theme */
+        select[multiple] {
+            background-color: var(--background-color, #1a1a1a);
+            color: var(--text-color, #e0e0e0);
+            border: 1px solid var(--border-color, #444);
+            border-radius: 4px;
+            padding: 8px 12px;
+            font-size: 1em;
+        }
+        select[multiple] option {
+            background-color: var(--background-color, #1a1a1a);
+            color: var(--text-color, #e0e0e0);
+        }
+        select[multiple] option:checked {
+            background-color: var(--lighter_primary-color, #4285f4) !important;
+            color: #fff !important;
+        }
+        select[multiple]:focus {
+            outline: 2px solid var(--primary-color, #1a73e8);
+        }
+    </style>
 </head>
 
 <body>
@@ -19,6 +41,26 @@
                 <div class="input-group">
                     <label for="autoUpdateGSMApp">Auto Update:</label>
                     <input type="checkbox" id="autoUpdateGSMApp">
+                </div>
+
+                <div class="input-group">
+                    <label for="iconStyle">Icon Style:</label>
+                    <select id="iconStyle">
+                        <option value="gsm">Default</option>
+                        <option value="gsm_cute">Anime Girl</option>
+                        <option value="gsm_jacked">Jacked</option>
+                        <option value="gsm_cursed">Cursed</option>
+                        <option value="gsm_cute[tray]">Anime Girl (Tray Icon Also)</option>
+                        <option value="gsm_jacked[tray]">Jacked (Tray Icon Also)</option>
+                        <option value="gsm_cursed[tray]">Cursed (Tray Icon Also)</option>
+                        <option value="random">Random</option>
+                        <option value="random[tray]">Random (Tray Icon Also)</option>
+                    </select>
+                    <span class="tooltip tooltip-bottom tooltip-right">❓
+                        <span class="tooltiptext">
+                            Choose the icon style. May require restart for full effect. Options with (Tray Icon Also) will also change the system tray icon. Random selects a random icon each launch.
+                        </span>
+                    </span>
                 </div>
 
                 <!-- <div class="input-group">
@@ -78,7 +120,7 @@
             <div class="form-group">
                 <div class="input-group">
                     <label for="visible-tabs-selector">Visible Tabs:</label>
-                    <select id="visible-tabs-selector" multiple>
+                    <select id="visible-tabs-selector" style="overflow: hidden;" multiple>
                         <option value="launcher">Game Launcher</option>
                         <option value="stats">Stats</option>
                         <option value="python">Python</option>
@@ -186,6 +228,7 @@
 
     <script>
         const autoUpdateGSMAppCheckbox = document.getElementById('autoUpdateGSMApp');
+        const iconStyleSelect = document.getElementById('iconStyle');
         // const autoUpdateElectronCheckbox = document.getElementById('autoUpdateElectron');
         const startConsoleMinimizedCheckbox = document.getElementById('startConsoleMinimized');
         const customPythonPackageInput = document.getElementById('customPythonPackage');
@@ -310,6 +353,7 @@
             const settings = await ipcRenderer.invoke('settings.getSettings');
             if (settings) {
                 autoUpdateGSMAppCheckbox.checked = settings.autoUpdateGSMApp || false;
+                iconStyleSelect.value = settings.iconStyle || 'gsm';
                 // autoUpdateElectronCheckbox.checked = settings.autoUpdateElectron || false;
                 // pythonPathInput.value = settings.pythonPath || '';
                 // agentScriptsPathInput.value = settings.agentScriptsPath || '';
@@ -355,6 +399,7 @@
         async function saveSettings() {
             const settings = {
                 autoUpdateGSMApp: autoUpdateGSMAppCheckbox.checked,
+                iconStyle: iconStyleSelect.value,
                 // autoUpdateElectron: autoUpdateElectronCheckbox.checked,
                 // pythonPath: pythonPathInput.value,
                 // agentScriptsPath: agentScriptsPathInput.value,
@@ -375,6 +420,7 @@
 
         [
             autoUpdateGSMAppCheckbox,
+            iconStyleSelect,
             // autoUpdateElectronCheckbox,
             customPythonPackageInput,
             showYuzuTab,
@@ -384,7 +430,10 @@
             runOverlayOnStartupCheckbox,
             runManualOCROnStartupCheckbox
         ].forEach(element => {
-            element.addEventListener('change', async () => {
+            element.addEventListener('change', async (e) => {
+                if (element === iconStyleSelect) {
+                    window.ipcRenderer?.send?.('settings.iconStyleChanged', iconStyleSelect.value);
+                }
                 await saveSettings();
                 console.log("Settings saved.");
             });

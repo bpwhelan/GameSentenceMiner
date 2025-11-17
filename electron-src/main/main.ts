@@ -9,6 +9,7 @@ import {
     Tray,
     Notification,
 } from 'electron';
+import { sendNotificationFromPython } from './notifications.js';
 import * as path from 'path';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import { getOrInstallPython } from './python/python_downloader.js';
@@ -42,12 +43,13 @@ import {
     getStartConsoleMinimized,
     setPythonPath,
     setWindowName,
+    getIconStyle,
 } from './store.js';
 import { launchYuzuGameID, openYuzuWindow, registerYuzuIPC } from './ui/yuzu.js';
 import { checkForUpdates } from './update_checker.js';
 import { launchVNWorkflow, openVNWindow, registerVNIPC } from './ui/vn.js';
 import { launchSteamGameID, openSteamWindow, registerSteamIPC } from './ui/steam.js';
-import { webSocketManager } from './communication/websocket.js';
+import { GSMStdoutManager } from './communication/pythonIPC.js';
 import { getOBSConnection, openOBSWindow, registerOBSIPC, setOBSScene } from './ui/obs.js';
 import {
     registerSettingsIPC,
@@ -120,6 +122,7 @@ app.on('child-process-gone', (event, details) => {
 export let mainWindow: BrowserWindow | null = null;
 let tray: Tray;
 export let pyProc: ChildProcessWithoutNullStreams;
+let gsmStdoutManager: GSMStdoutManager | null = null;
 export let isQuitting = false;
 let isUpdating: boolean = false;
 let restartingGSM: boolean = false;
@@ -173,6 +176,28 @@ function registerIPC() {
             buttons: ['OK']
         });
         return response;
+    });
+
+    // Listen for icon setting changes from renderer
+    ipcMain.on('settings.iconStyleChanged', async (event, value) => {
+        // Show info dialog asking to restart
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            const response = await dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'Restart Required',
+                message: 'Changing the icon requires restarting the app. Restart now?',
+                buttons: ['Restart', 'Later'],
+                defaultId: 0,
+                cancelId: 1
+            });
+            if (response.response === 0) {
+                // User chose Restart
+                closeAllPythonProcesses().then(() => {
+                    app.relaunch();
+                    app.exit(0);
+                });
+            }
+        }
     });
 }
 
@@ -307,6 +332,17 @@ async function _updateGSMInternal(
                 );
             }
 
+            try {
+                await runCommand(
+                    pythonPath,
+                    ['-m', 'uv', 'pip', 'install', '--prerelease=allow', 'pynput~=1.9.2'],
+                    true,
+                    true
+                );
+            } catch (err) {
+                log.error('Failed to install pynput package, owocrhotkeys will not work on Linux/Mac:', err);
+            }
+
             log.info('Python update completed successfully.');
             new Notification({
                 title: 'Update Successful',
@@ -335,12 +371,37 @@ function getGSMModulePath(): string {
     return 'GameSentenceMiner.gsm';
 }
 
-function getIconPath(size: number = 0): string {
-    let filename = 'icon.png';
-    if (isWindows()) {
-        filename = 'gsm.ico';
+let useRareIcon: boolean = Math.random() < .01;
+let iconStyle = "";
+
+const availableIcons = ['gsm', 'gsm_cute', 'gsm_jacked', 'gsm_cursed'];
+
+if (getIconStyle().includes('random')) {
+    const randomIndex = Math.floor(Math.random() * availableIcons.length);
+    const selectedIcon = availableIcons[randomIndex];
+    iconStyle = selectedIcon;
+}
+
+export function getIconPath(forTray: boolean = false): string {
+    let style = getIconStyle().includes('random') ? iconStyle : getIconStyle();
+    let extension = isWindows() ? 'ico' : 'png';
+    if (forTray) {
+        if (getIconStyle().includes('[tray]')) {
+            style = style.replace('[tray]', '');
+            return path.join(getAssetsDir(), `${style}.${extension}`);
+        }
+        return path.join(getAssetsDir(), isWindows() ? 'gsm.ico' : 'gsm.png');
     }
+    if (useRareIcon) {
+        return path.join(getAssetsDir(), isWindows() ? 'gsm_rare.ico' : 'gsm_rare.png');
+    }
+    style = style.replace(/\[.*\]/, ''); // Remove any [.*] suffix if present
+    let filename = `${style}.${extension}`;
     return path.join(getAssetsDir(), filename);
+}
+
+function getProjectPathInAssets(): string {
+    return path.join(getAssetsDir(), 'projects');
 }
 
 /**
@@ -399,26 +460,34 @@ async function cleanCache(): Promise<void> {
 function runGSM(command: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
         const proc = spawn(command, args, {
-            env: getSanitizedPythonEnv()
+            env: { ...getSanitizedPythonEnv(), GSM_ELECTRON: '1' }
         });
 
         pyProc = proc;
 
-        proc.stdout.on('data', (data) => {
-            originalLog(`stdout: ${data}`);
-            if (data.toString().toLowerCase().includes('restart_for_settings_change')) {
-                console.log(
-                    'Restart Required for some of the settings saved to take affect! Restarting...'
-                );
-                restartGSM();
-                return;
+        // Attach GSMStdoutManager
+        gsmStdoutManager = new GSMStdoutManager(proc);
+        gsmStdoutManager.on('message', (msg) => {
+            // Handle structured GSM messages here
+            console.log('GSMMSG:', msg);
+            if (msg.function === 'notification' && msg.data) {
+                try {
+                    sendNotificationFromPython(msg.data);
+                } catch (e) {
+                    console.error('Failed to route notification from Python:', e);
+                }
             }
-            mainWindow?.webContents.send('terminal-output', data.toString());
+            // mainWindow?.webContents.send('gsm-message', msg);
         });
-
-        // Capture stderr (optional)
-        proc.stderr.on('data', (data) => {
-            mainWindow?.webContents.send('terminal-error', data.toString());
+        gsmStdoutManager.on('log', (log) => {
+            // Forward logs to renderer or handle as needed
+            if (log.type === 'stdout') {
+                mainWindow?.webContents.send('terminal-output', log.message + '\r\n');
+            } else if (log.type === 'stderr') {
+                mainWindow?.webContents.send('terminal-error', log.message + '\r\n');
+            } else if (log.type === 'parse-error') {
+                mainWindow?.webContents.send('terminal-error', '[GSMMSG parse error] ' + log.message + '\r\n');
+            }
         });
 
         proc.on('close', (code) => {
@@ -448,8 +517,9 @@ async function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 1000,
-        icon: getIconPath(32),
-        show: !getStartConsoleMinimized(),
+        icon: getIconPath(),
+        // Start hidden; show when ready for consistent taskbar icon
+        show: false,
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
@@ -481,6 +551,13 @@ async function createWindow() {
     });
 
     registerIPC();
+
+    // Reveal window only after renderer signals it's ready
+    mainWindow.once('ready-to-show', () => {
+        if (!getStartConsoleMinimized() && mainWindow) {
+            mainWindow.show();
+        }
+    });
 
     mainWindow.loadFile(path.join(getAssetsDir(), 'index.html'));
 
@@ -564,20 +641,33 @@ async function createWindow() {
 }
 
 function createTray() {
-    tray = new Tray(getIconPath(32)); // Replace with a valid icon path
-    const contextMenu = Menu.buildFromTemplate([
-        { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
-        { label: 'Restart Python App', click: () => restartGSM() },
-        { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
-        { label: 'Quit', click: () => quit() },
-    ]);
+    try {
+        const iconPath = getIconPath(true);
+        
+        // Check if icon file exists before creating tray
+        if (!fs.existsSync(iconPath)) {
+            console.warn(`Tray icon not found at ${iconPath}, skipping tray creation`);
+            return;
+        }
+        
+        tray = new Tray(iconPath);
+        const contextMenu = Menu.buildFromTemplate([
+            { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
+            { label: 'Restart Python App', click: () => restartGSM() },
+            { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
+            { label: 'Quit', click: () => quit() },
+        ]);
 
-    tray.setToolTip('GameSentenceMiner');
-    tray.setContextMenu(contextMenu);
+        tray.setToolTip('GameSentenceMiner');
+        tray.setContextMenu(contextMenu);
 
-    tray.on('click', () => {
-        showWindow();
-    });
+        tray.on('click', () => {
+            showWindow();
+        });
+    } catch (error) {
+        console.error('Failed to create tray:', error);
+        // Don't throw - tray is optional, app can continue without it
+    }
 }
 
 function showWindow() {
@@ -597,20 +687,7 @@ export async function isPackageInstalled(
     }
 }
 
-async function startWebSocketServer(): Promise<void> {
-    return new Promise((resolve, reject) => {
-        webSocketManager
-            .startServer()
-            .then((port) => {
-                console.log(`WebSocket server started on port ${port}`);
-                resolve();
-            })
-            .catch((error) => {
-                console.error('Failed to start WebSocket server:', error);
-                reject(error);
-            });
-    });
-}
+// Removed legacy WebSocket server startup; stdout IPC now used.
 
 export async function checkAndInstallUV(pythonPath: string): Promise<void> {
     const isuvInstalled = await isPackageInstalled(pythonPath, 'uv');
@@ -632,6 +709,28 @@ export async function checkAndInstallUV(pythonPath: string): Promise<void> {
     }
 }
 
+export async function checkAndInstallPython311(pythonPath: string): Promise<void> {
+    // run commands uv python install 3.11, uv pin 3.11
+    try {
+        await execFileAsync(pythonPath, [
+            '-m',
+            'uv',
+            'python',
+            'install',
+            '3.11',
+        ]);
+        await execFileAsync(pythonPath, [
+            '-m',
+            'uv',
+            'pin',
+            '3.11',
+        ]);
+    } catch (err) {
+        console.error('Failed to install or pin Python 3.11:', err);
+        process.exit(1);
+    }
+}
+
 /**
  * Ensures GameSentenceMiner is installed before running it.
  */
@@ -640,12 +739,17 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
 
     await checkAndInstallUV(pythonPath);
 
+    // TODO REMOVE THIS/COMMENT THIS
+    // console.log('Starting GameSentenceMiner...');
+    // return await runGSM(pythonPath, ['-m', 'uv', 'run', path.join(getGSMBaseDir(), "GameSentenceMiner", "gsm.py")]);
+
     if (!isInstalled) {
         console.log(`${APP_NAME} is not installed. Installing now...`);
         try {
+            const pkg = isDev ? "." : PACKAGE_NAME;
             await runCommand(
                 pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--prerelease=allow', PACKAGE_NAME],
+                ['-m', 'uv', 'pip', 'install', '--prerelease=allow', pkg],
                 true,
                 true
             );
@@ -738,7 +842,6 @@ async function processArgsAndStartSettings() {
     }
 }
 
-app.disableHardwareAcceleration();
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 
 if (!app.requestSingleInstanceLock()) {
@@ -762,9 +865,6 @@ if (!app.requestSingleInstanceLock()) {
         }
         createWindow().then(async () => {
             createTray();
-            startWebSocketServer().then(() => {
-                console.log('WebSocket server started successfully.');
-            });
             const pyPath = await getOrInstallPython();
             pythonPath = pyPath;
             setPythonPath(pythonPath);
@@ -867,21 +967,29 @@ async function closeGSM(): Promise<void> {
     if (!pyProc) return;
     restartingGSM = true;
     stopScripts();
-    const messageSent = await webSocketManager.sendQuitMessage();
-    if (messageSent) {
-        console.log('Quit message sent to GSM.');
+    // Prefer graceful quit via IPC command; fall back to kill.
+    if (gsmStdoutManager) {
+        gsmStdoutManager.sendQuitMessage();
+        console.log('Sent quit command to GSM via stdout IPC.');
+        setTimeout(() => {
+            if (pyProc && !pyProc.killed) {
+                pyProc.kill();
+                console.log('Force killed GSM after timeout.');
+            }
+        }, 3000);
     } else {
-        console.log('Killing');
+        console.log('No IPC manager, killing process directly.');
         pyProc?.kill();
     }
 }
 
 async function restartGSM(): Promise<void> {
     restartingGSM = true;
-    webSocketManager.sendQuitMessage().then(() => {
-        ensureAndRunGSM(pythonPath).then(() => {
-            console.log('GSM Successfully Restarted!');
-        });
+    if (gsmStdoutManager) {
+        gsmStdoutManager.sendQuitMessage();
+    }
+    ensureAndRunGSM(pythonPath).then(() => {
+        console.log('GSM Successfully Restarted!');
     });
 }
 
@@ -1010,10 +1118,8 @@ async function quit(): Promise<void> {
     await stopScripts();
     if (pyProc != null) {
         await closeGSM();
-        await webSocketManager.stopServer();
         app.quit();
     } else {
-        await webSocketManager.stopServer();
         app.quit();
     }
 }
@@ -1023,3 +1129,8 @@ async function restart(): Promise<void> {
     app.relaunch();
     app.quit();
 }
+
+// Helper command wrappers replacing previous WebSocket-based ones
+export function sendStartOBS() { gsmStdoutManager?.sendStartOBS(); }
+export function sendQuitOBS() { gsmStdoutManager?.sendQuitOBS(); }
+export function sendOpenSettings() { gsmStdoutManager?.sendOpenSettings(); }

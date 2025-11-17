@@ -48,13 +48,10 @@ async function runScreenSelector(windowTitle: string) {
     }
     const ocr_config = getOCRConfig();
     await new Promise((resolve, reject) => {
-        let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector', windowTitle];
+        let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector_qt'];
 
-        if (ocr_config.useWindowForConfig) {
-            args.push('--use_window_for_config');
-        }
         if (ocr_config.useObsAsOCRSource) {
-            args.push('--obs_ocr');
+            args.push('--obs');
         }
 
         console.log(`Running screen selector with args: ${args.join(' ')}`);
