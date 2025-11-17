@@ -87,10 +87,6 @@ try:
         f"[Import] util (configuration, notification, ffmpeg): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.cron import CronScheduler
-    logger.debug(f"[Import] CronScheduler: {time.time() - start_time:.3f}s")
-
-    start_time = time.time()
     from GameSentenceMiner import gametext
     logger.debug(f"[Import] gametext: {time.time() - start_time:.3f}s")
 
