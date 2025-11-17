@@ -131,6 +131,9 @@ let pythonUpdating: boolean = false;
 const originalLog = console.log;
 const originalError = console.error;
 
+// TODO FLIP THIS TO false BEFORE RELEASE
+export const preReleaseVersion = true;
+
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
 
@@ -294,10 +297,10 @@ async function runUpdateChecks(
 /**
  * Manages and runs the update process for the Python backend (GSM).
  */
-async function updateGSM(shouldRestart: boolean = false, force: boolean = false): Promise<void> {
+async function updateGSM(shouldRestart: boolean = false, force: boolean = false, preRelease: boolean = false): Promise<void> {
     // **IMPROVEMENT**: The execution of the internal logic is assigned to our tracker promise.
     // Anyone awaiting gsmUpdatePromise will now wait for this specific operation to finish.
-    gsmUpdatePromise = _updateGSMInternal(shouldRestart, force);
+    gsmUpdatePromise = _updateGSMInternal(shouldRestart, force, preRelease);
     await gsmUpdatePromise;
 }
 
@@ -306,10 +309,14 @@ async function updateGSM(shouldRestart: boolean = false, force: boolean = false)
  */
 async function _updateGSMInternal(
     shouldRestart: boolean = false,
-    force: boolean = false
+    force: boolean = false,
+    preRelease: boolean = false
 ): Promise<void> {
     // The pythonUpdating flag is no longer needed for coordination.
     isUpdating = true;
+    const package_name = preRelease
+        ? 'https://github.com/bpwhelan/GameSentenceMiner/archive/refs/heads/develop.zip'
+        : PACKAGE_NAME;
     try {
         const { updateAvailable, latestVersion } = await checkForUpdates();
         if (updateAvailable || force) {
@@ -324,7 +331,7 @@ async function _updateGSMInternal(
             try {
                 await runCommand(
                     pythonPath,
-                    ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', PACKAGE_NAME],
+                    ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', package_name],
                     true,
                     true
                 );
@@ -336,7 +343,7 @@ async function _updateGSMInternal(
                 await cleanCache();
                 await runCommand(
                     pythonPath,
-                    ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', PACKAGE_NAME],
+                    ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', package_name],
                     true,
                     true
                 );
@@ -867,11 +874,15 @@ if (!app.requestSingleInstanceLock()) {
 } else {
     app.whenReady().then(async () => {
         processArgsAndStartSettings().then((_) => console.log('Processed Args'));
-        if (getAutoUpdateGSMApp()) {
+        if (!preReleaseVersion && getAutoUpdateGSMApp()) {
             if (await isConnected()) {
                 console.log('Checking for updates...');
                 await autoUpdate();
             }
+        }
+        if (preReleaseVersion) {
+            console.log('Pre-release version detected, updating python package to development version...');
+            updateGSM(false, true, true);
         }
         createWindow().then(async () => {
             createTray();
