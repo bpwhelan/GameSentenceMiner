@@ -142,6 +142,13 @@ jobs:
         with:
           node-version: '21'
 
+      - name: Build Overlay
+        id: build_overlay_linux
+        working-directory: ./GSM_Overlay
+        run: |
+          npm install
+          npm run package
+
       - name: Install dependencies
         run: |
           npm install
@@ -164,6 +171,9 @@ jobs:
     needs: [electron-build-windows, electron-build-linux, electron-build-mac]
     if: github.ref == 'refs/heads/develop'
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:

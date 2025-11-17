@@ -121,7 +121,7 @@ function registerManualShowHotkey(oldHotkey) {
       // mainWindow.show();
       mainWindow.webContents.send('show-overlay-hotkey', true);
       
-      if (process.platform === 'win32' || process.platform === 'darwin') {
+      if (process.platform === 'win32') {
         mainWindow.setIgnoreMouseEvents(false, { forward: true });
       }
 
@@ -462,7 +462,7 @@ app.whenReady().then(async () => {
   };
 
   ipcMain.on('update-window-shape', (event, shape) => {
-    if (process.platform !== 'windows') {
+    if (process.platform !== 'win32') {
       currentShape = shape;
       // update clickable area on Linux
       mainWindow.setShape([shape]);
@@ -473,7 +473,7 @@ app.whenReady().then(async () => {
     // console.log("set-ignore-mouse-events", ignore, options, resizeMode, yomitanShown);
     if (!resizeMode && !yomitanShown) {
       // if ignore is false a button or element on the Overlay was clicked and we do not want to click-through
-      if (process.platform === 'linux') {
+      if (process.platform !== 'win32') {
         // On Linux, forwarding mouse click-through is currently unsupported
         // https://www.electronjs.org/docs/latest/tutorial/custom-window-interactions#click-through-windows
 
@@ -563,7 +563,7 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send("display-info", display);
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
 
-    if (process.platform !== 'linux')  {
+    if (process.platform === 'win32')  {
       // Windows and macOS - use setIgnoreMouseEvents
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
     }
