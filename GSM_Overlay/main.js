@@ -19,10 +19,12 @@ let userSettings = {
   "magpieCompatibility": false,
   "manualMode": false,
   "showHotkey": "Shift + Space",
+  "toggleFuriganaHotkey": "Alt+F",
   "pinned": false,
   "showTextBackground": false,
   "focusOnHotkey": false,
   "afkTimer": 5, // in minutes
+  "showFurigana": false,
 };
 let manualIn;
 let resizeMode = false;
@@ -33,6 +35,9 @@ let websocketStates = {
   "ws1": false,
   "ws2": false
 };
+
+let yomitanSettingsWindow = null;
+let settingsWindow = null;
 
 if (fs.existsSync(settingsPath)) {
   try {
@@ -197,7 +202,12 @@ function openSettings() {
   }
   mainWindow.webContents.send("request-current-settings");
   ipcMain.once("reply-current-settings", (event, settings) => {
-    const settingsWin = new BrowserWindow({
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.show();
+      settingsWindow.focus();
+      return;
+    }
+    settingsWindow = new BrowserWindow({
       width: 1200,
       height: 980,
       resizable: true,
@@ -209,9 +219,9 @@ function openSettings() {
       },
     });
 
-    settingsWin.webContents.setWindowOpenHandler(({ url }) => {
+    settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
             const child = new BrowserWindow({
-                parent: settingsWin ? settingsWin : undefined,
+                parent: settingsWindow ? settingsWindow : undefined,
                 show: true,
                 width: 1200,
                 height: 980,
@@ -228,39 +238,44 @@ function openSettings() {
             return { action: 'deny' };
         });
 
-    settingsWin.removeMenu()
+    settingsWindow.removeMenu()
 
-    settingsWin.loadFile("settings.html");
-    settingsWin.on("closed", () => {
+    settingsWindow.loadFile("settings.html");
+    settingsWindow.on("closed", () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("force-visible", false);
       }
     })
     const closedListenerFunction = (event, type) => {
-      settingsWin.send("websocket-closed", type)
+      settingsWindow.send("websocket-closed", type)
     }
     const openedListenerFunction = (event, type) => {
-      settingsWin.send("websocket-opened", type);
+      settingsWindow.send("websocket-opened", type);
     };
     ipcMain.on("websocket-closed", closedListenerFunction)
     ipcMain.on("websocket-opened", openedListenerFunction)
     console.log(websocketStates)
-    settingsWin.webContents.send("preload-settings", { userSettings, websocketStates })
+    settingsWindow.webContents.send("preload-settings", { userSettings, websocketStates })
 
-    settingsWin.on("closed", () => {
+    settingsWindow.on("closed", () => {
       ipcMain.removeListener("websocket-closed", closedListenerFunction)
       ipcMain.removeListener("websocket-opened", openedListenerFunction)
     })
     setTimeout(() => {
-    settingsWin.setSize(settingsWin.getSize()[0], settingsWin.getSize()[1]);
-    settingsWin.webContents.invalidate();
-    settingsWin.show();
+    settingsWindow.setSize(settingsWindow.getSize()[0], settingsWindow.getSize()[1]);
+    settingsWindow.webContents.invalidate();
+    settingsWindow.show();
   }, 500);
   })
 }
 
 function openYomitanSettings() {
-  const yomitanOptionsWin = new BrowserWindow({
+  if (yomitanSettingsWindow && !yomitanSettingsWindow.isDestroyed()) {
+    yomitanSettingsWindow.show();
+    yomitanSettingsWindow.focus();
+    return;
+  }
+  yomitanSettingsWindow = new BrowserWindow({
       width: 1100,
       height: 600,
       webPreferences: {
@@ -268,23 +283,24 @@ function openYomitanSettings() {
       }
     });
 
-    yomitanOptionsWin.removeMenu()
-    yomitanOptionsWin.loadURL(`chrome-extension://${ext.id}/settings.html`);
+    yomitanSettingsWindow.removeMenu()
+    yomitanSettingsWindow.loadURL(`chrome-extension://${ext.id}/settings.html`);
     // Allow search ctrl F in the settings window
-    yomitanOptionsWin.webContents.on('before-input-event', (event, input) => {
+    yomitanSettingsWindow.webContents.on('before-input-event', (event, input) => {
       if (input.key.toLowerCase() === 'f' && input.control) {
-        yomitanOptionsWin.webContents.send('focus-search');
+        yomitanSettingsWindow.webContents.send('focus-search');
         event.preventDefault();
       }
     });
-    yomitanOptionsWin.show();
+    yomitanSettingsWindow.show();
     // Force a repaint to fix blank/transparent window issue
     setTimeout(() => {
-      yomitanOptionsWin.setSize(yomitanOptionsWin.getSize()[0], yomitanOptionsWin.getSize()[1]);
-      yomitanOptionsWin.webContents.invalidate(); // Electron 21+ supports this
-      yomitanOptionsWin.show();
+      yomitanSettingsWindow.setSize(yomitanSettingsWindow.getSize()[0], yomitanSettingsWindow.getSize()[1]);
+      yomitanSettingsWindow.webContents.invalidate(); // Electron 21+ supports this
+      yomitanSettingsWindow.show();
     }, 500);
 }
+
 
 app.whenReady().then(async () => {
   // Start background manager and register periodic tasks
@@ -296,7 +312,6 @@ app.whenReady().then(async () => {
       const start = Date.now();
       const magpieInfo = await magpie.magpieGetInfo();
       const end = Date.now();
-      // console.log(`Time taken to get magpie info: ${end - start}ms`);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('magpie-window-info', magpieInfo);
       }
@@ -310,13 +325,11 @@ app.whenReady().then(async () => {
   try {
     ext = await session.defaultSession.loadExtension(extPath, { allowFileAccess: true });
     console.log('Yomitan extension loaded.');
-
   } catch (e) {
     console.error('Failed to load extension:', e);
   }
 
   globalShortcut.register('Alt+Shift+H', () => {
-    // Send a message to the renderer process to toggle the main box
     if (mainWindow) {
       mainWindow.webContents.send('toggle-main-box');
     }
@@ -325,7 +338,6 @@ app.whenReady().then(async () => {
   globalShortcut.register('Alt+Shift+J', () => {
     if (mainWindow) {
       resetActivityTimer();
-      // If AFK previously hid the overlay, restore it now
       if (afkHidden) {
         try {
           mainWindow.webContents.send('afk-hide', false);
@@ -356,24 +368,22 @@ app.whenReady().then(async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("new-magpieCompatibility", userSettings.magpieCompatibility);
     }
-  })
+  });
+
+  // Register toggle furigana hotkey
+  function registerToggleFuriganaHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.toggleFuriganaHotkey);
+    globalShortcut.register(userSettings.toggleFuriganaHotkey || "Alt+F", () => {
+      if (mainWindow) {
+        mainWindow.webContents.send("toggle-furigana-visibility");
+      }
+    });
+  }
+  registerToggleFuriganaHotkey();
 
   registerManualShowHotkey();
-  
 
-  // On press down, toggle overlay on top and focused, on release, toggle back
-  // globalShortcut.register('O', () => {
-  //   if (win) {
-  //     win.setAlwaysOnTop(true, 'screen-saver');
-  //     win.focus();
-  //   }
-  // }, () => {
-  //   if (win) {
-  //     win.setAlwaysOnTop(false);
-  //   }
-  // });
-
-  // Unregister shortcuts on quit
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
   });
@@ -452,7 +462,7 @@ app.whenReady().then(async () => {
   };
 
   ipcMain.on('update-window-shape', (event, shape) => {
-    if (process.platform === 'linux') {
+    if (process.platform !== 'windows') {
       currentShape = shape;
       // update clickable area on Linux
       mainWindow.setShape([shape]);
@@ -586,12 +596,8 @@ app.whenReady().then(async () => {
   });
   ipcMain.on("setting-changed", (event, { key, value }) => {
     console.log(`Setting changed: ${key} = ${value}`);
-    
-    // Update the userSettings object
     const oldValue = userSettings[key];
     userSettings[key] = value;
-    
-    // Handle special cases that need additional logic
     switch (key) {
       case "showHotkey":
         registerManualShowHotkey(oldValue);
@@ -602,15 +608,13 @@ app.whenReady().then(async () => {
       case "afkTimer":
         resetActivityTimer();
         break;
-      // Add other special cases here as needed
+      case "toggleFuriganaHotkey":
+        registerToggleFuriganaHotkey(oldValue);
+        break;
     }
-    
-    // Send the updated setting to the main window
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("settings-updated", { [key]: value });
     }
-    
-    // Save settings to disk
     saveSettings();
   });
 

@@ -16,7 +16,7 @@ from GameSentenceMiner.util.configuration import logger
 
 class CronScheduler:
     """
-    Async-based cron scheduler that checks for due cron jobs every 300 seconds.
+    Async-based cron scheduler that checks for due cron jobs every 15 minutes.
     
     Usage:
         # In your main async function:
@@ -27,12 +27,12 @@ class CronScheduler:
         await scheduler.stop()
     """
 
-    def __init__(self, check_interval: int = 300):
+    def __init__(self, check_interval: int = 900):
         """
         Initialize the CronScheduler.
         
         Args:
-            check_interval: Seconds between cron checks (default: 300)
+            check_interval: Seconds between cron checks (default: 900)
         """
         self.check_interval = check_interval
         self._task: Optional[asyncio.Task] = None
@@ -99,13 +99,9 @@ def run_due_crons():
     Returns:
         Dictionary with execution summary
     """
-    logger.info("Checking for due cron jobs...")
-    
-    # Get all cron jobs that need to run
     due_crons = CronTable.get_due_crons()
     
     if not due_crons:
-        logger.info("No cron jobs are due to run at this time")
         return {
             'total_checked': 0,
             'executed': 0,

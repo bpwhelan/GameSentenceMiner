@@ -58,6 +58,19 @@ background: rgba(202, 12, 12, 0.692);
     overflow: visible;
   }
 
+  .furigana-box {
+    position: absolute;
+    text-align: center;
+    color: white;
+    background: rgba(15, 15, 15, 0.856);
+    z-index: 1000;
+    /* Make sure it's on top */
+    pointer-events: none;
+    /* Prevent interaction */
+    user-select: none;
+    /* Prevent text selection */
+  }
+
   .text-box-container {
     position: absolute;
     white-space: nowrap;
@@ -203,8 +216,13 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+      transform: rotate(0deg);
+    }
+
+    100% {
+      transform: rotate(360deg);
+    }
   }
 
   /* Alternative pulsing dot indicator */
@@ -217,11 +235,14 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   @keyframes pulse {
-    0%, 100% { 
+
+    0%,
+    100% {
       opacity: 0.4;
       transform: scale(1);
     }
-    50% { 
+
+    50% {
       opacity: 1;
       transform: scale(1.2);
     }
@@ -243,7 +264,7 @@ background: rgba(202, 12, 12, 0.692);
   <div id="loading-indicator">
     <div class="loading-spinner"></div>
   </div>
-  
+
   <div id="main-box">
     <div draggable="false" id="draggable" class="interactive">
       <button class="control-btn" id="btn-pin">⬤</button>
@@ -347,6 +368,7 @@ background: rgba(202, 12, 12, 0.692);
   let showHotkey = "Shift + Space";
   let manualHotkeyPressed = false;
   let showTextBackground = false;
+  let showFurigana = false;
   let width = 2560;
   let height = 1440;
   let workArea = { x: 0, y: 0, width: 2560, height: 1440 };
@@ -373,17 +395,17 @@ background: rgba(202, 12, 12, 0.692);
     if (indicator && loadingStartTime) {
       const elapsedTime = Date.now() - loadingStartTime;
       const minDisplayTime = 500; // Minimum 500ms spinner display
-      
+
       const remainingTime = Math.max(0, minDisplayTime - elapsedTime);
-      
+
       setTimeout(() => {
         // Replace spinner with checkmark
         indicator.innerHTML = '<div class="checkmark">✓</div>';
-        
+
         // Start fade out after a brief moment
         setTimeout(() => {
           indicator.classList.add('fade-out');
-          
+
           // Clean up after fade completes
           setTimeout(() => {
             indicator.classList.remove('show', 'fade-out');
@@ -434,6 +456,7 @@ background: rgba(202, 12, 12, 0.692);
   let prevContainer = null;
 
   function setupWebSocket(weburl, isPrimary) {
+    const wanakana = window.wanakana;
     try {
       new URL(weburl);
       let type = "ws1";
@@ -490,7 +513,8 @@ background: rgba(202, 12, 12, 0.692);
               spacer.className = 'spacer';
               document.body.appendChild(spacer);
             }
-            line.words.forEach(word => {
+            let furiganaProcessedIndex = 0;
+            line.words.forEach((word, wordIdx) => {
               const rect = word.bounding_rect;
               let x1 = usePercentage ? rect.x1 * 100 : rect.x1;
               let y1 = usePercentage ? rect.y1 * 100 : rect.y1;
@@ -520,6 +544,96 @@ background: rgba(202, 12, 12, 0.692);
               // Estimate and apply the appropriate font size based on the box's dimensions and position
               const fontSize = estimateFontSize(word.text, x3 - x1, y3 - y1, boundBox, usePercentage);
               box.style.fontSize = `${fontSize}px`;
+
+              // If text is japanese, add furigana above it
+              if (showFurigana && /[^\u0000-\u007F]+/.test(word.text) && furiganaProcessedIndex <= wordIdx) {
+                const wanakana = window.wanakana;
+                const text = wanakana.stripOkurigana(word.text);
+                console.log(text);
+                if (!text || wanakana.isKanji(text) === false) {
+                  furiganaProcessedIndex = wordIdx + 1;
+                  return;
+                }
+
+                // Convert kanji to hiragana reading using kuroshiro
+                (async () => {
+                  try {
+                    const kuroshiro = window.kuroshiro;
+                    if (!kuroshiro) {
+                      console.warn('Kuroshiro not initialized yet');
+                      return;
+                    }
+                    let text = word.text;
+                    
+                    // Collect all consecutive kanji starting from current word
+                    let currentIndex = wordIdx + 1;
+                    while (currentIndex < line.words.length && wanakana.isKanji(line.words[currentIndex].text)) {
+                      text += line.words[currentIndex].text;
+                      currentIndex++;
+                    }
+                    
+                    // Now collect all consecutive hiragana until we hit another kanji
+                    while (currentIndex < line.words.length) {
+                      const currentWord = line.words[currentIndex];
+                      if (wanakana.isKanji(currentWord.text)) {
+                        // Hit another kanji, stop here
+                        break;
+                      }
+                      text += currentWord.text;
+                      currentIndex++;
+                    }
+                    
+                    // Update furiganaProcessedIndex to skip all words we just consumed
+                    furiganaProcessedIndex = currentIndex;
+                    
+                    console.log(`Collected text for furigana: "${text}" (processed up to index ${furiganaProcessedIndex})`);
+
+                    // replace ーーーー as many with just 1 ー
+                    text = text.replace(/ー+/g, 'ー');
+
+                    const hiragana = await kuroshiro.convert(text, { to: 'hiragana', mode: 'normal' });
+                    const reading = wanakana.stripOkurigana(hiragana, { matchKanji: text });
+
+                    console.log(`Converted "${text}" to "${hiragana}"`);
+                    console.log(`Adding furigana "${reading}" for "${text}"`);
+
+                    const furiganaBox = document.createElement('div');
+                    furiganaBox.className = 'furigana-box';
+                    // Wrap in <ruby> with empty <rt> to make Yomitan ignore
+                    furiganaBox.innerHTML = `<ruby>${reading}<rt></rt></ruby>`;
+                    // Allow overflow to the right, do not clip
+                    furiganaBox.style.whiteSpace = 'nowrap';
+                    furiganaBox.style.overflowX = 'visible';
+                    furiganaBox.style.overflowY = 'hidden';
+                    furiganaBox.style.textOverflow = 'unset';
+                    furiganaBox.style.minWidth = `${x3 - x1}${usePercentage ? '%' : 'px'}`;
+                    furiganaBox.style.width = 'auto';
+                    furiganaBox.style.padding = '0';
+                    furiganaBox.style.margin = '0';
+                    furiganaBox.style.lineHeight = '1';
+                    const furiganaFontSize = fontSize * 0.35;
+                    furiganaBox.style.fontSize = `${furiganaFontSize}px`;
+                    const furiganaHeight = furiganaFontSize * 1.1; // A reasonable approximation
+                    let furiganaTop;
+                    if (usePercentage) {
+                      const boxTopPercent = y1;
+                      const furiganaHeightPercent = (furiganaHeight / window.innerHeight) * 100;
+                      furiganaTop = boxTopPercent - furiganaHeightPercent;
+                      x3 += 1; // Slightly widen furigana box for percentage mode
+                    } else {
+                      furiganaTop = y1 - furiganaHeight;
+                      x3 += 20;
+                    }
+                    furiganaBox.style.left = `${x1}${usePercentage ? '%' : 'px'}`;
+                    furiganaBox.style.top = `${furiganaTop}${usePercentage ? '%' : 'px'}`;
+                    furiganaBox.style.textAlign = 'left';
+                    document.body.appendChild(furiganaBox);
+                  } catch (error) {
+                    console.error('Error converting to furigana:', error);
+                  }
+                })();
+              }
+
             });
 
             // Create aesthetic line box for background/border
@@ -592,7 +706,7 @@ background: rgba(202, 12, 12, 0.692);
             // Add line box and big interactive area to DOM
             document.body.appendChild(lineBox);
             document.body.appendChild(bigInteractiveArea);
-                    
+
             // Show ready indicator (checkmark) after text processing is complete
             if (!hideReadyIndicator)
               showReadyIndicator();
@@ -781,11 +895,13 @@ background: rgba(202, 12, 12, 0.692);
     const bigAreas = document.querySelectorAll('.big-interactive-area');
     const spacers = document.querySelectorAll('.spacer');
     const lineBoxes = document.querySelectorAll('.line-box');
+    const furiganaBoxes = document.querySelectorAll('.furigana-box');
     existingLineBreaks.forEach(br => br.remove());
     existingBoxes.forEach(box => box.remove());
     bigAreas.forEach(area => area.remove());
     spacers.forEach(spacer => spacer.remove());
     lineBoxes.forEach(lineBox => lineBox.remove());
+    furiganaBoxes.forEach(furiganaBox => furiganaBox.remove());
   }
 
   function hideTextBoxes() {
@@ -856,6 +972,7 @@ background: rgba(202, 12, 12, 0.692);
     pinned = newsettings.pinned;
     showTextBackground = newsettings.showTextBackground || false;
     hideReadyIndicator = newsettings.hideReadyIndicator;
+    showFurigana = newsettings.showFurigana;
 
     if (pinned) {
       document.body.classList.add("force-visible");
@@ -934,6 +1051,9 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "hideReadyIndicator":
           hideReadyIndicator = value;
+          break;
+        case "showFurigana":
+          showFurigana = value;
           break;
       }
     });
@@ -1156,6 +1276,16 @@ background: rgba(202, 12, 12, 0.692);
         document.body.classList.remove("force-visible");
       }
     }
+  });
+
+  // Toggle furigana visibility on hotkey
+  let furiganaVisible = true;
+  ipcRenderer.on("toggle-furigana-visibility", () => {
+    furiganaVisible = !furiganaVisible;
+    const furiganaBoxes = document.querySelectorAll('.furigana-box');
+    furiganaBoxes.forEach(box => {
+      box.style.display = furiganaVisible ? 'block' : 'none';
+    });
   });
   ipcRenderer.on("request-current-settings", () => {
     const fontSize = parseInt(textEl.style.fontSize, 10);

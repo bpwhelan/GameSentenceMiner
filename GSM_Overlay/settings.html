@@ -289,6 +289,10 @@
         <span class="label-text">Hide "Ready" Indicator</span>
         <input type="checkbox" id="hideReadyIndicator" />
       </label>
+      <label>
+        <span class="label-text">Show Furigana</span>
+        <input type="checkbox" id="showFurigana" />
+      </label>
     </div>
 
     <div class="setting-group">
@@ -317,6 +321,22 @@
         <div class="input-container">
           <input type="text" id="showHotkey" value="Shift + Space"
             title="Enter a valid hotkey (e.g., Shift + Space)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
+      </label>
+      <label>
+        <span class="label-text">
+          Toggle Furigana Hotkey
+          <div class="hotkey-info">Show/hide furigana on overlay</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="furigana-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+        </span>
+        <div class="input-container">
+          <input type="text" id="toggleFuriganaHotkey" value="Alt+F"
+            title="Enter a valid hotkey (e.g., Alt+F)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
           <button type="button" class="guide-button"
             onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
             Guide
@@ -435,6 +455,10 @@
       handleSettingChange("hideReadyIndicator", event.target.checked);
     });
 
+    document.getElementById("showFurigana").addEventListener("change", (event) => {
+      handleSettingChange("showFurigana", event.target.checked);
+    });
+
     document.getElementById("afkTimer").addEventListener("input", (event) => {
       let value = parseInt(event.target.value);
       if (isNaN(value) || value < 0) value = 0;
@@ -451,7 +475,8 @@
       handleSettingChange("afkTimer", value);
     });
 
-    // Smart hotkey capture for manual mode hotkey
+
+    // Smart hotkey capture for manual mode hotkey and furigana toggle hotkey
     let isCapturingHotkey = false;
 
     // Initialize hotkey input with smart capture
@@ -460,6 +485,12 @@
       showCtrlWarning: true,
       placeholder: "Press keys...",
       settingKey: "showHotkey"
+    });
+    initializeHotkeyInput("toggleFuriganaHotkey", {
+      warningElementId: "furigana-ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "toggleFuriganaHotkey"
     });
 
     // Reusable hotkey input initialization function
@@ -625,14 +656,16 @@
       }
     }
 
+
     // Initialize settings preload handler with Ctrl warning support
     function initializeSettingsPreload(hotkeySettings = []) {
       ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
-        const { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, manualMode, showHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer } = userSettings;
+        const { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, manualMode, showHotkey, toggleFuriganaHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer, showFurigana } = userSettings;
         document.getElementById("fontSize").value = fontSize;
         document.getElementById("wsUrl1").value = weburl1;
         document.getElementById("manualMode").checked = manualMode;
         document.getElementById("showHotkey").value = showHotkey;
+        document.getElementById("toggleFuriganaHotkey").value = toggleFuriganaHotkey || "Alt+F";
         document.getElementById("wsUrl2").value = weburl2;
         updateWebSocketStatus("ws1", websocketStates.ws1);
         updateWebSocketStatus("ws2", websocketStates.ws2);
@@ -642,6 +675,7 @@
         document.getElementById("focusOnHotkey").checked = focusOnHotkey;
         document.getElementById("afkTimer").value = afkTimer;
         document.getElementById("hideReadyIndicator").checked = userSettings.hideReadyIndicator;
+        document.getElementById("showFurigana").checked = showFurigana;
 
         // Handle Ctrl warnings for configured hotkey settings
         hotkeySettings.forEach(({ inputId, warningElementId, settingKey }) => {
@@ -659,6 +693,11 @@
         inputId: "showHotkey",
         warningElementId: "ctrl-warning",
         settingKey: "showHotkey"
+      },
+      {
+        inputId: "toggleFuriganaHotkey",
+        warningElementId: "furigana-ctrl-warning",
+        settingKey: "toggleFuriganaHotkey"
       }
     ]);
 
@@ -714,7 +753,7 @@
 
     // Handle settings preload
     ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
-      const { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, manualMode, showHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer } = userSettings;
+      const { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, manualMode, showHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer, showFurigana } = userSettings;
       document.getElementById("fontSize").value = fontSize;
       document.getElementById("wsUrl1").value = weburl1;
       document.getElementById("manualMode").checked = manualMode;
@@ -728,6 +767,7 @@
       document.getElementById("focusOnHotkey").checked = focusOnHotkey;
       document.getElementById("afkTimer").value = afkTimer;
       document.getElementById("hideReadyIndicator").checked = userSettings.hideReadyIndicator;
+      document.getElementById("showFurigana").checked = showFurigana;
 
       // Show/hide Ctrl warning based on loaded hotkey
       const ctrlWarning = document.getElementById('ctrl-warning');

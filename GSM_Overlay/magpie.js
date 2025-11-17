@@ -1,3 +1,4 @@
+    const { app } = require('electron');
 const { ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -29,7 +30,8 @@ if (process.platform !== 'win32') {
         // Make sure the path to your script is correct.
         // Using path.join and __dirname makes it robust.
         // Use the pythonPath variable defined earlier.
-        const scriptPath = path.join(process.resourcesPath, 'magpie_compat.py');
+        // Use app.isPackaged to determine if running from source or packaged
+        const scriptPath = path.join(app.isPackaged ? process.resourcesPath : __dirname, 'magpie_compat.py');
 
         // Use the pythonPath variable defined earlier.
         const pyProcess = spawn(pythonPath, [scriptPath, ...args]);

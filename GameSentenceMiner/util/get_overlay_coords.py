@@ -137,6 +137,7 @@ class OverlayProcessor:
         self.last_oneocr_result = None
         self.last_lens_result = None
         self.current_task = None  # Track current running task
+        self.windows_warning_shown = False
 
         try:
             if self.config.overlay.websocket_port and all([GoogleLens, get_regex]):
@@ -328,6 +329,12 @@ class OverlayProcessor:
         """The main OCR workflow with cancellation support."""
         if not self.lens:
             logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
+            return []
+        
+        if not is_windows:
+            if self.windows_warning_shown is False:
+                logger.warning("Overlay OCR is only fully supported on Windows currently. This may change in future versions.")
+            self.windows_warning_shown = True
             return []
         
         if get_config().overlay.scan_delay > 0:
