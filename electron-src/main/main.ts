@@ -315,7 +315,7 @@ async function _updateGSMInternal(
     // The pythonUpdating flag is no longer needed for coordination.
     isUpdating = true;
     const package_name = preRelease
-        ? 'https://github.com/bpwhelan/GameSentenceMiner/archive/refs/heads/develop.zip'
+        ? 'git+https://github.com/bpwhelan/GameSentenceMiner@develop'
         : PACKAGE_NAME;
     try {
         const { updateAvailable, latestVersion } = await checkForUpdates();
