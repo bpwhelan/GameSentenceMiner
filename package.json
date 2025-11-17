@@ -35,10 +35,6 @@
         "to": "resources/GameSentenceMiner"
       },
       {
-        "from": "GSM_Overlay/out",
-        "to": "resources/GSM_Overlay"
-      },
-      {
         "from": "pyproject.toml",
         "to": "resources/pyproject.toml"
       }
@@ -47,13 +43,25 @@
       "target": "nsis",
       "icon": "assets/gsm.ico",
       "sign": false,
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "extraFiles": [
+        {
+          "from": "GSM_Overlay/out",
+          "to": "resources/GSM_Overlay"
+        }
+      ]
     },
     "mac": {
       "target": "dmg"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "extraFiles": [
+        {
+          "from": "GSM_Overlay/out",
+          "to": "resources/GSM_Overlay"
+        }
+      ]
     },
     "publish": [
       {
