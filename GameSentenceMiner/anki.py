@@ -23,10 +23,8 @@ from GameSentenceMiner.util.model import AnkiCard
 from GameSentenceMiner.util.text_log import GameLine, get_all_lines, get_text_event, get_mined_line, lines_match
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.web import texthooking_page
-from GameSentenceMiner.ui.config_gui import ConfigApp
 import re
 import platform
-import sys
 
 from dataclasses import dataclass, field
 from typing import Dict, Any, List

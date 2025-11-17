@@ -1,4 +1,3 @@
-print("Top of gsm.py!")
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
 def handle_error_in_initialization(e):
@@ -22,7 +21,6 @@ try:
     from GameSentenceMiner.util.configuration import logger, gsm_state, get_config, anki_results, AnkiUpdateResult, \
     get_temporary_directory, get_log_path, get_master_config, switch_profile_and_save, get_app_directory, gsm_status, \
     is_windows, is_linux, get_ffmpeg_path, is_mac, is_dev
-    print("Imported configuration.")
     import asyncio
     import os
     import shutil
@@ -38,70 +36,67 @@ try:
     import datetime
     from subprocess import Popen
     
-    print("Imported standard libraries")
-
     import keyboard
-    print("Imported keyboard")
     from PIL import Image
-    print("Imported PIL Image")
     try:
         from pystray import Icon, Menu, MenuItem
     except Exception:
         logger.warning("pystray not installed correctly, tray icon will not work.")
-    print("Imported pystray")
     from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
-    print("Imported watchdog")
     import psutil
-    print("Imported psutil")
 
     start_time = time.time()
 
-    logger.info(f"[Import] configuration: {time.time() - start_time:.3f}s")
+    logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
     
     start_time = time.time()
     from GameSentenceMiner.util.get_overlay_coords import init_overlay_processor
     from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags, add_srt_line
-    logger.info(f"[Import] get_overlay_coords (OverlayThread, remove_html_and_cloze_tags): {time.time() - start_time:.3f}s")
+    logger.debug(f"[Import] get_overlay_coords (OverlayThread, remove_html_and_cloze_tags): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.model import VADResult
-    logger.info(f"[Import] VADResult model: {time.time() - start_time:.3f}s")
+    logger.debug(f"[Import] VADResult model: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.vad import vad_processor
-    logger.info(f"[Import] vad_processor: {time.time() - start_time:.3f}s")
+    logger.debug(f"[Import] vad_processor: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.downloader.download_tools import download_obs_if_needed, download_ffmpeg_if_needed, write_obs_configs, download_oneocr_dlls_if_needed
-    logger.info(
+    logger.debug(
         f"[Import] download_tools (download_obs_if_needed, download_ffmpeg_if_needed): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.gsm_utils import wait_for_stable_file, make_unique_file_name, run_new_thread
-    logger.info(
+    logger.debug(
         f"[Import] gsm_utils (wait_for_stable_file, make_unique_file_name, run_new_thread): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner import anki
-    logger.info(f"[Import] anki: {time.time() - start_time:.3f}s")
+    logger.debug(f"[Import] anki: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.ui import qt_main
-    logger.info(f"[Import] qt_main: {time.time() - start_time:.3f}s")
+    logger.debug(f"[Import] qt_main: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util import configuration, notification, ffmpeg
-    logger.info(
+    logger.debug(
         f"[Import] util (configuration, notification, ffmpeg): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
+    from GameSentenceMiner.util.cron import CronScheduler
+    logger.debug(f"[Import] CronScheduler: {time.time() - start_time:.3f}s")
+
+    start_time = time.time()
     from GameSentenceMiner import gametext
-    logger.info(f"[Import] gametext: {time.time() - start_time:.3f}s")
+    logger.debug(f"[Import] gametext: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner import obs
-    logger.info(f"[Import] obs: {time.time() - start_time:.3f}s")
+    logger.debug(f"[Import] obs: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
 
@@ -112,37 +107,37 @@ try:
         FunctionName,
         announce_connected,
     )
-    logger.info(
+    logger.debug(
         f"[Import] stdout-ipc (register_command_handler, start_ipc_listener_in_thread, FunctionName): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.ffmpeg import get_audio_and_trim
-    logger.info(
+    logger.debug(
         f"[Import] util.ffmpeg (get_audio_and_trim, get_video_timings, get_ffmpeg_path): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.obs import check_obs_folder_is_correct
-    logger.info(
+    logger.debug(
         f"[Import] obs.check_obs_folder_is_correct: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.util.text_log import get_mined_line, get_all_lines
-    logger.info(
+    logger.debug(
         f"[Import] util.text_log (GameLine, get_text_event, get_mined_line, get_all_lines, game_log): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web import texthooking_page
-    logger.info(
+    logger.debug(
         f"[Import] web.texthooking_page: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web.service import handle_texthooker_button, set_get_audio_from_video_callback
-    logger.info(
+    logger.debug(
         f"[Import] web.service (handle_texthooker_button, set_get_audio_from_video_callback): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
-    logger.info(
+    logger.debug(
         f"[Import] web.texthooking_page.run_text_hooker_page: {time.time() - start_time:.3f}s")
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
@@ -152,7 +147,6 @@ if is_windows():
     import win32api
 
 procs_to_close = []
-# settings_window: config_gui.ConfigApp = None
 settings_window = None
 obs_paused = False
 root = None
@@ -573,8 +567,8 @@ class GSMTray(threading.Thread):
         get_master_config().current_profile = item.text
         switch_profile_and_save(item.text)
         settings_window.reload_settings()
-        if get_config().restart_required(prev_config):
-            send_restart_signal()
+        # if get_config().restart_required(prev_config):
+            # send_restart_signal()
 
     def play_pause(self, icon, item):
         if not self.icon:
@@ -768,14 +762,6 @@ def initialize(reloading=False):
         if is_mac():
             if shutil.which("ffmpeg") is None:
                 os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
-                
-        # Check for due cron jobs on startup
-        try:
-            from GameSentenceMiner.util.cron.run_crons import run_due_crons
-            logger.info("Checking for due cron jobs...")
-            run_due_crons()
-        except Exception as e:
-            logger.warning(f"Failed to check cron jobs on startup: {e}")
         
         # Check if rollup table needs initial population (version upgrade migration)
         try:
@@ -796,6 +782,7 @@ def initialize(reloading=False):
                 logger.info(f"Initial rollup complete: processed {rollup_result.get('processed', 0)} dates")
         except Exception as e:
             logger.warning(f"Failed to check/populate rollup table on startup: {e}")
+            
         if get_config().obs.open_obs:
             obs_process = obs.start_obs()
             # obs.connect_to_obs(start_replay=True)
@@ -820,6 +807,18 @@ def initialize_async():
     threads = []
     threads.append(run_new_thread(anki.start_monitoring_anki))
     return threads
+
+def background_tasks():
+    """Initialize and run background async tasks like cron scheduler."""
+    async def run():
+        from GameSentenceMiner.util.cron import CronScheduler
+        scheduler = CronScheduler()
+        await scheduler.start()
+        
+        # Keep running indefinitely
+        await asyncio.Event().wait()
+    
+    asyncio.run(run())
 
 
 def handle_ipc_command(cmd: dict):
@@ -870,10 +869,6 @@ def async_loop():
         
         vad_processor.init()
         await init_overlay_processor()
-
-        # Keep loop alive
-        # if is_beangate:
-        # await run_test_code()
 
     asyncio.run(loop())
 
@@ -957,6 +952,7 @@ async def async_main(reloading=False):
         run_new_thread(initialize_text_monitor)
         run_new_thread(run_text_hooker_page)
         run_new_thread(async_loop).join()
+        run_new_thread(background_tasks)
 
 
         # await check_if_script_is_running()

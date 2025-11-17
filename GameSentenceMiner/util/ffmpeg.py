@@ -12,7 +12,6 @@ import shutil
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from GameSentenceMiner.ui.config_gui import ConfigApp
     from GameSentenceMiner.ui.qt_main import DialogManager
 
 from GameSentenceMiner import obs

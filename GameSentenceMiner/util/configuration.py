@@ -21,8 +21,6 @@ from dataclasses_json import dataclass_json
 
 from importlib import metadata
 
-print("configuration.py imports successful")
-
 
 OFF = 'OFF'
 # VOSK = 'VOSK'
@@ -843,7 +841,7 @@ class ProfileConfig:
 
         with open(get_config_path(), 'w') as f:
             f.write(self.to_json(indent=4))
-            print(
+            logger.warning(
                 'config.json successfully generated from previous settings. config.toml will no longer be used.')
 
         return self
@@ -1180,7 +1178,7 @@ def load_config():
                 if "current_profile" in config_file:
                     return Config.from_dict(config_file)
                 else:
-                    print(f"Loading Profile-less Config, Converting to new Config!")
+                    logger.warning(f"Loading Profile-less Config, Converting to new Config!")
                     with open(config_path, 'r') as file:
                         config_file = json.load(file)
 
@@ -1216,7 +1214,6 @@ def get_config():
     if config_instance is None:
         config_instance = load_config()
 
-    # print(config_instance.get_config())
     return config_instance.get_config()
 
 
@@ -1267,93 +1264,49 @@ def switch_profile_and_save(profile_name):
     save_full_config(config_instance)
     return config_instance.get_config()
 
-print("before logger setup")
+if is_windows():
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
-print("before sys reconfigure??")
-# try:
-#     # On macOS, reconfigure() can cause CFData assertion failures
-#     # Only reconfigure on Windows where it's actually needed
-#     if is_windows():
-#         sys.stdout.reconfigure(encoding='utf-8')
-#         sys.stderr.reconfigure(encoding='utf-8')
-#         print("after sys reconfigure - Windows")
-#     else:
-#         print("after sys reconfigure - skipped on non-Windows platform")
-# except Exception as e:
-#     print(f"Warning: Could not reconfigure stdout/stderr encoding: {e}")
-#     import traceback
-#     traceback.print_exc()
-
-print(f"DEBUG: Creating logger for '{logger_name}'")
 logger = logging.getLogger(logger_name)
 # Set the base level to DEBUG so that all messages are captured
 logger.setLevel(logging.DEBUG)
-print(f"DEBUG: Creating formatter")
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Create console handler with level INFO
-print(f"DEBUG: Creating console handler")
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
 
 console_handler.setFormatter(formatter)
 
-print(f"DEBUG: Adding console handler to logger")
 logger.addHandler(console_handler)
 
-print(f"DEBUG: Getting log path")
 file_path = get_log_path()
-print(f"DEBUG: Log path is: {file_path}")
 # Use RotatingFileHandler for automatic log rotation
-print(f"DEBUG: Creating rotating file handler")
-try:
-    rotating_handler = RotatingFileHandler(
-        file_path, 
-        maxBytes=10 * 1024 * 1024,  # 10MB
-        backupCount=5 if logger_name == "GameSentenceMiner" else 0,  # Keep more logs for OCR and Overlay
-        encoding='utf-8'
-    )
-    print(f"DEBUG: Rotating handler created successfully")
-    rotating_handler.setLevel(logging.DEBUG)
-    rotating_handler.setFormatter(formatter)
-    print(f"DEBUG: Adding rotating handler to logger")
-    logger.addHandler(rotating_handler)
-    print(f"DEBUG: Rotating handler added successfully")
-except Exception as e:
-    print(f"ERROR: Failed to create rotating handler: {e}")
-    import traceback
-    traceback.print_exc()
+rotating_handler = RotatingFileHandler(
+    file_path, 
+    maxBytes=10 * 1024 * 1024,  # 10MB
+    backupCount=5 if logger_name == "GameSentenceMiner" else 0,  # Keep more logs for OCR and Overlay
+    encoding='utf-8'
+)
+rotating_handler.setLevel(logging.DEBUG)
+rotating_handler.setFormatter(formatter)
+logger.addHandler(rotating_handler)
 
-print(f"DEBUG: Getting error log path")
 error_log_path = get_error_log_path()
-print(f"DEBUG: Error log path is: {error_log_path}")
-print(f"DEBUG: Creating error handler")
-try:
-    error_handler = RotatingFileHandler(
-        error_log_path,
-        maxBytes=5 * 1024 * 1024,  # 5MB
-        backupCount=1,
-        encoding='utf-8'
-    )
-    print(f"DEBUG: Error handler created successfully")
-    error_handler.setLevel(logging.ERROR)
-    error_handler.setFormatter(formatter)
-    error_handler.addFilter(lambda record: record.levelno >= logging.ERROR)
-    print(f"DEBUG: Adding error handler to logger")
-    logger.addHandler(error_handler)
-    print(f"DEBUG: Error handler added successfully")
-except Exception as e:
-    print(f"ERROR: Failed to create error handler: {e}")
-    import traceback
-    traceback.print_exc()
-
-print("after logger setup")
-
-print("before DB_PATH setup")
+error_handler = RotatingFileHandler(
+    error_log_path,
+    maxBytes=5 * 1024 * 1024,  # 5MB
+    backupCount=1,
+    encoding='utf-8'
+)
+error_handler.setLevel(logging.ERROR)
+error_handler.setFormatter(formatter)
+error_handler.addFilter(lambda record: record.levelno >= logging.ERROR)
+logger.addHandler(error_handler)
 
 DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
-print("after DB_PATH setup")
 
 # Clean up files in log directory older than 7 days
 def cleanup_old_logs(days=7):
@@ -1457,8 +1410,6 @@ def is_running_from_source():
     return False
 
 
-print("before global stuff")
-
 gsm_status = GsmStatus()
 anki_results = {}
 gsm_state = GsmAppState()
@@ -1493,8 +1444,6 @@ def get_pickaxe_png_path():
 ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']
 
 ffmpeg_base_command_list_info = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "info", '-nostdin']
-
-print("end of configuration")
 
 
 # logger.debug(f"Running in development mode: {is_dev}")
