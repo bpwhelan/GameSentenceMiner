@@ -880,10 +880,6 @@ if (!app.requestSingleInstanceLock()) {
                 await autoUpdate();
             }
         }
-        if (preReleaseVersion) {
-            console.log('Pre-release version detected, updating python package to development version...');
-            updateGSM(false, true, true);
-        }
         createWindow().then(async () => {
             createTray();
             const pyPath = await getOrInstallPython();
@@ -896,6 +892,10 @@ if (!app.requestSingleInstanceLock()) {
                 }
             } else if (getAutoUpdateGSMApp()) {
                 await updateGSM(false, false);
+            }
+            if (preReleaseVersion) {
+                console.log('Pre-release version detected, updating python package to development version...');
+                updateGSM(false, true, true);
             }
             try {
                 ensureAndRunGSM(pythonPath).then(async () => {
