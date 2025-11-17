@@ -178,6 +178,16 @@ function registerIPC() {
         return response;
     });
 
+    // Open external links in user's default browser
+    ipcMain.handle('open-external', async (event, url) => {
+        try {
+            await shell.openExternal(url);
+            return { success: true };
+        } catch (err: any) {
+            return { success: false, error: err && err.message ? err.message : String(err) };
+        }
+    });
+
     // Listen for icon setting changes from renderer
     ipcMain.on('settings.iconStyleChanged', async (event, value) => {
         // Show info dialog asking to restart
@@ -579,7 +589,7 @@ async function createWindow() {
                 {
                     label: 'Open Documentation',
                     click: () => {
-                        shell.openExternal('https://github.com/bpwhelan/GameSentenceMiner/wiki');
+                        shell.openExternal('https://docs.gamesentenceminer.com/docs/overview');
                     },
                 },
                 {

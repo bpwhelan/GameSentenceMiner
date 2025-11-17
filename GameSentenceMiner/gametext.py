@@ -103,7 +103,7 @@ async def monitor_clipboard():
             continue
         if not get_config().general.use_both_clipboard_and_websocket and any(websocket_connected.values()):
             gsm_status.clipboard_enabled = False
-            await asyncio.sleep(1)
+            await asyncio.sleep(5)
             send_message_on_resume = True
             continue
         elif send_message_on_resume:
@@ -138,7 +138,7 @@ async def listen_websockets():
         reconnect_sleep = 1
         while True:
             if not get_config().general.use_websocket:
-                await asyncio.sleep(1)
+                await asyncio.sleep(5)
                 continue
             websocket_url = f'ws://{uri}'
             if try_other:

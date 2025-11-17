@@ -330,9 +330,23 @@ class VideoToAudioHandler(FileSystemEventHandler):
             return vad_result
 
         if not vad_result.success:
+            # Store the trimmed audio path so it can be offered to the user in the confirmation dialog
+            if get_config().anki.show_update_confirmation_dialog_v2:
+                if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
+                    ffmpeg.reencode_file_with_user_config(trimmed_audio, final_audio_output,
+                                                        get_config().audio.ffmpeg_reencode_options_to_use)
+                else:
+                    shutil.move(trimmed_audio, final_audio_output)
+                vad_result.trimmed_audio_path = final_audio_output
             if get_config().vad.add_audio_on_no_results:
                 logger.info("No voice activity detected, using full audio.")
-                vad_result.output_audio = trimmed_audio
+                if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
+                    ffmpeg.reencode_file_with_user_config(trimmed_audio, final_audio_output,
+                                                        get_config().audio.ffmpeg_reencode_options_to_use)
+                else:
+                    shutil.move(trimmed_audio, final_audio_output)
+                vad_result.output_audio = final_audio_output
+                vad_result.success = True
             elif get_config().vad.use_tts_as_fallback:
                 try:
                     logger.info(
@@ -468,6 +482,7 @@ class GSMTray(threading.Thread):
                 expression="こんにちは",
                 sentence="こんにちは、世界！元気ですか？",
                 screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
+                previous_screenshot_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\GRlkYdonrE.png",
                 audio_path=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus",
                 translation="Hello world! How are you?",
                 screenshot_timestamp=0

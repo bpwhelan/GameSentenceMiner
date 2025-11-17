@@ -458,7 +458,7 @@ class Paths:
 @dataclass
 class Anki:
     update_anki: bool = True
-    show_update_confirmation_dialog: bool = False
+    show_update_confirmation_dialog_v2: bool = True
     url: str = 'http://127.0.0.1:8765'
     sentence_field: str = "Sentence"
     sentence_audio_field: str = "SentenceAudio"
@@ -1356,6 +1356,7 @@ class GsmAppState:
         self.srt_index = 1
         self.current_audio_stream = None
         self.replay_buffer_length = 0
+        self.vad_result = None
 
 
 @dataclass_json

@@ -3,11 +3,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { Downloader } from 'nodejs-file-downloader';
 import * as tar from 'tar';
+import extract from 'extract-zip';
 import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import { BASE_DIR, execFileAsync, getPlatform, isWindows, isMacOS } from '../util.js';
 import { mainWindow } from '../main.js';
-import { dialog } from 'electron';
+import { dialog, shell } from 'electron';
 
 // --- Constants ---
 
@@ -103,19 +104,8 @@ async function extractArchive(archivePath: string, extractPath: string): Promise
 
     try {
         if (archivePath.endsWith('.zip')) {
-            // Extract zip file using PowerShell on Windows
-            if (isWindows()) {
-                const execFilePromise = promisify(execFile);
-                await execFilePromise('powershell.exe', [
-                    '-NoProfile',
-                    '-Command',
-                    `Expand-Archive -Path "${archivePath}" -DestinationPath "${extractPath}" -Force`
-                ]);
-            } else {
-                // Use unzip on Unix-like systems
-                const execFilePromise = promisify(execFile);
-                await execFilePromise('unzip', ['-o', archivePath, '-d', extractPath]);
-            }
+            // Extract zip file using extract-zip (works reliably on all platforms)
+            await extract(archivePath, { dir: path.resolve(extractPath) });
         } else {
             // Extract tar.gz file
             await tar.x({
@@ -508,7 +498,17 @@ export async function getOrInstallPython(): Promise<string> {
         type: 'info',
         title: 'First Time Setup',
         message: 'GSM Running First Time Setup. There are a lot of moving parts, so it may take a few minutes. Please be patient!',
+        detail: 'Click "Learn More" to open the Getting Started guide.',
+        buttons: ['OK', 'Learn More'],
+        defaultId: 0,
+        cancelId: 0,
+    }).then(result => ({ response: result.response })).then(({ response }) => {
+        if (response === 1) {
+            shell.openExternal('https://docs.gamesentenceminer.com/docs/getting-started/');
+        }
     });
+
+    
 
     console.log('Python not found. Starting installation process...');
     mainWindow?.webContents.send('notification', {

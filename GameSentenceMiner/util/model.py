@@ -192,6 +192,7 @@ class VADResult:
         self.model = model
         self.segments = segments if segments is not None else []
         self.output_audio = output_audio
+        self.trimmed_audio_path = None  # Path to trimmed audio before VAD processing (for manual selection)
 
     def __repr__(self):
         return f"VADResult(success={self.success}, start={self.start}, end={self.end}, model={self.model}, output_audio={self.output_audio})"

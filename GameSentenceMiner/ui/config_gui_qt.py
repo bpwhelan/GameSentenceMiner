@@ -278,7 +278,7 @@ class ConfigWindow(QWidget):
             ),
             anki=Anki(
                 update_anki=self.update_anki_check.isChecked(),
-                show_update_confirmation_dialog=self.show_update_confirmation_dialog_check.isChecked(),
+                show_update_confirmation_dialog_v2=self.show_update_confirmation_dialog_check.isChecked(),
                 url=self.anki_url_edit.text(),
                 sentence_field=self.sentence_field_edit.text(),
                 sentence_audio_field=self.sentence_audio_field_edit.text(),
@@ -1193,7 +1193,7 @@ class ConfigWindow(QWidget):
         
         # Anki
         self.update_anki_check.setChecked(s.anki.update_anki)
-        self.show_update_confirmation_dialog_check.setChecked(s.anki.show_update_confirmation_dialog)
+        self.show_update_confirmation_dialog_check.setChecked(s.anki.show_update_confirmation_dialog_v2)
         self.anki_url_edit.setText(s.anki.url)
         self.sentence_field_edit.setText(s.anki.sentence_field)
         self.sentence_audio_field_edit.setText(s.anki.sentence_audio_field)
@@ -1591,9 +1591,6 @@ def get_config_window_manager():
             if _qt_app is None:
                 _qt_app = QApplication(sys.argv)
                 
-                # Install custom style to make tooltips appear faster (50ms instead of ~700ms)
-                _qt_app.setStyle(FastTooltipStyle())
-                
                 try:
                     import qdarktheme
                     base_stylesheet = qdarktheme.load_stylesheet(theme="dark")
@@ -1601,16 +1598,7 @@ def get_config_window_manager():
                     logger.warning("qdarktheme not found. Using system default theme.")
                     base_stylesheet = ""
                 
-                # Enhanced tooltip styling
-                tooltip_style = """
-                    QToolTip {
-                        border: 1px solid palette(dark);
-                        padding: 4px;
-                        border-radius: 3px;
-                        opacity: 240;
-                    }
-                """
-                _qt_app.setStyleSheet(base_stylesheet + tooltip_style)
+                _qt_app.setStyleSheet(base_stylesheet)
         
         _config_window = ConfigWindow()
     

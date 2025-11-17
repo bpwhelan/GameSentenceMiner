@@ -61,6 +61,7 @@ class ScreenshotSelectorDialog(QDialog):
             image_paths, golden_frame = self._extract_frames(video_path, timestamp, mode)
             
             # Remove loading message
+            self.main_layout.removeWidget(self.loading_label)
             self.loading_label.deleteLater()
             
             if not image_paths:
