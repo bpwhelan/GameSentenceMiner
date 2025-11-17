@@ -357,9 +357,10 @@ class VideoToAudioHandler(FileSystemEventHandler):
                     if not tts_resp.ok:
                         logger.error(
                             f"Error fetching TTS audio from {url}. Is it running?: {tts_resp.status_code} {tts_resp.text}")
-                    with tempfile.NamedTemporaryFile(dir=get_temporary_directory(), delete=False, suffix=".opus") as tmpfile:
+                    with tempfile.NamedTemporaryFile(dir=get_temporary_directory(), prefix=f"{obs.get_current_game(sanitize=True)}_tts_", delete=False, suffix=".opus") as tmpfile:
                         tmpfile.write(tts_resp.content)
                         vad_result.output_audio = tmpfile.name
+                        vad_result.tts_used = True
                 except Exception as e:
                     logger.error(f"Error getting TTS audio: {e}, skipping audio.")
         else:
@@ -478,6 +479,13 @@ class GSMTray(threading.Thread):
         def test_anki_confirmation(icon, item):
             from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
             gsm_state.current_replay = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
+            gsm_state.vad_result = VADResult(
+                success=True,
+                start=0,
+                end=0,
+                model="Whisper",
+                output_audio=r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\NEKOPARAvol.1_2025-08-18-17-20-43-614.opus"
+            )
             result = launch_anki_confirmation(
                 expression="こんにちは",
                 sentence="こんにちは、世界！元気ですか？",

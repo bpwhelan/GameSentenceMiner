@@ -185,7 +185,7 @@ class AnkiCard:
 
 
 class VADResult:
-    def __init__(self, success: bool, start: float, end: float, model: str, segments: list = None, output_audio: str = None):
+    def __init__(self, success: bool, start: float, end: float, model: str, segments: list = None, output_audio: str = None, trimmed_audio_path: str = None, tts_used: bool = False):
         self.success = success
         self.start = start
         self.end = end
@@ -193,9 +193,10 @@ class VADResult:
         self.segments = segments if segments is not None else []
         self.output_audio = output_audio
         self.trimmed_audio_path = None  # Path to trimmed audio before VAD processing (for manual selection)
+        self.tts_used = tts_used  # Whether TTS was used for generating audio
 
     def __repr__(self):
-        return f"VADResult(success={self.success}, start={self.start}, end={self.end}, model={self.model}, output_audio={self.output_audio})"
+        return f"VADResult(success={self.success}, start={self.start}, end={self.end}, model={self.model}, output_audio={self.output_audio}, trimmed_audio_path={self.trimmed_audio_path}, tts_used={self.tts_used})"
 
     def trim_successful_string(self):
         if self.success:

@@ -611,6 +611,11 @@ background: rgba(202, 12, 12, 0.692);
                     furiganaBox.style.padding = '0';
                     furiganaBox.style.margin = '0';
                     furiganaBox.style.lineHeight = '1';
+                    if (furiganaVisible) {
+                      furiganaBox.style.display = 'block';
+                    } else {
+                      furiganaBox.style.display = 'none';
+                    }
                     const furiganaFontSize = fontSize * 0.35;
                     furiganaBox.style.fontSize = `${furiganaFontSize}px`;
                     const furiganaHeight = furiganaFontSize * 1.1; // A reasonable approximation
@@ -1287,6 +1292,7 @@ background: rgba(202, 12, 12, 0.692);
       box.style.display = furiganaVisible ? 'block' : 'none';
     });
   });
+
   ipcRenderer.on("request-current-settings", () => {
     const fontSize = parseInt(textEl.style.fontSize, 10);
     const weburl1 = window.ws1 ? window.ws1.url : null;

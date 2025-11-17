@@ -208,6 +208,9 @@ class AnkiConfirmationDialog(QDialog):
                 if vad_detected_voice:
                     status_text = "✔ Voice audio detected"
                     status_style = "color: green;"
+                elif self.vad_result.tts_used:
+                    status_text = "✔ TTS audio generated"
+                    status_style = "color: green;"
                 else:
                     status_text = "⚠️ VAD ran and found no voice.\n Keep audio by choosing 'Keep Audio'."
                     status_style = "color: #ff6b00; font-weight: bold; background-color: #fff3cd; padding: 5px; border-radius: 3px;"
@@ -220,10 +223,11 @@ class AnkiConfirmationDialog(QDialog):
         grid_layout.addWidget(audio_label, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
 
         self.audio_status_label = QLabel(status_text)
-        self.audio_status_label.setWordWrap(True)
+        self.sentence_text.setMaximumHeight(100)
+        self.sentence_text.setMinimumWidth(400)
         if status_style:
             self.audio_status_label.setStyleSheet(status_style)
-        self.audio_status_label.setMaximumWidth(400)
+        # self.audio_status_label.setMaximumWidth(400)
         grid_layout.addWidget(self.audio_status_label, row, 1, Qt.AlignmentFlag.AlignLeft)
 
         if has_audio_file:
@@ -235,8 +239,8 @@ class AnkiConfirmationDialog(QDialog):
         row += 1
 
         # TTS Button - only show if TTS is enabled in config
-        if get_config().vad.use_tts_as_fallback and sentence:
-            self.tts_button = QPushButton("🔊 Generate TTS Audio")
+        if get_config().vad.tts_url and get_config().vad.tts_url != "http://127.0.0.1:5050/?term=$s" and sentence:
+            self.tts_button = QPushButton("🔊" + ("Regenerate" if self.vad_result.tts_used else "Generate") + " TTS Audio")
             self.tts_button.clicked.connect(self._generate_tts_audio)
             self.tts_button.setMaximumWidth(180)
             grid_layout.addWidget(self.tts_button, row, 1, Qt.AlignmentFlag.AlignLeft)
@@ -246,20 +250,6 @@ class AnkiConfirmationDialog(QDialog):
             self.tts_status_label.setStyleSheet("color: green;")
             grid_layout.addWidget(self.tts_status_label, row, 2, Qt.AlignmentFlag.AlignLeft)
 
-            row += 1
-            
-            # TTS Button - only show if TTS is enabled in config
-        if get_config().vad.use_tts_as_fallback and sentence:
-            self.tts_button = QPushButton("🔊 Generate TTS Audio")
-            self.tts_button.clicked.connect(self._generate_tts_audio)
-            self.tts_button.setMaximumWidth(180)
-            grid_layout.addWidget(self.tts_button, row, 1, Qt.AlignmentFlag.AlignLeft)
-            
-            # TTS Status Label
-            self.tts_status_label = QLabel("")
-            self.tts_status_label.setStyleSheet("color: green;")
-            grid_layout.addWidget(self.tts_status_label, row, 2, Qt.AlignmentFlag.AlignLeft)
-            
             row += 1
         
         main_layout.addLayout(grid_layout)
@@ -466,8 +456,9 @@ class AnkiConfirmationDialog(QDialog):
             self.audio_path = tts_audio_path
             
             # Update the audio path label
-            if self.audio_path_label:
-                self.audio_path_label.setText(tts_audio_path)
+            if self.audio_status_label:
+                self.audio_status_label.setText("✔ TTS audio generated")
+                self.audio_status_label.setStyleSheet("color: green;")
             
             # Update the audio button command to use the new path
             if self.audio_button:
@@ -478,6 +469,9 @@ class AnkiConfirmationDialog(QDialog):
             if self.tts_status_label:
                 self.tts_status_label.setText("✓ TTS Audio Generated")
                 self.tts_status_label.setStyleSheet("color: green;")
+            
+            if self.tts_button:
+                self.tts_button.setText("Regenerate TTS Audio")
             
         except requests.exceptions.Timeout:
             error_msg = "TTS request timed out. Please check if your TTS service is running."

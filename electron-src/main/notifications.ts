@@ -159,7 +159,7 @@ export function sendNoteUpdated(noteID: number | string, noteId?: number) {
     const parsed = noteId ?? (typeof noteID === 'number' ? noteID : parseInt(String(noteID)));
     sendNotification(
         NotificationType.AnkiCardUpdated,
-        `Audio and/or Screenshot added to note: ${noteID}\n\n Click here to open card.`,
+        `Audio and/or Screenshot added to note: ${parsed}\n\n Click here to open card.`,
         5000,
         () => {
             if (parsed && !Number.isNaN(parsed)) {
