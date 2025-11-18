@@ -12,7 +12,7 @@ from PIL import Image
 
 from GameSentenceMiner.util.configuration import get_config, logger, gsm_state, get_temporary_directory, save_current_config, reload_config
 from GameSentenceMiner.util.audio_player import AudioPlayer
-from GameSentenceMiner.util.gsm_utils import make_unique_file_name
+from GameSentenceMiner.util.gsm_utils import make_unique_file_name, remove_html_and_cloze_tags
 from GameSentenceMiner.util.model import VADResult
 
 
@@ -419,6 +419,8 @@ class AnkiConfirmationDialog(QDialog):
         try:
             # Get the current sentence text from the widget
             sentence_text = self.sentence_text.toPlainText().strip()
+            
+            sentence_text = remove_html_and_cloze_tags(sentence_text)
             
             if not sentence_text:
                 QMessageBox.critical(self, "TTS Error", "No sentence text available for TTS generation.")

@@ -19,10 +19,59 @@ permissions:
   issues: none        # Not needed
 
 jobs:
-  electron-build-windows:
-    runs-on: windows-latest
+  setup-release:
+    runs-on: ubuntu-latest
     outputs:
+      RELEASE_TAG: ${{ steps.get_release.outputs.RELEASE_TAG }}
+      RELEASE_BODY: ${{ steps.get_release.outputs.RELEASE_BODY }}
       PACKAGE_VERSION: ${{ steps.get_version.outputs.PACKAGE_VERSION }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Install GitHub CLI
+        uses: crazy-max/gh-action@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Get latest pre-release and clear assets
+        id: get_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_info=$(gh release list --limit 1 --json tagName,id,body,isPrerelease)
+          if [[ "$(echo "$release_info" | jq -r .isPrerelease)" == "true" ]]; then
+            tag_name=$(echo "$release_info" | jq -r .tagName)
+            release_id=$(echo "$release_info" | jq -r .id)
+            release_body=$(echo "$release_info" | jq -r .body)
+            echo "Latest release is a pre-release. Tag: $tag_name"
+            echo "RELEASE_TAG=$tag_name" >> $GITHUB_OUTPUT
+            {
+              echo "RELEASE_BODY<<EOF"
+              echo "$release_body"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            assets=$(gh api repos/${{ github.repository }}/releases/$release_id/assets)
+            asset_ids=$(echo "$assets" | jq -r '.[].id')
+            if [[ -n "$asset_ids" ]]; then
+              echo "Deleting assets from release $tag_name"
+              for asset_id in $asset_ids; do
+                gh api -X DELETE repos/${{ github.repository }}/releases/assets/$asset_id
+              done
+            else
+              echo "No assets to delete."
+            fi
+            gh release edit "$tag_name" --notes "Build in progress... 🚀"
+          else
+            echo "The latest release is not a pre-release. Skipping asset deletion and upload."
+            echo "RELEASE_TAG=none" >> $GITHUB_OUTPUT
+          fi
+      - name: Get version from package.json
+        id: get_version
+        run: echo "PACKAGE_VERSION=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
+
+  electron-build-windows:
+    needs: setup-release
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -39,17 +88,6 @@ jobs:
         with:
           node-version: '21'
 
-      - name: Get version from package.json
-        id: get_version
-        run: |
-          echo "Fetching version from package.json..."
-          $PACKAGE_VERSION = (Get-Content -Raw -Path ./package.json | ConvertFrom-Json).version
-          if (-not $PACKAGE_VERSION) {
-            echo "Error: Could not extract version from package.json"
-            exit 1
-          }
-          echo "Package Version: $PACKAGE_VERSION"
-          echo "PACKAGE_VERSION=$PACKAGE_VERSION" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Convert Handlebar files to LF line endings
         run: |
@@ -76,15 +114,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Windows artifacts
+      - name: Upload Windows unpacked build as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build-v${{ steps.get_version.outputs.PACKAGE_VERSION }}
-          path: |
-            dist/*Setup*.exe
-            dist/latest.yml
-            dist/*.blockmap
+          name: windows-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}
+          path: dist/win-unpacked/
+
+      - name: Zip and upload Windows build
+        if: needs.setup-release.outputs.RELEASE_TAG != 'none'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $zipfile = "dist/windows-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}.zip"
+          Compress-Archive -Path dist/win-unpacked -DestinationPath $zipfile
+          gh release upload ${{ needs.setup-release.outputs.RELEASE_TAG }} $zipfile --clobber
   electron-build-linux:
+    needs: setup-release
     runs-on: ubuntu-latest
     # needs: electron-build-windows
     steps:
@@ -120,12 +165,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Linux artifacts
+      - name: Upload Linux unpacked build as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-build-v${{ needs.electron-build-windows.outputs.PACKAGE_VERSION }}
-          path: dist/*.AppImage
+          name: linux-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}
+          path: dist/linux-unpacked/
+
+      - name: Zip and upload Linux build
+        if: needs.setup-release.outputs.RELEASE_TAG != 'none'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          zip -r dist/linux-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}.zip dist/linux-unpacked
+          gh release upload ${{ needs.setup-release.outputs.RELEASE_TAG }} dist/linux-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}.zip --clobber
   electron-build-mac:
+    needs: setup-release
     runs-on: macos-latest
     # needs: electron-build-windows
     steps:
@@ -160,50 +214,31 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload macOS artifacts
+      - name: Upload macOS unpacked build as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-build-v${{ needs.electron-build-windows.outputs.PACKAGE_VERSION }}
-          path: dist/*.dmg
+          name: macos-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}
+          path: dist/mac/
 
-  # upload-to-prerelease:
-  #   runs-on: ubuntu-latest
-  #   needs: [electron-build-windows, electron-build-linux, electron-build-mac]
-  #   if: github.ref == 'refs/heads/develop'
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
+      - name: Zip and upload macOS build
+        if: needs.setup-release.outputs.RELEASE_TAG != 'none'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          zip -r dist/macos-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}.zip dist/mac
+          gh release upload ${{ needs.setup-release.outputs.RELEASE_TAG }} dist/macos-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}.zip --clobber
 
-  #     - name: Download all artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         path: artifacts
-
-  #     - name: Get latest pre-release
-  #       id: get_release
-  #       env:
-  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       run: |
-  #         RELEASE_ID=$(gh api /repos/${{ github.repository }}/releases | jq -r '[.[] | select(.prerelease == true)] | .[0].id')
-  #         if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
-  #           echo "No pre-release found"
-  #           exit 1
-  #         fi
-  #         echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_OUTPUT
-  #         echo "Found pre-release ID: $RELEASE_ID"
-
-  #     - name: Delete existing assets
-  #       env:
-  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       run: |
-  #         ASSETS=$(gh api /repos/${{ github.repository }}/releases/${{ steps.get_release.outputs.RELEASE_ID }}/assets | jq -r '.[].id')
-  #         for ASSET_ID in $ASSETS; do
-  #           echo "Deleting asset $ASSET_ID"
-  #           gh api --method DELETE /repos/${{ github.repository }}/releases/assets/$ASSET_ID
-  #         done
-
-  #     - name: Upload new assets to pre-release
-  #       env:
-  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       run: |
-  #         find artifacts -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.yml" -o -name "*.blockmap" \) -exec gh release upload ${{ steps.get_release.outputs.RELEASE_ID }} {} --clobber \;
+  finalize-release:
+    runs-on: ubuntu-latest
+    needs: [electron-build-windows, electron-build-linux, electron-build-mac]
+    if: always() && needs.setup-release.outputs.RELEASE_TAG != 'none'
+    steps:
+      - name: Install GitHub CLI
+        uses: crazy-max/gh-action@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore release description
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit ${{ needs.setup-release.outputs.RELEASE_TAG }} --notes "${{ needs.setup-release.outputs.RELEASE_BODY }}"
