@@ -136,11 +136,9 @@ async def monitor_clipboard():
 
 
 async def listen_websockets():
-    async def listen_on_websocket(uri):
-        global current_line, current_line_time, reconnecting, websocket_connected
+    async def listen_on_websocket(uri, max_sleep=10):
+        global current_line, current_line_time, websocket_connected
         try_other = False
-        rated_limited = False
-        websocket_connected[uri] = False
         websocket_names = {
             "9002": "GSM OCR",
             "9001": "Agent or TextractorSender",
@@ -148,64 +146,70 @@ async def listen_websockets():
             "2333": "LunaTranslator"
         }
         likely_websocket_name = next((f" ({name})" for port, name in websocket_names.items() if port in uri), "")
+        
         reconnect_sleep = 1
+        
         while True:
             if not get_config().general.use_websocket:
                 await asyncio.sleep(5)
                 continue
+            
             websocket_url = f'ws://{uri}'
             if try_other:
                 websocket_url = f'ws://{uri}/api/ws/text/origin'
+                
             try:
                 async with websockets.connect(websocket_url, ping_interval=None) as websocket:
+                    reconnect_sleep = 1
+                    
                     websocket_source = f"websocket_{uri}"
-                    gsm_status.websockets_connected.append(websocket_url)
-                    logger.info(f"Texthooker WebSocket {uri}{likely_websocket_name} connected Successfully!" + " Disabling Clipboard Monitor." if (get_config().general.use_clipboard and not get_config().general.use_both_clipboard_and_websocket) else "")
+                    if websocket_url not in gsm_status.websockets_connected:
+                        gsm_status.websockets_connected.append(websocket_url)
+                    logger.info(f"Texthooker WebSocket {uri}{likely_websocket_name} connected Successfully!" + (" Disabling Clipboard Monitor." if (get_config().general.use_clipboard and not get_config().general.use_both_clipboard_and_websocket) else ""))
                     websocket_connected[uri] = True
-                    line_time = None
+                    
                     async for message in websocket:
                         message_received_time = datetime.now()
                         if not message:
                             continue
-                        # Check for rate limiting before processing
                         if is_message_rate_limited(websocket_source):
-                            rated_limited = True
-                            continue  # Drop message due to rate limiting
+                            continue
                         if is_dev:
                             logger.debug(message)
+                        
+                        line_time = None
                         try:
                             data = json.loads(message)
-                            if "sentence" in data:
-                                current_clipboard = data["sentence"]
+                            current_clipboard = data.get("sentence", message)
                             if "time" in data:
                                 line_time = datetime.fromisoformat(data["time"])
                         except (json.JSONDecodeError, TypeError):
                             current_clipboard = message
+                            
                         if current_clipboard != current_line:
                             await handle_new_text_event(current_clipboard, line_time if line_time else message_received_time)
-            except (websockets.ConnectionClosed, ConnectionError, InvalidStatus, ConnectionResetError, Exception) as e:
+                            
+            except (websockets.ConnectionClosed, ConnectionError, websockets.InvalidStatus, ConnectionResetError, Exception) as e:
                 if websocket_url in gsm_status.websockets_connected:
                     gsm_status.websockets_connected.remove(websocket_url)
-                if isinstance(e, InvalidStatus):
-                    e: InvalidStatus
-                    if e.response.status_code == 404:
-                        logger.info(f"Texthooker WebSocket: {uri}{likely_websocket_name} connection failed. Attempting some fixes...")
-                        try_other = True
-                elif websocket_connected[uri]:
-                    if not (isinstance(e, ConnectionResetError) or isinstance(e, ConnectionError) or isinstance(e, InvalidStatus) or isinstance(e, websockets.ConnectionClosed)):
-                        logger.debug(f"Unexpected error in Texthooker WebSocket {uri}{likely_websocket_name} connection: {e}, Can be ignored")
-                    else:
-                        logger.warning(f"Texthooker WebSocket {uri}{likely_websocket_name} disconnected. Attempting to reconnect...")
-                    websocket_connected[uri] = False
-                    await asyncio.sleep(reconnect_sleep)
-                    reconnect_sleep += max(5, reconnect_sleep + 1)
+                websocket_connected[uri] = False
+                
+                logger.warning(f"Texthooker WebSocket {uri}{likely_websocket_name} disconnected. Retrying in {reconnect_sleep} seconds... (Error: {type(e).__name__})")
+                
+                if isinstance(e, websockets.InvalidStatus) and e.response and e.response.status_code == 404:
+                    logger.info(f"WebSocket {uri} returned 404, attempting alternate path.")
+                    try_other = True
+                
+                await asyncio.sleep(reconnect_sleep)
+
+                reconnect_sleep = min(reconnect_sleep * 2, max_sleep)
 
     websocket_tasks = []
     if ',' in get_config().general.websocket_uri:
         for uri in get_config().general.websocket_uri.split(','):
-            websocket_tasks.append(listen_on_websocket(uri))
+            websocket_tasks.append(listen_on_websocket(uri.strip())) # Use strip() to handle spaces
     else:
-        websocket_tasks.append(listen_on_websocket(get_config().general.websocket_uri))
+        websocket_tasks.append(listen_on_websocket(get_config().general.websocket_uri.strip()))
 
     websocket_tasks.append(listen_on_websocket(f"localhost:{get_config().advanced.ocr_websocket_port}"))
 
@@ -299,16 +303,17 @@ def reset_line_hotkey_pressed():
     gsm_state.last_mined_line = None
 
 
-def run_websocket_listener():
-    asyncio.run(listen_websockets())
+# def run_websocket_listener():
+#     asyncio.run(listen_websockets())
 
 
 async def start_text_monitor():
-    run_new_thread(run_websocket_listener)
+    await listen_websockets()
     if get_config().general.use_websocket:
         if get_config().general.use_both_clipboard_and_websocket:
             logger.info("Listening for Text on both WebSocket and Clipboard.")
         else:
             logger.info("Both WebSocket and Clipboard monitoring are enabled. WebSocket will take precedence if connected.")
     await monitor_clipboard()
-    await asyncio.sleep(1)
+    while True:
+        await asyncio.sleep(60)

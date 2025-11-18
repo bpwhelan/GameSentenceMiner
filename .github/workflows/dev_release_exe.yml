@@ -2,9 +2,9 @@ name: Build Electron App (Artifacts)
 
 on:
   push:
-    branches:
-      - develop # Or your default branch
-      - qt6-clean
+    # branches:
+    #   - develop # Or your default branch
+    #   - qt6-clean
   pull_request:    # <--- ADD THIS
     branches:
       - develop   # Or any other branches you want to allow PRs for
@@ -166,44 +166,44 @@ jobs:
           name: macos-build-v${{ needs.electron-build-windows.outputs.PACKAGE_VERSION }}
           path: dist/*.dmg
 
-  upload-to-prerelease:
-    runs-on: ubuntu-latest
-    needs: [electron-build-windows, electron-build-linux, electron-build-mac]
-    if: github.ref == 'refs/heads/develop'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  # upload-to-prerelease:
+  #   runs-on: ubuntu-latest
+  #   needs: [electron-build-windows, electron-build-linux, electron-build-mac]
+  #   if: github.ref == 'refs/heads/develop'
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+  #     - name: Download all artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         path: artifacts
 
-      - name: Get latest pre-release
-        id: get_release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          RELEASE_ID=$(gh api /repos/${{ github.repository }}/releases | jq -r '[.[] | select(.prerelease == true)] | .[0].id')
-          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
-            echo "No pre-release found"
-            exit 1
-          fi
-          echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_OUTPUT
-          echo "Found pre-release ID: $RELEASE_ID"
+  #     - name: Get latest pre-release
+  #       id: get_release
+  #       env:
+  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       run: |
+  #         RELEASE_ID=$(gh api /repos/${{ github.repository }}/releases | jq -r '[.[] | select(.prerelease == true)] | .[0].id')
+  #         if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
+  #           echo "No pre-release found"
+  #           exit 1
+  #         fi
+  #         echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_OUTPUT
+  #         echo "Found pre-release ID: $RELEASE_ID"
 
-      - name: Delete existing assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          ASSETS=$(gh api /repos/${{ github.repository }}/releases/${{ steps.get_release.outputs.RELEASE_ID }}/assets | jq -r '.[].id')
-          for ASSET_ID in $ASSETS; do
-            echo "Deleting asset $ASSET_ID"
-            gh api --method DELETE /repos/${{ github.repository }}/releases/assets/$ASSET_ID
-          done
+  #     - name: Delete existing assets
+  #       env:
+  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       run: |
+  #         ASSETS=$(gh api /repos/${{ github.repository }}/releases/${{ steps.get_release.outputs.RELEASE_ID }}/assets | jq -r '.[].id')
+  #         for ASSET_ID in $ASSETS; do
+  #           echo "Deleting asset $ASSET_ID"
+  #           gh api --method DELETE /repos/${{ github.repository }}/releases/assets/$ASSET_ID
+  #         done
 
-      - name: Upload new assets to pre-release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          find artifacts -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.yml" -o -name "*.blockmap" \) -exec gh release upload ${{ steps.get_release.outputs.RELEASE_ID }} {} --clobber \;
+  #     - name: Upload new assets to pre-release
+  #       env:
+  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       run: |
+  #         find artifacts -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.yml" -o -name "*.blockmap" \) -exec gh release upload ${{ steps.get_release.outputs.RELEASE_ID }} {} --clobber \;
