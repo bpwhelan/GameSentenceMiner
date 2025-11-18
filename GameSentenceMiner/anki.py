@@ -407,9 +407,10 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
         game_line = get_text_event(last_note)
     sentences = []
     sentences_text = ''
-    tags_lower = [tag.lower() for tag in last_note.tags]
-
-    if get_config().overlay.websocket_port and texthooking_page.overlay_server_thread.has_clients() and 'overlay' in tags_lower:
+    
+    # tags_lower = [tag.lower() for tag in last_note.tags]
+    #  and 'overlay' in tags_lower if we want to limit to overlay only
+    if get_config().overlay.websocket_port and texthooking_page.overlay_server_thread.has_clients():
         sentence_in_anki = last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
         logger.info("Found matching line in Anki, Preserving HTML and fix spacing!")
 
