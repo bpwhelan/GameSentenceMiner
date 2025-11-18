@@ -132,7 +132,7 @@ const originalLog = console.log;
 const originalError = console.error;
 
 // TODO FLIP THIS TO false BEFORE RELEASE
-export const preReleaseVersion = true;
+export const preReleaseVersion = false;
 
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
