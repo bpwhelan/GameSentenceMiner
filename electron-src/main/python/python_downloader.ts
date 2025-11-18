@@ -12,7 +12,7 @@ import { dialog, shell } from 'electron';
 
 // --- Constants ---
 
-const PYTHON_VERSION = '3.11';
+const PYTHON_VERSION = '3.13';
 const VENV_DIR = path.join(BASE_DIR, 'python_venv');
 const UV_DIR = path.join(BASE_DIR, 'uv');
 
