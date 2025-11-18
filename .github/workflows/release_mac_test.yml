@@ -1,60 +1,60 @@
-name: Build Electron App
+# name: Build Electron App
 
-on:
-  push:
-    branches:
-      - test-mac-actions # Or your default branch
-  workflow_dispatch: # Allow manual trigger
+# on:
+#   push:
+#     branches:
+#       - test-mac-actions # Or your default branch
+#   workflow_dispatch: # Allow manual trigger
 
-# Grant read permissions for checking releases and write for uploading assets
-permissions:
-  contents: write  # Needed for checkout and release asset upload
-  packages: none   # Not needed
-  actions: read    # Not needed unless using specific actions requiring it
-  pull-requests: none # Not needed
-  issues: none        # Not needed
+# # Grant read permissions for checking releases and write for uploading assets
+# permissions:
+#   contents: write  # Needed for checkout and release asset upload
+#   packages: none   # Not needed
+#   actions: read    # Not needed unless using specific actions requiring it
+#   pull-requests: none # Not needed
+#   issues: none        # Not needed
 
-jobs:
-  electron-build-mac:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+# jobs:
+#   electron-build-mac:
+#     runs-on: macos-latest
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+#       - name: Set up Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: '3.11'
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '21'
+#       - name: Set up Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: '21'
 
-      - name: Install dependencies
-        run: |
-          npm install
-          npm install --save-dev electron electron-builder
+#       - name: Install dependencies
+#         run: |
+#           npm install
+#           npm install --save-dev electron electron-builder
 
-      - name: Build Electron app for macOS
-        run: |
-          npm run app:dist
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#       - name: Build Electron app for macOS
+#         run: |
+#           npm run app:dist
+#         env:
+#           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    #   Upload Artifact to run, not release
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: GameSentenceMiner-mac
-          path: dist/*.dmg
-          compression-level: 0
+#     #   Upload Artifact to run, not release
+#       - name: Upload artifact
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: GameSentenceMiner-mac
+#           path: dist/*.dmg
+#           compression-level: 0
 
 
-    #   - name: Upload to release
-    #     uses: softprops/action-gh-release@v2
-    #     with:
-    #       tag_name: v${{ needs.electron-build-windows.outputs.PACKAGE_VERSION }}
-    #       files: dist/GameSentenceMiner-WIP-mac.dmg
-    #     env:
-    #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#     #   - name: Upload to release
+#     #     uses: softprops/action-gh-release@v2
+#     #     with:
+#     #       tag_name: v${{ needs.electron-build-windows.outputs.PACKAGE_VERSION }}
+#     #       files: dist/GameSentenceMiner-WIP-mac.dmg
+#     #     env:
+#     #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

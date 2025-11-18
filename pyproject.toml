@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.20.10"
+version = "2.21.0"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -25,7 +25,6 @@ dependencies = [
   "requests~=2.32.5",
   "watchdog~=6.0.0",
   "DateTime~=5.5",
-  "pyperclip~=1.9.0",
   "soundfile~=0.13.1",
   "toml~=0.10.2",
   "psutil~=7.1.0",
@@ -33,7 +32,6 @@ dependencies = [
   "plyer~=2.1.0",
   "keyboard~=0.13.5",
   "websockets~=15.0.1",
-  "ttkbootstrap~=1.10.1",
   "dataclasses_json~=0.6.7",
   "betterproto==2.0.0b7",
   "obsws-python~=1.8.0",
@@ -60,14 +58,16 @@ dependencies = [
   "openai~=2.6.0",
   "flask-compress~=1.15",
   "meikiocr~=0.1.1",
-  "jaconv>=0.4.0",
-  "loguru>=0.7.3",
+  "jaconv~=0.4.0",
+  "loguru~=0.7.3",
   "pyperclipfix>=1.9.4",
   "desktop-notifier>=6.1.0",
   "mss>=10.1.0",
-  "pyobjc>=10.3.1 ; sys_platform == 'darwin'",
-  "pysbd",
-  "langid",
+  "pyobjc~=10.3.1 ; sys_platform == 'darwin'",
+  "pyqt6~=6.10.0",
+  "pyqtdarktheme~=2.1.0",
+  "langid~=1.1.6",
+  "pysbd~=0.3.4",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will

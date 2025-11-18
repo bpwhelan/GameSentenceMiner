@@ -29,9 +29,11 @@ import {
     setVisibleTabs,
     getStatsEndpoint,
     setStatsEndpoint,
+    setIconStyle,
 } from '../store.js';
 import { getSanitizedPythonEnv } from '../util.js';
-import { webSocketManager } from '../communication/websocket.js';
+// Replaced WebSocket usage with stdout IPC helpers
+import { sendOpenSettings } from '../main.js';
 import { reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall } from '../main.js';
 
@@ -55,6 +57,7 @@ export function registerSettingsIPC() {
             obsOcrScenes: store.get('obsOcrScenes') || [], // Default to empty array if not set
             visibleTabs: getVisibleTabs(),
             statsEndpoint: getStatsEndpoint(),
+            iconStyle: store.get('iconStyle') || 'gsm',
         };
     });
 
@@ -72,6 +75,7 @@ export function registerSettingsIPC() {
         setObsOcrScenes(settings.obsOcrScenes || []); // Ensure it's always an array
         setVisibleTabs(settings.visibleTabs || ['launcher', 'stats', 'python', 'console']); // Ensure it's always an array
         setStatsEndpoint(settings.statsEndpoint || 'overview'); // Ensure it has a default
+        setIconStyle(settings.iconStyle || 'gsm');
         return { success: true };
     });
 
@@ -85,7 +89,7 @@ export function registerSettingsIPC() {
 
     ipcMain.handle('settings.openGSMSettings', async () => {
         console.error('Opening GSM settings');
-        await webSocketManager.sendOpenSettings();
+        sendOpenSettings();
     });
 
     ipcMain.handle('settings.reinstallPython', async () => {

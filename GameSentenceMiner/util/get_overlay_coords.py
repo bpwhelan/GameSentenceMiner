@@ -137,13 +137,11 @@ class OverlayProcessor:
         self.last_oneocr_result = None
         self.last_lens_result = None
         self.current_task = None  # Track current running task
+        self.windows_warning_shown = False
 
         try:
             if self.config.overlay.websocket_port and all([GoogleLens, get_regex]):
                 logger.info("Initializing OCR engines...")
-                if OneOCR:
-                    self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
-                self.lens = GoogleLens(lang=get_ocr_language(), get_furigana_sens_from_file=False)
                 self.ocr_language = get_ocr_language()
                 self.regex = get_regex(self.ocr_language)
                 logger.info("OCR engines initialized.")
@@ -174,7 +172,10 @@ class OverlayProcessor:
                 await self.current_task
             except asyncio.CancelledError:
                 logger.info("Previous OCR task was cancelled")
-        
+        if OneOCR and not self.oneocr:
+            self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+        if GoogleLens and not self.lens:
+            self.lens = GoogleLens(lang=get_ocr_language(), get_furigana_sens_from_file=False)
         # Start new task
         self.current_task = asyncio.create_task(self.find_box_for_sentence(sentence_to_check, check_against_last))
         try:
@@ -251,16 +252,36 @@ class OverlayProcessor:
 
     def _get_full_screenshot(self) -> Tuple[Image.Image | None, int, int]:
         """Captures a screenshot of the configured monitor."""
-        if not mss:
-            raise RuntimeError("MSS screenshot library is not installed.")
-        with mss.mss() as sct:
-            monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)  # Get primary monitor work area
-            sct_img = sct.grab(monitor)
-            img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
-            
-            img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
-                
-            return img, monitor['width'], monitor['height']
+        # Prefer MSS (X11) when available, but fall back to OBS/other methods on Wayland
+        wayland = os.environ.get('XDG_SESSION_TYPE', '').lower() == 'wayland' or bool(os.environ.get('WAYLAND_DISPLAY'))
+
+        if mss and not wayland:
+            try:
+                with mss.mss() as sct:
+                    monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)  # Get primary monitor work area
+                    sct_img = sct.grab(monitor)
+                    img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+                    img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
+                    return img, monitor['width'], monitor['height']
+            except Exception as e:
+                # MSS (X11) failed (commonly XGetImage on Wayland or permission issues). Fall back below.
+                logger.debug(f"MSS screenshot failed: {e}")
+
+        # Fallback: try OBS-based screenshot (if OBS is connected and has a suitable source)
+        try:
+            logger.debug("Attempting fallback screenshot via OBS sources")
+            obs_img = get_screenshot_PIL(compression=100, img_format='jpg', width=None, height=None)
+            if obs_img is not None:
+                # get_screenshot_PIL returns a PIL Image already
+                # Try to infer monitor size from the image
+                w, h = obs_img.size
+                obs_img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
+                return obs_img.convert('RGBA'), w, h
+        except Exception as e:
+            logger.debug(f"OBS fallback screenshot failed: {e}")
+
+        # As a last resort, raise an informative error
+        raise RuntimeError("Failed to capture screen: MSS unavailable or failed and OBS fallback unavailable. On Wayland you must run with a portal or use an OBS source.")
 
     def _create_composite_image(
         self, 
@@ -308,6 +329,12 @@ class OverlayProcessor:
         """The main OCR workflow with cancellation support."""
         if not self.lens:
             logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
+            return []
+        
+        if not is_windows:
+            if self.windows_warning_shown is False:
+                logger.warning("Overlay OCR is only fully supported on Windows currently. This may change in future versions.")
+            self.windows_warning_shown = True
             return []
         
         if get_config().overlay.scan_delay > 0:
@@ -472,6 +499,8 @@ class OverlayProcessor:
                 word_list = []
 
                 for word in line.get("words", []):
+                    if self.ocr_language not in ['ja', 'zh', 'ko', 'th', 'lo', 'km', 'my', 'bo']:
+                        word["plain_text"] += word["text_separator"]
                     word_text = word.get("plain_text", "")
                     line_text_parts.append(word_text)
                     
@@ -570,6 +599,9 @@ class OverlayProcessor:
             converted_results.append(converted_item)
             for word in converted_item.get("words", []):
                 word_bbox = word.get("bounding_rect", {})
+                # If not CJK or Southeast Asian script, add a space after each word
+                if self.ocr_language not in ['ja', 'zh', 'ko', 'th', 'lo', 'km', 'my', 'bo']:
+                    word["text"] += " "
                 if word_bbox:
                     word["bounding_rect"] = {
                         key: (value / monitor_width if "x" in key else value / monitor_height)

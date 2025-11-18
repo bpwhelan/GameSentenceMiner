@@ -22,8 +22,6 @@ from dataclasses_json import dataclass_json
 from importlib import metadata
 
 
-
-
 OFF = 'OFF'
 # VOSK = 'VOSK'
 SILERO = 'SILERO'
@@ -37,7 +35,7 @@ WHISPER_TINY = 'tiny'
 WHISPER_BASE = 'base'
 WHISPER_SMALL = 'small'
 WHISPER_MEDIUM = 'medium'
-WHSIPER_LARGE = 'large'
+WHISPER_LARGE = 'large'
 WHISPER_TURBO = 'turbo'
 
 AI_GEMINI = 'Gemini'
@@ -96,13 +94,13 @@ def is_mac():
 class Locale(Enum):
     English = 'en_us'
     日本語 = 'ja_jp'
-    한국어 = 'ko_kr'
+    # 한국어 = 'ko_kr'
     中文 = 'zh_cn'
     Español = 'es_es'
-    Français = 'fr_fr'
-    Deutsch = 'de_de'
-    Italiano = 'it_it'
-    Русский = 'ru_ru'
+    # Français = 'fr_fr'
+    # Deutsch = 'de_de'
+    # Italiano = 'it_it'
+    # Русский = 'ru_ru'
 
     @classmethod
     def from_any(cls, value: str) -> 'Locale':
@@ -460,7 +458,7 @@ class Paths:
 @dataclass
 class Anki:
     update_anki: bool = True
-    show_update_confirmation_dialog: bool = False
+    show_update_confirmation_dialog_v2: bool = True
     url: str = 'http://127.0.0.1:8765'
     sentence_field: str = "Sentence"
     sentence_audio_field: str = "SentenceAudio"
@@ -843,7 +841,7 @@ class ProfileConfig:
 
         with open(get_config_path(), 'w') as f:
             f.write(self.to_json(indent=4))
-            print(
+            logger.warning(
                 'config.json successfully generated from previous settings. config.toml will no longer be used.')
 
         return self
@@ -1180,7 +1178,7 @@ def load_config():
                 if "current_profile" in config_file:
                     return Config.from_dict(config_file)
                 else:
-                    print(f"Loading Profile-less Config, Converting to new Config!")
+                    logger.warning(f"Loading Profile-less Config, Converting to new Config!")
                     with open(config_path, 'r') as file:
                         config_file = json.load(file)
 
@@ -1216,7 +1214,6 @@ def get_config():
     if config_instance is None:
         config_instance = load_config()
 
-    # print(config_instance.get_config())
     return config_instance.get_config()
 
 
@@ -1267,9 +1264,9 @@ def switch_profile_and_save(profile_name):
     save_full_config(config_instance)
     return config_instance.get_config()
 
-
-sys.stdout.reconfigure(encoding='utf-8')
-sys.stderr.reconfigure(encoding='utf-8')
+if is_windows():
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
 logger = logging.getLogger(logger_name)
 # Set the base level to DEBUG so that all messages are captured
@@ -1297,8 +1294,9 @@ rotating_handler.setLevel(logging.DEBUG)
 rotating_handler.setFormatter(formatter)
 logger.addHandler(rotating_handler)
 
+error_log_path = get_error_log_path()
 error_handler = RotatingFileHandler(
-    get_error_log_path(),
+    error_log_path,
     maxBytes=5 * 1024 * 1024,  # 5MB
     backupCount=1,
     encoding='utf-8'
@@ -1309,7 +1307,6 @@ error_handler.addFilter(lambda record: record.levelno >= logging.ERROR)
 logger.addHandler(error_handler)
 
 DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
-
 
 # Clean up files in log directory older than 7 days
 def cleanup_old_logs(days=7):
@@ -1338,6 +1335,7 @@ except Exception as e:
 class GsmAppState:
     def __init__(self):
         self.config_app = None
+        self.dialog_manager = None
         self.line_for_audio = None
         self.line_for_screenshot = None
         self.anki_note_for_screenshot = None
@@ -1358,6 +1356,7 @@ class GsmAppState:
         self.srt_index = 1
         self.current_audio_stream = None
         self.replay_buffer_length = 0
+        self.vad_result = None
 
 
 @dataclass_json
@@ -1436,6 +1435,11 @@ def get_ffprobe_path():
     elif is_mac():
         if shutil.which("/opt/homebrew/bin/ffprobe") is not None:
             return "/opt/homebrew/bin/ffprobe"
+    return path
+
+def get_pickaxe_png_path():
+    package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(package_root, "assets", "pickaxe.png")
     return path
 
 ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", '-nostdin']

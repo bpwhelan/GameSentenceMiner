@@ -108,7 +108,6 @@ GameSentenceMiner.wiki/
 /.venv
 .webui_secret_key
 /GameSentenceMiner/test
-*.png
 !docs/images/*.png
 oneocr_results.json
 .github/trim_releases.py

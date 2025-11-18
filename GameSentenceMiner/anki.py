@@ -23,10 +23,8 @@ from GameSentenceMiner.util.model import AnkiCard
 from GameSentenceMiner.util.text_log import GameLine, get_all_lines, get_text_event, get_mined_line, lines_match
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.web import texthooking_page
-from GameSentenceMiner.ui.config_gui import ConfigApp
 import re
 import platform
-import sys
 
 from dataclasses import dataclass, field
 from typing import Dict, Any, List
@@ -232,18 +230,39 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
     tags = _prepare_anki_tags()
     
     # 4. (Optional) Show confirmation dialog to the user, which may alter media
-    use_voice = True
+    use_voice = update_audio_flag and assets.audio_in_anki
     translation = game_line.TL if hasattr(game_line, 'TL') else ''
-    if config.anki.show_update_confirmation_dialog and not use_existing_files:
-        config_app: 'ConfigApp' = gsm_state.config_app
+    if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
+        from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
         sentence = note['fields'].get(config.anki.sentence_field, last_note.get_field(config.anki.sentence_field))
         
-        use_voice, sentence, translation, new_ss_path, add_nsfw_tag, new_audio_path = config_app.show_anki_confirmation_dialog(
-            tango, sentence, assets.screenshot_path, assets.audio_path if update_audio_flag else None, translation, ss_time
+        # Determine which audio path to pass to the dialog
+        # If VAD failed but we have trimmed audio, pass that so user can choose to keep it
+        dialog_audio_path = None
+        if update_audio_flag:
+            if assets.audio_path and os.path.isfile(assets.audio_path):
+                dialog_audio_path = assets.audio_path
+            elif vad_result and hasattr(vad_result, 'trimmed_audio_path') and vad_result.trimmed_audio_path and os.path.isfile(vad_result.trimmed_audio_path):
+                # VAD failed but we have trimmed audio - offer it to the user
+                dialog_audio_path = vad_result.trimmed_audio_path
+                logger.info(f"VAD did not find voice, but offering trimmed audio to user: {dialog_audio_path}")
+        
+        gsm_state.vad_result = vad_result  # Pass VAD result to dialog if needed
+        previous_ss_time = ffmpeg.get_screenshot_time(video_path, game_line.prev if game_line else None) if get_config().anki.previous_image_field else 0
+        result = launch_anki_confirmation(
+            tango, sentence, assets.screenshot_path, assets.prev_screenshot_path, dialog_audio_path, translation, ss_time, previous_ss_time
         )
+        
+        if result is None:
+            # Dialog was cancelled
+            logger.info("Anki confirmation dialog was cancelled")
+            return
+        
+        use_voice, sentence, translation, new_ss_path, new_prev_ss_path, add_nsfw_tag, new_audio_path = result
         note['fields'][config.anki.sentence_field] = sentence
         note['fields'][config.ai.anki_field] = translation
         assets.screenshot_path = new_ss_path or assets.screenshot_path
+        assets.prev_screenshot_path = new_prev_ss_path or assets.prev_screenshot_path
         # Update audio path if TTS was generated in the dialog
         if new_audio_path:
             assets.audio_path = new_audio_path
@@ -259,7 +278,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
             assets.video_in_anki = store_media_file(assets.video_path)
         if assets.screenshot_path:
             assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
-        if update_audio_flag and use_voice and assets.audio_path:
+        if use_voice:
             assets.audio_in_anki = store_media_file(assets.audio_path)
     
     # Now, update the note fields using the Anki filenames (either from cache or newly stored)
@@ -268,8 +287,8 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
     
     if update_picture_flag and assets.screenshot_in_anki:
         note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
-    
-    if update_audio_flag and use_voice and assets.audio_in_anki:
+
+    if use_voice:
         note['fields'][config.anki.sentence_audio_field] = f"[sound:{assets.audio_in_anki}]"
         if config.audio.external_tool and config.audio.external_tool_enabled:
             anki_media_audio_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki)
@@ -389,6 +408,8 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
     sentences = []
     sentences_text = ''
     
+    # tags_lower = [tag.lower() for tag in last_note.tags]
+    #  and 'overlay' in tags_lower if we want to limit to overlay only
     if get_config().overlay.websocket_port and texthooking_page.overlay_server_thread.has_clients():
         sentence_in_anki = last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
         logger.info("Found matching line in Anki, Preserving HTML and fix spacing!")

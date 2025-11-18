@@ -1,0 +1,376 @@
+/*
+ * Copyright (C) 2023-2025  Yomitan Authors
+ * Copyright (C) 2020-2022  Yomichan Authors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* Variables */
+
+:root {
+    --font-size-no-units: 14;
+    --font-size: calc(1px * var(--font-size-no-units));
+    --line-height-no-units: 20;
+    --line-height: calc(var(--line-height-no-units) / var(--font-size-no-units));
+    --background-color: #f8f9fa;
+    --text-color: #333333;
+}
+
+:root[data-theme=dark] {
+    --background-color: #1e1e1e;
+    --text-color: #cccccc;
+}
+
+/* Initilization */
+
+body[data-loaded=true] #loading {
+    display: none;
+}
+
+body:not([data-loaded=true]) #action-popup {
+    display: none;
+}
+
+:root[data-mode=full] #action-popup {
+    display: initial;
+}
+
+#action-popup {
+    display: flex;
+    flex-flow: column nowrap;
+    align-items: center;
+}
+
+body {
+    padding: 5px;
+    margin: 0;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    font-size: var(--font-size);
+    width: max-content;
+    height: max-content;
+    background-color: var(--background-color);
+}
+
+/* Toggle */
+
+body[data-loaded=true] .toggle-group {
+    transition: transform 0.35s;
+}
+
+.toggle>input[type=checkbox] {
+    width: 0;
+    height: 0;
+    opacity: 0;
+    display: block;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+}
+
+.toggle>input[type=checkbox]:not(:checked)~.toggle-group {
+    transform: translateX(-50%);
+}
+
+.toggle {
+    box-sizing: border-box;
+    width: 85px;
+    height: 43px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #245580;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.toggle-group {
+    position: absolute;
+    width: 200%;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    user-select: none;
+}
+
+.toggle-on,
+.toggle-off,
+.toggle-handle {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 6px 12px;
+    font-size: var(--font-size);
+    font-weight: bold;
+    line-height: var(--line-height);
+    text-align: center;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.toggle-on,
+.toggle-off {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    margin: 0;
+    border: 0;
+}
+
+.toggle-on {
+    padding-right: 24px;
+    left: 0;
+    right: 50%;
+    color: #ffffff;
+    border-color: #2e6da4;
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), inset 0 3px 5px rgba(0, 0, 0, 0);
+    background-image: linear-gradient(225deg, #bc00ff, #00eeff);
+    background-repeat: repeat-x;
+}
+input[type=checkbox]:focus~.toggle-group>.toggle-on,
+input[type=checkbox]~.toggle-group>.toggle-on:hover {
+    filter: grayscale(30%);
+}
+input[type=checkbox]:focus:not(:focus-visible)~.toggle-group>.toggle-on:not(:hover) {
+    background-image: linear-gradient(225deg, #bc00ff, #00eeff);
+}
+input[type=checkbox]:focus-visible~.toggle-group>.toggle-on {
+    filter: grayscale(30%);
+}
+input[type=checkbox]~.toggle-group>.toggle-on:active,
+input[type=checkbox]~.toggle-group>.toggle-on:active:focus {
+    box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.125);
+}
+
+.toggle-off {
+    padding-left: 24px;
+    left: 50%;
+    right: 0;
+}
+
+.toggle-handle {
+    position: relative;
+    margin: 0 auto;
+    padding-top: 0;
+    padding-bottom: 0;
+    height: 100%;
+    width: 0;
+    border-style: solid;
+    border-width: 0 1px;
+    border-radius: 4px;
+    border-color: #cccccc;
+}
+
+.toggle-off,
+.toggle-handle {
+    color: #333333;
+    text-shadow: 0 1px 0 #ffffff;
+    background-color: #ffffff;
+    background-repeat: repeat-x;
+}
+input[type=checkbox]:focus~.toggle-group>.toggle-off,
+input[type=checkbox]~.toggle-group>.toggle-off:hover,
+input[type=checkbox]~.toggle-group>.toggle-handle:hover {
+    background-color: #e6e6e6;
+}
+input[type=checkbox]:focus:not(:focus-visible)~.toggle-group>.toggle-off:not(:hover) {
+    background-color: #ffffff;
+}
+input[type=checkbox]:focus-visible~.toggle-group>.toggle-off,
+input[type=checkbox]~.toggle-group>.toggle-off:hover {
+    background-color: #e6e6e6;
+}
+input[type=checkbox]~.toggle-group>.toggle-off:active,
+input[type=checkbox]~.toggle-group>.toggle-handle:active,
+input[type=checkbox]~.toggle-group>.toggle-off:active:focus,
+input[type=checkbox]~.toggle-group>.toggle-handle:active:focus {
+    box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.125);
+}
+
+/* Action Containers */
+
+h2.action-title {
+    padding: 0;
+    margin: 0;
+    font-size: 1.125em;
+    line-height: 1.5;
+}
+
+.action-icon:hover {
+    cursor: pointer;
+}
+
+.action-icon {
+    flex: 0 0 auto;
+    align-self: center;
+}
+.action-icon>.icon {
+    display: block;
+    background-color: var(--button-default-icon-color);
+    width: 1.5em;
+    height: 1.5em;
+}
+
+.low-emphasis {
+    position: relative;
+}
+
+.action-item-left {
+    flex: 1 1 auto;
+    align-self: center;
+    position: relative;
+    display: flex;
+    justify-content: flex-start;
+}
+.action-item-center {
+    flex: 1 1 auto;
+    align-self: center;
+    display: flex;
+    flex-flow: column nowrap;
+    align-items: center;
+    justify-content: center;
+}
+.action-item-right {
+    flex: 0 1 auto;
+    align-self: stretch;
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: center;
+    align-content: center;
+    justify-content: flex-end;
+}
+
+.action-container:not([hidden]) {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px;
+}
+
+.action-container button {
+    flex: 0 0 auto;
+}
+
+.action-container.action-buttons {
+    gap: 0.25em;
+}
+
+/* Actions */
+
+.action-container.action-select-profile {
+    position: relative;
+    gap: 0.5em;
+}
+
+select.profile-select {
+    width: 7em;
+    height: 100%;
+    box-sizing: border-box;
+    border: 0;
+    margin: 0;
+    cursor: pointer;
+    font-size: var(--font-size);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Tooltip */
+
+.tooltip {
+    color: #808080;
+    padding: 0;
+    margin: 0;
+    margin-top: 0.25em;
+}
+
+.enable-dictionary-tooltip {
+    color: #f0ad4e;
+}
+
+.tooltip>a:link, a:visited {
+    color: #f0ad4e;
+}
+
+/* Mobile overrides */
+
+:root[data-mode=full] #action-popup {
+    display: initial;
+}
+:root[data-mode=full] body {
+    min-width: 95%;
+    width: max-content;
+    font-size: calc(var(--font-size) * 2);
+    text-align: center;
+}
+:root[data-mode=full] .toggle-on, :root[data-mode=full] .toggle-off {
+    font-size: calc(var(--font-size) * 4);
+}
+:root[data-mode=full] .toggle-handle {
+    padding-left: 65px;
+    padding-right: 65px;
+    border-radius: 10px;
+}
+:root[data-mode=full] .toggle {
+    width: 100%;
+    padding-top: 37.7%;
+}
+:root[data-mode=full] #extension-info {
+    max-width: 95vw;
+    overflow-wrap: break-word;
+}
+:root[data-mode=full] select.profile-select {
+    font-size: calc(var(--font-size) * 2);
+}
+
+/* Fallback Mobile overrides */
+
+/* Treat devices that can't hover as mobile devices */
+@media (hover: none) {
+    #action-popup {
+        display: initial;
+    }
+    body {
+        min-width: 95%;
+        width: max-content;
+        font-size: calc(var(--font-size) * 2);
+        text-align: center;
+    }
+    .toggle-on, .toggle-off {
+        font-size: calc(var(--font-size) * 4);
+    }
+    .toggle-handle {
+        padding-left: 65px;
+        padding-right: 65px;
+        border-radius: 10px;
+    }
+    .toggle {
+        width: 100%;
+        padding-top: 37.7%;
+    }
+    #extension-info {
+        max-width: 95vw;
+        overflow-wrap: break-word;
+    }
+    select.profile-select {
+        font-size: calc(var(--font-size) * 2);
+    }
+}
+
+/* Dark mode before themes are applied
+   DO NOT use this for normal theming */
+@media (prefers-color-scheme: dark) {
+    body:not([data-loaded=true]) {
+        color: #cccccc;
+        background-color: #1e1e1e;
+    }
+}

@@ -2,12 +2,52 @@
     --background-color: #1a1a1a;
     --surface-color: #2c2c2c;
     --primary-color: #1a73e8;
+    --lighter_primary-color: #4285f4;
     --text-color: #e0e0e0;
     --text-muted-color: #d0d0d0;
     --border-color: #444;
     --success-color: #4caf50;
     --error-color: #f44336;
-    scrollbar-width: none;
+}
+
+/* ========================================================= */
+/* === GLOBAL CUSTOM SCROLLBAR STYLES === */
+/* ========================================================= */
+
+/* Firefox */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #5a5a5a #2c2c2c;
+}
+
+/* WebKit browsers (Chrome, Safari, Edge) */
+*::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+*::-webkit-scrollbar-track {
+    background: #2c2c2c;
+    border-radius: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: #5a5a5a;
+    border-radius: 10px;
+    border: 2px solid #2c2c2c;
+    transition: background 0.2s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: #6a6a6a;
+}
+
+*::-webkit-scrollbar-thumb:active {
+    background: #7a7a7a;
+}
+
+*::-webkit-scrollbar-corner {
+    background: #2c2c2c;
 }
 
 body {
