@@ -136,7 +136,7 @@ async def monitor_clipboard():
 
 
 async def listen_websockets():
-    async def listen_on_websocket(uri, max_sleep=5):
+    async def listen_on_websocket(uri, max_sleep=1):
         global current_line, current_line_time, websocket_connected
         try_other = False
         websocket_names = {
@@ -147,7 +147,7 @@ async def listen_websockets():
         }
         likely_websocket_name = next((f" ({name})" for port, name in websocket_names.items() if port in uri), "")
         
-        reconnect_sleep = 1
+        reconnect_sleep = .5
         
         while True:
             if not get_config().general.use_websocket:
@@ -208,7 +208,7 @@ async def listen_websockets():
     else:
         websocket_tasks.append(listen_on_websocket(get_config().general.websocket_uri.strip()))
 
-    websocket_tasks.append(listen_on_websocket(f"localhost:{get_config().advanced.ocr_websocket_port}"))
+    websocket_tasks.append(listen_on_websocket(f"localhost:{get_config().advanced.ocr_websocket_port}", max_sleep=.5))
 
     await asyncio.gather(*websocket_tasks)
     
