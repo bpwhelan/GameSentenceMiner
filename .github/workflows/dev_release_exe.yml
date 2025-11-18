@@ -1,8 +1,10 @@
-name: Build Electron App
+name: Build Electron App for Development Release
 
 on:
-  push:
   pull_request:
+    branches:
+        - main
+        - develop
   workflow_dispatch:
 
 permissions:
