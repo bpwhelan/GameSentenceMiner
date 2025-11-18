@@ -143,19 +143,20 @@ function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     autoUpdater.allowPrerelease = getPullPreReleases(); // Enable pre-releases
     autoUpdater.allowDowngrade = true; // Allow downgrades
     
+    // Set the update URL to the GitHub releases
+    autoUpdater.setFeedURL({
+        provider: 'github',
+        owner: 'bpwhelan',
+        repo: 'GameSentenceMiner',
+        private: false,
+        releaseType: getPullPreReleases() ? 'prerelease' : 'release'
+    });
+    
     // Force update if forceDev is true - configure for dev mode
     if (forceDev) {
-        autoUpdater.allowDowngrade = true;
         autoUpdater.forceDevUpdateConfig = true; // Force dev update config
-        // Set the update URL to the GitHub releases
-        autoUpdater.setFeedURL({
-            provider: 'github',
-            owner: 'bpwhelan',
-            repo: 'GameSentenceMiner',
-            private: false,
-            releaseType: getPullPreReleases() ? 'prerelease' : 'release'
-        });
     }
+    
     return autoUpdater;
 }
 
