@@ -136,7 +136,7 @@ async def monitor_clipboard():
 
 
 async def listen_websockets():
-    async def listen_on_websocket(uri, max_sleep=10):
+    async def listen_on_websocket(uri, max_sleep=5):
         global current_line, current_line_time, websocket_connected
         try_other = False
         websocket_names = {
@@ -193,9 +193,6 @@ async def listen_websockets():
                 if websocket_url in gsm_status.websockets_connected:
                     gsm_status.websockets_connected.remove(websocket_url)
                 websocket_connected[uri] = False
-                
-                logger.warning(f"Texthooker WebSocket {uri}{likely_websocket_name} disconnected. Retrying in {reconnect_sleep} seconds... (Error: {type(e).__name__})")
-                
                 if isinstance(e, websockets.InvalidStatus) and e.response and e.response.status_code == 404:
                     logger.info(f"WebSocket {uri} returned 404, attempting alternate path.")
                     try_other = True
