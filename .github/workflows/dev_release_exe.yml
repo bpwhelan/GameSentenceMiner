@@ -49,8 +49,9 @@ jobs:
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-unpacked
-          path: dist/win-unpacked/
+          name: windows-installer
+          path: dist/*Setup*.exe
+          compression-level: 
 
   build-linux:
     runs-on: ubuntu-latest
@@ -83,8 +84,8 @@ jobs:
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-unpacked
-          path: dist/linux-unpacked/
+          name: linux-installer
+          path: dist/*.AppImage
 
   build-mac:
     runs-on: macos-latest
