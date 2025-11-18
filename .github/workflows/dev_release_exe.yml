@@ -1,73 +1,15 @@
-name: Build Electron App (Artifacts)
+name: Build Electron App
 
 on:
   push:
   pull_request:
-    branches:
-      - develop
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  setup-release:
-    runs-on: ubuntu-latest
-    outputs:
-      RELEASE_TAG: ${{ steps.get_release.outputs.RELEASE_TAG }}
-      RELEASE_BODY: ${{ steps.get_release.outputs.RELEASE_BODY }}
-      PACKAGE_VERSION: ${{ steps.get_version.outputs.PACKAGE_VERSION }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install GitHub CLI
-        run: sudo apt-get update && sudo apt-get install -y gh
-
-      - name: Get latest pre-release and clear assets
-        id: get_release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Get latest release tag
-          latest_tag=$(gh release list --limit 1 --json tagName,isPrerelease | jq -r '.[0].tagName')
-          is_pre=$(gh release list --limit 1 --json isPrerelease | jq -r '.[0].isPrerelease')
-
-          if [[ "$is_pre" == "true" ]]; then
-            echo "Latest is a prerelease: $latest_tag"
-
-            release_json=$(gh release view "$latest_tag" --json id,body,tagName,isPrerelease)
-            release_id=$(echo "$release_json" | jq -r '.id')
-            release_body=$(echo "$release_json" | jq -r '.body')
-
-            echo "RELEASE_TAG=$latest_tag" >> $GITHUB_OUTPUT
-            {
-              echo "RELEASE_BODY<<EOF"
-              echo "$release_body"
-              echo "EOF"
-            } >> $GITHUB_OUTPUT
-
-            # Delete existing assets
-            assets=$(gh api "repos/${GITHUB_REPOSITORY}/releases/$release_id/assets")
-            asset_ids=$(echo "$assets" | jq -r '.[].id')
-
-            for a in $asset_ids; do
-              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/$a"
-            done
-
-            gh release edit "$latest_tag" --notes "Build in progress..."
-          else
-            echo "RELEASE_TAG=none" >> $GITHUB_OUTPUT
-          fi
-
-
-      - name: Get version from package.json
-        id: get_version
-        run: echo "PACKAGE_VERSION=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
-
-  electron-build-windows:
-    needs: setup-release
+  build-windows:
     runs-on: windows-latest
 
     steps:
@@ -75,21 +17,19 @@ jobs:
         with:
           submodules: true
 
-      - name: Install GitHub CLI
-        run: choco install gh --yes
-
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: 3.11
 
       - uses: actions/setup-node@v4
         with:
           node-version: 21
 
-      - name: Normalize Handlebar templates
+      - name: Convert Handlebar files to LF
         run: |
-          Get-ChildItem -Path ./GSM_Overlay/yomitan/data/templates -Recurse -Filter *.handlebars | ForEach-Object {
-            (Get-Content $_.FullName -Raw).Replace("`r`n","`n") | Set-Content -NoNewline $_.FullName
+          Get-ChildItem -Path ./GSM_Overlay/yomitan/data/templates -Recurse -Include *.handlebars | ForEach-Object {
+            $c = (Get-Content $_.FullName -Raw) -replace "`r`n", "`n"
+            Set-Content $_.FullName $c -NoNewline
           }
 
       - name: Build Overlay
@@ -98,42 +38,27 @@ jobs:
           npm install
           npm run package
 
-      - name: Install electron deps
+      - name: Install dependencies
         run: npm install
 
-      - name: Build Electron app
+      - name: Build Electron app (Windows)
         run: npm run app:dist
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}
+          name: windows-unpacked
           path: dist/win-unpacked/
 
-      - name: Zip + upload to prerelease
-        if: needs.setup-release.outputs.RELEASE_TAG != 'none'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $zip = "dist/windows-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}.zip"
-          Compress-Archive -Path dist/win-unpacked -Destination $zip
-          gh release upload ${{ needs.setup-release.outputs.RELEASE_TAG }} $zip --clobber
-
-  electron-build-linux:
-    needs: setup-release
+  build-linux:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install GitHub CLI
-        run: sudo apt-get update && sudo apt-get install -y gh
-
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: 3.11
 
       - uses: actions/setup-node@v4
         with:
@@ -145,44 +70,29 @@ jobs:
           npm install
           npm run package
 
-      - name: Install electron deps
+      - name: Install dependencies
         run: |
           npm install
           npm install --save-dev electron electron-builder
 
       - name: Build Electron app (Linux)
         run: npm run app:dist
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}
+          name: linux-unpacked
           path: dist/linux-unpacked/
 
-      - name: Zip + upload to prerelease
-        if: needs.setup-release.outputs.RELEASE_TAG != 'none'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          zip -r linux.zip dist/linux-unpacked
-          mv linux.zip dist/linux-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}.zip
-          gh release upload ${{ needs.setup-release.outputs.RELEASE_TAG }} dist/linux-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}.zip --clobber
-
-  electron-build-mac:
-    needs: setup-release
+  build-mac:
     runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install GitHub CLI
-        run: brew install gh
-
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: 3.11
 
       - uses: actions/setup-node@v4
         with:
@@ -194,43 +104,16 @@ jobs:
           npm install
           npm run package
 
-      - name: Install electron deps
+      - name: Install dependencies
         run: |
           npm install
           npm install --save-dev electron electron-builder
 
       - name: Build Electron app (macOS)
         run: npm run app:dist
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}
+          name: macos-unpacked
           path: dist/mac/
-
-      - name: Zip + upload
-        if: needs.setup-release.outputs.RELEASE_TAG != 'none'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cd dist
-          zip -r macos-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}.zip mac
-          gh release upload ${{ needs.setup-release.outputs.RELEASE_TAG }} macos-unpacked-v${{ needs.setup-release.outputs.PACKAGE_VERSION }}.zip --clobber
-
-  finalize-release:
-    runs-on: ubuntu-latest
-    needs: [electron-build-windows, electron-build-linux, electron-build-mac]
-    if: needs.setup-release.outputs.RELEASE_TAG != 'none'
-
-    steps:
-      - name: Install GitHub CLI
-        run: sudo apt-get update && sudo apt-get install -y gh
-
-      - name: Restore release description
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release edit ${{ needs.setup-release.outputs.RELEASE_TAG }} \
-            --notes "${{ needs.setup-release.outputs.RELEASE_BODY }}"
