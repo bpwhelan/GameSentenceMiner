@@ -4,7 +4,8 @@ import re
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
 
-import pyperclipfix as pyperclip
+
+    # import pyperclip
 import requests
 import websockets
 from websockets import InvalidStatus
@@ -21,6 +22,11 @@ from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, over
 
 from GameSentenceMiner.util.get_overlay_coords import get_overlay_processor
 
+pyperclip = None
+try:
+    import pyperclipfix as pyperclip
+except Exception:
+    logger.warning("failed to import pyperclip, clipboard monitoring will not work!")
 
 current_line = ''
 current_line_after_regex = ''
@@ -93,7 +99,14 @@ def is_message_rate_limited(source="clipboard"):
 
 async def monitor_clipboard():
     global current_line, last_clipboard
-    current_line = pyperclip.paste()
+    if not pyperclip:
+        logger.warning("Clipboard monitoring is disabled because pyperclip is not available.")
+        return
+    try:
+        current_line = pyperclip.paste()
+    except Exception as e:
+        logger.error(f"Error accessing clipboard: {e}")
+        return
     send_message_on_resume = False
     time_received = datetime.now()
     while True:

@@ -157,7 +157,7 @@ export const store = new Store<StoreConfig>({
             furigana_filter_sensitivity: 0,
             manualOcrHotkey: "Ctrl+Shift+G",
             areaSelectOcrHotkey: "Ctrl+Shift+O",
-            sendToClipboard: true,
+            sendToClipboard: false,
             scanRate: 0.5,
             requiresOpenWindow: false,
             useWindowForConfig: false,
