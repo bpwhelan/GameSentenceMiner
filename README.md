@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="https://github.com/bpwhelan/GameSentenceMiner/blob/main/icon.png?raw=true" width="75" height="75" style="border-radius: 16px" alt="gamesentenceminer" />
+    <img src="https://github.com/bpwhelan/GameSentenceMiner/blob/main/assets/gsm.png?raw=true" width="75" height="75" style="border-radius: 16px" alt="gamesentenceminer" />
 </p>
 
 <div align="center">
