@@ -30,32 +30,37 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          release=$(gh release list --limit 1 --json tagName,id,body,isPrerelease)
-          is_prerelease=$(echo "$release" | jq -r '.[0].isPrerelease')
+          # Get latest release tag
+          latest_tag=$(gh release list --limit 1 --json tagName,isPrerelease | jq -r '.[0].tagName')
+          is_pre=$(gh release list --limit 1 --json isPrerelease | jq -r '.[0].isPrerelease')
 
-          if [[ "$is_prerelease" == "true" ]]; then
-            tag=$(echo "$release" | jq -r '.[0].tagName')
-            id=$(echo  "$release" | jq -r '.[0].id')
-            body=$(echo "$release" | jq -r '.[0].body')
+          if [[ "$is_pre" == "true" ]]; then
+            echo "Latest is a prerelease: $latest_tag"
 
-            echo "RELEASE_TAG=$tag" >> $GITHUB_OUTPUT
+            release_json=$(gh release view "$latest_tag" --json id,body,tagName,isPrerelease)
+            release_id=$(echo "$release_json" | jq -r '.id')
+            release_body=$(echo "$release_json" | jq -r '.body')
+
+            echo "RELEASE_TAG=$latest_tag" >> $GITHUB_OUTPUT
             {
               echo "RELEASE_BODY<<EOF"
-              echo "$body"
+              echo "$release_body"
               echo "EOF"
             } >> $GITHUB_OUTPUT
 
-            assets=$(gh api "repos/${GITHUB_REPOSITORY}/releases/$id/assets")
+            # Delete existing assets
+            assets=$(gh api "repos/${GITHUB_REPOSITORY}/releases/$release_id/assets")
             asset_ids=$(echo "$assets" | jq -r '.[].id')
 
             for a in $asset_ids; do
               gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/$a"
             done
 
-            gh release edit "$tag" --notes "Build in progress..."
+            gh release edit "$latest_tag" --notes "Build in progress..."
           else
             echo "RELEASE_TAG=none" >> $GITHUB_OUTPUT
           fi
+
 
       - name: Get version from package.json
         id: get_version
