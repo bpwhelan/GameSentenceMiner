@@ -26,22 +26,20 @@ window.addEventListener('DOMContentLoaded', () => {
     
     // Make ipcRenderer available globally for the app
     window.ipcRenderer = ipcRenderer;
-    const wanakana = require('wanakana');
-    window.wanakana = wanakana;
     
-    const Kuroshiro = require("kuroshiro").default;
-    const KuromojiAnalyzer = require("kuroshiro-analyzer-kuromoji");
-    const kuroshiro = new Kuroshiro();
+    // Expose wanakana functions via IPC
+    window.wanakana = {
+        stripOkurigana: async (text, options) => await ipcRenderer.invoke('wanakana-stripOkurigana', text, options),
+        isKanji: async (text) => await ipcRenderer.invoke('wanakana-isKanji', text),
+        isHiragana: async (text) => await ipcRenderer.invoke('wanakana-isHiragana', text),
+        isKatakana: async (text) => await ipcRenderer.invoke('wanakana-isKatakana', text),
+    };
+    
+    // Expose kuroshiro via IPC
+    window.kuroshiro = {
+        convert: async (text, options) => await ipcRenderer.invoke('kuroshiro-convert', text, options)
+    };
 
-    kuroshiro.init(new KuromojiAnalyzer())
-        .then(function(){
-            return kuroshiro.convert("感じ取れたら手を繋ごう、重なるのは人生のライン and レミリア最高！", { to: "hiragana" });
-        })
-        .then(function(result){
-            console.log(result);
-        })
-
-    window.kuroshiro = kuroshiro;
     // shape calculation & observer
     // Use a small padding in CSS pixels so clickable area slightly exceeds the box
     const PADDING_PX = 10;

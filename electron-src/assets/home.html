@@ -182,6 +182,7 @@
             // Remember the previously selected scene
             if (showLoading)
                 sceneSelect.innerHTML = '<option>Loading...</option>';
+            const previousSelection = sceneSelect.value;
             ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
                 scenes = obsScenes;
                 sceneSelect.innerHTML = '';
@@ -191,6 +192,13 @@
                     option.textContent = scene.name;
                     sceneSelect.appendChild(option);
                 });
+                // Restore previous selection if it still exists in the list
+                if (previousSelection && scenes.some(s => s.id === previousSelection)) {
+                    sceneSelect.value = previousSelection;
+                } else {
+                    sceneSelect.selectedIndex = 0;
+                }
+
                 ipcRenderer.invoke('obs.getActiveScene').then(activeScene => {
                     if (activeScene) {
                         if (scenes.some(s => s.id === activeScene.id)) {

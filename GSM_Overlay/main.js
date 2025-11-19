@@ -1,10 +1,18 @@
-const { app, BrowserWindow, session, screen, globalShortcut } = require('electron');
+const { app, BrowserWindow, session, screen, globalShortcut, dialog } = require('electron');
 const { ipcMain } = require("electron");
 const fs = require("fs");
 const path = require('path');
 const os = require('os');
 const magpie = require('./magpie');
 const bg = require('./background');
+const wanakana = require('wanakana');
+const Kuroshiro = require("kuroshiro").default;
+const KuromojiAnalyzer = require("kuroshiro-analyzer-kuromoji");
+
+let dataPath = path.join(process.env.APPDATA, "gsm_overlay")
+
+fs.mkdirSync(dataPath, { recursive: true });
+app.setPath('userData', dataPath);
 
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
 let manualHotkeyPressed = false;
@@ -52,8 +60,8 @@ if (fs.existsSync(settingsPath)) {
 }
 
 const GSM_APPDATA = process.env.APPDATA
-    ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
-    : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
+  ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
+  : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
 
 function getGSMSettings() {
   const gsmSettingsPath = path.join(GSM_APPDATA, 'config.json');
@@ -104,7 +112,7 @@ function saveSettings() {
 function registerManualShowHotkey(oldHotkey) {
   if (!userSettings.manualMode) return;
   if (manualIn) globalShortcut.unregister(oldHotkey || userSettings.showHotkey);
-  
+
   let clear = null;
 
   // Manual hotkey enters mode on press, exits after timeout
@@ -120,15 +128,15 @@ function registerManualShowHotkey(oldHotkey) {
       lastManualActivity = Date.now();
       // mainWindow.show();
       mainWindow.webContents.send('show-overlay-hotkey', true);
-      
+
       if (process.platform === 'win32') {
         mainWindow.setIgnoreMouseEvents(false, { forward: true });
       }
 
-    if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
-      mainWindow.show();
-      // mainWindow.blur();
-    }
+      if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
+        mainWindow.show();
+        // mainWindow.blur();
+      }
 
       // Clear existing timeout if any
       let timeToWait = 500
@@ -136,13 +144,13 @@ function registerManualShowHotkey(oldHotkey) {
         clearTimeout(clear);
         timeToWait = 200; // Shorter timeout if already active
       }
-      
+
       clear = setTimeout(() => {
         manualHotkeyPressed = false;
         mainWindow.webContents.send('show-overlay-hotkey', false);
         if (!yomitanShown && !resizeMode) {
           mainWindow.blur();
-          
+
           if (process.platform === 'win32' || process.platform === 'darwin') {
             mainWindow.setIgnoreMouseEvents(true, { forward: true });
           }
@@ -220,23 +228,23 @@ function openSettings() {
     });
 
     settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
-            const child = new BrowserWindow({
-                parent: settingsWindow ? settingsWindow : undefined,
-                show: true,
-                width: 1200,
-                height: 980,
-                webPreferences: {
-                    nodeIntegration: true,
-                    contextIsolation: false,
-                    devTools: true,
-                    nodeIntegrationInSubFrames: true,
-                    backgroundThrottling: false,
-                },
-            });
-            child.setMenu(null);
-            child.loadURL(url);
-            return { action: 'deny' };
-        });
+      const child = new BrowserWindow({
+        parent: settingsWindow ? settingsWindow : undefined,
+        show: true,
+        width: 1200,
+        height: 980,
+        webPreferences: {
+          nodeIntegration: true,
+          contextIsolation: false,
+          devTools: true,
+          nodeIntegrationInSubFrames: true,
+          backgroundThrottling: false,
+        },
+      });
+      child.setMenu(null);
+      child.loadURL(url);
+      return { action: 'deny' };
+    });
 
     settingsWindow.removeMenu()
 
@@ -262,10 +270,10 @@ function openSettings() {
       ipcMain.removeListener("websocket-opened", openedListenerFunction)
     })
     setTimeout(() => {
-    settingsWindow.setSize(settingsWindow.getSize()[0], settingsWindow.getSize()[1]);
-    settingsWindow.webContents.invalidate();
-    settingsWindow.show();
-  }, 500);
+      settingsWindow.setSize(settingsWindow.getSize()[0], settingsWindow.getSize()[1]);
+      settingsWindow.webContents.invalidate();
+      settingsWindow.show();
+    }, 500);
   })
 }
 
@@ -276,33 +284,128 @@ function openYomitanSettings() {
     return;
   }
   yomitanSettingsWindow = new BrowserWindow({
-      width: 1100,
-      height: 600,
-      webPreferences: {
-        nodeIntegration: false
-      }
-    });
+    width: 1100,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: false
+    }
+  });
 
-    yomitanSettingsWindow.removeMenu()
-    yomitanSettingsWindow.loadURL(`chrome-extension://${ext.id}/settings.html`);
-    // Allow search ctrl F in the settings window
-    yomitanSettingsWindow.webContents.on('before-input-event', (event, input) => {
-      if (input.key.toLowerCase() === 'f' && input.control) {
-        yomitanSettingsWindow.webContents.send('focus-search');
-        event.preventDefault();
-      }
-    });
+  yomitanSettingsWindow.removeMenu()
+  yomitanSettingsWindow.loadURL(`chrome-extension://${ext.id}/settings.html`);
+  // Allow search ctrl F in the settings window
+  yomitanSettingsWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key.toLowerCase() === 'f' && input.control) {
+      yomitanSettingsWindow.webContents.send('focus-search');
+      event.preventDefault();
+    }
+  });
+  yomitanSettingsWindow.show();
+  // Force a repaint to fix blank/transparent window issue
+  setTimeout(() => {
+    yomitanSettingsWindow.setSize(yomitanSettingsWindow.getSize()[0], yomitanSettingsWindow.getSize()[1]);
+    yomitanSettingsWindow.webContents.invalidate(); // Electron 21+ supports this
     yomitanSettingsWindow.show();
-    // Force a repaint to fix blank/transparent window issue
-    setTimeout(() => {
-      yomitanSettingsWindow.setSize(yomitanSettingsWindow.getSize()[0], yomitanSettingsWindow.getSize()[1]);
-      yomitanSettingsWindow.webContents.invalidate(); // Electron 21+ supports this
-      yomitanSettingsWindow.show();
-    }, 500);
+  }, 500);
 }
 
 
 app.whenReady().then(async () => {
+
+  // ===========================================================
+  // MANIFEST SWITCHING & MIGRATION LOGIC
+  // ===========================================================
+  
+  const isDev = !app.isPackaged;
+  const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(process.resourcesPath, "yomitan");
+  
+  // 1. Define Paths
+  // 'manifest.json' is what Electron reads.
+  // 'manifest_static.json' is the version WITH the key (must be present in folder).
+  // 'manifest_no_key.json' is implied as the default state of manifest.json in repo.
+  const activeManifestPath = path.join(extDir, 'manifest.json');
+  const staticManifestPath = path.join(extDir, 'manifest_static.json');
+  
+  const markerPath = path.join(dataPath, 'migration_complete.json');
+  const userSettingsExists = fs.existsSync(settingsPath);
+  const isMigrated = fs.existsSync(markerPath);
+
+  try {
+    if (!fs.existsSync(staticManifestPath)) {
+      console.error("manifest_static.json not found. Skipping migration logic.");
+    } else {
+
+      // SCENARIO A: Fresh Install
+      // If settings.json does NOT exist, this is a new user. 
+      // Put them on the Static ID immediately. No questions asked.
+      if (!userSettingsExists) {
+        console.log("[Init] Fresh install detected. Applying static manifest.");
+        fs.copyFileSync(staticManifestPath, activeManifestPath);
+        // Create marker so we know they are "Done"
+        fs.writeFileSync(markerPath, JSON.stringify({ status: "fresh_install", date: Date.now() }));
+      }
+      
+      // SCENARIO B: Existing User, Not Migrated
+      else if (userSettingsExists && !isMigrated) {
+        console.log("[Init] Existing user detected. Migration required.");
+        
+        const response = dialog.showMessageBoxSync({
+          type: 'warning',
+          buttons: ['Load Old (Backup Data)', 'Ready to Migrate'],
+          defaultId: 0,
+          cancelId: 0,
+          title: 'Yomitan Update - Action Required',
+          message: 'Internal ID Migration Required',
+          detail: 'To prevent data loss in future updates, we need to standardize the Yomitan Extension ID.\n\n' +
+                  '• Load Old: Loads the old temporary ID. Choose this to Export your Settings and Dictionaries now.\n' +
+                  '• Ready to Migrate: Choose this ONLY if you have backed up your data. This will reset Yomitan to a fresh state with the permanent ID.\n\n' +
+                  'This is a one-time process.'
+        });
+
+        if (response === 0) {
+          // USER CHOSE: LOAD OLD (Backup Data)
+          // Ensure we are running the manifest WITHOUT the key.
+          // In your repo, manifest.json usually has no key. 
+          // If for some reason it has a key (leftover), we assume the user handles it or 
+          // we could restore a no-key version if we had a backup. 
+          // For now, assuming manifest.json IS the old version default.
+          console.log("[Init] User chose to load old version.");
+          // Proceed to load extension normally below...
+        } else {
+          // USER CHOSE: READY TO MIGRATE
+          console.log("[Init] User ready to migrate. Swapping manifest.");
+          
+          // 1. Overwrite active manifest with the Static Key version
+          fs.copyFileSync(staticManifestPath, activeManifestPath);
+          
+          // 2. Create Marker File
+          fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
+          
+          // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
+          app.relaunch();
+          app.exit(0);
+          return; // Halt execution
+        }
+      }
+      
+      // SCENARIO C: Already Migrated
+      else if (isMigrated) {
+        // Ensure the manifest is still the Static one. 
+        // (e.g. if user updated the app and a new default manifest.json overwrote the static one)
+        // We compare content or just blindly overwrite to be safe.
+        console.log("[Init] Migration marker found. Enforcing static manifest.");
+        fs.copyFileSync(staticManifestPath, activeManifestPath);
+      }
+    }
+  } catch (err) {
+    console.error("[Init] Error during manifest swapping logic:", err);
+  }
+
+  // ===========================================================
+  // END MIGRATION LOGIC
+  // ===========================================================
+
+
   // Start background manager and register periodic tasks
   bg.start();
 
@@ -320,11 +423,20 @@ app.whenReady().then(async () => {
     }
   }, 3000);
 
-  const isDev = !app.isPackaged;
-  const extPath = isDev ? path.join(__dirname, 'yomitan') : path.join(process.resourcesPath, "yomitan")
   try {
-    ext = await session.defaultSession.loadExtension(extPath, { allowFileAccess: true });
+    ext = await session.defaultSession.loadExtension(extDir, { allowFileAccess: true });
     console.log('Yomitan extension loaded.');
+    console.log('Extension ID:', ext.id);
+
+    // If migration marker exists, update it with the actual ID for debugging
+    if (fs.existsSync(markerPath)) {
+      const markerData = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+      if (!markerData.id) {
+        markerData.id = ext.id;
+        fs.writeFileSync(markerPath, JSON.stringify(markerData));
+      }
+    }
+
   } catch (e) {
     console.error('Failed to load extension:', e);
   }
@@ -383,6 +495,41 @@ app.whenReady().then(async () => {
   registerToggleFuriganaHotkey();
 
   registerManualShowHotkey();
+
+  // Initialize kuroshiro for furigana conversion
+  const kuroshiro = new Kuroshiro();
+  kuroshiro.init(new KuromojiAnalyzer()).then(() => {
+    console.log("Kuroshiro initialized");
+  }).catch(err => {
+    console.error("Kuroshiro initialization failed:", err);
+  });
+
+  // IPC handlers for wanakana and kuroshiro
+  ipcMain.handle('wanakana-stripOkurigana', (event, text, options) => {
+    return wanakana.stripOkurigana(text, options);
+  });
+
+  ipcMain.handle('wanakana-isKanji', (event, text) => {
+    return wanakana.isKanji(text);
+  });
+
+  ipcMain.handle('wanakana-isHiragana', (event, text) => {
+    return wanakana.isHiragana(text);
+  });
+
+  ipcMain.handle('wanakana-isKatakana', (event, text) => {
+    return wanakana.isKatakana(text);
+  });
+
+
+  ipcMain.handle('kuroshiro-convert', async (event, text, options) => {
+    try {
+      return await kuroshiro.convert(text, options);
+    } catch (err) {
+      console.error("Kuroshiro conversion error:", err);
+      throw err;
+    }
+  });
 
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
@@ -477,13 +624,13 @@ app.whenReady().then(async () => {
         // On Linux, forwarding mouse click-through is currently unsupported
         // https://www.electronjs.org/docs/latest/tutorial/custom-window-interactions#click-through-windows
 
-        if(ignore) return; // do nothing (click-through window)
+        if (ignore) return; // do nothing (click-through window)
 
         mainWindow.setShape([currentShape]); // set clickable area
       } else {
         mainWindow.setIgnoreMouseEvents(ignore, options);
       }
-      
+
       if (ignore) {
         // win.blur();
       }
@@ -508,7 +655,7 @@ app.whenReady().then(async () => {
   ipcMain.on("yomitan-event", (event, state) => {
     // Reset the activity timer on yomitan interaction
     resetActivityTimer();
-    
+
     yomitanShown = state;
     if (state) {
       if (process.platform === 'win32' || process.platform === 'darwin') {
@@ -563,11 +710,11 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send("display-info", display);
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
 
-    if (process.platform === 'win32')  {
+    if (process.platform === 'win32') {
       // Windows and macOS - use setIgnoreMouseEvents
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
     }
-    
+
     // Start the activity timer
     resetActivityTimer();
   });
@@ -683,27 +830,27 @@ app.whenReady().then(async () => {
   ipcMain.on("text-recieved", (event, text) => {
     // Reset the activity timer on text received
     resetActivityTimer();
-      // If AFK previously hid the overlay, restore it now
-      if (afkHidden) {
-        try {
-          mainWindow.webContents.send('afk-hide', false);
-        } catch (e) {
-          console.warn('Failed to send afk-hide (restore) to renderer:', e);
-        }
-        afkHidden = false;
+    // If AFK previously hid the overlay, restore it now
+    if (afkHidden) {
+      try {
+        mainWindow.webContents.send('afk-hide', false);
+      } catch (e) {
+        console.warn('Failed to send afk-hide (restore) to renderer:', e);
       }
-    
+      afkHidden = false;
+    }
+
     // If window is minimized, restore it
     if (mainWindow.isMinimized()) {
       mainWindow.show();
       mainWindow.blur();
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
       mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-      
+
       // blur after a short delay too
 
       setTimeout(() => {
-          mainWindow.blur();
+        mainWindow.blur();
       }, 200);
     }
 
@@ -740,7 +887,7 @@ app.whenReady().then(async () => {
     //     win.blur();
     //   }
     // }, 100);
-    
+
     // Periodically ensure always-on-top status is maintained
     // Some applications can steal focus and break overlay behavior
   });

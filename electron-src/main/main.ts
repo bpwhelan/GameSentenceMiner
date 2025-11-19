@@ -369,8 +369,9 @@ async function _updateGSMInternal(
             }).show();
 
             if (shouldRestart) {
-                await ensureAndRunGSM(pythonPath);
-                log.info('GSM Successfully Restarted after update!');
+                ensureAndRunGSM(pythonPath).then(() => {
+                    log.info('GSM Successfully Restarted after update!');
+                });
             }
         } else {
             log.info('Python backend is already up-to-date.');

@@ -550,20 +550,32 @@ def get_cards_by_sentence(sentence):
         raise e
 
 last_connection_error = datetime.now()
+errors_shown = 0
+final_warning_shown = False
 
 # Check for new Anki cards and save replay buffer if detected
 def check_for_new_cards():
-    global previous_note_ids, first_run, last_connection_error
+    global previous_note_ids, first_run, last_connection_error, errors_shown, final_warning_shown
     current_note_ids = set()
     try:
         current_note_ids = get_note_ids()
         gsm_status.anki_connected = True
+        errors_shown = 0
+        final_warning_shown = False
     except Exception as e:
         gsm_status.anki_connected = False
         if datetime.now() - last_connection_error > timedelta(seconds=10):
-            logger.error(f"Error fetching Anki notes, Make sure Anki is running, ankiconnect add-on is installed, and url/port is configured correctly in GSM Settings")
+            if final_warning_shown:
+                return False
+            if errors_shown >= 5:
+                logger.warning("Too many errors fetching Anki notes. Suppressing further warnings.")
+                final_warning_shown = True
+                return False
+            errors_shown += 1
+            logger.warning("Error fetching Anki notes, Make sure Anki is running, ankiconnect add-on is installed, " +
+                           f"and url/port is configured correctly in GSM Settings, This warning will be shown {5 - errors_shown} more times")
             last_connection_error = datetime.now()
-        return
+        return False
     new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
         try:
@@ -572,6 +584,7 @@ def check_for_new_cards():
             logger.error("Error updating new card, Reason:", e)
     first_run = False
     previous_note_ids.update(new_card_ids)  # Update the list of known notes
+    return True
 
 def update_new_card():
     last_card = get_last_anki_card()
@@ -655,9 +668,19 @@ def check_tags_for_should_update(last_card):
 def monitor_anki():
     try:
         # Continuously check for new cards
+        unsuccessful_count = 0
+        scaled_polling_rate = get_config().anki.polling_rate / 1000.0
         while True:
-            check_for_new_cards()
-            time.sleep(get_config().anki.polling_rate / 1000.0)  # Check every 200ms
+            polling_rate = get_config().anki.polling_rate
+            successful = check_for_new_cards()
+
+            if successful:
+                unsuccessful_count = 0
+            else:
+                unsuccessful_count += 1
+                if unsuccessful_count >= 5:
+                    scaled_polling_rate = min(scaled_polling_rate * 2, 5)  # Cap at 5 seconds
+            time.sleep(scaled_polling_rate)  # Check every 200ms
     except KeyboardInterrupt:
         print("Stopped Checking For Anki Cards...")
 
