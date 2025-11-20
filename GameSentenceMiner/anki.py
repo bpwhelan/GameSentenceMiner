@@ -230,7 +230,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
     tags = _prepare_anki_tags()
     
     # 4. (Optional) Show confirmation dialog to the user, which may alter media
-    use_voice = update_audio_flag and assets.audio_in_anki
+    use_voice = update_audio_flag or assets.audio_in_anki
     translation = game_line.TL if hasattr(game_line, 'TL') else ''
     if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
@@ -278,7 +278,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
             assets.video_in_anki = store_media_file(assets.video_path)
         if assets.screenshot_path:
             assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
-        if use_voice:
+        if use_voice and assets.audio_path:
             assets.audio_in_anki = store_media_file(assets.audio_path)
     
     # Now, update the note fields using the Anki filenames (either from cache or newly stored)
@@ -288,7 +288,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
     if update_picture_flag and assets.screenshot_in_anki:
         note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
 
-    if use_voice:
+    if use_voice and assets.audio_in_anki:
         note['fields'][config.anki.sentence_audio_field] = f"[sound:{assets.audio_in_anki}]"
         if config.audio.external_tool and config.audio.external_tool_enabled:
             anki_media_audio_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki)
