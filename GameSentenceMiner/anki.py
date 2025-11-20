@@ -230,7 +230,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
     tags = _prepare_anki_tags()
     
     # 4. (Optional) Show confirmation dialog to the user, which may alter media
-    use_voice = update_audio_flag or assets.audio_in_anki
+    use_voice = update_audio_flag and assets.audio_in_anki
     translation = game_line.TL if hasattr(game_line, 'TL') else ''
     if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation

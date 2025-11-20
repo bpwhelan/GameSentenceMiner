@@ -788,6 +788,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
             console.log(
                 "Looks like something's broken with GSM, attempting to repair the installation..."
             );
+            await closeAllPythonProcesses();
             await cleanCache();
             await runCommand(
                 pythonPath,
