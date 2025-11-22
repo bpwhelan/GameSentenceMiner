@@ -656,7 +656,8 @@ def register_stats_api_routes(app):
 
                     if most_recent_line:
                         most_recent_game_line = GameLinesTable.from_row(
-                            most_recent_line
+                            most_recent_line,
+                            clean_columns=['line_text']
                         )
                         current_game_name = (
                             most_recent_game_line.game_name or "Unknown Game"
@@ -677,7 +678,7 @@ def register_stats_api_routes(app):
                             )
 
                         current_game_lines = [
-                            GameLinesTable.from_row(row)
+                            GameLinesTable.from_row(row, clean_columns=['line_text'])
                             for row in current_game_lines_rows
                         ]
                         current_game_stats = calculate_current_game_stats(

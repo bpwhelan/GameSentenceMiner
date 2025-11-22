@@ -852,7 +852,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2.20.5"
+version = "2.21.8"
 source = { editable = "." }
 dependencies = [
     { name = "betterproto" },
@@ -882,6 +882,7 @@ dependencies = [
     { name = "pygetwindow", marker = "sys_platform == 'win32'" },
     { name = "pyobjc", marker = "sys_platform == 'darwin'" },
     { name = "pyperclipfix" },
+    { name = "pypresence" },
     { name = "pyqt6" },
     { name = "pyqtdarktheme" },
     { name = "pysbd" },
@@ -898,7 +899,6 @@ dependencies = [
     { name = "toml" },
     { name = "torchaudio" },
     { name = "torchcodec" },
-    { name = "ttkbootstrap" },
     { name = "watchdog" },
     { name = "websockets" },
     { name = "win10toast", marker = "sys_platform == 'win32'" },
@@ -933,6 +933,7 @@ requires-dist = [
     { name = "pygetwindow", marker = "sys_platform == 'win32'", specifier = "==0.0.9" },
     { name = "pyobjc", marker = "sys_platform == 'darwin'", specifier = "~=10.3.1" },
     { name = "pyperclipfix", specifier = ">=1.9.4" },
+    { name = "pypresence", specifier = ">=4.6.1" },
     { name = "pyqt6", specifier = "~=6.10.0" },
     { name = "pyqtdarktheme", specifier = "~=2.1.0" },
     { name = "pysbd", specifier = "~=0.3.4" },
@@ -949,7 +950,6 @@ requires-dist = [
     { name = "toml", specifier = "~=0.10.2" },
     { name = "torchaudio", specifier = "==2.8.0" },
     { name = "torchcodec", specifier = "~=0.7.0" },
-    { name = "ttkbootstrap", specifier = "~=1.10.1" },
     { name = "watchdog", specifier = "~=6.0.0" },
     { name = "websockets", specifier = "~=15.0.1" },
     { name = "win10toast", marker = "sys_platform == 'win32'", specifier = "==0.9" },
@@ -4843,6 +4843,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pypresence"
+version = "4.6.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f6/6b/dedacb949ee73c3fd4a11992a4e9a70fc4cd1046ed6870f9138348293ded/pypresence-4.6.1.tar.gz", hash = "sha256:05199516a3b4e182b637b3cd5415aab7ba542707664f634f35a7220c4f10334f", size = 20419, upload-time = "2025-10-17T18:53:39.484Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bd/0d/1c817c6769ce0b64cc0dcc20bc9d0edb4dc560e83a3b5f0d5cbda04c3d35/pypresence-4.6.1-py3-none-any.whl", hash = "sha256:33d4549fcdf4102f81935df4ba587bacb22193e0c50c541d1ab9329b21df33cd", size = 14033, upload-time = "2025-10-17T18:53:38.184Z" },
+]
+
+[[package]]
 name = "pyqt6"
 version = "6.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5772,18 +5781,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d0/66/b1eb52839f563623d185f0927eb3530ee4d5ffe9d377cdaf5346b306689e/triton-3.4.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:31c1d84a5c0ec2c0f8e8a072d7fd150cab84a9c239eaddc6706c081bfae4eb04", size = 155560068, upload-time = "2025-07-30T19:58:37.081Z" },
     { url = "https://files.pythonhosted.org/packages/30/7b/0a685684ed5322d2af0bddefed7906674f67974aa88b0fae6e82e3b766f6/triton-3.4.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:00be2964616f4c619193cb0d1b29a99bd4b001d7dc333816073f92cf2a8ccdeb", size = 155569223, upload-time = "2025-07-30T19:58:44.017Z" },
     { url = "https://files.pythonhosted.org/packages/20/63/8cb444ad5cdb25d999b7d647abac25af0ee37d292afc009940c05b82dda0/triton-3.4.0-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7936b18a3499ed62059414d7df563e6c163c5e16c3773678a3ee3d417865035d", size = 155659780, upload-time = "2025-07-30T19:58:51.171Z" },
-]
-
-[[package]]
-name = "ttkbootstrap"
-version = "1.10.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pillow" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/9e/22845f8e68415f4246342f3eccc5939991445098e8c1c0cf60c459755d22/ttkbootstrap-1.10.1.tar.gz", hash = "sha256:53925525c4104f9e345627500dced2d0392ad74324b2a81467aaee3ffbe1a474", size = 125360, upload-time = "2023-01-17T13:25:55.192Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e6/a8/01691c28bb6320f6872e4719140e108b101eddc986aa9d3625972e43ab1c/ttkbootstrap-1.10.1-py3-none-any.whl", hash = "sha256:c6a10ee5ea64051a0f8b75c20ef8e5f2417c62b4d0858c831683d4f2135aa573", size = 133005, upload-time = "2023-01-17T13:25:52.842Z" },
 ]
 
 [[package]]

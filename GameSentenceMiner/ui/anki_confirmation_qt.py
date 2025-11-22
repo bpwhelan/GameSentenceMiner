@@ -59,7 +59,7 @@ class AnkiConfirmationDialog(QDialog):
         
         # Set window properties
         self.setWindowTitle("Confirm Anki Card Details")
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog | Qt.WindowType.WindowMinimizeButtonHint)
         self.setModal(True)
         
         # Create and lay out widgets

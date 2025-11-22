@@ -531,6 +531,8 @@ def register_database_api_routes(app):
                     "character_count_target_date": config.character_count_target_date,
                     "games_target_date": config.games_target_date,
                     "cards_mined_daily_target": getattr(config, 'cards_mined_daily_target', 10),
+                    "regex_out_punctuation": config.regex_out_punctuation,
+                    "regex_out_repetitions": config.regex_out_repetitions
                 }
             ), 200
         except Exception as e:
@@ -558,6 +560,8 @@ def register_database_api_routes(app):
             character_count_target_date = data.get("character_count_target_date")
             games_target_date = data.get("games_target_date")
             cards_mined_daily_target = data.get("cards_mined_daily_target")
+            regex_out_punctuation = data.get("regex_out_punctuation")
+            regex_out_repetitions = data.get("regex_out_repetitions")
 
             # Validate input - only require the settings that are provided
             settings_to_update = {}
@@ -712,6 +716,19 @@ def register_database_api_routes(app):
                     return jsonify(
                         {"error": "Cards mined daily target must be a valid integer"}
                     ), 400
+            if regex_out_punctuation is not None:
+                if not isinstance(regex_out_punctuation, bool):
+                    return jsonify(
+                        {"error": "regex_out_punctuation must be a boolean value"}
+                    ), 400
+                settings_to_update["regex_out_punctuation"] = regex_out_punctuation
+                
+            if regex_out_repetitions is not None:
+                if not isinstance(regex_out_repetitions, bool):
+                    return jsonify(
+                        {"error": "regex_out_repetitions must be a boolean value"}
+                    ), 400
+                settings_to_update["regex_out_repetitions"] = regex_out_repetitions
 
             if not settings_to_update:
                 return jsonify({"error": "No valid settings provided"}), 400
@@ -747,6 +764,10 @@ def register_database_api_routes(app):
                 config.games_target_date = settings_to_update["games_target_date"]
             if "cards_mined_daily_target" in settings_to_update:
                 config.cards_mined_daily_target = settings_to_update["cards_mined_daily_target"]
+            if "regex_out_punctuation" in settings_to_update:
+                config.regex_out_punctuation = settings_to_update["regex_out_punctuation"]
+            if "regex_out_repetitions" in settings_to_update:
+                config.regex_out_repetitions = settings_to_update["regex_out_repetitions"]
 
             save_stats_config(config)
 

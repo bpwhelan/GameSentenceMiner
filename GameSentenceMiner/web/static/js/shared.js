@@ -234,6 +234,8 @@ class SettingsManager {
         this.readingHoursTargetDateInput = document.getElementById('readingHoursTargetDate');
         this.characterCountTargetDateInput = document.getElementById('characterCountTargetDate');
         this.gamesTargetDateInput = document.getElementById('gamesTargetDate');
+        this.regexOutPunctuationInput = document.getElementById('regex_out_punctuation');
+        this.regexOutRepetitionsInput = document.getElementById('regex_out_repetitions');
     }
     
     attachEventListeners() {
@@ -337,6 +339,12 @@ class SettingsManager {
         if (this.gamesTargetDateInput) {
             this.gamesTargetDateInput.value = settings.games_target_date || '';
         }
+        if (this.regexOutPunctuationInput) {
+            this.regexOutPunctuationInput.checked = settings.regex_out_punctuation;
+        }
+        if (this.regexOutRepetitionsInput) {
+            this.regexOutRepetitionsInput.checked = settings.regex_out_repetitions;
+        }
     }
     
     async refreshHeatmapData(selectedYear) {
@@ -420,6 +428,14 @@ class SettingsManager {
             
             if (this.gamesTargetDateInput) {
                 settings.games_target_date = this.gamesTargetDateInput.value || '';
+            }
+
+            if (this.regexOutPunctuationInput) {
+                settings.regex_out_punctuation = this.regexOutPunctuationInput.checked;
+            }
+            
+            if (this.regexOutRepetitionsInput) {
+                settings.regex_out_repetitions = this.regexOutRepetitionsInput.checked;
             }
             
             // Show loading state
