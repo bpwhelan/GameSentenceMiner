@@ -260,7 +260,8 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         
         use_voice, sentence, translation, new_ss_path, new_prev_ss_path, add_nsfw_tag, new_audio_path = result
         note['fields'][config.anki.sentence_field] = sentence
-        note['fields'][config.ai.anki_field] = translation
+        if config.ai.add_to_anki and config.ai.anki_field:
+            note['fields'][config.ai.anki_field] = translation
         assets.screenshot_path = new_ss_path or assets.screenshot_path
         assets.prev_screenshot_path = new_prev_ss_path or assets.prev_screenshot_path
         # Update audio path if TTS was generated in the dialog
@@ -336,6 +337,12 @@ def check_and_update_note(last_note, note, tags=[]):
     selected_notes = invoke("guiSelectedNotes")
     if last_note.noteId in selected_notes:
         notification.open_browser_window(1)
+        
+    # Sanitize note fields for null values
+    for note_field in note['fields']:
+        if note['fields'][note_field] is None:
+            note['fields'][note_field] = ''
+            
     invoke("updateNoteFields", note=note)
     
     if tags:
