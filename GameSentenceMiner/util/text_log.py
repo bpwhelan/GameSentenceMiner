@@ -43,7 +43,7 @@ class GameLine:
         return str({"text": self.text, "time": self.time})
     
     def next_line(self):
-        return self.next if self.next.time < self.mined_time else None
+        return self.next if self.next and self.next.time < self.mined_time else None
 
 
 @dataclass
