@@ -501,12 +501,16 @@ def invoke(action, **params):
         logger.debug(f"Hitting Anki. Action: {action}. Data: {request_json}")
     response = json.load(urllib.request.urlopen(urllib.request.Request(get_config().anki.url, request_json)))
     if len(response) != 2:
+        logger.error(f"Unexpected response from Anki: {response}")
         raise Exception('response has an unexpected number of fields')
     if 'error' not in response:
+        logger.error(f"Unexpected response from Anki: {response}")
         raise Exception('response is missing required error field')
     if 'result' not in response:
+        logger.error(f"Unexpected response from Anki: {response}")
         raise Exception('response is missing required result field')
     if response['error'] is not None:
+        logger.error(f"Anki returned an error: {response['error']}")
         raise Exception(response['error'])
     return response['result']
 
