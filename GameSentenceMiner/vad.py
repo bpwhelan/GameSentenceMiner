@@ -116,7 +116,7 @@ class VADProcessor(ABC):
         end_time = voice_activity[-1]['end'] if voice_activity else 0
 
         # Attempt to fix the end time if the last segment is too short
-        if game_line and game_line.next and len(voice_activity) > 1:
+        if game_line and game_line.next_line() and len(voice_activity) > 1:
             audio_length = get_audio_length(input_audio)
             if 0 > audio_length - voice_activity[-1]['start'] + get_config().audio.beginning_offset:
                 end_time = voice_activity[-2]['end']

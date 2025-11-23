@@ -2063,6 +2063,7 @@ def register_stats_api_routes(app):
                         "totalSeconds": 0,
                         "charsPerHour": 0,
                         "gameMetadata": game_metadata,  # Add full game metadata
+                        "lines": [line.id],
                     }
                 else:
                     # Continue current session
@@ -2071,6 +2072,7 @@ def register_stats_api_routes(app):
                     if last_timestamp is not None:
                         gap = ts - last_timestamp
                         current_session["totalSeconds"] += min(gap, afk_timer_seconds)
+                    current_session["lines"].append(line.id)
 
                 last_timestamp = ts
                 last_game_name = game_name

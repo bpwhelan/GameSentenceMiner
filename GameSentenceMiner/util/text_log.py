@@ -24,6 +24,7 @@ class GameLine:
     index: int = 0
     scene: str = ""
     TL: str = ""
+    mined_time: datetime = datetime.min
 
     def get_previous_time(self):
         if self.prev:
@@ -31,8 +32,8 @@ class GameLine:
         return initial_time
 
     def get_next_time(self):
-        if self.next:
-            return self.next.time
+        if self.next_line():
+            return self.next_line().time
         return 0
 
     def set_TL(self, tl: str):
@@ -40,6 +41,9 @@ class GameLine:
 
     def __str__(self):
         return str({"text": self.text, "time": self.time})
+    
+    def next_line(self):
+        return self.next if self.next.time < self.mined_time else None
 
 
 @dataclass

@@ -94,7 +94,7 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
         if config.screenshot.animated:
             assets.screenshot_path = ffmpeg.get_anki_compatible_video(
                 video_path, start_time, vad_result.start, vad_result.end, 
-                codec='avif', quality=10, fps=12, audio=False
+                codec='webp', quality=10, fps=12, audio=False
             )
         else:
             assets.screenshot_path = ffmpeg.get_screenshot(
@@ -105,7 +105,7 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
     if config.anki.video_field and vad_result:
         assets.video_path = ffmpeg.get_anki_compatible_video(
             video_path, start_time, vad_result.start, vad_result.end, 
-            codec='avif', quality=10, fps=12, audio=True
+            codec='webp', quality=10, fps=12, audio=True
         )
 
     if config.anki.previous_image_field and game_line.prev:
@@ -594,6 +594,7 @@ def update_new_card():
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(last_card)}")
     lines = texthooking_page.get_selected_lines()
     game_line = get_mined_line(last_card, lines)
+    game_line.mined_time = datetime.now()
     use_prev_audio = sentence_is_same_as_previous(last_card, lines) or game_line.id in anki_results
     logger.info(f"New card using previous audio: {use_prev_audio}")
     if get_config().obs.get_game_from_scene:
