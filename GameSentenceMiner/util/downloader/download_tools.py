@@ -246,11 +246,11 @@ def download_ffmpeg_if_needed():
     flatten_directory(ffmpeg_dir)
                     
     # Copy ffmpeg.exe to the python folder
-    if os.path.exists(ffmpeg_exe_path):
-        shutil.copy2(ffmpeg_exe_path, ffmpeg_in_python)
-        logger.info(f"Copied ffmpeg.exe to Python folder: {ffmpeg_in_python}")
-    else:
-        logger.warning(f"ffmpeg.exe not found in {ffmpeg_dir}. Extraction might have failed.")
+    # if os.path.exists(ffmpeg_exe_path):
+    #     shutil.copy2(ffmpeg_exe_path, ffmpeg_in_python)
+    #     logger.info(f"Copied ffmpeg.exe to Python folder: {ffmpeg_in_python}")
+    # else:
+    #     logger.warning(f"ffmpeg.exe not found in {ffmpeg_dir}. Extraction might have failed.")
     logger.info(f"FFmpeg extracted to {ffmpeg_dir}.")
 
 
