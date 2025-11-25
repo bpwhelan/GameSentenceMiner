@@ -17,18 +17,23 @@ from GameSentenceMiner.util.model import VADResult
 
 class VADSystem:
     def __init__(self):
+        self.initalized = False
         self.silero = None
         self.whisper = None
         # self.vosk = None
         # self.groq = None
 
     def init(self):
-        if get_config().vad.is_whisper():
-            if not self.whisper:
-                self.whisper = WhisperVADProcessor()
-        if get_config().vad.is_silero():
-            if not self.silero:
-                self.silero = SileroVADProcessor()
+        try:
+            if get_config().vad.is_whisper():
+                if not self.whisper:
+                    self.whisper = WhisperVADProcessor()
+            if get_config().vad.is_silero():
+                if not self.silero:
+                    self.silero = SileroVADProcessor()
+            self.initalized = True
+        except Exception as e:
+            logger.error("Error initializing VAD processors, will not use them." + str(e), exc_info=True)
         # if get_config().vad.is_vosk():
         #     if not self.vosk:
         #         self.vosk = VoskVADProcessor()
