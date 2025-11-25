@@ -706,6 +706,7 @@ class ConfigWindow(QWidget):
             self.profile_combo.currentIndexChanged.disconnect()
             self.locale_combo.currentIndexChanged.disconnect()
             self.obs_scene_list.itemSelectionChanged.disconnect()
+            self.ffmpeg_audio_preset_combo.currentTextChanged.disconnect()
         except TypeError:
             pass # Signals were not connected yet
 
@@ -714,6 +715,7 @@ class ConfigWindow(QWidget):
         self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
         self.locale_combo.currentIndexChanged.connect(self._on_locale_changed)
         self.obs_scene_list.itemSelectionChanged.connect(self._on_obs_scene_selection_changed)
+        self.ffmpeg_audio_preset_combo.currentTextChanged.connect(self._on_ffmpeg_preset_changed)
         
         # Sync required settings tab widgets with main widgets
         self._sync_widget_bidirectional(self.websocket_enabled_check, self.req_websocket_enabled_check)
@@ -1370,6 +1372,11 @@ class ConfigWindow(QWidget):
         title_template = self.i18n.get('app', {}).get('title_with_profile', 'GameSentenceMiner Config - {profile_name}')
         self.setWindowTitle(title_template.format(profile_name=self.settings.name))
 
+    def _on_ffmpeg_preset_changed(self, preset_name):
+        """Updates the FFmpeg options line edit when the preset combo box changes."""
+        if preset_name in self.ffmpeg_preset_map:
+            self.audio_ffmpeg_reencode_options_edit.setText(self.ffmpeg_preset_map[preset_name])
+
     def check_obs_errors(self):
         try:
             errors = obs.get_queued_gui_errors()
@@ -1487,22 +1494,34 @@ class ConfigWindow(QWidget):
     # --- Other UI Loaders ---
     def _load_ffmpeg_presets(self):
         i18n = self.i18n.get('tabs', {}).get('audio', {}).get('ffmpeg_preset', {}).get('options', {})
+        custom_display_name = i18n.get('custom', "Custom")
         self.ffmpeg_preset_map = {
             i18n.get('no_reencode', "No Re-encode"): "",
             i18n.get('fade_in', "Simple Fade-in..."): "-c:a {encoder} -f {format} -af \"afade=t=in:d=0.005\"",
             i18n.get('loudness_norm', "Simple loudness..."): "-c:a {encoder} -f {format} -af \"loudnorm=I=-23:TP=-2,afade=t=in:d=0.005\"",
             i18n.get('downmix_norm', "Downmix to mono..."): "-c:a {encoder} -ac 1 -f {format} -af \"loudnorm=I=-23:TP=-2:dual_mono=true,afade=t=in:d=0.005\"",
             i18n.get('downmix_norm_low_bitrate', "Downmix to mono, 30kbps..."): "-c:a {encoder} -b:a 30k -ac 1 -f {format} -af \"loudnorm=I=-23:TP=-2:dual_mono=true,afade=t=in:d=0.005\"",
-            i18n.get('custom', "Custom"): get_config().audio.custom_encode_settings,
+            custom_display_name: get_config().audio.custom_encode_settings,
         }
         self.ffmpeg_audio_preset_combo.clear()
         self.ffmpeg_audio_preset_combo.addItems(self.ffmpeg_preset_map.keys())
+
         # select preset based on current settings
         current_options = self.settings.audio.ffmpeg_reencode_options
+        preset_found = False
         for preset_name, preset_options in self.ffmpeg_preset_map.items():
-            if preset_options == current_options:
+            # The 'Custom' item's value is dynamic, so we don't match against it.
+            # If nothing else matches, it's custom.
+            if preset_name != custom_display_name and preset_options == current_options:
                 self.ffmpeg_audio_preset_combo.setCurrentText(preset_name)
+                preset_found = True
                 break
+        
+        if not preset_found:
+            self.ffmpeg_audio_preset_combo.setCurrentText(custom_display_name)
+            # Also update the map value for custom to reflect the current setting
+            self.ffmpeg_preset_map[custom_display_name] = current_options
+
 
     def _load_monitors(self):
         self.overlay_monitor_combo.clear()
