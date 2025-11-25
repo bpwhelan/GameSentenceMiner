@@ -52,8 +52,8 @@ if (fs.existsSync(settingsPath)) {
 }
 
 const GSM_APPDATA = process.env.APPDATA
-    ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
-    : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
+  ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
+  : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
 
 function getGSMSettings() {
   const gsmSettingsPath = path.join(GSM_APPDATA, 'config.json');
@@ -104,7 +104,7 @@ function saveSettings() {
 function registerManualShowHotkey(oldHotkey) {
   if (!userSettings.manualMode) return;
   if (manualIn) globalShortcut.unregister(oldHotkey || userSettings.showHotkey);
-  
+
   let clear = null;
 
   // Manual hotkey enters mode on press, exits after timeout
@@ -120,15 +120,18 @@ function registerManualShowHotkey(oldHotkey) {
       lastManualActivity = Date.now();
       // mainWindow.show();
       mainWindow.webContents.send('show-overlay-hotkey', true);
-      
-      if (process.platform === 'win32') {
+
+      if (process.platform !== 'linux') {
+        mainWindow.webContents.send('show-overlay-hotkey', true);
         mainWindow.setIgnoreMouseEvents(false, { forward: true });
+      } else {
+        mainWindow.show();
       }
 
-    if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
-      mainWindow.show();
-      // mainWindow.blur();
-    }
+      if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
+        mainWindow.show();
+        // mainWindow.blur();
+      }
 
       // Clear existing timeout if any
       let timeToWait = 500
@@ -136,15 +139,16 @@ function registerManualShowHotkey(oldHotkey) {
         clearTimeout(clear);
         timeToWait = 200; // Shorter timeout if already active
       }
-      
+
       clear = setTimeout(() => {
         manualHotkeyPressed = false;
         mainWindow.webContents.send('show-overlay-hotkey', false);
         if (!yomitanShown && !resizeMode) {
           mainWindow.blur();
-          
-          if (process.platform === 'win32' || process.platform === 'darwin') {
+          if (process.platform !== 'linux') {
             mainWindow.setIgnoreMouseEvents(true, { forward: true });
+          } else {
+            mainWindow.hide();
           }
         }
       }, timeToWait);
@@ -220,23 +224,23 @@ function openSettings() {
     });
 
     settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
-            const child = new BrowserWindow({
-                parent: settingsWindow ? settingsWindow : undefined,
-                show: true,
-                width: 1200,
-                height: 980,
-                webPreferences: {
-                    nodeIntegration: true,
-                    contextIsolation: false,
-                    devTools: true,
-                    nodeIntegrationInSubFrames: true,
-                    backgroundThrottling: false,
-                },
-            });
-            child.setMenu(null);
-            child.loadURL(url);
-            return { action: 'deny' };
-        });
+      const child = new BrowserWindow({
+        parent: settingsWindow ? settingsWindow : undefined,
+        show: true,
+        width: 1200,
+        height: 980,
+        webPreferences: {
+          nodeIntegration: true,
+          contextIsolation: false,
+          devTools: true,
+          nodeIntegrationInSubFrames: true,
+          backgroundThrottling: false,
+        },
+      });
+      child.setMenu(null);
+      child.loadURL(url);
+      return { action: 'deny' };
+    });
 
     settingsWindow.removeMenu()
 
@@ -262,10 +266,10 @@ function openSettings() {
       ipcMain.removeListener("websocket-opened", openedListenerFunction)
     })
     setTimeout(() => {
-    settingsWindow.setSize(settingsWindow.getSize()[0], settingsWindow.getSize()[1]);
-    settingsWindow.webContents.invalidate();
-    settingsWindow.show();
-  }, 500);
+      settingsWindow.setSize(settingsWindow.getSize()[0], settingsWindow.getSize()[1]);
+      settingsWindow.webContents.invalidate();
+      settingsWindow.show();
+    }, 500);
   })
 }
 
@@ -276,29 +280,29 @@ function openYomitanSettings() {
     return;
   }
   yomitanSettingsWindow = new BrowserWindow({
-      width: 1100,
-      height: 600,
-      webPreferences: {
-        nodeIntegration: false
-      }
-    });
+    width: 1100,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: false
+    }
+  });
 
-    yomitanSettingsWindow.removeMenu()
-    yomitanSettingsWindow.loadURL(`chrome-extension://${ext.id}/settings.html`);
-    // Allow search ctrl F in the settings window
-    yomitanSettingsWindow.webContents.on('before-input-event', (event, input) => {
-      if (input.key.toLowerCase() === 'f' && input.control) {
-        yomitanSettingsWindow.webContents.send('focus-search');
-        event.preventDefault();
-      }
-    });
+  yomitanSettingsWindow.removeMenu()
+  yomitanSettingsWindow.loadURL(`chrome-extension://${ext.id}/settings.html`);
+  // Allow search ctrl F in the settings window
+  yomitanSettingsWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key.toLowerCase() === 'f' && input.control) {
+      yomitanSettingsWindow.webContents.send('focus-search');
+      event.preventDefault();
+    }
+  });
+  yomitanSettingsWindow.show();
+  // Force a repaint to fix blank/transparent window issue
+  setTimeout(() => {
+    yomitanSettingsWindow.setSize(yomitanSettingsWindow.getSize()[0], yomitanSettingsWindow.getSize()[1]);
+    yomitanSettingsWindow.webContents.invalidate(); // Electron 21+ supports this
     yomitanSettingsWindow.show();
-    // Force a repaint to fix blank/transparent window issue
-    setTimeout(() => {
-      yomitanSettingsWindow.setSize(yomitanSettingsWindow.getSize()[0], yomitanSettingsWindow.getSize()[1]);
-      yomitanSettingsWindow.webContents.invalidate(); // Electron 21+ supports this
-      yomitanSettingsWindow.show();
-    }, 500);
+  }, 500);
 }
 
 
@@ -477,13 +481,13 @@ app.whenReady().then(async () => {
         // On Linux, forwarding mouse click-through is currently unsupported
         // https://www.electronjs.org/docs/latest/tutorial/custom-window-interactions#click-through-windows
 
-        if(ignore) return; // do nothing (click-through window)
+        if (ignore) return; // do nothing (click-through window)
 
         mainWindow.setShape([currentShape]); // set clickable area
       } else {
         mainWindow.setIgnoreMouseEvents(ignore, options);
       }
-      
+
       if (ignore) {
         // win.blur();
       }
@@ -508,7 +512,7 @@ app.whenReady().then(async () => {
   ipcMain.on("yomitan-event", (event, state) => {
     // Reset the activity timer on yomitan interaction
     resetActivityTimer();
-    
+
     yomitanShown = state;
     if (state) {
       if (process.platform === 'win32' || process.platform === 'darwin') {
@@ -563,11 +567,11 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send("display-info", display);
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
 
-    if (process.platform === 'win32')  {
+    if (process.platform === 'win32') {
       // Windows and macOS - use setIgnoreMouseEvents
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
     }
-    
+
     // Start the activity timer
     resetActivityTimer();
   });
@@ -683,27 +687,27 @@ app.whenReady().then(async () => {
   ipcMain.on("text-recieved", (event, text) => {
     // Reset the activity timer on text received
     resetActivityTimer();
-      // If AFK previously hid the overlay, restore it now
-      if (afkHidden) {
-        try {
-          mainWindow.webContents.send('afk-hide', false);
-        } catch (e) {
-          console.warn('Failed to send afk-hide (restore) to renderer:', e);
-        }
-        afkHidden = false;
+    // If AFK previously hid the overlay, restore it now
+    if (afkHidden) {
+      try {
+        mainWindow.webContents.send('afk-hide', false);
+      } catch (e) {
+        console.warn('Failed to send afk-hide (restore) to renderer:', e);
       }
-    
+      afkHidden = false;
+    }
+
     // If window is minimized, restore it
     if (mainWindow.isMinimized()) {
       mainWindow.show();
       mainWindow.blur();
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
       mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-      
+
       // blur after a short delay too
 
       setTimeout(() => {
-          mainWindow.blur();
+        mainWindow.blur();
       }, 200);
     }
 
@@ -740,7 +744,7 @@ app.whenReady().then(async () => {
     //     win.blur();
     //   }
     // }, 100);
-    
+
     // Periodically ensure always-on-top status is maintained
     // Some applications can steal focus and break overlay behavior
   });
