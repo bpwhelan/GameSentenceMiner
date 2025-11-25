@@ -781,7 +781,11 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
 
     console.log('Starting GameSentenceMiner...');
     try {
-        return await runGSM(pythonPath, ['-m', getGSMModulePath()]);
+        const args = ['-m', getGSMModulePath()];
+        if (isDev) {
+            args.push('--dev');
+        }
+        return await runGSM(pythonPath, args);
     } catch (err) {
         console.error('Failed to start GameSentenceMiner:', err);
         if (!isDev && retry > 0) {

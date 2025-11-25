@@ -177,9 +177,9 @@
                                     <option value="12.8" selected>CUDA 12.8 (Recommended)</option>
                                     <option value="12.9">CUDA 12.9 (Latest)</option>
                                 </select>
-                                <button id="install-cuda-btn" class="secondary">Install CUDA</button>
+                                <!-- <button id="install-cuda-btn" class="secondary" disabled aria-disabled="true" tabindex="-1" style="pointer-events: none; opacity: 0.5;">Install CUDA</button> -->
                                 <div class="tooltip">❓
-                                    <span class="tooltiptext">Install PyTorch with CUDA support for GPU acceleration.
+                                    <span class="tooltiptext">DISABLED FOR NOW, BREAKS GSM. Install PyTorch with CUDA support for GPU acceleration.
                                         This enables much faster Whisper Processing, and is used for a few OCR options
                                         (none recommended).</span>
                                 </div>
@@ -213,13 +213,13 @@
                                         will remove all custom packages and restore to default state.</span>
                                 </div>
                             </div> -->
-                            <div class="input-group">
+                            <!-- <div class="input-group">
                                 <button id="clean-cache-btn" class="secondary">🧹 Clean Python Cache</button>
                                 <div class="tooltip">❓
                                     <span class="tooltiptext">Clear pip cache and temporary files to fix installation
                                         issues</span>
                                 </div>
-                            </div>
+                            </div> -->
                         </div>
                     </div>
                 </div>
@@ -281,7 +281,7 @@
                             <div id="dependency-select-group" class="input-group">
                                 <label for="dependency-select">Optional:</label>
                                 <select id="dependency-select">
-                                    <option value="pip install owocr[faster-png]">Faster PNG (Recommended if w11)
+                                    <option value="pip install fpng-py">Faster PNG (Recommended if w11)
                                     </option>
                                     <option value="pip install owocr[winocr]">WindowsOCR</option>
                                     <option value="pip install owocr[mangaocr]">MangaOCR</option>
@@ -290,10 +290,10 @@
                                     <option value="pip install owocr[gvision]">Google Vision (apikey required)</option>
                                     <option value="pip install owocr[azure]">Azure (apikey required)</option>
                                     <option value="pip install owocr[ocrspace]">OCRSpace (apikey required)</option>
-                                    <option
+                                    <!-- <option
                                         value="pip install torch torchvision torchaudio numpy==2.2.6 --index-url https://download.pytorch.org/whl/cu128">
                                         CUDA
-                                    </option>
+                                    </option> -->
                                 </select>
                                 <button id="install-selected-dep" class="secondary">Install</button>
                                 <div class="tooltip">❓
@@ -1580,22 +1580,22 @@
             // loadPythonInfo();
 
             // CUDA Installation
-            document.getElementById('install-cuda-btn').addEventListener('click', async () => {
-                const cudaVersion = document.getElementById('cuda-version-select').value;
-                showPythonStatus(`Installing CUDA ${cudaVersion}... This may take several minutes.`);
-                switchToConsoleTab(); // Switch to console to see progress
+            // document.getElementById('install-cuda-btn').addEventListener('click', async () => {
+            //     const cudaVersion = document.getElementById('cuda-version-select').value;
+            //     showPythonStatus(`Installing CUDA ${cudaVersion}... This may take several minutes.`);
+            //     switchToConsoleTab(); // Switch to console to see progress
 
-                try {
-                    const result = await ipcRenderer.invoke('python.installCudaPackage', cudaVersion);
-                    if (result.success) {
-                        showPythonStatus(`✅ ${result.message}`, 'success');
-                    } else {
-                        showPythonStatus(`❌ ${result.message}`, 'error');
-                    }
-                } catch (error) {
-                    showPythonStatus(`❌ Error installing CUDA: ${error.message}`, 'error');
-                }
-            });
+            //     try {
+            //         const result = await ipcRenderer.invoke('python.installCudaPackage', cudaVersion);
+            //         if (result.success) {
+            //             showPythonStatus(`✅ ${result.message}`, 'success');
+            //         } else {
+            //             showPythonStatus(`❌ ${result.message}`, 'error');
+            //         }
+            //     } catch (error) {
+            //         showPythonStatus(`❌ Error installing CUDA: ${error.message}`, 'error');
+            //     }
+            // });
 
             // CUDA Guide
             document.getElementById('cuda-guide-btn').addEventListener('click', async () => {
@@ -1623,20 +1623,20 @@
             // });
 
             // Clean cache
-            document.getElementById('clean-cache-btn').addEventListener('click', async () => {
-                showPythonStatus('🧹 Cleaning Python cache...');
+            // document.getElementById('clean-cache-btn').addEventListener('click', async () => {
+            //     showPythonStatus('🧹 Cleaning Python cache...');
 
-                try {
-                    const result = await ipcRenderer.invoke('python.cleanCache');
-                    if (result.success) {
-                        showPythonStatus(`✅ ${result.message}`, 'success');
-                    } else {
-                        showPythonStatus(`❌ ${result.message}`, 'error');
-                    }
-                } catch (error) {
-                    showPythonStatus(`❌ Error cleaning cache: ${error.message}`, 'error');
-                }
-            });
+            //     try {
+            //         const result = await ipcRenderer.invoke('python.cleanCache');
+            //         if (result.success) {
+            //             showPythonStatus(`✅ ${result.message}`, 'success');
+            //         } else {
+            //             showPythonStatus(`❌ ${result.message}`, 'error');
+            //         }
+            //     } catch (error) {
+            //         showPythonStatus(`❌ Error cleaning cache: ${error.message}`, 'error');
+            //     }
+            // });
 
             // Install custom package
             document.getElementById('install-custom-package-btn').addEventListener('click', async () => {

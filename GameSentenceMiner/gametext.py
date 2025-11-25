@@ -16,6 +16,8 @@ from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
 from GameSentenceMiner import obs
+# from GameSentenceMiner.discord_rpc import discord_rpc_manager
+# from GameSentenceMiner.live_stats import live_stats_tracker
 from GameSentenceMiner.util.gsm_utils import add_srt_line
 from GameSentenceMiner.util.text_log import add_line, get_text_log
 from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, overlay_server_thread
@@ -236,6 +238,7 @@ def schedule_merge(wait, coro, args):
 async def handle_new_text_event(current_clipboard, line_time=None):
     global current_line, current_line_time, current_line_after_regex, timer, current_sequence_start_time, last_raw_clipboard
     obs.update_current_game()
+    # discord_rpc_manager.update(obs.get_current_game(sanitize=False, update=False))
     current_line = current_clipboard
     # Only apply this logic if merging is enabled
     if get_config().general.merge_matching_sequential_text:
@@ -273,6 +276,7 @@ async def add_line_to_text_log(line, line_time=None):
     current_line_after_regex = do_text_replacements(current_line_after_regex, TEXT_REPLACEMENTS_FILE)
     logger.info(f"Line Received: {current_line_after_regex}")
     current_line_time = line_time if line_time else datetime.now()
+    # live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")
     new_line = add_line(current_line_after_regex, line_time if line_time else datetime.now())
     if len(get_text_log().values) > 0:

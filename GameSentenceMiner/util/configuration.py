@@ -1419,7 +1419,7 @@ def is_running_from_source():
 gsm_status = GsmStatus()
 anki_results = {}
 gsm_state = GsmAppState()
-is_dev = is_running_from_source()
+is_dev = is_running_from_source() or '--dev' in sys.argv
 
 is_beangate = os.path.exists("C:/Users/Beangate")
 

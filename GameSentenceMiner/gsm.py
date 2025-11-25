@@ -92,6 +92,7 @@ try:
 
     start_time = time.time()
     from GameSentenceMiner import obs
+    # from GameSentenceMiner.discord_rpc import discord_rpc_manager
     logger.debug(f"[Import] obs: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
@@ -222,8 +223,8 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 # mined_line = get_text_event(last_note)
                 if mined_line:
                     start_line = mined_line
-                    if mined_line.next:
-                        line_cutoff = mined_line.next.time
+                    if mined_line.next_line():
+                        line_cutoff = mined_line.next_line().time
                     full_text = mined_line.text
 
             gsm_state.last_mined_line = mined_line
@@ -313,7 +314,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
             return ffmpeg.convert_audio_to_wav_lossless(trimmed_audio)
         final_audio_output = make_unique_file_name(os.path.join(get_temporary_directory(),
                                                                 f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"))
-        if not get_config().vad.do_vad_postprocessing:
+        if not get_config().vad.do_vad_postprocessing or not vad_processor.initalized:
+            if not vad_processor.initalized:
+                logger.warning("VAD Processor not initialized, skipping VAD processing.")
             if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
                 ffmpeg.reencode_file_with_user_config(trimmed_audio, final_audio_output,
                                                     get_config().audio.ffmpeg_reencode_options_to_use)
@@ -691,6 +694,8 @@ def cleanup():
         if gsm_tray:
             gsm_tray.stop()
 
+        # discord_rpc_manager.stop()
+
         # Stop file watcher observer
         if file_watcher_observer:
             try:
@@ -885,9 +890,9 @@ def async_loop():
         
         # Start file watcher after OBS path is verified/corrected
         start_file_watcher()
+        await init_overlay_processor()
         
         vad_processor.init()
-        await init_overlay_processor()
 
     asyncio.run(loop())
 

@@ -580,14 +580,14 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_resu
         screenshot_time_from_beginning = line_timestamp_in_video + screenshot_offset
         logger.debug(f"Using 'beginning' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "middle":
-        if game_line.next:
-            screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next.time - game_line.time).total_seconds() / 2) + screenshot_offset
+        if game_line.next_line():
+            screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next_line().time - game_line.time).total_seconds() / 2) + screenshot_offset
         else:
             screenshot_time_from_beginning = (file_length - ((file_length - line_timestamp_in_video) / 2)) + screenshot_offset
         logger.debug(f"Using 'middle' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "end":
-        if game_line.next:
-            screenshot_time_from_beginning = line_timestamp_in_video + (game_line.next.time - game_line.time).total_seconds() - screenshot_offset
+        if game_line.next_line():
+            screenshot_time_from_beginning = line_timestamp_in_video + (game_line.next_line().time - game_line.time).total_seconds() - screenshot_offset
         else:
             screenshot_time_from_beginning = file_length - screenshot_offset
         logger.debug(f"Using 'end' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
