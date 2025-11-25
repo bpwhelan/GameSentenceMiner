@@ -4,7 +4,7 @@ import os
 from queue import Queue
 
 from PyQt6.QtWidgets import QApplication, QInputDialog
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal, QThread
 from PyQt6.QtGui import QIcon
 
 from GameSentenceMiner.ui.anki_confirmation_qt import show_anki_confirmation
@@ -47,14 +47,25 @@ class DialogManager(QObject):
 
     def _run_sync(self, func_creator):
         """Internal helper for blocking sync calls."""
+        
+        # CHECK IF WE ARE ALREADY ON MAIN THREAD
+        app = QApplication.instance()
+        if app and app.thread() == QThread.currentThread():
+            # We are on the GUI thread, execute directly!
+            result_container = {}
+            def capture_result(res):
+                result_container['result'] = res
+            
+            func_creator(capture_result)
+            return result_container.get('result')
+
+        # We are on a background thread, proceed with Queue logic
         result_queue = Queue()
 
         def gui_logic():
-            # func_creator receives a callback that puts the result in the queue
             func_creator(lambda result: result_queue.put(result))
 
         self._execute_on_gui_thread.emit(gui_logic)
-        # Block worker thread until GUI thread finishes
         return result_queue.get()
 
     # 1. Screenshot Selector

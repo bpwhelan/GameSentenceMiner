@@ -328,7 +328,8 @@ class ConfigWindow(QWidget):
                 external_tool=self.external_tool_edit.text(),
                 anki_media_collection=self.anki_media_collection_edit.text(),
                 external_tool_enabled=self.external_tool_enabled_check.isChecked(),
-                pre_vad_end_offset=float(self.pre_vad_audio_offset_edit.text() or 0.0)
+                pre_vad_end_offset=float(self.pre_vad_audio_offset_edit.text() or 0.0),
+                custom_encode_settings=self.settings.audio.custom_encode_settings
             ),
             obs=OBS(
                 host=self.obs_host_edit.text(),
@@ -1496,6 +1497,12 @@ class ConfigWindow(QWidget):
         }
         self.ffmpeg_audio_preset_combo.clear()
         self.ffmpeg_audio_preset_combo.addItems(self.ffmpeg_preset_map.keys())
+        # select preset based on current settings
+        current_options = self.settings.audio.ffmpeg_reencode_options
+        for preset_name, preset_options in self.ffmpeg_preset_map.items():
+            if preset_options == current_options:
+                self.ffmpeg_audio_preset_combo.setCurrentText(preset_name)
+                break
 
     def _load_monitors(self):
         self.overlay_monitor_combo.clear()
