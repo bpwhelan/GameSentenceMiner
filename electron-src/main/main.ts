@@ -143,19 +143,20 @@ function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     autoUpdater.allowPrerelease = getPullPreReleases(); // Enable pre-releases
     autoUpdater.allowDowngrade = true; // Allow downgrades
     
+    // Set the update URL to the GitHub releases
+    autoUpdater.setFeedURL({
+        provider: 'github',
+        owner: 'bpwhelan',
+        repo: 'GameSentenceMiner',
+        private: false,
+        releaseType: getPullPreReleases() ? 'prerelease' : 'release'
+    });
+    
     // Force update if forceDev is true - configure for dev mode
     if (forceDev) {
-        autoUpdater.allowDowngrade = true;
         autoUpdater.forceDevUpdateConfig = true; // Force dev update config
-        // Set the update URL to the GitHub releases
-        autoUpdater.setFeedURL({
-            provider: 'github',
-            owner: 'bpwhelan',
-            repo: 'GameSentenceMiner',
-            private: false,
-            releaseType: getPullPreReleases() ? 'prerelease' : 'release'
-        });
     }
+    
     return autoUpdater;
 }
 
@@ -368,8 +369,9 @@ async function _updateGSMInternal(
             }).show();
 
             if (shouldRestart) {
-                await ensureAndRunGSM(pythonPath);
-                log.info('GSM Successfully Restarted after update!');
+                ensureAndRunGSM(pythonPath).then(() => {
+                    log.info('GSM Successfully Restarted after update!');
+                });
             }
         } else {
             log.info('Python backend is already up-to-date.');
@@ -786,6 +788,7 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
             console.log(
                 "Looks like something's broken with GSM, attempting to repair the installation..."
             );
+            await closeAllPythonProcesses();
             await cleanCache();
             await runCommand(
                 pythonPath,

@@ -616,7 +616,7 @@ export function registerOCRUtilsIPC() {
         // Run the Python script with the specified sensitivity
         const result = await runPythonScript(pythonPath, [
             '-m',
-            'GameSentenceMiner.tools.furigana_filter_preview',
+            'GameSentenceMiner.tools.furigana_filter_preview_qt',
             String(ocr_config.furigana_filter_sensitivity),
         ]);
         const match = result.match(/RESULT:\[(.*?)\]/);

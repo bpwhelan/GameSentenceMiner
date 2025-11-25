@@ -473,7 +473,7 @@ background: rgba(202, 12, 12, 0.692);
       websocket.onopen = (event) => {
         ipcRenderer.send(`websocket-opened`, type)
       }
-      websocket.onmessage = (event) => {
+      websocket.onmessage = async (event) => {
         let data = event.data;
         try {
           data = JSON.parse(event.data);
@@ -497,10 +497,13 @@ background: rgba(202, 12, 12, 0.692);
           if (!hideReadyIndicator) {
             showLoadingIndicator();
           }
+
+          usePercentage = data[0]?.bounding_rect?.x1 < 1 ?? false;
           // Handle array of {text, bounding_rect}
-          data.forEach(line => {
+          let furiganaBoxes = [];
+          for (const line of data) {
+            console.log("Processing line:", line);
             const rect = line.bounding_rect;
-            usePercentage = rect.x1 < 1 && rect.y1 < 1 && rect.x3 < 1 && rect.y3 < 1;
             let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
             let bigInteractiveArea = document.createElement("div");
             bigInteractiveArea.className = "big-interactive-area interactive half-interactive";
@@ -514,7 +517,34 @@ background: rgba(202, 12, 12, 0.692);
               document.body.appendChild(spacer);
             }
             let furiganaProcessedIndex = 0;
-            line.words.forEach((word, wordIdx) => {
+// --- NEW: Pre-process logic ---
+            // Flatten tokens into single characters with interpolated bounding boxes
+            const wordList = [];
+            for (const w of line.words) {
+              const len = w.text.length;
+              // If it's already 1 char, just add it
+              if (len <= 1) {
+                wordList.push(w);
+                continue;
+              }
+              // If it's a string, split it and calculate positions
+              const charWidth = (w.bounding_rect.x3 - w.bounding_rect.x1) / len;
+              for (let k = 0; k < len; k++) {
+                wordList.push({
+                  text: w.text[k],
+                  bounding_rect: {
+                    x1: w.bounding_rect.x1 + (k * charWidth),
+                    y1: w.bounding_rect.y1,
+                    x3: w.bounding_rect.x1 + ((k + 1) * charWidth),
+                    y3: w.bounding_rect.y3
+                  }
+                });
+              }
+            }
+            // ------------------------------
+
+            // CHANGED: Iterate over 'wordList' instead of 'line.words'
+            for (const [wordIdx, word] of wordList.entries()) {
               const rect = word.bounding_rect;
               let x1 = usePercentage ? rect.x1 * 100 : rect.x1;
               let y1 = usePercentage ? rect.y1 * 100 : rect.y1;
@@ -539,7 +569,7 @@ background: rgba(202, 12, 12, 0.692);
               if (pinned && isTextInMainBox(boundBox, mainBoxBounds)) {
                 console.log("Text inside main box, hiding:", word.text);
                 box.style.display = 'none';
-                return; // Skip boxes found inside main box
+                continue; // Skip boxes found inside main box
               }
               // Estimate and apply the appropriate font size based on the box's dimensions and position
               const fontSize = estimateFontSize(word.text, x3 - x1, y3 - y1, boundBox, usePercentage);
@@ -548,59 +578,86 @@ background: rgba(202, 12, 12, 0.692);
               // If text is japanese, add furigana above it
               if (showFurigana && /[^\u0000-\u007F]+/.test(word.text) && furiganaProcessedIndex <= wordIdx) {
                 const wanakana = window.wanakana;
-                const text = wanakana.stripOkurigana(word.text);
+                const text = await wanakana.stripOkurigana(word.text);
                 console.log(text);
-                if (!text || wanakana.isKanji(text) === false) {
+                if (!text || await wanakana.isKanji(text) === false) {
                   furiganaProcessedIndex = wordIdx + 1;
-                  return;
+                  continue;
                 }
 
                 // Convert kanji to hiragana reading using kuroshiro
-                (async () => {
                   try {
                     const kuroshiro = window.kuroshiro;
                     if (!kuroshiro) {
                       console.warn('Kuroshiro not initialized yet');
-                      return;
+                      continue;
                     }
-                    let text = word.text;
-                    
-                    // Collect all consecutive kanji starting from current word
+                    let kanji = "";
+                    let prefixHirgana = "";
+                    let suffixHirgana = "";
+
+                    // Optionally collect the character before currentIndex if it exists and is hiragana
+                    if (wordIdx - 1 >= 0) {
+                      // CHANGED: line.words -> wordList
+                      const prevWord = wordList[wordIdx - 1];
+                      if (await wanakana.isHiragana(prevWord.text)) {
+                        prefixHirgana = prevWord.text;
+                      }
+                    }
+
+                    kanji += word.text;
                     let currentIndex = wordIdx + 1;
-                    while (currentIndex < line.words.length && wanakana.isKanji(line.words[currentIndex].text)) {
-                      text += line.words[currentIndex].text;
+                    // Now collect all consecutive kanji starting from current word
+                    // CHANGED: line.words -> wordList
+                    while (currentIndex < wordList.length && await wanakana.isKanji(wordList[currentIndex].text)) {
+                      kanji += wordList[currentIndex].text;
                       currentIndex++;
                     }
-                    
+
                     // Now collect all consecutive hiragana until we hit another kanji
-                    while (currentIndex < line.words.length) {
-                      const currentWord = line.words[currentIndex];
-                      if (wanakana.isKanji(currentWord.text)) {
+                    // CHANGED: line.words -> wordList
+                    while (currentIndex < wordList.length) {
+                      const currentWord = wordList[currentIndex];
+                      if (await wanakana.isKanji(currentWord.text)) {
                         // Hit another kanji, stop here
                         break;
                       }
-                      text += currentWord.text;
+                      suffixHirgana += currentWord.text;
                       currentIndex++;
                     }
-                    
+
                     // Update furiganaProcessedIndex to skip all words we just consumed
                     furiganaProcessedIndex = currentIndex;
-                    
+                    console.log(`Building text from prefix: ${prefixHirgana}, kanji: ${kanji}, suffix: ${suffixHirgana}`);
+                    let text = prefixHirgana + kanji + suffixHirgana;
                     console.log(`Collected text for furigana: "${text}" (processed up to index ${furiganaProcessedIndex})`);
-
-                    // replace ーーーー as many with just 1 ー
+                    
+                    // replace ーーーー as many with just 1 ー (Applied to context to help Kuroshiro, but keep original for matching if needed)
                     text = text.replace(/ー+/g, 'ー');
 
+                    // 1. Convert the whole phrase
                     const hiragana = await kuroshiro.convert(text, { to: 'hiragana', mode: 'normal' });
-                    const reading = wanakana.stripOkurigana(hiragana, { matchKanji: text });
+                    
+                    // 2. Manually strip the prefix and suffix from the RESULTING hiragana
+                    let reading = hiragana;
+
+                    // Remove prefix if it matches
+                    if (prefixHirgana && reading.startsWith(prefixHirgana)) {
+                        reading = reading.slice(prefixHirgana.length);
+                    }
+
+                    // Remove suffix if it matches
+                    if (suffixHirgana && reading.endsWith(suffixHirgana)) {
+                        reading = reading.slice(0, -suffixHirgana.length);
+                    }
 
                     console.log(`Converted "${text}" to "${hiragana}"`);
                     console.log(`Adding furigana "${reading}" for "${text}"`);
 
-                    const furiganaBox = document.createElement('div');
+                    const furiganaBox = document.createElement('ruby');
                     furiganaBox.className = 'furigana-box';
                     // Wrap in <ruby> with empty <rt> to make Yomitan ignore
-                    furiganaBox.innerHTML = `<ruby>${reading}<rt></rt></ruby>`;
+                    furiganaBox.innerHTML = `${reading}`;
                     // Allow overflow to the right, do not clip
                     furiganaBox.style.whiteSpace = 'nowrap';
                     furiganaBox.style.overflowX = 'visible';
@@ -632,14 +689,13 @@ background: rgba(202, 12, 12, 0.692);
                     furiganaBox.style.left = `${x1}${usePercentage ? '%' : 'px'}`;
                     furiganaBox.style.top = `${furiganaTop}${usePercentage ? '%' : 'px'}`;
                     furiganaBox.style.textAlign = 'left';
-                    document.body.appendChild(furiganaBox);
+                    furiganaBoxes.push(furiganaBox);
+                    // document.body.appendChild(furiganaBox);
                   } catch (error) {
                     console.error('Error converting to furigana:', error);
                   }
-                })();
               }
-
-            });
+            }
 
             // Create aesthetic line box for background/border
             let lineBox = document.createElement("div");
@@ -711,11 +767,15 @@ background: rgba(202, 12, 12, 0.692);
             // Add line box and big interactive area to DOM
             document.body.appendChild(lineBox);
             document.body.appendChild(bigInteractiveArea);
+          }
 
-            // Show ready indicator (checkmark) after text processing is complete
-            if (!hideReadyIndicator)
-              showReadyIndicator();
-          });
+          if (furiganaBoxes.length > 0) {
+            furiganaBoxes.forEach(box => document.body.appendChild(box));
+          }
+
+          // Show ready indicator (checkmark) after text processing is complete
+          if (!hideReadyIndicator)
+            showReadyIndicator();
 
           // document.body.appendChild(bigInteractiveArea);
         } else {

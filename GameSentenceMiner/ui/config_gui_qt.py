@@ -451,6 +451,7 @@ class ConfigWindow(QWidget):
     # --- UI Event Handlers (Slots) ---
     def _on_profile_changed(self):
         self.save_settings(profile_change=True)
+        self.load_settings_to_ui()
         self.reload_settings(force_refresh=True)
         self.refresh_obs_scenes()
         is_default = self.profile_combo.currentText() == DEFAULT_CONFIG

@@ -1,10 +1,18 @@
-const { app, BrowserWindow, session, screen, globalShortcut } = require('electron');
+const { app, BrowserWindow, session, screen, globalShortcut, dialog } = require('electron');
 const { ipcMain } = require("electron");
 const fs = require("fs");
 const path = require('path');
 const os = require('os');
 const magpie = require('./magpie');
 const bg = require('./background');
+const wanakana = require('wanakana');
+const Kuroshiro = require("kuroshiro").default;
+const KuromojiAnalyzer = require("kuroshiro-analyzer-kuromoji");
+
+let dataPath = path.join(process.env.APPDATA, "gsm_overlay")
+
+fs.mkdirSync(dataPath, { recursive: true });
+app.setPath('userData', dataPath);
 
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
 let manualHotkeyPressed = false;
@@ -307,6 +315,101 @@ function openYomitanSettings() {
 
 
 app.whenReady().then(async () => {
+
+  // ===========================================================
+  // MANIFEST SWITCHING & MIGRATION LOGIC
+  // ===========================================================
+  
+  const isDev = !app.isPackaged;
+  const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(process.resourcesPath, "yomitan");
+  
+  // 1. Define Paths
+  // 'manifest.json' is what Electron reads.
+  // 'manifest_static.json' is the version WITH the key (must be present in folder).
+  // 'manifest_no_key.json' is implied as the default state of manifest.json in repo.
+  const activeManifestPath = path.join(extDir, 'manifest.json');
+  const staticManifestPath = path.join(extDir, 'manifest_static.json');
+  
+  const markerPath = path.join(dataPath, 'migration_complete.json');
+  const userSettingsExists = fs.existsSync(settingsPath);
+  const isMigrated = fs.existsSync(markerPath);
+
+  try {
+    if (!fs.existsSync(staticManifestPath)) {
+      console.error("manifest_static.json not found. Skipping migration logic.");
+    } else {
+
+      // SCENARIO A: Fresh Install
+      // If settings.json does NOT exist, this is a new user. 
+      // Put them on the Static ID immediately. No questions asked.
+      if (!userSettingsExists) {
+        console.log("[Init] Fresh install detected. Applying static manifest.");
+        fs.copyFileSync(staticManifestPath, activeManifestPath);
+        // Create marker so we know they are "Done"
+        fs.writeFileSync(markerPath, JSON.stringify({ status: "fresh_install", date: Date.now() }));
+      }
+      
+      // SCENARIO B: Existing User, Not Migrated
+      else if (userSettingsExists && !isMigrated) {
+        console.log("[Init] Existing user detected. Migration required.");
+        
+        const response = dialog.showMessageBoxSync({
+          type: 'warning',
+          buttons: ['Load Old (Backup Data)', 'Ready to Migrate'],
+          defaultId: 0,
+          cancelId: 0,
+          title: 'Yomitan Update - Action Required',
+          message: 'Internal ID Migration Required',
+          detail: 'To prevent data loss in future updates, we need to standardize the Yomitan Extension ID.\n\n' +
+                  '• Load Old: Loads the old temporary ID. Choose this to Export your Settings and Dictionaries now.\n' +
+                  '• Ready to Migrate: Choose this ONLY if you have backed up your data. This will reset Yomitan to a fresh state with the permanent ID.\n\n' +
+                  'This is a one-time process.'
+        });
+
+        if (response === 0) {
+          // USER CHOSE: LOAD OLD (Backup Data)
+          // Ensure we are running the manifest WITHOUT the key.
+          // In your repo, manifest.json usually has no key. 
+          // If for some reason it has a key (leftover), we assume the user handles it or 
+          // we could restore a no-key version if we had a backup. 
+          // For now, assuming manifest.json IS the old version default.
+          console.log("[Init] User chose to load old version.");
+          // Proceed to load extension normally below...
+        } else {
+          // USER CHOSE: READY TO MIGRATE
+          console.log("[Init] User ready to migrate. Swapping manifest.");
+          
+          // 1. Overwrite active manifest with the Static Key version
+          fs.copyFileSync(staticManifestPath, activeManifestPath);
+          
+          // 2. Create Marker File
+          fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
+          
+          // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
+          app.relaunch();
+          app.exit(0);
+          return; // Halt execution
+        }
+      }
+      
+      // SCENARIO C: Already Migrated
+      else if (isMigrated) {
+        // Ensure the manifest is still the Static one. 
+        // (e.g. if user updated the app and a new default manifest.json overwrote the static one)
+        // We compare content or just blindly overwrite to be safe.
+        console.log("[Init] Migration marker found. Enforcing static manifest.");
+        fs.copyFileSync(staticManifestPath, activeManifestPath);
+      }
+    }
+  } catch (err) {
+    console.error("[Init] Error during manifest swapping logic:", err);
+  }
+
+  // ===========================================================
+  // END MIGRATION LOGIC
+  // ===========================================================
+
+
   // Start background manager and register periodic tasks
   bg.start();
 
@@ -324,11 +427,20 @@ app.whenReady().then(async () => {
     }
   }, 3000);
 
-  const isDev = !app.isPackaged;
-  const extPath = isDev ? path.join(__dirname, 'yomitan') : path.join(process.resourcesPath, "yomitan")
   try {
-    ext = await session.defaultSession.loadExtension(extPath, { allowFileAccess: true });
+    ext = await session.defaultSession.loadExtension(extDir, { allowFileAccess: true });
     console.log('Yomitan extension loaded.');
+    console.log('Extension ID:', ext.id);
+
+    // If migration marker exists, update it with the actual ID for debugging
+    if (fs.existsSync(markerPath)) {
+      const markerData = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+      if (!markerData.id) {
+        markerData.id = ext.id;
+        fs.writeFileSync(markerPath, JSON.stringify(markerData));
+      }
+    }
+
   } catch (e) {
     console.error('Failed to load extension:', e);
   }
@@ -387,6 +499,41 @@ app.whenReady().then(async () => {
   registerToggleFuriganaHotkey();
 
   registerManualShowHotkey();
+
+  // Initialize kuroshiro for furigana conversion
+  const kuroshiro = new Kuroshiro();
+  kuroshiro.init(new KuromojiAnalyzer()).then(() => {
+    console.log("Kuroshiro initialized");
+  }).catch(err => {
+    console.error("Kuroshiro initialization failed:", err);
+  });
+
+  // IPC handlers for wanakana and kuroshiro
+  ipcMain.handle('wanakana-stripOkurigana', (event, text, options) => {
+    return wanakana.stripOkurigana(text, options);
+  });
+
+  ipcMain.handle('wanakana-isKanji', (event, text) => {
+    return wanakana.isKanji(text);
+  });
+
+  ipcMain.handle('wanakana-isHiragana', (event, text) => {
+    return wanakana.isHiragana(text);
+  });
+
+  ipcMain.handle('wanakana-isKatakana', (event, text) => {
+    return wanakana.isKatakana(text);
+  });
+
+
+  ipcMain.handle('kuroshiro-convert', async (event, text, options) => {
+    try {
+      return await kuroshiro.convert(text, options);
+    } catch (err) {
+      console.error("Kuroshiro conversion error:", err);
+      throw err;
+    }
+  });
 
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();

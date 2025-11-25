@@ -229,7 +229,7 @@ def get_qt_app():
             _qt_app.setQuitOnLastWindowClosed(False)
             
     # Setup dark theme
-    qdarktheme.setup_theme(theme="auto")
+    qdarktheme.setup_theme(theme="dark")
     # Set Icon 
     pickaxe_path = get_pickaxe_png_path()
     _qt_app.setWindowIcon(QIcon(pickaxe_path))

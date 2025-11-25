@@ -779,7 +779,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function deleteSession(session) {
-        const line_ids = session.lines.map(line => line.id);
+        const line_ids = session.lines
         fetch('/api/delete-sentence-lines', {
             method: 'POST',
             headers: {

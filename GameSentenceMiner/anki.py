@@ -94,7 +94,7 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
         if config.screenshot.animated:
             assets.screenshot_path = ffmpeg.get_anki_compatible_video(
                 video_path, start_time, vad_result.start, vad_result.end, 
-                codec='avif', quality=10, fps=12, audio=False
+                codec='webp', quality=10, fps=12, audio=False
             )
         else:
             assets.screenshot_path = ffmpeg.get_screenshot(
@@ -105,7 +105,7 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
     if config.anki.video_field and vad_result:
         assets.video_path = ffmpeg.get_anki_compatible_video(
             video_path, start_time, vad_result.start, vad_result.end, 
-            codec='avif', quality=10, fps=12, audio=True
+            codec='webp', quality=10, fps=12, audio=True
         )
 
     if config.anki.previous_image_field and game_line.prev:
@@ -230,7 +230,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
     tags = _prepare_anki_tags()
     
     # 4. (Optional) Show confirmation dialog to the user, which may alter media
-    use_voice = update_audio_flag and assets.audio_in_anki
+    use_voice = update_audio_flag or assets.audio_in_anki
     translation = game_line.TL if hasattr(game_line, 'TL') else ''
     if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
@@ -260,7 +260,8 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         
         use_voice, sentence, translation, new_ss_path, new_prev_ss_path, add_nsfw_tag, new_audio_path = result
         note['fields'][config.anki.sentence_field] = sentence
-        note['fields'][config.ai.anki_field] = translation
+        if config.ai.add_to_anki and config.ai.anki_field:
+            note['fields'][config.ai.anki_field] = translation
         assets.screenshot_path = new_ss_path or assets.screenshot_path
         assets.prev_screenshot_path = new_prev_ss_path or assets.prev_screenshot_path
         # Update audio path if TTS was generated in the dialog
@@ -278,7 +279,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
             assets.video_in_anki = store_media_file(assets.video_path)
         if assets.screenshot_path:
             assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
-        if use_voice:
+        if use_voice and assets.audio_path:
             assets.audio_in_anki = store_media_file(assets.audio_path)
     
     # Now, update the note fields using the Anki filenames (either from cache or newly stored)
@@ -288,7 +289,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
     if update_picture_flag and assets.screenshot_in_anki:
         note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
 
-    if use_voice:
+    if use_voice and assets.audio_in_anki:
         note['fields'][config.anki.sentence_audio_field] = f"[sound:{assets.audio_in_anki}]"
         if config.audio.external_tool and config.audio.external_tool_enabled:
             anki_media_audio_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki)
@@ -336,6 +337,12 @@ def check_and_update_note(last_note, note, tags=[]):
     selected_notes = invoke("guiSelectedNotes")
     if last_note.noteId in selected_notes:
         notification.open_browser_window(1)
+        
+    # Sanitize note fields for null values
+    for note_field in note['fields']:
+        if note['fields'][note_field] is None:
+            note['fields'][note_field] = ''
+            
     invoke("updateNoteFields", note=note)
     
     if tags:
@@ -497,16 +504,20 @@ def request(action, **params):
 
 def invoke(action, **params):
     request_json = json.dumps(request(action, **params)).encode('utf-8')
-    # if action != "storeMediaFile":
-    #     logger.debug(f"Hitting Anki. Action: {action}. Data: {request_json}")
+    if action in ["updateNoteFields"]:
+        logger.debug(f"Hitting Anki. Action: {action}. Data: {request_json}")
     response = json.load(urllib.request.urlopen(urllib.request.Request(get_config().anki.url, request_json)))
     if len(response) != 2:
+        logger.error(f"Unexpected response from Anki: {response}")
         raise Exception('response has an unexpected number of fields')
     if 'error' not in response:
+        logger.error(f"Unexpected response from Anki: {response}")
         raise Exception('response is missing required error field')
     if 'result' not in response:
+        logger.error(f"Unexpected response from Anki: {response}")
         raise Exception('response is missing required result field')
     if response['error'] is not None:
+        logger.error(f"Anki returned an error: {response['error']}")
         raise Exception(response['error'])
     return response['result']
 
@@ -550,20 +561,32 @@ def get_cards_by_sentence(sentence):
         raise e
 
 last_connection_error = datetime.now()
+errors_shown = 0
+final_warning_shown = False
 
 # Check for new Anki cards and save replay buffer if detected
 def check_for_new_cards():
-    global previous_note_ids, first_run, last_connection_error
+    global previous_note_ids, first_run, last_connection_error, errors_shown, final_warning_shown
     current_note_ids = set()
     try:
         current_note_ids = get_note_ids()
         gsm_status.anki_connected = True
+        errors_shown = 0
+        final_warning_shown = False
     except Exception as e:
         gsm_status.anki_connected = False
         if datetime.now() - last_connection_error > timedelta(seconds=10):
-            logger.error(f"Error fetching Anki notes, Make sure Anki is running, ankiconnect add-on is installed, and url/port is configured correctly in GSM Settings")
+            if final_warning_shown:
+                return False
+            if errors_shown >= 5:
+                logger.warning("Too many errors fetching Anki notes. Suppressing further warnings.")
+                final_warning_shown = True
+                return False
+            errors_shown += 1
+            logger.warning("Error fetching Anki notes, Make sure Anki is running, ankiconnect add-on is installed, " +
+                           f"and url/port is configured correctly in GSM Settings, This warning will be shown {5 - errors_shown} more times")
             last_connection_error = datetime.now()
-        return
+        return False
     new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
         try:
@@ -572,6 +595,7 @@ def check_for_new_cards():
             logger.error("Error updating new card, Reason:", e)
     first_run = False
     previous_note_ids.update(new_card_ids)  # Update the list of known notes
+    return True
 
 def update_new_card():
     last_card = get_last_anki_card()
@@ -581,6 +605,7 @@ def update_new_card():
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(last_card)}")
     lines = texthooking_page.get_selected_lines()
     game_line = get_mined_line(last_card, lines)
+    game_line.mined_time = datetime.now()
     use_prev_audio = sentence_is_same_as_previous(last_card, lines) or game_line.id in anki_results
     logger.info(f"New card using previous audio: {use_prev_audio}")
     if get_config().obs.get_game_from_scene:
@@ -655,9 +680,19 @@ def check_tags_for_should_update(last_card):
 def monitor_anki():
     try:
         # Continuously check for new cards
+        unsuccessful_count = 0
+        scaled_polling_rate = get_config().anki.polling_rate / 1000.0
         while True:
-            check_for_new_cards()
-            time.sleep(get_config().anki.polling_rate / 1000.0)  # Check every 200ms
+            polling_rate = get_config().anki.polling_rate
+            successful = check_for_new_cards()
+
+            if successful:
+                unsuccessful_count = 0
+            else:
+                unsuccessful_count += 1
+                if unsuccessful_count >= 5:
+                    scaled_polling_rate = min(scaled_polling_rate * 2, 5)  # Cap at 5 seconds
+            time.sleep(scaled_polling_rate)  # Check every 200ms
     except KeyboardInterrupt:
         print("Stopped Checking For Anki Cards...")
 

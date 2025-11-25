@@ -17,7 +17,7 @@ if (process.platform !== 'win32') {
 } else {
 
     // ~/AppData/Roaming/GameSentenceMiner/python/python.exe
-    let pythonPath = path.join(process.env.APPDATA, 'GameSentenceMiner', 'python', 'python.exe');
+    let pythonPath = path.join(process.env.APPDATA, 'GameSentenceMiner', 'python_venv', 'Scripts', 'python.exe');
 
     let magpieScalingChangedWindowMessage = -1;
 

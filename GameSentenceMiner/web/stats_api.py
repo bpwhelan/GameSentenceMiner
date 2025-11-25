@@ -656,7 +656,8 @@ def register_stats_api_routes(app):
 
                     if most_recent_line:
                         most_recent_game_line = GameLinesTable.from_row(
-                            most_recent_line
+                            most_recent_line,
+                            clean_columns=['line_text']
                         )
                         current_game_name = (
                             most_recent_game_line.game_name or "Unknown Game"
@@ -677,7 +678,7 @@ def register_stats_api_routes(app):
                             )
 
                         current_game_lines = [
-                            GameLinesTable.from_row(row)
+                            GameLinesTable.from_row(row, clean_columns=['line_text'])
                             for row in current_game_lines_rows
                         ]
                         current_game_stats = calculate_current_game_stats(
@@ -2062,6 +2063,7 @@ def register_stats_api_routes(app):
                         "totalSeconds": 0,
                         "charsPerHour": 0,
                         "gameMetadata": game_metadata,  # Add full game metadata
+                        "lines": [line.id],
                     }
                 else:
                     # Continue current session
@@ -2070,6 +2072,7 @@ def register_stats_api_routes(app):
                     if last_timestamp is not None:
                         gap = ts - last_timestamp
                         current_session["totalSeconds"] += min(gap, afk_timer_seconds)
+                    current_session["lines"].append(line.id)
 
                 last_timestamp = ts
                 last_game_name = game_name

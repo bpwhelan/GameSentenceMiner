@@ -210,7 +210,8 @@ async def listen_websockets():
 
     websocket_tasks.append(listen_on_websocket(f"localhost:{get_config().advanced.ocr_websocket_port}", max_sleep=.5))
 
-    await asyncio.gather(*websocket_tasks)
+    for task in websocket_tasks:
+        asyncio.create_task(task)
     
     
 async def merge_sequential_lines(line, start_time=None):

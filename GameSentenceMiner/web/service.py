@@ -92,7 +92,7 @@ def handle_texthooker_button(video_path=''):
             else:
                 # Extract audio and play with safe method
                 import soundfile as sf
-                audio = get_audio_from_video(line, line.next.time if line.next else None, video_path,
+                audio = get_audio_from_video(line, line.next_line().time if line.next_line() else None, video_path,
                                              temporary=True)
                 data, samplerate = sf.read(audio)
                 data = data.astype('float32')

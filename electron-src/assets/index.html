@@ -1214,6 +1214,12 @@
                             option.textContent = scene.name;
                             sceneSelect.appendChild(option);
                         });
+                        // Restore previous selection if it still exists in the list
+                        if (previousSceneSelection && scenes.some(s => s.id === previousSceneSelection)) {
+                            sceneSelect.value = previousSceneSelection;
+                        } else {
+                            sceneSelect.value = scenes[0]?.id || '';
+                        }
                         ipcRenderer.invoke('obs.getActiveScene').then(activeScene => {
                             if (activeScene) {
                                 if (scenes.some(s => s.id === activeScene.id)) {
