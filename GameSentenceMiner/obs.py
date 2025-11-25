@@ -18,6 +18,8 @@ import numpy as np
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.configuration import get_app_directory, get_config, get_master_config, is_windows, save_full_config, reload_config, logger, gsm_status, gsm_state
 from GameSentenceMiner.util.gsm_utils import sanitize_filename, make_unique_file_name, make_unique_temp_file
+# from GameSentenceMiner.discord_rpc import discord_rpc_manager
+
 
 # Thread-safe queue for GUI error messages
 _gui_error_queue = queue.Queue()
@@ -543,6 +545,7 @@ def stop_replay_buffer():
         with connection_pool.get_client() as client:
             client: obs.ReqClient
             client.stop_replay_buffer()
+            # discord_rpc_manager.stop()
             if get_config().features.generate_longplay:
                 stop_recording()
             logger.info("Replay buffer stopped.")

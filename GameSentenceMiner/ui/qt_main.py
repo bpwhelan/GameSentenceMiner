@@ -1,5 +1,6 @@
 import sys
 import asyncio
+import os
 from queue import Queue
 
 from PyQt6.QtWidgets import QApplication, QInputDialog
@@ -11,7 +12,7 @@ from GameSentenceMiner.ui.screenshot_selector_qt import show_screenshot_selector
 from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter_preview
 from GameSentenceMiner.ocr.ss_picker_qt import show_screen_cropper
 from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
-from GameSentenceMiner.util.configuration import get_pickaxe_png_path, gsm_state, logger
+from GameSentenceMiner.util.configuration import get_pickaxe_png_path, gsm_state, logger, is_dev
 
 _qt_app = None
 _config_window = None
@@ -221,6 +222,13 @@ def get_qt_app():
     """
     global _qt_app, _dialog_manager
     import qdarktheme
+
+    if is_dev:
+        # Enable debug logging for Qt's web engine, useful for web-based UI elements.
+        # This must be set BEFORE the QApplication is instantiated.
+        os.environ['QT_LOGGING_RULES'] = 'qt.webenginecontext.debug=true'
+        logger.info("Developer mode detected. Enabled Qt debug logging.")
+
     if _qt_app is None:
         _qt_app = QApplication.instance()
         if _qt_app is None:
