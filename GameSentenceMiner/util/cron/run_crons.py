@@ -8,8 +8,88 @@ Usage:
     python -m GameSentenceMiner.util.cron.run_crons
 """
 
+import asyncio
+from typing import Optional
 from GameSentenceMiner.util.cron_table import CronTable
 from GameSentenceMiner.util.configuration import logger
+
+
+class CronScheduler:
+    """
+    Async-based cron scheduler that checks for due cron jobs every 15 minutes.
+    
+    Usage:
+        # In your main async function:
+        scheduler = CronScheduler()
+        await scheduler.start()
+        
+        # To stop the scheduler:
+        await scheduler.stop()
+    """
+
+    def __init__(self, check_interval: int = 900):
+        """
+        Initialize the CronScheduler.
+        
+        Args:
+            check_interval: Seconds between cron checks (default: 900)
+        """
+        self.check_interval = check_interval
+        self._task: Optional[asyncio.Task] = None
+        self._running = False
+    
+    async def start(self):
+        """Start the cron scheduler in the background."""
+        if self._running:
+            logger.warning("CronScheduler is already running")
+            return
+        
+        self._running = True
+        self._task = asyncio.create_task(self._run_scheduler())
+        logger.info(f"CronScheduler started with check interval of {self.check_interval}s")
+    
+    async def stop(self):
+        """Stop the cron scheduler gracefully."""
+        if not self._running:
+            logger.warning("CronScheduler is not running")
+            return
+        
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        logger.info("CronScheduler stopped")
+    
+    async def _run_scheduler(self):
+        """Internal method that runs the scheduler loop."""
+        logger.info("CronScheduler loop started")
+        
+        # Run immediately on startup
+        try:
+            logger.info("Running initial cron check on startup...")
+            await asyncio.to_thread(run_due_crons)
+        except Exception as e:
+            logger.warning(f"Failed to check cron jobs on startup: {e}")
+        
+        # Then continue with periodic checks
+        while self._running:
+            try:
+                await asyncio.sleep(self.check_interval)
+                if self._running:  # Check again after sleep
+                    await asyncio.to_thread(run_due_crons)
+            except asyncio.CancelledError:
+                logger.info("CronScheduler task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in CronScheduler loop: {e}", exc_info=True)
+                # Continue running even if there's an error
+    
+    def is_running(self) -> bool:
+        """Check if the scheduler is currently running."""
+        return self._running
 
 
 def run_due_crons():
@@ -19,13 +99,9 @@ def run_due_crons():
     Returns:
         Dictionary with execution summary
     """
-    logger.info("Checking for due cron jobs...")
-    
-    # Get all cron jobs that need to run
     due_crons = CronTable.get_due_crons()
     
     if not due_crons:
-        logger.info("No cron jobs are due to run at this time")
         return {
             'total_checked': 0,
             'executed': 0,

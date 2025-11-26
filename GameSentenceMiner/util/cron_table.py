@@ -291,7 +291,7 @@ class CronTable(SQLiteDBTable):
             # so they will have stats from yesterday not rolled up, as stats rollup did not run
             # setting it to 3am means the user always has the full previous day rolled up when they open gsm
             next_run_dt = (now_dt + timedelta(days=1)).replace(
-                hour=3, minute=0, second=0, microsecond=0
+                hour=0, minute=1, second=0, microsecond=0
             )
             cron.next_run = next_run_dt.timestamp()
             logger.debug(

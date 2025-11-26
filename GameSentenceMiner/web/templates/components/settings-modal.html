@@ -75,6 +75,24 @@
                         Minimum hours of reading activity required to maintain streak (0.01-24 hours)
                     </small>
                 </div>
+
+                <div style="margin-bottom: 20px;">
+                    <!-- <label for="regex_out_punctuation" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                        Ignore Punctuation (Regex)
+                    </label>
+                    <input type="checkbox" id="regex_out_punctuation" name="regex_out_punctuation" {% if regex_out_punctuation %}checked{% endif %} style="margin-right: 8px;">
+                    <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                        If enabled, punctuation will be ignored in regex-based statistics.
+                    </small> -->
+
+                    <label for="regex_out_repetitions" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); margin-top: 16px;">
+                        Ignore Repetitions (Regex)
+                    </label>
+                    <input type="checkbox" id="regex_out_repetitions" name="regex_out_repetitions" {% if regex_out_repetitions %}checked{% endif %} style="margin-right: 8px;">
+                    <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                        If enabled, repeated sequences will be reduced to three repetitions max (i.e. あああああああ -> あああ or 、黙れ黙れ黙れ黙れ -> 黙れ黙れ黙れ).
+                    </small>
+                </div>
                 {% endif %}
 
                 {% if show_goals_section | default(true) %}

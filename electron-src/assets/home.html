@@ -103,13 +103,13 @@
             <span style="font-size: 16px;">🎯</span>
             <span>Patreon</span>
         </a> -->
-            <a href="#" onclick="openExternalLink('https://github.com/bpwhelan/GameSentenceMiner')"
+            <!-- <a href="#" onclick="openExternalLink('https://github.com/bpwhelan/GameSentenceMiner')"
                 class="donation-link"
                 style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #4078c0; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; transition: background-color 0.2s;"
                 onmouseover="this.style.backgroundColor='#365e9d'" onmouseout="this.style.backgroundColor='#4078c0'">
                 <span style="font-size: 16px;">⭐</span>
                 <span>Star on GitHub (Free)</span>
-            </a>
+            </a> -->
         </div>
     </div>
     <script>
@@ -119,6 +119,7 @@
         const obsStatusBtn = document.getElementById('obs-status');
         const sceneSelect = document.getElementById('sceneSelect');
         const windowSelect = document.getElementById('windowSelect');
+        let windows = [];
 
 
         obsStatusBtn.addEventListener('click', async () => {
@@ -173,6 +174,7 @@
                 if (previousSelection && windows.some(w => w.value === previousSelection)) {
                     windowSelect.value = previousSelection;
                 }
+                windows = windowsRes;
             });
         }
 
@@ -180,6 +182,7 @@
             // Remember the previously selected scene
             if (showLoading)
                 sceneSelect.innerHTML = '<option>Loading...</option>';
+            const previousSelection = sceneSelect.value;
             ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
                 scenes = obsScenes;
                 sceneSelect.innerHTML = '';
@@ -189,6 +192,13 @@
                     option.textContent = scene.name;
                     sceneSelect.appendChild(option);
                 });
+                // Restore previous selection if it still exists in the list
+                if (previousSelection && scenes.some(s => s.id === previousSelection)) {
+                    sceneSelect.value = previousSelection;
+                } else {
+                    sceneSelect.selectedIndex = 0;
+                }
+
                 ipcRenderer.invoke('obs.getActiveScene').then(activeScene => {
                     if (activeScene) {
                         if (scenes.some(s => s.id === activeScene.id)) {
@@ -225,11 +235,13 @@
 
         document.getElementById('createNewSceneBtn').addEventListener('click', () => {
             const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
+            const windowDataFromOBS = windows.filter(w => w.value === selectedWindow.value);
             console.log(selectedWindow)
             const windowData = {
                 title: selectedWindow.textContent,
                 value: selectedWindow.value,
                 sceneName: selectedWindow.textContent,
+                captureSource: windowDataFromOBS[0].captureMode || 'window',
             };
             console.log(windowData)
             ipcRenderer.invoke('obs.createScene', windowData);
@@ -436,11 +448,9 @@
                     }
                 } else {
                     if (runOverlayBtn) {
-                        runOverlayBtn.disabled = true;
+                        // runOverlayBtn.disabled = true;
                         runOverlayBtn.style.opacity = '0.5';
-                        runOverlayBtn.style.cursor = 'not-allowed';
-                        runOverlayBtn.title = 'Not supported in this OS (Yet)';
-                        console.log('Run Overlay button disabled - not running on Windows');
+                        runOverlayBtn.title = 'Experimental suport on this OS';
                     }
                     // if (overlayHelpBtn) {
                     // overlayHelpBtn.disabled = true;

@@ -17,18 +17,23 @@ from GameSentenceMiner.util.model import VADResult
 
 class VADSystem:
     def __init__(self):
+        self.initalized = False
         self.silero = None
         self.whisper = None
         # self.vosk = None
         # self.groq = None
 
     def init(self):
-        if get_config().vad.is_whisper():
-            if not self.whisper:
-                self.whisper = WhisperVADProcessor()
-        if get_config().vad.is_silero():
-            if not self.silero:
-                self.silero = SileroVADProcessor()
+        try:
+            if get_config().vad.is_whisper():
+                if not self.whisper:
+                    self.whisper = WhisperVADProcessor()
+            if get_config().vad.is_silero():
+                if not self.silero:
+                    self.silero = SileroVADProcessor()
+            self.initalized = True
+        except Exception as e:
+            logger.error("Error initializing VAD processors, will not use them." + str(e), exc_info=True)
         # if get_config().vad.is_vosk():
         #     if not self.vosk:
         #         self.vosk = VoskVADProcessor()
@@ -116,7 +121,7 @@ class VADProcessor(ABC):
         end_time = voice_activity[-1]['end'] if voice_activity else 0
 
         # Attempt to fix the end time if the last segment is too short
-        if game_line and game_line.next and len(voice_activity) > 1:
+        if game_line and game_line.next_line() and len(voice_activity) > 1:
             audio_length = get_audio_length(input_audio)
             if 0 > audio_length - voice_activity[-1]['start'] + get_config().audio.beginning_offset:
                 end_time = voice_activity[-2]['end']

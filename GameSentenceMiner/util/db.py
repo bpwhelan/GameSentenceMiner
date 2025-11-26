@@ -1,5 +1,6 @@
 
 
+import copy
 from datetime import datetime
 import json
 import os
@@ -23,6 +24,10 @@ import gzip
 
 # Matches any Unicode punctuation (\p{P}), symbol (\p{S}), or separator (\p{Z}); \p{Z} includes whitespace/separator chars
 punctuation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
+
+# Matches repeating characters that are 3 repeats or more and limits them to three repeats.
+# For example: あああああ -> あああ or 黙れ黙れ黙れ黙れ -> 黙れ黙れ黙れ
+repeating_chars_regex = regex.compile(r'(.+?)\1{2,}')
 
 class SQLiteDB:
     """
@@ -166,8 +171,12 @@ class SQLiteDBTable:
                 field = expected_fields[expected_pos]
                 field_type = cls._types[expected_pos]
                 
+                
                 if field in clean_columns and isinstance(row_value, str):
+                    # if get_stats_config().regex_out_punctuation:
                     row_value = punctuation_regex.sub('', row_value).strip() 
+                    if get_stats_config().regex_out_repetitions:
+                        row_value = repeating_chars_regex.sub(r'\1\1\1', row_value)
                 
                 cls._set_field_value(obj, field, field_type, row_value, expected_pos == 0 and field == cls._pk)
                 

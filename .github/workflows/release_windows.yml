@@ -1,0 +1,98 @@
+name: Build Electron App (Windows)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: none
+  actions: read
+  pull-requests: none
+  issues: none
+
+jobs:
+  electron-build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '21'
+
+      - name: Check Version vs Latest Release and Determine Build/Release
+        id: version_check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Fetching version from package.json..."
+          $PACKAGE_VERSION = (Get-Content -Raw -Path ./package.json | ConvertFrom-Json).version
+          if (-not $PACKAGE_VERSION) {
+            echo "Error: Could not extract version from package.json"
+            exit 1
+          }
+          echo "Package Version: $PACKAGE_VERSION"
+          
+          echo "Checking if release tag v$PACKAGE_VERSION exists..."
+          $RELEASE_URL = "https://github.com/${{ github.repository }}/releases/tag/v$PACKAGE_VERSION"
+          $RESPONSE_CODE = curl -s -o /dev/null -w "%{http_code}" $RELEASE_URL
+          
+          if ($RESPONSE_CODE -eq "200") {
+            echo "Release tag v$PACKAGE_VERSION exists. Skipping build and upload."
+            echo "should_build=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } else {
+            echo "Release tag v$PACKAGE_VERSION does not exist. Proceeding with build and new release."
+            echo "should_build=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            echo "PACKAGE_VERSION=$PACKAGE_VERSION" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+        continue-on-error: true
+
+      - name: Convert Handlebar files to LF line endings
+        run: |
+            Get-ChildItem -Path ./GSM_Overlay/yomitan/data/templates -Recurse -Include *.handlebars | ForEach-Object {
+            $content = (Get-Content $_.FullName -Raw) -replace "`r`n", "`n"
+            Set-Content $_.FullName $content -NoNewline
+            }
+
+      - name: Build Overlay
+        if: steps.version_check.outputs.should_build == 'true'
+        working-directory: ./GSM_Overlay
+        run: |
+          npm install
+          npm run package
+
+      - name: Install dependencies
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          npm install
+
+      - name: Build Electron app
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          npm run app:dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and Upload release
+        if: steps.version_check.outputs.should_build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-artifacts
+          path: |
+            dist/*Setup*.exe
+            dist/latest.yml
+            dist/*.blockmap
+
+      - name: Report skipped build (if applicable)
+        if: steps.version_check.outputs.should_build == 'false'
+        run: |
+          echo "Build and upload skipped because release for package.json version already exists."

@@ -48,13 +48,10 @@ async function runScreenSelector(windowTitle: string) {
     }
     const ocr_config = getOCRConfig();
     await new Promise((resolve, reject) => {
-        let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector', windowTitle];
+        let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector_qt'];
 
-        if (ocr_config.useWindowForConfig) {
-            args.push('--use_window_for_config');
-        }
         if (ocr_config.useObsAsOCRSource) {
-            args.push('--obs_ocr');
+            args.push('--obs');
         }
 
         console.log(`Running screen selector with args: ${args.join(' ')}`);
@@ -619,7 +616,7 @@ export function registerOCRUtilsIPC() {
         // Run the Python script with the specified sensitivity
         const result = await runPythonScript(pythonPath, [
             '-m',
-            'GameSentenceMiner.tools.furigana_filter_preview',
+            'GameSentenceMiner.tools.furigana_filter_preview_qt',
             String(ocr_config.furigana_filter_sensitivity),
         ]);
         const match = result.match(/RESULT:\[(.*?)\]/);

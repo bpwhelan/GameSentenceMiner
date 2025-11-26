@@ -3,60 +3,37 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { Downloader } from 'nodejs-file-downloader';
 import * as tar from 'tar';
-import { BASE_DIR, execFileAsync, getPlatform, isArmMac, isWindows, SupportedPlatform } from '../util.js';
+import extract from 'extract-zip';
+import { execFile, spawn } from 'child_process';
+import { promisify } from 'util';
+import { BASE_DIR, execFileAsync, getPlatform, isWindows, isMacOS } from '../util.js';
 import { mainWindow } from '../main.js';
-import { dialog } from 'electron';
+import { dialog, shell } from 'electron';
 
-// --- Interfaces and Constants ---
+// --- Constants ---
 
-interface PythonDownload {
-    url: string;
-    version: string;
-    path: string; // Relative path to the executable within the extracted archive
-}
-
-const downloads: Record<SupportedPlatform, PythonDownload> = {
-    linux: {
-        url: 'https://github.com/astral-sh//python-build-standalone/releases/download/20250529/cpython-3.11.12+20250529-x86_64-unknown-linux-gnu-install_only.tar.gz',
-        version: '3.11.12',
-        path: 'python/bin/python3.11', // This path is not used for Linux, which uses a venv
-    },
-    darwin: {
-        url: isArmMac
-            ? 'https://github.com/astral-sh//python-build-standalone/releases/download/20250529/cpython-3.11.12+20250529-aarch64-apple-darwin-install_only.tar.gz'
-            : 'https://github.com/astral-sh//python-build-standalone/releases/download/20250529/cpython-3.11.12+20250529-x86_64-apple-darwin-install_only.tar.gz',
-        version: '3.11.12',
-        path: 'python/bin/python3.11',
-    },
-    win32: {
-        url: 'https://github.com/astral-sh/python-build-standalone/releases/download/20250529/cpython-3.11.12+20250529-x86_64-pc-windows-msvc-install_only.tar.gz',
-        version: '3.11.12',
-        path: 'python/python.exe',
-    },
-};
+const PYTHON_VERSION = '3.13';
+const VENV_DIR = path.join(BASE_DIR, 'python_venv');
+const UV_DIR = path.join(BASE_DIR, 'uv');
 
 // --- Path Helpers ---
 
-const PYTHON_DIR = path.join(BASE_DIR, 'python');
-const DOWNLOADS_DIR = path.join(BASE_DIR, 'downloads');
-
 /**
- * Gets the path for the Python virtual environment (Linux only).
+ * Gets the path to the uv executable.
  */
-function getVenvPath(): string {
-    return path.join(os.homedir(), '.config', 'GameSentenceMiner', 'python_venv');
+function getUvExecutablePath(): string {
+    return isWindows() 
+        ? path.join(UV_DIR, 'uv.exe')
+        : path.join(UV_DIR, 'uv');
 }
 
 /**
- * Gets the expected full path to the Python executable, depending on the platform.
- * This does not check if the file actually exists.
+ * Gets the expected full path to the Python executable in the venv.
  */
 function getPythonExecutablePath(): string {
-    const platform = getPlatform();
-    if (!isWindows()) {
-        return path.join(getVenvPath(), 'bin', 'python');
-    }
-    return path.join(BASE_DIR, downloads[platform].path);
+    return isWindows()
+        ? path.join(VENV_DIR, 'Scripts', 'python.exe')
+        : path.join(VENV_DIR, 'bin', 'python');
 }
 
 /**
@@ -64,6 +41,13 @@ function getPythonExecutablePath(): string {
  */
 function isPythonInstalled(): boolean {
     return fs.existsSync(getPythonExecutablePath());
+}
+
+/**
+ * Checks if uv is installed.
+ */
+function isUvInstalled(): boolean {
+    return fs.existsSync(getUvExecutablePath());
 }
 
 // --- Core Installation Steps ---
@@ -97,26 +81,20 @@ async function downloadFile(url: string, directory: string, fileName: string): P
         console.log(`Download complete: ${filePath}`);
         return filePath;
     } catch (error: any) {
-        // ** THE FIX IS HERE **
-        // WORKAROUND: The library sometimes throws an ENOENT error when trying to delete
-        // its temporary '.download' file after a successful rename.
-        // If the final file exists, we can safely ignore this specific error.
         if (error.code === 'ENOENT' && fs.existsSync(finalFilePath)) {
             console.warn(
                 `Download appears successful, but a non-critical cleanup error occurred. Ignoring. Details: ${error.message}`
             );
             return finalFilePath;
         }
-
-        // Otherwise, it's a real error.
-        console.error(`Failed to download file from ${url}:`, error);
-        throw error; // Re-throw to be caught by the calling function
+        console.error(`Failed to download file from ${url}: ${error.message || error}`);
+        throw error;
     }
 }
 
 /**
- * Extracts a .tar.gz archive to a specified path.
- * @param archivePath The full path to the .tar.gz file.
+ * Extracts a .tar.gz or .zip archive to a specified path.
+ * @param archivePath The full path to the archive file.
  * @param extractPath The directory to extract the contents into.
  */
 async function extractArchive(archivePath: string, extractPath: string): Promise<void> {
@@ -125,60 +103,390 @@ async function extractArchive(archivePath: string, extractPath: string): Promise
     fs.mkdirSync(extractPath, { recursive: true });
 
     try {
-        await tar.x({
-            file: archivePath,
-            cwd: extractPath,
-        });
+        if (archivePath.endsWith('.zip')) {
+            // Extract zip file using extract-zip (works reliably on all platforms)
+            await extract(archivePath, { dir: path.resolve(extractPath) });
+        } else {
+            // Extract tar.gz file
+            await tar.x({
+                file: archivePath,
+                cwd: extractPath,
+            });
+        }
         console.log('Extraction complete.');
-    } catch (error) {
-        console.error('Extraction failed:', error);
+    } catch (error: any) {
+        console.error(`Extraction failed: ${error.message || error}`);
         throw error;
     }
 }
 
 /**
- * Performs the actual installation of Python. This function is for internal use
- * and assumes an installation is required.
+ * Downloads and installs uv if not already present.
  */
-async function _performInstallation(): Promise<void> {
+async function ensureUvInstalled(): Promise<void> {
+    if (isUvInstalled()) {
+        console.log(`uv is already installed at: ${getUvExecutablePath()}`);
+        return;
+    }
+
+    console.log('Downloading uv...');
+    
     const platform = getPlatform();
-
-    if (!isWindows()) {
-        console.log('Creating Python virtual environment...');
-        const venvPath = getVenvPath();
-        try {
-            fs.mkdirSync(path.dirname(venvPath), { recursive: true });
-            await execFileAsync('python3', ['-m', 'venv', venvPath]);
-            console.log(`Python venv created successfully at ${venvPath}`);
-        } catch (e) {
-            const errorMessage =
-                'Failed to create Python venv. Make sure `python3` and the `python3-venv` package are installed on your system.';
-            console.error(errorMessage, e);
-            mainWindow?.webContents.send('notification', {
-                title: 'Python Error',
-                message: errorMessage,
-            });
-            throw e;
+    const arch = os.arch();
+    let uvUrl: string;
+    let fileName: string;
+    let extractedDirName: string;
+    
+    // Determine the correct uv download URL based on platform and architecture
+    if (isWindows()) {
+        if (arch === 'arm64') {
+            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-pc-windows-msvc.zip';
+            extractedDirName = 'uv-aarch64-pc-windows-msvc';
+        } else {
+            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip';
+            extractedDirName = 'uv-x86_64-pc-windows-msvc';
         }
+        fileName = 'uv.zip';
+    } else if (platform === 'darwin') {
+        // Detect ARM vs Intel Mac
+        if (arch === 'arm64') {
+            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-apple-darwin.tar.gz';
+            extractedDirName = 'uv-aarch64-apple-darwin';
+        } else {
+            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-apple-darwin.tar.gz';
+            extractedDirName = 'uv-x86_64-apple-darwin';
+        }
+        fileName = 'uv.tar.gz';
     } else {
-        console.log('Downloading and extracting standalone Python build...');
-        const pythonDownload = downloads[platform];
-        const archiveName = 'python.tar.gz';
-        let archivePath: string | undefined;
+        // Linux
+        if (arch === 'arm64') {
+            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-unknown-linux-gnu.tar.gz';
+            extractedDirName = 'uv-aarch64-unknown-linux-gnu';
+        } else {
+            uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz';
+            extractedDirName = 'uv-x86_64-unknown-linux-gnu';
+        }
+        fileName = 'uv.tar.gz';
+    }
 
-        try {
-            archivePath = await downloadFile(pythonDownload.url, DOWNLOADS_DIR, archiveName);
-            await extractArchive(archivePath, BASE_DIR);
-            console.log('Python installation complete.');
-        } catch (error) {
-            console.error('Failed to install Python from standalone build:', error);
-            throw error;
-        } finally {
-            if (archivePath && fs.existsSync(archivePath)) {
-                console.log(`Cleaning up downloaded archive: ${archivePath}`);
-                fs.unlinkSync(archivePath);
+    const downloadsDir = path.join(BASE_DIR, 'downloads');
+    let archivePath: string | undefined;
+
+    try {
+        archivePath = await downloadFile(uvUrl, downloadsDir, fileName);
+        await extractArchive(archivePath, UV_DIR);
+        
+        // The extracted archive contains a directory with uv binary, need to move it up
+        const extractedDir = path.join(UV_DIR, extractedDirName);
+        if (fs.existsSync(extractedDir)) {
+            const uvBinary = isWindows() ? 'uv.exe' : 'uv';
+            const sourcePath = path.join(extractedDir, uvBinary);
+            const destPath = getUvExecutablePath();
+            
+            if (fs.existsSync(sourcePath)) {
+                fs.renameSync(sourcePath, destPath);
+                fs.rmSync(extractedDir, { recursive: true, force: true });
             }
         }
+        
+        // Make executable on Unix-like systems
+        if (!isWindows()) {
+            fs.chmodSync(getUvExecutablePath(), 0o755);
+        }
+        
+        console.log(`uv installed successfully at: ${getUvExecutablePath()}`);
+    } catch (error: any) {
+        console.error(`Failed to install uv: ${error.message || error}`);
+        throw error;
+    } finally {
+        if (archivePath && fs.existsSync(archivePath)) {
+            console.log(`Cleaning up downloaded archive: ${archivePath}`);
+            fs.unlinkSync(archivePath);
+        }
+    }
+}
+
+// --- Homebrew Installation (macOS only) ---
+
+/**
+ * Checks if Homebrew is installed on macOS.
+ */
+async function isHomebrewInstalled(): Promise<boolean> {
+    if (!isMacOS()) return false;
+    
+    try {
+        await execFileAsync('which', ['brew']);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function showHomebrewRequiredDialog(): Promise<void> {
+    const response = await dialog.showMessageBox(mainWindow!, {
+        type: 'warning',
+        title: 'Homebrew Required',
+        message: 'Homebrew is required to install Python on macOS.',
+        detail: 'Please install Homebrew from https://brew.sh/ and restart the application.',
+        buttons: ['OK'],
+    });
+}
+
+/**
+ * Installs Homebrew on macOS with user confirmation.
+ */
+async function installHomebrew(): Promise<void> {
+    if (!isMacOS()) {
+        throw new Error('Homebrew installation is only supported on macOS');
+    }
+
+    const response = await dialog.showMessageBox(mainWindow!, {
+        type: 'question',
+        buttons: ['Yes', 'No'],
+        defaultId: 0,
+        title: 'Install Homebrew',
+        message: 'Homebrew is required to install Python on macOS. Would you like to install it now?',
+        detail: 'This will run the official Homebrew installation script.',
+    });
+
+    if (response.response !== 0) {
+        throw new Error('User declined Homebrew installation');
+    }
+
+    console.log('Installing Homebrew...');
+    mainWindow?.webContents.send('notification', {
+        title: 'Installing Homebrew',
+        message: 'Installing Homebrew package manager. This may take a few minutes and may require your password...',
+    });
+
+    try {
+        // Run the official Homebrew installation script
+        // The script will handle prompting for password if needed
+        const installScript = '$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
+        
+        // Use spawn instead of execFile for interactive scripts
+        await new Promise<void>((resolve, reject) => {
+            const brewInstall = spawn(installScript, {
+                stdio: 'inherit', // This allows the script to interact with the terminal
+            });
+            
+            brewInstall.on('close', (code: number) => {
+                if (code === 0) {
+                    resolve();
+                } else {
+                    reject(new Error(`Homebrew installation exited with code ${code}`));
+                }
+            });
+            
+            brewInstall.on('error', (err: Error) => {
+                reject(err);
+            });
+        });
+        
+        console.log('Homebrew installed successfully');
+    } catch (error: any) {
+        console.error(`Failed to install Homebrew: ${error.message || error}`);
+        throw new Error(`Homebrew installation failed: ${error.message || error}`);
+    }
+}
+
+/**
+ * Ensures Homebrew is installed on macOS.
+ */
+async function ensureHomebrewInstalled(): Promise<boolean> {
+    if (!isMacOS()) return false;
+
+    if (await isHomebrewInstalled()) {
+        console.log('Homebrew is already installed');
+        return true;
+    }
+
+    await showHomebrewRequiredDialog();
+    return false;
+}
+
+/**
+ * Installs Python 3.13 using Homebrew on macOS.
+ */
+async function installPythonWithHomebrew(): Promise<void> {
+    console.log('Installing Python 3.13 with Homebrew...');
+    
+    try {
+        // Install Python 3.13
+        await execFileAsync('brew', ['install', 'python@3.13']);
+        console.log('Python 3.13 installed successfully via Homebrew');
+    } catch (error: any) {
+        console.error(`Failed to install Python with Homebrew: ${error.message || error}`);
+        throw error;
+    }
+}
+
+/**
+ * Creates a virtual environment using the Homebrew-installed Python.
+ */
+async function createVenvWithHomebrewPython(): Promise<void> {
+    console.log(`Creating virtual environment at ${VENV_DIR}...`);
+    
+    try {
+        fs.mkdirSync(path.dirname(VENV_DIR), { recursive: true });
+        
+        // Use the Homebrew Python 3.13 to create venv
+        const homebrewPython = '/opt/homebrew/bin/python3.13'; // ARM Mac
+        const homebrewPythonIntel = '/usr/local/bin/python3.13'; // Intel Mac
+        
+        // Try ARM path first, fall back to Intel
+        let pythonBin = homebrewPython;
+        if (!fs.existsSync(homebrewPython)) {
+            if (fs.existsSync(homebrewPythonIntel)) {
+                pythonBin = homebrewPythonIntel;
+            } else {
+                throw new Error('Could not find Homebrew Python 3.13 installation');
+            }
+        }
+        
+        await execFileAsync(pythonBin, ['-m', 'venv', VENV_DIR]);
+        console.log(`Virtual environment created successfully at ${VENV_DIR}`);
+        
+        // Ensure pip is installed in the venv
+        console.log('Ensuring pip is installed in the virtual environment...');
+        const venvPython = getPythonExecutablePath();
+        await execFileAsync(venvPython, ['-m', 'ensurepip', '--upgrade']);
+        console.log('pip ensured successfully');
+        
+        // Upgrade pip to latest version
+        console.log('Upgrading pip to latest version...');
+        await execFileAsync(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip']);
+        console.log('pip upgraded successfully');
+    } catch (error: any) {
+        console.error(`Failed to create virtual environment: ${error.message || error}`);
+        throw error;
+    }
+}
+
+/**
+ * Verifies the venv Python executable works.
+ */
+async function verifyVenvPython(): Promise<boolean> {
+    const venvPython = getPythonExecutablePath();
+    
+    if (!fs.existsSync(venvPython)) {
+        console.error(`Venv Python not found at: ${venvPython}`);
+        return false;
+    }
+    
+    try {
+        // Test that Python runs
+        await execFileAsync(venvPython, ['--version']);
+        console.log(`Venv Python verified at: ${venvPython}`);
+        return true;
+    } catch (error: any) {
+        console.error(`Venv Python exists but doesn't work: ${error.message || error}`);
+        return false;
+    }
+}
+
+/**
+ * Uninstalls Python 3.11 globally from Homebrew after venv setup.
+ * Only uninstalls if the venv Python is verified to work independently.
+ */
+async function uninstallHomebrewPythonGlobally(): Promise<void> {
+    console.log('Verifying venv before uninstalling global Python...');
+    
+    // First verify the venv works
+    const venvWorks = await verifyVenvPython();
+    if (!venvWorks) {
+        console.warn('Venv Python is not working, skipping global Python uninstall to avoid breaking the venv');
+        return;
+    }
+    
+    console.log('Venv verified, uninstalling global Python 3.13 from Homebrew...');
+    
+    try {
+        await execFileAsync('brew', ['uninstall', 'python@3.13']);
+        console.log('Python 3.13 uninstalled globally from Homebrew');
+        
+        // Verify venv still works after uninstall
+        const stillWorks = await verifyVenvPython();
+        if (!stillWorks) {
+            console.error('WARNING: Venv stopped working after uninstalling global Python!');
+            console.error('Attempting to reinstall Python...');
+            await execFileAsync('brew', ['install', 'python@3.13']);
+        }
+    } catch (error: any) {
+        // Don't throw on uninstall errors, just log them
+        console.warn(`Failed to uninstall Python globally (this is non-critical): ${error.message || error}`);
+    }
+}
+
+/**
+ * Performs the installation of Python using Homebrew (macOS only).
+ */
+async function _performHomebrewInstallation(): Promise<void> {
+    // Ensure Homebrew is installed
+    await ensureHomebrewInstalled();
+
+    // Install Python 3.13 using Homebrew
+    await installPythonWithHomebrew();
+
+    // Create virtual environment
+    await createVenvWithHomebrewPython();
+
+    // Verify venv works
+    console.log('Verifying virtual environment installation...');
+    const venvPath = getPythonExecutablePath();
+    if (!fs.existsSync(venvPath)) {
+        throw new Error(`Virtual environment Python not found at expected path: ${venvPath}`);
+    }
+    console.log(`Virtual environment Python found at: ${venvPath}`);
+    
+    // Note: We intentionally do NOT uninstall the global Python 3.11 installation.
+    // This prevents breaking the venv (which may use symlinks) and avoids interfering
+    // with any existing Python installations the user may have. The venv is isolated
+    // and will use its own Python regardless of what's installed globally.
+    console.log('Python 3.11 installation complete. Global installation left intact to avoid conflicts.');
+}
+
+/**
+ * Performs the actual installation of Python using uv.
+ */
+async function _performInstallation(): Promise<void> {
+    // Ensure uv is installed first
+    await ensureUvInstalled();
+
+    const uvPath = getUvExecutablePath();
+
+    // Install Python 3.11 using uv
+    console.log(`Installing Python ${PYTHON_VERSION} using uv...`);
+    try {
+        await execFileAsync(uvPath, ['python', 'install', PYTHON_VERSION]);
+        console.log(`Python ${PYTHON_VERSION} installed successfully.`);
+    } catch (error: any) {
+        console.error(`Failed to install Python using uv: ${error.message || error}`);
+        throw error;
+    }
+
+    // Create virtual environment using uv
+    console.log(`Creating virtual environment at ${VENV_DIR}...`);
+    try {
+        fs.mkdirSync(path.dirname(VENV_DIR), { recursive: true });
+        await execFileAsync(uvPath, ['venv', '--python', PYTHON_VERSION, '--seed', VENV_DIR]);
+        console.log(`Virtual environment created successfully at ${VENV_DIR}`);
+    } catch (error: any) {
+        console.error(`Failed to create virtual environment using uv: ${error.message || error}`);
+        throw error;
+    }
+
+    // Should be unnecessary now that we use uv to create the venv
+    // 
+    // Install uv into the venv so it's available for package management
+    console.log('Installing uv into virtual environment...');
+    try {
+        const pythonPath = getPythonExecutablePath();
+        await execFileAsync(pythonPath, ['-m', 'pip', 'install', 'uv']);
+        console.log('uv installed into virtual environment successfully.');
+    } catch (error: any) {
+        console.error(`Failed to install uv into venv: ${error.message || error}`);
+        throw error;
     }
 }
 
@@ -196,26 +504,37 @@ export async function getOrInstallPython(): Promise<string> {
         return pythonPath;
     }
 
-    // Show notification about installation starting, native to electron, not a webcontents send
+    // Show notification about installation starting
     dialog.showMessageBox(mainWindow!, {
         type: 'info',
         title: 'First Time Setup',
         message: 'GSM Running First Time Setup. There are a lot of moving parts, so it may take a few minutes. Please be patient!',
+        detail: 'Click "Learn More" to open the Getting Started guide.',
+        buttons: ['OK', 'Learn More'],
+        defaultId: 0,
+        cancelId: 0,
+    }).then(result => ({ response: result.response })).then(({ response }) => {
+        if (response === 1) {
+            shell.openExternal('https://docs.gamesentenceminer.com/docs/getting-started/');
+        }
     });
 
+    
 
     console.log('Python not found. Starting installation process...');
-    const message =
-        !isWindows()
-            ? 'Setting up Python virtual environment. This may take a moment...'
-            : 'Downloading Python. This may take a while depending on your connection...';
-
     mainWindow?.webContents.send('notification', {
         title: 'Python Setup',
-        message: message,
+        message: isMacOS() 
+            ? 'Installing Python using Homebrew. This may take a few minutes...'
+            : 'Installing Python using uv. This may take a moment...',
     });
 
-    await _performInstallation();
+    // Use Homebrew on macOS, uv on other platforms
+    if (isMacOS()) {
+        await _performHomebrewInstallation();
+    } else {
+        await _performInstallation();
+    }
 
     const pythonExecutablePath = getPythonExecutablePath();
     if (!fs.existsSync(pythonExecutablePath)) {
@@ -237,19 +556,11 @@ export async function getOrInstallPython(): Promise<string> {
  */
 export async function reinstallPython(): Promise<void> {
     console.log('Starting Python reinstallation...');
-    const platform = getPlatform();
 
-    if (!isWindows()) {
-        const venvPath = getVenvPath();
-        if (fs.existsSync(venvPath)) {
-            console.log(`Removing existing Python venv at: ${venvPath}`);
-            fs.rmSync(venvPath, { recursive: true, force: true });
-        }
-    } else {
-        if (fs.existsSync(PYTHON_DIR)) {
-            console.log(`Removing existing Python installation at: ${PYTHON_DIR}`);
-            fs.rmSync(PYTHON_DIR, { recursive: true, force: true });
-        }
+    // Remove existing venv
+    if (fs.existsSync(VENV_DIR)) {
+        console.log(`Removing existing Python venv at: ${VENV_DIR}`);
+        fs.rmSync(VENV_DIR, { recursive: true, force: true });
     }
 
     console.log('Existing installation removed. Proceeding with fresh installation...');

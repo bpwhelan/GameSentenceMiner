@@ -1,0 +1,63 @@
+name: Build Electron App (macOS)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: none
+  actions: read
+  pull-requests: none
+  issues: none
+
+jobs:
+  electron-build-mac:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '21'
+
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install --save-dev electron electron-builder
+
+      - name: Get version from package.json
+        id: version_check
+        run: |
+          echo "Fetching version from package.json..."
+          PACKAGE_VERSION=$(jq -r .version < ./package.json)
+          if [ -z "$PACKAGE_VERSION" ]; then
+            echo "Error: Could not extract version from package.json"
+            exit 1
+          fi
+          echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build Overlay
+        id: build_overlay_mac
+        working-directory: ./GSM_Overlay
+        run: |
+          npm install
+          npm run package
+
+      - name: Build Electron app for macOS
+        run: |
+          npm run app:dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to release
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build-artifacts
+          path: dist/*.dmg

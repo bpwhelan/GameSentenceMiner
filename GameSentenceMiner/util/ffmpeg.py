@@ -9,10 +9,12 @@ from pathlib import Path
 import subprocess
 from pathlib import Path
 import shutil
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from GameSentenceMiner.ui.qt_main import DialogManager
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ui.config_gui import ConfigApp
 from GameSentenceMiner.util.configuration import ffmpeg_base_command_list, get_ffprobe_path, get_master_config, logger, get_config, \
     get_temporary_directory, gsm_state, is_linux, ffmpeg_base_command_list_info, KNOWN_ASPECT_RATIOS
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name, get_file_modification_time
@@ -177,8 +179,8 @@ def call_frame_extractor(video_path, timestamp):
         str: The path of the selected image, or None on error.
     """
     try:
-        config_app: ConfigApp = gsm_state.config_app
-        return config_app.show_screenshot_selector(video_path, timestamp, get_config().screenshot.screenshot_timing_setting)
+        dialog_manager: 'DialogManager' = gsm_state.dialog_manager
+        return dialog_manager.screenshot_selector_sync(video_path, str(timestamp), get_config().screenshot.screenshot_timing_setting)
         # logger.info(' '.join([sys.executable, "-m", "GameSentenceMiner.tools.ss_selector", video_path, str(timestamp)]))
 
         # # Run the script using subprocess.run()
@@ -578,14 +580,14 @@ def get_screenshot_time(video_path, game_line, default_beginning=False, vad_resu
         screenshot_time_from_beginning = line_timestamp_in_video + screenshot_offset
         logger.debug(f"Using 'beginning' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "middle":
-        if game_line.next:
-            screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next.time - game_line.time).total_seconds() / 2) + screenshot_offset
+        if game_line.next_line():
+            screenshot_time_from_beginning = line_timestamp_in_video + ((game_line.next_line().time - game_line.time).total_seconds() / 2) + screenshot_offset
         else:
             screenshot_time_from_beginning = (file_length - ((file_length - line_timestamp_in_video) / 2)) + screenshot_offset
         logger.debug(f"Using 'middle' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")
     elif get_config().screenshot.screenshot_timing_setting == "end":
-        if game_line.next:
-            screenshot_time_from_beginning = line_timestamp_in_video + (game_line.next.time - game_line.time).total_seconds() - screenshot_offset
+        if game_line.next_line():
+            screenshot_time_from_beginning = line_timestamp_in_video + (game_line.next_line().time - game_line.time).total_seconds() - screenshot_offset
         else:
             screenshot_time_from_beginning = file_length - screenshot_offset
         logger.debug(f"Using 'end' setting for screenshot time: {screenshot_time_from_beginning} seconds from beginning of replay")

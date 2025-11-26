@@ -171,14 +171,14 @@ def download_ffmpeg_if_needed():
     ffmpeg_dir = os.path.join(get_app_directory(), 'ffmpeg')
     ffmpeg_exe_path = get_ffmpeg_path()
     ffprobe_exe_path = get_ffprobe_path()
-    python_dir = os.path.join(get_app_directory(), 'python')
-    ffmpeg_in_python = os.path.join(python_dir, "ffmpeg.exe")
+    # python_dir = os.path.join(get_app_directory(), 'python')
+    # ffmpeg_in_python = os.path.join(python_dir, "ffmpeg.exe")
     
     if os.path.exists(ffmpeg_dir) and os.path.exists(ffmpeg_exe_path) and os.path.exists(ffprobe_exe_path):
         logger.debug(f"FFmpeg already installed at {ffmpeg_dir}.")
-        if not os.path.exists(ffmpeg_in_python):
-            shutil.copy2(ffmpeg_exe_path, ffmpeg_in_python)
-            logger.info(f"Copied ffmpeg.exe to Python folder: {ffmpeg_in_python}")
+        # if not os.path.exists(ffmpeg_in_python):
+        #     shutil.copy2(ffmpeg_exe_path, ffmpeg_in_python)
+        #     logger.info(f"Copied ffmpeg.exe to Python folder: {ffmpeg_in_python}")
         return
 
     if os.path.exists(ffmpeg_dir) and (not os.path.exists(ffmpeg_exe_path) or not os.path.exists(ffprobe_exe_path)):
@@ -246,11 +246,11 @@ def download_ffmpeg_if_needed():
     flatten_directory(ffmpeg_dir)
                     
     # Copy ffmpeg.exe to the python folder
-    if os.path.exists(ffmpeg_exe_path):
-        shutil.copy2(ffmpeg_exe_path, ffmpeg_in_python)
-        logger.info(f"Copied ffmpeg.exe to Python folder: {ffmpeg_in_python}")
-    else:
-        logger.warning(f"ffmpeg.exe not found in {ffmpeg_dir}. Extraction might have failed.")
+    # if os.path.exists(ffmpeg_exe_path):
+    #     shutil.copy2(ffmpeg_exe_path, ffmpeg_in_python)
+    #     logger.info(f"Copied ffmpeg.exe to Python folder: {ffmpeg_in_python}")
+    # else:
+    #     logger.warning(f"ffmpeg.exe not found in {ffmpeg_dir}. Extraction might have failed.")
     logger.info(f"FFmpeg extracted to {ffmpeg_dir}.")
 
 
