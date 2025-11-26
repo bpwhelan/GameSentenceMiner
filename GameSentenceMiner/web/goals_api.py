@@ -1433,3 +1433,72 @@ def register_goals_api_routes(app):
         except Exception as e:
             logger.error(f"Error calculating tomorrow's requirements: {e}", exc_info=True)
             return jsonify({"error": "Failed to calculate tomorrow's requirements"}), 500
+        
+    @app.route("/api/goals/reading-pace", methods=["GET"])
+    def api_reading_pace():
+        """
+        Calculate average reading pace for the last 30 days.
+        Returns characters per hour (CPH).
+        
+        Returns:
+        {
+            "pace_cph": <number>,      # Characters per hour
+            "total_characters": <number>,
+            "total_hours": <number>,
+            "days_analyzed": 30,
+            "average_characters_per_day": <number>,
+            "average_hours_per_day": <number>
+        }
+        """
+        try:
+            # 1. Determine Date Range
+            user_tz = get_user_timezone()
+            today = get_today_in_timezone(user_tz)
+            
+            # Start 30 days ago
+            start_date = today - datetime.timedelta(days=30)
+            # End yesterday (for rollups)
+            yesterday = today - datetime.timedelta(days=1)
+            
+            start_date_str = start_date.strftime("%Y-%m-%d")
+            yesterday_str = yesterday.strftime("%Y-%m-%d")
+
+            # 2. Get Historical Data (Rollups)
+            # We fetch data from 30 days ago up to yesterday
+            rollup_stats = None
+            if start_date <= yesterday:
+                rollup_stats = get_rollup_stats_for_range(start_date_str, yesterday_str)
+            
+            # 3. Get Live Data (Today)
+            today_lines, live_stats = get_todays_live_data(today)
+            
+            # 4. Combine Data
+            # This sums up characters and seconds from both sources
+            combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
+            
+            # 5. Extract Totals
+            total_characters = combined_stats.get("total_characters", 0)
+            total_seconds = combined_stats.get("total_reading_time_seconds", 0)
+            
+            # 6. Calculate Pace
+            # Avoid division by zero
+            if total_seconds > 0:
+                # (Chars / Seconds) * 3600 = Chars / Hour
+                pace_cph = (total_characters / total_seconds) * 3600
+            else:
+                pace_cph = 0
+                
+            total_hours = total_seconds / 3600
+
+            return jsonify({
+                "pace_cph": int(pace_cph),
+                "total_characters": int(total_characters),
+                "total_hours": round(total_hours, 2),
+                "days_analyzed": 30,
+                "average_characters_per_day": int(total_characters / 30 if total_characters > 0 else 0),
+                "average_hours_per_day": round(total_hours / 30 if total_hours > 0 else 0, 2)
+            }), 200
+
+        except Exception as e:
+            logger.error(f"Error calculating reading pace: {e}", exc_info=True)
+            return jsonify({"error": "Failed to calculate reading pace"}), 500

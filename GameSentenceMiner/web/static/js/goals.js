@@ -19,7 +19,7 @@ const GoalsUtils = {
             return 'UTC';
         }
     },
-    
+
     // Get headers with timezone for API requests
     getHeadersWithTimezone() {
         return {
@@ -27,17 +27,17 @@ const GoalsUtils = {
             'X-Timezone': this.getUserTimezone()
         };
     },
-    
+
     // Format date as YYYY-MM-DD
     formatDateString(date) {
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     },
-    
+
     // Get today's date string
     getTodayDateString() {
         return this.formatDateString(new Date());
     },
-    
+
     // Metric labels mapping
     getMetricLabels() {
         return {
@@ -50,16 +50,16 @@ const GoalsUtils = {
             // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
         };
     },
-    
+
     // Capitalize first letter of a string
     capitalize(str) {
         return str.charAt(0).toUpperCase() + str.slice(1);
     },
-    
+
     // Get goals from localStorage or database
     async getGoalsWithFallback() {
         let currentGoals = CustomGoalsManager.getAll();
-        
+
         if (!currentGoals || currentGoals.length === 0) {
             try {
                 const goalsResponse = await fetch('/api/goals/latest_goals');
@@ -72,10 +72,10 @@ const GoalsUtils = {
                 currentGoals = [];
             }
         }
-        
+
         return currentGoals;
     },
-    
+
     // Prepare goals settings object with easy days and AnkiConnect settings
     prepareGoalsSettings() {
         return {
@@ -83,7 +83,7 @@ const GoalsUtils = {
             ankiConnect: AnkiConnectManager.getSettings()
         };
     },
-    
+
     // Render action buttons for goal cards
     renderActionButtons(goalId) {
         return `
@@ -104,14 +104,14 @@ const GoalsUtils = {
 // ================================
 const AnkiConnectManager = {
     STORAGE_KEY: 'gsm_anki_connect_settings',
-    
+
     // Get default settings
     getDefaultSettings() {
         return {
             deckName: ''
         };
     },
-    
+
     // Get settings from localStorage
     getSettings() {
         try {
@@ -125,7 +125,7 @@ const AnkiConnectManager = {
             return this.getDefaultSettings();
         }
     },
-    
+
     // Save settings to localStorage
     saveSettings(settings) {
         try {
@@ -146,7 +146,7 @@ const AnkiConnectManager = {
 // ================================
 const EasyDaysManager = {
     STORAGE_KEY: 'gsm_easy_days_settings',
-    
+
     // Get default settings (all days at 100%)
     getDefaultSettings() {
         return {
@@ -159,7 +159,7 @@ const EasyDaysManager = {
             sunday: 100
         };
     },
-    
+
     // Get settings from localStorage
     getSettings() {
         try {
@@ -173,20 +173,20 @@ const EasyDaysManager = {
             return this.getDefaultSettings();
         }
     },
-    
+
     // Save settings to localStorage with validation
     saveSettings(settings) {
         // Validate: at least one day must be at 100%
         const values = Object.values(settings);
         const hasFullDay = values.some(val => val === 100);
-        
+
         if (!hasFullDay) {
             return {
                 success: false,
                 error: 'At least one day must be set to 100%'
             };
         }
-        
+
         try {
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(settings));
             return { success: true };
@@ -205,12 +205,12 @@ const EasyDaysManager = {
 // ================================
 const CustomGoalCheckboxManager = {
     STORAGE_KEY: 'gsm_custom_goal_checkboxes',
-    
+
     // Get today's date string in YYYY-MM-DD format
     getTodayDateString() {
         return GoalsUtils.getTodayDateString();
     },
-    
+
     // Get all checkbox states from localStorage
     getAll() {
         try {
@@ -221,7 +221,7 @@ const CustomGoalCheckboxManager = {
             return {};
         }
     },
-    
+
     // Save all checkbox states to localStorage
     saveAll(states) {
         try {
@@ -232,7 +232,7 @@ const CustomGoalCheckboxManager = {
             return false;
         }
     },
-    
+
     // Get state for a specific goal
     getState(goalId) {
         const allStates = this.getAll();
@@ -244,53 +244,53 @@ const CustomGoalCheckboxManager = {
             lastResetDate: null
         };
     },
-    
+
     // Check if goal is completed today
     isCompletedToday(goalId) {
         const state = this.getState(goalId);
         const today = this.getTodayDateString();
         return state.lastCheckedDate === today;
     },
-    
+
     // Check if goal needs reset (new day)
     needsReset(goalId) {
         const state = this.getState(goalId);
         const today = this.getTodayDateString();
         return state.lastResetDate !== today;
     },
-    
+
     // Reset checkbox for new day
     resetForNewDay(goalId) {
         const allStates = this.getAll();
         const state = this.getState(goalId);
         const today = this.getTodayDateString();
-        
+
         state.lastResetDate = today;
         allStates[goalId] = state;
-        
+
         this.saveAll(allStates);
         return state;
     },
-    
+
     // Calculate streak from completion dates
     calculateStreak(completionDates) {
         if (!completionDates || completionDates.length === 0) {
             return 0;
         }
-        
+
         // Sort dates in descending order (most recent first)
         const sortedDates = [...completionDates].sort((a, b) => b.localeCompare(a));
-        
+
         // Start from the most recent completion date
         let streak = 1;
         let prevDate = new Date(sortedDates[0]);
-        
+
         // Count consecutive days backwards from the most recent date
         for (let i = 1; i < sortedDates.length; i++) {
             // Calculate expected previous date
             prevDate.setDate(prevDate.getDate() - 1);
             const expectedDate = GoalsUtils.formatDateString(prevDate);
-            
+
             if (sortedDates[i] === expectedDate) {
                 streak++;
             } else {
@@ -298,42 +298,42 @@ const CustomGoalCheckboxManager = {
                 break;
             }
         }
-        
+
         return streak;
     },
-    
+
     // Mark goal as completed for today
     markCompleted(goalId) {
         const allStates = this.getAll();
         const state = this.getState(goalId);
         const today = this.getTodayDateString();
-        
+
         // Add today to completion dates if not already there
         if (!state.completionDates.includes(today)) {
             state.completionDates.push(today);
         }
-        
+
         state.lastCheckedDate = today;
         state.lastResetDate = today;
-        
+
         // Calculate current streak
         state.currentStreak = this.calculateStreak(state.completionDates);
-        
+
         // Update longest streak if current is higher
         if (state.currentStreak > state.longestStreak) {
             state.longestStreak = state.currentStreak;
         }
-        
+
         allStates[goalId] = state;
         this.saveAll(allStates);
-        
+
         return state;
     },
-    
+
     // Initialize or reset all custom goals for new day
     initializeForNewDay() {
         const customGoals = CustomGoalsManager.getAll().filter(g => g.metricType === 'custom');
-        
+
         for (const goal of customGoals) {
             if (this.needsReset(goal.id)) {
                 this.resetForNewDay(goal.id);
@@ -347,12 +347,12 @@ const CustomGoalCheckboxManager = {
 // ================================
 const CustomGoalsManager = {
     STORAGE_KEY: 'gsm_custom_goals',
-    
+
     // Generate unique ID for goals
     generateId() {
         return 'goal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11);
     },
-    
+
     // Get all custom goals from localStorage
     getAll() {
         try {
@@ -363,33 +363,33 @@ const CustomGoalsManager = {
             return [];
         }
     },
-    
+
     // Get active goals (within current date or future)
     getActive() {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const todayStr = today.toISOString().split('T')[0];
-        
+
         return this.getAll().filter(goal => {
             // Custom goals are always active
             if (goal.metricType === 'custom') return true;
             return goal.endDate >= todayStr;
         });
     },
-    
+
     // Get goals that are currently in progress (today is within date range)
     getInProgress() {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const todayStr = today.toISOString().split('T')[0];
-        
+
         return this.getAll().filter(goal => {
             // Custom goals are always in progress
             if (goal.metricType === 'custom') return true;
             return goal.startDate <= todayStr && goal.endDate >= todayStr;
         });
     },
-    
+
     // Save all goals to localStorage
     saveAll(goals) {
         try {
@@ -400,7 +400,7 @@ const CustomGoalsManager = {
             return false;
         }
     },
-    
+
     // Create new goal
     create(goalData) {
         const goals = this.getAll();
@@ -414,21 +414,21 @@ const CustomGoalsManager = {
             icon: goalData.icon || this.getDefaultIcon(goalData.metricType),
             createdAt: Date.now()
         };
-        
+
         goals.push(newGoal);
         this.saveAll(goals);
         return newGoal;
     },
-    
+
     // Update existing goal
     update(id, goalData) {
         const goals = this.getAll();
         const index = goals.findIndex(g => g.id === id);
-        
+
         if (index === -1) {
             return false;
         }
-        
+
         goals[index] = {
             ...goals[index],
             name: goalData.name,
@@ -438,22 +438,22 @@ const CustomGoalsManager = {
             endDate: goalData.endDate,
             icon: goalData.icon || goals[index].icon
         };
-        
+
         return this.saveAll(goals);
     },
-    
+
     // Delete goal
     delete(id) {
         const goals = this.getAll();
         const filtered = goals.filter(g => g.id !== id);
         return this.saveAll(filtered);
     },
-    
+
     // Get goal by ID
     getById(id) {
         return this.getAll().find(g => g.id === id);
     },
-    
+
     // Get default icon for metric type
     getDefaultIcon(metricType) {
         const icons = {
@@ -468,34 +468,34 @@ const CustomGoalsManager = {
         };
         return icons[metricType] || '🎯';
     },
-    
+
     // Validate goal data
     validate(goalData) {
         const errors = [];
-        
+
         if (!goalData.name || goalData.name.trim() === '') {
             errors.push('Goal name is required');
         }
-        
+
         if (!goalData.metricType || !ALLOWED_METRIC_TYPES.includes(goalData.metricType)) {
             errors.push('Valid metric type is required (hours, characters, games, cards, mature_cards, or custom)');
         }
-        
+
         // For custom goals, targetValue and startDate are optional
         // For anki_backlog goals (commented out), targetValue and startDate are optional
         if (goalData.metricType !== 'custom' /* && goalData.metricType !== 'anki_backlog' */) {
             if (!goalData.targetValue || goalData.targetValue <= 0) {
                 errors.push('Target value must be greater than 0');
             }
-            
+
             if (!goalData.startDate) {
                 errors.push('Start date is required');
             }
-            
+
             if (!goalData.endDate) {
                 errors.push('End date is required');
             }
-            
+
             if (goalData.startDate && goalData.endDate && goalData.startDate > goalData.endDate) {
                 errors.push('End date must be after start date');
             }
@@ -507,7 +507,7 @@ const CustomGoalsManager = {
                 errors.push('End date is required for backlog goals');
             }
         } */
-        
+
         return errors;
     }
 };
@@ -518,10 +518,10 @@ const CustomGoalsManager = {
 const dateStrCache = new Map();
 
 document.addEventListener('DOMContentLoaded', function () {
-    
+
     // Initialize checkbox states for new day
     CustomGoalCheckboxManager.initializeForNewDay();
-    
+
     // Helper function to format large numbers
     function formatGoalNumber(num) {
         if (num >= 1000000) {
@@ -547,7 +547,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Function to update progress bar color based on percentage
     function updateProgressBarColor(progressElement, percentage) {
         progressElement.classList.remove('completion-0', 'completion-25', 'completion-50', 'completion-75', 'completion-100');
-        
+
         if (percentage >= 100) {
             progressElement.classList.add('completion-100');
         } else if (percentage >= 75) {
@@ -565,7 +565,7 @@ document.addEventListener('DOMContentLoaded', function () {
     async function calculateCustomGoalProgress(goal) {
         try {
             const goalsSettings = GoalsUtils.prepareGoalsSettings();
-            
+
             const response = await fetch('/api/goals/progress', {
                 method: 'POST',
                 headers: GoalsUtils.getHeadersWithTimezone(),
@@ -576,28 +576,28 @@ document.addEventListener('DOMContentLoaded', function () {
                     goals_settings: goalsSettings
                 })
             });
-            
+
             if (!response.ok) {
                 const errorData = await response.json();
                 throw new Error(errorData.error || 'Failed to fetch goal progress');
             }
-            
+
             const data = await response.json();
             console.log(`Progress for goal "${goal.name}":`, data.progress);
-            
+
             return data.progress;
         } catch (error) {
             console.error(`Error calculating progress for goal "${goal.name}":`, error);
             return 0;
         }
     }
-    
+
     // Helper function to render a custom goal card
     function renderCustomGoalCard(goal, currentProgress, dailyAverage) {
         // Handle custom metric type differently
         if (goal.metricType === 'custom') {
             const state = CustomGoalCheckboxManager.getState(goal.id);
-            
+
             return `
                 <div class="goal-progress-item custom-goal-item custom-goal-checkbox-item" data-goal-id="${goal.id}">
                     <div class="goal-progress-header">
@@ -610,24 +610,24 @@ document.addEventListener('DOMContentLoaded', function () {
                 </div>
             `;
         }
-        
+
         // Regular goal rendering
         const percentage = Math.min(100, (currentProgress / goal.targetValue) * 100);
         const formattedCurrent = goal.metricType === 'hours' ? Math.floor(currentProgress).toLocaleString() :
-                                 goal.metricType === 'characters' ? formatGoalNumber(currentProgress) :
-                                 currentProgress.toLocaleString();
+            goal.metricType === 'characters' ? formatGoalNumber(currentProgress) :
+                currentProgress.toLocaleString();
         const formattedTarget = goal.metricType === 'hours' ? goal.targetValue.toLocaleString() :
-                                goal.metricType === 'characters' ? formatGoalNumber(goal.targetValue) :
-                                goal.targetValue.toLocaleString();
-        
+            goal.metricType === 'characters' ? formatGoalNumber(goal.targetValue) :
+                goal.targetValue.toLocaleString();
+
         const progressBarClass = `completion-${Math.floor(percentage / 25) * 25}`;
-        
+
         // Format dates for display
         const startDate = new Date(goal.startDate);
         const endDate = new Date(goal.endDate);
         const formattedStartDate = startDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' });
         const formattedEndDate = endDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' });
-        
+
         return `
             <div class="goal-progress-item custom-goal-item" data-goal-id="${goal.id}">
                 <div class="goal-progress-header">
@@ -663,46 +663,46 @@ document.addEventListener('DOMContentLoaded', function () {
         const goalProgressChart = document.getElementById('goalProgressChart');
         const goalProgressLoading = document.getElementById('goalProgressLoading');
         const goalProgressError = document.getElementById('goalProgressError');
-        
+
         if (!goalProgressChart) return;
-        
+
         try {
             goalProgressLoading.style.display = 'flex';
             goalProgressError.style.display = 'none';
-            
+
             const response = await fetch('/api/stats');
             if (!response.ok) throw new Error('Failed to fetch stats data');
-            
+
             const data = await response.json();
             const allGamesStats = data.allGamesStats;
             const allLinesData = data.allLinesData || [];
-            
+
             console.log('API Response data keys:', Object.keys(data));
             console.log('allGamesStats:', allGamesStats);
-            
+
             if (!allGamesStats) {
                 throw new Error('No stats data available');
             }
-            
+
             // Calculate daily averages for custom goals using 90-day lookback period
             const dailyHoursAvg = calculateDailyAverage(allLinesData, 'hours');
             const dailyCharsAvg = calculateDailyAverage(allLinesData, 'characters');
             const dailyGamesAvg = calculateDailyAverage(allLinesData, 'games');
-            
+
             // Load and render custom goals
             const customGoals = CustomGoalsManager.getActive();
             const goalProgressGrid = document.querySelector('.goal-progress-grid');
-            
+
             // Remove existing custom goal cards
             const existingCustomGoals = goalProgressGrid.querySelectorAll('.custom-goal-item');
             existingCustomGoals.forEach(el => el.remove());
-            
+
             // Add custom goal cards (using async/await for API calls)
             if (customGoals.length > 0) {
                 console.log(`Rendering ${customGoals.length} custom goals`);
                 for (const goal of customGoals) {
                     console.log('Processing goal:', goal);
-                    
+
                     // For custom goals, skip API call
                     if (goal.metricType === 'custom') {
                         const cardHTML = renderCustomGoalCard(goal, 0, 0);
@@ -710,8 +710,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     } else {
                         const progress = await calculateCustomGoalProgress(goal);
                         const dailyAvg = goal.metricType === 'hours' ? dailyHoursAvg :
-                                        goal.metricType === 'characters' ? dailyCharsAvg :
-                                        dailyGamesAvg;
+                            goal.metricType === 'characters' ? dailyCharsAvg :
+                                dailyGamesAvg;
                         console.log(`Goal "${goal.name}" progress: ${progress}, daily avg: ${dailyAvg}`);
                         const cardHTML = renderCustomGoalCard(goal, progress, dailyAvg);
                         goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
@@ -720,9 +720,9 @@ document.addEventListener('DOMContentLoaded', function () {
             } else {
                 console.log('No custom goals to render');
             }
-            
+
             goalProgressLoading.style.display = 'none';
-            
+
         } catch (error) {
             console.error('Error loading goal progress:', error);
             goalProgressLoading.style.display = 'none';
@@ -738,7 +738,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const today = new Date();
         const ninetyDaysAgo = new Date(today.getTime() - (90 * 24 * 60 * 60 * 1000));
-        
+
         const recentData = allLinesData.filter(line => {
             const lineDate = new Date(line.timestamp * 1000);
             return lineDate >= ninetyDaysAgo && lineDate <= today;
@@ -749,7 +749,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         let dailyTotals = {};
-        
+
         // Helper function to get cached date string
         const getDateStr = (timestamp) => {
             if (!dateStrCache.has(timestamp)) {
@@ -758,7 +758,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             return dateStrCache.get(timestamp);
         };
-        
+
         if (metricType === 'hours') {
             const dailyTimestamps = {};
             for (const line of recentData) {
@@ -770,14 +770,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 dailyTimestamps[dateStr].push(ts);
             }
-            
+
             for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
                 if (timestamps.length >= 2) {
                     timestamps.sort((a, b) => a - b);
                     let dayHours = 0;
                     const afkTimerSeconds = 120; // Default AFK timer
                     for (let i = 1; i < timestamps.length; i++) {
-                        const gap = timestamps[i] - timestamps[i-1];
+                        const gap = timestamps[i] - timestamps[i - 1];
                         dayHours += Math.min(gap, afkTimerSeconds) / 3600;
                     }
                     dailyTotals[dateStr] = dayHours;
@@ -803,17 +803,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 dailyGames[dateStr].add(line.game_name);
             }
-            
+
             for (const [dateStr, gamesSet] of Object.entries(dailyGames)) {
                 dailyTotals[dateStr] = gamesSet.size;
             }
         }
-        
+
         const totalDays = Object.keys(dailyTotals).length;
         if (totalDays === 0) {
             return 0;
         }
-        
+
         const totalValue = Object.values(dailyTotals).reduce((sum, value) => sum + value, 0);
         return totalValue / totalDays;
     }
@@ -823,14 +823,14 @@ document.addEventListener('DOMContentLoaded', function () {
         if (currentValue >= targetValue) {
             return 'Goal achieved! 🎉';
         }
-        
+
         if (dailyAverage <= 0) {
             return 'No recent activity';
         }
-        
+
         const remaining = targetValue - currentValue;
         const daysToComplete = Math.ceil(remaining / dailyAverage);
-        
+
         if (daysToComplete <= 0) {
             return 'Goal achieved! 🎉';
         } else if (daysToComplete === 1) {
@@ -856,7 +856,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const isCompleted = CustomGoalCheckboxManager.isCompletedToday(goal.id);
             const checkboxClass = isCompleted ? 'custom-goal-checkbox-checked' : '';
             const disabledAttr = isCompleted ? 'disabled' : '';
-            
+
             return `
                 <div class="dashboard-stat-item goal-stat-item custom-goal-checkbox-item tooltip ${checkboxClass}"
                      data-tooltip="Click to mark ${goal.name} as complete for today"
@@ -873,11 +873,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 </div>
             `;
         }
-        
+
         // Regular goal rendering
         const metricLabels = GoalsUtils.getMetricLabels();
         const metricLabel = metricLabels[goal.metricType] || 'Progress';
-        
+
         // Format values based on metric type
         let formattedProgress, formattedRequired;
         if (goal.metricType === 'hours') {
@@ -893,11 +893,11 @@ document.addEventListener('DOMContentLoaded', function () {
             formattedProgress = todayData.progress.toLocaleString();
             formattedRequired = todayData.required.toLocaleString();
         }
-        
+
         // Check if goal is met
         const isGoalMet = todayData.progress >= todayData.required;
         const goalMetClass = isGoalMet ? 'goal-met' : '';
-        
+
         return `
             <div class="dashboard-stat-item goal-stat-item custom-goal-today-item tooltip ${goalMetClass}"
                  data-tooltip="Your progress toward today's ${goal.name} goal"
@@ -913,18 +913,18 @@ document.addEventListener('DOMContentLoaded', function () {
             </div>
         `;
     }
-    
+
     // Global function to handle custom goal checkbox clicks
-    window.handleCustomGoalCheckboxClick = function(goalId) {
+    window.handleCustomGoalCheckboxClick = function (goalId) {
         const isCompleted = CustomGoalCheckboxManager.isCompletedToday(goalId);
-        
+
         if (isCompleted) {
             return; // Already completed today, ignore click
         }
-        
+
         // Mark as completed
         const state = CustomGoalCheckboxManager.markCompleted(goalId);
-        
+
         // Update UI
         const checkboxItem = document.querySelector(`.custom-goal-checkbox-item[data-goal-id="${goalId}"]`);
         if (checkboxItem) {
@@ -933,14 +933,14 @@ document.addEventListener('DOMContentLoaded', function () {
             if (icon) {
                 icon.textContent = '✓';
             }
-            
+
             // Disable further clicks
             const container = checkboxItem.querySelector('.custom-goal-checkbox-container');
             if (container) {
                 container.setAttribute('disabled', 'true');
             }
         }
-        
+
         // Reload goal progress to update streak display
         loadGoalProgress();
     };
@@ -951,17 +951,17 @@ document.addEventListener('DOMContentLoaded', function () {
             // Note: Client-side date calculation is intentional to respect user's local timezone
             const dateStr = GoalsUtils.getTodayDateString();
             document.getElementById('todayGoalsDate').textContent = dateStr;
-            
+
             let hasAnyTarget = false;
-            
+
             // Load custom goals today progress
             const customGoals = CustomGoalsManager.getInProgress();
             const todayGoalsStats = document.getElementById('todayGoalsStats');
-            
+
             // Remove existing custom goal today items
             const existingCustomItems = todayGoalsStats.querySelectorAll('.custom-goal-today-item');
             existingCustomItems.forEach(el => el.remove());
-            
+
             // Add custom goal today items
             if (customGoals.length > 0) {
                 console.log(`Loading today progress for ${customGoals.length} custom goals`);
@@ -974,7 +974,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     } else {
                         try {
                             const goalsSettings = GoalsUtils.prepareGoalsSettings();
-                            
+
                             const response = await fetch('/api/goals/today-progress', {
                                 method: 'POST',
                                 headers: GoalsUtils.getHeadersWithTimezone(),
@@ -987,14 +987,14 @@ document.addEventListener('DOMContentLoaded', function () {
                                     goals_settings: goalsSettings
                                 })
                             });
-                            
+
                             if (!response.ok) {
                                 console.error(`Failed to fetch today progress for goal ${goal.id}`);
                                 continue;
                             }
-                            
+
                             const todayData = await response.json();
-                            
+
                             // Only show if has target and not expired/not started and required value is not 0
                             if (todayData.has_target && !todayData.expired && !todayData.not_started && todayData.required !== 0) {
                                 hasAnyTarget = true;
@@ -1007,7 +1007,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 }
             }
-            
+
             // Show/hide sections based on whether any targets are set
             if (hasAnyTarget) {
                 document.getElementById('noTargetsMessage').style.display = 'none';
@@ -1016,7 +1016,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('noTargetsMessage').style.display = 'block';
                 document.getElementById('todayGoalsStats').style.display = 'none';
             }
-            
+
         } catch (error) {
             console.error('Error loading today goals:', error);
         }
@@ -1026,7 +1026,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function renderCustomGoalProjectionItem(goal, projectionData) {
         const metricLabels = GoalsUtils.getMetricLabels();
         const metricLabel = metricLabels[goal.metricType] || 'Progress';
-        
+
         // Format projected value based on metric type
         let formattedProjection;
         if (goal.metricType === 'hours') {
@@ -1036,11 +1036,11 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             formattedProjection = projectionData.projection.toLocaleString();
         }
-        
+
         // Format target date
         const targetDate = new Date(projectionData.end_date);
         const formattedTargetDate = targetDate.toLocaleDateString(navigator.language);
-        
+
         // Calculate projected completion date
         const remaining = Math.max(0, projectionData.target - projectionData.current);
         const daysToComplete = projectionData.daily_average > 0 ?
@@ -1048,11 +1048,11 @@ document.addEventListener('DOMContentLoaded', function () {
         const completionDate = new Date();
         completionDate.setDate(completionDate.getDate() + daysToComplete);
         const completionDateStr = completionDate.toLocaleDateString(navigator.language);
-        
+
         // Determine pace status and badge
         const percentDiff = projectionData.percent_difference;
         let statusHTML, statusClass;
-        
+
         if (percentDiff >= 5) {
             // Over-achieving by 5% or more
             const badge = `<span class="pace-badge pace-ahead">+${Math.floor(percentDiff)}%</span>`;
@@ -1082,7 +1082,7 @@ document.addEventListener('DOMContentLoaded', function () {
             statusHTML = `${formattedShortfall} short ${badge}<br><small style="font-size: 0.85em; opacity: 0.9;">Est. completion: ${completionDateStr}</small>`;
             statusClass = 'dashboard-progress-value';
         }
-        
+
         // Return combined HTML with status summary inside the box
         return `
             <div class="dashboard-stat-item custom-goal-projection-item tooltip"
@@ -1104,43 +1104,43 @@ document.addEventListener('DOMContentLoaded', function () {
     async function loadGoalProjections() {
         try {
             let hasAnyProjection = false;
-            
+
             // Load custom goals projections (only for 4 core metrics)
             const customGoals = CustomGoalsManager.getActive();
             const projectionStats = document.getElementById('projectionStats');
-            
+
             // If projectionStats doesn't exist (not on overview page), skip this function
             if (!projectionStats) {
                 return;
             }
-            
+
             // Remove existing custom goal projection items
             const existingCustomStats = projectionStats.querySelectorAll('.custom-goal-projection-item');
             existingCustomStats.forEach(el => el.remove());
-            
+
             // Filter for only the 5 core metrics and goals that have started
             const coreMetrics = ['hours', 'characters', 'games', 'cards', 'mature_cards'];
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             const todayStr = today.toISOString().split('T')[0];
-            
+
             const customGoalsWithProjections = customGoals.filter(goal => {
                 // Must be a core metric
                 if (!coreMetrics.includes(goal.metricType)) return false;
-                
+
                 // Must have started (today >= start_date)
                 if (goal.startDate && goal.startDate > todayStr) return false;
-                
+
                 return true;
             });
-            
+
             // Add custom goal projection items
             if (customGoalsWithProjections.length > 0) {
                 console.log(`Loading projections for ${customGoalsWithProjections.length} custom goals`);
                 for (const goal of customGoalsWithProjections) {
                     try {
                         const goalsSettings = GoalsUtils.prepareGoalsSettings();
-                        
+
                         const response = await fetch('/api/goals/projection', {
                             method: 'POST',
                             headers: GoalsUtils.getHeadersWithTimezone(),
@@ -1153,25 +1153,25 @@ document.addEventListener('DOMContentLoaded', function () {
                                 goals_settings: goalsSettings
                             })
                         });
-                        
+
                         if (!response.ok) {
                             console.error(`Failed to fetch projection for goal ${goal.id}`);
                             continue;
                         }
-                        
+
                         const projectionData = await response.json();
                         hasAnyProjection = true;
-                        
+
                         // Render combined stat item with status inside
                         const rendered = renderCustomGoalProjectionItem(goal, projectionData);
                         projectionStats.insertAdjacentHTML('beforeend', rendered);
-                        
+
                     } catch (error) {
                         console.error(`Error loading projection for goal ${goal.id}:`, error);
                     }
                 }
             }
-            
+
             // Show/hide sections
             if (hasAnyProjection) {
                 document.getElementById('noProjectionsMessage').style.display = 'none';
@@ -1180,7 +1180,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('noProjectionsMessage').style.display = 'block';
                 document.getElementById('projectionStats').style.display = 'none';
             }
-            
+
         } catch (error) {
             console.error('Error loading goal projections:', error);
         }
@@ -1198,9 +1198,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const customGoalError = document.getElementById('customGoalError');
     const customGoalSuccess = document.getElementById('customGoalSuccess');
     const customGoalModalTitle = document.getElementById('customGoalModalTitle');
-    
+
     let editingGoalId = null;
-    
+
     // Function to update form field visibility based on metric type
     function updateFormFieldsVisibility() {
         const metricType = document.getElementById('goalMetricType').value;
@@ -1213,19 +1213,25 @@ document.addEventListener('DOMContentLoaded', function () {
         const startDateInput = document.getElementById('goalStartDate');
         const endDateInput = document.getElementById('goalEndDate');
         const endDateLabel = document.getElementById('goalEndDateLabel');
-        
+        const goalValueHelp = document.getElementById('goalValueHelp');
+        const goalIconSelector = document.getElementById('goalIconSelector');
+        const customGoalIcon = document.getElementById('customGoalIcon');
+
+        console.log(`Updating form fields visibility for metric type: ${metricType}`);
+        goalIconSelector.value = CustomGoalsManager.getDefaultIcon(metricType);
+
         if (metricType === 'custom') {
             // Hide fields for custom goals - use display none for complete removal
             targetValueContainer.style.display = 'none';
             datesContainer.style.display = 'none';
             customHelpText.style.display = 'block';
             if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
-            
+
             // Remove required attributes
             targetValueInput.removeAttribute('required');
             startDateInput.removeAttribute('required');
             endDateInput.removeAttribute('required');
-            
+
             // Clear values to prevent validation issues
             targetValueInput.value = '';
             startDateInput.value = '';
@@ -1258,11 +1264,65 @@ document.addEventListener('DOMContentLoaded', function () {
             customHelpText.style.display = 'none';
             if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
             if (endDateLabel) endDateLabel.textContent = 'End Date';
-            
+
             // Add required attributes back
             targetValueInput.setAttribute('required', 'required');
             startDateInput.setAttribute('required', 'required');
             endDateInput.setAttribute('required', 'required');
+
+            // Suggestion logic for characters/hours
+            if (goalValueHelp) {
+                let suggestion = '';
+                // Helper to calculate days between two dates (inclusive)
+                function getDaysBetween(start, end) {
+                    if (!start || !end) return null;
+                    const startDate = new Date(start);
+                    const endDate = new Date(end);
+                    if (isNaN(startDate) || isNaN(endDate)) return null;
+                    // Add 1 to include both start and end dates
+                    return Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+                }
+
+                const startDateVal = document.getElementById('goalStartDate').value;
+                const endDateVal = document.getElementById('goalEndDate').value;
+                const days = getDaysBetween(startDateVal, endDateVal);
+
+                if (metricType === 'characters') {
+                    if (window.averagePaceForPredictions && typeof window.averagePaceForPredictions.average_characters_per_day === 'number' && days && days > 0) {
+                        const recommended = Math.round(window.averagePaceForPredictions.average_characters_per_day * days);
+                        suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_characters_per_day.toLocaleString()}</b> characters/day.<br>For this date range (<b>${days}</b> days), some suggested targets are:
+                        <ul>
+                        <li>Maintain: <b>${recommended.toLocaleString()}</b> characters.</li>
+                        <li>+5%: <b>${Math.round(recommended * 1.05).toLocaleString()}</b> characters.</li>
+                        <li>+10%: <b>${Math.round(recommended * 1.1).toLocaleString()}</b> characters.</li>
+                        <li>+15%: <b>${Math.round(recommended * 1.15).toLocaleString()}</b> characters.</li>
+                        </ul>`;
+                    } else if (window.averagePaceForPredictions && typeof window.averagePaceForPredictions.average_characters_per_day === 'number') {
+                        suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_characters_per_day.toLocaleString()}</b> characters per day.`;
+                    } else {
+                        suggestion = 'Enter the total number of characters you want to reach.';
+                    }
+                    goalValueHelp.innerHTML = suggestion;
+                } else if (metricType === 'hours') {
+                    if (window.averagePaceForPredictions && typeof window.averagePaceForPredictions.average_hours_per_day === 'number' && days && days > 0) {
+                        const recommended = (window.averagePaceForPredictions.average_hours_per_day * days).toFixed(2);
+                        suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_hours_per_day.toFixed(2)}</b> hours/day.<br>For this date range (<b>${days}</b> days), some recommended targets are:
+                        <ul>
+                        <li>Maintain: <b>${recommended}</b> hours<br></li>
+                        <li>+5%: <b>${(recommended * 1.05).toFixed(2)}</b> hours<br></li>
+                        <li>+10%: <b>${(recommended * 1.1).toFixed(2)}</b> hours<br></li>
+                        <li>+15%: <b>${(recommended * 1.15).toFixed(2)}</b> hours</li>
+                        </ul>`;
+                    } else if (window.averagePaceForPredictions && typeof window.averagePaceForPredictions.average_hours_per_day === 'number') {
+                        suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_hours_per_day.toFixed(2)}</b> hours per day.`;
+                    } else {
+                        suggestion = 'Enter the total number of hours you want to reach.';
+                    }
+                    goalValueHelp.innerHTML = suggestion;
+                } else {
+                    goalValueHelp.innerText = 'Enter the target value for your goal.';
+                }
+            }
         } else {
             // No metric type selected - hide help text but show fields
             customHelpText.style.display = 'none';
@@ -1273,16 +1333,37 @@ document.addEventListener('DOMContentLoaded', function () {
             if (endDateLabel) endDateLabel.textContent = 'End Date';
         }
     }
-    
+
     // Add event listener to metric type select
     const goalMetricTypeSelect = document.getElementById('goalMetricType');
+    const startDateInput = document.getElementById('goalStartDate');
+    const endDateInput = document.getElementById('goalEndDate');
     if (goalMetricTypeSelect) {
         goalMetricTypeSelect.addEventListener('change', updateFormFieldsVisibility);
     }
-    
+    if (startDateInput) {
+        startDateInput.addEventListener('change', updateFormFieldsVisibility);
+        startDateInput.addEventListener('input', updateFormFieldsVisibility);
+    }
+    if (endDateInput) {
+        endDateInput.addEventListener('change', updateFormFieldsVisibility);
+        endDateInput.addEventListener('input', updateFormFieldsVisibility);
+    }
+    const goalIconSelector = document.getElementById('goalIconSelector');
+
+    if (goalIconSelector) {
+        goalIconSelector.addEventListener('change', function () {
+            const selectedIcon = goalIconSelector.value;
+            const customGoalIconInput = document.getElementById('customGoalIcon');
+            if (customGoalIconInput) {
+                customGoalIconInput.value = selectedIcon;
+            }
+        });
+    }
+
     // Open modal for creating new goal
     if (addCustomGoalBtn) {
-        addCustomGoalBtn.addEventListener('click', function() {
+        addCustomGoalBtn.addEventListener('click', function () {
             editingGoalId = null;
             customGoalModalTitle.textContent = 'Add Custom Goal';
             customGoalForm.reset();
@@ -1293,7 +1374,7 @@ document.addEventListener('DOMContentLoaded', function () {
             updateFormFieldsVisibility();
         });
     }
-    
+
     // Close custom goal modal function
     function closeCustomGoalModalFunc() {
         customGoalModal.style.display = 'none';
@@ -1302,21 +1383,21 @@ document.addEventListener('DOMContentLoaded', function () {
         editingGoalId = null;
         clearCustomGoalMessages();
     }
-    
+
     if (closeCustomGoalModal) {
         closeCustomGoalModal.addEventListener('click', closeCustomGoalModalFunc);
     }
-    
+
     if (cancelCustomGoalBtn) {
         cancelCustomGoalBtn.addEventListener('click', closeCustomGoalModalFunc);
     }
-    
+
     // Clear error/success messages
     function clearCustomGoalMessages() {
         if (customGoalError) customGoalError.style.display = 'none';
         if (customGoalSuccess) customGoalSuccess.style.display = 'none';
     }
-    
+
     // Show error message
     function showCustomGoalError(message) {
         if (customGoalError) {
@@ -1327,7 +1408,7 @@ document.addEventListener('DOMContentLoaded', function () {
             customGoalSuccess.style.display = 'none';
         }
     }
-    
+
     // Show success message
     function showCustomGoalSuccess(message) {
         if (customGoalSuccess) {
@@ -1338,36 +1419,37 @@ document.addEventListener('DOMContentLoaded', function () {
             customGoalError.style.display = 'none';
         }
     }
-    
+
     // Save custom goal (create or update)
     if (saveCustomGoalBtn) {
-        saveCustomGoalBtn.addEventListener('click', function() {
+        saveCustomGoalBtn.addEventListener('click', function () {
             clearCustomGoalMessages();
-            
+
             const metricType = document.getElementById('goalMetricType').value;
+            const icon = document.getElementById('customGoalIcon').value.trim() || document.getElementById('goalIconSelector').value.trim();
             const goalData = {
                 name: document.getElementById('goalName').value.trim(),
                 metricType: metricType,
                 targetValue: parseInt(document.getElementById('goalTargetValue').value),
                 startDate: document.getElementById('goalStartDate').value,
                 endDate: document.getElementById('goalEndDate').value,
-                icon: document.getElementById('goalIcon').value.trim()
+                icon: icon
             };
-            
+
             // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
             /* // For anki_backlog, set defaults for optional fields
             if (metricType === 'anki_backlog') {
                 goalData.targetValue = 0;  // Always target 0 (clear all backlog)
                 goalData.startDate = GoalsUtils.getTodayDateString();  // Start today
             } */
-            
+
             // Validate
             const errors = CustomGoalsManager.validate(goalData);
             if (errors.length > 0) {
                 showCustomGoalError(errors.join(', '));
                 return;
             }
-            
+
             try {
                 if (editingGoalId) {
                     // Update existing goal
@@ -1378,7 +1460,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     CustomGoalsManager.create(goalData);
                     showCustomGoalSuccess('Goal created successfully!');
                 }
-                
+
                 // Reload goal displays
                 setTimeout(() => {
                     loadGoalProgress();
@@ -1386,48 +1468,49 @@ document.addEventListener('DOMContentLoaded', function () {
                     loadGoalProjections();
                     closeCustomGoalModalFunc();
                 }, 1000);
-                
+
             } catch (error) {
                 console.error('Error saving custom goal:', error);
                 showCustomGoalError('Failed to save goal: ' + error.message);
             }
         });
     }
-    
+
     // Function to open edit modal for existing goal
-    window.editCustomGoal = function(goalId) {
+    window.editCustomGoal = function (goalId) {
         const goal = CustomGoalsManager.getById(goalId);
         if (!goal) {
             alert('Goal not found');
             return;
         }
-        
+
         editingGoalId = goalId;
         customGoalModalTitle.textContent = 'Edit Custom Goal';
-        
+
         document.getElementById('goalName').value = goal.name;
         document.getElementById('goalMetricType').value = goal.metricType;
         document.getElementById('goalTargetValue').value = goal.targetValue || '';
         document.getElementById('goalStartDate').value = goal.startDate || '';
         document.getElementById('goalEndDate').value = goal.endDate || '';
-        document.getElementById('goalIcon').value = goal.icon;
-        
+        document.getElementById('goalIconSelector').value = goal.icon;
+        document.getElementById('customGoalIcon').value = goal.icon;
+
         customGoalModal.style.display = 'flex';
         customGoalModal.classList.add('show');
         clearCustomGoalMessages();
-        
+
         // Update field visibility based on goal type
         updateFormFieldsVisibility();
     };
-    
+
     // Function to delete custom goal
-    window.deleteCustomGoal = function(goalId) {
+    window.deleteCustomGoal = function (goalId) {
         const goal = CustomGoalsManager.getById(goalId);
         if (!goal) {
             alert('Goal not found');
             return;
         }
-        
+
         if (confirm(`Are you sure you want to delete the goal "${goal.name}"?`)) {
             CustomGoalsManager.delete(goalId);
             loadGoalProgress();
@@ -1439,7 +1522,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // ================================
     // Dailies Streak Functionality
     // ================================
-    
+
     // Function to load and display dailies streak
     async function loadDailiesStreak() {
         try {
@@ -1447,60 +1530,60 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!response.ok) {
                 throw new Error('Failed to fetch streak data');
             }
-            
+
             const data = await response.json();
             const currentStreak = data.streak || 0;
             const longestStreak = data.longest_streak || 0;
             const lastCompletionDate = data.last_completion_date;
-            
+
             // Update streak displays from database
             // If current streak is higher than longest streak, show current as longest too
             const displayLongestStreak = Math.max(currentStreak, longestStreak);
             document.getElementById('currentStreakValue').textContent = currentStreak;
             document.getElementById('longestStreakValue').textContent = displayLongestStreak;
-            
+
             // Show the streak section
             document.getElementById('dailiesStreakSection').style.display = 'block';
-            
+
             // Check if already completed today
             const today = new Date().toISOString().split('T')[0];
             const isCompletedToday = lastCompletionDate === today;
-            
+
             const completeDailiesBtn = document.getElementById('completeDailiesBtn');
             if (isCompletedToday) {
                 completeDailiesBtn.textContent = 'Completed Today ✓';
                 completeDailiesBtn.disabled = true;
             }
-            
+
         } catch (error) {
             console.error('Error loading dailies streak:', error);
             // Still show the section with 0 streak
             document.getElementById('dailiesStreakSection').style.display = 'block';
         }
     }
-    
+
     // Function to trigger confetti celebration with streak-based scaling
     function triggerStreakConfetti(streak) {
         if (typeof confetti === 'undefined') {
             console.warn('Confetti library not loaded');
             return;
         }
-        
+
         // Calculate particle count: linear scaling from 50 to 200, capped at 100 days
         const effectiveStreak = Math.min(streak, 100);
         const particleCount = Math.floor(50 + (effectiveStreak * 1.5));
-        
+
         // Fire confetti from multiple angles for a nice effect
         const duration = 3000;
         const animationEnd = Date.now() + duration;
-        
+
         const fireConfetti = () => {
             const timeLeft = animationEnd - Date.now();
-            
+
             if (timeLeft <= 0) {
                 return;
             }
-            
+
             // Fire from left side
             confetti({
                 particleCount: Math.floor(particleCount / 3),
@@ -1509,7 +1592,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 origin: { x: 0, y: 0.6 },
                 colors: ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e']
             });
-            
+
             // Fire from center
             confetti({
                 particleCount: Math.floor(particleCount / 3),
@@ -1518,7 +1601,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 origin: { x: 0.5, y: 0.6 },
                 colors: ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e']
             });
-            
+
             // Fire from right side
             confetti({
                 particleCount: Math.floor(particleCount / 3),
@@ -1527,16 +1610,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 origin: { x: 1, y: 0.6 },
                 colors: ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e']
             });
-            
+
             // Continue animation for higher streaks
             if (streak > 7) {
                 requestAnimationFrame(fireConfetti);
             }
         };
-        
+
         fireConfetti();
     }
-    
+
     // Function to show the complete dailies confirmation modal
     async function showCompleteDailiesModal() {
         const modal = document.getElementById('completeDailiesModal');
@@ -1545,22 +1628,22 @@ document.addEventListener('DOMContentLoaded', function () {
         const tableDiv = document.getElementById('tomorrowRequirementsTable');
         const noRequirementsDiv = document.getElementById('noRequirementsTomorrow');
         const tbody = document.getElementById('tomorrowRequirementsBody');
-        
+
         // Show modal
         modal.style.display = 'flex';
         modal.classList.add('show');
-        
+
         // Show loading state
         loadingDiv.style.display = 'block';
         errorDiv.style.display = 'none';
         tableDiv.style.display = 'none';
         noRequirementsDiv.style.display = 'none';
         tbody.innerHTML = '';
-        
+
         try {
             const currentGoals = await GoalsUtils.getGoalsWithFallback();
             const goalsSettings = GoalsUtils.prepareGoalsSettings();
-            
+
             // Fetch tomorrow's requirements
             const response = await fetch('/api/goals/tomorrow-requirements', {
                 method: 'POST',
@@ -1570,17 +1653,17 @@ document.addEventListener('DOMContentLoaded', function () {
                     goals_settings: goalsSettings
                 })
             });
-            
+
             if (!response.ok) {
                 throw new Error('Failed to fetch tomorrow\'s requirements');
             }
-            
+
             const data = await response.json();
             const requirements = data.requirements || [];
-            
+
             // Hide loading
             loadingDiv.style.display = 'none';
-            
+
             if (requirements.length === 0) {
                 // Show no requirements message
                 noRequirementsDiv.style.display = 'block';
@@ -1601,10 +1684,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     `;
                     tbody.appendChild(row);
                 });
-                
+
                 tableDiv.style.display = 'block';
             }
-            
+
         } catch (error) {
             console.error('Error fetching tomorrow\'s requirements:', error);
             loadingDiv.style.display = 'none';
@@ -1612,33 +1695,33 @@ document.addEventListener('DOMContentLoaded', function () {
             errorDiv.style.display = 'block';
         }
     }
-    
+
     // Function to close the complete dailies modal
     function closeCompleteDailiesModal() {
         const modal = document.getElementById('completeDailiesModal');
         modal.style.display = 'none';
         modal.classList.remove('show');
     }
-    
+
     // Function to handle Complete Dailies button click (now shows modal)
     async function handleCompleteDailies() {
         showCompleteDailiesModal();
     }
-    
+
     // Function to actually complete dailies (called from modal confirmation)
     async function confirmCompleteDailies() {
         const completeDailiesBtn = document.getElementById('completeDailiesBtn');
         const dailiesMessage = document.getElementById('dailiesMessage');
         const confirmBtn = document.getElementById('confirmCompleteDailiesBtn');
-        
+
         // Disable confirm button during processing
         confirmBtn.disabled = true;
         confirmBtn.textContent = 'Processing...';
-        
+
         try {
             const currentGoals = await GoalsUtils.getGoalsWithFallback();
             const goalsSettings = GoalsUtils.prepareGoalsSettings();
-            
+
             // Call the API
             const response = await fetch('/api/goals/complete_todays_dailies', {
                 method: 'POST',
@@ -1648,88 +1731,88 @@ document.addEventListener('DOMContentLoaded', function () {
                     goals_settings: goalsSettings
                 })
             });
-            
+
             const data = await response.json();
-            
+
             if (!response.ok) {
                 throw new Error(data.error || 'Failed to complete dailies');
             }
-            
+
             // Success! Close modal
             closeCompleteDailiesModal();
-            
+
             const newStreak = data.streak;
-            
+
             // Update streak displays from API response
             document.getElementById('currentStreakValue').textContent = newStreak;
-            
+
             // Update longest streak from API response
             // If current streak is higher than longest streak, show current as longest too
             const newLongestStreak = data.longest_streak || newStreak;
             const displayLongestStreak = Math.max(newStreak, newLongestStreak);
             document.getElementById('longestStreakValue').textContent = displayLongestStreak;
-            
+
             // Update button
             completeDailiesBtn.disabled = true;
             completeDailiesBtn.textContent = 'Completed Today ✓';
-            
+
             // Show success message
             dailiesMessage.textContent = data.message || `Dailies completed! Current streak: ${newStreak} days 🔥`;
             dailiesMessage.className = 'dailies-message success';
             dailiesMessage.style.display = 'block';
-            
+
             // Trigger confetti celebration!
             triggerStreakConfetti(newStreak);
-            
+
         } catch (error) {
             console.error('Error completing dailies:', error);
-            
+
             // Close modal
             closeCompleteDailiesModal();
-            
+
             // Show error message
             dailiesMessage.textContent = error.message || 'Failed to complete dailies. Please try again.';
             dailiesMessage.className = 'dailies-message error';
             dailiesMessage.style.display = 'block';
-            
+
             // Re-enable confirm button
             confirmBtn.disabled = false;
             confirmBtn.textContent = 'Complete Today';
         }
     }
-    
+
     // Attach event listener to Complete Dailies button
     const completeDailiesBtn = document.getElementById('completeDailiesBtn');
     if (completeDailiesBtn) {
         completeDailiesBtn.addEventListener('click', handleCompleteDailies);
     }
-    
+
     // Complete Dailies Modal event listeners
     const closeCompleteDailiesModalBtn = document.getElementById('closeCompleteDailiesModal');
     if (closeCompleteDailiesModalBtn) {
         closeCompleteDailiesModalBtn.addEventListener('click', closeCompleteDailiesModal);
     }
-    
+
     const cancelCompleteDailiesBtn = document.getElementById('cancelCompleteDailiesBtn');
     if (cancelCompleteDailiesBtn) {
         cancelCompleteDailiesBtn.addEventListener('click', closeCompleteDailiesModal);
     }
-    
+
     const confirmCompleteDailiesBtn = document.getElementById('confirmCompleteDailiesBtn');
     if (confirmCompleteDailiesBtn) {
         confirmCompleteDailiesBtn.addEventListener('click', confirmCompleteDailies);
     }
-    
+
     // Close modal when clicking outside
     const completeDailiesModal = document.getElementById('completeDailiesModal');
     if (completeDailiesModal) {
-        completeDailiesModal.addEventListener('click', function(e) {
+        completeDailiesModal.addEventListener('click', function (e) {
             if (e.target === completeDailiesModal) {
                 closeCompleteDailiesModal();
             }
         });
     }
-    
+
     // Load initial data
     loadDailiesStreak();
     loadGoalProgress();
@@ -1739,44 +1822,44 @@ document.addEventListener('DOMContentLoaded', function () {
     // ================================
     // Easy Days Settings UI Functions
     // ================================
-    
+
     // Load easy days settings into UI
     function loadEasyDaysUI() {
         const settings = EasyDaysManager.getSettings();
         const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-        
+
         days.forEach(day => {
             const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
             const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
-            
+
             if (slider && valueDisplay) {
                 slider.value = settings[day];
                 valueDisplay.textContent = settings[day] + '%';
             }
         });
     }
-    
+
     // Setup slider event listeners to update value displays
     function setupEasyDaySliders() {
         const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-        
+
         days.forEach(day => {
             const slider = document.getElementById(`easyDay${day}`);
             const valueDisplay = document.getElementById(`easyDay${day}Value`);
-            
+
             if (slider && valueDisplay) {
-                slider.addEventListener('input', function() {
+                slider.addEventListener('input', function () {
                     valueDisplay.textContent = this.value + '%';
                 });
             }
         });
     }
-    
+
     // Initialize easy days settings from localStorage or database
     async function initializeEasyDaysSettings() {
         // Try localStorage first
         const stored = localStorage.getItem(EasyDaysManager.STORAGE_KEY);
-        
+
         if (!stored) {
             // If not in localStorage, try to fetch from database
             try {
@@ -1789,13 +1872,13 @@ document.addEventListener('DOMContentLoaded', function () {
                             const goalsSettings = typeof data.goals_settings === 'string'
                                 ? JSON.parse(data.goals_settings)
                                 : data.goals_settings;
-                            
+
                             if (goalsSettings && goalsSettings.easyDays) {
                                 // Save to localStorage
                                 localStorage.setItem(EasyDaysManager.STORAGE_KEY, JSON.stringify(goalsSettings.easyDays));
                                 console.log('Loaded easy days settings from database');
                             }
-                            
+
                             if (goalsSettings && goalsSettings.ankiConnect) {
                                 // Save AnkiConnect settings to localStorage
                                 localStorage.setItem(AnkiConnectManager.STORAGE_KEY, JSON.stringify(goalsSettings.ankiConnect));
@@ -1809,6 +1892,27 @@ document.addEventListener('DOMContentLoaded', function () {
             } catch (error) {
                 console.warn('Could not fetch goals settings from database:', error);
             }
+        }
+    }
+
+    // Fetch and store average reading pace for predictions
+
+    async function getAveragePaceForPredictions() {
+        try {
+            const response = await fetch('/api/goals/reading-pace', {
+                method: 'GET',
+                headers: GoalsUtils.getHeadersWithTimezone()
+            });
+            if (response.ok) {
+                window.averagePaceForPredictions = await response.json();
+                console.log('Fetched average pace for predictions:', window.averagePaceForPredictions);
+            } else {
+                window.averagePaceForPredictions = null;
+                console.error('Failed to fetch average pace');
+            }
+        } catch (error) {
+            window.averagePaceForPredictions = null;
+            console.error('Error fetching average pace:', error);
         }
     }
 
@@ -1829,15 +1933,15 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadAnkiConnectUI() {
         const settings = AnkiConnectManager.getSettings();
         const deckNameInput = document.getElementById('ankiDeckName');
-        
+
         if (deckNameInput) {
             deckNameInput.value = settings.deckName || '';
         }
     }
-    
+
     // Open settings modal
     if (settingsToggle) {
-        settingsToggle.addEventListener('click', function() {
+        settingsToggle.addEventListener('click', function () {
             loadEasyDaysUI();
             loadAnkiConnectUI();
             settingsModal.style.display = 'flex';
@@ -1860,7 +1964,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Close modal when clicking outside
-    settingsModal.addEventListener('click', function(e) {
+    settingsModal.addEventListener('click', function (e) {
         if (e.target === settingsModal) {
             closeModal();
         }
@@ -1868,31 +1972,31 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Save settings
     if (saveSettingsBtn) {
-        saveSettingsBtn.addEventListener('click', async function() {
+        saveSettingsBtn.addEventListener('click', async function () {
             // Clear previous messages
             if (settingsError) settingsError.style.display = 'none';
             if (settingsSuccess) settingsSuccess.style.display = 'none';
-            
+
             // Read all slider values
             const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
             const easyDaysSettings = {};
-            
+
             days.forEach(day => {
                 const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
                 if (slider) {
                     easyDaysSettings[day] = parseInt(slider.value);
                 }
             });
-            
+
             // Read AnkiConnect settings
             const deckNameInput = document.getElementById('ankiDeckName');
             const ankiConnectSettings = {
                 deckName: deckNameInput ? deckNameInput.value.trim() : ''
             };
-            
+
             // Validate and save easy days
             const easyDaysResult = EasyDaysManager.saveSettings(easyDaysSettings);
-            
+
             if (!easyDaysResult.success) {
                 if (settingsError) {
                     settingsError.textContent = easyDaysResult.error;
@@ -1900,16 +2004,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 return;
             }
-            
+
             // Save AnkiConnect settings
             const ankiResult = AnkiConnectManager.saveSettings(ankiConnectSettings);
-            
+
             if (ankiResult.success) {
                 if (settingsSuccess) {
                     settingsSuccess.textContent = 'Settings saved successfully!';
                     settingsSuccess.style.display = 'block';
                 }
-                
+
                 // Close modal after a short delay
                 setTimeout(() => {
                     closeModal();
@@ -1922,9 +2026,10 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
-    
+
     // Initialize easy days settings on page load
     initializeEasyDaysSettings();
+    getAveragePaceForPredictions();
 
     // Make functions globally available
     window.loadGoalProgress = loadGoalProgress;

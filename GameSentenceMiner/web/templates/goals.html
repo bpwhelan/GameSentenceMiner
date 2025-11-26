@@ -184,7 +184,7 @@
                             <input type="number" id="goalTargetValue" name="goalTargetValue" min="1"
                                 style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
                                 placeholder="e.g., 1000000">
-                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                            <small id="goalValueHelp" style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
                                 The target amount you want to achieve
                             </small>
                         </div>
@@ -207,14 +207,36 @@
                         </div>
 
                         <div style="margin-bottom: 15px;">
-                            <label for="goalIcon" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                Icon (Optional)
+                            <label for="goalIconSelector" style="display: block; font-weight: 600; margin: 8px 0 0 0; color: var(--text-primary);">
+                                Select an icon:
                             </label>
-                            <input type="text" id="goalIcon" name="goalIcon" maxlength="2"
+                            <select id="goalIconSelector" name="goalIconSelector"
+                                style="width: 50%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <option value="🎯">🎯 Target</option>
+                                <option value="📖">📖 Reading</option>
+                                <option value="⏱️">⏱️ Time</option>
+                                <option value="📝">📝 Notes</option>
+                                <option value="🎮">🎮 Games</option>
+                                <option value="💎">💎 Mining</option>
+                                <option value="⛏️">⛏️ Pickaxe</option>
+                                <option value="✅">✅ Habit</option>
+                                <option value="🚀">🚀 Progress</option>
+                                <option value="🔥">🔥 Streak</option>
+                                <option value="🎴">🎴 Cards</option>
+                                <option value="📚">📚 Mature Cards</option>
+                                <option value="🌸">🌸 Spring</option>
+                                <option value="☀️">☀️ Summer</option>
+                                <option value="🍂">🍂 Autumn</option>
+                                <option value="❄️">❄️ Winter</option>
+                            </select>
+                            <label for="customGoalIcon" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Override Icon:
+                            </label>
+                            <input type="text" id="customGoalIcon" name="customGoalIcon" maxlength="2"
                                 style="width: 90%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
-                                placeholder="e.g., 🎯 (leave empty for default)">
+                                placeholder="e.g., 🚀">
                             <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                                Enter an emoji to represent this goal
+                                Enter a custom emoji to represent this goal
                             </small>
                         </div>
                     </form>
