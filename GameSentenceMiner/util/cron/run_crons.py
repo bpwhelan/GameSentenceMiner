@@ -9,34 +9,73 @@ Usage:
 """
 
 import asyncio
-from typing import Optional
+import enum
+import time
+from typing import Optional, List, Any
+from dataclasses import dataclass
 from GameSentenceMiner.util.cron_table import CronTable
 from GameSentenceMiner.util.configuration import logger
 
+class Crons(enum.Enum):
+    POPULATE_GAMES = 'populate_games'
+    JITEN_SYNC = 'jiten_sync'
+    DAILY_STATS_ROLLUP = 'daily_stats_rollup'
+
+@dataclass
+class MockCron:
+    """Helper to mimic the ORM object for forced runs"""
+    id: int
+    name: str
+    description: str
 
 class CronScheduler:
     """
     Async-based cron scheduler that checks for due cron jobs every 15 minutes.
-    
-    Usage:
-        # In your main async function:
-        scheduler = CronScheduler()
-        await scheduler.start()
-        
-        # To stop the scheduler:
-        await scheduler.stop()
+    It uses an Event Queue to allow immediate execution of forced tasks.
     """
 
     def __init__(self, check_interval: int = 900):
-        """
-        Initialize the CronScheduler.
-        
-        Args:
-            check_interval: Seconds between cron checks (default: 900)
-        """
         self.check_interval = check_interval
         self._task: Optional[asyncio.Task] = None
         self._running = False
+        
+        self._lock = asyncio.Lock()
+        
+        self._queue = None
+        self.loop = None
+
+    def _ensure_init(self):
+        """Lazy initialization of loop-dependent objects"""
+        if self._queue is None:
+            self._queue = asyncio.Queue()
+        if self.loop is None:
+            try:
+                self.loop = asyncio.get_running_loop()
+            except RuntimeError:
+                self.loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self.loop)
+
+    def add_external_task(self, task: Crons):
+        """
+        Add an external cron task to be executed IMMEDIATELY.
+        Thread-safe: Can be called from UI threads.
+        """
+        self._ensure_init()
+        # Put the task in the queue to wake up the scheduler immediately
+        if self.loop.is_running():
+            self.loop.call_soon_threadsafe(self._queue.put_nowait, task)
+        else:
+            logger.warning("CronScheduler loop is not running, task queued but won't run until start()")
+            self._queue.put_nowait(task)
+        
+    def force_daily_rollup(self):
+        self.add_external_task(Crons.DAILY_STATS_ROLLUP)
+        
+    def force_jiten_sync(self):
+        self.add_external_task(Crons.JITEN_SYNC)
+    
+    def force_populate_games(self):
+        self.add_external_task(Crons.POPULATE_GAMES)
     
     async def start(self):
         """Start the cron scheduler in the background."""
@@ -44,6 +83,7 @@ class CronScheduler:
             logger.warning("CronScheduler is already running")
             return
         
+        self._ensure_init()
         self._running = True
         self._task = asyncio.create_task(self._run_scheduler())
         logger.info(f"CronScheduler started with check interval of {self.check_interval}s")
@@ -51,7 +91,6 @@ class CronScheduler:
     async def stop(self):
         """Stop the cron scheduler gracefully."""
         if not self._running:
-            logger.warning("CronScheduler is not running")
             return
         
         self._running = False
@@ -64,42 +103,65 @@ class CronScheduler:
         logger.info("CronScheduler stopped")
     
     async def _run_scheduler(self):
-        """Internal method that runs the scheduler loop."""
+        """
+        The main loop. 
+        It waits for 'check_interval' seconds OR for a forced task in the queue.
+        """
         logger.info("CronScheduler loop started")
         
-        # Run immediately on startup
         try:
             logger.info("Running initial cron check on startup...")
-            await asyncio.to_thread(run_due_crons)
+            await self._execute_safe(None)
         except Exception as e:
             logger.warning(f"Failed to check cron jobs on startup: {e}")
         
-        # Then continue with periodic checks
         while self._running:
             try:
-                await asyncio.sleep(self.check_interval)
-                if self._running:  # Check again after sleep
-                    await asyncio.to_thread(run_due_crons)
+                forced_task = await asyncio.wait_for(self._queue.get(), timeout=self.check_interval)
+                
+                logger.info(f"Received forced trigger for: {forced_task}")
+                await self._execute_safe(forced_task)
+                
+            except asyncio.TimeoutError:
+                if self._running:
+                    await self._execute_safe(None)
+                    
             except asyncio.CancelledError:
                 logger.info("CronScheduler task cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in CronScheduler loop: {e}", exc_info=True)
-                # Continue running even if there's an error
-    
+                await asyncio.sleep(60) # Backoff on error
+
+    async def _execute_safe(self, force_task: Optional[Crons]):
+        """Helper to acquire lock and run logic"""
+        if self._lock.locked():
+            logger.info("Cron task is already running, skipping/queuing...")
+            return
+
+        async with self._lock:
+            await run_due_crons(force_task)
+
     def is_running(self) -> bool:
-        """Check if the scheduler is currently running."""
         return self._running
+    
 
-
-def run_due_crons():
+async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
     """
     Check for and execute all due cron jobs.
-    
-    Returns:
-        Dictionary with execution summary
     """
-    due_crons = CronTable.get_due_crons()
+    
+    if force_task:
+        logger.info(f"⚡ Forcing execution of cron job: {force_task.value}")
+        # Create a Mock object that mimics the ORM object so dot-notation works
+        fake_cron = MockCron(
+            id=-1, # -1 ID for manual runs
+            name=force_task.value,
+            description=f"Forced execution of {force_task.value}"
+        )
+        due_crons = [fake_cron]
+    else:
+        due_crons = CronTable.get_due_crons()
     
     if not due_crons:
         return {
@@ -117,7 +179,6 @@ def run_due_crons():
     
     for cron in due_crons:
         logger.info(f"Executing cron job: {cron.name}")
-        logger.info(f"Description: {cron.description}")
         
         detail = {
             'name': cron.name,
@@ -127,46 +188,42 @@ def run_due_crons():
         }
         
         try:
-            # Execute populate_games BEFORE daily_stats_rollup to ensure games table is populated
-            if cron.name == 'populate_games':
+            # Execute populate_games
+            if cron.name == Crons.POPULATE_GAMES.value:
                 from GameSentenceMiner.util.cron.populate_games import populate_games_table
                 result = populate_games_table()
                 
-                # Mark as successfully run (even if there were some errors, as long as it completed)
-                CronTable.just_ran(cron.id)
+                if cron.id != -1: CronTable.just_ran(cron.id)
                 executed_count += 1
                 detail['success'] = True
                 detail['result'] = result
                 
                 logger.info(f"Successfully executed {cron.name}")
-                logger.info(f"Created: {result['created']} games, Linked: {result['linked_lines']} lines, Errors: {result['errors']}")
+                logger.info(f"Created: {result.get('created',0)} games, Linked: {result.get('linked_lines',0)} lines")
                 
-            # Execute the appropriate function based on cron name
-            elif cron.name == 'jiten_sync':
+            # Execute Jiten Sync
+            elif cron.name == Crons.JITEN_SYNC.value:
                 from GameSentenceMiner.util.cron.jiten_update import update_all_jiten_games
                 result = update_all_jiten_games()
                 
-                # Mark as successfully run
-                CronTable.just_ran(cron.id)
+                if cron.id != -1: CronTable.just_ran(cron.id)
                 executed_count += 1
                 detail['success'] = True
                 detail['result'] = result
                 
                 logger.info(f"Successfully executed {cron.name}")
-                logger.info(f"Updated: {result['updated_games']}/{result['linked_games']} games")
                 
-            elif cron.name == 'daily_stats_rollup':
+            # Execute Daily Rollup
+            elif cron.name == Crons.DAILY_STATS_ROLLUP.value:
                 from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
                 result = run_daily_rollup()
                 
-                # Mark as successfully run
-                CronTable.just_ran(cron.id)
+                if cron.id != -1: CronTable.just_ran(cron.id)
                 executed_count += 1
                 detail['success'] = True
                 detail['result'] = result
                 
                 logger.info(f"Successfully executed {cron.name}")
-                logger.info(f"Processed: {result['processed']} dates, Overwritten: {result['overwritten']}, Errors: {result['errors']}")
                 
             else:
                 logger.error(f"⚠️ Unknown cron job: {cron.name}")
@@ -179,10 +236,8 @@ def run_due_crons():
             failed_count += 1
         
         details.append(detail)
+        
     logger.info("Cron job check completed")
-    logger.info(f"Total checked: {len(due_crons)}")
-    logger.info(f"Successfully executed: {executed_count}")
-    logger.info(f"Failed: {failed_count}")
 
     return {
         'total_checked': len(due_crons),
@@ -192,33 +247,26 @@ def run_due_crons():
     }
 
 
+# Global instance
+cron_scheduler = CronScheduler()
+
+
 # for me to manually check
 if __name__ == '__main__':
-    # Run the cron checker
-    result = run_due_crons()
-    
-    # Print summary
-    print("\n" + "=" * 80)
-    print("CRON EXECUTION SUMMARY")
-    print("=" * 80)
-    print(f"Total cron jobs checked: {result['total_checked']}")
-    print(f"Successfully executed: {result['executed']}")
-    print(f"Failed: {result['failed']}")
-    print("=" * 80)
-    
-    # Print details
-    if result['details']:
-        print("\nDETAILS:")
-        print("-" * 80)
-        for detail in result['details']:
-            status = "✅" if detail['success'] else "❌"
-            print(f"{status} {detail['name']}: {detail['description']}")
-            if detail.get('error'):
-                print(f"   Error: {detail['error']}")
-            elif detail.get('result'):
-                res = detail['result']
-                if 'updated_games' in res:
-                    print(f"   Updated {res['updated_games']}/{res['linked_games']} games")
-                elif 'processed' in res:
-                    print(f"   Processed {res['processed']} dates, Overwritten {res['overwritten']}, Errors {res['errors']}")
-        print("-" * 80)
+    async def main():
+        # Start the scheduler
+        await cron_scheduler.start()
+        
+        # Simulate a manual trigger
+        print("Waiting 2 seconds then forcing task...")
+        await asyncio.sleep(2)
+        cron_scheduler.force_populate_games()
+        
+        # Keep alive briefly to let it run
+        await asyncio.sleep(5)
+        await cron_scheduler.stop()
+
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

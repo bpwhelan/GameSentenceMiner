@@ -7,9 +7,8 @@ import time
 
 import base64
 import subprocess
-import urllib.request
 from datetime import datetime, timedelta
-from requests import post
+import requests
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
@@ -33,6 +32,71 @@ from typing import Dict, Any, List
 previous_note_ids = set()
 first_run = True
 card_queue = []
+
+
+# --- Migration Utilities ---
+def migrate_old_word_folders():
+    """
+    Move old word folders in the output directory to the new date-based structure (YYYY-MM/DD/WORD),
+    using the latest modified date of the files inside each folder.
+    """
+    config = get_config()
+    output_folder = config.paths.output_folder
+    if not output_folder or not os.path.exists(output_folder):
+        return
+
+    # Regex for new date-based folder: YYYY-MM/DD
+    date_folder_pattern = re.compile(r"^\d{4}-\d{2}$")
+
+    file_pattern = re.compile(r"_\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3}")
+
+    for entry in os.listdir(output_folder):
+        entry_path = os.path.join(output_folder, entry)
+        if not os.path.isdir(entry_path):
+            continue
+        # If this is a date folder, skip
+        if date_folder_pattern.match(entry):
+            continue
+        # Otherwise, this is an old-style word folder
+        # Check all files for the required pattern
+        all_files_match = True
+        file_paths = []
+        for root, dirs, files in os.walk(entry_path):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                file_paths.append(fpath)
+                if not file_pattern.search(fname):
+                    all_files_match = False
+                    break
+            if not all_files_match:
+                break
+        if not file_paths or not all_files_match:
+            # No files or not all files match the pattern, skip
+            continue
+        # Find latest modified date among files
+        latest_mtime = 0
+        for fpath in file_paths:
+            try:
+                mtime = os.path.getmtime(fpath)
+                if mtime > latest_mtime:
+                    latest_mtime = mtime
+            except Exception:
+                continue
+        if latest_mtime == 0:
+            # No files, skip
+            continue
+        dt = datetime.fromtimestamp(latest_mtime)
+        date_dir = dt.strftime("%Y-%m")
+        day_dir = dt.strftime("%d")
+        new_base = os.path.join(output_folder, date_dir, day_dir)
+        os.makedirs(new_base, exist_ok=True)
+        new_path = os.path.join(new_base, entry)
+        # Move the folder
+        try:
+            shutil.move(entry_path, new_path)
+            logger.info(f"Migrated old word folder '{entry_path}' to '{new_path}'")
+        except Exception as e:
+            logger.error(f"Failed to migrate '{entry_path}': {e}")
 
 
 @dataclass
@@ -167,8 +231,9 @@ def _handle_file_management(tango: str, reuse_audio: bool, game_line: 'GameLine'
     config = get_config()
     if not config.paths.output_folder:
         return
-
-    word_path = os.path.join(config.paths.output_folder, sanitize_filename(tango))
+    
+    date_path = os.path.join(config.paths.output_folder, time.strftime("%Y-%m"), time.strftime("%d"))
+    word_path = os.path.join(date_path, sanitize_filename(tango))
     os.makedirs(word_path, exist_ok=True)
     
     if reuse_audio:
@@ -204,7 +269,7 @@ def _handle_file_management(tango: str, reuse_audio: bool, game_line: 'GameLine'
                 subprocess.Popen(["xdg-open", word_path])
         except Exception as e:
             logger.error(f"Error opening output folder: {e}")
-
+            
     # Return word_path for storing in AnkiUpdateResult
     return word_path
 
@@ -502,24 +567,47 @@ def request(action, **params):
     return {'action': action, 'params': params, 'version': 6}
 
 
-def invoke(action, **params):
-    request_json = json.dumps(request(action, **params)).encode('utf-8')
+def invoke(action, retries: int = 0, **params):
+    payload = request(action, **params)
+    url = get_config().anki.url
+    headers = {"Content-Type": "application/json"}
+
     if action in ["updateNoteFields"]:
-        logger.debug(f"Hitting Anki. Action: {action}. Data: {request_json}")
-    response = json.load(urllib.request.urlopen(urllib.request.Request(get_config().anki.url, request_json)))
-    if len(response) != 2:
-        logger.error(f"Unexpected response from Anki: {response}")
-        raise Exception('response has an unexpected number of fields')
-    if 'error' not in response:
-        logger.error(f"Unexpected response from Anki: {response}")
-        raise Exception('response is missing required error field')
-    if 'result' not in response:
-        logger.error(f"Unexpected response from Anki: {response}")
-        raise Exception('response is missing required result field')
-    if response['error'] is not None:
-        logger.error(f"Anki returned an error: {response['error']}")
-        raise Exception(response['error'])
-    return response['result']
+        logger.debug(f"Hitting Anki. Action: {action}. Data: {json.dumps(payload)}")
+
+    attempt = 0
+    backoff = 0.5
+    max_backoff = 5.0
+    while True:
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=2)
+            resp.raise_for_status()
+            response = resp.json()
+
+            if not isinstance(response, dict) or len(response.keys()) != 2:
+                logger.error(f"Unexpected response from Anki: {response}")
+                raise Exception('response has an unexpected number of fields')
+            if 'error' not in response:
+                logger.error(f"Unexpected response from Anki: {response}")
+                raise Exception('response is missing required error field')
+            if 'result' not in response:
+                logger.error(f"Unexpected response from Anki: {response}")
+                raise Exception('response is missing required result field')
+            if response['error'] is not None:
+                logger.error(f"Anki returned an error: {response['error']}")
+                raise Exception(response['error'])
+            return response['result']
+        except Exception as e:
+            # If no retries requested, raise immediately
+            if retries <= 0 or attempt >= retries:
+                logger.error(f"Anki request failed (action={action}): {e}")
+                raise
+
+            # Exponential backoff: 2^attempt seconds, capped at max_backoff
+            backoff = min((backoff * 2), max_backoff)
+            attempt += 1
+            logger.warning(f"Anki request failed, retrying in {backoff}s (attempt {attempt}/{retries})... Error: {e}")
+            time.sleep(backoff)
 
 
 def get_last_anki_card() -> AnkiCard | dict:
@@ -683,7 +771,6 @@ def monitor_anki():
         unsuccessful_count = 0
         scaled_polling_rate = get_config().anki.polling_rate / 1000.0
         while True:
-            polling_rate = get_config().anki.polling_rate
             successful = check_for_new_cards()
 
             if successful:
@@ -699,11 +786,12 @@ def monitor_anki():
 
 # Fetch recent note IDs from Anki
 def get_note_ids():
-    response = post(get_config().anki.url, json={
+    response = requests.post(get_config().anki.url, json={
         "action": "findNotes",
         "version": 6,
         "params": {"query": "added:1"}
-    })
+    }, timeout=10)
+    response.raise_for_status()
     result = response.json()
     return set(result['result'])
 

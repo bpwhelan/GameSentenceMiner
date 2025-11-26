@@ -83,8 +83,6 @@ try:
 except ImportError:
     mss = None
     
-overlay_processor = None
-    
 class OverlayThread(threading.Thread):
     """
     A thread to run the overlay processing loop.
@@ -96,11 +94,14 @@ class OverlayThread(threading.Thread):
         self.loop = asyncio.new_event_loop()
         self.daemon = True
         self.first_time_run = True
+        
+        overlay_processor.processing_loop = self.loop
 
     def run(self):
         """Runs the overlay processing loop."""
         asyncio.set_event_loop(self.loop)
-        self.loop.run_until_complete(self.overlay_loop())
+        self.loop.create_task(self.overlay_loop())
+        self.loop.run_forever()
 
     async def overlay_loop(self):
         """Main loop to periodically process and send overlay data."""
@@ -126,9 +127,8 @@ class OverlayProcessor:
     regions, performing OCR, and processing the results into a structured format
     with pixel coordinates.
     """
-
+    
     def __init__(self):
-        """Initializes the OCR engines and configuration."""
         self.config = get_config()
         self.oneocr = None
         self.lens = None
@@ -138,7 +138,10 @@ class OverlayProcessor:
         self.last_lens_result = None
         self.current_task = None  # Track current running task
         self.windows_warning_shown = False
+        self.processing_loop: asyncio.AbstractEventLoop = None
 
+    def init(self):
+        """Initializes the OCR engines and configuration."""
         try:
             if self.config.overlay.websocket_port and all([GoogleLens, get_regex]):
                 logger.info("Initializing OCR engines...")
@@ -177,13 +180,11 @@ class OverlayProcessor:
         if GoogleLens and not self.lens:
             self.lens = GoogleLens(lang=get_ocr_language(), get_furigana_sens_from_file=False)
         # Start new task
-        self.current_task = asyncio.create_task(self.find_box_for_sentence(sentence_to_check, check_against_last))
+        self.current_task = self.processing_loop.create_task(self.find_box_for_sentence(sentence_to_check, check_against_last))
         try:
             await self.current_task
         except asyncio.CancelledError:
             logger.info("OCR task was cancelled")
-        # logger.info(f"Sending {len(boxes)} boxes to overlay.")
-        # await send_word_coordinates_to_overlay(boxes)
 
     async def find_box_for_sentence(self, sentence_to_check: str = None, check_against_last: bool = False) -> List[Dict[str, Any]]:
         """
@@ -615,8 +616,7 @@ async def init_overlay_processor():
     Initializes the overlay processor and starts the overlay thread.
     This function can be called at application startup.
     """
-    global overlay_processor
-    overlay_processor = OverlayProcessor()
+    overlay_processor.init()
     overlay_thread = OverlayThread()
     overlay_thread.start()
     logger.info("Overlay processor initialized and thread started.")
@@ -667,7 +667,8 @@ async def main_run_ocr():
     while True:
         await overlay_processor.find_box_and_send_to_overlay('', False)
         await asyncio.sleep(10)
-
+        
+overlay_processor = OverlayProcessor()
 
 if __name__ == '__main__':
     try:

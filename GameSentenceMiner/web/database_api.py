@@ -17,12 +17,12 @@ from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.configuration import (
     get_stats_config,
-    logger,
+logger,
     get_config,
     save_current_config,
     save_stats_config,
 )
-from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
+from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency,
@@ -399,7 +399,7 @@ def register_database_api_routes(app):
             if deleted_count > 0:
                 try:
                     logger.info("Triggering stats rollup after sentence line deletion")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
                     logger.error(f"Stats rollup failed after sentence line deletion: {rollup_error}")
                     # Don't fail the deletion operation if rollup fails
@@ -501,7 +501,7 @@ def register_database_api_routes(app):
             if successful_deletions:
                 try:
                     logger.info("Triggering stats rollup after game deletion")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
                     logger.error(f"Stats rollup failed after game deletion: {rollup_error}")
                     # Don't fail the deletion operation if rollup fails
@@ -972,7 +972,7 @@ def register_database_api_routes(app):
             if deleted_count > 0:
                 try:
                     logger.info("Triggering stats rollup after text line deletion")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
                     logger.error(f"Stats rollup failed after text line deletion: {rollup_error}")
                     # Don't fail the deletion operation if rollup fails
@@ -1261,7 +1261,7 @@ def register_database_api_routes(app):
             if deleted_count > 0:
                 try:
                     logger.info("Triggering stats rollup after deduplication")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
                     logger.error(f"Stats rollup failed after deduplication: {rollup_error}")
                     # Don't fail the deduplication operation if rollup fails
@@ -1555,7 +1555,7 @@ def register_database_api_routes(app):
                 # Trigger stats rollup after successful merge
                 try:
                     logger.info("Triggering stats rollup after game merge")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
                     logger.error(f"Stats rollup failed after game merge: {rollup_error}")
                     # Don't fail the merge operation if rollup fails

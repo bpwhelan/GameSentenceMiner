@@ -947,8 +947,7 @@ def trim_replay_for_gameline(video_path, start_time, end_time, accurate=False):
     :return: Path to the trimmed video file.
     """
     output_name = f"trimmed_{Path(video_path).stem}.mp4"
-    trimmed_video = make_unique_file_name(
-        os.path.join(configuration.get_temporary_directory(), output_name))
+    trimmed_video = os.path.join(configuration.get_temporary_directory(), output_name)
     
     # We use input seeking for accuracy, as it's faster when re-encoding.
     # We place -ss before -i for fast seeking.

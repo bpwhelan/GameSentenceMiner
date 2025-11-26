@@ -11,7 +11,7 @@ from flask import request, jsonify
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.configuration import logger
 from GameSentenceMiner.util.jiten_api_client import JitenApiClient
-from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
+from GameSentenceMiner.util.cron import cron_scheduler
 
 
 def add_jiten_link_to_game(game, deck_id):
@@ -358,7 +358,7 @@ def register_jiten_database_api_routes(app):
             # Trigger stats rollup after linking game
             try:
                 logger.info("Triggering stats rollup after game link")
-                run_daily_rollup()
+                cron_scheduler.force_daily_rollup()
             except Exception as rollup_error:
                 logger.error(f"Stats rollup failed after game link: {rollup_error}")
                 # Don't fail the link operation if rollup fails
@@ -732,7 +732,7 @@ def register_jiten_database_api_routes(app):
             # Trigger stats rollup after unlinking game
             try:
                 logger.info("Triggering stats rollup after game unlink")
-                run_daily_rollup()
+                cron_scheduler.force_daily_rollup()
             except Exception as rollup_error:
                 logger.error(f"Stats rollup failed after game unlink: {rollup_error}")
                 # Don't fail the unlink operation if rollup fails
@@ -797,7 +797,7 @@ def register_jiten_database_api_routes(app):
             # Trigger stats rollup after deleting game lines
             try:
                 logger.info("Triggering stats rollup after game lines deletion")
-                run_daily_rollup()
+                cron_scheduler.force_daily_rollup()
             except Exception as rollup_error:
                 logger.error(f"Stats rollup failed after game lines deletion: {rollup_error}")
                 # Don't fail the deletion operation if rollup fails
