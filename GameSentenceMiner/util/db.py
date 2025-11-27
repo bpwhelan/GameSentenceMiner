@@ -1007,45 +1007,12 @@ def check_and_run_migrations():
         else:
             logger.debug("populate_games cron job already exists, skipping creation.")
     
-    def migrate_goals_version():
-        """
-        Add default version to existing goals entries that don't have one.
-        This migration ensures backward compatibility with the new versioning system.
-        """
-        try:
-            # Check if goals_version column exists
-            if not GoalsTable.has_column('goals_version'):
-                logger.info("Adding 'goals_version' column to goals table...")
-                GoalsTable._db.execute(
-                    f"ALTER TABLE {GoalsTable._table} ADD COLUMN goals_version TEXT",
-                    commit=True
-                )
-                logger.info("Added 'goals_version' column to goals table.")
-            
-            # Update existing records that have NULL or empty goals_version
-            default_version = json.dumps({"goals": 1, "easyDays": 1, "ankiConnect": 1})
-            result = GoalsTable._db.execute(
-                f"UPDATE {GoalsTable._table} SET goals_version = ? WHERE goals_version IS NULL OR goals_version = ''",
-                (default_version,),
-                commit=True
-            )
-            
-            updated_count = result.rowcount
-            if updated_count > 0:
-                logger.info(f"✅ Migrated {updated_count} goals entries with default version")
-            else:
-                logger.debug("No goals version migration needed")
-                
-        except Exception as e:
-            logger.error(f"Error during goals version migration: {e}")
-    
     migrate_timestamp()
     migrate_obs_scene_name()
     # migrate_cron_timestamps()  # Disabled - user will manually clean up data
     migrate_jiten_cron_job()
     migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
-    migrate_goals_version()  # Add version tracking to goals table
         
 check_and_run_migrations()
     

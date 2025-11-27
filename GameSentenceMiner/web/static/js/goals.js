@@ -103,8 +103,7 @@ const GoalsUtils = {
 // AnkiConnect Manager Module
 // ================================
 const AnkiConnectManager = {
-    STORAGE_KEY: 'gsm_anki_connect_settings_v2',  // New versioned key
-    LEGACY_KEY: 'gsm_anki_connect_settings',      // Old key for migration
+    STORAGE_KEY: 'gsm_anki_connect_settings_v2',
 
     // Get default settings
     getDefaultSettings() {
@@ -121,21 +120,6 @@ const AnkiConnectManager = {
                 return JSON.parse(stored);
             } catch (e) {
                 return { version: 0, data: this.getDefaultSettings(), lastModified: 0 };
-            }
-        }
-        
-        // Check legacy storage and migrate
-        const legacy = localStorage.getItem(this.LEGACY_KEY);
-        if (legacy) {
-            try {
-                const data = JSON.parse(legacy);
-                const versioned = { version: 1, data, lastModified: Date.now() };
-                this.saveVersionedLocal(versioned);
-                localStorage.removeItem(this.LEGACY_KEY);
-                console.log('Migrated AnkiConnect settings from legacy storage');
-                return versioned;
-            } catch (e) {
-                console.error('Error migrating legacy AnkiConnect settings:', e);
             }
         }
         
@@ -184,8 +168,7 @@ const AnkiConnectManager = {
 // Easy Days Manager Module
 // ================================
 const EasyDaysManager = {
-    STORAGE_KEY: 'gsm_easy_days_settings_v2',  // New versioned key
-    LEGACY_KEY: 'gsm_easy_days_settings',      // Old key for migration
+    STORAGE_KEY: 'gsm_easy_days_settings_v2',
 
     // Get default settings (all days at 100%)
     getDefaultSettings() {
@@ -208,21 +191,6 @@ const EasyDaysManager = {
                 return JSON.parse(stored);
             } catch (e) {
                 return { version: 0, data: this.getDefaultSettings(), lastModified: 0 };
-            }
-        }
-        
-        // Check legacy storage and migrate
-        const legacy = localStorage.getItem(this.LEGACY_KEY);
-        if (legacy) {
-            try {
-                const data = JSON.parse(legacy);
-                const versioned = { version: 1, data, lastModified: Date.now() };
-                this.saveVersionedLocal(versioned);
-                localStorage.removeItem(this.LEGACY_KEY);
-                console.log('Migrated easy days settings from legacy storage');
-                return versioned;
-            } catch (e) {
-                console.error('Error migrating legacy easy days settings:', e);
             }
         }
         
@@ -425,8 +393,7 @@ const CustomGoalCheckboxManager = {
 // Custom Goals Manager Module
 // ================================
 const CustomGoalsManager = {
-    STORAGE_KEY: 'gsm_custom_goals_v2',  // New versioned key
-    LEGACY_KEY: 'gsm_custom_goals',      // Old key for migration
+    STORAGE_KEY: 'gsm_custom_goals_v2',
 
     // Generate unique ID for goals
     generateId() {
@@ -441,21 +408,6 @@ const CustomGoalsManager = {
                 return JSON.parse(stored);
             } catch (e) {
                 return { version: 0, data: [], lastModified: 0 };
-            }
-        }
-        
-        // Check legacy storage and migrate
-        const legacy = localStorage.getItem(this.LEGACY_KEY);
-        if (legacy) {
-            try {
-                const data = JSON.parse(legacy);
-                const versioned = { version: 1, data, lastModified: Date.now() };
-                this.saveVersionedLocal(versioned);
-                localStorage.removeItem(this.LEGACY_KEY);
-                console.log('Migrated custom goals from legacy storage');
-                return versioned;
-            } catch (e) {
-                console.error('Error migrating legacy custom goals:', e);
             }
         }
         
@@ -1984,25 +1936,54 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Load easy days settings into UI
     async function loadEasyDaysUI() {
+        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        
         try {
-            // Use EasyDaysManager which has localStorage + database fallback built in
-            const settings = await EasyDaysManager.getSettings();
-            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-
+            // First load from localStorage for immediate UI update
+            const localSettings = await EasyDaysManager.getSettings();
+            
             days.forEach(day => {
                 const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
                 const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
 
                 if (slider && valueDisplay) {
-                    slider.value = settings[day];
-                    valueDisplay.textContent = settings[day] + '%';
+                    slider.value = localSettings[day];
+                    valueDisplay.textContent = localSettings[day] + '%';
                 }
             });
+            
+            // Then try to sync with database in the background
+            try {
+                const response = await fetch('/api/settings');
+                if (response.ok) {
+                    const dbData = await response.json();
+                    
+                    // Update UI with database values if they differ
+                    days.forEach(day => {
+                        const fieldName = `easy_days_${day}`;
+                        const dbValue = dbData[fieldName];
+                        
+                        if (dbValue !== undefined) {
+                            const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
+                            const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
+
+                            if (slider && valueDisplay) {
+                                slider.value = dbValue;
+                                valueDisplay.textContent = dbValue + '%';
+                            }
+                        }
+                    });
+                    
+                    console.log('Easy days settings synced with database');
+                }
+            } catch (dbError) {
+                console.warn('Could not sync easy days settings with database, using localStorage values:', dbError);
+            }
+            
         } catch (error) {
             console.error('Error loading easy days settings:', error);
             // If all else fails, use defaults
             const defaultSettings = EasyDaysManager.getDefaultSettings();
-            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
             days.forEach(day => {
                 const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
