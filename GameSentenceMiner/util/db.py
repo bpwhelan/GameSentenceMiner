@@ -629,27 +629,31 @@ class GoalsTable(SQLiteDBTable):
     """
     Table for tracking daily goal completions and streaks.
     One entry per day when user completes their dailies.
+    Includes version tracking for multi-device synchronization.
     """
     _table = 'goals'
-    _fields = ['date', 'current_goals', 'goals_settings', 'last_updated']
+    _fields = ['date', 'current_goals', 'goals_settings', 'last_updated', 'goals_version']
     _types = [
         int,   # id (primary key)
         str,   # date
         str,   # current_goals
         str,   # goals_settings
-        float  # last_updated
+        float, # last_updated
+        str    # goals_version (JSON: {"goals": 1, "easyDays": 1, "ankiConnect": 1})
     ]
     _pk = 'id'
     _auto_increment = True
 
     def __init__(self, id: Optional[int] = None, date: Optional[str] = None,
                  current_goals: Optional[str] = None,
-                 goals_settings: Optional[str] = None, last_updated: Optional[float] = None):
+                 goals_settings: Optional[str] = None, last_updated: Optional[float] = None,
+                 goals_version: Optional[str] = None):
         self.id = id
         self.date = date if date is not None else ''
         self.current_goals = current_goals if current_goals is not None else '[]'
         self.goals_settings = goals_settings if goals_settings is not None else '{}'
         self.last_updated = last_updated
+        self.goals_version = goals_version if goals_version is not None else '{"goals": 0, "easyDays": 0, "ankiConnect": 0}'
 
     @classmethod
     def get_by_date(cls, date_str: str) -> Optional['GoalsTable']:
@@ -667,11 +671,17 @@ class GoalsTable(SQLiteDBTable):
 
     @classmethod
     def create_entry(cls, date_str: str, current_goals_json: str,
-                     goals_settings_json: Optional[str] = None, last_updated: Optional[float] = None) -> 'GoalsTable':
-        """Create a new goals entry for a specific date."""
+                     goals_settings_json: Optional[str] = None, last_updated: Optional[float] = None,
+                     goals_version: Optional[str] = None) -> 'GoalsTable':
+        """Create a new goals entry for a specific date with version tracking."""
+        # Default version if not provided
+        if goals_version is None:
+            goals_version = json.dumps({"goals": 1, "easyDays": 1, "ankiConnect": 1})
+        
         new_entry = cls(date=date_str, current_goals=current_goals_json,
                        goals_settings=goals_settings_json if goals_settings_json else '{}',
-                       last_updated=last_updated if last_updated is not None else time.time())
+                       last_updated=last_updated if last_updated is not None else time.time(),
+                       goals_version=goals_version)
         new_entry.save()
         return new_entry
 
@@ -997,12 +1007,45 @@ def check_and_run_migrations():
         else:
             logger.debug("populate_games cron job already exists, skipping creation.")
     
+    def migrate_goals_version():
+        """
+        Add default version to existing goals entries that don't have one.
+        This migration ensures backward compatibility with the new versioning system.
+        """
+        try:
+            # Check if goals_version column exists
+            if not GoalsTable.has_column('goals_version'):
+                logger.info("Adding 'goals_version' column to goals table...")
+                GoalsTable._db.execute(
+                    f"ALTER TABLE {GoalsTable._table} ADD COLUMN goals_version TEXT",
+                    commit=True
+                )
+                logger.info("Added 'goals_version' column to goals table.")
+            
+            # Update existing records that have NULL or empty goals_version
+            default_version = json.dumps({"goals": 1, "easyDays": 1, "ankiConnect": 1})
+            result = GoalsTable._db.execute(
+                f"UPDATE {GoalsTable._table} SET goals_version = ? WHERE goals_version IS NULL OR goals_version = ''",
+                (default_version,),
+                commit=True
+            )
+            
+            updated_count = result.rowcount
+            if updated_count > 0:
+                logger.info(f"✅ Migrated {updated_count} goals entries with default version")
+            else:
+                logger.debug("No goals version migration needed")
+                
+        except Exception as e:
+            logger.error(f"Error during goals version migration: {e}")
+    
     migrate_timestamp()
     migrate_obs_scene_name()
     # migrate_cron_timestamps()  # Disabled - user will manually clean up data
     migrate_jiten_cron_job()
     migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
+    migrate_goals_version()  # Add version tracking to goals table
         
 check_and_run_migrations()
     

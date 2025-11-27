@@ -25,7 +25,7 @@ class DiscordRPCManager:
         self.current_cph = 0
         self.stop_timer = None
         # Flag to disable all functionality, to release this feature, change this to False
-        self.DISABLED = True
+        self.DISABLED = False
 
     @disabled_guard
     def _run(self):

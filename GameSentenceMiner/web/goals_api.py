@@ -1119,12 +1119,13 @@ def register_goals_api_routes(app):
     def api_complete_todays_dailies():
         """
         Complete today's dailies and update streak.
-        Creates a new entry in the goals table for today.
+        Creates a new entry in the goals table for today with version tracking.
         
         Request body:
         {
             "current_goals": [...],  # Array of goal objects from localStorage
-            "goals_settings": {...}  # Settings object including easyDays
+            "goals_settings": {...}, # Settings object including easyDays
+            "versions": {"goals": 1, "easyDays": 1, "ankiConnect": 1}  # Current versions
         }
         
         Returns:
@@ -1132,6 +1133,8 @@ def register_goals_api_routes(app):
             "success": true,
             "date": "2025-01-14",
             "streak": 5,
+            "longest_streak": 10,
+            "versions": {"goals": 2, "easyDays": 2, "ankiConnect": 2},  # Incremented versions
             "message": "Dailies completed! Current streak: 5 days"
         }
         """
@@ -1143,6 +1146,7 @@ def register_goals_api_routes(app):
             
             current_goals = data.get("current_goals", [])
             goals_settings = data.get("goals_settings", {})
+            client_versions = data.get("versions", {})
             
             # Get today's date in YYYY-MM-DD format (using user's timezone)
             user_tz = get_user_timezone()
@@ -1152,12 +1156,27 @@ def register_goals_api_routes(app):
             # Check if entry already exists for today
             existing_entry = GoalsTable.get_by_date(today_str)
             if existing_entry:
+                # Parse existing versions if present
+                existing_versions = {"goals": 1, "easyDays": 1, "ankiConnect": 1}
+                if hasattr(existing_entry, 'goals_version') and existing_entry.goals_version:
+                    try:
+                        existing_versions = json.loads(existing_entry.goals_version) if isinstance(existing_entry.goals_version, str) else existing_entry.goals_version
+                    except json.JSONDecodeError:
+                        pass
+                
                 return jsonify({
                     "success": False,
                     "error": "Dailies already completed for today",
-                    "existing_streak": existing_entry.streak,
-                    "date": today_str
+                    "date": today_str,
+                    "versions": existing_versions
                 }), 400
+            
+            # Increment versions (all three get incremented together on daily save)
+            new_versions = {
+                "goals": client_versions.get("goals", 0) + 1,
+                "easyDays": client_versions.get("easyDays", 0) + 1,
+                "ankiConnect": client_versions.get("ankiConnect", 0) + 1
+            }
             
             # Calculate streak for today (returns tuple of current_streak, longest_streak)
             current_streak, longest_streak = GoalsTable.calculate_streak(today_str, str(user_tz))
@@ -1168,22 +1187,25 @@ def register_goals_api_routes(app):
             # Convert current_goals and goals_settings to JSON strings
             current_goals_json = json.dumps(current_goals)
             goals_settings_json = json.dumps(goals_settings)
+            goals_version_json = json.dumps(new_versions)
             
-            # Create new entry with current Unix timestamp
+            # Create new entry with current Unix timestamp and versions
             new_entry = GoalsTable.create_entry(
                 date_str=today_str,
                 current_goals_json=current_goals_json,
                 goals_settings_json=goals_settings_json,
-                last_updated=time.time()
+                last_updated=time.time(),
+                goals_version=goals_version_json
             )
             
-            logger.info(f"Dailies completed for {today_str} with streak: {current_streak}, longest: {longest_streak}")
+            logger.info(f"Dailies completed for {today_str} with streak: {current_streak}, longest: {longest_streak}, versions: {new_versions}")
             
             return jsonify({
                 "success": True,
                 "date": today_str,
                 "streak": current_streak,
                 "longest_streak": longest_streak,
+                "versions": new_versions,
                 "message": f"Dailies completed! Current streak: {current_streak} days"
             }), 200
             
@@ -1251,14 +1273,14 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/latest_goals", methods=["GET"])
     def api_get_latest_goals():
         """
-        Get the latest goals entry with date, streak, current_goals, and goals_settings.
+        Get the latest goals entry with date, streak, current_goals, goals_settings, and versions.
         
         Returns:
         {
             "date": "2025-01-14",
             "current_goals": [...],  # Parsed JSON array
             "goals_settings": {...},  # Parsed JSON object
-            "streak": 5
+            "versions": {"goals": 1, "easyDays": 1, "ankiConnect": 1}
         }
         """
         try:
@@ -1269,7 +1291,7 @@ def register_goals_api_routes(app):
                     "date": None,
                     "current_goals": [],
                     "goals_settings": {},
-                    "streak": 0
+                    "versions": {"goals": 0, "easyDays": 0, "ankiConnect": 0}
                 }), 200
             
             # Parse current_goals - may already be parsed by database layer
@@ -1293,10 +1315,22 @@ def register_goals_api_routes(app):
             else:
                 goals_settings = {}
             
+            # Parse versions - default to 1 for each if not present (backward compatibility)
+            versions = {"goals": 1, "easyDays": 1, "ankiConnect": 1}
+            if hasattr(latest_entry, 'goals_version') and latest_entry.goals_version:
+                if isinstance(latest_entry.goals_version, str):
+                    try:
+                        versions = json.loads(latest_entry.goals_version)
+                    except json.JSONDecodeError:
+                        pass
+                elif isinstance(latest_entry.goals_version, dict):
+                    versions = latest_entry.goals_version
+            
             return jsonify({
                 "date": latest_entry.date,
                 "current_goals": current_goals,
-                "goals_settings": goals_settings
+                "goals_settings": goals_settings,
+                "versions": versions
             }), 200
             
         except Exception as e:

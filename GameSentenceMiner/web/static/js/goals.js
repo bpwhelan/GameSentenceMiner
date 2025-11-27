@@ -103,7 +103,8 @@ const GoalsUtils = {
 // AnkiConnect Manager Module
 // ================================
 const AnkiConnectManager = {
-    STORAGE_KEY: 'gsm_anki_connect_settings',
+    STORAGE_KEY: 'gsm_anki_connect_settings_v2',  // New versioned key
+    LEGACY_KEY: 'gsm_anki_connect_settings',      // Old key for migration
 
     // Get default settings
     getDefaultSettings() {
@@ -111,49 +112,63 @@ const AnkiConnectManager = {
             deckName: ''
         };
     },
+    
+    // Get versioned data from localStorage
+    getVersionedLocal() {
+        const stored = localStorage.getItem(this.STORAGE_KEY);
+        if (stored) {
+            try {
+                return JSON.parse(stored);
+            } catch (e) {
+                return { version: 0, data: this.getDefaultSettings(), lastModified: 0 };
+            }
+        }
+        
+        // Check legacy storage and migrate
+        const legacy = localStorage.getItem(this.LEGACY_KEY);
+        if (legacy) {
+            try {
+                const data = JSON.parse(legacy);
+                const versioned = { version: 1, data, lastModified: Date.now() };
+                this.saveVersionedLocal(versioned);
+                localStorage.removeItem(this.LEGACY_KEY);
+                console.log('Migrated AnkiConnect settings from legacy storage');
+                return versioned;
+            } catch (e) {
+                console.error('Error migrating legacy AnkiConnect settings:', e);
+            }
+        }
+        
+        return { version: 0, data: this.getDefaultSettings(), lastModified: 0 };
+    },
+    
+    // Save versioned data to localStorage
+    saveVersionedLocal(versionedData) {
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(versionedData));
+    },
 
-    // Get settings from localStorage or database
+    // Get settings from localStorage (returns just the data, not the version wrapper)
     async getSettings() {
         try {
-            const stored = localStorage.getItem(this.STORAGE_KEY);
-            if (stored) {
-                return JSON.parse(stored);
-            }
-            
-            // Fallback to database if localStorage is empty
-            console.log('AnkiConnect settings not in localStorage, trying database...');
-            try {
-                const response = await fetch('/api/goals/latest_goals');
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.goals_settings) {
-                        const goalsSettings = typeof data.goals_settings === 'string'
-                            ? JSON.parse(data.goals_settings)
-                            : data.goals_settings;
-                        
-                        if (goalsSettings && goalsSettings.ankiConnect) {
-                            // Save to localStorage for future use
-                            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(goalsSettings.ankiConnect));
-                            console.log('Loaded AnkiConnect settings from database');
-                            return goalsSettings.ankiConnect;
-                        }
-                    }
-                }
-            } catch (dbError) {
-                console.warn('Could not fetch AnkiConnect settings from database:', dbError);
-            }
-            
-            return this.getDefaultSettings();
+            const localVersioned = this.getVersionedLocal();
+            return localVersioned.data;
         } catch (error) {
             console.error('Error reading AnkiConnect settings:', error);
             return this.getDefaultSettings();
         }
     },
 
-    // Save settings to localStorage
+    // Save settings to localStorage (increments version)
     saveSettings(settings) {
         try {
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(settings));
+            const current = this.getVersionedLocal();
+            const newVersioned = {
+                version: (current.version || 0) + 1,
+                data: settings,
+                lastModified: Date.now()
+            };
+            this.saveVersionedLocal(newVersioned);
+            console.log(`Saved AnkiConnect settings with version ${newVersioned.version}`);
             return { success: true };
         } catch (error) {
             console.error('Error saving AnkiConnect settings to localStorage:', error);
@@ -169,7 +184,8 @@ const AnkiConnectManager = {
 // Easy Days Manager Module
 // ================================
 const EasyDaysManager = {
-    STORAGE_KEY: 'gsm_easy_days_settings',
+    STORAGE_KEY: 'gsm_easy_days_settings_v2',  // New versioned key
+    LEGACY_KEY: 'gsm_easy_days_settings',      // Old key for migration
 
     // Get default settings (all days at 100%)
     getDefaultSettings() {
@@ -183,46 +199,53 @@ const EasyDaysManager = {
             sunday: 100
         };
     },
+    
+    // Get versioned data from localStorage
+    getVersionedLocal() {
+        const stored = localStorage.getItem(this.STORAGE_KEY);
+        if (stored) {
+            try {
+                return JSON.parse(stored);
+            } catch (e) {
+                return { version: 0, data: this.getDefaultSettings(), lastModified: 0 };
+            }
+        }
+        
+        // Check legacy storage and migrate
+        const legacy = localStorage.getItem(this.LEGACY_KEY);
+        if (legacy) {
+            try {
+                const data = JSON.parse(legacy);
+                const versioned = { version: 1, data, lastModified: Date.now() };
+                this.saveVersionedLocal(versioned);
+                localStorage.removeItem(this.LEGACY_KEY);
+                console.log('Migrated easy days settings from legacy storage');
+                return versioned;
+            } catch (e) {
+                console.error('Error migrating legacy easy days settings:', e);
+            }
+        }
+        
+        return { version: 0, data: this.getDefaultSettings(), lastModified: 0 };
+    },
+    
+    // Save versioned data to localStorage
+    saveVersionedLocal(versionedData) {
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(versionedData));
+    },
 
-    // Get settings from localStorage or database
+    // Get settings from localStorage (returns just the data, not the version wrapper)
     async getSettings() {
         try {
-            const stored = localStorage.getItem(this.STORAGE_KEY);
-            if (stored) {
-                return JSON.parse(stored);
-            }
-            
-            // Fallback to database if localStorage is empty
-            console.log('Easy days settings not in localStorage, trying database...');
-            try {
-                const response = await fetch('/api/goals/latest_goals');
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.goals_settings) {
-                        const goalsSettings = typeof data.goals_settings === 'string'
-                            ? JSON.parse(data.goals_settings)
-                            : data.goals_settings;
-                        
-                        if (goalsSettings && goalsSettings.easyDays) {
-                            // Save to localStorage for future use
-                            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(goalsSettings.easyDays));
-                            console.log('Loaded easy days settings from database');
-                            return goalsSettings.easyDays;
-                        }
-                    }
-                }
-            } catch (dbError) {
-                console.warn('Could not fetch easy days settings from database:', dbError);
-            }
-            
-            return this.getDefaultSettings();
+            const localVersioned = this.getVersionedLocal();
+            return localVersioned.data;
         } catch (error) {
             console.error('Error reading easy days settings:', error);
             return this.getDefaultSettings();
         }
     },
 
-    // Save settings to localStorage with validation
+    // Save settings to localStorage with validation (increments version)
     saveSettings(settings) {
         // Validate: at least one day must be at 100%
         const values = Object.values(settings);
@@ -236,7 +259,14 @@ const EasyDaysManager = {
         }
 
         try {
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(settings));
+            const current = this.getVersionedLocal();
+            const newVersioned = {
+                version: (current.version || 0) + 1,
+                data: settings,
+                lastModified: Date.now()
+            };
+            this.saveVersionedLocal(newVersioned);
+            console.log(`Saved easy days settings with version ${newVersioned.version}`);
             return { success: true };
         } catch (error) {
             console.error('Error saving easy days settings to localStorage:', error);
@@ -395,39 +425,53 @@ const CustomGoalCheckboxManager = {
 // Custom Goals Manager Module
 // ================================
 const CustomGoalsManager = {
-    STORAGE_KEY: 'gsm_custom_goals',
+    STORAGE_KEY: 'gsm_custom_goals_v2',  // New versioned key
+    LEGACY_KEY: 'gsm_custom_goals',      // Old key for migration
 
     // Generate unique ID for goals
     generateId() {
         return 'goal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11);
     },
+    
+    // Get versioned data from localStorage
+    getVersionedLocal() {
+        const stored = localStorage.getItem(this.STORAGE_KEY);
+        if (stored) {
+            try {
+                return JSON.parse(stored);
+            } catch (e) {
+                return { version: 0, data: [], lastModified: 0 };
+            }
+        }
+        
+        // Check legacy storage and migrate
+        const legacy = localStorage.getItem(this.LEGACY_KEY);
+        if (legacy) {
+            try {
+                const data = JSON.parse(legacy);
+                const versioned = { version: 1, data, lastModified: Date.now() };
+                this.saveVersionedLocal(versioned);
+                localStorage.removeItem(this.LEGACY_KEY);
+                console.log('Migrated custom goals from legacy storage');
+                return versioned;
+            } catch (e) {
+                console.error('Error migrating legacy custom goals:', e);
+            }
+        }
+        
+        return { version: 0, data: [], lastModified: 0 };
+    },
+    
+    // Save versioned data to localStorage
+    saveVersionedLocal(versionedData) {
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(versionedData));
+    },
 
-    // Get all custom goals from localStorage or database
+    // Get all custom goals (returns just the data, not the version wrapper)
     async getAll() {
         try {
-            const stored = localStorage.getItem(this.STORAGE_KEY);
-            if (stored) {
-                return JSON.parse(stored);
-            }
-            
-            // Fallback to database if localStorage is empty
-            console.log('Custom goals not in localStorage, trying database...');
-            try {
-                const response = await fetch('/api/goals/latest_goals');
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.current_goals && data.current_goals.length > 0) {
-                        // Save to localStorage for future use
-                        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data.current_goals));
-                        console.log('Loaded custom goals from database');
-                        return data.current_goals;
-                    }
-                }
-            } catch (dbError) {
-                console.warn('Could not fetch custom goals from database:', dbError);
-            }
-            
-            return [];
+            const localVersioned = this.getVersionedLocal();
+            return localVersioned.data;
         } catch (error) {
             console.error('Error reading custom goals:', error);
             return [];
@@ -462,10 +506,17 @@ const CustomGoalsManager = {
         });
     },
 
-    // Save all goals to localStorage
+    // Save all goals to localStorage (increments version)
     saveAll(goals) {
         try {
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(goals));
+            const current = this.getVersionedLocal();
+            const newVersioned = {
+                version: (current.version || 0) + 1,
+                data: goals,
+                lastModified: Date.now()
+            };
+            this.saveVersionedLocal(newVersioned);
+            console.log(`Saved custom goals with version ${newVersioned.version}`);
             return true;
         } catch (error) {
             console.error('Error saving custom goals to localStorage:', error);
@@ -1796,14 +1847,26 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
             const currentGoals = await GoalsUtils.getGoalsWithFallback();
             const goalsSettings = await GoalsUtils.prepareGoalsSettings();
+            
+            // Get current versions from localStorage
+            const goalsVersioned = CustomGoalsManager.getVersionedLocal();
+            const easyDaysVersioned = EasyDaysManager.getVersionedLocal();
+            const ankiConnectVersioned = AnkiConnectManager.getVersionedLocal();
+            
+            const currentVersions = {
+                goals: goalsVersioned.version || 0,
+                easyDays: easyDaysVersioned.version || 0,
+                ankiConnect: ankiConnectVersioned.version || 0
+            };
 
-            // Call the API
+            // Call the API with versions
             const response = await fetch('/api/goals/complete_todays_dailies', {
                 method: 'POST',
                 headers: GoalsUtils.getHeadersWithTimezone(),
                 body: JSON.stringify({
                     current_goals: currentGoals,
-                    goals_settings: goalsSettings
+                    goals_settings: goalsSettings,
+                    versions: currentVersions
                 })
             });
 
@@ -1817,6 +1880,27 @@ document.addEventListener('DOMContentLoaded', function () {
             closeCompleteDailiesModal();
 
             const newStreak = data.streak;
+            const newVersions = data.versions;
+
+            // Update localStorage with new versions from server
+            if (newVersions) {
+                CustomGoalsManager.saveVersionedLocal({
+                    version: newVersions.goals,
+                    data: currentGoals,
+                    lastModified: Date.now()
+                });
+                EasyDaysManager.saveVersionedLocal({
+                    version: newVersions.easyDays,
+                    data: goalsSettings.easyDays,
+                    lastModified: Date.now()
+                });
+                AnkiConnectManager.saveVersionedLocal({
+                    version: newVersions.ankiConnect,
+                    data: goalsSettings.ankiConnect,
+                    lastModified: Date.now()
+                });
+                console.log('📊 Updated versions after completing dailies:', newVersions);
+            }
 
             // Update streak displays from API response
             document.getElementById('currentStreakValue').textContent = newStreak;
@@ -1950,42 +2034,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Initialize easy days settings from localStorage or database
     async function initializeEasyDaysSettings() {
-        // Try localStorage first
-        const stored = localStorage.getItem(EasyDaysManager.STORAGE_KEY);
-
-        if (!stored) {
-            // If not in localStorage, try to fetch from database
-            try {
-                const response = await fetch('/api/goals/latest_goals');
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.goals_settings) {
-                        // Parse goals_settings JSON and extract easy days
-                        try {
-                            const goalsSettings = typeof data.goals_settings === 'string'
-                                ? JSON.parse(data.goals_settings)
-                                : data.goals_settings;
-
-                            if (goalsSettings && goalsSettings.easyDays) {
-                                // Save to localStorage
-                                localStorage.setItem(EasyDaysManager.STORAGE_KEY, JSON.stringify(goalsSettings.easyDays));
-                                console.log('Loaded easy days settings from database');
-                            }
-
-                            if (goalsSettings && goalsSettings.ankiConnect) {
-                                // Save AnkiConnect settings to localStorage
-                                localStorage.setItem(AnkiConnectManager.STORAGE_KEY, JSON.stringify(goalsSettings.ankiConnect));
-                                console.log('Loaded AnkiConnect settings from database');
-                            }
-                        } catch (parseError) {
-                            console.warn('Could not parse goals_settings from database:', parseError);
-                        }
-                    }
-                }
-            } catch (error) {
-                console.warn('Could not fetch goals settings from database:', error);
-            }
-        }
+        // This function is now handled by initializeGoalsDataWithSync()
+        // Keeping it as a no-op for backward compatibility
+        console.log('Easy days initialization handled by version sync');
     }
 
     // Fetch and store average reading pace for predictions
@@ -2149,9 +2200,93 @@ document.addEventListener('DOMContentLoaded', function () {
     // Initialize easy days settings on page load
     initializeEasyDaysSettings();
     getAveragePaceForPredictions();
+    
+    // Initialize goals data with version synchronization
+    initializeGoalsDataWithSync();
 
     // Make functions globally available
     window.loadGoalProgress = loadGoalProgress;
     window.loadTodayGoals = loadTodayGoals;
     window.loadGoalProjections = loadGoalProjections;
 });
+
+// ================================
+// Version Synchronization Function
+// ================================
+async function initializeGoalsDataWithSync() {
+    try {
+        console.log('🔄 Initializing goals data with version synchronization...');
+        
+        // Fetch latest from database
+        const response = await fetch('/api/goals/latest_goals');
+        if (!response.ok) {
+            console.warn('Could not fetch goals from database for sync');
+            return;
+        }
+        
+        const dbData = await response.json();
+        const dbVersions = dbData.versions || {goals: 0, easyDays: 0, ankiConnect: 0};
+        
+        console.log('📊 Database versions:', dbVersions);
+        
+        // Sync Custom Goals
+        const localGoalsVersioned = CustomGoalsManager.getVersionedLocal();
+        console.log(`📝 Local goals version: ${localGoalsVersioned.version}, DB version: ${dbVersions.goals}`);
+        
+        if (dbVersions.goals > localGoalsVersioned.version) {
+            // DB is newer - use it
+            const newVersioned = {
+                version: dbVersions.goals,
+                data: dbData.current_goals || [],
+                lastModified: Date.now()
+            };
+            CustomGoalsManager.saveVersionedLocal(newVersioned);
+            console.log(`✅ Synced custom goals from DB (v${dbVersions.goals})`);
+        } else if (localGoalsVersioned.version > dbVersions.goals) {
+            // Local is newer - will be synced on next "Complete Dailies"
+            console.log(`⚠️ Local goals (v${localGoalsVersioned.version}) newer than DB (v${dbVersions.goals}) - will sync on next save`);
+        } else {
+            console.log(`✓ Custom goals already in sync (v${localGoalsVersioned.version})`);
+        }
+        
+        // Sync Easy Days Settings
+        const localEasyDaysVersioned = EasyDaysManager.getVersionedLocal();
+        console.log(`⚙️ Local easy days version: ${localEasyDaysVersioned.version}, DB version: ${dbVersions.easyDays}`);
+        
+        if (dbData.goals_settings?.easyDays && dbVersions.easyDays > localEasyDaysVersioned.version) {
+            const newVersioned = {
+                version: dbVersions.easyDays,
+                data: dbData.goals_settings.easyDays,
+                lastModified: Date.now()
+            };
+            EasyDaysManager.saveVersionedLocal(newVersioned);
+            console.log(`✅ Synced easy days settings from DB (v${dbVersions.easyDays})`);
+        } else if (localEasyDaysVersioned.version > dbVersions.easyDays) {
+            console.log(`⚠️ Local easy days (v${localEasyDaysVersioned.version}) newer than DB (v${dbVersions.easyDays}) - will sync on next save`);
+        } else {
+            console.log(`✓ Easy days settings already in sync (v${localEasyDaysVersioned.version})`);
+        }
+        
+        // Sync AnkiConnect Settings
+        const localAnkiVersioned = AnkiConnectManager.getVersionedLocal();
+        console.log(`🎴 Local AnkiConnect version: ${localAnkiVersioned.version}, DB version: ${dbVersions.ankiConnect}`);
+        
+        if (dbData.goals_settings?.ankiConnect && dbVersions.ankiConnect > localAnkiVersioned.version) {
+            const newVersioned = {
+                version: dbVersions.ankiConnect,
+                data: dbData.goals_settings.ankiConnect,
+                lastModified: Date.now()
+            };
+            AnkiConnectManager.saveVersionedLocal(newVersioned);
+            console.log(`✅ Synced AnkiConnect settings from DB (v${dbVersions.ankiConnect})`);
+        } else if (localAnkiVersioned.version > dbVersions.ankiConnect) {
+            console.log(`⚠️ Local AnkiConnect (v${localAnkiVersioned.version}) newer than DB (v${dbVersions.ankiConnect}) - will sync on next save`);
+        } else {
+            console.log(`✓ AnkiConnect settings already in sync (v${localAnkiVersioned.version})`);
+        }
+        
+        console.log('✅ Goals data synchronization complete!');
+    } catch (error) {
+        console.error('❌ Error synchronizing goals data:', error);
+    }
+}
