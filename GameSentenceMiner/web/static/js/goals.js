@@ -1824,19 +1824,57 @@ document.addEventListener('DOMContentLoaded', function () {
     // ================================
 
     // Load easy days settings into UI
-    function loadEasyDaysUI() {
-        const settings = EasyDaysManager.getSettings();
-        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    async function loadEasyDaysUI() {
+        try {
+            // First try to load from database
+            const response = await fetch('/api/settings');
+            if (response.ok) {
+                const data = await response.json();
+                const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
-        days.forEach(day => {
-            const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
-            const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
+                days.forEach(day => {
+                    const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
+                    const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
+                    const fieldName = `easy_days_${day}`;
+                    const value = data[fieldName] !== undefined ? data[fieldName] : 100;
 
-            if (slider && valueDisplay) {
-                slider.value = settings[day];
-                valueDisplay.textContent = settings[day] + '%';
+                    if (slider && valueDisplay) {
+                        slider.value = value;
+                        valueDisplay.textContent = value + '%';
+                    }
+                });
+            } else {
+                // Fallback to localStorage if API fails
+                console.warn('Failed to load settings from database, using localStorage');
+                const settings = EasyDaysManager.getSettings();
+                const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+                days.forEach(day => {
+                    const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
+                    const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
+
+                    if (slider && valueDisplay) {
+                        slider.value = settings[day];
+                        valueDisplay.textContent = settings[day] + '%';
+                    }
+                });
             }
-        });
+        } catch (error) {
+            console.error('Error loading easy days settings:', error);
+            // Fallback to localStorage
+            const settings = EasyDaysManager.getSettings();
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+            days.forEach(day => {
+                const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
+                const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
+
+                if (slider && valueDisplay) {
+                    slider.value = settings[day];
+                    valueDisplay.textContent = settings[day] + '%';
+                }
+            });
+        }
     }
 
     // Setup slider event listeners to update value displays
@@ -1941,8 +1979,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Open settings modal
     if (settingsToggle) {
-        settingsToggle.addEventListener('click', function () {
-            loadEasyDaysUI();
+        settingsToggle.addEventListener('click', async function () {
+            await loadEasyDaysUI();
             loadAnkiConnectUI();
             settingsModal.style.display = 'flex';
             settingsModal.classList.add('show');
@@ -1994,7 +2032,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 deckName: deckNameInput ? deckNameInput.value.trim() : ''
             };
 
-            // Validate and save easy days
+            // Validate and save easy days to localStorage first
             const easyDaysResult = EasyDaysManager.saveSettings(easyDaysSettings);
 
             if (!easyDaysResult.success) {
@@ -2005,10 +2043,34 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            // Save AnkiConnect settings
+            // Save AnkiConnect settings to localStorage
             const ankiResult = AnkiConnectManager.saveSettings(ankiConnectSettings);
 
-            if (ankiResult.success) {
+            // Prepare data for API call
+            const apiData = {};
+            
+            // Add easy days settings to API data
+            days.forEach(day => {
+                const fieldName = `easy_days_${day}`;
+                apiData[fieldName] = easyDaysSettings[day];
+            });
+
+            try {
+                // Send settings to API
+                const response = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(apiData)
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'Failed to save settings to database');
+                }
+
                 if (settingsSuccess) {
                     settingsSuccess.textContent = 'Settings saved successfully!';
                     settingsSuccess.style.display = 'block';
@@ -2018,9 +2080,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 setTimeout(() => {
                     closeModal();
                 }, 1000);
-            } else {
+
+            } catch (error) {
+                console.error('Error saving settings to database:', error);
                 if (settingsError) {
-                    settingsError.textContent = ankiResult.error;
+                    settingsError.textContent = 'Failed to save settings to database: ' + error.message;
                     settingsError.style.display = 'block';
                 }
             }
