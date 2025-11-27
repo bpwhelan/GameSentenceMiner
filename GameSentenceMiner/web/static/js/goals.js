@@ -77,10 +77,10 @@ const GoalsUtils = {
     },
 
     // Prepare goals settings object with easy days and AnkiConnect settings
-    prepareGoalsSettings() {
+    async prepareGoalsSettings() {
         return {
-            easyDays: EasyDaysManager.getSettings(),
-            ankiConnect: AnkiConnectManager.getSettings()
+            easyDays: await EasyDaysManager.getSettings(),
+            ankiConnect: await AnkiConnectManager.getSettings()
         };
     },
 
@@ -112,16 +112,40 @@ const AnkiConnectManager = {
         };
     },
 
-    // Get settings from localStorage
-    getSettings() {
+    // Get settings from localStorage or database
+    async getSettings() {
         try {
             const stored = localStorage.getItem(this.STORAGE_KEY);
             if (stored) {
                 return JSON.parse(stored);
             }
+            
+            // Fallback to database if localStorage is empty
+            console.log('AnkiConnect settings not in localStorage, trying database...');
+            try {
+                const response = await fetch('/api/goals/latest_goals');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.goals_settings) {
+                        const goalsSettings = typeof data.goals_settings === 'string'
+                            ? JSON.parse(data.goals_settings)
+                            : data.goals_settings;
+                        
+                        if (goalsSettings && goalsSettings.ankiConnect) {
+                            // Save to localStorage for future use
+                            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(goalsSettings.ankiConnect));
+                            console.log('Loaded AnkiConnect settings from database');
+                            return goalsSettings.ankiConnect;
+                        }
+                    }
+                }
+            } catch (dbError) {
+                console.warn('Could not fetch AnkiConnect settings from database:', dbError);
+            }
+            
             return this.getDefaultSettings();
         } catch (error) {
-            console.error('Error reading AnkiConnect settings from localStorage:', error);
+            console.error('Error reading AnkiConnect settings:', error);
             return this.getDefaultSettings();
         }
     },
@@ -160,16 +184,40 @@ const EasyDaysManager = {
         };
     },
 
-    // Get settings from localStorage
-    getSettings() {
+    // Get settings from localStorage or database
+    async getSettings() {
         try {
             const stored = localStorage.getItem(this.STORAGE_KEY);
             if (stored) {
                 return JSON.parse(stored);
             }
+            
+            // Fallback to database if localStorage is empty
+            console.log('Easy days settings not in localStorage, trying database...');
+            try {
+                const response = await fetch('/api/goals/latest_goals');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.goals_settings) {
+                        const goalsSettings = typeof data.goals_settings === 'string'
+                            ? JSON.parse(data.goals_settings)
+                            : data.goals_settings;
+                        
+                        if (goalsSettings && goalsSettings.easyDays) {
+                            // Save to localStorage for future use
+                            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(goalsSettings.easyDays));
+                            console.log('Loaded easy days settings from database');
+                            return goalsSettings.easyDays;
+                        }
+                    }
+                }
+            } catch (dbError) {
+                console.warn('Could not fetch easy days settings from database:', dbError);
+            }
+            
             return this.getDefaultSettings();
         } catch (error) {
-            console.error('Error reading easy days settings from localStorage:', error);
+            console.error('Error reading easy days settings:', error);
             return this.getDefaultSettings();
         }
     },
@@ -331,8 +379,9 @@ const CustomGoalCheckboxManager = {
     },
 
     // Initialize or reset all custom goals for new day
-    initializeForNewDay() {
-        const customGoals = CustomGoalsManager.getAll().filter(g => g.metricType === 'custom');
+    async initializeForNewDay() {
+        const allGoals = await CustomGoalsManager.getAll();
+        const customGoals = allGoals.filter(g => g.metricType === 'custom');
 
         for (const goal of customGoals) {
             if (this.needsReset(goal.id)) {
@@ -353,24 +402,46 @@ const CustomGoalsManager = {
         return 'goal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11);
     },
 
-    // Get all custom goals from localStorage
-    getAll() {
+    // Get all custom goals from localStorage or database
+    async getAll() {
         try {
             const stored = localStorage.getItem(this.STORAGE_KEY);
-            return stored ? JSON.parse(stored) : [];
+            if (stored) {
+                return JSON.parse(stored);
+            }
+            
+            // Fallback to database if localStorage is empty
+            console.log('Custom goals not in localStorage, trying database...');
+            try {
+                const response = await fetch('/api/goals/latest_goals');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.current_goals && data.current_goals.length > 0) {
+                        // Save to localStorage for future use
+                        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data.current_goals));
+                        console.log('Loaded custom goals from database');
+                        return data.current_goals;
+                    }
+                }
+            } catch (dbError) {
+                console.warn('Could not fetch custom goals from database:', dbError);
+            }
+            
+            return [];
         } catch (error) {
-            console.error('Error reading custom goals from localStorage:', error);
+            console.error('Error reading custom goals:', error);
             return [];
         }
     },
 
     // Get active goals (within current date or future)
-    getActive() {
+    async getActive() {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const todayStr = today.toISOString().split('T')[0];
 
-        return this.getAll().filter(goal => {
+        const allGoals = await this.getAll();
+        return allGoals.filter(goal => {
             // Custom goals are always active
             if (goal.metricType === 'custom') return true;
             return goal.endDate >= todayStr;
@@ -378,12 +449,13 @@ const CustomGoalsManager = {
     },
 
     // Get goals that are currently in progress (today is within date range)
-    getInProgress() {
+    async getInProgress() {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const todayStr = today.toISOString().split('T')[0];
 
-        return this.getAll().filter(goal => {
+        const allGoals = await this.getAll();
+        return allGoals.filter(goal => {
             // Custom goals are always in progress
             if (goal.metricType === 'custom') return true;
             return goal.startDate <= todayStr && goal.endDate >= todayStr;
@@ -402,8 +474,8 @@ const CustomGoalsManager = {
     },
 
     // Create new goal
-    create(goalData) {
-        const goals = this.getAll();
+    async create(goalData) {
+        const goals = await this.getAll();
         const newGoal = {
             id: this.generateId(),
             name: goalData.name,
@@ -421,8 +493,8 @@ const CustomGoalsManager = {
     },
 
     // Update existing goal
-    update(id, goalData) {
-        const goals = this.getAll();
+    async update(id, goalData) {
+        const goals = await this.getAll();
         const index = goals.findIndex(g => g.id === id);
 
         if (index === -1) {
@@ -443,15 +515,16 @@ const CustomGoalsManager = {
     },
 
     // Delete goal
-    delete(id) {
-        const goals = this.getAll();
+    async delete(id) {
+        const goals = await this.getAll();
         const filtered = goals.filter(g => g.id !== id);
         return this.saveAll(filtered);
     },
 
     // Get goal by ID
-    getById(id) {
-        return this.getAll().find(g => g.id === id);
+    async getById(id) {
+        const goals = await this.getAll();
+        return goals.find(g => g.id === id);
     },
 
     // Get default icon for metric type
@@ -520,7 +593,9 @@ const dateStrCache = new Map();
 document.addEventListener('DOMContentLoaded', function () {
 
     // Initialize checkbox states for new day
-    CustomGoalCheckboxManager.initializeForNewDay();
+    CustomGoalCheckboxManager.initializeForNewDay().catch(err => {
+        console.error('Error initializing checkbox states:', err);
+    });
 
     // Helper function to format large numbers
     function formatGoalNumber(num) {
@@ -564,7 +639,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Helper function to calculate progress for custom goal within date range using API
     async function calculateCustomGoalProgress(goal) {
         try {
-            const goalsSettings = GoalsUtils.prepareGoalsSettings();
+            const goalsSettings = await GoalsUtils.prepareGoalsSettings();
 
             const response = await fetch('/api/goals/progress', {
                 method: 'POST',
@@ -690,7 +765,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const dailyGamesAvg = calculateDailyAverage(allLinesData, 'games');
 
             // Load and render custom goals
-            const customGoals = CustomGoalsManager.getActive();
+            const customGoals = await CustomGoalsManager.getActive();
             const goalProgressGrid = document.querySelector('.goal-progress-grid');
 
             // Remove existing custom goal cards
@@ -955,7 +1030,7 @@ document.addEventListener('DOMContentLoaded', function () {
             let hasAnyTarget = false;
 
             // Load custom goals today progress
-            const customGoals = CustomGoalsManager.getInProgress();
+            const customGoals = await CustomGoalsManager.getInProgress();
             const todayGoalsStats = document.getElementById('todayGoalsStats');
 
             // Remove existing custom goal today items
@@ -973,7 +1048,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         todayGoalsStats.insertAdjacentHTML('beforeend', itemHTML);
                     } else {
                         try {
-                            const goalsSettings = GoalsUtils.prepareGoalsSettings();
+                            const goalsSettings = await GoalsUtils.prepareGoalsSettings();
 
                             const response = await fetch('/api/goals/today-progress', {
                                 method: 'POST',
@@ -1106,7 +1181,7 @@ document.addEventListener('DOMContentLoaded', function () {
             let hasAnyProjection = false;
 
             // Load custom goals projections (only for 4 core metrics)
-            const customGoals = CustomGoalsManager.getActive();
+            const customGoals = await CustomGoalsManager.getActive();
             const projectionStats = document.getElementById('projectionStats');
 
             // If projectionStats doesn't exist (not on overview page), skip this function
@@ -1139,7 +1214,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 console.log(`Loading projections for ${customGoalsWithProjections.length} custom goals`);
                 for (const goal of customGoalsWithProjections) {
                     try {
-                        const goalsSettings = GoalsUtils.prepareGoalsSettings();
+                        const goalsSettings = await GoalsUtils.prepareGoalsSettings();
 
                         const response = await fetch('/api/goals/projection', {
                             method: 'POST',
@@ -1422,7 +1497,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Save custom goal (create or update)
     if (saveCustomGoalBtn) {
-        saveCustomGoalBtn.addEventListener('click', function () {
+        saveCustomGoalBtn.addEventListener('click', async function () {
             clearCustomGoalMessages();
 
             const metricType = document.getElementById('goalMetricType').value;
@@ -1453,11 +1528,11 @@ document.addEventListener('DOMContentLoaded', function () {
             try {
                 if (editingGoalId) {
                     // Update existing goal
-                    CustomGoalsManager.update(editingGoalId, goalData);
+                    await CustomGoalsManager.update(editingGoalId, goalData);
                     showCustomGoalSuccess('Goal updated successfully!');
                 } else {
                     // Create new goal
-                    CustomGoalsManager.create(goalData);
+                    await CustomGoalsManager.create(goalData);
                     showCustomGoalSuccess('Goal created successfully!');
                 }
 
@@ -1477,8 +1552,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Function to open edit modal for existing goal
-    window.editCustomGoal = function (goalId) {
-        const goal = CustomGoalsManager.getById(goalId);
+    window.editCustomGoal = async function (goalId) {
+        const goal = await CustomGoalsManager.getById(goalId);
         if (!goal) {
             alert('Goal not found');
             return;
@@ -1504,15 +1579,15 @@ document.addEventListener('DOMContentLoaded', function () {
     };
 
     // Function to delete custom goal
-    window.deleteCustomGoal = function (goalId) {
-        const goal = CustomGoalsManager.getById(goalId);
+    window.deleteCustomGoal = async function (goalId) {
+        const goal = await CustomGoalsManager.getById(goalId);
         if (!goal) {
             alert('Goal not found');
             return;
         }
 
         if (confirm(`Are you sure you want to delete the goal "${goal.name}"?`)) {
-            CustomGoalsManager.delete(goalId);
+            await CustomGoalsManager.delete(goalId);
             loadGoalProgress();
             loadTodayGoals();
             loadGoalProjections();
@@ -1642,7 +1717,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         try {
             const currentGoals = await GoalsUtils.getGoalsWithFallback();
-            const goalsSettings = GoalsUtils.prepareGoalsSettings();
+            const goalsSettings = await GoalsUtils.prepareGoalsSettings();
 
             // Fetch tomorrow's requirements
             const response = await fetch('/api/goals/tomorrow-requirements', {
@@ -1720,7 +1795,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         try {
             const currentGoals = await GoalsUtils.getGoalsWithFallback();
-            const goalsSettings = GoalsUtils.prepareGoalsSettings();
+            const goalsSettings = await GoalsUtils.prepareGoalsSettings();
 
             // Call the API
             const response = await fetch('/api/goals/complete_todays_dailies', {
@@ -1826,43 +1901,8 @@ document.addEventListener('DOMContentLoaded', function () {
     // Load easy days settings into UI
     async function loadEasyDaysUI() {
         try {
-            // First try to load from database
-            const response = await fetch('/api/settings');
-            if (response.ok) {
-                const data = await response.json();
-                const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-
-                days.forEach(day => {
-                    const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
-                    const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
-                    const fieldName = `easy_days_${day}`;
-                    const value = data[fieldName] !== undefined ? data[fieldName] : 100;
-
-                    if (slider && valueDisplay) {
-                        slider.value = value;
-                        valueDisplay.textContent = value + '%';
-                    }
-                });
-            } else {
-                // Fallback to localStorage if API fails
-                console.warn('Failed to load settings from database, using localStorage');
-                const settings = EasyDaysManager.getSettings();
-                const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-
-                days.forEach(day => {
-                    const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
-                    const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
-
-                    if (slider && valueDisplay) {
-                        slider.value = settings[day];
-                        valueDisplay.textContent = settings[day] + '%';
-                    }
-                });
-            }
-        } catch (error) {
-            console.error('Error loading easy days settings:', error);
-            // Fallback to localStorage
-            const settings = EasyDaysManager.getSettings();
+            // Use EasyDaysManager which has localStorage + database fallback built in
+            const settings = await EasyDaysManager.getSettings();
             const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
             days.forEach(day => {
@@ -1872,6 +1912,21 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (slider && valueDisplay) {
                     slider.value = settings[day];
                     valueDisplay.textContent = settings[day] + '%';
+                }
+            });
+        } catch (error) {
+            console.error('Error loading easy days settings:', error);
+            // If all else fails, use defaults
+            const defaultSettings = EasyDaysManager.getDefaultSettings();
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+            days.forEach(day => {
+                const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
+                const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
+
+                if (slider && valueDisplay) {
+                    slider.value = defaultSettings[day];
+                    valueDisplay.textContent = defaultSettings[day] + '%';
                 }
             });
         }
@@ -1968,8 +2023,8 @@ document.addEventListener('DOMContentLoaded', function () {
     setupEasyDaySliders();
 
     // Load AnkiConnect settings into UI
-    function loadAnkiConnectUI() {
-        const settings = AnkiConnectManager.getSettings();
+    async function loadAnkiConnectUI() {
+        const settings = await AnkiConnectManager.getSettings();
         const deckNameInput = document.getElementById('ankiDeckName');
 
         if (deckNameInput) {
@@ -1981,7 +2036,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (settingsToggle) {
         settingsToggle.addEventListener('click', async function () {
             await loadEasyDaysUI();
-            loadAnkiConnectUI();
+            await loadAnkiConnectUI();
             settingsModal.style.display = 'flex';
             settingsModal.classList.add('show');
         });
