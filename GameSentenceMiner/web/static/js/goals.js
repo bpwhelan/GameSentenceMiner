@@ -1931,35 +1931,6 @@ document.addEventListener('DOMContentLoaded', function () {
     loadGoalProjections();
 
     // ================================
-    // Date Change Detection
-    // ================================
-    
-    // Track the current date to detect when a new day starts
-    let currentDate = GoalsUtils.getTodayDateString();
-    
-    // Check every minute if the date has changed (after midnight)
-    setInterval(() => {
-        const newDate = GoalsUtils.getTodayDateString();
-        if (newDate !== currentDate) {
-            console.log(`🌅 New day detected! Old: ${currentDate}, New: ${newDate}`);
-            currentDate = newDate;
-            
-            // Re-initialize checkbox states for custom goals
-            CustomGoalCheckboxManager.initializeForNewDay().catch(err => {
-                console.error('Error reinitializing checkbox states:', err);
-            });
-            
-            // Reload dailies streak to re-enable the Complete Dailies button
-            loadDailiesStreak();
-            
-            // Reload all goal displays for the new day
-            loadTodayGoals();
-            loadGoalProgress();
-            loadGoalProjections();
-        }
-    }, 60000); // Check every 60 seconds
-
-    // ================================
     // Easy Days Settings UI Functions
     // ================================
 
