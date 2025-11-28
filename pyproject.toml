@@ -69,6 +69,7 @@ dependencies = [
   "langid~=1.1.6",
   "pysbd~=0.3.4",
   "pypresence>=4.6.1",
+  "flasgger~=0.9.7"
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
