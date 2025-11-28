@@ -30,7 +30,28 @@ def register_anki_api_endpoints(app):
 
     @app.route("/api/anki_earliest_date")
     def api_anki_earliest_date():
-        """Get the earliest Anki card creation date for date range initialization."""
+        """
+        Get earliest Anki card creation date
+        ---
+        tags:
+          - Anki
+        responses:
+          200:
+            description: Earliest card creation timestamp
+            schema:
+              type: object
+              properties:
+                timestamp:
+                  type: number
+                  description: Unix timestamp of earliest card creation
+            500:
+                description: Failed to retrieve Anki data
+                type: object
+                properties:
+                    earliest_date:
+                    type: integer
+                    description: Unix timestamp of earliest card
+        """
         try:
             card_ids = invoke("findCards", query="")
             if card_ids:
@@ -52,8 +73,44 @@ def register_anki_api_endpoints(app):
     @app.route("/api/anki_kanji_stats")
     def api_anki_kanji_stats():
         """
-        Get kanji statistics including missing kanji analysis.
-        Uses hybrid rollup + live approach for GSM kanji data.
+        Get kanji statistics and coverage analysis
+        ---
+        tags:
+          - Anki
+        parameters:
+          - name: start_timestamp
+            in: query
+            type: integer
+            required: false
+            description: Start timestamp (milliseconds)
+          - name: end_timestamp
+            in: query
+            type: integer
+            required: false
+            description: End timestamp (milliseconds)
+        responses:
+          200:
+            description: Kanji statistics
+            schema:
+              type: object
+              properties:
+                missing_kanji:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      kanji:
+                        type: string
+                      frequency:
+                        type: integer
+                anki_kanji_count:
+                  type: integer
+                gsm_kanji_count:
+                  type: integer
+                coverage_percent:
+                  type: number
+          500:
+            description: Failed to fetch kanji stats
         """
         start_timestamp = (
             int(request.args.get("start_timestamp"))
@@ -255,7 +312,68 @@ def register_anki_api_endpoints(app):
 
     @app.route("/api/anki_game_stats")
     def api_anki_game_stats():
-        """Get game-specific Anki statistics."""
+        """
+        Get Anki stats grouped by game
+        ---
+        tags:
+          - Anki
+        responses:
+          200:
+            description: Game-specific statistics
+            schema:
+              type: object
+              properties:
+                games:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      game_name:
+                        type: string
+                      card_count:
+                        type: integer
+                      avg_ease:
+                        type: number
+          500:
+            description: Failed to gather game stats
+        """
+        """
+        Get game-specific Anki retention statistics
+        ---
+        tags:
+          - Anki
+        parameters:
+          - name: start_timestamp
+            in: query
+            type: integer
+            required: false
+            description: Start timestamp (milliseconds)
+          - name: end_timestamp
+            in: query
+            type: integer
+            required: false
+            description: End timestamp (milliseconds)
+        responses:
+          200:
+            description: Per-game Anki statistics
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  game_name:
+                    type: string
+                  avg_time_per_card:
+                    type: number
+                    description: Average review time in seconds
+                  retention_pct:
+                    type: number
+                    description: Retention percentage
+                  total_reviews:
+                    type: integer
+                  mined_lines:
+                    type: integer
+        """
         start_timestamp = (
             int(request.args.get("start_timestamp"))
             if request.args.get("start_timestamp")
@@ -654,6 +772,41 @@ def register_anki_api_endpoints(app):
     # Keep the original combined endpoint for backward compatibility
     @app.route("/api/anki_stats_combined")
     def api_anki_stats_combined():
+        """
+        Get combined Anki statistics
+        ---
+        tags:
+          - Anki
+        responses:
+          200:
+            description: Comprehensive Anki stats
+            schema:
+              type: object
+              properties:
+                total_cards:
+                  type: integer
+                mature:
+                  type: integer
+                young:
+                  type: integer
+                new:
+                  type: integer
+                avg_ease:
+                  type: number
+                retention:
+                  type: number
+                heatmap:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      date:
+                        type: string
+                      count:
+                        type: integer
+          500:
+            description: Failed to compile stats
+        """
         """
         Legacy combined endpoint - now redirects to individual endpoints.
         Kept for backward compatibility but should be deprecated.

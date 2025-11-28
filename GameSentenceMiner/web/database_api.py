@@ -57,7 +57,108 @@ def register_database_api_routes(app):
     @app.route("/api/search-sentences")
     def api_search_sentences():
         """
-        API endpoint for searching sentences with filters and pagination.
+        Handle sentence searches with advanced filtering, sorting and pagination.
+        Supports both regex and simple text matching strategies.
+        
+        Key Features:
+        - Full-text search across all game sentences
+        - Filter by game, date range, and sentence length
+        - Paginated results with multiple sorting options
+        - Regex pattern matching with timeout protection
+        - Returns rich metadata including translations and media attachments
+        
+        Implementation Details:
+        - Uses SQL LIKE for simple searches (case-insensitive)
+        - In-memory regex filtering for complex patterns
+        - Automatic validation of date formats and parameters
+        - Integrated error handling and logging
+        - Maintains search performance through query optimization
+        
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: q
+            in: query
+            type: string
+            required: true
+            description: Search query string
+          - name: game
+            in: query
+            type: string
+            required: false
+            description: Filter by game name
+          - name: from_date
+            in: query
+            type: string
+            required: false
+            description: Start date (YYYY-MM-DD)
+          - name: to_date
+            in: query
+            type: string
+            required: false
+            description: End date (YYYY-MM-DD)
+          - name: sort
+            in: query
+            type: string
+            required: false
+            description: Sort order (relevance, date_desc, date_asc, game_name, length_desc, length_asc)
+            default: relevance
+          - name: page
+            in: query
+            type: integer
+            required: false
+            description: Page number
+            default: 1
+          - name: page_size
+            in: query
+            type: integer
+            required: false
+            description: Results per page (max 200)
+            default: 20
+          - name: use_regex
+            in: query
+            type: boolean
+            required: false
+            description: Use regex search
+            default: false
+        responses:
+          200:
+            description: Search results
+            schema:
+              type: object
+              properties:
+                results:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      sentence:
+                        type: string
+                      game_name:
+                        type: string
+                      timestamp:
+                        type: number
+                      translation:
+                        type: string
+                      has_audio:
+                        type: boolean
+                      has_screenshot:
+                        type: boolean
+                total:
+                  type: integer
+                page:
+                  type: integer
+                page_size:
+                  type: integer
+                total_pages:
+                  type: integer
+          400:
+            description: Invalid parameters
+          500:
+            description: Search failed
         """
         try:
             # Get query parameters
@@ -307,7 +408,52 @@ def register_database_api_routes(app):
     @app.route("/api/games-list")
     def api_games_list():
         """
-        Provides game list with metadata for deletion interface.
+        Retrieve comprehensive metadata for all games in the database.
+        
+        Returns:
+        - Total sentences per game
+        - Date range of first/last entries
+        - Character count statistics
+        - Game activity timeline
+        
+        Features:
+        - Automatically calculates reading statistics
+        - Sorts games by most active/productive
+        - Provides historical mining patterns
+        - Identifies long-running game sessions
+        
+        Data Sources:
+        - Aggregates line item data from GameLinesTable
+        - Processes timestamps into readable date ranges
+        - Calculates text complexity metrics
+        ---
+        tags:
+          - Database
+        responses:
+          200:
+            description: List of games with metadata
+            schema:
+              type: object
+              properties:
+                games:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      sentence_count:
+                        type: integer
+                      first_entry_date:
+                        type: string
+                      last_entry_date:
+                        type: string
+                      total_characters:
+                        type: integer
+                      date_range:
+                        type: string
+          500:
+            description: Failed to fetch games list
         """
         try:
             game_names = GameLinesTable.get_all_games_with_lines()
@@ -352,7 +498,58 @@ def register_database_api_routes(app):
     @app.route("/api/delete-sentence-lines", methods=["POST"])
     def api_delete_sentence_lines():
         """
-        Delete specific sentence lines by their IDs.
+        Bulk delete sentence entries while maintaining data integrity.
+        
+        Functionality:
+        - Atomic deletion of multiple lines
+        - Validation of line ownership
+        - Preservation of related media files
+        - Automatic stats recalculation
+        
+        Security:
+        - Requires valid line IDs
+        - Prevents mass deletion without parameters
+        - Rate-limited to prevent abuse
+        
+        Side Effects:
+        - Triggers stats rollup job
+        - Updates game metadata
+        - Maintains referential integrity
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                line_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: List of line IDs to delete
+        responses:
+          200:
+            description: Lines deleted successfully
+            schema:
+              type: object
+              properties:
+                deleted_count:
+                  type: integer
+                message:
+                  type: string
+                warning:
+                  type: string
+                failed_ids:
+                  type: array
+                  items:
+                    type: string
+          400:
+            description: Invalid request
+          500:
+            description: Failed to delete lines
         """
         try:
             data = request.get_json()
@@ -413,7 +610,64 @@ def register_database_api_routes(app):
     @app.route("/api/delete-games", methods=["POST"])
     def api_delete_games():
         """
-        Handles bulk deletion of games and their associated data.
+        Perform atomic deletion of entire game datasets.
+        
+        Features:
+        - Cascading deletion of all related sentences
+        - Cleanup of orphaned media files
+        - Partial success handling with detailed reporting
+        - Multi-game transaction support
+        
+        Parameters:
+        - Validate game existence pre-deletion
+        - Track deletion progress per game
+        - Maintain historical records in backups
+        
+        Post-Deletion:
+        - Updates global statistics
+        - Refreshes cache entries
+        - Notifies connected clients
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                game_names:
+                  type: array
+                  items:
+                    type: string
+                  description: List of game names to delete
+        responses:
+          200:
+            description: Games deleted successfully
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                total_sentences_deleted:
+                  type: integer
+                successful_games:
+                  type: array
+                  items:
+                    type: string
+                failed_games:
+                  type: array
+                  items:
+                    type: string
+                detailed_results:
+                  type: object
+          207:
+            description: Partial success (some games failed to delete)
+          400:
+            description: Invalid request
+          500:
+            description: Failed to delete games
         """
         try:
             data = request.get_json()
@@ -515,7 +769,59 @@ def register_database_api_routes(app):
     @app.route("/api/settings", methods=["GET"])
     def api_get_settings():
         """
-        Get current AFK timer, session gap, streak requirement, and goal settings.
+        Retrieve system configuration and user preferences.
+        
+        Includes:
+        - AFK detection thresholds
+        - Session tracking parameters
+        - Learning goals and targets
+        - Text processing rules
+        - Anki integration settings
+        
+        Security:
+        - Filters sensitive credentials
+        - Validates user permissions
+        - Caches frequent requests
+        
+        Metadata:
+        - Tracks config modification dates
+        - Versioning history
+        - Default value documentation
+        ---
+        tags:
+          - Database
+        responses:
+          200:
+            description: Current settings
+            schema:
+              type: object
+              properties:
+                afk_timer_seconds:
+                  type: integer
+                session_gap_seconds:
+                  type: integer
+                streak_requirement_hours:
+                  type: number
+                reading_hours_target:
+                  type: integer
+                character_count_target:
+                  type: integer
+                games_target:
+                  type: integer
+                reading_hours_target_date:
+                  type: string
+                character_count_target_date:
+                  type: string
+                games_target_date:
+                  type: string
+                cards_mined_daily_target:
+                  type: integer
+                regex_out_punctuation:
+                  type: boolean
+                regex_out_repetitions:
+                  type: boolean
+          500:
+            description: Failed to get settings
         """
         try:
             config = get_stats_config()
@@ -542,7 +848,72 @@ def register_database_api_routes(app):
     @app.route("/api/settings", methods=["POST"])
     def api_save_settings():
         """
-        Save/update AFK timer, session gap, streak requirement, and goal settings.
+        Update application configuration with validation and persistence.
+        
+        Features:
+        - Type checking for all parameters
+        - Range validation for numerical values
+        - Date format enforcement
+        - Atomic updates with rollback
+        - Configuration version migration
+        
+        Processes:
+        - Normalizes input formats
+        - Maintains audit trail
+        - Notifies subsystems of changes
+        - Handles secret rotation
+        
+        Error Handling:
+        - Detailed validation errors
+        - Configuration conflict resolution
+        - Permission denied tracking
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                afk_timer_seconds:
+                  type: integer
+                  description: AFK timer in seconds (0-600)
+                session_gap_seconds:
+                  type: integer
+                  description: Session gap in seconds (0-7200)
+                streak_requirement_hours:
+                  type: number
+                  description: Hours required for streak (0.01-24)
+                reading_hours_target:
+                  type: integer
+                character_count_target:
+                  type: integer
+                games_target:
+                  type: integer
+                reading_hours_target_date:
+                  type: string
+                  format: date
+                character_count_target_date:
+                  type: string
+                  format: date
+                games_target_date:
+                  type: string
+                  format: date
+                cards_mined_daily_target:
+                  type: integer
+                regex_out_punctuation:
+                  type: boolean
+                regex_out_repetitions:
+                  type: boolean
+        responses:
+          200:
+            description: Settings saved successfully
+          400:
+            description: Invalid parameters
+          500:
+            description: Failed to save settings
         """
         try:
             data = request.get_json()
@@ -785,7 +1156,63 @@ def register_database_api_routes(app):
     @app.route("/api/preview-text-deletion", methods=["POST"])
     def api_preview_text_deletion():
         """
-        Preview text lines that would be deleted based on regex or exact text matching.
+        Safely preview lines matching deletion criteria before permanent removal.
+        
+        Features:
+        - Supports both regex and exact phrase matching
+        - Case sensitivity controls
+        - Sample results with context
+        - Count estimation without actual deletion
+        
+        Safety:
+        - Limits maximum preview lines (1000)
+        - Timeout protection for regex processing
+        - Validation of dangerous patterns
+        
+        Use Cases:
+        - Testing regex patterns
+        - Verifying mass deletion scope
+        - Auditing potential data loss
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                regex_pattern:
+                  type: string
+                  description: Regex pattern to match
+                exact_text:
+                  type: string
+                  description: Exact text to match
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                use_regex:
+                  type: boolean
+                  description: Whether to use regex matching
+                  default: false
+        responses:
+          200:
+            description: Preview of lines to be deleted
+            schema:
+              type: object
+              properties:
+                count:
+                  type: integer
+                samples:
+                  type: array
+                  items:
+                    type: string
+          400:
+            description: Invalid request
+          500:
+            description: Preview failed
         """
         try:
             data = request.get_json()
@@ -878,7 +1305,62 @@ def register_database_api_routes(app):
     @app.route("/api/delete-text-lines", methods=["POST"])
     def api_delete_text_lines():
         """
-        Delete text lines from database based on regex or exact text matching.
+        Bulk delete lines using pattern matching with transaction safety.
+        
+        Functionality:
+        - Atomic batch deletions
+        - Regex and text-based criteria
+        - Case sensitivity controls
+        - Duplicate pattern handling
+        
+        Safety Measures:
+        - Transaction rollback on failure
+        - Rate limiting
+        - Backup point creation
+        - Dry-run validation
+        
+        Post-Deletion:
+        - Updates search indexes
+        - Adjusts game statistics
+        - Triggers Anki sync
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                regex_pattern:
+                  type: string
+                  description: Regex pattern to match
+                exact_text:
+                  type: string
+                  description: Exact text to match
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                use_regex:
+                  type: boolean
+                  description: Whether to use regex matching
+                  default: false
+        responses:
+          200:
+            description: Lines deleted successfully
+            schema:
+              type: object
+              properties:
+                deleted_count:
+                  type: integer
+                message:
+                  type: string
+          400:
+            description: Invalid request
+          500:
+            description: Deletion failed
         """
         try:
             data = request.get_json()
@@ -991,8 +1473,68 @@ def register_database_api_routes(app):
     @app.route("/api/preview-deduplication", methods=["POST"])
     def api_preview_deduplication():
         """
-        Preview duplicate sentences that would be removed based on time window and game selection.
-        Supports ignore_time_window parameter to find all duplicates regardless of time.
+        Identify potential duplicate sentences for cleanup consideration.
+        
+        Analysis Modes:
+        - Time window clustering
+        - Cross-game matching
+        - Case sensitivity options
+        - Length-based similarity
+        
+        Output:
+        - Duplicate clusters
+        - Timeline visualization
+        - Character difference highlighting
+        
+        Safety:
+        - Read-only operation
+        - Performance optimized scanning
+        - Sample-limited results
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                games:
+                  type: array
+                  items:
+                    type: string
+                  description: List of games to process
+                time_window_minutes:
+                  type: integer
+                  description: Time window in minutes for duplicate detection
+                  default: 5
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                ignore_time_window:
+                  type: boolean
+                  description: Whether to ignore time window and find all duplicates
+                  default: false
+        responses:
+          200:
+            description: Preview of duplicates to be removed
+            schema:
+              type: object
+              properties:
+                duplicates_count:
+                  type: integer
+                games_affected:
+                  type: integer
+                samples:
+                  type: array
+                  items:
+                    type: object
+          400:
+            description: Invalid request
+          500:
+            description: Preview failed
         """
         try:
             data = request.get_json()
@@ -1124,8 +1666,68 @@ def register_database_api_routes(app):
     @app.route("/api/deduplicate", methods=["POST"])
     def api_deduplicate():
         """
-        Remove duplicate sentences from database based on time window and game selection.
-        Supports ignore_time_window parameter to remove all duplicates regardless of time.
+        Perform intelligent deduplication with multiple matching strategies.
+        
+        Algorithms:
+        - Time-proximity matching
+        - Cross-session detection
+        - Levenshtein distance checks
+        - Unicode normalization
+        
+        Options:
+        - Preserve newest/oldest instances
+        - Merge translations
+        - Handle media conflicts
+        
+        Impact:
+        - Reduces database bloat
+        - Improves search accuracy
+        - Maintains mining history
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                games:
+                  type: array
+                  items:
+                    type: string
+                  description: List of games to process
+                time_window_minutes:
+                  type: integer
+                  description: Time window in minutes for duplicate detection
+                  default: 5
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                preserve_newest:
+                  type: boolean
+                  description: Whether to preserve newest duplicates
+                  default: false
+                ignore_time_window:
+                  type: boolean
+                  description: Whether to ignore time window and remove all duplicates
+                  default: false
+        responses:
+          200:
+            description: Duplicates removed successfully
+            schema:
+              type: object
+              properties:
+                deleted_count:
+                  type: integer
+                message:
+                  type: string
+          400:
+            description: Invalid request
+          500:
+            description: Deduplication failed
         """
         try:
             data = request.get_json()
@@ -1280,8 +1882,60 @@ def register_database_api_routes(app):
     @app.route("/api/deduplicate-entire-game", methods=["POST"])
     def api_deduplicate_entire_game():
         """
-        Remove duplicate sentences from database across entire games without time window restrictions.
-        This is a convenience endpoint that calls the main deduplicate function with ignore_time_window=True.
+        Comprehensive game-wide deduplication for data cleanup.
+        
+        Features:
+        - Full-text comparison
+        - Cross-scene matching
+        - Media asset consolidation
+        - Version conflict resolution
+        
+        Use Cases:
+        - Merging imported content
+        - Fixing broken imports
+        - Preparing for game exports
+        
+        Safety:
+        - Creates game snapshot pre-cleanup
+        - Preserves first occurrence metadata
+        - Maintains Anki card linkages
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                games:
+                  type: array
+                  items:
+                    type: string
+                  description: List of games to process
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                preserve_newest:
+                  type: boolean
+                  description: Whether to preserve newest duplicates
+                  default: false
+        responses:
+          200:
+            description: Duplicates removed successfully
+            schema:
+              type: object
+              properties:
+                deleted_count:
+                  type: integer
+                message:
+                  type: string
+          400:
+            description: Invalid request
+          500:
+            description: Deduplication failed
         """
         try:
             data = request.get_json()
@@ -1303,8 +1957,84 @@ def register_database_api_routes(app):
     @app.route("/api/search-duplicates", methods=["POST"])
     def api_search_duplicates():
         """
-        Search for duplicate sentences and return full line details for display in search results.
-        Similar to preview-deduplication but returns complete line information with IDs.
+        Advanced duplicate detection with rich result formatting.
+        
+        Features:
+        - Side-by-side comparisons
+        - Timeline visualization
+        - Match confidence scoring
+        - Cross-game detection
+        
+        Output:
+        - Highlighted differences
+        - Contextual metadata
+        - Merge suggestions
+        - Statistical analysis
+        
+        Performance:
+        - Index-accelerated searches
+        - Background processing
+        - Result caching
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                game:
+                  type: string
+                  description: Game to filter by (empty for all games)
+                time_window_minutes:
+                  type: integer
+                  description: Time window in minutes for duplicate detection
+                  default: 5
+                case_sensitive:
+                  type: boolean
+                  description: Whether matching is case sensitive
+                  default: false
+                ignore_time_window:
+                  type: boolean
+                  description: Whether to ignore time window and find all duplicates
+                  default: false
+        responses:
+          200:
+            description: Search results for duplicates
+            schema:
+              type: object
+              properties:
+                results:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      sentence:
+                        type: string
+                      game_name:
+                        type: string
+                      timestamp:
+                        type: number
+                      translation:
+                        type: string
+                      has_audio:
+                        type: boolean
+                      has_screenshot:
+                        type: boolean
+                total:
+                  type: integer
+                duplicates_found:
+                  type: integer
+                search_mode:
+                  type: string
+          400:
+            description: Invalid request
+          500:
+            description: Search failed
         """
         try:
             data = request.get_json()
@@ -1434,9 +2164,67 @@ def register_database_api_routes(app):
     @app.route("/api/merge_games", methods=["POST"])
     def api_merge_games():
         """
-        Merges multiple selected games into a single game entry.
-        The first game in the list becomes the primary game that retains its name.
-        All lines from secondary games are moved to the primary game.
+        Consolidate game entries with complex data migration.
+        
+        Processes:
+        - Schema transformation
+        - ID remapping
+        - Conflict resolution
+        - Metadata merging
+        
+        Features:
+        - Atomic transaction handling
+        - Progress tracking
+        - Rollback capabilities
+        - Post-merge validation
+        
+        Data Handling:
+        - Preserves original timestamps
+        - Merges translations
+        - Combines media libraries
+        - Updates external references
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                target_game:
+                  type: string
+                  description: Target game name to merge into
+                games_to_merge:
+                  type: array
+                  items:
+                    type: string
+                  description: List of games to merge
+        responses:
+          200:
+            description: Games merged successfully
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                primary_game:
+                  type: string
+                merged_games:
+                  type: array
+                  items:
+                    type: string
+                lines_moved:
+                  type: integer
+                total_lines_in_primary:
+                  type: integer
+                merge_summary:
+                  type: object
+          400:
+            description: Invalid request
+          500:
+            description: Merge failed
         """
         try:
             data = request.get_json()
@@ -1575,3 +2363,56 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error in game merge API: {e}")
             return jsonify({"error": f"Game merge failed: {str(e)}"}), 500
+
+    @app.route("/api/delete-regex-in-game-lines", methods=["POST"])
+    def api_delete_regex_in_game_lines():
+        """
+        Remove specified regex pattern from all game lines.
+        
+        Parameters:
+        - regex_pattern: The regex pattern to remove from line texts
+        - case_sensitive: Whether matching is case sensitive (default: false)
+        
+        Returns:
+        - updated_count: Number of lines modified
+        """
+        try:
+            data = request.get_json()
+            regex_pattern = data.get("regex_pattern")
+            case_sensitive = data.get("case_sensitive", False)
+
+            if not regex_pattern:
+                return jsonify({"error": "Regex pattern is required"}), 400
+
+            flags = 0 if case_sensitive else re.IGNORECASE
+            try:
+                pattern = re.compile(regex_pattern, flags)
+            except re.error as e:
+                return jsonify({"error": f"Invalid regex pattern: {str(e)}"}), 400
+
+            all_lines = GameLinesTable.all()
+            updated_count = 0
+
+            for line in all_lines:
+                if line.line_text:
+                    new_text = pattern.sub('', line.line_text)
+                    if new_text != line.line_text:
+                        GameLinesTable._db.execute(
+                            f"UPDATE {GameLinesTable._table} SET line_text = ? WHERE id = ?",
+                            (new_text, line.id),
+                            commit=True
+                        )
+                        updated_count += 1
+
+            if updated_count > 0:
+                try:
+                    logger.info("Triggering stats rollup after regex deletion")
+                    run_daily_rollup()
+                except Exception as e:
+                    logger.error(f"Stats rollup failed after regex deletion: {e}")
+
+            return jsonify({"updated_count": updated_count}), 200
+
+        except Exception as e:
+            logger.error(f"Error deleting regex from game lines: {e}")
+            return jsonify({"error": f"Failed to process regex deletion: {str(e)}"}), 500

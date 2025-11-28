@@ -59,9 +59,56 @@ def register_stats_api_routes(app):
     @app.route("/api/stats")
     def api_stats():
         """
-        Provides aggregated, cumulative stats for charting.
-        Accepts optional 'year' parameter to filter heatmap data.
-        Uses hybrid rollup + live approach for performance.
+        Get aggregated statistics for charts and analytics
+        ---
+        tags:
+          - Statistics
+        parameters:
+          - name: year
+            in: query
+            type: string
+            required: false
+            description: Filter heatmap data by year
+          - name: start
+            in: query
+            type: number
+            required: false
+            description: Start timestamp (Unix timestamp)
+          - name: end
+            in: query
+            type: number
+            required: false
+            description: End timestamp (Unix timestamp)
+        responses:
+          200:
+            description: Statistics data for charts
+            schema:
+              type: object
+              properties:
+                labels:
+                  type: array
+                  items:
+                    type: string
+                  description: Date labels for chart
+                datasets:
+                  type: array
+                  items:
+                    type: object
+                  description: Chart.js compatible datasets
+                kanjiGridData:
+                  type: object
+                  description: Kanji frequency data
+                heatmapData:
+                  type: object
+                  description: Activity heatmap data
+                currentGameStats:
+                  type: object
+                  description: Current game statistics
+                allGamesStats:
+                  type: object
+                  description: Overall statistics
+          500:
+            description: Failed to generate statistics
         """
         try:
             # Performance timing
@@ -1075,8 +1122,34 @@ def register_stats_api_routes(app):
     def api_mining_heatmap():
         """
         Provides mining heatmap data showing daily mining activity.
-        Counts lines where screenshot_in_anki OR audio_in_anki is not empty.
-        Accepts optional 'start' and 'end' timestamp parameters for filtering.
+        ---
+        tags:
+          - Mining
+        parameters:
+          - name: start
+            in: query
+            type: number
+            required: false
+            description: Start timestamp (Unix epoch) for filtering data
+          - name: end
+            in: query
+            type: number
+            required: false
+            description: End timestamp (Unix epoch) for filtering data
+        responses:
+          200:
+            description: Mining heatmap data with daily counts
+            schema:
+              type: object
+              properties:
+                year:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    additionalProperties:
+                      type: integer
+          500:
+            description: Failed to generate heatmap data
         """
         try:
             # Get optional timestamp filter parameters
@@ -1111,9 +1184,54 @@ def register_stats_api_routes(app):
     @app.route("/api/goals-today", methods=["GET"])
     def api_goals_today():
         """
-        Calculate daily requirements and current progress for today based on goal target dates.
-        Returns what needs to be accomplished today to stay on track.
-        Uses hybrid rollup + live approach for performance.
+        Get today's goal requirements and progress
+        ---
+        tags:
+          - Goals
+        responses:
+          200:
+            description: Today's goals and progress
+            schema:
+              type: object
+              properties:
+                hours:
+                  type: object
+                  properties:
+                    required:
+                      type: number
+                    progress:
+                      type: number
+                    has_target:
+                      type: boolean
+                characters:
+                  type: object
+                  properties:
+                    required:
+                      type: integer
+                    progress:
+                      type: integer
+                    has_target:
+                      type: boolean
+                games:
+                  type: object
+                  properties:
+                    required:
+                      type: number
+                    progress:
+                      type: integer
+                    has_target:
+                      type: boolean
+                cards:
+                  type: object
+                  properties:
+                    required:
+                      type: integer
+                    progress:
+                      type: integer
+                    has_target:
+                      type: boolean
+          500:
+            description: Failed to calculate daily goals
         """
         try:
             config = get_stats_config()
@@ -1557,7 +1675,33 @@ def register_stats_api_routes(app):
     def api_import_exstatic():
         """
         Import ExStatic CSV data into GSM database.
-        Expected CSV format: uuid,given_identifier,name,line,time
+        ---
+        tags:
+          - Import/Export
+        consumes:
+          - multipart/form-data
+        parameters:
+          - name: file
+            in: formData
+            type: file
+            required: true
+            description: CSV file with ExStatic data (uuid,given_identifier,name,line,time)
+        responses:
+          200:
+            description: Import results with statistics
+            schema:
+              type: object
+              properties:
+                message: {type: string}
+                imported_count: {type: integer}
+                games_count: {type: integer}
+                games: {type: array, items: {type: string}}
+                warnings: {type: array, items: {type: string}}
+                warning_count: {type: integer}
+          400:
+            description: Invalid file format or missing file
+          500:
+            description: Import failed due to server error
         """
         try:
             # Check if file is provided
@@ -1758,7 +1902,28 @@ def register_stats_api_routes(app):
     def api_kanji_sorting_configs():
         """
         List available kanji sorting configuration JSON files.
-        Returns metadata for each available sorting option.
+        ---
+        tags:
+          - Kanji
+        responses:
+          200:
+            description: List of available sorting configurations
+            schema:
+              type: object
+              properties:
+                configs:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      filename: {type: string}
+                      name: {type: string}
+                      version: {type: integer}
+                      lang: {type: string}
+                      source: {type: string}
+                      group_count: {type: integer}
+          500:
+            description: Failed to fetch configurations
         """
         try:
             # Get the kanji_grid directory path
@@ -1809,7 +1974,24 @@ def register_stats_api_routes(app):
     def api_kanji_sorting_config(filename):
         """
         Get a specific kanji sorting configuration file.
-        Returns the full JSON configuration.
+        ---
+        tags:
+          - Kanji
+        parameters:
+          - name: filename
+            in: path
+            type: string
+            required: true
+            description: Name of the configuration JSON file
+        responses:
+          200:
+            description: Kanji sorting configuration data
+          400:
+            description: Invalid filename format
+          404:
+            description: Configuration file not found
+          500:
+            description: Failed to load configuration
         """
         try:
             # Sanitize filename to prevent path traversal
@@ -1844,12 +2026,45 @@ def register_stats_api_routes(app):
     @app.route("/api/daily-activity", methods=["GET"])
     def api_daily_activity():
         """
-        Get daily activity data (time and characters) for the last 4 weeks or all time.
-        Returns data from the rollup table ONLY (no live data).
-        Uses historical data up to today (inclusive).
-        
-        Query Parameters:
-        - all_time: If 'true', returns all available data from first rollup date to today
+        Get daily activity data
+        ---
+        tags:
+          - Statistics
+        parameters:
+          - name: all_time
+            in: query
+            type: boolean
+            required: false
+            description: If true, returns all available data instead of last 4 weeks
+            default: false
+        responses:
+          200:
+            description: Daily activity statistics
+            schema:
+              type: object
+              properties:
+                labels:
+                  type: array
+                  items:
+                    type: string
+                  description: Date labels
+                timeData:
+                  type: array
+                  items:
+                    type: number
+                  description: Reading time in hours per day
+                charsData:
+                  type: array
+                  items:
+                    type: integer
+                  description: Characters read per day
+                speedData:
+                  type: array
+                  items:
+                    type: integer
+                  description: Reading speed (chars/hour) per day
+          500:
+            description: Failed to fetch daily activity
         """
         try:
             # Check if all-time data is requested
@@ -1930,7 +2145,34 @@ def register_stats_api_routes(app):
     def api_today_stats():
         """
         Calculate and return today's statistics including sessions.
-        Returns total characters, chars/hour for today, and all sessions with their stats.
+        ---
+        tags:
+          - Statistics
+        responses:
+          200:
+            description: Today's reading statistics with session details
+            schema:
+              type: object
+              properties:
+                todayTotalChars: {type: integer}
+                todayCharsPerHour: {type: integer}
+                todayTotalHours: {type: number}
+                todaySessions: {type: integer}
+                sessions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      startTime: {type: number}
+                      endTime: {type: number}
+                      gameName: {type: string}
+                      totalChars: {type: integer}
+                      totalSeconds: {type: number}
+                      charsPerHour: {type: integer}
+                      gameMetadata: {type: object}
+                      lines: {type: array, items: {type: string}}
+          500:
+            description: Failed to calculate statistics
         """
         try:
             # Get configuration
