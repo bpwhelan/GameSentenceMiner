@@ -1119,14 +1119,7 @@ def register_goals_api_routes(app):
     def api_complete_todays_dailies():
         """
         Complete today's dailies and update streak.
-        Creates a new entry in the goals table for today with version tracking.
-        
-        Request body:
-        {
-            "current_goals": [...],  # Array of goal objects from localStorage
-            "goals_settings": {...}, # Settings object including easyDays
-            "versions": {"goals": 1, "easyDays": 1, "ankiConnect": 1}  # Current versions
-        }
+        Reads from 'current' entry and creates a historical snapshot for today.
         
         Returns:
         {
@@ -1134,20 +1127,10 @@ def register_goals_api_routes(app):
             "date": "2025-01-14",
             "streak": 5,
             "longest_streak": 10,
-            "versions": {"goals": 2, "easyDays": 2, "ankiConnect": 2},  # Incremented versions
             "message": "Dailies completed! Current streak: 5 days"
         }
         """
         try:
-            data = request.get_json()
-            
-            if not data:
-                return jsonify({"success": False, "error": "No data provided"}), 400
-            
-            current_goals = data.get("current_goals", [])
-            goals_settings = data.get("goals_settings", {})
-            client_versions = data.get("versions", {})
-            
             # Get today's date in YYYY-MM-DD format (using user's timezone)
             user_tz = get_user_timezone()
             today = get_today_in_timezone(user_tz)
@@ -1156,56 +1139,69 @@ def register_goals_api_routes(app):
             # Check if entry already exists for today
             existing_entry = GoalsTable.get_by_date(today_str)
             if existing_entry:
-                # Parse existing versions if present
-                existing_versions = {"goals": 1, "easyDays": 1, "ankiConnect": 1}
-                if hasattr(existing_entry, 'goals_version') and existing_entry.goals_version:
-                    try:
-                        existing_versions = json.loads(existing_entry.goals_version) if isinstance(existing_entry.goals_version, str) else existing_entry.goals_version
-                    except json.JSONDecodeError:
-                        pass
-                
                 return jsonify({
                     "success": False,
                     "error": "Dailies already completed for today",
-                    "date": today_str,
-                    "versions": existing_versions
+                    "date": today_str
                 }), 400
             
-            # Increment versions (all three get incremented together on daily save)
-            new_versions = {
-                "goals": client_versions.get("goals", 0) + 1,
-                "easyDays": client_versions.get("easyDays", 0) + 1,
-                "ankiConnect": client_versions.get("ankiConnect", 0) + 1
-            }
+            # Get current (live) goals and settings
+            current_entry = GoalsTable.get_by_date('current')
+            
+            if not current_entry:
+                return jsonify({
+                    "success": False,
+                    "error": "No current goals found. Please set up your goals first."
+                }), 400
+            
+            # Parse current data
+            if isinstance(current_entry.current_goals, str):
+                try:
+                    current_goals = json.loads(current_entry.current_goals)
+                except json.JSONDecodeError:
+                    current_goals = []
+            else:
+                current_goals = current_entry.current_goals if current_entry.current_goals else []
+            
+            if isinstance(current_entry.goals_settings, str):
+                try:
+                    goals_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
+                except json.JSONDecodeError:
+                    goals_settings = {}
+            else:
+                goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
             
             # Calculate streak for today (returns tuple of current_streak, longest_streak)
             current_streak, longest_streak = GoalsTable.calculate_streak(today_str, str(user_tz))
             
-            # Add longest_streak to goals_settings
+            # Add/update longest_streak in goals_settings
             goals_settings['longestStreak'] = longest_streak
             
-            # Convert current_goals and goals_settings to JSON strings
+            # Convert to JSON strings for historical snapshot
             current_goals_json = json.dumps(current_goals)
             goals_settings_json = json.dumps(goals_settings)
-            goals_version_json = json.dumps(new_versions)
             
-            # Create new entry with current Unix timestamp and versions
+            # Create historical snapshot for today (no version tracking needed)
             new_entry = GoalsTable.create_entry(
                 date_str=today_str,
                 current_goals_json=current_goals_json,
                 goals_settings_json=goals_settings_json,
                 last_updated=time.time(),
-                goals_version=goals_version_json
+                goals_version=None  # No version tracking
             )
             
-            logger.info(f"Dailies completed for {today_str} with streak: {current_streak}, longest: {longest_streak}, versions: {new_versions}")
+            # Update the 'current' entry with new longest streak (save() will handle JSON encoding)
+            current_entry.goals_settings = goals_settings
+            current_entry.last_updated = time.time()
+            current_entry.save()
+            
+            logger.info(f"Dailies completed for {today_str} with streak: {current_streak}, longest: {longest_streak}")
             
             return jsonify({
                 "success": True,
                 "date": today_str,
                 "streak": current_streak,
                 "longest_streak": longest_streak,
-                "versions": new_versions,
                 "message": f"Dailies completed! Current streak: {current_streak} days"
             }), 200
             
@@ -1536,3 +1532,187 @@ def register_goals_api_routes(app):
         except Exception as e:
             logger.error(f"Error calculating reading pace: {e}", exc_info=True)
             return jsonify({"error": "Failed to calculate reading pace"}), 500
+    
+    @app.route("/api/goals/current", methods=["GET"])
+    def api_get_current_goals():
+        """
+        Get current (live) goals and settings from database.
+        Returns the latest entry marked with date='current' or creates a default one.
+        
+        Returns:
+        {
+            "current_goals": [...],
+            "goals_settings": {
+                "easyDays": {"monday": 100, ...},
+                "ankiConnect": {"deckName": "..."},
+                "customCheckboxes": {...}
+            },
+            "last_updated": <timestamp>
+        }
+        """
+        try:
+            # Try to get the 'current' entry (date='current')
+            current_entry = GoalsTable.get_by_date('current')
+            
+            if not current_entry:
+                # Create default current entry
+                default_settings = {
+                    "easyDays": {
+                        "monday": 100,
+                        "tuesday": 100,
+                        "wednesday": 100,
+                        "thursday": 100,
+                        "friday": 100,
+                        "saturday": 100,
+                        "sunday": 100
+                    },
+                    "ankiConnect": {
+                        "deckName": ""
+                    },
+                    "customCheckboxes": {}
+                }
+                
+                current_entry = GoalsTable.create_entry(
+                    date_str='current',
+                    current_goals_json=json.dumps([]),
+                    goals_settings_json=json.dumps(default_settings),
+                    last_updated=time.time(),
+                    goals_version=None  # No versioning needed
+                )
+                
+                logger.info("Created default 'current' goals entry")
+            
+            # Parse current_goals
+            if isinstance(current_entry.current_goals, str):
+                try:
+                    current_goals = json.loads(current_entry.current_goals)
+                except json.JSONDecodeError:
+                    current_goals = []
+            else:
+                current_goals = current_entry.current_goals if current_entry.current_goals else []
+            
+            # Parse goals_settings
+            if isinstance(current_entry.goals_settings, str):
+                try:
+                    goals_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
+                except json.JSONDecodeError:
+                    goals_settings = {}
+            else:
+                goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
+            
+            # Ensure default structure
+            if 'easyDays' not in goals_settings:
+                goals_settings['easyDays'] = {
+                    "monday": 100, "tuesday": 100, "wednesday": 100, "thursday": 100,
+                    "friday": 100, "saturday": 100, "sunday": 100
+                }
+            if 'ankiConnect' not in goals_settings:
+                goals_settings['ankiConnect'] = {"deckName": ""}
+            if 'customCheckboxes' not in goals_settings:
+                goals_settings['customCheckboxes'] = {}
+            
+            return jsonify({
+                "current_goals": current_goals,
+                "goals_settings": goals_settings,
+                "last_updated": current_entry.last_updated if hasattr(current_entry, 'last_updated') else time.time()
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error getting current goals: {e}", exc_info=True)
+            return jsonify({"error": "Failed to get current goals"}), 500
+    
+    @app.route("/api/goals/update", methods=["POST"])
+    def api_update_current_goals():
+        """
+        Update current (live) goals and/or settings in database.
+        
+        Request body:
+        {
+            "current_goals": [...],      // Optional - only if goals changed
+            "goals_settings": {...},     // Optional - only if settings changed
+            "partial_settings": {...}    // Optional - partial settings update (merged with existing)
+        }
+        
+        Returns:
+        {
+            "success": true,
+            "last_updated": <timestamp>
+        }
+        """
+        try:
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+            
+            # Get current entry
+            current_entry = GoalsTable.get_by_date('current')
+            
+            if not current_entry:
+                # Create if doesn't exist
+                default_settings = {
+                    "easyDays": {
+                        "monday": 100, "tuesday": 100, "wednesday": 100, "thursday": 100,
+                        "friday": 100, "saturday": 100, "sunday": 100
+                    },
+                    "ankiConnect": {"deckName": ""},
+                    "customCheckboxes": {}
+                }
+                current_entry = GoalsTable.create_entry(
+                    date_str='current',
+                    current_goals_json=json.dumps([]),
+                    goals_settings_json=json.dumps(default_settings),
+                    last_updated=time.time(),
+                    goals_version=None
+                )
+            
+            # Parse existing data
+            if isinstance(current_entry.current_goals, str):
+                try:
+                    existing_goals = json.loads(current_entry.current_goals)
+                except json.JSONDecodeError:
+                    existing_goals = []
+            else:
+                existing_goals = current_entry.current_goals if current_entry.current_goals else []
+            
+            if isinstance(current_entry.goals_settings, str):
+                try:
+                    existing_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
+                except json.JSONDecodeError:
+                    existing_settings = {}
+            else:
+                existing_settings = current_entry.goals_settings if current_entry.goals_settings else {}
+            
+            # Update goals if provided
+            if 'current_goals' in data:
+                existing_goals = data['current_goals']
+            
+            # Update settings if provided
+            if 'goals_settings' in data:
+                existing_settings = data['goals_settings']
+            elif 'partial_settings' in data:
+                # Merge partial settings
+                partial = data['partial_settings']
+                for key, value in partial.items():
+                    if isinstance(value, dict) and key in existing_settings and isinstance(existing_settings[key], dict):
+                        # Deep merge for nested dicts
+                        existing_settings[key].update(value)
+                    else:
+                        existing_settings[key] = value
+            
+            # Update the database entry (save() will handle JSON encoding)
+            current_entry.current_goals = existing_goals
+            current_entry.goals_settings = existing_settings
+            current_entry.last_updated = time.time()
+            current_entry.save()
+            
+            logger.info("Updated current goals/settings in database")
+            
+            return jsonify({
+                "success": True,
+                "last_updated": current_entry.last_updated
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error updating current goals: {e}", exc_info=True)
+            return jsonify({"error": "Failed to update goals"}), 500

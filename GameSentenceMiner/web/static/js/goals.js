@@ -7,6 +7,140 @@
 const ALLOWED_METRIC_TYPES = ['hours', 'characters', 'games', 'cards', 'mature_cards', /* 'anki_backlog', */ 'custom'];
 
 // ================================
+// Goals Data Manager - Centralized API Interface
+// ================================
+const GoalsDataManager = {
+    // In-memory cache (no localStorage)
+    _cache: null,
+    
+    // Fetch current goals and settings from database
+    async fetchCurrent() {
+        try {
+            const response = await fetch('/api/goals/current', {
+                headers: GoalsUtils.getHeadersWithTimezone()
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to fetch current goals');
+            }
+            
+            this._cache = await response.json();
+            console.log('Fetched current goals from database:', this._cache);
+            return this._cache;
+        } catch (error) {
+            console.error('Error fetching current goals:', error);
+            // Return default structure on error
+            this._cache = {
+                current_goals: [],
+                goals_settings: {
+                    easyDays: {
+                        monday: 100, tuesday: 100, wednesday: 100, thursday: 100,
+                        friday: 100, saturday: 100, sunday: 100
+                    },
+                    ankiConnect: { deckName: '' },
+                    customCheckboxes: {}
+                },
+                last_updated: Date.now()
+            };
+            return this._cache;
+        }
+    },
+    
+    // Update goals in database
+    async updateGoals(goals) {
+        try {
+            const response = await fetch('/api/goals/update', {
+                method: 'POST',
+                headers: GoalsUtils.getHeadersWithTimezone(),
+                body: JSON.stringify({ current_goals: goals })
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to update goals');
+            }
+            
+            const result = await response.json();
+            if (this._cache) {
+                this._cache.current_goals = goals;
+                this._cache.last_updated = result.last_updated;
+            }
+            
+            console.log('Updated goals in database');
+            return result;
+        } catch (error) {
+            console.error('Error updating goals:', error);
+            throw error;
+        }
+    },
+    
+    // Update settings in database
+    async updateSettings(settings) {
+        try {
+            const response = await fetch('/api/goals/update', {
+                method: 'POST',
+                headers: GoalsUtils.getHeadersWithTimezone(),
+                body: JSON.stringify({ goals_settings: settings })
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to update settings');
+            }
+            
+            const result = await response.json();
+            if (this._cache) {
+                this._cache.goals_settings = settings;
+                this._cache.last_updated = result.last_updated;
+            }
+            
+            console.log('Updated settings in database');
+            return result;
+        } catch (error) {
+            console.error('Error updating settings:', error);
+            throw error;
+        }
+    },
+    
+    // Update partial settings (merges with existing)
+    async updatePartialSettings(partialSettings) {
+        try {
+            const response = await fetch('/api/goals/update', {
+                method: 'POST',
+                headers: GoalsUtils.getHeadersWithTimezone(),
+                body: JSON.stringify({ partial_settings: partialSettings })
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to update partial settings');
+            }
+            
+            const result = await response.json();
+            if (this._cache && this._cache.goals_settings) {
+                // Merge partial settings into cache
+                for (const [key, value] of Object.entries(partialSettings)) {
+                    if (typeof value === 'object' && !Array.isArray(value)) {
+                        this._cache.goals_settings[key] = { ...this._cache.goals_settings[key], ...value };
+                    } else {
+                        this._cache.goals_settings[key] = value;
+                    }
+                }
+                this._cache.last_updated = result.last_updated;
+            }
+            
+            console.log('Updated partial settings in database');
+            return result;
+        } catch (error) {
+            console.error('Error updating partial settings:', error);
+            throw error;
+        }
+    },
+    
+    // Get cached data
+    getCached() {
+        return this._cache;
+    }
+};
+
+// ================================
 // Shared Utility Functions
 // ================================
 const GoalsUtils = {
@@ -46,8 +180,6 @@ const GoalsUtils = {
             'games': 'Games',
             'cards': 'Cards Mined',
             'mature_cards': 'Mature Anki Cards'
-            // 'anki_backlog': 'New Cards'
-            // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
         };
     },
 
@@ -56,32 +188,16 @@ const GoalsUtils = {
         return str.charAt(0).toUpperCase() + str.slice(1);
     },
 
-    // Get goals from localStorage or database
+    // Get goals from database (uses cache if available)
     async getGoalsWithFallback() {
-        let currentGoals = CustomGoalsManager.getAll();
-
-        if (!currentGoals || currentGoals.length === 0) {
-            try {
-                const goalsResponse = await fetch('/api/goals/latest_goals');
-                if (goalsResponse.ok) {
-                    const goalsData = await goalsResponse.json();
-                    currentGoals = goalsData.current_goals || [];
-                }
-            } catch (error) {
-                console.warn('Could not fetch goals from database, using empty array:', error);
-                currentGoals = [];
-            }
-        }
-
-        return currentGoals;
+        const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
+        return data.current_goals || [];
     },
 
     // Prepare goals settings object with easy days and AnkiConnect settings
     async prepareGoalsSettings() {
-        return {
-            easyDays: await EasyDaysManager.getSettings(),
-            ankiConnect: await AnkiConnectManager.getSettings()
-        };
+        const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
+        return data.goals_settings || {};
     },
 
     // Render action buttons for goal cards
@@ -100,62 +216,37 @@ const GoalsUtils = {
 };
 
 // ================================
-// AnkiConnect Manager Module
+// AnkiConnect Manager Module (Database-backed)
 // ================================
 const AnkiConnectManager = {
-    STORAGE_KEY: 'gsm_anki_connect_settings_v2',
-
     // Get default settings
     getDefaultSettings() {
         return {
             deckName: ''
         };
     },
-    
-    // Get versioned data from localStorage
-    getVersionedLocal() {
-        const stored = localStorage.getItem(this.STORAGE_KEY);
-        if (stored) {
-            try {
-                return JSON.parse(stored);
-            } catch (e) {
-                return { version: 0, data: this.getDefaultSettings(), lastModified: 0 };
-            }
-        }
-        
-        return { version: 0, data: this.getDefaultSettings(), lastModified: 0 };
-    },
-    
-    // Save versioned data to localStorage
-    saveVersionedLocal(versionedData) {
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(versionedData));
-    },
 
-    // Get settings from localStorage (returns just the data, not the version wrapper)
+    // Get settings from database via GoalsDataManager
     async getSettings() {
         try {
-            const localVersioned = this.getVersionedLocal();
-            return localVersioned.data;
+            const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
+            return data.goals_settings?.ankiConnect || this.getDefaultSettings();
         } catch (error) {
             console.error('Error reading AnkiConnect settings:', error);
             return this.getDefaultSettings();
         }
     },
 
-    // Save settings to localStorage (increments version)
-    saveSettings(settings) {
+    // Save settings to database via GoalsDataManager
+    async saveSettings(settings) {
         try {
-            const current = this.getVersionedLocal();
-            const newVersioned = {
-                version: (current.version || 0) + 1,
-                data: settings,
-                lastModified: Date.now()
-            };
-            this.saveVersionedLocal(newVersioned);
-            console.log(`Saved AnkiConnect settings with version ${newVersioned.version}`);
+            await GoalsDataManager.updatePartialSettings({
+                ankiConnect: settings
+            });
+            console.log('Saved AnkiConnect settings to database');
             return { success: true };
         } catch (error) {
-            console.error('Error saving AnkiConnect settings to localStorage:', error);
+            console.error('Error saving AnkiConnect settings to database:', error);
             return {
                 success: false,
                 error: 'Failed to save settings'
@@ -165,11 +256,9 @@ const AnkiConnectManager = {
 };
 
 // ================================
-// Easy Days Manager Module
+// Easy Days Manager Module (Database-backed)
 // ================================
 const EasyDaysManager = {
-    STORAGE_KEY: 'gsm_easy_days_settings_v2',
-
     // Get default settings (all days at 100%)
     getDefaultSettings() {
         return {
@@ -182,39 +271,20 @@ const EasyDaysManager = {
             sunday: 100
         };
     },
-    
-    // Get versioned data from localStorage
-    getVersionedLocal() {
-        const stored = localStorage.getItem(this.STORAGE_KEY);
-        if (stored) {
-            try {
-                return JSON.parse(stored);
-            } catch (e) {
-                return { version: 0, data: this.getDefaultSettings(), lastModified: 0 };
-            }
-        }
-        
-        return { version: 0, data: this.getDefaultSettings(), lastModified: 0 };
-    },
-    
-    // Save versioned data to localStorage
-    saveVersionedLocal(versionedData) {
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(versionedData));
-    },
 
-    // Get settings from localStorage (returns just the data, not the version wrapper)
+    // Get settings from database via GoalsDataManager
     async getSettings() {
         try {
-            const localVersioned = this.getVersionedLocal();
-            return localVersioned.data;
+            const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
+            return data.goals_settings?.easyDays || this.getDefaultSettings();
         } catch (error) {
             console.error('Error reading easy days settings:', error);
             return this.getDefaultSettings();
         }
     },
 
-    // Save settings to localStorage with validation (increments version)
-    saveSettings(settings) {
+    // Save settings to database with validation
+    async saveSettings(settings) {
         // Validate: at least one day must be at 100%
         const values = Object.values(settings);
         const hasFullDay = values.some(val => val === 100);
@@ -227,17 +297,13 @@ const EasyDaysManager = {
         }
 
         try {
-            const current = this.getVersionedLocal();
-            const newVersioned = {
-                version: (current.version || 0) + 1,
-                data: settings,
-                lastModified: Date.now()
-            };
-            this.saveVersionedLocal(newVersioned);
-            console.log(`Saved easy days settings with version ${newVersioned.version}`);
+            await GoalsDataManager.updatePartialSettings({
+                easyDays: settings
+            });
+            console.log('Saved easy days settings to database');
             return { success: true };
         } catch (error) {
-            console.error('Error saving easy days settings to localStorage:', error);
+            console.error('Error saving easy days settings to database:', error);
             return {
                 success: false,
                 error: 'Failed to save settings'
@@ -247,34 +313,34 @@ const EasyDaysManager = {
 };
 
 // ================================
-// Custom Goal Checkbox Manager Module
+// Custom Goal Checkbox Manager Module (Database-backed)
 // ================================
 const CustomGoalCheckboxManager = {
-    STORAGE_KEY: 'gsm_custom_goal_checkboxes',
-
     // Get today's date string in YYYY-MM-DD format
     getTodayDateString() {
         return GoalsUtils.getTodayDateString();
     },
 
-    // Get all checkbox states from localStorage
+    // Get all checkbox states from database
     getAll() {
         try {
-            const stored = localStorage.getItem(this.STORAGE_KEY);
-            return stored ? JSON.parse(stored) : {};
+            const data = GoalsDataManager.getCached();
+            return data?.goals_settings?.customCheckboxes || {};
         } catch (error) {
-            console.error('Error reading checkbox states from localStorage:', error);
+            console.error('Error reading checkbox states from database:', error);
             return {};
         }
     },
 
-    // Save all checkbox states to localStorage
-    saveAll(states) {
+    // Save all checkbox states to database
+    async saveAll(states) {
         try {
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(states));
+            await GoalsDataManager.updatePartialSettings({
+                customCheckboxes: states
+            });
             return true;
         } catch (error) {
-            console.error('Error saving checkbox states to localStorage:', error);
+            console.error('Error saving checkbox states to database:', error);
             return false;
         }
     },
@@ -306,7 +372,7 @@ const CustomGoalCheckboxManager = {
     },
 
     // Reset checkbox for new day
-    resetForNewDay(goalId) {
+    async resetForNewDay(goalId) {
         const allStates = this.getAll();
         const state = this.getState(goalId);
         const today = this.getTodayDateString();
@@ -314,7 +380,7 @@ const CustomGoalCheckboxManager = {
         state.lastResetDate = today;
         allStates[goalId] = state;
 
-        this.saveAll(allStates);
+        await this.saveAll(allStates);
         return state;
     },
 
@@ -349,7 +415,7 @@ const CustomGoalCheckboxManager = {
     },
 
     // Mark goal as completed for today
-    markCompleted(goalId) {
+    async markCompleted(goalId) {
         const allStates = this.getAll();
         const state = this.getState(goalId);
         const today = this.getTodayDateString();
@@ -371,7 +437,7 @@ const CustomGoalCheckboxManager = {
         }
 
         allStates[goalId] = state;
-        this.saveAll(allStates);
+        await this.saveAll(allStates);
 
         return state;
     },
@@ -383,47 +449,26 @@ const CustomGoalCheckboxManager = {
 
         for (const goal of customGoals) {
             if (this.needsReset(goal.id)) {
-                this.resetForNewDay(goal.id);
+                await this.resetForNewDay(goal.id);
             }
         }
     }
 };
 
 // ================================
-// Custom Goals Manager Module
+// Custom Goals Manager Module (Database-backed)
 // ================================
 const CustomGoalsManager = {
-    STORAGE_KEY: 'gsm_custom_goals_v2',
-
     // Generate unique ID for goals
     generateId() {
         return 'goal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11);
     },
-    
-    // Get versioned data from localStorage
-    getVersionedLocal() {
-        const stored = localStorage.getItem(this.STORAGE_KEY);
-        if (stored) {
-            try {
-                return JSON.parse(stored);
-            } catch (e) {
-                return { version: 0, data: [], lastModified: 0 };
-            }
-        }
-        
-        return { version: 0, data: [], lastModified: 0 };
-    },
-    
-    // Save versioned data to localStorage
-    saveVersionedLocal(versionedData) {
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(versionedData));
-    },
 
-    // Get all custom goals (returns just the data, not the version wrapper)
+    // Get all custom goals from database
     async getAll() {
         try {
-            const localVersioned = this.getVersionedLocal();
-            return localVersioned.data;
+            const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
+            return data.current_goals || [];
         } catch (error) {
             console.error('Error reading custom goals:', error);
             return [];
@@ -458,20 +503,14 @@ const CustomGoalsManager = {
         });
     },
 
-    // Save all goals to localStorage (increments version)
-    saveAll(goals) {
+    // Save all goals to database
+    async saveAll(goals) {
         try {
-            const current = this.getVersionedLocal();
-            const newVersioned = {
-                version: (current.version || 0) + 1,
-                data: goals,
-                lastModified: Date.now()
-            };
-            this.saveVersionedLocal(newVersioned);
-            console.log(`Saved custom goals with version ${newVersioned.version}`);
+            await GoalsDataManager.updateGoals(goals);
+            console.log('Saved custom goals to database');
             return true;
         } catch (error) {
-            console.error('Error saving custom goals to localStorage:', error);
+            console.error('Error saving custom goals to database:', error);
             return false;
         }
     },
@@ -491,7 +530,7 @@ const CustomGoalsManager = {
         };
 
         goals.push(newGoal);
-        this.saveAll(goals);
+        await this.saveAll(goals);
         return newGoal;
     },
 
@@ -514,14 +553,14 @@ const CustomGoalsManager = {
             icon: goalData.icon || goals[index].icon
         };
 
-        return this.saveAll(goals);
+        return await this.saveAll(goals);
     },
 
     // Delete goal
     async delete(id) {
         const goals = await this.getAll();
         const filtered = goals.filter(g => g.id !== id);
-        return this.saveAll(filtered);
+        return await this.saveAll(filtered);
     },
 
     // Get goal by ID
@@ -538,8 +577,6 @@ const CustomGoalsManager = {
             'games': '🎮',
             'cards': '🎴',
             'mature_cards': '📚',
-            // 'anki_backlog': '📥',
-            // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
             'custom': '✅'
         };
         return icons[metricType] || '🎯';
@@ -558,8 +595,7 @@ const CustomGoalsManager = {
         }
 
         // For custom goals, targetValue and startDate are optional
-        // For anki_backlog goals (commented out), targetValue and startDate are optional
-        if (goalData.metricType !== 'custom' /* && goalData.metricType !== 'anki_backlog' */) {
+        if (goalData.metricType !== 'custom') {
             if (!goalData.targetValue || goalData.targetValue <= 0) {
                 errors.push('Target value must be greater than 0');
             }
@@ -576,13 +612,6 @@ const CustomGoalsManager = {
                 errors.push('End date must be after start date');
             }
         }
-        // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
-        /* else if (goalData.metricType === 'anki_backlog') {
-            // For anki_backlog, only end date is required
-            if (!goalData.endDate) {
-                errors.push('End date is required for backlog goals');
-            }
-        } */
 
         return errors;
     }
@@ -993,15 +1022,15 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Global function to handle custom goal checkbox clicks
-    window.handleCustomGoalCheckboxClick = function (goalId) {
+    window.handleCustomGoalCheckboxClick = async function (goalId) {
         const isCompleted = CustomGoalCheckboxManager.isCompletedToday(goalId);
 
         if (isCompleted) {
             return; // Already completed today, ignore click
         }
 
-        // Mark as completed
-        const state = CustomGoalCheckboxManager.markCompleted(goalId);
+        // Mark as completed (now async)
+        const state = await CustomGoalCheckboxManager.markCompleted(goalId);
 
         // Update UI
         const checkboxItem = document.querySelector(`.custom-goal-checkbox-item[data-goal-id="${goalId}"]`);
@@ -1797,29 +1826,10 @@ document.addEventListener('DOMContentLoaded', function () {
         confirmBtn.textContent = 'Processing...';
 
         try {
-            const currentGoals = await GoalsUtils.getGoalsWithFallback();
-            const goalsSettings = await GoalsUtils.prepareGoalsSettings();
-            
-            // Get current versions from localStorage
-            const goalsVersioned = CustomGoalsManager.getVersionedLocal();
-            const easyDaysVersioned = EasyDaysManager.getVersionedLocal();
-            const ankiConnectVersioned = AnkiConnectManager.getVersionedLocal();
-            
-            const currentVersions = {
-                goals: goalsVersioned.version || 0,
-                easyDays: easyDaysVersioned.version || 0,
-                ankiConnect: ankiConnectVersioned.version || 0
-            };
-
-            // Call the API with versions
+            // Call API (reads from 'current' entry automatically)
             const response = await fetch('/api/goals/complete_todays_dailies', {
                 method: 'POST',
-                headers: GoalsUtils.getHeadersWithTimezone(),
-                body: JSON.stringify({
-                    current_goals: currentGoals,
-                    goals_settings: goalsSettings,
-                    versions: currentVersions
-                })
+                headers: GoalsUtils.getHeadersWithTimezone()
             });
 
             const data = await response.json();
@@ -1832,36 +1842,11 @@ document.addEventListener('DOMContentLoaded', function () {
             closeCompleteDailiesModal();
 
             const newStreak = data.streak;
-            const newVersions = data.versions;
-
-            // Update localStorage with new versions from server
-            if (newVersions) {
-                CustomGoalsManager.saveVersionedLocal({
-                    version: newVersions.goals,
-                    data: currentGoals,
-                    lastModified: Date.now()
-                });
-                EasyDaysManager.saveVersionedLocal({
-                    version: newVersions.easyDays,
-                    data: goalsSettings.easyDays,
-                    lastModified: Date.now()
-                });
-                AnkiConnectManager.saveVersionedLocal({
-                    version: newVersions.ankiConnect,
-                    data: goalsSettings.ankiConnect,
-                    lastModified: Date.now()
-                });
-                console.log('📊 Updated versions after completing dailies:', newVersions);
-            }
+            const newLongestStreak = data.longest_streak || newStreak;
 
             // Update streak displays from API response
             document.getElementById('currentStreakValue').textContent = newStreak;
-
-            // Update longest streak from API response
-            // If current streak is higher than longest streak, show current as longest too
-            const newLongestStreak = data.longest_streak || newStreak;
-            const displayLongestStreak = Math.max(newStreak, newLongestStreak);
-            document.getElementById('longestStreakValue').textContent = displayLongestStreak;
+            document.getElementById('longestStreakValue').textContent = Math.max(newStreak, newLongestStreak);
 
             // Update button
             completeDailiesBtn.disabled = true;
@@ -1939,46 +1924,17 @@ document.addEventListener('DOMContentLoaded', function () {
         const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
         
         try {
-            // First load from localStorage for immediate UI update
-            const localSettings = await EasyDaysManager.getSettings();
+            const settings = await EasyDaysManager.getSettings();
             
             days.forEach(day => {
                 const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
                 const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
 
                 if (slider && valueDisplay) {
-                    slider.value = localSettings[day];
-                    valueDisplay.textContent = localSettings[day] + '%';
+                    slider.value = settings[day];
+                    valueDisplay.textContent = settings[day] + '%';
                 }
             });
-            
-            // Then try to sync with database in the background
-            try {
-                const response = await fetch('/api/settings');
-                if (response.ok) {
-                    const dbData = await response.json();
-                    
-                    // Update UI with database values if they differ
-                    days.forEach(day => {
-                        const fieldName = `easy_days_${day}`;
-                        const dbValue = dbData[fieldName];
-                        
-                        if (dbValue !== undefined) {
-                            const slider = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}`);
-                            const valueDisplay = document.getElementById(`easyDay${day.charAt(0).toUpperCase() + day.slice(1)}Value`);
-
-                            if (slider && valueDisplay) {
-                                slider.value = dbValue;
-                                valueDisplay.textContent = dbValue + '%';
-                            }
-                        }
-                    });
-                    
-                    console.log('Easy days settings synced with database');
-                }
-            } catch (dbError) {
-                console.warn('Could not sync easy days settings with database, using localStorage values:', dbError);
-            }
             
         } catch (error) {
             console.error('Error loading easy days settings:', error);
@@ -2013,12 +1969,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Initialize easy days settings from localStorage or database
-    async function initializeEasyDaysSettings() {
-        // This function is now handled by initializeGoalsDataWithSync()
-        // Keeping it as a no-op for backward compatibility
-        console.log('Easy days initialization handled by version sync');
-    }
 
     // Fetch and store average reading pace for predictions
 
@@ -2119,44 +2069,20 @@ document.addEventListener('DOMContentLoaded', function () {
                 deckName: deckNameInput ? deckNameInput.value.trim() : ''
             };
 
-            // Validate and save easy days to localStorage first
-            const easyDaysResult = EasyDaysManager.saveSettings(easyDaysSettings);
-
-            if (!easyDaysResult.success) {
+            // Validate easy days (at least one day must be 100%)
+            const values = Object.values(easyDaysSettings);
+            if (!values.some(val => val === 100)) {
                 if (settingsError) {
-                    settingsError.textContent = easyDaysResult.error;
+                    settingsError.textContent = 'At least one day must be set to 100%';
                     settingsError.style.display = 'block';
                 }
                 return;
             }
 
-            // Save AnkiConnect settings to localStorage
-            const ankiResult = AnkiConnectManager.saveSettings(ankiConnectSettings);
-
-            // Prepare data for API call
-            const apiData = {};
-            
-            // Add easy days settings to API data
-            days.forEach(day => {
-                const fieldName = `easy_days_${day}`;
-                apiData[fieldName] = easyDaysSettings[day];
-            });
-
             try {
-                // Send settings to API
-                const response = await fetch('/api/settings', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(apiData)
-                });
-
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.error || 'Failed to save settings to database');
-                }
+                // Save to database via GoalsDataManager
+                await EasyDaysManager.saveSettings(easyDaysSettings);
+                await AnkiConnectManager.saveSettings(ankiConnectSettings);
 
                 if (settingsSuccess) {
                     settingsSuccess.textContent = 'Settings saved successfully!';
@@ -2178,96 +2104,17 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Initialize easy days settings on page load
-    initializeEasyDaysSettings();
-    getAveragePaceForPredictions();
+    // Initialize goals data from database on page load
+    GoalsDataManager.fetchCurrent().then(() => {
+        console.log('Goals data initialized from database');
+    }).catch(err => {
+        console.error('Error initializing goals data:', err);
+    });
     
-    // Initialize goals data with version synchronization
-    initializeGoalsDataWithSync();
+    getAveragePaceForPredictions();
 
     // Make functions globally available
     window.loadGoalProgress = loadGoalProgress;
     window.loadTodayGoals = loadTodayGoals;
     window.loadGoalProjections = loadGoalProjections;
 });
-
-// ================================
-// Version Synchronization Function
-// ================================
-async function initializeGoalsDataWithSync() {
-    try {
-        console.log('🔄 Initializing goals data with version synchronization...');
-        
-        // Fetch latest from database
-        const response = await fetch('/api/goals/latest_goals');
-        if (!response.ok) {
-            console.warn('Could not fetch goals from database for sync');
-            return;
-        }
-        
-        const dbData = await response.json();
-        const dbVersions = dbData.versions || {goals: 0, easyDays: 0, ankiConnect: 0};
-        
-        console.log('📊 Database versions:', dbVersions);
-        
-        // Sync Custom Goals
-        const localGoalsVersioned = CustomGoalsManager.getVersionedLocal();
-        console.log(`📝 Local goals version: ${localGoalsVersioned.version}, DB version: ${dbVersions.goals}`);
-        
-        if (dbVersions.goals > localGoalsVersioned.version) {
-            // DB is newer - use it
-            const newVersioned = {
-                version: dbVersions.goals,
-                data: dbData.current_goals || [],
-                lastModified: Date.now()
-            };
-            CustomGoalsManager.saveVersionedLocal(newVersioned);
-            console.log(`✅ Synced custom goals from DB (v${dbVersions.goals})`);
-        } else if (localGoalsVersioned.version > dbVersions.goals) {
-            // Local is newer - will be synced on next "Complete Dailies"
-            console.log(`⚠️ Local goals (v${localGoalsVersioned.version}) newer than DB (v${dbVersions.goals}) - will sync on next save`);
-        } else {
-            console.log(`✓ Custom goals already in sync (v${localGoalsVersioned.version})`);
-        }
-        
-        // Sync Easy Days Settings
-        const localEasyDaysVersioned = EasyDaysManager.getVersionedLocal();
-        console.log(`⚙️ Local easy days version: ${localEasyDaysVersioned.version}, DB version: ${dbVersions.easyDays}`);
-        
-        if (dbData.goals_settings?.easyDays && dbVersions.easyDays > localEasyDaysVersioned.version) {
-            const newVersioned = {
-                version: dbVersions.easyDays,
-                data: dbData.goals_settings.easyDays,
-                lastModified: Date.now()
-            };
-            EasyDaysManager.saveVersionedLocal(newVersioned);
-            console.log(`✅ Synced easy days settings from DB (v${dbVersions.easyDays})`);
-        } else if (localEasyDaysVersioned.version > dbVersions.easyDays) {
-            console.log(`⚠️ Local easy days (v${localEasyDaysVersioned.version}) newer than DB (v${dbVersions.easyDays}) - will sync on next save`);
-        } else {
-            console.log(`✓ Easy days settings already in sync (v${localEasyDaysVersioned.version})`);
-        }
-        
-        // Sync AnkiConnect Settings
-        const localAnkiVersioned = AnkiConnectManager.getVersionedLocal();
-        console.log(`🎴 Local AnkiConnect version: ${localAnkiVersioned.version}, DB version: ${dbVersions.ankiConnect}`);
-        
-        if (dbData.goals_settings?.ankiConnect && dbVersions.ankiConnect > localAnkiVersioned.version) {
-            const newVersioned = {
-                version: dbVersions.ankiConnect,
-                data: dbData.goals_settings.ankiConnect,
-                lastModified: Date.now()
-            };
-            AnkiConnectManager.saveVersionedLocal(newVersioned);
-            console.log(`✅ Synced AnkiConnect settings from DB (v${dbVersions.ankiConnect})`);
-        } else if (localAnkiVersioned.version > dbVersions.ankiConnect) {
-            console.log(`⚠️ Local AnkiConnect (v${localAnkiVersioned.version}) newer than DB (v${dbVersions.ankiConnect}) - will sync on next save`);
-        } else {
-            console.log(`✓ AnkiConnect settings already in sync (v${localAnkiVersioned.version})`);
-        }
-        
-        console.log('✅ Goals data synchronization complete!');
-    } catch (error) {
-        console.error('❌ Error synchronizing goals data:', error);
-    }
-}

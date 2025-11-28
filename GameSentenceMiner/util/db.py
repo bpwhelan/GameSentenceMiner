@@ -257,6 +257,8 @@ class SQLiteDBTable:
                 field_value = getattr(self, field)
                 if isinstance(field_value, list):
                     setattr(self, field, json.dumps(field_value))
+                elif isinstance(field_value, dict):
+                    setattr(self, field, json.dumps(field_value))
                 elif isinstance(field_value, bool):
                     # Convert boolean to integer (0 or 1) for SQLite storage
                     setattr(self, field, 1 if field_value else 0)
