@@ -168,6 +168,21 @@ def run_due_crons():
                 logger.info(f"Successfully executed {cron.name}")
                 logger.info(f"Processed: {result['processed']} dates, Overwritten: {result['overwritten']}, Errors: {result['errors']}")
                 
+            elif cron.name == 'plugins':
+                from GameSentenceMiner.util.cron.user_plugins import execute_user_plugins
+                result = execute_user_plugins()
+                
+                # Mark as successfully run (even if plugins had errors, the system ran)
+                CronTable.just_ran(cron.id)
+                executed_count += 1
+                detail['success'] = result.get('executed', False)
+                detail['result'] = result
+                
+                if result.get('error'):
+                    logger.warning(f"User plugins completed with warning: {result['error']}")
+                else:
+                    logger.info(f"Successfully executed {cron.name}")
+                
             else:
                 logger.error(f"⚠️ Unknown cron job: {cron.name}")
                 detail['error'] = f"Unknown cron job: {cron.name}"
