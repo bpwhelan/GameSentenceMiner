@@ -185,7 +185,7 @@ def register_jiten_database_api_routes(app):
             if not title_filter:
                 return jsonify({"error": "Title parameter is required"}), 400
 
-            # Use centralized API client
+            # Use API client
             data = JitenApiClient.search_media_decks(title_filter)
 
             if not data:
