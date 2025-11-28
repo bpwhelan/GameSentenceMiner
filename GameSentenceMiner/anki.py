@@ -633,7 +633,7 @@ def update_card_from_same_sentence(last_card, lines, game_line):
     while game_line.id not in anki_results:
         time.sleep(0.5)
         time_elapsed += 0.5
-        if time_elapsed > 15:
+        if time_elapsed > 30:
             logger.info(f"Timed out waiting for Anki update for card {last_card.noteId}, retrieving new audio")
             queue_card_for_processing(last_card, lines, game_line)
             return
