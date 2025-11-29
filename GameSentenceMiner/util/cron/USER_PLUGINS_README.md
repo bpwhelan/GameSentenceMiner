@@ -1,204 +1,150 @@
 # User Plugins System
 
-The User Plugins system allows you to customize GameSentenceMiner's behavior by writing Python code that runs automatically every minute.
+The User Plugins system allows you to customize GameSentenceMiner's behavior by writing Python code that runs automatically every 5 minutes.
+
+**WARNING** Advanced Users only. Your data is at risk/
 
 ## Quick Start
 
-### 1. Enable the Plugin System
+## 1. Edit Your Plugins File
 
-Run the setup script once:
+Open the `plugins.py` file at: `%APPDATA%\GameSentenceMiner\plugins.py` (Windows)
 
-```bash
-python -m GameSentenceMiner.util.cron.setup_user_plugins_cron
-```
+Or right clck the GSM icon in the tray, click open folder and find plugins.py
 
-This creates:
-- A cron job that runs every minute
-- A `plugins.py` template file at: `%APPDATA%\GameSentenceMiner\plugins.py` (Windows)
+While you are in this folder, **copy gsm.db** to another folder to back it up before messing with this.
 
-### 2. Edit Your Plugins File
-
-Open the `plugins.py` file (location shown by setup script) and uncomment the plugins you want to enable:
+Write functions called by `main()` to make GSM do stuff.
 
 ```python
 def main():
-    """Uncomment plugins you want to enable"""
-    delete_duplicates_from_timeframe()  # ✅ Enabled
-    # delete_lines_matching_regex()     # ❌ Disabled (commented)
-    # cleanup_regex_from_lines()        # ❌ Disabled (commented)
+    hello_world()
+
+def hello_world():
+    print("Hello, World!")
 ```
 
-### 3. Save and Done!
+### 2. Save and Done!
 
-The plugins will run automatically every minute. No restart needed.
+The plugins will run automatically every 5 minutes. No restart needed.
 
 ## Example Plugin Functions
 
 Copy these ready-to-use examples into your `plugins.py` file:
 
-### 1. Delete Duplicates from Timeframe
+### 1. Delete Duplicates from Games
 
-Removes duplicate sentences from recent days:
+Removes duplicate sentences from selected games:
 
 ```python
-def delete_duplicates_from_timeframe(days_back=7, games=None, case_sensitive=False):
+def delete_duplicates_from_games(games=None, case_sensitive=False, preserve_newest=False):
     """
-    Delete duplicate sentences from the last N days.
+    Delete duplicate sentences from games using GSM API.
     
     Args:
-        days_back: Number of days to look back (default: 7)
-        games: List of game names to check, or None for all games
-        case_sensitive: Whether to compare text case-sensitively
+        games: List of game names to check, or ["all"] for all games (default: ["all"])
+        case_sensitive: Whether to compare text case-sensitively (default: False)
+        preserve_newest: Whether to keep the newest duplicate instead of oldest (default: False)
     """
-    import time
-    import re
-    from collections import defaultdict
+    # GSM comes with requests built in, see pyproject.toml in github for other libraries u can use for free
+    # alternatively in python tab install a package u want
+    import requests
+    # gsm uses this for logging
     from GameSentenceMiner.util.configuration import logger
-    from GameSentenceMiner.util.db import GameLinesTable
     
     try:
-        # Calculate time window
-        cutoff_time = time.time() - (days_back * 24 * 60 * 60)
+        if not games:
+            # you probably dont want this
+            # this will delete all duplicates globally
+            # this is bad
+            # if one person says "arigatou" it deletes that from EVERY game
+            # i think.... just be wary of what you ask for :)
+            games = ["all"]
         
-        # Get lines from selected games
-        if games:
-            all_lines = []
-            for game_name in games:
-                game_lines = GameLinesTable.get_all_lines_for_scene(game_name)
-                all_lines.extend(game_lines)
+        # Prepare API request
+        payload = {
+            "games": games,
+            "case_sensitive": case_sensitive,
+            "preserve_newest": preserve_newest,
+            # you probably want a time window
+            # 5 mins or so is good, time window is in seconds
+            # for example if someone says arigatou and then 50 mins later they say this it will be deleted
+            "ignore_time_window": True  # Find all duplicates in entire game
+        }
+        
+        # Call the deduplication API
+        response = requests.post(
+            "http://localhost:5000/api/deduplicate",
+            json=payload,
+            timeout=300
+        )
+        
+        if response.status_code == 200:
+            # this will appear in gsm console as you use logger
+            result = response.json()
+            deleted_count = result.get("deleted_count", 0)
+            if deleted_count > 0:
+                logger.info(f"[Plugin] Deleted {deleted_count} duplicate sentences")
+            else:
+                logger.info("[Plugin] No duplicates found")
         else:
-            all_lines = GameLinesTable.all()
+            logger.error(f"[Plugin] API error: {response.status_code} - {response.text}")
         
-        # Filter to only lines within timeframe
-        recent_lines = [
-            line for line in all_lines
-            if line.timestamp and float(line.timestamp) >= cutoff_time
-        ]
-        
-        if not recent_lines:
-            logger.info(f"[Plugin] No lines found in last {days_back} days")
-            return
-        
-        # Group by game and sort by timestamp
-        game_lines = defaultdict(list)
-        for line in recent_lines:
-            game_name = line.game_name or "Unknown Game"
-            game_lines[game_name].append(line)
-        
-        for game_name in game_lines:
-            game_lines[game_name].sort(key=lambda x: float(x.timestamp))
-        
-        # Find duplicates
-        duplicates_to_remove = []
-        for game_name, lines in game_lines.items():
-            seen_texts = {}
-            for line in lines:
-                if not line.line_text or not line.line_text.strip():
-                    continue
-                
-                line_text = line.line_text if case_sensitive else line.line_text.lower()
-                
-                if line_text in seen_texts:
-                    duplicates_to_remove.append(line.id)
-                else:
-                    seen_texts[line_text] = line.id
-        
-        # Delete duplicates
-        deleted_count = 0
-        for line_id in set(duplicates_to_remove):
-            try:
-                GameLinesTable._db.execute(
-                    f"DELETE FROM {GameLinesTable._table} WHERE id=?",
-                    (line_id,),
-                    commit=True,
-                )
-                deleted_count += 1
-            except Exception as e:
-                logger.warning(f"[Plugin] Failed to delete duplicate line {line_id}: {e}")
-        
-        if deleted_count > 0:
-            logger.info(f"[Plugin] Deleted {deleted_count} duplicate sentences from last {days_back} days")
-        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Plugin] Failed to connect to GSM API: {e}", exc_info=True)
     except Exception as e:
-        logger.error(f"[Plugin] Error in delete_duplicates_from_timeframe: {e}", exc_info=True)
+        logger.error(f"[Plugin] Error in delete_duplicates_from_games: {e}", exc_info=True)
 
 
 def main():
     # Call it like this:
-    delete_duplicates_from_timeframe(days_back=7)
+    delete_duplicates_from_games(games=["all"])
 ```
-
-**Use cases:**
-- Clean up duplicates after importing data
-- Remove repeated common phrases
-- Keep only first occurrence of each sentence
 
 ### 2. Delete Lines Matching Regex
 
 Deletes entire lines that match a pattern:
 
 ```python
-def delete_lines_matching_regex(pattern=r"^(選択肢|選択)", case_sensitive=False, games=None):
+def delete_lines_matching_regex(pattern=r"^(選択肢|選択)", case_sensitive=False):
     """
-    Delete all lines that match a regex pattern.
+    Delete all lines that match a regex pattern using GSM API.
     
     Args:
         pattern: Regex pattern to match
-        case_sensitive: Whether pattern matching is case-sensitive
-        games: List of game names to check, or None for all games
+        case_sensitive: Whether pattern matching is case-sensitive (default: False)
     """
-    import re
+    import requests
     from GameSentenceMiner.util.configuration import logger
-    from GameSentenceMiner.util.db import GameLinesTable
     
     try:
-        # Get lines
-        if games:
-            all_lines = []
-            for game_name in games:
-                game_lines = GameLinesTable.get_all_lines_for_scene(game_name)
-                all_lines.extend(game_lines)
+        # Prepare API request
+        payload = {
+            # ur regex goes here
+            "regex_pattern": pattern,
+            "case_sensitive": case_sensitive,
+            "use_regex": True
+        }
+        
+        # Call the delete text lines API
+        response = requests.post(
+            "http://localhost:5000/api/delete-text-lines",
+            json=payload,
+            timeout=300
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            deleted_count = result.get("deleted_count", 0)
+            if deleted_count > 0:
+                logger.info(f"[Plugin] Deleted {deleted_count} lines matching pattern: {pattern}")
+            else:
+                logger.info(f"[Plugin] No lines matched pattern: {pattern}")
         else:
-            all_lines = GameLinesTable.all()
+            logger.error(f"[Plugin] API error: {response.status_code} - {response.text}")
         
-        if not all_lines:
-            logger.info("[Plugin] No lines found in database")
-            return
-        
-        # Compile regex
-        flags = 0 if case_sensitive else re.IGNORECASE
-        try:
-            regex = re.compile(pattern, flags)
-        except re.error as e:
-            logger.error(f"[Plugin] Invalid regex pattern: {e}")
-            return
-        
-        # Find matching lines
-        lines_to_delete = []
-        for line in all_lines:
-            if line.line_text and isinstance(line.line_text, str):
-                try:
-                    if regex.search(line.line_text):
-                        lines_to_delete.append(line.id)
-                except Exception as e:
-                    logger.warning(f"[Plugin] Regex search error on line {line.id}: {e}")
-        
-        # Delete matching lines
-        deleted_count = 0
-        for line_id in set(lines_to_delete):
-            try:
-                GameLinesTable._db.execute(
-                    f"DELETE FROM {GameLinesTable._table} WHERE id=?",
-                    (line_id,),
-                    commit=True,
-                )
-                deleted_count += 1
-            except Exception as e:
-                logger.warning(f"[Plugin] Failed to delete line {line_id}: {e}")
-        
-        if deleted_count > 0:
-            logger.info(f"[Plugin] Deleted {deleted_count} lines matching pattern: {pattern}")
-        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Plugin] Failed to connect to GSM API: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"[Plugin] Error in delete_lines_matching_regex: {e}", exc_info=True)
 
@@ -208,70 +154,60 @@ def main():
     delete_lines_matching_regex(pattern=r"^(選択肢|選択)")
 ```
 
-**Common patterns:**
-- `r"^\s*$"` - Delete empty lines
-- `r"^(選択肢|選択)"` - Delete VN choice text
-- `r"【.*?】"` - Delete lines with 【】 brackets
-- `r"^[A-Z]{2,}:"` - Delete lines like "NARRATOR:"
+Use https://regex101.com/ to build your regex.
+
+Or go to search here http://localhost:55000/search
+
+And select one of our prebuilt regex, and copy that to use.
+
+Test your regex by going here:
+http://localhost:55000/search
+Enabling "use regex" in advanced options.
+
+Every single line you see in search will be deleted.
 
 ### 3. Cleanup Regex from Lines
 
 Removes patterns from within lines (doesn't delete the line):
 
 ```python
-def cleanup_regex_from_lines(pattern=r"【.*?】", replacement="", games=None):
+def cleanup_regex_from_lines(pattern=r"【.*?】", case_sensitive=False):
     """
-    Remove regex pattern from within lines (doesn't delete the line, just cleans it).
+    Remove regex pattern from within lines using GSM API (doesn't delete the line, just cleans it).
     
     Args:
         pattern: Regex pattern to remove from lines
-        replacement: What to replace matches with (default: empty string)
-        games: List of game names to check, or None for all games
+        case_sensitive: Whether pattern matching is case-sensitive (default: False)
     """
-    import re
+    import requests
     from GameSentenceMiner.util.configuration import logger
-    from GameSentenceMiner.util.db import GameLinesTable
     
     try:
-        # Get lines
-        if games:
-            all_lines = []
-            for game_name in games:
-                game_lines = GameLinesTable.get_all_lines_for_scene(game_name)
-                all_lines.extend(game_lines)
+        # Prepare API request
+        payload = {
+            "regex_pattern": pattern,
+            "case_sensitive": case_sensitive
+        }
+        
+        # Call the regex cleanup API
+        response = requests.post(
+            "http://localhost:5000/api/delete-regex-in-game-lines",
+            json=payload,
+            timeout=300
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            updated_count = result.get("updated_count", 0)
+            if updated_count > 0:
+                logger.info(f"[Plugin] Cleaned {updated_count} lines (removed pattern: {pattern})")
+            else:
+                logger.info(f"[Plugin] No lines needed cleaning for pattern: {pattern}")
         else:
-            all_lines = GameLinesTable.all()
+            logger.error(f"[Plugin] API error: {response.status_code} - {response.text}")
         
-        if not all_lines:
-            logger.info("[Plugin] No lines found in database")
-            return
-        
-        # Compile regex
-        try:
-            regex = re.compile(pattern)
-        except re.error as e:
-            logger.error(f"[Plugin] Invalid regex pattern: {e}")
-            return
-        
-        # Clean matching lines
-        modified_count = 0
-        for line in all_lines:
-            if line.line_text and isinstance(line.line_text, str):
-                try:
-                    new_text = regex.sub(replacement, line.line_text)
-                    if new_text != line.line_text:
-                        GameLinesTable._db.execute(
-                            f"UPDATE {GameLinesTable._table} SET line_text=? WHERE id=?",
-                            (new_text, line.id),
-                            commit=True,
-                        )
-                        modified_count += 1
-                except Exception as e:
-                    logger.warning(f"[Plugin] Regex cleanup error on line {line.id}: {e}")
-        
-        if modified_count > 0:
-            logger.info(f"[Plugin] Cleaned {modified_count} lines (removed pattern: {pattern})")
-        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Plugin] Failed to connect to GSM API: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"[Plugin] Error in cleanup_regex_from_lines: {e}", exc_info=True)
 
@@ -281,122 +217,20 @@ def main():
     cleanup_regex_from_lines(pattern=r"【.*?】")
 ```
 
-**Common patterns:**
-- `r"【.*?】"` - Remove 【character names】
-- `r"\[.*?\]"` - Remove [brackets]
-- `r"<.*?>"` - Remove <HTML tags>
-- `r"\s{2,}"` - Replace multiple spaces with single space
+## Available GSM API Endpoints
 
-## Writing Custom Plugins
+Start GSM and go to this URL to see all available API endpoints you can use:
 
-Add your own functions to `plugins.py`:
+http://localhost:55000/api/docs
 
-```python
-def my_custom_plugin():
-    """Your custom plugin"""
-    from GameSentenceMiner.util.configuration import logger
-    from GameSentenceMiner.util.db import GameLinesTable
-    
-    try:
-        # Get all lines
-        all_lines = GameLinesTable.all()
-        
-        # Or get lines from specific game
-        game_lines = GameLinesTable.get_all_lines_for_scene("MyGame")
-        
-        # Process lines
-        for line in all_lines:
-            # Your logic here
-            pass
-        
-        logger.info("[Plugin] My custom plugin completed")
-        
-    except Exception as e:
-        logger.error(f"[Plugin] Error: {e}", exc_info=True)
-```
-
-Then call it in `main()`:
-
-```python
-def main():
-    my_custom_plugin()
-```
-
-## Available Utilities
-
-Your plugins have access to:
-
-- `GameLinesTable` - Database operations
-- `logger` - Logging (use `logger.info("[Plugin] message")`)
-- `time`, `datetime`, `timedelta` - Time utilities
-- `re` - Regular expressions
-- `defaultdict` - Collections
-
-## Database Operations
-
-### Get Lines
-
-```python
-# All lines
-all_lines = GameLinesTable.all()
-
-# Lines from specific game
-game_lines = GameLinesTable.get_all_lines_for_scene("Game Name")
-
-# All game names
-games = GameLinesTable.get_all_games_with_lines()
-```
-
-### Modify Lines
-
-```python
-# Delete a line
-GameLinesTable._db.execute(
-    f"DELETE FROM {GameLinesTable._table} WHERE id=?",
-    (line_id,),
-    commit=True,
-)
-
-# Update a line's text
-GameLinesTable._db.execute(
-    f"UPDATE {GameLinesTable._table} SET line_text=? WHERE id=?",
-    (new_text, line_id),
-    commit=True,
-)
-```
-
-### Line Object Properties
-
-```python
-line.id            # Unique ID
-line.line_text     # The sentence text
-line.game_name     # Game name
-line.timestamp     # Unix timestamp
-line.audio_path    # Path to audio file
-line.screenshot_path  # Path to screenshot
-```
-
-## Managing the Cron Job
-
-### Disable
-
-```bash
-python -m GameSentenceMiner.util.cron.setup_user_plugins_cron --disable
-```
-
-### Re-enable
-
-```bash
-python -m GameSentenceMiner.util.cron.setup_user_plugins_cron
-```
-
-### Check Status
-
-Check the GSM logs at `%APPDATA%\GameSentenceMiner\logs\gamesentenceminer.log`
-
-Look for lines containing `[Plugin]`
+Use Requests to call these. Be careful. Your data could be deleted if you do this wrong. Make many backups.
 
 ## Tips and Best Practices
+
+**IMPORTANT** Back up your database manually before writing a plugin.
+Extensively test your plugin code to make sure it is safe for you.
+
+If your data is deleted and you want it back, and there's no backups, there is no way to get it back.
 
 1. **Start Small**: Enable one plugin at a time to test
 2. **Use Logging**: Add `logger.info("[Plugin] ...")` to track execution
@@ -404,14 +238,15 @@ Look for lines containing `[Plugin]`
 4. **Backup**: The database is at `%APPDATA%\GameSentenceMiner\gsm.db`
 5. **Comment Out**: Use `#` to disable plugins instead of deleting code
 6. **Error Handling**: Plugins catch errors automatically, check logs
+7. **API Timeouts**: Use appropriate timeout values for long operations
+8. **Check Responses**: Always check `response.status_code` before processing results
 
 ## Troubleshooting
 
 ### My plugin isn't running
 
-1. Check if it's uncommented in `main()`
-2. Check logs for errors: `%APPDATA%\GameSentenceMiner\logs\gamesentenceminer.log`
-3. Verify the cron is enabled: setup script shows status
+1. Wait 5 minutes, plugins run every 5 minutes.
+2. Check logs in console.
 
 ### How do I test without waiting
 
@@ -421,49 +256,4 @@ You can run plugins manually:
 python -c "from GameSentenceMiner.util.cron.user_plugins import execute_user_plugins; execute_user_plugins()"
 ```
 
-### Regex isn't matching
-
-- Test patterns at https://regex101.com/
-- Remember `\` needs to be `\\` in Python strings
-- Use raw strings: `r"pattern"` instead of `"pattern"`
-
-## Examples
-
-### Delete all empty lines
-
-```python
-# Add this to your plugins.py:
-def main():
-    delete_lines_matching_regex(pattern=r"^\s*$")
-```
-
-### Clean VN formatting
-
-```python
-# Add all three functions above to your plugins.py, then:
-def main():
-    # Remove character names
-    cleanup_regex_from_lines(pattern=r"【.*?】")
-    # Remove choices
-    delete_lines_matching_regex(pattern=r"^(選択肢|選択)")
-    # Clean duplicates from last 24 hours
-    delete_duplicates_from_timeframe(days_back=1)
-```
-
-### Game-specific cleaning
-
-```python
-# Add the cleanup function above to your plugins.py, then:
-def main():
-    cleanup_regex_from_lines(
-        pattern=r"\[.*?\]",
-        games=["Visual Novel 1", "Visual Novel 2"]
-    )
-```
-
-## Schedule Information
-
-- **Frequency**: Every 1 minute (minutely)
-- **Execution**: Via GSM's cron system
-- **Location**: `%APPDATA%\GameSentenceMiner\plugins.py`
-- **Logs**: `%APPDATA%\GameSentenceMiner\logs\gamesentenceminer.log`
+But probably best to wait.
