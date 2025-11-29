@@ -408,24 +408,16 @@ def register_database_api_routes(app):
     @app.route("/api/games-list")
     def api_games_list():
         """
-        Retrieve comprehensive metadata for all games in the database.
+        Retrieve metadata for all games in the database.
         
-        Returns:
-        - Total sentences per game
-        - Date range of first/last entries
-        - Character count statistics
-        - Game activity timeline
+        Returns for each game:
+        - Name
+        - Sentence count
+        - First and last entry dates
+        - Total character count
+        - Date range formatted as string
         
-        Features:
-        - Automatically calculates reading statistics
-        - Sorts games by most active/productive
-        - Provides historical mining patterns
-        - Identifies long-running game sessions
-        
-        Data Sources:
-        - Aggregates line item data from GameLinesTable
-        - Processes timestamps into readable date ranges
-        - Calculates text complexity metrics
+        Games are sorted by total character count (descending).
         ---
         tags:
           - Database
@@ -498,23 +490,12 @@ def register_database_api_routes(app):
     @app.route("/api/delete-sentence-lines", methods=["POST"])
     def api_delete_sentence_lines():
         """
-        Bulk delete sentence entries while maintaining data integrity.
+        Bulk delete sentence entries from the database.
         
         Functionality:
-        - Atomic deletion of multiple lines
-        - Validation of line ownership
-        - Preservation of related media files
-        - Automatic stats recalculation
-        
-        Security:
-        - Requires valid line IDs
-        - Prevents mass deletion without parameters
-        - Rate-limited to prevent abuse
-        
-        Side Effects:
-        - Triggers stats rollup job
-        - Updates game metadata
-        - Maintains referential integrity
+        - Delete multiple lines by ID
+        - Partial success handling for failed deletions
+        - Triggers stats rollup after successful deletion
         ---
         tags:
           - Database
@@ -610,23 +591,13 @@ def register_database_api_routes(app):
     @app.route("/api/delete-games", methods=["POST"])
     def api_delete_games():
         """
-        Perform atomic deletion of entire game datasets.
+        Delete all sentences for specified games.
         
-        Features:
-        - Cascading deletion of all related sentences
-        - Cleanup of orphaned media files
+        Functionality:
+        - Validates game existence before deletion
+        - Deletes all lines for each specified game
         - Partial success handling with detailed reporting
-        - Multi-game transaction support
-        
-        Parameters:
-        - Validate game existence pre-deletion
-        - Track deletion progress per game
-        - Maintain historical records in backups
-        
-        Post-Deletion:
-        - Updates global statistics
-        - Refreshes cache entries
-        - Notifies connected clients
+        - Triggers stats rollup after successful deletion
         ---
         tags:
           - Database
@@ -771,22 +742,12 @@ def register_database_api_routes(app):
         """
         Retrieve system configuration and user preferences.
         
-        Includes:
+        Returns current settings for:
         - AFK detection thresholds
         - Session tracking parameters
         - Learning goals and targets
         - Text processing rules
-        - Anki integration settings
-        
-        Security:
-        - Filters sensitive credentials
-        - Validates user permissions
-        - Caches frequent requests
-        
-        Metadata:
-        - Tracks config modification dates
-        - Versioning history
-        - Default value documentation
+        - Daily card mining targets
         ---
         tags:
           - Database
@@ -853,20 +814,12 @@ def register_database_api_routes(app):
         Features:
         - Type checking for all parameters
         - Range validation for numerical values
-        - Date format enforcement
-        - Atomic updates with rollback
-        - Configuration version migration
+        - Date format enforcement (YYYY-MM-DD)
+        - Saves updated configuration to disk
         
-        Processes:
-        - Normalizes input formats
-        - Maintains audit trail
-        - Notifies subsystems of changes
-        - Handles secret rotation
-        
-        Error Handling:
-        - Detailed validation errors
-        - Configuration conflict resolution
-        - Permission denied tracking
+        Validation:
+        - Detailed validation errors for invalid inputs
+        - Range checks for numeric parameters
         ---
         tags:
           - Database
@@ -1156,23 +1109,13 @@ def register_database_api_routes(app):
     @app.route("/api/preview-text-deletion", methods=["POST"])
     def api_preview_text_deletion():
         """
-        Safely preview lines matching deletion criteria before permanent removal.
+        Preview lines matching deletion criteria without deleting them.
         
         Features:
-        - Supports both regex and exact phrase matching
+        - Supports regex and exact text matching
         - Case sensitivity controls
-        - Sample results with context
-        - Count estimation without actual deletion
-        
-        Safety:
-        - Limits maximum preview lines (1000)
-        - Timeout protection for regex processing
-        - Validation of dangerous patterns
-        
-        Use Cases:
-        - Testing regex patterns
-        - Verifying mass deletion scope
-        - Auditing potential data loss
+        - Returns count and sample matches (up to 10)
+        - Read-only operation
         ---
         tags:
           - Database
@@ -1305,24 +1248,13 @@ def register_database_api_routes(app):
     @app.route("/api/delete-text-lines", methods=["POST"])
     def api_delete_text_lines():
         """
-        Bulk delete lines using pattern matching with transaction safety.
+        Delete lines matching specified pattern.
         
         Functionality:
-        - Atomic batch deletions
-        - Regex and text-based criteria
+        - Supports regex and exact text matching
         - Case sensitivity controls
-        - Duplicate pattern handling
-        
-        Safety Measures:
-        - Transaction rollback on failure
-        - Rate limiting
-        - Backup point creation
-        - Dry-run validation
-        
-        Post-Deletion:
-        - Updates search indexes
-        - Adjusts game statistics
-        - Triggers Anki sync
+        - Deletes all matching lines
+        - Triggers stats rollup after deletion
         ---
         tags:
           - Database
@@ -1473,23 +1405,18 @@ def register_database_api_routes(app):
     @app.route("/api/preview-deduplication", methods=["POST"])
     def api_preview_deduplication():
         """
-        Identify potential duplicate sentences for cleanup consideration.
+        Preview duplicate sentences without deleting them.
         
-        Analysis Modes:
-        - Time window clustering
-        - Cross-game matching
+        Detection modes:
+        - Time window based (within specified minutes)
+        - Full game scan (ignore time window)
         - Case sensitivity options
-        - Length-based similarity
         
-        Output:
-        - Duplicate clusters
-        - Timeline visualization
-        - Character difference highlighting
-        
-        Safety:
+        Returns:
+        - Count of duplicates
+        - Number of affected games
+        - Sample duplicates (up to 10)
         - Read-only operation
-        - Performance optimized scanning
-        - Sample-limited results
         ---
         tags:
           - Database
@@ -1666,23 +1593,16 @@ def register_database_api_routes(app):
     @app.route("/api/deduplicate", methods=["POST"])
     def api_deduplicate():
         """
-        Perform intelligent deduplication with multiple matching strategies.
+        Remove duplicate sentences from selected games.
         
-        Algorithms:
-        - Time-proximity matching
-        - Cross-session detection
-        - Levenshtein distance checks
-        - Unicode normalization
+        Detection modes:
+        - Time window based (duplicates within specified minutes)
+        - Full game scan (all duplicates regardless of time)
         
         Options:
-        - Preserve newest/oldest instances
-        - Merge translations
-        - Handle media conflicts
-        
-        Impact:
-        - Reduces database bloat
-        - Improves search accuracy
-        - Maintains mining history
+        - Case sensitivity
+        - Preserve newest or oldest instance
+        - Triggers stats rollup after deletion
         ---
         tags:
           - Database
@@ -1882,23 +1802,13 @@ def register_database_api_routes(app):
     @app.route("/api/deduplicate-entire-game", methods=["POST"])
     def api_deduplicate_entire_game():
         """
-        Comprehensive game-wide deduplication for data cleanup.
+        Remove all duplicate sentences from selected games (ignores time window).
         
-        Features:
-        - Full-text comparison
-        - Cross-scene matching
-        - Media asset consolidation
-        - Version conflict resolution
-        
-        Use Cases:
-        - Merging imported content
-        - Fixing broken imports
-        - Preparing for game exports
-        
-        Safety:
-        - Creates game snapshot pre-cleanup
-        - Preserves first occurrence metadata
-        - Maintains Anki card linkages
+        Functionality:
+        - Finds all duplicates across entire game(s)
+        - Case sensitivity option
+        - Preserve newest or oldest instance option
+        - Wrapper around main deduplicate function with ignore_time_window=True
         ---
         tags:
           - Database
@@ -1957,24 +1867,16 @@ def register_database_api_routes(app):
     @app.route("/api/search-duplicates", methods=["POST"])
     def api_search_duplicates():
         """
-        Advanced duplicate detection with rich result formatting.
+        Search and return all duplicate sentences.
         
-        Features:
-        - Side-by-side comparisons
-        - Timeline visualization
-        - Match confidence scoring
-        - Cross-game detection
+        Detection modes:
+        - Time window based (duplicates within specified minutes)
+        - Full scan (all duplicates regardless of time)
+        - Single game or all games
         
-        Output:
-        - Highlighted differences
-        - Contextual metadata
-        - Merge suggestions
-        - Statistical analysis
-        
-        Performance:
-        - Index-accelerated searches
-        - Background processing
-        - Result caching
+        Returns:
+        - List of duplicate sentences with full metadata
+        - Sorted by normalized text and timestamp
         ---
         tags:
           - Database
@@ -2164,25 +2066,13 @@ def register_database_api_routes(app):
     @app.route("/api/merge_games", methods=["POST"])
     def api_merge_games():
         """
-        Consolidate game entries with complex data migration.
+        Merge multiple games into a single target game.
         
-        Processes:
-        - Schema transformation
-        - ID remapping
-        - Conflict resolution
-        - Metadata merging
-        
-        Features:
-        - Atomic transaction handling
-        - Progress tracking
-        - Rollback capabilities
-        - Post-merge validation
-        
-        Data Handling:
-        - Preserves original timestamps
-        - Merges translations
-        - Combines media libraries
-        - Updates external references
+        Functionality:
+        - Updates game_name for all lines from source games to target
+        - Preserves original game names in original_game_name field
+        - Validates game existence before merge
+        - Triggers stats rollup after successful merge
         ---
         tags:
           - Database
