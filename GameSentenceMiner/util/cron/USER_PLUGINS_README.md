@@ -1,8 +1,14 @@
 # User Plugins System
 
-The User Plugins system allows you to customize GameSentenceMiner's behavior by writing Python code that runs automatically every 5 minutes.
+The User Plugins system allows you to customise GameSentenceMiner's behavior by writing Python code that runs automatically every 5 minutes.
 
-**WARNING** Advanced Users only. Your data is at risk/
+**WARNING** Advanced Users only. Your data is at risk.
+
+The GSM api is made for internal use only, so its kinda scuffed for anyone else using it.
+
+Make sure you are absolutely positive it does what you want it to do. Read both the API docs and the code.
+
+API docs: http://localhost:55000/api/docs#
 
 ## Quick Start
 
@@ -34,6 +40,10 @@ Copy these ready-to-use examples into your `plugins.py` file:
 
 ### 1. Delete Duplicates from Games
 
+**IMPORTANT**: Read the code example. I added a lot of comments to this one specifically to help you understand how this works.
+
+**IMPORtANT**: You must read the API docs before running any examples. This is really dangerous.
+
 Removes duplicate sentences from selected games:
 
 ```python
@@ -54,27 +64,35 @@ def delete_duplicates_from_games(games=None, case_sensitive=False, preserve_newe
     
     try:
         if not games:
-            # you probably dont want this
+            # be very careful with this
             # this will delete all duplicates globally
-            # this is bad
-            # if one person says "arigatou" it deletes that from EVERY game
-            # i think.... just be wary of what you ask for :)
+            # if you do not set a time window and have games == all, very bad things will happen
+            # for example, it will delete "arigatou" from EVERY game ever
+            # If you want to use "all", set a time window.
+            # If you do not want a time window, set a specific game.
             games = ["all"]
+            # I believe games needs to be GameID from games_table
+            # there is an API to get this
+            # I will link proper API docs later on, this is just an example
         
         # Prepare API request
         payload = {
             "games": games,
             "case_sensitive": case_sensitive,
             "preserve_newest": preserve_newest,
+            "time_window_minutes": 5,
             # you probably want a time window
-            # 5 mins or so is good, time window is in seconds
-            # for example if someone says arigatou and then 50 mins later they say this it will be deleted
+            # for example if someone says arigatou and then 50 mins later they say this it will be deleted if no time window is set
+            # time window says "if its a duplicate within 5 mins, delete"
+            # for example, texthooker spam or something
             "ignore_time_window": True  # Find all duplicates in entire game
         }
         
         # Call the deduplication API
         response = requests.post(
+            # IMPORTANT you should use /api/preview-deduplication first to preview
             "http://localhost:5000/api/deduplicate",
+            # A lot of APIs have previews, if it doesn't have a preview use the search functionality to test
             json=payload,
             timeout=300
         )
@@ -257,3 +275,13 @@ python -c "from GameSentenceMiner.util.cron.user_plugins import execute_user_plu
 ```
 
 But probably best to wait.
+
+# Ideas
+* Use ntfy to ping your phone / computer with a reminder to complete your dailies if not done.
+* Once your dailies are done, generate statistics and post them to a Discord channel for accountability.
+* Build your own stats dashboard / graphing program
+* Integrate your apps (Toggl, Anki, Bunpro, Wanikani) into a unified "this is what I did this week" program
+* Export stats to Excel
+* Download your data from another service, convert to ExStatic format and automatically import that into GSM
+
+If you make a cool plugin, please share it in #resource-sharing in the Discord!
