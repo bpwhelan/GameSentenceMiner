@@ -2348,48 +2348,49 @@ def register_stats_api_routes(app):
             logger.error(f"Error calculating today's stats: {e}", exc_info=True)
             return jsonify({"error": "Failed to calculate today's statistics"}), 500
 
-        @app.route("/api/kanji-frequency")
-        def api_kanji_frequency():
-            """Get total occurrences of a kanji character from historical data"""
-            try:
-                kanji = request.args.get("kanji")
-                if not kanji or len(kanji) != 1:
-                    return jsonify({"error": "Invalid kanji parameter"}), 400
-
-                total = 0
-                first_date = StatsRollupTable.get_first_date()
-                
-                if first_date:
-                    rollups = StatsRollupTable.get_date_range(first_date, datetime.date.today().strftime("%Y-%m-%d"))
-                    for rollup in rollups:
-                        kanji_data = rollup.kanji_frequency_data
-                        if isinstance(kanji_data, str):
-                            try:
-                                kanji_data = json.loads(kanji_data)
-                            except json.JSONDecodeError:
-                                continue
-                        total += kanji_data.get(kanji, 0)
-
-                return jsonify({"kanji": kanji, "count": total})
-
-            except Exception as e:
-                logger.error(f"Error in api_kanji_frequency: {e}", exc_info=True)
-                return jsonify({"error": "Failed to calculate kanji frequency"}), 500
-
     @app.route("/api/kanji-frequency")
     def api_kanji_frequency():
-        """Get total occurrences of a kanji character across all data"""
+        """
+        Get total occurrences of a kanji character from rolled up stats.
+        ---
+        tags:
+          - Kanji
+        parameters:
+          - name: kanji
+            in: query
+            type: string
+            required: true
+            description: Single kanji character to look up
+        responses:
+          200:
+            description: Kanji occurrence count
+            schema:
+              type: object
+              properties:
+                kanji:
+                  type: string
+                  description: The kanji character queried
+                count:
+                  type: integer
+                  description: Total number of occurrences
+          400:
+            description: Invalid kanji parameter
+          500:
+            description: Failed to calculate kanji frequency
+        """
         try:
             kanji = request.args.get("kanji")
             if not kanji or len(kanji) != 1:
                 return jsonify({"error": "Invalid kanji parameter"}), 400
 
             total = 0
-            
-            # Get historical data from rollup table
             first_date = StatsRollupTable.get_first_date()
+            
             if first_date:
-                rollups = StatsRollupTable.get_date_range(first_date, datetime.date.today().strftime("%Y-%m-%d"))
+                rollups = StatsRollupTable.get_date_range(
+                    first_date,
+                    datetime.date.today().strftime("%Y-%m-%d")
+                )
                 for rollup in rollups:
                     kanji_data = rollup.kanji_frequency_data
                     if isinstance(kanji_data, str):
@@ -2397,18 +2398,7 @@ def register_stats_api_routes(app):
                             kanji_data = json.loads(kanji_data)
                         except json.JSONDecodeError:
                             continue
-                    total += kanji_data.get(kanji, 0)
-
-            # Add today's live data
-            today = datetime.date.today()
-            today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
-            today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
-            today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                start=today_start, end=today_end, for_stats=True
-            )
-            if today_lines:
-                live_count = calculate_kanji_frequency(today_lines).get(kanji, 0)
-                total += live_count
+                    total += kanji_data.get(kanji, 0) if kanji_data else 0
 
             return jsonify({"kanji": kanji, "count": total})
 
