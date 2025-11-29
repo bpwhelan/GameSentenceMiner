@@ -20,7 +20,8 @@ from GameSentenceMiner.discord_rpc import discord_rpc_manager
 from GameSentenceMiner.live_stats import live_stats_tracker
 from GameSentenceMiner.util.gsm_utils import add_srt_line
 from GameSentenceMiner.util.text_log import add_line, get_text_log
-from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker, overlay_server_thread
+from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker
+from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
 
 from GameSentenceMiner.util.get_overlay_coords import get_overlay_processor
 
@@ -281,7 +282,7 @@ async def add_line_to_text_log(line, line_time=None):
     new_line = add_line(current_line_after_regex, line_time if line_time else datetime.now())
     if len(get_text_log().values) > 0:
         await add_event_to_texthooker(get_text_log()[-1])
-    if get_config().overlay.websocket_port and overlay_server_thread.has_clients():
+    if get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY):
         if get_overlay_processor().ready:
             asyncio.run_coroutine_threadsafe(
                 get_overlay_processor().find_box_and_send_to_overlay(current_line_after_regex), 

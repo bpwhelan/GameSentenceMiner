@@ -18,6 +18,7 @@ from GameSentenceMiner.util.gsm_utils import make_unique, sanitize_filename, wai
 from GameSentenceMiner.util import ffmpeg, notification
 from GameSentenceMiner.util.configuration import get_config, AnkiUpdateResult, logger, anki_results, gsm_status, \
     gsm_state
+from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY, ID_PLAINTEXT, ID_HOOKER
 from GameSentenceMiner.util.model import AnkiCard
 from GameSentenceMiner.util.text_log import GameLine, get_all_lines, get_text_event, get_mined_line, lines_match
 from GameSentenceMiner.obs import get_current_game
@@ -336,16 +337,20 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         # Add NSFW tag if checkbox was selected
         if add_nsfw_tag:
             assets.extra_tags.append("NSFW")
-
+            
+    logger.info("Uploading Media to Anki...")
     # 5. If creating new media, store files in Anki's collection. Then update note fields.
     if not use_existing_files:
         # Only store new files in Anki if we are not reusing existing ones.
         if assets.video_path:
             assets.video_in_anki = store_media_file(assets.video_path)
+            logger.info("Stored video in Anki media collection: " + str(assets.video_in_anki))
         if assets.screenshot_path:
             assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
+            logger.info("Stored screenshot in Anki media collection: " + str(assets.screenshot_in_anki))
         if use_voice and assets.audio_path:
             assets.audio_in_anki = store_media_file(assets.audio_path)
+            logger.info("Stored audio in Anki media collection: " + str(assets.audio_in_anki))
     
     # Now, update the note fields using the Anki filenames (either from cache or newly stored)
     if assets.video_in_anki:
@@ -482,7 +487,7 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
     
     # tags_lower = [tag.lower() for tag in last_note.tags]
     #  and 'overlay' in tags_lower if we want to limit to overlay only
-    if get_config().overlay.websocket_port and texthooking_page.overlay_server_thread.has_clients():
+    if get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY):
         sentence_in_anki = last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
         logger.info("Found matching line in Anki, Preserving HTML and fix spacing!")
 

@@ -459,6 +459,7 @@ class Paths:
 class Anki:
     update_anki: bool = True
     show_update_confirmation_dialog_v2: bool = True
+    auto_accept_timer: int = 10
     url: str = 'http://127.0.0.1:8765'
     sentence_field: str = "Sentence"
     sentence_audio_field: str = "SentenceAudio"

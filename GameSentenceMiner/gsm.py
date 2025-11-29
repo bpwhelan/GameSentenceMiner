@@ -134,6 +134,7 @@ try:
 
     start_time = time.time()
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
+    from GameSentenceMiner.web.gsm_websocket import websocket_manager
     logger.debug(
         f"[Import] web.texthooking_page.run_text_hooker_page: {time.time() - start_time:.3f}s")
     
@@ -699,11 +700,7 @@ def cleanup():
         if get_config().obs.close_obs:
             close_obs()
 
-        if texthooking_page.websocket_server_threads:
-            for thread in texthooking_page.websocket_server_threads:
-                if thread and isinstance(thread, threading.Thread) and thread.is_alive():
-                    thread.stop_server()
-                    thread.join()
+        websocket_manager.stop_all()
 
         proc: Popen
         for proc in procs_to_close:

@@ -17,7 +17,7 @@ from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_
 from GameSentenceMiner.util.electron_config import get_ocr_language
 from GameSentenceMiner.obs import get_screenshot_PIL
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
-from GameSentenceMiner.web.gsm_websocket import overlay_server_thread
+from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
 # def align_and_correct(ocr_json, reference_text):
 #     logger.info(f"Starting align_and_correct with reference_text: '{reference_text}'")
@@ -106,7 +106,7 @@ class OverlayThread(threading.Thread):
     async def overlay_loop(self):
         """Main loop to periodically process and send overlay data."""
         while True:
-            if overlay_server_thread.has_clients():
+            if websocket_manager.has_clients(ID_OVERLAY):
                 if get_config().overlay.periodic:
                     await overlay_processor.find_box_and_send_to_overlay('', True)
                     await asyncio.sleep(get_config().overlay.periodic_interval)

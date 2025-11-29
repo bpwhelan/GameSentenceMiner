@@ -523,7 +523,7 @@ const CustomGoalsManager = {
             name: goalData.name,
             metricType: goalData.metricType,
             targetValue: goalData.targetValue,
-            startDate: goalData.startDate,
+            startDate: goalData.startDate || "1970-01-01",
             endDate: goalData.endDate,
             icon: goalData.icon || this.getDefaultIcon(goalData.metricType),
             createdAt: Date.now()
@@ -548,7 +548,7 @@ const CustomGoalsManager = {
             name: goalData.name,
             metricType: goalData.metricType,
             targetValue: goalData.targetValue,
-            startDate: goalData.startDate,
+            startDate: goalData.startDate || "1970-01-01",
             endDate: goalData.endDate,
             icon: goalData.icon || goals[index].icon
         };
@@ -600,9 +600,9 @@ const CustomGoalsManager = {
                 errors.push('Target value must be greater than 0');
             }
 
-            if (!goalData.startDate) {
-                errors.push('Start date is required');
-            }
+            // if (!goalData.startDate) {
+            //     errors.push('Start date is required');
+            // }
 
             if (!goalData.endDate) {
                 errors.push('End date is required');
@@ -732,7 +732,11 @@ document.addEventListener('DOMContentLoaded', function () {
         // Format dates for display
         const startDate = new Date(goal.startDate);
         const endDate = new Date(goal.endDate);
-        const formattedStartDate = startDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' });
+        let formattedStartDate = 'N/A';
+
+        if (startDate >= new Date(1980, 0, 1)) {
+            formattedStartDate = startDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' });
+        }
         const formattedEndDate = endDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' });
 
         return `

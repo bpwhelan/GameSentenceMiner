@@ -365,37 +365,34 @@ def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: Gam
                 "No internet connection. Unable to proceed with AI prompt.")
             return ""
 
-        if not ai_manager or ai_config_changed(get_config().ai, current_ai_config) or force_refresh:
-            provider = get_config().ai.provider
-            if provider == AIType.GEMINI.value:
-                if get_config().ai.gemini_model in ai_managers:
-                    ai_manager = ai_managers[get_config().ai.gemini_model]
-                    logger.info(
-                        f"Reusing existing Gemini AI Manager for model: {get_config().ai.gemini_model}")
-                else:
-                    ai_manager = GeminiAI(model=get_config(
-                    ).ai.gemini_model, api_key=get_config().ai.gemini_api_key, logger=logger)
-            elif provider == AIType.GROQ.value:
-                if get_config().ai.groq_model in ai_managers:
-                    ai_manager = ai_managers[get_config().ai.groq_model]
-                    logger.info(
-                        f"Reusing existing Groq AI Manager for model: {get_config().ai.groq_model}")
-                else:
-                    ai_manager = GroqAI(model=get_config(
-                    ).ai.groq_model, api_key=get_config().ai.groq_api_key, logger=logger)
-            elif provider == AIType.OPENAI.value:
-                if f"{get_config().ai.open_ai_url}:{get_config().ai.open_ai_model}:{get_config().ai.open_ai_api_key}" in ai_managers:
-                    ai_manager = ai_managers[f"{get_config().ai.open_ai_url}:{get_config().ai.open_ai_model}:{get_config().ai.open_ai_api_key}"]
-                    logger.info(
-                        f"Reusing existing OpenAI AI Manager for model: {get_config().ai.open_ai_model}")
-                else:
-                    ai_manager = OpenAIManager(model=get_config().ai.open_ai_model, api_key=get_config(
-                    ).ai.open_ai_api_key, api_url=get_config().ai.open_ai_url, logger=logger)
+        provider = get_config().ai.provider
+        if provider == AIType.GEMINI.value:
+            if get_config().ai.gemini_model in ai_managers:
+                ai_manager = ai_managers[get_config().ai.gemini_model]
+                logger.info(
+                    f"Reusing existing Gemini AI Manager for model: {get_config().ai.gemini_model}")
             else:
-                ai_manager = None
-            if ai_manager:
-                ai_managers[ai_manager.model_name] = ai_manager
-            current_ai_config = get_config().ai
+                ai_manager = GeminiAI(model=get_config(
+                ).ai.gemini_model, api_key=get_config().ai.gemini_api_key, logger=logger)
+        elif provider == AIType.GROQ.value:
+            if get_config().ai.groq_model in ai_managers:
+                ai_manager = ai_managers[get_config().ai.groq_model]
+                logger.info(
+                    f"Reusing existing Groq AI Manager for model: {get_config().ai.groq_model}")
+            else:
+                ai_manager = GroqAI(model=get_config(
+                ).ai.groq_model, api_key=get_config().ai.groq_api_key, logger=logger)
+        elif provider == AIType.OPENAI.value:
+            if f"{get_config().ai.open_ai_url}:{get_config().ai.open_ai_model}:{get_config().ai.open_ai_api_key}" in ai_managers:
+                ai_manager = ai_managers[f"{get_config().ai.open_ai_url}:{get_config().ai.open_ai_model}:{get_config().ai.open_ai_api_key}"]
+                logger.info(
+                    f"Reusing existing OpenAI AI Manager for model: {get_config().ai.open_ai_model}")
+            else:
+                ai_manager = OpenAIManager(model=get_config().ai.open_ai_model, api_key=get_config(
+                ).ai.open_ai_api_key, api_url=get_config().ai.open_ai_url, logger=logger)
+        if ai_manager:
+            ai_managers[ai_manager.model_name] = ai_manager
+        current_ai_config = get_config().ai
 
         if not ai_manager:
             logger.error(
