@@ -11,9 +11,11 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QT
                              QFormLayout, QLabel, QLineEdit, QCheckBox, QComboBox,
                              QPushButton, QFileDialog, QMessageBox, QInputDialog,
                              QListWidget, QListWidgetItem, QTextEdit, QSizePolicy,
-                             QAbstractItemView, QProxyStyle)
+                             QAbstractItemView, QProxyStyle, QKeySequenceEdit)
+from PyQt6.QtGui import QIcon, QKeySequence
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QIcon
+import PyQt6.QtGui as QTGui
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.util import configuration
@@ -27,6 +29,9 @@ from GameSentenceMiner.util.configuration import (Config, Locale, logger, Common
                                                   AI_OPENAI, save_full_config, get_default_anki_media_collection_path)
 from GameSentenceMiner.util.db import AIModelsTable
 from GameSentenceMiner.util.downloader.download_tools import download_ocenaudio_if_needed
+
+# Import Window State Manager
+from GameSentenceMiner.ui import window_state_manager, WindowId
 
 RECOMMENDED_GROQ_MODELS = ['meta-llama/llama-4-maverick-17b-128e-instruct',
                            'meta-llama/llama-4-scout-17b-16e-instruct',
@@ -72,26 +77,37 @@ class AIModelFetcher(QObject):
         """Fetches models and emits a signal when done."""
         groq_models = self._get_groq_models()
         gemini_models = self._get_gemini_models()
-        AIModelsTable.update_models(gemini_models, groq_models)
+        
+        # Ensure DB operations are safe (assuming implementation handles concurrency or is quick)
+        try:
+            AIModelsTable.update_models(gemini_models, groq_models)
+        except Exception as e:
+            logger.error(f"Failed to update AI Models table: {e}")
+            
         self.models_fetched.emit(gemini_models, groq_models)
 
     def _get_groq_models(self):
         models = ["RECOMMENDED"] + RECOMMENDED_GROQ_MODELS + ['OTHER']
         try:
             from groq import Groq
+            if not self.groq_api_key:
+                return models
             client = Groq(api_key=self.groq_api_key)
             for m in client.models.list().data:
                 if m.active and m.id not in models and not any(x in m.id for x in ["guard", "tts", "whisper"]):
                     models.append(m.id)
         except Exception as e:
-            logger.error(f"Error fetching Groq models: {e}")
+            logger.debug(f"Error fetching Groq models: {e}")
         return models
 
     def _get_gemini_models(self):
         models = ["RECOMMENDED"] + RECOMMENDED_GEMINI_MODELS + ["OTHER"]
         try:
             from google import genai
-            client = genai.Client()
+            api_key = get_config().ai.gemini_api_key
+            if not api_key:
+                return models
+            client = genai.Client(api_key=api_key)
             for m in client.models.list():
                 name = m.name.replace("models/", "")
                 if "generateContent" in m.supported_actions:
@@ -100,7 +116,8 @@ class AIModelFetcher(QObject):
                     if name not in models:
                         models.append(name)
         except Exception as e:
-            logger.error(f"Error fetching Gemini models: {e}")
+            logger.debug(f"Error fetching Gemini models: {e}")
+            pass
         return models
 
 
@@ -115,6 +132,7 @@ class ConfigWindow(QWidget):
         super().__init__()
         self.test_func = None
         self.on_exit = None
+        self.first_launch = True
 
         # --- Load Configuration and Localization ---
         self.master_config: Config = configuration.load_config()
@@ -129,8 +147,11 @@ class ConfigWindow(QWidget):
         self.resize(800, 700)
         
         # Set window icon explicitly
-        from GameSentenceMiner.util.configuration import get_pickaxe_png_path
-        self.setWindowIcon(QIcon(get_pickaxe_png_path()))
+        try:
+            from GameSentenceMiner.util.configuration import get_pickaxe_png_path
+            self.setWindowIcon(QIcon(get_pickaxe_png_path()))
+        except Exception:
+            pass
         
         # --- Enable mouse tracking for faster tooltip response ---
         self.setMouseTracking(True)
@@ -176,13 +197,21 @@ class ConfigWindow(QWidget):
     def _show_window_impl(self):
         """Internal implementation of show_window that runs on the GUI thread."""
         logger.info("Showing Configuration Window")
-        obs.update_current_game()
+        
+        # Wrap OBS call in try-catch to prevent crashes if OBS isn't connected
+        try:
+            obs.update_current_game()
+        except Exception as e:
+            logger.debug(f"Failed to update current game from OBS: {e}")
+            
         self.reload_settings()
         self.show()
         self.raise_()
         self.activateWindow()
 
     def hide_window(self):
+        # Save position before hiding
+        window_state_manager.save_geometry(self, WindowId.CONFIG_GUI)
         self.hide()
     
     def close_window(self):
@@ -196,8 +225,8 @@ class ConfigWindow(QWidget):
     def _close_window_impl(self):
         """Internal implementation of close_window that runs on the GUI thread."""
         logger.info("Closing Configuration Window")
-        self.close()
-        self.deleteLater()
+        window_state_manager.save_geometry(self, WindowId.CONFIG_GUI)
+        self.hide()
 
     def reload_settings(self, force_refresh=False):
         """
@@ -234,6 +263,13 @@ class ConfigWindow(QWidget):
         
         # Hide the label after 3 seconds
         QTimer.singleShot(3000, self.save_status_label.hide)
+
+    def showEvent(self, event):
+        """Handle window showing: restore position."""
+        if self.first_launch:
+            window_state_manager.restore_geometry(self, WindowId.CONFIG_GUI)
+            self.first_launch = False
+        super().showEvent(event)
 
     # --- Core Logic Methods ---
     def save_settings(self, profile_change=False):
@@ -279,6 +315,7 @@ class ConfigWindow(QWidget):
             anki=Anki(
                 update_anki=self.update_anki_check.isChecked(),
                 show_update_confirmation_dialog_v2=self.show_update_confirmation_dialog_check.isChecked(),
+                auto_accept_timer=int(self.auto_accept_timer_edit.text() or 0),
                 url=self.anki_url_edit.text(),
                 sentence_field=self.sentence_field_edit.text(),
                 sentence_audio_field=self.sentence_audio_field_edit.text(),
@@ -342,9 +379,10 @@ class ConfigWindow(QWidget):
                 automatically_manage_replay_buffer=self.automatically_manage_replay_buffer_check.isChecked()
             ),
             hotkeys=Hotkeys(
-                reset_line=self.reset_line_hotkey_edit.text(),
-                take_screenshot=self.take_screenshot_hotkey_edit.text(),
-                play_latest_audio=self.play_latest_audio_hotkey_edit.text()
+                reset_line=self.reset_line_hotkey_edit.keySequence().toString(),
+                take_screenshot=self.take_screenshot_hotkey_edit.keySequence().toString(),
+                manual_overlay_scan=self.manual_overlay_scan_hotkey_edit.keySequence().toString(),
+                play_latest_audio=self.play_latest_audio_hotkey_edit.keySequence().toString()
             ),
             vad=VAD(
                 whisper_model=self.whisper_model_combo.currentText(),
@@ -507,6 +545,8 @@ class ConfigWindow(QWidget):
         # Anki
         self.update_anki_check = QCheckBox()
         self.show_update_confirmation_dialog_check = QCheckBox()
+        self.auto_accept_timer_edit = QLineEdit()
+        self.auto_accept_timer_edit.setValidator(QTGui.QIntValidator())
         self.anki_url_edit = QLineEdit()
         self.sentence_field_edit = QLineEdit()
         self.sentence_audio_field_edit = QLineEdit()
@@ -542,7 +582,7 @@ class ConfigWindow(QWidget):
         self.screenshot_timing_combo = QComboBox()
         self.seconds_after_line_edit = QLineEdit()
         self.use_screenshot_selector_check = QCheckBox()
-        self.take_screenshot_hotkey_edit = QLineEdit()
+        self.take_screenshot_hotkey_edit = QKeySequenceEdit()
         self.screenshot_hotkey_update_anki_check = QCheckBox()
         self.trim_black_bars_check = QCheckBox()
         
@@ -611,17 +651,18 @@ class ConfigWindow(QWidget):
         self.periodic_ratio_edit = QLineEdit()
         self.number_of_local_scans_per_event_edit = QLineEdit()
         self.overlay_minimum_character_size_edit = QLineEdit()
+        self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
         
         # Advanced
         self.audio_player_path_edit = QLineEdit()
         self.video_player_path_edit = QLineEdit()
-        self.play_latest_audio_hotkey_edit = QLineEdit()
+        self.play_latest_audio_hotkey_edit = QKeySequenceEdit()
         self.multi_line_line_break_edit = QLineEdit()
         self.multi_line_sentence_storage_field_edit = QLineEdit()
         self.ocr_websocket_port_edit = QLineEdit()
         self.texthooker_communication_websocket_port_edit = QLineEdit()
         self.plaintext_websocket_export_port_edit = QLineEdit()
-        self.reset_line_hotkey_edit = QLineEdit()
+        self.reset_line_hotkey_edit = QKeySequenceEdit()
         self.polling_rate_edit = QLineEdit()
         self.localhost_bind_address_edit = QLineEdit()
         self.current_version_label = QLabel()
@@ -876,6 +917,7 @@ class ConfigWindow(QWidget):
 
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'update_anki'), self.update_anki_check)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'show_update_confirmation_dialog'), self.show_update_confirmation_dialog_check)
+        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'auto_accept_timer', "Accept The Result without user input after # of seconds, 0 disables this feature"), self.auto_accept_timer_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'url'), self.anki_url_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'sentence_field'), self.sentence_field_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'sentence_audio_field'), self.sentence_audio_field_edit)
@@ -1082,6 +1124,7 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic_interval'), self.periodic_interval_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic_ratio'), self.periodic_ratio_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'number_of_local_scans_per_event'), self.number_of_local_scans_per_event_edit)
+        layout.addRow(self._create_labeled_widget(i18n, "overlay", 'manual_overlay_scan_hotkey',), self.manual_overlay_scan_hotkey_edit)
 
         min_char_widget = QWidget()
         min_char_layout = QHBoxLayout(min_char_widget)
@@ -1198,6 +1241,7 @@ class ConfigWindow(QWidget):
         # Anki
         self.update_anki_check.setChecked(s.anki.update_anki)
         self.show_update_confirmation_dialog_check.setChecked(s.anki.show_update_confirmation_dialog_v2)
+        self.auto_accept_timer_edit.setText(str(s.anki.auto_accept_timer))
         self.anki_url_edit.setText(s.anki.url)
         self.sentence_field_edit.setText(s.anki.sentence_field)
         self.sentence_audio_field_edit.setText(s.anki.sentence_audio_field)
@@ -1237,7 +1281,7 @@ class ConfigWindow(QWidget):
         self.screenshot_timing_combo.setCurrentText(s.screenshot.screenshot_timing_setting)
         self.seconds_after_line_edit.setText(str(s.screenshot.seconds_after_line))
         self.use_screenshot_selector_check.setChecked(s.screenshot.use_screenshot_selector)
-        self.take_screenshot_hotkey_edit.setText(s.hotkeys.take_screenshot)
+        self.take_screenshot_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.take_screenshot or ""))
         self.screenshot_hotkey_update_anki_check.setChecked(s.screenshot.screenshot_hotkey_updates_anki)
         self.trim_black_bars_check.setChecked(s.screenshot.trim_black_bars_wip)
         
@@ -1325,17 +1369,18 @@ class ConfigWindow(QWidget):
         self.periodic_ratio_edit.setText(str(s.overlay.periodic_ratio))
         self.number_of_local_scans_per_event_edit.setText(str(getattr(s.overlay, 'number_of_local_scans_per_event', 1)))
         self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
+        self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
         
         # Advanced
         self.audio_player_path_edit.setText(s.advanced.audio_player_path)
         self.video_player_path_edit.setText(s.advanced.video_player_path)
-        self.play_latest_audio_hotkey_edit.setText(s.hotkeys.play_latest_audio)
+        self.play_latest_audio_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.play_latest_audio or ""))
         self.multi_line_line_break_edit.setText(s.advanced.multi_line_line_break)
         self.multi_line_sentence_storage_field_edit.setText(s.advanced.multi_line_sentence_storage_field)
         self.ocr_websocket_port_edit.setText(str(s.advanced.ocr_websocket_port))
         self.texthooker_communication_websocket_port_edit.setText(str(s.advanced.texthooker_communication_websocket_port))
         self.plaintext_websocket_export_port_edit.setText(str(s.advanced.plaintext_websocket_port))
-        self.reset_line_hotkey_edit.setText(s.hotkeys.reset_line)
+        self.reset_line_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.reset_line or ""))
         self.polling_rate_edit.setText(str(s.anki.polling_rate))
         self.localhost_bind_address_edit.setText(s.advanced.localhost_bind_address)
         self.current_version_label.setText(get_current_version())
@@ -1383,11 +1428,13 @@ class ConfigWindow(QWidget):
             for title, message, recheck_func in errors:
                 if recheck_func and recheck_func():
                     continue
-                QMessageBox.critical(self, title, message)
+                # Wrap message box to ensure it doesn't crash on shutdown
+                if self.isVisible():
+                    QMessageBox.critical(self, title, message)
         except Exception as e:
             logger.debug(f"Error checking OBS error queue: {e}")
 
-    def _create_labeled_widget(self, i18n_dict, key1, key2=None):
+    def _create_labeled_widget(self, i18n_dict, key1, key2=None, default_tooltip='...'):
         """Helper to create a QLabel with text and tooltip from the i18n dict."""
         if key2:
             data = i18n_dict.get(key1, {}).get(key2, {})
@@ -1395,7 +1442,7 @@ class ConfigWindow(QWidget):
             data = i18n_dict.get(key1, {})
             
         label = QLabel(data.get('label', f'{key1}.{key2}'))
-        label.setToolTip(data.get('tooltip', '...'))
+        label.setToolTip(data.get('tooltip', default_tooltip))
         return label
 
     def _create_browse_widget(self, line_edit, mode):
@@ -1596,71 +1643,14 @@ class ConfigWindow(QWidget):
         self.hide_window()
         event.ignore()
 
-
-# Module-level singleton for config window management
-_config_window = None
-_qt_app = None
-
-
-def get_config_window_manager():
-    """
-    Get or create the singleton ConfigWindow instance.
-    
-    Returns:
-        ConfigWindow: The singleton ConfigWindow instance
-    """
-    global _config_window, _qt_app
-    
-    if _config_window is None:
-        # Create QApplication if it doesn't exist
-        if _qt_app is None:
-            _qt_app = QApplication.instance()
-            if _qt_app is None:
-                _qt_app = QApplication(sys.argv)
-                
-                try:
-                    import qdarktheme
-                    base_stylesheet = qdarktheme.load_stylesheet(theme="dark")
-                except ImportError:
-                    logger.warning("qdarktheme not found. Using system default theme.")
-                    base_stylesheet = ""
-                
-                _qt_app.setStyleSheet(base_stylesheet)
-        
-        _config_window = ConfigWindow()
-    
-    return _config_window
-
-
-
-def start_qt(show_immediately=True):
-    """
-    Start the Qt event loop.
-    
-    Args:
-        show_immediately (bool): If True, show the config window immediately
-    
-    Note:
-        This is a blocking call that runs the Qt event loop.
-        It should be called from the main thread.
-    """
-    global _config_window, _qt_app
-    
-    window = get_config_window_manager()
-    
-    if show_immediately:
-        window.show_window()
-    
-    # Start the Qt event loop (blocking)
-    # Don't call sys.exit() - just run the event loop
-    _qt_app.exec()
-
-
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     
     # Install custom style to make tooltips appear faster (50ms instead of ~700ms)
     app.setStyle(FastTooltipStyle())
+    
+    # Ensure app doesn't quit when config window is hidden
+    app.setQuitOnLastWindowClosed(False)
     
     try:
         import qdarktheme

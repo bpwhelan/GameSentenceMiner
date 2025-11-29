@@ -17,12 +17,12 @@ from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.configuration import (
     get_stats_config,
-    logger,
+logger,
     get_config,
     save_current_config,
     save_stats_config,
 )
-from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
+from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web.stats import (
     calculate_kanji_frequency,
@@ -399,7 +399,7 @@ def register_database_api_routes(app):
             if deleted_count > 0:
                 try:
                     logger.info("Triggering stats rollup after sentence line deletion")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
                     logger.error(f"Stats rollup failed after sentence line deletion: {rollup_error}")
                     # Don't fail the deletion operation if rollup fails
@@ -501,7 +501,7 @@ def register_database_api_routes(app):
             if successful_deletions:
                 try:
                     logger.info("Triggering stats rollup after game deletion")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
                     logger.error(f"Stats rollup failed after game deletion: {rollup_error}")
                     # Don't fail the deletion operation if rollup fails
@@ -532,7 +532,14 @@ def register_database_api_routes(app):
                     "games_target_date": config.games_target_date,
                     "cards_mined_daily_target": getattr(config, 'cards_mined_daily_target', 10),
                     "regex_out_punctuation": config.regex_out_punctuation,
-                    "regex_out_repetitions": config.regex_out_repetitions
+                    "regex_out_repetitions": config.regex_out_repetitions,
+                    "easy_days_monday": getattr(config, 'easy_days_settings', {}).get('monday', 100),
+                    "easy_days_tuesday": getattr(config, 'easy_days_settings', {}).get('tuesday', 100),
+                    "easy_days_wednesday": getattr(config, 'easy_days_settings', {}).get('wednesday', 100),
+                    "easy_days_thursday": getattr(config, 'easy_days_settings', {}).get('thursday', 100),
+                    "easy_days_friday": getattr(config, 'easy_days_settings', {}).get('friday', 100),
+                    "easy_days_saturday": getattr(config, 'easy_days_settings', {}).get('saturday', 100),
+                    "easy_days_sunday": getattr(config, 'easy_days_settings', {}).get('sunday', 100)
                 }
             ), 200
         except Exception as e:
@@ -562,6 +569,15 @@ def register_database_api_routes(app):
             cards_mined_daily_target = data.get("cards_mined_daily_target")
             regex_out_punctuation = data.get("regex_out_punctuation")
             regex_out_repetitions = data.get("regex_out_repetitions")
+            
+            # Easy days settings
+            easy_days_monday = data.get("easy_days_monday")
+            easy_days_tuesday = data.get("easy_days_tuesday")
+            easy_days_wednesday = data.get("easy_days_wednesday")
+            easy_days_thursday = data.get("easy_days_thursday")
+            easy_days_friday = data.get("easy_days_friday")
+            easy_days_saturday = data.get("easy_days_saturday")
+            easy_days_sunday = data.get("easy_days_sunday")
 
             # Validate input - only require the settings that are provided
             settings_to_update = {}
@@ -730,7 +746,78 @@ def register_database_api_routes(app):
                     ), 400
                 settings_to_update["regex_out_repetitions"] = regex_out_repetitions
 
-            if not settings_to_update:
+            # Validate and process easy days settings
+            easy_days_settings = {}
+            if easy_days_monday is not None:
+                try:
+                    easy_days_monday = int(easy_days_monday)
+                    if easy_days_monday < 0 or easy_days_monday > 100:
+                        return jsonify({"error": "Monday easy days setting must be between 0 and 100"}), 400
+                    easy_days_settings["monday"] = easy_days_monday
+                except (ValueError, TypeError):
+                    return jsonify({"error": "Monday easy days setting must be a valid integer"}), 400
+                    
+            if easy_days_tuesday is not None:
+                try:
+                    easy_days_tuesday = int(easy_days_tuesday)
+                    if easy_days_tuesday < 0 or easy_days_tuesday > 100:
+                        return jsonify({"error": "Tuesday easy days setting must be between 0 and 100"}), 400
+                    easy_days_settings["tuesday"] = easy_days_tuesday
+                except (ValueError, TypeError):
+                    return jsonify({"error": "Tuesday easy days setting must be a valid integer"}), 400
+                    
+            if easy_days_wednesday is not None:
+                try:
+                    easy_days_wednesday = int(easy_days_wednesday)
+                    if easy_days_wednesday < 0 or easy_days_wednesday > 100:
+                        return jsonify({"error": "Wednesday easy days setting must be between 0 and 100"}), 400
+                    easy_days_settings["wednesday"] = easy_days_wednesday
+                except (ValueError, TypeError):
+                    return jsonify({"error": "Wednesday easy days setting must be a valid integer"}), 400
+                    
+            if easy_days_thursday is not None:
+                try:
+                    easy_days_thursday = int(easy_days_thursday)
+                    if easy_days_thursday < 0 or easy_days_thursday > 100:
+                        return jsonify({"error": "Thursday easy days setting must be between 0 and 100"}), 400
+                    easy_days_settings["thursday"] = easy_days_thursday
+                except (ValueError, TypeError):
+                    return jsonify({"error": "Thursday easy days setting must be a valid integer"}), 400
+                    
+            if easy_days_friday is not None:
+                try:
+                    easy_days_friday = int(easy_days_friday)
+                    if easy_days_friday < 0 or easy_days_friday > 100:
+                        return jsonify({"error": "Friday easy days setting must be between 0 and 100"}), 400
+                    easy_days_settings["friday"] = easy_days_friday
+                except (ValueError, TypeError):
+                    return jsonify({"error": "Friday easy days setting must be a valid integer"}), 400
+                    
+            if easy_days_saturday is not None:
+                try:
+                    easy_days_saturday = int(easy_days_saturday)
+                    if easy_days_saturday < 0 or easy_days_saturday > 100:
+                        return jsonify({"error": "Saturday easy days setting must be between 0 and 100"}), 400
+                    easy_days_settings["saturday"] = easy_days_saturday
+                except (ValueError, TypeError):
+                    return jsonify({"error": "Saturday easy days setting must be a valid integer"}), 400
+                    
+            if easy_days_sunday is not None:
+                try:
+                    easy_days_sunday = int(easy_days_sunday)
+                    if easy_days_sunday < 0 or easy_days_sunday > 100:
+                        return jsonify({"error": "Sunday easy days setting must be between 0 and 100"}), 400
+                    easy_days_settings["sunday"] = easy_days_sunday
+                except (ValueError, TypeError):
+                    return jsonify({"error": "Sunday easy days setting must be a valid integer"}), 400
+
+            # Validate that at least one day is set to 100%
+            if easy_days_settings:
+                values = list(easy_days_settings.values())
+                if values and 100 not in values:
+                    return jsonify({"error": "At least one day must be set to 100%"}), 400
+
+            if not settings_to_update and not easy_days_settings:
                 return jsonify({"error": "No valid settings provided"}), 400
 
             # Update configuration
@@ -768,6 +855,21 @@ def register_database_api_routes(app):
                 config.regex_out_punctuation = settings_to_update["regex_out_punctuation"]
             if "regex_out_repetitions" in settings_to_update:
                 config.regex_out_repetitions = settings_to_update["regex_out_repetitions"]
+
+            # Save easy days settings if provided
+            if easy_days_settings:
+                # Store easy days settings in the config
+                if not hasattr(config, 'easy_days_settings'):
+                    config.easy_days_settings = {
+                        'monday': 100,
+                        'tuesday': 100,
+                        'wednesday': 100,
+                        'thursday': 100,
+                        'friday': 100,
+                        'saturday': 100,
+                        'sunday': 100
+                    }
+                config.easy_days_settings.update(easy_days_settings)
 
             save_stats_config(config)
 
@@ -972,7 +1074,7 @@ def register_database_api_routes(app):
             if deleted_count > 0:
                 try:
                     logger.info("Triggering stats rollup after text line deletion")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
                     logger.error(f"Stats rollup failed after text line deletion: {rollup_error}")
                     # Don't fail the deletion operation if rollup fails
@@ -1261,7 +1363,7 @@ def register_database_api_routes(app):
             if deleted_count > 0:
                 try:
                     logger.info("Triggering stats rollup after deduplication")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
                     logger.error(f"Stats rollup failed after deduplication: {rollup_error}")
                     # Don't fail the deduplication operation if rollup fails
@@ -1555,7 +1657,7 @@ def register_database_api_routes(app):
                 # Trigger stats rollup after successful merge
                 try:
                     logger.info("Triggering stats rollup after game merge")
-                    run_daily_rollup()
+                    cron_scheduler.force_daily_rollup()
                 except Exception as rollup_error:
                     logger.error(f"Stats rollup failed after game merge: {rollup_error}")
                     # Don't fail the merge operation if rollup fails

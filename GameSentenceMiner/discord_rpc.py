@@ -1,9 +1,18 @@
 import asyncio
 import time
 import threading
+
 from pypresence import Presence, PyPresenceException
 from GameSentenceMiner.util.configuration import logger, get_config
 from GameSentenceMiner.live_stats import live_stats_tracker
+
+# Decorator to guard methods if self.DISABLED is True
+def disabled_guard(method):
+    def wrapper(self, *args, **kwargs):
+        if getattr(self, 'DISABLED', False):
+            return
+        return method(self, *args, **kwargs)
+    return wrapper
 
 class DiscordRPCManager:
     def __init__(self):
@@ -15,7 +24,10 @@ class DiscordRPCManager:
         self.start_time = None
         self.current_cph = 0
         self.stop_timer = None
+        # Flag to disable all functionality, to release this feature, change this to False
+        self.DISABLED = True
 
+    @disabled_guard
     def _run(self):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -58,6 +70,7 @@ class DiscordRPCManager:
                 logger.error(f"An unexpected error occurred in Discord RPC thread: {e}", exc_info=True)
                 self.running = False
 
+    @disabled_guard
     def start(self):
         if not get_config().features.discord_rpc_enable:
             return
@@ -68,6 +81,7 @@ class DiscordRPCManager:
             self.rpc_thread.start()
             logger.info("Discord RPC thread started.")
 
+    @disabled_guard
     def update(self, game_name):
         if not get_config().features.discord_rpc_enable:
             return
@@ -84,10 +98,12 @@ class DiscordRPCManager:
             self.last_game_name = game_name
             # The running thread will pick up the new game name
 
+    @disabled_guard
     def _stop_rpc_due_to_inactivity(self):
         logger.info("Stopping Discord RPC due to 2 minutes of inactivity.")
         self.stop()
 
+    @disabled_guard
     def stop(self):
         if self.running:
             if self.stop_timer:
@@ -103,6 +119,7 @@ class DiscordRPCManager:
             self.start_time = None
             live_stats_tracker.reset()
 
+    @disabled_guard
     def stop_rpc_instance(self):
         if self.rpc:
             try:

@@ -178,11 +178,9 @@ def combine_dialogue(dialogue_lines, new_lines=None):
 
     return new_lines
 
-def wait_for_stable_file(file_path, timeout=10, check_interval=0.5):
+def wait_for_stable_file(file_path, timeout=10, check_interval=0.1):
     elapsed_time = 0
     last_size = -1
-
-    logger.info(f"Waiting for file '{file_path}' to stabilize or become accessible...")
 
     while elapsed_time < timeout:
         try:
