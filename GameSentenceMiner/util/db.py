@@ -257,6 +257,8 @@ class SQLiteDBTable:
                 field_value = getattr(self, field)
                 if isinstance(field_value, list):
                     setattr(self, field, json.dumps(field_value))
+                elif isinstance(field_value, dict):
+                    setattr(self, field, json.dumps(field_value))
                 elif isinstance(field_value, bool):
                     # Convert boolean to integer (0 or 1) for SQLite storage
                     setattr(self, field, 1 if field_value else 0)
@@ -624,6 +626,122 @@ class GameLinesTable(SQLiteDBTable):
         clean_columns = ['line_text'] if for_stats else []
         return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
 
+
+class GoalsTable(SQLiteDBTable):
+    """
+    Table for tracking daily goal completions and streaks.
+    One entry per day when user completes their dailies.
+    Includes version tracking for multi-device synchronization.
+    """
+    _table = 'goals'
+    _fields = ['date', 'current_goals', 'goals_settings', 'last_updated', 'goals_version']
+    _types = [
+        int,   # id (primary key)
+        str,   # date
+        str,   # current_goals
+        str,   # goals_settings
+        float, # last_updated
+        str    # goals_version (JSON: {"goals": 1, "easyDays": 1, "ankiConnect": 1})
+    ]
+    _pk = 'id'
+    _auto_increment = True
+
+    def __init__(self, id: Optional[int] = None, date: Optional[str] = None,
+                 current_goals: Optional[str] = None,
+                 goals_settings: Optional[str] = None, last_updated: Optional[float] = None,
+                 goals_version: Optional[str] = None):
+        self.id = id
+        self.date = date if date is not None else ''
+        self.current_goals = current_goals if current_goals is not None else '[]'
+        self.goals_settings = goals_settings if goals_settings is not None else '{}'
+        self.last_updated = last_updated
+        self.goals_version = goals_version if goals_version is not None else '{"goals": 0, "easyDays": 0, "ankiConnect": 0}'
+
+    @classmethod
+    def get_by_date(cls, date_str: str) -> Optional['GoalsTable']:
+        """Get goals entry for a specific date (YYYY-MM-DD format)."""
+        row = cls._db.fetchone(
+            f"SELECT * FROM {cls._table} WHERE date=?", (date_str,))
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def get_latest(cls) -> Optional['GoalsTable']:
+        """Get the most recent goals entry."""
+        row = cls._db.fetchone(
+            f"SELECT * FROM {cls._table} ORDER BY date DESC LIMIT 1")
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def create_entry(cls, date_str: str, current_goals_json: str,
+                     goals_settings_json: Optional[str] = None, last_updated: Optional[float] = None,
+                     goals_version: Optional[str] = None) -> 'GoalsTable':
+        """Create a new goals entry for a specific date with version tracking."""
+        # Default version if not provided
+        if goals_version is None:
+            goals_version = json.dumps({"goals": 1, "easyDays": 1, "ankiConnect": 1})
+        
+        new_entry = cls(date=date_str, current_goals=current_goals_json,
+                       goals_settings=goals_settings_json if goals_settings_json else '{}',
+                       last_updated=last_updated if last_updated is not None else time.time(),
+                       goals_version=goals_version)
+        new_entry.save()
+        return new_entry
+
+    @classmethod
+    def calculate_streak(cls, today_str: str, timezone_str: str = 'UTC') -> Tuple[int, int]:
+        """
+        Calculate the current streak and longest streak for today.
+        Returns tuple of (current_streak, longest_streak).
+        
+        Current streak: consecutive days ending today or yesterday.
+        This means that if you complete yesterday's goals today (i.e., you missed marking them as complete on the actual day),
+        your streak will continue, allowing you to maintain your streak even if you finish dailies a day late.
+        
+        Longest streak: maximum consecutive days from all historical data (stored in goals_settings JSON).
+        
+        Args:
+            today_str: Date string in YYYY-MM-DD format (should be in user's local timezone)
+            timezone_str: IANA timezone string (e.g., 'Asia/Tokyo', 'UTC') - used for logging only
+        """
+        latest = cls.get_latest()
+        
+        if not latest:
+            # First entry ever - start both streaks at 1
+            return (1, 1)
+        
+        # Calculate current streak
+        current_streak = 1
+        try:
+            from datetime import datetime, timedelta
+            latest_date = datetime.strptime(latest.date, '%Y-%m-%d').date()
+            today_date = datetime.strptime(today_str, '%Y-%m-%d').date()
+            yesterday = today_date - timedelta(days=1)
+            
+            # Check if latest entry is from yesterday (consecutive)
+            if latest_date == yesterday:
+                current_streak = latest.streak + 1
+            else:
+                # Streak is broken, start fresh
+                current_streak = 1
+                
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Error calculating current streak: {e}")
+            current_streak = 1
+        
+        # Get longest streak from goals_settings JSON
+        previous_longest = 0
+        try:
+            if latest.goals_settings:
+                settings = json.loads(latest.goals_settings) if isinstance(latest.goals_settings, str) else latest.goals_settings
+                previous_longest = settings.get('longestStreak', 0)
+        except (json.JSONDecodeError, AttributeError):
+            previous_longest = 0
+        
+        # Calculate new longest streak
+        longest_streak = max(current_streak, previous_longest)
+        
+        return (current_streak, longest_streak)
+
 # Ensure database directory exists and return path
 def get_db_directory(test=False, delete_test=False) -> str:
     if platform == 'win32':  # Windows
@@ -692,7 +810,7 @@ from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.cron_table import CronTable
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 
-for cls in [AIModelsTable, GameLinesTable, GamesTable, CronTable, StatsRollupTable]:
+for cls in [AIModelsTable, GameLinesTable, GoalsTable, GamesTable, CronTable, StatsRollupTable]:
     cls.set_db(gsm_db)
     # Uncomment to start fresh every time
     # cls.drop()

@@ -762,8 +762,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize screenshot button
     initializeScreenshotButton();
     
-    // Initialize settings manager if settings toggle exists
-    if (document.getElementById('settingsToggle')) {
+    // Initialize settings manager if settings toggle exists and we're not on the goals page
+    // Goals page has its own settings handling
+    if (document.getElementById('settingsToggle') && !window.location.pathname.includes('/goals')) {
         new SettingsManager();
     }
 });

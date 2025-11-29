@@ -1422,6 +1422,10 @@
                 if (data.includes("INFO:") || data.includes("DEBUG:") || data.includes("ERROR:") || data.includes("[OCR")) {
                     return; // BAD STDERR, NOT SURE WHY THIS IS HAPPENING
                 }
+                if (data.startsWith("Install:stderr:")) {
+                    term.write(`\x1b[32mGSM Install: ${data.split("Install:stderr:")[1].trim()}\x1b[0m\r\n`); // Green text for installation messages
+                    return;
+                }
                 if (data_lower.includes('ocr:__init__')) {
                     term.write(`\x1b[32mOCR Initialization: ${data}\x1b[0m`); // Green text for OCR initialization
                     return;

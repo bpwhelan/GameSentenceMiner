@@ -8,12 +8,41 @@ from PyQt6.QtCore import Qt, QRect
 from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage
 import sys
 
+# Import Window State Manager
+from GameSentenceMiner.ui import window_state_manager, WindowId
+
 logger = logging.getLogger("GSM_OCR")
 
+# Global instance
+_screen_cropper_instance = None
 
 class ScreenCropperWidget(QWidget):
-    def __init__(self, captured_image, monitor_geometry, main_monitor, on_complete=None, transparent_mode=False):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | 
+                           Qt.WindowType.WindowStaysOnTopHint |
+                           Qt.WindowType.Tool)
+        
+        # State placeholders
+        self.captured_image = None
+        self.monitor_geometry = None
+        self.main_monitor = None
+        self.on_complete = None
+        self.transparent_mode = False
+        self.result = None
+        self.pixmap = None
+        
+        # Drawing state
+        self.start_pos = None
+        self.current_pos = None
+        self.is_drawing = False
+
+        self.setCursor(Qt.CursorShape.CrossCursor)
+
+    def prepare_capture(self, captured_image, monitor_geometry, main_monitor, on_complete=None, transparent_mode=False):
+        """
+        Resets the widget state for a new capture session.
+        """
         self.captured_image = captured_image
         self.monitor_geometry = monitor_geometry
         self.main_monitor = main_monitor
@@ -21,11 +50,12 @@ class ScreenCropperWidget(QWidget):
         self.transparent_mode = transparent_mode
         self.result = None
         
+        # Reset drawing state
         self.start_pos = None
         self.current_pos = None
         self.is_drawing = False
         
-        if not transparent_mode:
+        if not self.transparent_mode and self.captured_image:
             # Convert PIL Image to QPixmap
             img_data = self.captured_image.tobytes('raw', 'RGB')
             qimage = QImage(img_data, self.captured_image.width, self.captured_image.height, 
@@ -33,33 +63,19 @@ class ScreenCropperWidget(QWidget):
             self.pixmap = QPixmap.fromImage(qimage)
         else:
             self.pixmap = None
+            
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, self.transparent_mode)
         
-        self.init_ui()
-    
-    def init_ui(self):
-        # Set window properties
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | 
-                           Qt.WindowType.WindowStaysOnTopHint |
-                           Qt.WindowType.Tool)
-        
-        if self.transparent_mode:
-            # Make the window semi-transparent so user can see through
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        else:
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        
-        # Set geometry to cover all monitors - use move and resize to ensure it works
+        # Enforce geometry to match the monitor/screenshot area
+        # We do this every time because mss coordinates are absolute
         self.move(self.monitor_geometry['left'], self.monitor_geometry['top'])
         self.resize(self.monitor_geometry['width'], self.monitor_geometry['height'])
         
-        # Set cursor
-        self.setCursor(Qt.CursorShape.CrossCursor)
-        
-        # Show the window
         self.show()
         self.activateWindow()
         self.raise_()
-    
+        self.update()
+
     def paintEvent(self, event):
         painter = QPainter(self)
         
@@ -87,8 +103,8 @@ class ScreenCropperWidget(QWidget):
                 painter.drawRect(selection_rect)
         else:
             # Original mode with screenshot background
-            # Draw the screenshot
-            painter.drawPixmap(0, 0, self.pixmap)
+            if self.pixmap:
+                painter.drawPixmap(0, 0, self.pixmap)
             
             # Draw semi-transparent overlay
             painter.fillRect(self.rect(), QColor(0, 0, 0, 128))
@@ -108,7 +124,8 @@ class ScreenCropperWidget(QWidget):
                 painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
                 
                 # Draw the screenshot in selection area (without overlay)
-                painter.drawPixmap(selection_rect, self.pixmap, selection_rect)
+                if self.pixmap:
+                    painter.drawPixmap(selection_rect, self.pixmap, selection_rect)
                 
                 # Draw red border
                 pen = QPen(QColor(255, 0, 0), 3)
@@ -158,9 +175,12 @@ class ScreenCropperWidget(QWidget):
                         self.result = None
                 else:
                     # Original mode: crop from the already-captured image
-                    self.result = self.captured_image.crop((x1, y1, x2, y2))
-                    logger.info(f"Selection made: ({x1}, {y1}) to ({x2}, {y2})")
-                self.close()
+                    if self.captured_image:
+                        self.result = self.captured_image.crop((x1, y1, x2, y2))
+                        logger.info(f"Selection made: ({x1}, {y1}) to ({x2}, {y2})")
+                
+                # Hide instead of close to preserve instance
+                self._finish()
             else:
                 logger.warning("Selection area too small")
                 self.start_pos = None
@@ -171,36 +191,43 @@ class ScreenCropperWidget(QWidget):
         if event.key() == Qt.Key.Key_Escape:
             logger.info("Screen cropper cancelled")
             self.result = None
-            self.close()
+            self._finish()
         elif event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
             # Grab main monitor area
-            self.result = self.captured_image.crop((
-                self.main_monitor['left'],
-                self.main_monitor['top'],
-                self.main_monitor['left'] + self.main_monitor['width'],
-                self.main_monitor['top'] + self.main_monitor['height']
-            ))
+            if self.captured_image:
+                self.result = self.captured_image.crop((
+                    self.main_monitor['left'],
+                    self.main_monitor['top'],
+                    self.main_monitor['left'] + self.main_monitor['width'],
+                    self.main_monitor['top'] + self.main_monitor['height']
+                ))
             logger.info("Main monitor area selected")
-            self.close()
+            self._finish()
     
-    def closeEvent(self, event):
+    def _finish(self):
+        """Helper to handle closing logic: callback, hide, save geometry"""
         if self.on_complete:
             self.on_complete(self.result)
+        
+        # Save geometry (though mostly relevant for resizing, less so for fullscreen tools)
+        window_state_manager.save_geometry(self, WindowId.SCREEN_CROPPER)
+        self.hide()
+
+    def closeEvent(self, event):
+        """Handle actual window closing (if forced)"""
+        if self.on_complete:
+            self.on_complete(self.result)
+        window_state_manager.save_geometry(self, WindowId.SCREEN_CROPPER)
         event.accept()
 
 
 def show_screen_cropper(on_complete=None, transparent_mode=False):
     """
     Displays a Qt-based screen cropper that allows the user to select a region.
-    
-    Args:
-        on_complete: Callback function that receives the cropped PIL Image or None
-        transparent_mode: If True, shows a transparent overlay and captures a fresh screenshot
-                         of the selected area. If False, uses a frozen screenshot.
-    
-    Returns:
-        The ScreenCropperWidget instance.
+    Reuses the existing widget instance.
     """
+    global _screen_cropper_instance
+
     if not transparent_mode:
         # Original mode: capture screen first
         try:
@@ -238,7 +265,7 @@ def show_screen_cropper(on_complete=None, transparent_mode=False):
                     'width': all_monitors_bbox['width'],
                     'height': all_monitors_bbox['height']
                 }
-                captured_image = None  # No pre-captured image in transparent mode
+                captured_image = None
                 logger.info(f"Transparent mode: monitor geometry {monitor_geometry['width']}x{monitor_geometry['height']}")
         except Exception as e:
             logger.error(f"Error getting monitor geometry: {e}")
@@ -251,19 +278,21 @@ def show_screen_cropper(on_complete=None, transparent_mode=False):
     if app is None:
         app = QApplication(sys.argv)
     
-    # Create and show the cropper widget
-    cropper = ScreenCropperWidget(captured_image, monitor_geometry, main_monitor, on_complete, transparent_mode)
+    # Create Singleton if needed
+    if _screen_cropper_instance is None:
+        _screen_cropper_instance = ScreenCropperWidget()
+        
+    # Prepare the widget with the new screenshot data
+    _screen_cropper_instance.prepare_capture(captured_image, monitor_geometry, main_monitor, on_complete, transparent_mode)
     
-    # Keep the widget alive by entering event loop until it's closed
-    # This is necessary when called from dialog manager
+    # Keep the widget alive by entering event loop until it's hidden
     if on_complete:
-        # Store the widget reference to keep it alive
-        cropper.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        # Process events until the widget is destroyed
-        while cropper.isVisible():
+        # Since we are not using exec_(), we rely on the main loop. 
+        # If this is called from a script without a running loop, processEvents is needed.
+        while _screen_cropper_instance.isVisible():
             app.processEvents()
         
-    return cropper
+    return _screen_cropper_instance
 
 
 # For backwards compatibility
@@ -276,7 +305,6 @@ class ScreenCropper:
         """
         Run the screen cropper and return the cropped image.
         Note: This is a synchronous wrapper.
-        Use show_screen_cropper() with callback for better integration.
         """
         logger.warning("ScreenCropper.run() is deprecated. Use show_screen_cropper() with callback instead.")
         
@@ -295,5 +323,5 @@ if __name__ == "__main__":
         else:
             print("No image was cropped.")
     
+    print("Testing Screen Cropper...")
     show_screen_cropper(on_complete=test_callback)
-

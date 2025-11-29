@@ -51,7 +51,7 @@ try:
     logger.debug(f"[Import] configuration: {time.time() - start_time:.3f}s")
     
     start_time = time.time()
-    from GameSentenceMiner.util.get_overlay_coords import init_overlay_processor
+    from GameSentenceMiner.util.get_overlay_coords import init_overlay_processor, overlay_processor
     from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags, add_srt_line
     logger.debug(f"[Import] get_overlay_coords (OverlayThread, remove_html_and_cloze_tags): {time.time() - start_time:.3f}s")
 
@@ -92,7 +92,7 @@ try:
 
     start_time = time.time()
     from GameSentenceMiner import obs
-    # from GameSentenceMiner.discord_rpc import discord_rpc_manager
+    from GameSentenceMiner.discord_rpc import discord_rpc_manager
     logger.debug(f"[Import] obs: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
@@ -134,8 +134,11 @@ try:
 
     start_time = time.time()
     from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
+    from GameSentenceMiner.web.gsm_websocket import websocket_manager
     logger.debug(
         f"[Import] web.texthooking_page.run_text_hooker_page: {time.time() - start_time:.3f}s")
+    
+    from GameSentenceMiner.util.hotkey import hotkey_manager
 except Exception as e:
     from GameSentenceMiner.util.configuration import logger, is_linux, is_windows
     handle_error_in_initialization(e)
@@ -388,17 +391,42 @@ def initial_checks():
             "FFmpeg not found, please install it and add it to your PATH.")
         raise
 
-
 def register_hotkeys():
-    if get_config().hotkeys.reset_line:
-        keyboard.add_hotkey(get_config().hotkeys.reset_line,
-                            gametext.reset_line_hotkey_pressed)
-    if get_config().hotkeys.take_screenshot:
-        keyboard.add_hotkey(
-            get_config().hotkeys.take_screenshot, get_screenshot)
-    if get_config().hotkeys.play_latest_audio:
-        keyboard.add_hotkey(
-            get_config().hotkeys.play_latest_audio, play_most_recent_audio)
+    hotkey_manager.clear()
+    
+    config = get_config()
+
+    def call_overlay_processor():
+        # Check if the background loop is actually running
+        loop = overlay_processor.processing_loop
+        if loop and loop.is_running():
+            logger.info("Manually triggering overlay scan via hotkey.")
+            asyncio.run_coroutine_threadsafe(
+                overlay_processor.find_box_and_send_to_overlay(), 
+                loop
+            )
+        else:
+            print("Overlay loop not ready yet.")
+    
+    hotkey_manager.register(
+        config.hotkeys.reset_line, 
+        gametext.reset_line_hotkey_pressed
+    )
+
+    hotkey_manager.register(
+        config.hotkeys.take_screenshot, 
+        get_screenshot
+    )
+
+    hotkey_manager.register(
+        config.hotkeys.play_latest_audio, 
+        play_most_recent_audio
+    )
+
+    hotkey_manager.register(
+        config.hotkeys.manual_overlay_scan, 
+        call_overlay_processor
+    )
 
 
 def get_screenshot():
@@ -672,11 +700,7 @@ def cleanup():
         if get_config().obs.close_obs:
             close_obs()
 
-        if texthooking_page.websocket_server_threads:
-            for thread in texthooking_page.websocket_server_threads:
-                if thread and isinstance(thread, threading.Thread) and thread.is_alive():
-                    thread.stop_server()
-                    thread.join()
+        websocket_manager.stop_all()
 
         proc: Popen
         for proc in procs_to_close:
@@ -694,7 +718,7 @@ def cleanup():
         if gsm_tray:
             gsm_tray.stop()
 
-        # discord_rpc_manager.stop()
+        discord_rpc_manager.stop()
 
         # Stop file watcher observer
         if file_watcher_observer:
@@ -830,14 +854,15 @@ def initialize(reloading=False):
 def initialize_async():
     threads = []
     threads.append(run_new_thread(anki.start_monitoring_anki))
+    if get_config().paths.output_folder:
+        threads.append(run_new_thread(anki.migrate_old_word_folders))
     return threads
 
 def background_tasks():
     """Initialize and run background async tasks like cron scheduler."""
     async def run():
-        from GameSentenceMiner.util.cron import CronScheduler
-        scheduler = CronScheduler()
-        await scheduler.start()
+        from GameSentenceMiner.util.cron import cron_scheduler
+        await cron_scheduler.start()
         
         # Keep running indefinitely
         await asyncio.Event().wait()
@@ -970,8 +995,8 @@ async def async_main(reloading=False):
         settings_window = qt_main.get_config_window()
         gsm_state.config_app = settings_window
         initialize_async()
-        if is_windows():
-            register_hotkeys()
+        register_hotkeys()
+        settings_window.add_save_hook(register_hotkeys)
 
         run_new_thread(initialize_text_monitor)
         run_new_thread(run_text_hooker_page)

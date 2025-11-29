@@ -129,8 +129,11 @@ function registerManualShowHotkey(oldHotkey) {
       // mainWindow.show();
       mainWindow.webContents.send('show-overlay-hotkey', true);
 
-      if (process.platform === 'win32') {
+      if (process.platform !== 'linux') {
+        mainWindow.webContents.send('show-overlay-hotkey', true);
         mainWindow.setIgnoreMouseEvents(false, { forward: true });
+      } else {
+        mainWindow.show();
       }
 
       if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
@@ -150,9 +153,10 @@ function registerManualShowHotkey(oldHotkey) {
         mainWindow.webContents.send('show-overlay-hotkey', false);
         if (!yomitanShown && !resizeMode) {
           mainWindow.blur();
-
-          if (process.platform === 'win32' || process.platform === 'darwin') {
+          if (process.platform !== 'linux') {
             mainWindow.setIgnoreMouseEvents(true, { forward: true });
+          } else {
+            mainWindow.hide();
           }
         }
       }, timeToWait);

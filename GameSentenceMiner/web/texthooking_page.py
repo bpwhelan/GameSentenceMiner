@@ -6,7 +6,6 @@ import threading
 
 import flask
 import webbrowser
-from flask import make_response
 
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.obs import get_current_game
@@ -20,41 +19,15 @@ from GameSentenceMiner.util.configuration import (
     gsm_state,
     gsm_status,
 )
-from GameSentenceMiner.web.service import handle_texthooker_button
 
 # Import from new modules
 from GameSentenceMiner.web.events import EventManager, event_manager
-from GameSentenceMiner.web.stats import (
-    is_kanji,
-    interpolate_color,
-    get_gradient_color,
-    calculate_kanji_frequency,
-    calculate_heatmap_data,
-    calculate_total_chars_per_game,
-    calculate_reading_time_per_game,
-    calculate_reading_speed_per_game,
-    generate_game_colors,
-    format_large_number,
-    calculate_actual_reading_time,
-    calculate_daily_reading_time,
-    calculate_time_based_streak,
-    format_time_human_readable,
-    calculate_current_game_stats,
-    calculate_all_games_stats,
-)
 from GameSentenceMiner.web.gsm_websocket import (
-    WebsocketServerThread,
-    websocket_queue,
-    paused,
-    websocket_server_thread,
-    plaintext_websocket_server_thread,
-    overlay_server_thread,
-    websocket_server_threads,
-    handle_exit_signal,
+    websocket_manager,
+    ID_OVERLAY,
+    ID_HOOKER,
+    ID_PLAINTEXT
 )
-from GameSentenceMiner.web.database_api import register_database_api_routes
-from GameSentenceMiner.web.jiten_database_api import register_jiten_database_api_routes
-from GameSentenceMiner.web.stats_api import register_stats_api_routes
 
 # Global configuration
 port = get_config().general.texthooker_port
@@ -133,17 +106,6 @@ def add_cache_headers(response):
             response.cache_control.public = True
             response.headers["Cache-Control"] = "public, max-age=2592000, immutable"
     return response
-
-
-# Register database API routes
-register_database_api_routes(app)
-register_jiten_database_api_routes(app)
-register_stats_api_routes(app)
-
-# Register Anki API routes
-from GameSentenceMiner.web.anki_api_endpoints import register_anki_api_endpoints
-
-register_anki_api_endpoints(app)
 
 
 # Load data from the JSON file
@@ -271,7 +233,8 @@ async def check_for_lines_outside_replay_buffer():
 
 async def add_event_to_texthooker(line):
     new_event = event_manager.add_gameline(line)
-    await websocket_server_thread.send_text(
+    await websocket_manager.send(
+        ID_HOOKER,
         {
             "event": "text_received",
             "sentence": line.text,
@@ -279,13 +242,13 @@ async def add_event_to_texthooker(line):
         }
     )
     if get_config().advanced.plaintext_websocket_port:
-        await plaintext_websocket_server_thread.send_text(line.text)
+        await websocket_manager.send(ID_PLAINTEXT, line.text)
     await check_for_lines_outside_replay_buffer()
 
 
 async def send_word_coordinates_to_overlay(boxes):
-    if boxes and len(boxes) > 0 and overlay_server_thread:
-        await overlay_server_thread.send_text(boxes)
+    if boxes and len(boxes) > 0 and websocket_manager.has_clients(ID_OVERLAY):
+        await websocket_manager.send(ID_OVERLAY, boxes)
 
 
 @app.route("/update_checkbox", methods=["POST"])
@@ -317,6 +280,7 @@ def get_screenshot():
         or gsm_state.previous_line_for_audio
         and gsm_state.line_for_screenshot == gsm_state.previous_line_for_audio
     ):
+        from GameSentenceMiner.web.service import handle_texthooker_button
         handle_texthooker_button(gsm_state.previous_replay)
     else:
         obs.save_replay_buffer()
@@ -342,6 +306,7 @@ def play_audio():
         or gsm_state.previous_line_for_screenshot
         and gsm_state.line_for_audio == gsm_state.previous_line_for_screenshot
     ):
+        from GameSentenceMiner.web.service import handle_texthooker_button
         handle_texthooker_button(gsm_state.previous_replay)
     else:
         obs.save_replay_buffer()
@@ -511,8 +476,7 @@ def anki_stats():
 
 @app.route("/get_websocket_port", methods=["GET"])
 def get_websocket_port():
-    return jsonify({"port": websocket_server_thread.get_ws_port_func()}), 200
-
+    return jsonify({"port": websocket_manager.get_hooker_server().get_port_func()}), 200
 
 def get_selected_lines():
     return [item.line for item in event_manager if item.checked]
@@ -524,7 +488,8 @@ def are_lines_selected():
 
 def reset_checked_lines():
     async def send_reset_message():
-        await websocket_server_thread.send_text(
+        await websocket_manager.send(
+            ID_HOOKER,
             {
                 "event": "reset_checkboxes",
             }
@@ -536,7 +501,8 @@ def reset_checked_lines():
 
 def reset_buttons():
     async def send_reset_message():
-        await websocket_server_thread.send_text(
+        await websocket_manager.send(
+            ID_HOOKER,
             {
                 "event": "reset_buttons",
             }
@@ -549,7 +515,7 @@ def open_texthooker():
     webbrowser.open(url + "/texthooker")
 
 
-def start_web_server():
+def start_web_server(debug=False):
     logger.debug("Starting web server...")
     import logging
 
@@ -563,21 +529,18 @@ def start_web_server():
     # FOR TEXTHOOKER DEVELOPMENT, UNCOMMENT THE FOLLOWING LINE WITH Flask-CORS INSTALLED:
     # from flask_cors import CORS
     # CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
-    app.run(host=get_config().advanced.localhost_bind_address, port=port, debug=False)
+    app.run(host=get_config().advanced.localhost_bind_address, port=port, debug=debug)
 
 
-async def texthooker_page_coro():
-    global \
-        websocket_server_thread, \
-        plaintext_websocket_server_thread, \
-        overlay_server_thread
+async def texthooker_page_coro(wait=False, debug=False):
     # Run the WebSocket server in the asyncio event loop
-    flask_thread = threading.Thread(target=start_web_server)
+    flask_thread = threading.Thread(target=start_web_server, args=(debug,))
     flask_thread.daemon = True
     flask_thread.start()
 
     # Keep the main asyncio event loop running (for the WebSocket server)
-
+    if wait:
+        await asyncio.Event().wait()
 
 def run_text_hooker_page():
     try:
@@ -587,4 +550,4 @@ def run_text_hooker_page():
 
 
 if __name__ == "__main__":
-    asyncio.run(texthooker_page_coro())
+    start_web_server(debug=True)

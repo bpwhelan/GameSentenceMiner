@@ -334,7 +334,8 @@ async function _updateGSMInternal(
                     pythonPath,
                     ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', package_name],
                     true,
-                    true
+                    true,
+                    "Install:"
                 );
             } catch (err) {
                 log.error(
@@ -346,7 +347,8 @@ async function _updateGSMInternal(
                     pythonPath,
                     ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', package_name],
                     true,
-                    true
+                    true,
+                    "Install:"
                 );
             }
 
@@ -355,13 +357,14 @@ async function _updateGSMInternal(
                     pythonPath,
                     ['-m', 'uv', 'pip', 'install', 'pynput'],
                     true,
-                    true
+                    true,
+                    "Install:"
                 );
             } catch (err) {
                 log.error('Failed to install pynput package, keyboard shortcuts will not work on Linux/Mac (Needs Community Help/Guide):', err);
             }
 
-            log.info('Python update completed successfully.');
+            log.info('Success! Python update completed successfully.');
             new Notification({
                 title: 'Update Successful',
                 body: `${APP_NAME} backend has been updated successfully.`,
@@ -434,7 +437,8 @@ async function runCommand(
     command: string,
     args: string[],
     stdout: boolean,
-    stderr: boolean
+    stderr: boolean,
+    prefixText: string = ''
 ): Promise<void> {
     return new Promise((resolve, reject) => {
         const proc = spawn(command, args, {
@@ -443,13 +447,13 @@ async function runCommand(
 
         if (stdout) {
             proc.stdout.on('data', (data) => {
-                console.log(`stdout: ${data}`);
+                console.log(`${prefixText}stdout: ${data}`);
             });
         }
 
         if (stderr) {
             proc.stderr.on('data', (data) => {
-                console.error(`stderr: ${data}`);
+                console.error(`${prefixText}stderr: ${data}`);
             });
         }
 
