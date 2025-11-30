@@ -585,7 +585,7 @@ def invoke(action, retries: int = 0, **params):
     max_backoff = 5.0
     while True:
         try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=2)
+            resp = requests.post(url, json=payload, headers=headers, timeout=10)
             resp.raise_for_status()
             response = resp.json()
 
