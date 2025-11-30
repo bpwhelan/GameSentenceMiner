@@ -2,7 +2,6 @@
 // Dependencies: shared.js (provides utility functions like showElement, hideElement, escapeHtml)
 
 document.addEventListener('DOMContentLoaded', function () {
-    
     // Helper function to format large numbers
     function formatGoalNumber(num) {
         if (num >= 1000000) {
@@ -27,8 +26,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Function to update progress bar color based on percentage
     function updateProgressBarColor(progressElement, percentage) {
-        progressElement.classList.remove('completion-0', 'completion-25', 'completion-50', 'completion-75', 'completion-100');
-        
+        progressElement.classList.remove(
+            'completion-0',
+            'completion-25',
+            'completion-50',
+            'completion-75',
+            'completion-100',
+        );
+
         if (percentage >= 100) {
             progressElement.classList.add('completion-100');
         } else if (percentage >= 75) {
@@ -47,81 +52,94 @@ document.addEventListener('DOMContentLoaded', function () {
         const goalProgressChart = document.getElementById('goalProgressChart');
         const goalProgressLoading = document.getElementById('goalProgressLoading');
         const goalProgressError = document.getElementById('goalProgressError');
-        
+
         if (!goalProgressChart) return;
-        
+
         try {
             goalProgressLoading.style.display = 'flex';
             goalProgressError.style.display = 'none';
-            
+
             const response = await fetch('/api/stats');
             if (!response.ok) throw new Error('Failed to fetch stats data');
-            
+
             const data = await response.json();
             const allGamesStats = data.allGamesStats;
             const allLinesData = data.allLinesData || [];
-            
+
             if (!allGamesStats) {
                 throw new Error('No stats data available');
             }
-            
+
             // Get goal settings
             const goalSettings = window.statsConfig || {};
             const hoursTarget = goalSettings.readingHoursTarget || 1500;
             const charsTarget = goalSettings.characterCountTarget || 25000000;
             const gamesTarget = goalSettings.gamesTarget || 100;
-            
+
             // Calculate current progress
             const currentHours = allGamesStats.total_time_hours || 0;
             const currentCharacters = allGamesStats.total_characters || 0;
             const currentGames = allGamesStats.completed_games || 0;
-            
+
             // Calculate daily averages for projections using 90-day lookback period (reusing logic from stats.js)
             const dailyHoursAvg = calculateDailyAverage(allLinesData, 'hours');
             const dailyCharsAvg = calculateDailyAverage(allLinesData, 'characters');
             const dailyGamesAvg = calculateDailyAverage(allLinesData, 'games');
-            
+
             // Update Hours Goal
             const hoursPercentage = Math.min(100, (currentHours / hoursTarget) * 100);
-            document.getElementById('goalHoursCurrent').textContent = Math.floor(currentHours).toLocaleString();
+            document.getElementById('goalHoursCurrent').textContent =
+                Math.floor(currentHours).toLocaleString();
             document.getElementById('goalHoursTarget').textContent = hoursTarget.toLocaleString();
-            document.getElementById('goalHoursPercentage').textContent = Math.floor(hoursPercentage) + '%';
-            document.getElementById('goalHoursProjection').textContent =
-                formatProjection(currentHours, hoursTarget, dailyHoursAvg);
-            
+            document.getElementById('goalHoursPercentage').textContent =
+                Math.floor(hoursPercentage) + '%';
+            document.getElementById('goalHoursProjection').textContent = formatProjection(
+                currentHours,
+                hoursTarget,
+                dailyHoursAvg,
+            );
+
             const hoursProgressBar = document.getElementById('goalHoursProgress');
             hoursProgressBar.style.width = hoursPercentage + '%';
             hoursProgressBar.setAttribute('data-percentage', Math.floor(hoursPercentage / 25) * 25);
             updateProgressBarColor(hoursProgressBar, hoursPercentage);
-            
+
             // Update Characters Goal
             const charsPercentage = Math.min(100, (currentCharacters / charsTarget) * 100);
-            document.getElementById('goalCharsCurrent').textContent = formatGoalNumber(currentCharacters);
+            document.getElementById('goalCharsCurrent').textContent =
+                formatGoalNumber(currentCharacters);
             document.getElementById('goalCharsTarget').textContent = formatGoalNumber(charsTarget);
-            document.getElementById('goalCharsPercentage').textContent = Math.floor(charsPercentage) + '%';
-            document.getElementById('goalCharsProjection').textContent =
-                formatProjection(currentCharacters, charsTarget, dailyCharsAvg);
-                
+            document.getElementById('goalCharsPercentage').textContent =
+                Math.floor(charsPercentage) + '%';
+            document.getElementById('goalCharsProjection').textContent = formatProjection(
+                currentCharacters,
+                charsTarget,
+                dailyCharsAvg,
+            );
+
             const charsProgressBar = document.getElementById('goalCharsProgress');
             charsProgressBar.style.width = charsPercentage + '%';
             charsProgressBar.setAttribute('data-percentage', Math.floor(charsPercentage / 25) * 25);
             updateProgressBarColor(charsProgressBar, charsPercentage);
-            
+
             // Update Games Goal
             const gamesPercentage = Math.min(100, (currentGames / gamesTarget) * 100);
             document.getElementById('goalGamesCurrent').textContent = currentGames.toLocaleString();
             document.getElementById('goalGamesTarget').textContent = gamesTarget.toLocaleString();
-            document.getElementById('goalGamesPercentage').textContent = Math.floor(gamesPercentage) + '%';
-            document.getElementById('goalGamesProjection').textContent =
-                formatProjection(currentGames, gamesTarget, dailyGamesAvg);
-                
+            document.getElementById('goalGamesPercentage').textContent =
+                Math.floor(gamesPercentage) + '%';
+            document.getElementById('goalGamesProjection').textContent = formatProjection(
+                currentGames,
+                gamesTarget,
+                dailyGamesAvg,
+            );
+
             const gamesProgressBar = document.getElementById('goalGamesProgress');
             gamesProgressBar.style.width = gamesPercentage + '%';
             gamesProgressBar.setAttribute('data-percentage', Math.floor(gamesPercentage / 25) * 25);
             updateProgressBarColor(gamesProgressBar, gamesPercentage);
-            
+
             goalProgressLoading.style.display = 'none';
-            
         } catch (error) {
             console.error('Error loading goal progress:', error);
             goalProgressLoading.style.display = 'none';
@@ -136,9 +154,9 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         const today = new Date();
-        const ninetyDaysAgo = new Date(today.getTime() - (90 * 24 * 60 * 60 * 1000));
-        
-        const recentData = allLinesData.filter(line => {
+        const ninetyDaysAgo = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+        const recentData = allLinesData.filter((line) => {
             const lineDate = new Date(line.timestamp * 1000);
             return lineDate >= ninetyDaysAgo && lineDate <= today;
         });
@@ -148,7 +166,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         let dailyTotals = {};
-        
+
         if (metricType === 'hours') {
             const dailyTimestamps = {};
             for (const line of recentData) {
@@ -161,14 +179,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 dailyTimestamps[dateStr].push(ts);
             }
-            
+
             for (const [dateStr, timestamps] of Object.entries(dailyTimestamps)) {
                 if (timestamps.length >= 2) {
                     timestamps.sort((a, b) => a - b);
                     let dayHours = 0;
                     const afkTimerSeconds = 120; // Default AFK timer
                     for (let i = 1; i < timestamps.length; i++) {
-                        const gap = timestamps[i] - timestamps[i-1];
+                        const gap = timestamps[i] - timestamps[i - 1];
                         dayHours += Math.min(gap, afkTimerSeconds) / 3600;
                     }
                     dailyTotals[dateStr] = dayHours;
@@ -196,17 +214,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 dailyGames[dateStr].add(line.game_name);
             }
-            
+
             for (const [dateStr, gamesSet] of Object.entries(dailyGames)) {
                 dailyTotals[dateStr] = gamesSet.size;
             }
         }
-        
+
         const totalDays = Object.keys(dailyTotals).length;
         if (totalDays === 0) {
             return 0;
         }
-        
+
         const totalValue = Object.values(dailyTotals).reduce((sum, value) => sum + value, 0);
         return totalValue / totalDays;
     }
@@ -216,14 +234,14 @@ document.addEventListener('DOMContentLoaded', function () {
         if (currentValue >= targetValue) {
             return 'Goal achieved! 🎉';
         }
-        
+
         if (dailyAverage <= 0) {
             return 'No recent activity';
         }
-        
+
         const remaining = targetValue - currentValue;
         const daysToComplete = Math.ceil(remaining / dailyAverage);
-        
+
         if (daysToComplete <= 0) {
             return 'Goal achieved! 🎉';
         } else if (daysToComplete === 1) {
@@ -237,8 +255,11 @@ document.addEventListener('DOMContentLoaded', function () {
             const months = Math.ceil(daysToComplete / 30);
             return `~${months} month${months > 1 ? 's' : ''} remaining`;
         } else {
+            // if its over a year lets not even bother
+            // probably a bug or the user used gsm 29 days ago, started again today
+            // their average per day is rlly low so it'll say like 4000 years or something
             const years = Math.ceil(daysToComplete / 365);
-            return `~${years} year${years > 1 ? 's' : ''} remaining`;
+            return `Unknown amount of time remaining.`;
         }
     }
 
@@ -247,25 +268,30 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
             const response = await fetch('/api/goals-today');
             if (!response.ok) throw new Error('Failed to fetch today goals');
-            
+
             const data = await response.json();
             const today = new Date();
             const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
             document.getElementById('todayGoalsDate').textContent = dateStr;
-            
+
             let hasAnyTarget = false;
-            
+
             // Update hours goal
             const hoursGoalItem = document.getElementById('hoursGoalItem');
             if (data.hours && data.hours.has_target && !data.hours.expired) {
                 hasAnyTarget = true;
                 hoursGoalItem.style.display = 'block';
                 document.getElementById('hoursDaysRemaining').style.display = 'block';
-                
-                document.getElementById('todayHoursProgress').textContent = formatHours(data.hours.progress);
-                document.getElementById('todayHoursRequired').textContent = formatHours(data.hours.required);
-                document.getElementById('hoursRemainingValue').textContent = data.hours.days_remaining;
-                
+
+                document.getElementById('todayHoursProgress').textContent = formatHours(
+                    data.hours.progress,
+                );
+                document.getElementById('todayHoursRequired').textContent = formatHours(
+                    data.hours.required,
+                );
+                document.getElementById('hoursRemainingValue').textContent =
+                    data.hours.days_remaining;
+
                 // Add green highlight if goal is met
                 if (data.hours.progress >= data.hours.required) {
                     hoursGoalItem.classList.add('goal-met');
@@ -276,18 +302,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 hoursGoalItem.style.display = 'none';
                 document.getElementById('hoursDaysRemaining').style.display = 'none';
             }
-            
+
             // Update characters goal
             const charsGoalItem = document.getElementById('charsGoalItem');
             if (data.characters && data.characters.has_target && !data.characters.expired) {
                 hasAnyTarget = true;
                 charsGoalItem.style.display = 'block';
                 document.getElementById('charsDaysRemaining').style.display = 'block';
-                
-                document.getElementById('todayCharsProgress').textContent = formatGoalNumber(data.characters.progress);
-                document.getElementById('todayCharsRequired').textContent = formatGoalNumber(data.characters.required);
-                document.getElementById('charsRemainingValue').textContent = data.characters.days_remaining;
-                
+
+                document.getElementById('todayCharsProgress').textContent = formatGoalNumber(
+                    data.characters.progress,
+                );
+                document.getElementById('todayCharsRequired').textContent = formatGoalNumber(
+                    data.characters.required,
+                );
+                document.getElementById('charsRemainingValue').textContent =
+                    data.characters.days_remaining;
+
                 // Add green highlight if goal is met
                 if (data.characters.progress >= data.characters.required) {
                     charsGoalItem.classList.add('goal-met');
@@ -298,16 +329,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 charsGoalItem.style.display = 'none';
                 document.getElementById('charsDaysRemaining').style.display = 'none';
             }
-            
+
             // Update cards mined goal
             const cardsGoalItem = document.getElementById('cardsGoalItem');
             if (data.cards && data.cards.has_target) {
                 hasAnyTarget = true;
                 cardsGoalItem.style.display = 'block';
-                
+
                 document.getElementById('todayCardsProgress').textContent = data.cards.progress;
                 document.getElementById('todayCardsRequired').textContent = data.cards.required;
-                
+
                 // Add green highlight if goal is met
                 if (data.cards.progress >= data.cards.required) {
                     cardsGoalItem.classList.add('goal-met');
@@ -317,7 +348,7 @@ document.addEventListener('DOMContentLoaded', function () {
             } else {
                 cardsGoalItem.style.display = 'none';
             }
-            
+
             // Show/hide sections based on whether any targets are set
             if (hasAnyTarget) {
                 document.getElementById('noTargetsMessage').style.display = 'none';
@@ -328,7 +359,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('todayGoalsStats').style.display = 'none';
                 document.getElementById('todayGoalsProgress').style.display = 'none';
             }
-            
         } catch (error) {
             console.error('Error loading today goals:', error);
         }
@@ -339,19 +369,19 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
             const response = await fetch('/api/goals-projection');
             if (!response.ok) throw new Error('Failed to fetch goal projections');
-            
+
             const data = await response.json();
             let hasAnyProjection = false;
-            
+
             // Update hours projection
             if (data.hours && data.hours.target_date) {
                 hasAnyProjection = true;
                 document.getElementById('hoursProjectionItem').style.display = 'block';
                 document.getElementById('hoursProjectionSummary').style.display = 'block';
-                
+
                 document.getElementById('projectionHoursValue').textContent =
                     Math.floor(data.hours.projection).toLocaleString() + 'h';
-                
+
                 // Update label with target date (formatted in user's locale)
                 const hoursLabel = document.getElementById('hoursProjectionLabel');
                 if (hoursLabel) {
@@ -359,17 +389,23 @@ document.addEventListener('DOMContentLoaded', function () {
                     const formattedTargetDate = targetDate.toLocaleDateString(navigator.language);
                     hoursLabel.textContent = `Total Hours by ${formattedTargetDate}`;
                 }
-                
+
                 // Calculate percentage difference
-                const hoursPercentDiff = ((data.hours.projection - data.hours.target) / data.hours.target) * 100;
-                
+                const hoursPercentDiff =
+                    ((data.hours.projection - data.hours.target) / data.hours.target) * 100;
+
                 // Calculate projected completion date
                 const hoursRemaining = Math.max(0, data.hours.target - data.hours.current);
-                const hoursDaysToComplete = data.hours.daily_average > 0 ? Math.ceil(hoursRemaining / data.hours.daily_average) : 0;
+                const hoursDaysToComplete =
+                    data.hours.daily_average > 0
+                        ? Math.ceil(hoursRemaining / data.hours.daily_average)
+                        : 0;
                 const hoursCompletionDate = new Date();
                 hoursCompletionDate.setDate(hoursCompletionDate.getDate() + hoursDaysToComplete);
-                const hoursCompletionDateStr = hoursCompletionDate.toLocaleDateString(navigator.language);
-                
+                const hoursCompletionDateStr = hoursCompletionDate.toLocaleDateString(
+                    navigator.language,
+                );
+
                 // Status message with pace badge and completion date
                 const hoursStatus = document.getElementById('hoursProjectionStatus');
                 if (hoursPercentDiff >= 5) {
@@ -401,15 +437,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('hoursProjectionItem').style.display = 'none';
                 document.getElementById('hoursProjectionSummary').style.display = 'none';
             }
-            
+
             // Update characters projection
             if (data.characters && data.characters.target_date) {
                 hasAnyProjection = true;
                 document.getElementById('charsProjectionItem').style.display = 'block';
                 document.getElementById('charsProjectionSummary').style.display = 'block';
-                
-                document.getElementById('projectionCharsValue').textContent = formatGoalNumber(data.characters.projection);
-                
+
+                document.getElementById('projectionCharsValue').textContent = formatGoalNumber(
+                    data.characters.projection,
+                );
+
                 // Update label with target date (formatted in user's locale)
                 const charsLabel = document.getElementById('charsProjectionLabel');
                 if (charsLabel) {
@@ -417,17 +455,28 @@ document.addEventListener('DOMContentLoaded', function () {
                     const formattedTargetDate = targetDate.toLocaleDateString(navigator.language);
                     charsLabel.textContent = `Total Characters by ${formattedTargetDate}`;
                 }
-                
+
                 // Calculate percentage difference
-                const charsPercentDiff = ((data.characters.projection - data.characters.target) / data.characters.target) * 100;
-                
+                const charsPercentDiff =
+                    ((data.characters.projection - data.characters.target) /
+                        data.characters.target) *
+                    100;
+
                 // Calculate projected completion date
-                const charsRemaining = Math.max(0, data.characters.target - data.characters.current);
-                const charsDaysToComplete = data.characters.daily_average > 0 ? Math.ceil(charsRemaining / data.characters.daily_average) : 0;
+                const charsRemaining = Math.max(
+                    0,
+                    data.characters.target - data.characters.current,
+                );
+                const charsDaysToComplete =
+                    data.characters.daily_average > 0
+                        ? Math.ceil(charsRemaining / data.characters.daily_average)
+                        : 0;
                 const charsCompletionDate = new Date();
                 charsCompletionDate.setDate(charsCompletionDate.getDate() + charsDaysToComplete);
-                const charsCompletionDateStr = charsCompletionDate.toLocaleDateString(navigator.language);
-                
+                const charsCompletionDateStr = charsCompletionDate.toLocaleDateString(
+                    navigator.language,
+                );
+
                 // Status message with pace badge and completion date
                 const charsStatus = document.getElementById('charsProjectionStatus');
                 if (charsPercentDiff >= 5) {
@@ -459,25 +508,32 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('charsProjectionItem').style.display = 'none';
                 document.getElementById('charsProjectionSummary').style.display = 'none';
             }
-            
+
             // Update games projection
             if (data.games && data.games.target_date) {
                 hasAnyProjection = true;
                 document.getElementById('gamesProjectionItem').style.display = 'block';
                 document.getElementById('gamesProjectionSummary').style.display = 'block';
-                
-                document.getElementById('projectionGamesValue').textContent = data.games.projection.toLocaleString();
-                
+
+                document.getElementById('projectionGamesValue').textContent =
+                    data.games.projection.toLocaleString();
+
                 // Calculate percentage difference
-                const gamesPercentDiff = ((data.games.projection - data.games.target) / data.games.target) * 100;
-                
+                const gamesPercentDiff =
+                    ((data.games.projection - data.games.target) / data.games.target) * 100;
+
                 // Calculate projected completion date
                 const gamesRemaining = Math.max(0, data.games.target - data.games.current);
-                const gamesDaysToComplete = data.games.daily_average > 0 ? Math.ceil(gamesRemaining / data.games.daily_average) : 0;
+                const gamesDaysToComplete =
+                    data.games.daily_average > 0
+                        ? Math.ceil(gamesRemaining / data.games.daily_average)
+                        : 0;
                 const gamesCompletionDate = new Date();
                 gamesCompletionDate.setDate(gamesCompletionDate.getDate() + gamesDaysToComplete);
-                const gamesCompletionDateStr = gamesCompletionDate.toLocaleDateString(navigator.language);
-                
+                const gamesCompletionDateStr = gamesCompletionDate.toLocaleDateString(
+                    navigator.language,
+                );
+
                 // Status message with pace badge and completion date
                 const gamesStatus = document.getElementById('gamesProjectionStatus');
                 if (gamesPercentDiff >= 5) {
@@ -509,7 +565,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('gamesProjectionItem').style.display = 'none';
                 document.getElementById('gamesProjectionSummary').style.display = 'none';
             }
-            
+
             // Show/hide sections
             if (hasAnyProjection) {
                 document.getElementById('noProjectionsMessage').style.display = 'none';
@@ -520,7 +576,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('projectionStats').style.display = 'none';
                 document.getElementById('projectionProgress').style.display = 'none';
             }
-            
         } catch (error) {
             console.error('Error loading goal projections:', error);
         }
@@ -542,10 +597,12 @@ document.addEventListener('DOMContentLoaded', function () {
     // Populate settings modal with current values
     if (window.statsConfig) {
         const hoursTargetInput = document.getElementById('readingHoursTarget');
-        if (hoursTargetInput) hoursTargetInput.value = window.statsConfig.readingHoursTarget || 1500;
+        if (hoursTargetInput)
+            hoursTargetInput.value = window.statsConfig.readingHoursTarget || 1500;
 
         const charsTargetInput = document.getElementById('characterCountTarget');
-        if (charsTargetInput) charsTargetInput.value = window.statsConfig.characterCountTarget || 25000000;
+        if (charsTargetInput)
+            charsTargetInput.value = window.statsConfig.characterCountTarget || 25000000;
 
         const gamesTargetInput = document.getElementById('gamesTarget');
         if (gamesTargetInput) gamesTargetInput.value = window.statsConfig.gamesTarget || 100;
@@ -554,18 +611,20 @@ document.addEventListener('DOMContentLoaded', function () {
         if (hoursDateInput) hoursDateInput.value = window.statsConfig.readingHoursTargetDate || '';
 
         const charsDateInput = document.getElementById('characterCountTargetDate');
-        if (charsDateInput) charsDateInput.value = window.statsConfig.characterCountTargetDate || '';
+        if (charsDateInput)
+            charsDateInput.value = window.statsConfig.characterCountTargetDate || '';
 
         const gamesDateInput = document.getElementById('gamesTargetDate');
         if (gamesDateInput) gamesDateInput.value = window.statsConfig.gamesTargetDate || '';
 
         const cardsDailyTargetInput = document.getElementById('cardsMinedDailyTarget');
-        if (cardsDailyTargetInput) cardsDailyTargetInput.value = window.statsConfig.cardsMinedDailyTarget || 10;
+        if (cardsDailyTargetInput)
+            cardsDailyTargetInput.value = window.statsConfig.cardsMinedDailyTarget || 10;
     }
 
     // Open settings modal
     if (settingsToggle) {
-        settingsToggle.addEventListener('click', function() {
+        settingsToggle.addEventListener('click', function () {
             settingsModal.style.display = 'flex';
             settingsModal.classList.add('show');
         });
@@ -586,7 +645,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Close modal when clicking outside
-    settingsModal.addEventListener('click', function(e) {
+    settingsModal.addEventListener('click', function (e) {
         if (e.target === settingsModal) {
             closeModal();
         }
@@ -594,16 +653,23 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Save settings
     if (saveSettingsBtn) {
-        saveSettingsBtn.addEventListener('click', async function() {
+        saveSettingsBtn.addEventListener('click', async function () {
             try {
                 const formData = {
-                    reading_hours_target: parseInt(document.getElementById('readingHoursTarget').value),
-                    character_count_target: parseInt(document.getElementById('characterCountTarget').value),
+                    reading_hours_target: parseInt(
+                        document.getElementById('readingHoursTarget').value,
+                    ),
+                    character_count_target: parseInt(
+                        document.getElementById('characterCountTarget').value,
+                    ),
                     games_target: parseInt(document.getElementById('gamesTarget').value),
-                    reading_hours_target_date: document.getElementById('readingHoursTargetDate').value || '',
-                    character_count_target_date: document.getElementById('characterCountTargetDate').value || '',
+                    reading_hours_target_date:
+                        document.getElementById('readingHoursTargetDate').value || '',
+                    character_count_target_date:
+                        document.getElementById('characterCountTargetDate').value || '',
                     games_target_date: document.getElementById('gamesTargetDate').value || '',
-                    cards_mined_daily_target: parseInt(document.getElementById('cardsMinedDailyTarget').value) || 10
+                    cards_mined_daily_target:
+                        parseInt(document.getElementById('cardsMinedDailyTarget').value) || 10,
                 };
 
                 const response = await fetch('/api/settings', {
@@ -611,7 +677,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(formData)
+                    body: JSON.stringify(formData),
                 });
 
                 const result = await response.json();
@@ -626,7 +692,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         readingHoursTargetDate: formData.reading_hours_target_date,
                         characterCountTargetDate: formData.character_count_target_date,
                         gamesTargetDate: formData.games_target_date,
-                        cardsMinedDailyTarget: formData.cards_mined_daily_target
+                        cardsMinedDailyTarget: formData.cards_mined_daily_target,
                     };
 
                     // Show success message
