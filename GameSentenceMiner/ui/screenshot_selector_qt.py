@@ -67,6 +67,13 @@ class ScreenshotSelectorDialog(QDialog):
         # Reset state
         self.selected_path = None
         
+        while self.main_layout.count():
+            item = self.main_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        
         # Clear previous grid if it exists
         if self.grid_widget:
             self.main_layout.removeWidget(self.grid_widget)
