@@ -13,6 +13,10 @@ from GameSentenceMiner.util.gsm_utils import sanitize_filename
 from GameSentenceMiner.util.configuration import (get_config, get_temporary_directory, logger, 
                                                   ffmpeg_base_command_list, get_ffprobe_path)
 
+from GameSentenceMiner.ui import window_state_manager, WindowId
+
+# Global instance for singleton pattern
+_screenshot_selector_instance = None
 
 class ClickableImageLabel(QLabel):
     """QLabel that emits a signal when clicked"""
@@ -32,10 +36,11 @@ class ScreenshotSelectorDialog(QDialog):
     A modal dialog that extracts frames from a video around a specific timestamp
     and allows the user to select the best one.
     """
-    def __init__(self, parent, video_path, timestamp, mode='beginning'):
+    def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
-        self.selected_path = None  # This will store the final result
+        self.selected_path = None
+        self.first_launch = True
         
         # Set window properties
         self.setWindowTitle("Select Screenshot")
@@ -43,43 +48,90 @@ class ScreenshotSelectorDialog(QDialog):
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
         self.setStyleSheet("background-color: black;")
         
-        # Create layout
+        # Create base layout
         self.main_layout = QVBoxLayout(self)
         
-        # Show loading message
+        # Initialize placeholders
+        self.grid_widget = None
         self.loading_label = QLabel("Extracting frames, please wait...")
         self.loading_label.setStyleSheet("color: white; font-size: 16px; padding: 50px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # We don't add the loading label yet, we add it when prepare_selection is called
+
+    def prepare_selection(self, video_path, timestamp, mode='beginning'):
+        """
+        Clears previous data, runs extraction, and rebuilds the UI.
+        Returns True if extraction was successful, False otherwise.
+        """
+        # Reset state
+        self.selected_path = None
+        
+        while self.main_layout.count():
+            item = self.main_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        
+        # Clear previous grid if it exists
+        if self.grid_widget:
+            self.main_layout.removeWidget(self.grid_widget)
+            self.grid_widget.deleteLater()
+            self.grid_widget = None
+
+        # Show loading message
         self.main_layout.addWidget(self.loading_label)
+        self.loading_label.show()
         
-        # Force UI update
-        self.show()
+        # Force UI update so user sees loading text
+        self.show() 
         QApplication.processEvents()
-        
-        # Run extraction and build the main UI
+
         try:
             image_paths, golden_frame = self._extract_frames(video_path, timestamp, mode)
             
-            # Remove loading message
+            # Hide loading message
+            self.loading_label.hide()
             self.main_layout.removeWidget(self.loading_label)
-            self.loading_label.deleteLater()
             
             if not image_paths:
                 QMessageBox.critical(self, "Error", "Failed to extract frames from the video.")
-                self.reject()
-                return
+                return False
             
             self._build_image_grid(image_paths, golden_frame)
+            return True
             
         except Exception as e:
             logger.error(f"ScreenshotSelector failed: {e}")
             QMessageBox.critical(self, "Error", f"An unexpected error occurred: {e}")
+            self.loading_label.hide()
+            return False
+
+    def showEvent(self, event):
+        """Handle window showing: restore position or center."""
+        if self.first_launch:
+            restored = window_state_manager.restore_geometry(self, WindowId.SCREENSHOT_SELECTOR)
+            if not restored:
+                self._center_window()
+            self.first_launch = False
+        super().showEvent(event)
+
+    def closeEvent(self, event):
+        """Handle window close event: save position."""
+        if self.selected_path is None:
+            # If user closes via X without clicking an image, it's a rejection
             self.reject()
-            return
         
-        # Center the dialog
-        self._center_window()
-    
+        window_state_manager.save_geometry(self, WindowId.SCREENSHOT_SELECTOR)
+        super().closeEvent(event)
+
+    def exec(self):
+        """Override exec to ensure state is saved on exit."""
+        super().exec()
+        window_state_manager.save_geometry(self, WindowId.SCREENSHOT_SELECTOR)
+        return self.result() if hasattr(self, 'result') else QDialog.DialogCode.Rejected
+
     def _extract_frames(self, video_path, timestamp, mode):
         """Extracts frames using ffmpeg, with automatic black bar removal."""
         temp_dir = os.path.join(
@@ -132,7 +184,6 @@ class ScreenshotSelectorDialog(QDialog):
             logger.debug(f"Executing frame extraction command: {' '.join(command)}")
             subprocess.run(command, check=True, capture_output=True, text=True)
             
-            # The rest of your logic remains the same
             for i in range(1, 21):
                 frame_path = os.path.join(temp_dir, f"frame_{i:02d}.png")
                 if os.path.exists(frame_path):
@@ -175,9 +226,9 @@ class ScreenshotSelectorDialog(QDialog):
             thumbnail_width = 256
             thumbnail_height = 144
         
-        # Create grid layout
-        grid_widget = QWidget()
-        grid_layout = QGridLayout(grid_widget)
+        # Create container widget for the grid
+        self.grid_widget = QWidget()
+        grid_layout = QGridLayout(self.grid_widget)
         grid_layout.setSpacing(3)
         
         max_cols = 5
@@ -232,7 +283,7 @@ class ScreenshotSelectorDialog(QDialog):
                 error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 grid_layout.addWidget(error_label, i // max_cols, i % max_cols)
         
-        self.main_layout.addWidget(grid_widget)
+        self.main_layout.addWidget(self.grid_widget)
     
     def _on_image_click(self, path):
         """Handles a user clicking on an image."""
@@ -266,37 +317,33 @@ class ScreenshotSelectorDialog(QDialog):
         except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, FileNotFoundError) as e:
             logger.error(f"Failed to get video duration for {file_path}: {e}")
             return None
-    
-    def closeEvent(self, event):
-        """Handle window close event"""
-        if self.selected_path is None:
-            self.reject()
-        event.accept()
 
 
 def show_screenshot_selector(parent, video_path, timestamp, mode='beginning', on_complete=None):
     """
     Show the screenshot selector dialog and return the selected path.
-    
-    Args:
-        parent: Config application reference
-        video_path: Path to the video file
-        timestamp: Timestamp to extract frames from
-        mode: 'beginning', 'middle', or 'end'
-        on_complete: Callback function that receives the selected path
-    
-    Returns:
-        The selected screenshot path, or None if cancelled
+    Reuses the existing window instance to preserve position.
     """
+    global _screenshot_selector_instance
+    
     # Create QApplication if it doesn't exist
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
     
-    dialog = ScreenshotSelectorDialog(parent, video_path, timestamp, mode)
-    result = dialog.exec()
+    # Create singleton if needed
+    if _screenshot_selector_instance is None:
+        _screenshot_selector_instance = ScreenshotSelectorDialog(parent)
     
-    selected_path = dialog.selected_path if result == QDialog.DialogCode.Accepted else None
+    # Prepare UI (runs extraction)
+    # If extraction fails, success will be False and we return None
+    success = _screenshot_selector_instance.prepare_selection(video_path, timestamp, mode)
+    
+    selected_path = None
+    if success:
+        result = _screenshot_selector_instance.exec()
+        if result == QDialog.DialogCode.Accepted:
+            selected_path = _screenshot_selector_instance.selected_path
     
     if on_complete:
         on_complete(selected_path)
@@ -308,19 +355,29 @@ if __name__ == "__main__":
     # Test the dialog
     app = QApplication(sys.argv)
     
-    # You'll need a real video file to test
-    # For now, this is just a placeholder
+    # Placeholder for testing
     video_path = r"C:\Users\Beangate\Videos\GSM\Replay 2025-11-06 17-46-52.mp4"
     
     if os.path.exists(video_path):
+        print("First call (should center/load from JSON)...")
         result = show_screenshot_selector(
             parent=None,
             video_path=video_path,
             timestamp=10.0,
             mode='middle'
         )
+        print(f"Selected screenshot 1: {result}")
         
-        print(f"Selected screenshot: {result}")
+        # Second call to test position persistence
+        # print("Second call (should stay in place)...")
+        # result2 = show_screenshot_selector(
+        #     parent=None,
+        #     video_path=video_path,
+        #     timestamp=15.0,
+        #     mode='middle'
+        # )
+        # print(f"Selected screenshot 2: {result2}")
+        
     else:
         print(f"Test video not found at: {video_path}")
         print("Please update the video_path in __main__ to test.")

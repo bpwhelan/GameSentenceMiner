@@ -459,6 +459,7 @@ class Paths:
 class Anki:
     update_anki: bool = True
     show_update_confirmation_dialog_v2: bool = True
+    auto_accept_timer: int = 10
     url: str = 'http://127.0.0.1:8765'
     sentence_field: str = "Sentence"
     sentence_audio_field: str = "SentenceAudio"
@@ -588,6 +589,7 @@ class Hotkeys:
     take_screenshot: str = 'f6'
     open_utility: str = 'ctrl+m'
     play_latest_audio: str = 'f7'
+    manual_overlay_scan: str = ''
 
 
 @dataclass_json
@@ -728,7 +730,8 @@ class Overlay:
             self.monitors = []
         if self.monitor_to_capture >= len(self.monitors):
             self.monitor_to_capture = 0  # Reset to first monitor if out of range
-
+            
+            
 @dataclass_json
 @dataclass
 class WIP:
@@ -753,6 +756,10 @@ class ProfileConfig:
     ai: Ai = field(default_factory=Ai)
     overlay: Overlay = field(default_factory=Overlay)
     wip: WIP = field(default_factory=WIP)
+    hotkeys: Hotkeys = field(default_factory=Hotkeys)
+    
+    def __post_init__(self):
+        pass
 
     def get_field_value(self, section: str, field_name: str):
         section_obj = getattr(self, section, None)
@@ -876,6 +883,15 @@ class StatsConfig:
     cards_mined_daily_target: int = 10  # Daily target for cards mined (default: 10 cards per day)
     regex_out_punctuation: bool = True
     regex_out_repetitions: bool = False
+    easy_days_settings: Dict[str, int] = field(default_factory=lambda: {
+        'monday': 100,
+        'tuesday': 100,
+        'wednesday': 100,
+        'thursday': 100,
+        'friday': 100,
+        'saturday': 100,
+        'sunday': 100
+    })
 
 @dataclass_json
 @dataclass

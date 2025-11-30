@@ -307,9 +307,9 @@ def start_obs(force_restart=False):
                     shutil.rmtree(sentinel_folder)
                 else:
                     os.remove(sentinel_folder)
-                print(f"Deleted sentinel folder: {sentinel_folder}")
+                logger.debug(f"Deleted sentinel folder: {sentinel_folder}")
             except Exception as e:
-                print(f"Failed to delete sentinel folder: {e}")
+                logger.error(f"Failed to delete sentinel folder: {e}")
         
         obs_process = subprocess.Popen([obs_path, '--disable-shutdown-check', '--portable', '--startreplaybuffer', ], cwd=os.path.dirname(obs_path))
         obs_process_pid = obs_process.pid

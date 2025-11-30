@@ -1435,6 +1435,12 @@ document.addEventListener('DOMContentLoaded', function () {
         emptyMessage: 'No kanji data available'
     });
     
+    // Helper to parse date string as local date
+    function parseLocalDate(dateStr) {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return new Date(year, month - 1, day);
+    }
+
     // Function to create daily time bar chart with weekend markers
     function createDailyTimeChart(canvasId, chartData, isAllTime = false) {
         const canvas = document.getElementById(canvasId);
@@ -1472,7 +1478,7 @@ document.addEventListener('DOMContentLoaded', function () {
         
         // Format labels to show day of week with weekend indicator
         const formattedLabels = chartData.labels.map(dateStr => {
-            const date = new Date(dateStr);
+            const date = parseLocalDate(dateStr);
             const dayOfWeek = date.getDay();
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -1510,7 +1516,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     tooltip: {
                         callbacks: {
                             title: function(context) {
-                                const index = context[0].dataIndex;
+                                const index = context.dataIndex;
                                 return chartData.labels[index];
                             },
                             label: function(context) {
@@ -1527,8 +1533,8 @@ document.addEventListener('DOMContentLoaded', function () {
                                 }
                             },
                             afterLabel: function(context) {
-                                const index = context[0].dataIndex;
-                                const date = new Date(chartData.labels[index]);
+                                const index = context.dataIndex;
+                                const date = parseLocalDate(chartData.labels[index]);
                                 const dayOfWeek = date.getDay();
                                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                                 return isWeekend ? '📅 Weekend' : '';
@@ -1587,7 +1593,7 @@ document.addEventListener('DOMContentLoaded', function () {
         
         // Format labels to show day of week with weekend indicator
         const formattedLabels = chartData.labels.map(dateStr => {
-            const date = new Date(dateStr);
+            const date = parseLocalDate(dateStr);
             const dayOfWeek = date.getDay();
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -1658,7 +1664,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     tooltip: {
                         callbacks: {
                             title: function(context) {
-                                const index = context[0].dataIndex;
+                                const index = context.dataIndex;
                                 return chartData.labels[index];
                             },
                             label: function(context) {
@@ -1669,8 +1675,8 @@ document.addEventListener('DOMContentLoaded', function () {
                                 return `Characters: ${chars.toLocaleString()}`;
                             },
                             afterLabel: function(context) {
-                                const index = context[0].dataIndex;
-                                const date = new Date(chartData.labels[index]);
+                                const index = context.dataIndex;
+                                const date = parseLocalDate(chartData.labels[index]);
                                 const dayOfWeek = date.getDay();
                                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                                 return isWeekend ? '📅 Weekend' : '';
@@ -1742,7 +1748,7 @@ document.addEventListener('DOMContentLoaded', function () {
         
         chartData.labels.forEach((dateStr, index) => {
             if (chartData.speedData[index] > 0) {
-                const date = new Date(dateStr);
+                const date = parseLocalDate(dateStr);
                 const dayOfWeek = date.getDay();
                 const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                 const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -1754,7 +1760,7 @@ document.addEventListener('DOMContentLoaded', function () {
         
         // Generate point colors based on weekend - consistent with other daily charts
         const pointColors = filteredOriginalLabels.map(dateStr => {
-            const date = new Date(dateStr);
+            const date = parseLocalDate(dateStr);
             const dayOfWeek = date.getDay();
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             return isWeekend ? 'rgba(171, 71, 188, 1)' : 'rgba(54, 162, 235, 1)';
@@ -1796,7 +1802,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     tooltip: {
                         callbacks: {
                             title: function(context) {
-                                const index = context[0].dataIndex;
+                                const index = context.dataIndex;
                                 return filteredOriginalLabels[index];
                             },
                             label: function(context) {
@@ -1804,8 +1810,8 @@ document.addEventListener('DOMContentLoaded', function () {
                                 return `Speed: ${speed.toLocaleString()} chars/hour`;
                             },
                             afterLabel: function(context) {
-                                const index = context[0].dataIndex;
-                                const date = new Date(filteredOriginalLabels[index]);
+                                const index = context.dataIndex;
+                                const date = parseLocalDate(filteredOriginalLabels[index]);
                                 const dayOfWeek = date.getDay();
                                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                                 return isWeekend ? '📅 Weekend' : '';

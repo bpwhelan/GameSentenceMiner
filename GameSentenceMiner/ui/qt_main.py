@@ -4,7 +4,7 @@ import os
 from queue import Queue
 
 from PyQt6.QtWidgets import QApplication, QInputDialog
-from PyQt6.QtCore import QObject, pyqtSignal, QThread
+from PyQt6.QtCore import QObject, pyqtSignal, QThread, Qt
 from PyQt6.QtGui import QIcon
 
 from GameSentenceMiner.ui.anki_confirmation_qt import show_anki_confirmation
@@ -13,6 +13,15 @@ from GameSentenceMiner.ui.furigana_filter_preview_qt import show_furigana_filter
 from GameSentenceMiner.ocr.ss_picker_qt import show_screen_cropper
 from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 from GameSentenceMiner.util.configuration import get_pickaxe_png_path, gsm_state, logger, is_dev
+
+import faulthandler
+
+# Enable the handler
+faulthandler.enable()
+
+# Optional: Log the hard crash to a file so you don't lose it if the console closes
+f = open("crash_log.txt", "w")
+faulthandler.enable(file=f)
 
 _qt_app = None
 _config_window = None
@@ -94,10 +103,9 @@ class DialogManager(QObject):
     # 2. Anki Confirmation
     # =========================================================================
 
-    def _logic_anki(self, parent, config_app, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp,callback):
+    def _logic_anki(self, parent, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, callback):
         result = show_anki_confirmation(
             parent=parent,
-            config_app=config_app,
             expression=expression,
             sentence=sentence,
             screenshot_path=screenshot_path,
@@ -110,10 +118,10 @@ class DialogManager(QObject):
         callback(result)
 
     async def anki_confirmation_async(self, expression, sentence, screenshot_path, previous_screenshot_path, audio_path=None, translation=None, timestamp=0, previous_timestamp=0, parent=None):
-        return await self._run_async(lambda cb: self._logic_anki(parent, get_config_window(), expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, cb))
+        return await self._run_async(lambda cb: self._logic_anki(parent, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, cb))
 
     def anki_confirmation_sync(self, expression, sentence, screenshot_path, previous_screenshot_path, audio_path=None, translation=None, timestamp=0, previous_timestamp=0, parent=None):
-        return self._run_sync(lambda cb: self._logic_anki(parent, get_config_window(), expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, cb))
+        return self._run_sync(lambda cb: self._logic_anki(parent, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, timestamp, previous_timestamp, cb))
 
     # =========================================================================
     # 3. Text Input (General Utility)
@@ -234,24 +242,23 @@ def get_qt_app():
     global _qt_app, _dialog_manager
     import qdarktheme
 
-    if is_dev:
-        # Enable debug logging for Qt's web engine, useful for web-based UI elements.
-        # This must be set BEFORE the QApplication is instantiated.
-        os.environ['QT_LOGGING_RULES'] = 'qt.webenginecontext.debug=true'
-        logger.info("Developer mode detected. Enabled Qt debug logging.")
-
     if _qt_app is None:
+        if is_dev:
+            # Enable debug logging for Qt's web engine, useful for web-based UI elements.
+            # This must be set BEFORE the QApplication is instantiated.
+            os.environ['QT_LOGGING_RULES'] = 'qt.webenginecontext.debug=true'
+            logger.info("Developer mode detected. Enabled Qt debug logging.")
         _qt_app = QApplication.instance()
         if _qt_app is None:
             _qt_app = QApplication(sys.argv)
             _qt_app.setApplicationName("GameSentenceMiner")
             _qt_app.setQuitOnLastWindowClosed(False)
             
-    # Setup dark theme
-    qdarktheme.setup_theme(theme="dark")
-    # Set Icon 
-    pickaxe_path = get_pickaxe_png_path()
-    _qt_app.setWindowIcon(QIcon(pickaxe_path))
+        # Setup dark theme
+        qdarktheme.setup_theme(theme="dark")
+        # Set Icon 
+        pickaxe_path = get_pickaxe_png_path()
+        _qt_app.setWindowIcon(QIcon(pickaxe_path))
     # Initialize the manager once the App exists
     if _dialog_manager is None:
         _dialog_manager = DialogManager()
@@ -264,12 +271,33 @@ def get_dialog_manager():
     get_qt_app() # Ensures App and Manager exist
     return _dialog_manager
 
+# def get_config_window():
+#     """Get or create the global ConfigWindow instance."""
+#     global _config_window
+#     if _config_window is None:
+#         get_qt_app()  # Ensure Qt app exists first
+#         _config_window = ConfigWindow()
+#     return _config_window
+
 def get_config_window():
     """Get or create the global ConfigWindow instance."""
     global _config_window
+    
+    # Check if the C++ object has been deleted but Python ref exists
+    if _config_window is not None:
+        try:
+            # Try to access a property to see if the underlying C++ object is alive
+            _ = _config_window.isVisible()
+        except RuntimeError:
+            # Object was deleted
+            _config_window = None
+
     if _config_window is None:
         get_qt_app()  # Ensure Qt app exists first
         _config_window = ConfigWindow()
+        # CRITICAL: Prevent the window from being destroyed when closed
+        _config_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        
     return _config_window
 
 def start_qt_app(show_config_immediately=False):
@@ -395,7 +423,7 @@ if __name__ == "__main__":
         # Calling the wrapper
         result = launch_anki_confirmation("Test Word", "Test Sentence", temp_screenshot, temp_audio, "Translation", 0)
         print(f"Result: {result}")
-        
+    
         # Cleanup
         if os.path.exists(temp_screenshot):
             os.remove(temp_screenshot)
