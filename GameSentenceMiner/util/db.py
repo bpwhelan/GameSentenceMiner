@@ -1009,12 +1009,54 @@ def check_and_run_migrations():
         else:
             logger.debug("populate_games cron job already exists, skipping creation.")
     
+    def migrate_genres_and_tags():
+        """
+        Add genres and tags columns to games table.
+        These fields store data from jiten.moe API.
+        After adding columns, trigger jiten update to populate the new fields.
+        """
+        columns_added = False
+        
+        if not GamesTable.has_column('genres'):
+            logger.info("Adding 'genres' column to games table...")
+            GamesTable._db.execute(
+                f"ALTER TABLE {GamesTable._table} ADD COLUMN genres TEXT",
+                commit=True
+            )
+            logger.info("✅ Added 'genres' column to games table.")
+            columns_added = True
+        else:
+            logger.debug("genres column already exists in games table, skipping migration.")
+        
+        if not GamesTable.has_column('tags'):
+            logger.info("Adding 'tags' column to games table...")
+            GamesTable._db.execute(
+                f"ALTER TABLE {GamesTable._table} ADD COLUMN tags TEXT",
+                commit=True
+            )
+            logger.info("✅ Added 'tags' column to games table.")
+            columns_added = True
+        else:
+            logger.debug("tags column already exists in games table, skipping migration.")
+        
+        # If we added columns, trigger jiten update to populate them
+        if columns_added:
+            logger.info("🔄 Triggering jiten update to populate genres and tags...")
+            try:
+                from GameSentenceMiner.util.cron.jiten_update import update_all_jiten_games
+                result = update_all_jiten_games()
+                logger.info(f"✅ Jiten update completed: {result['updated_games']} games updated with genres and tags")
+            except Exception as e:
+                logger.error(f"⚠️ Failed to auto-update games with genres/tags: {e}")
+                logger.info("You can manually run the update with: python -m GameSentenceMiner.util.cron.jiten_update")
+    
     migrate_timestamp()
     migrate_obs_scene_name()
     # migrate_cron_timestamps()  # Disabled - user will manually clean up data
     migrate_jiten_cron_job()
     migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
+    migrate_genres_and_tags()  # Add genres and tags columns
         
 check_and_run_migrations()
     

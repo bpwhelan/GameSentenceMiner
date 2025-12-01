@@ -135,6 +135,36 @@ class JitenApiClient:
         }
         media_type_string = media_type_map.get(media_type_raw, f"Type {media_type_raw}" if media_type_raw else "")
         
+        # Map genre integers to human-readable names
+        genre_map = {
+            1: "Action",
+            2: "Adventure",
+            3: "Comedy",
+            4: "Drama",
+            5: "Ecchi",
+            6: "Fantasy",
+            7: "Horror",
+            8: "Mecha",
+            9: "Music",
+            10: "Mystery",
+            11: "Psychological",
+            12: "Romance",
+            13: "SciFi",
+            14: "Slice of Life",
+            15: "Sports",
+            16: "Supernatural",
+            17: "Thriller",
+            18: "NSFW"
+        }
+        
+        # Transform genres from integers to names
+        genres_raw = deck_data.get("genres", [])
+        genres = [genre_map.get(g, f"Unknown-{g}") for g in genres_raw] if genres_raw else []
+        
+        # Extract tag names from tag objects
+        tags_raw = deck_data.get("tags", [])
+        tags = [tag["name"] for tag in tags_raw if isinstance(tag, dict) and "name" in tag] if tags_raw else []
+        
         return {
             "deck_id": deck_data.get("deckId"),
             "title_original": deck_data.get("originalTitle", ""),
@@ -150,6 +180,8 @@ class JitenApiClient:
             "links": deck_data.get("links", []),
             "aliases": deck_data.get("aliases", []),
             "release_date": deck_data.get("releaseDate", ""),
+            "genres": genres,  # List of genre names
+            "tags": tags,      # List of tag names
         }
 
     @classmethod

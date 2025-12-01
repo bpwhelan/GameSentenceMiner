@@ -724,6 +724,8 @@ def calculate_current_game_stats(all_lines):
         )  # Jiten.moe total
         result["links"] = game_metadata.links or []  # Add links array
         result["completed"] = game_metadata.completed or False  # Add completion status
+        result["genres"] = game_metadata.genres or []  # Add genres array
+        result["tags"] = game_metadata.tags or []  # Add tags array
 
         # Debug logging for image data
         logger.debug(
@@ -738,6 +740,8 @@ def calculate_current_game_stats(all_lines):
         result["image"] = ""
         result["game_character_count"] = 0  # No jiten data available
         result["links"] = []  # Empty links array when no metadata
+        result["genres"] = []  # Empty genres array when no metadata
+        result["tags"] = []  # Empty tags array when no metadata
         logger.debug(f"No game metadata found for '{current_game_name}'")
 
     return result
