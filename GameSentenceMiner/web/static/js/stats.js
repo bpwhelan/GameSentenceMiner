@@ -1062,6 +1062,162 @@ document.addEventListener('DOMContentLoaded', function () {
         return chart.render(gameTypeData.counts, gameTypeData.labels);
     }
 
+    // Function to create genre reading speed bar chart
+    function createGenreSpeedChart(canvasId, genreSpeedData) {
+        const canvas = document.getElementById(canvasId);
+        const noDataEl = document.getElementById('genreSpeedNoData');
+        
+        if (!canvas) return null;
+        
+        if (!genreSpeedData || !genreSpeedData.labels || genreSpeedData.labels.length === 0) {
+            canvas.style.display = 'none';
+            if (noDataEl) {
+                noDataEl.style.display = 'block';
+            }
+            return null;
+        }
+        
+        canvas.style.display = 'block';
+        if (noDataEl) {
+            noDataEl.style.display = 'none';
+        }
+        
+        const chart = new BarChartComponent(canvasId, {
+            title: 'Top 5 Reading Speeds by Genre',
+            colorScheme: 'gradient',
+            yAxisLabel: 'Reading Speed (chars/hour)',
+            xAxisLabel: 'Genre',
+            datasetLabel: 'Reading Speed',
+            maxRotation: 45,
+            minRotation: 45,
+            tooltipFormatter: {
+                label: (context) => {
+                    const speed = context.parsed.y;
+                    return `Speed: ${speed.toLocaleString()} chars/hour`;
+                }
+            }
+        });
+        
+        return chart.render(genreSpeedData.speeds, genreSpeedData.labels);
+    }
+
+    // Function to create genre characters read bar chart
+    function createGenreCharsChart(canvasId, genreCharsData) {
+        const canvas = document.getElementById(canvasId);
+        const noDataEl = document.getElementById('genreCharsNoData');
+        
+        if (!canvas) return null;
+        
+        if (!genreCharsData || !genreCharsData.labels || genreCharsData.labels.length === 0) {
+            canvas.style.display = 'none';
+            if (noDataEl) {
+                noDataEl.style.display = 'block';
+            }
+            return null;
+        }
+        
+        canvas.style.display = 'block';
+        if (noDataEl) {
+            noDataEl.style.display = 'none';
+        }
+        
+        const chart = new BarChartComponent(canvasId, {
+            title: 'Top 5 Most Read Genres (Characters)',
+            colorScheme: 'gradient',
+            yAxisLabel: 'Characters Read',
+            xAxisLabel: 'Genre',
+            datasetLabel: 'Characters',
+            maxRotation: 45,
+            minRotation: 45,
+            tooltipFormatter: {
+                label: (context) => {
+                    const chars = context.parsed.y;
+                    return `Characters: ${chars.toLocaleString()}`;
+                }
+            }
+        });
+        
+        return chart.render(genreCharsData.chars, genreCharsData.labels);
+    }
+
+    // Function to create tag reading speed bar chart
+    function createTagSpeedChart(canvasId, tagSpeedData) {
+        const canvas = document.getElementById(canvasId);
+        const noDataEl = document.getElementById('tagSpeedNoData');
+        
+        if (!canvas) return null;
+        
+        if (!tagSpeedData || !tagSpeedData.labels || tagSpeedData.labels.length === 0) {
+            canvas.style.display = 'none';
+            if (noDataEl) {
+                noDataEl.style.display = 'block';
+            }
+            return null;
+        }
+        
+        canvas.style.display = 'block';
+        if (noDataEl) {
+            noDataEl.style.display = 'none';
+        }
+        
+        const chart = new BarChartComponent(canvasId, {
+            title: 'Top 5 Reading Speeds by Tag',
+            colorScheme: 'gradient',
+            yAxisLabel: 'Reading Speed (chars/hour)',
+            xAxisLabel: 'Tag',
+            datasetLabel: 'Reading Speed',
+            maxRotation: 45,
+            minRotation: 45,
+            tooltipFormatter: {
+                label: (context) => {
+                    const speed = context.parsed.y;
+                    return `Speed: ${speed.toLocaleString()} chars/hour`;
+                }
+            }
+        });
+        
+        return chart.render(tagSpeedData.speeds, tagSpeedData.labels);
+    }
+
+    // Function to create tag characters read bar chart
+    function createTagCharsChart(canvasId, tagCharsData) {
+        const canvas = document.getElementById(canvasId);
+        const noDataEl = document.getElementById('tagCharsNoData');
+        
+        if (!canvas) return null;
+        
+        if (!tagCharsData || !tagCharsData.labels || tagCharsData.labels.length === 0) {
+            canvas.style.display = 'none';
+            if (noDataEl) {
+                noDataEl.style.display = 'block';
+            }
+            return null;
+        }
+        
+        canvas.style.display = 'block';
+        if (noDataEl) {
+            noDataEl.style.display = 'none';
+        }
+        
+        const chart = new BarChartComponent(canvasId, {
+            title: 'Top 5 Most Read Tags (Characters)',
+            colorScheme: 'gradient',
+            yAxisLabel: 'Characters Read',
+            xAxisLabel: 'Tag',
+            datasetLabel: 'Characters',
+            maxRotation: 45,
+            minRotation: 45,
+            tooltipFormatter: {
+                label: (context) => {
+                    const chars = context.parsed.y;
+                    return `Characters: ${chars.toLocaleString()}`;
+                }
+            }
+        });
+        
+        return chart.render(tagCharsData.chars, tagCharsData.labels);
+    }
+
 
     function createCardsMinedChart(canvasId, chartData) {
         const canvas = document.getElementById(canvasId);
@@ -2278,6 +2434,18 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Create game type chart if data exists
                 if (data.gameTypeData) {
                     createGameTypeChart('gameTypeChart', data.gameTypeData);
+                }
+
+                // Create genre and tag charts if data exists
+                if (data.genreTagData) {
+                    if (data.genreTagData.genres) {
+                        createGenreSpeedChart('genreSpeedChart', data.genreTagData.genres.top_speed);
+                        createGenreCharsChart('genreCharsChart', data.genreTagData.genres.top_chars);
+                    }
+                    if (data.genreTagData.tags) {
+                        createTagSpeedChart('tagSpeedChart', data.genreTagData.tags.top_speed);
+                        createTagCharsChart('tagCharsChart', data.genreTagData.tags.top_chars);
+                    }
                 }
 
                 createCardsMinedChart('cardsMinedChart', data.cardsMinedLast30Days || null);

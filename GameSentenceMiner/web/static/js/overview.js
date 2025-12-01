@@ -1194,6 +1194,44 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             gameLinksContainer.style.display = 'none';
         }
+
+        // Update genres (limit to 5)
+        const gameGenresContainer = document.getElementById('gameGenresContainer');
+        const gameGenresPills = document.getElementById('gameGenresPills');
+        if (gameMetadata.genres && gameMetadata.genres.length > 0) {
+            gameGenresPills.innerHTML = '';
+            
+            const genresToShow = gameMetadata.genres.slice(0, 5);
+            genresToShow.forEach(genre => {
+                const pill = document.createElement('span');
+                pill.className = 'game-genre-pill';
+                pill.textContent = genre;
+                gameGenresPills.appendChild(pill);
+            });
+            
+            gameGenresContainer.style.display = 'flex';
+        } else {
+            gameGenresContainer.style.display = 'none';
+        }
+
+        // Update tags (limit to 5)
+        const gameTagsContainer = document.getElementById('gameTagsContainer');
+        const gameTagsPills = document.getElementById('gameTagsPills');
+        if (gameMetadata.tags && gameMetadata.tags.length > 0) {
+            gameTagsPills.innerHTML = '';
+            
+            const tagsToShow = gameMetadata.tags.slice(0, 5);
+            tagsToShow.forEach(tag => {
+                const pill = document.createElement('span');
+                pill.className = 'game-tag-pill';
+                pill.textContent = tag;
+                gameTagsPills.appendChild(pill);
+            });
+            
+            gameTagsContainer.style.display = 'flex';
+        } else {
+            gameTagsContainer.style.display = 'none';
+        }
     }
 
     // Function to load today's stats from new API endpoint
@@ -1726,6 +1764,44 @@ document.addEventListener('DOMContentLoaded', function () {
             } else {
                 // Hide the links container if no links
                 linksContainer.style.display = 'none';
+            }
+            
+            // Update genres (limit to 5)
+            const genresContainer = document.getElementById('gameGenresContainer');
+            const genresPills = document.getElementById('gameGenresPills');
+            if (stats.genres && stats.genres.length > 0) {
+                genresPills.innerHTML = '';
+                
+                const genresToShow = stats.genres.slice(0, 5);
+                genresToShow.forEach(genre => {
+                    const pill = document.createElement('span');
+                    pill.className = 'game-genre-pill';
+                    pill.textContent = genre;
+                    genresPills.appendChild(pill);
+                });
+                
+                genresContainer.style.display = 'flex';
+            } else {
+                genresContainer.style.display = 'none';
+            }
+            
+            // Update tags (limit to 5)
+            const tagsContainer = document.getElementById('gameTagsContainer');
+            const tagsPills = document.getElementById('gameTagsPills');
+            if (stats.tags && stats.tags.length > 0) {
+                tagsPills.innerHTML = '';
+                
+                const tagsToShow = stats.tags.slice(0, 5);
+                tagsToShow.forEach(tag => {
+                    const pill = document.createElement('span');
+                    pill.className = 'game-tag-pill';
+                    pill.textContent = tag;
+                    tagsPills.appendChild(pill);
+                });
+                
+                tagsContainer.style.display = 'flex';
+            } else {
+                tagsContainer.style.display = 'none';
             }
             
             // Update progress bar and timeline

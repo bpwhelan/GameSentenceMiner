@@ -188,6 +188,8 @@ def register_jiten_database_api_routes(app):
                         "last_played": last_played,
                         "links": game.links,
                         "release_date": game.release_date,  # Add release date to API response
+                        "genres": game.genres if hasattr(game, "genres") else [],  # Add genres
+                        "tags": game.tags if hasattr(game, "tags") else [],  # Add tags
                         "obs_scene_name": game.obs_scene_name
                         if hasattr(game, "obs_scene_name")
                         else "",  # Add OBS scene name
@@ -441,6 +443,12 @@ def register_jiten_database_api_routes(app):
             ):
                 update_fields["release_date"] = jiten_data["release_date"]
 
+            if "genres" not in game.manual_overrides and jiten_data.get("genres"):
+                update_fields["genres"] = jiten_data["genres"]
+
+            if "tags" not in game.manual_overrides and jiten_data.get("tags"):
+                update_fields["tags"] = jiten_data["tags"]
+
             # Download and encode image if not manually overridden
             if "image" not in game.manual_overrides and jiten_data.get("cover_name"):
                 image_data = JitenApiClient.download_cover_image(
@@ -570,6 +578,8 @@ def register_jiten_database_api_routes(app):
                 "image",
                 "links",
                 "release_date",
+                "genres",
+                "tags",
             ]
 
             for field in allowed_fields:
@@ -793,6 +803,16 @@ def register_jiten_database_api_routes(app):
                 update_fields["release_date"] = jiten_data["release_date"]
             elif "release_date" in manual_overrides:
                 skipped_fields.append("release_date")
+
+            if "genres" not in manual_overrides and jiten_data.get("genres"):
+                update_fields["genres"] = jiten_data["genres"]
+            elif "genres" in manual_overrides:
+                skipped_fields.append("genres")
+
+            if "tags" not in manual_overrides and jiten_data.get("tags"):
+                update_fields["tags"] = jiten_data["tags"]
+            elif "tags" in manual_overrides:
+                skipped_fields.append("tags")
 
             # Download and encode image if not manually overridden
             if "image" not in manual_overrides and jiten_data.get("cover_name"):

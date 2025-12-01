@@ -670,3 +670,124 @@ def calculate_difficulty_speed_from_rollup(combined_stats: Dict) -> Dict:
         logger.error(f"Error calculating difficulty speed from rollup: {e}")
     
     return difficulty_speed_data
+
+
+def calculate_genre_tag_stats_from_rollup(combined_stats: Dict) -> Dict:
+    """
+    Calculate reading statistics grouped by genres and tags from rollup data.
+    Returns top 5 genres/tags by reading speed and by total characters read.
+    
+    Args:
+        combined_stats: Combined rollup statistics with game_activity_data
+        
+    Returns:
+        Dictionary with genre and tag statistics:
+        {
+            "genres": {
+                "top_speed": {"labels": [...], "speeds": [...]},
+                "top_chars": {"labels": [...], "chars": [...]}
+            },
+            "tags": {
+                "top_speed": {"labels": [...], "speeds": [...]},
+                "top_chars": {"labels": [...], "chars": [...]}
+            }
+        }
+    """
+    from GameSentenceMiner.util.games_table import GamesTable
+    
+    result = {
+        "genres": {
+            "top_speed": {"labels": [], "speeds": []},
+            "top_chars": {"labels": [], "chars": []}
+        },
+        "tags": {
+            "top_speed": {"labels": [], "speeds": []},
+            "top_chars": {"labels": [], "chars": []}
+        }
+    }
+    
+    try:
+        # Get all games with genres/tags
+        all_games = GamesTable.all()
+        game_activity = combined_stats.get("game_activity_data", {})
+        
+        # Aggregate by genre
+        genre_groups = {}  # genre -> {chars: total, time: total}
+        tag_groups = {}    # tag -> {chars: total, time: total}
+        
+        for game in all_games:
+            # Get stats for this game from game_activity_data
+            if game.id not in game_activity:
+                continue
+                
+            activity = game_activity[game.id]
+            chars = activity.get("chars", 0)
+            time = activity.get("time", 0)
+            
+            if chars == 0 or time == 0:
+                continue
+            
+            # Aggregate by genres
+            if game.genres and isinstance(game.genres, list):
+                for genre in game.genres:
+                    if genre not in genre_groups:
+                        genre_groups[genre] = {"chars": 0, "time": 0}
+                    genre_groups[genre]["chars"] += chars
+                    genre_groups[genre]["time"] += time
+            
+            # Aggregate by tags
+            if game.tags and isinstance(game.tags, list):
+                for tag in game.tags:
+                    if tag not in tag_groups:
+                        tag_groups[tag] = {"chars": 0, "time": 0}
+                    tag_groups[tag]["chars"] += chars
+                    tag_groups[tag]["time"] += time
+        
+        # Calculate speeds and sort for genres
+        genre_stats = []
+        for genre, data in genre_groups.items():
+            if data["time"] > 0 and data["chars"] > 0:
+                hours = data["time"] / 3600
+                speed = int(data["chars"] / hours)
+                genre_stats.append({
+                    "name": genre,
+                    "speed": speed,
+                    "chars": data["chars"]
+                })
+        
+        # Top 5 genres by speed
+        top_speed_genres = sorted(genre_stats, key=lambda x: x["speed"], reverse=True)[:5]
+        result["genres"]["top_speed"]["labels"] = [g["name"] for g in top_speed_genres]
+        result["genres"]["top_speed"]["speeds"] = [g["speed"] for g in top_speed_genres]
+        
+        # Top 5 genres by chars
+        top_chars_genres = sorted(genre_stats, key=lambda x: x["chars"], reverse=True)[:5]
+        result["genres"]["top_chars"]["labels"] = [g["name"] for g in top_chars_genres]
+        result["genres"]["top_chars"]["chars"] = [g["chars"] for g in top_chars_genres]
+        
+        # Calculate speeds and sort for tags
+        tag_stats = []
+        for tag, data in tag_groups.items():
+            if data["time"] > 0 and data["chars"] > 0:
+                hours = data["time"] / 3600
+                speed = int(data["chars"] / hours)
+                tag_stats.append({
+                    "name": tag,
+                    "speed": speed,
+                    "chars": data["chars"]
+                })
+        
+        # Top 5 tags by speed
+        top_speed_tags = sorted(tag_stats, key=lambda x: x["speed"], reverse=True)[:5]
+        result["tags"]["top_speed"]["labels"] = [t["name"] for t in top_speed_tags]
+        result["tags"]["top_speed"]["speeds"] = [t["speed"] for t in top_speed_tags]
+        
+        # Top 5 tags by chars
+        top_chars_tags = sorted(tag_stats, key=lambda x: x["chars"], reverse=True)[:5]
+        result["tags"]["top_chars"]["labels"] = [t["name"] for t in top_chars_tags]
+        result["tags"]["top_chars"]["chars"] = [t["chars"] for t in top_chars_tags]
+        
+    except Exception as e:
+        logger.error(f"Error calculating genre/tag stats from rollup: {e}")
+    
+    return result

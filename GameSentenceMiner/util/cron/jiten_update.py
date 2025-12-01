@@ -182,6 +182,16 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
         elif "release_date" in manual_overrides:
             skipped_fields.append("release_date")
 
+        if "genres" not in manual_overrides and jiten_data.get("genres"):
+            update_fields["genres"] = jiten_data["genres"]
+        elif "genres" in manual_overrides:
+            skipped_fields.append("genres")
+
+        if "tags" not in manual_overrides and jiten_data.get("tags"):
+            update_fields["tags"] = jiten_data["tags"]
+        elif "tags" in manual_overrides:
+            skipped_fields.append("tags")
+
         # Always re-download image if not manually overridden
         if "image" not in manual_overrides and jiten_data.get("cover_name"):
             image_data = JitenApiClient.download_cover_image(jiten_data["cover_name"])
