@@ -273,6 +273,14 @@ def show_screen_cropper(on_complete=None, transparent_mode=False):
                 on_complete(None)
             return
     
+    # Set DPI awareness for Windows
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-monitor DPI awareness
+        except Exception as e:
+            logger.warning(f"Failed to set DPI awareness: {e}")
+    
     # Create QApplication if it doesn't exist
     app = QApplication.instance()
     if app is None:
