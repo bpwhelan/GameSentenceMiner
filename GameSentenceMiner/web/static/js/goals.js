@@ -395,7 +395,9 @@ const CustomGoalCheckboxManager = {
 
         // Start from the most recent completion date
         let streak = 1;
-        let prevDate = new Date(sortedDates[0]);
+        // Parse YYYY-MM-DD as local date
+        const [year, month, day] = sortedDates[0].split('-').map(Number);
+        let prevDate = new Date(year, month - 1, day); // month is 0-indexed
 
         // Count consecutive days backwards from the most recent date
         for (let i = 1; i < sortedDates.length; i++) {
@@ -477,9 +479,7 @@ const CustomGoalsManager = {
 
     // Get active goals (within current date or future)
     async getActive() {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayStr = today.toISOString().split('T')[0];
+        const todayStr = GoalsUtils.getTodayDateString();
 
         const allGoals = await this.getAll();
         return allGoals.filter(goal => {
@@ -491,9 +491,7 @@ const CustomGoalsManager = {
 
     // Get goals that are currently in progress (today is within date range)
     async getInProgress() {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayStr = today.toISOString().split('T')[0];
+        const todayStr = GoalsUtils.getTodayDateString();
 
         const allGoals = await this.getAll();
         return allGoals.filter(goal => {
@@ -729,15 +727,21 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const progressBarClass = `completion-${Math.floor(percentage / 25) * 25}`;
 
-        // Format dates for display
-        const startDate = new Date(goal.startDate);
-        const endDate = new Date(goal.endDate);
+        // Format dates for display - parse YYYY-MM-DD as local date
+        const parseLocalDate = (dateStr) => {
+            if (!dateStr) return null;
+            const [year, month, day] = dateStr.split('-').map(Number);
+            return new Date(year, month - 1, day); // month is 0-indexed
+        };
+        
+        const startDate = parseLocalDate(goal.startDate);
+        const endDate = parseLocalDate(goal.endDate);
         let formattedStartDate = 'N/A';
 
-        if (startDate >= new Date(1980, 0, 1)) {
+        if (startDate && startDate >= new Date(1980, 0, 1)) {
             formattedStartDate = startDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' });
         }
-        const formattedEndDate = endDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' });
+        const formattedEndDate = endDate ? endDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
 
         return `
             <div class="goal-progress-item custom-goal-item" data-goal-id="${goal.id}">
@@ -1148,9 +1152,14 @@ document.addEventListener('DOMContentLoaded', function () {
             formattedProjection = projectionData.projection.toLocaleString();
         }
 
-        // Format target date
-        const targetDate = new Date(projectionData.end_date);
-        const formattedTargetDate = targetDate.toLocaleDateString(navigator.language);
+        // Format target date - parse YYYY-MM-DD as local date
+        const parseLocalDate = (dateStr) => {
+            if (!dateStr) return null;
+            const [year, month, day] = dateStr.split('-').map(Number);
+            return new Date(year, month - 1, day); // month is 0-indexed
+        };
+        const targetDate = parseLocalDate(projectionData.end_date);
+        const formattedTargetDate = targetDate ? targetDate.toLocaleDateString(navigator.language) : 'N/A';
 
         // Calculate projected completion date
         const remaining = Math.max(0, projectionData.target - projectionData.current);
@@ -1231,9 +1240,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // Filter for only the 5 core metrics and goals that have started
             const coreMetrics = ['hours', 'characters', 'games', 'cards', 'mature_cards'];
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const todayStr = today.toISOString().split('T')[0];
+            const todayStr = GoalsUtils.getTodayDateString();
 
             const customGoalsWithProjections = customGoals.filter(goal => {
                 // Must be a core metric
@@ -1387,8 +1394,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Helper to calculate days between two dates (inclusive)
                 function getDaysBetween(start, end) {
                     if (!start || !end) return null;
-                    const startDate = new Date(start);
-                    const endDate = new Date(end);
+                    // Parse YYYY-MM-DD as local dates
+                    const parseLocalDate = (dateStr) => {
+                        const [year, month, day] = dateStr.split('-').map(Number);
+                        return new Date(year, month - 1, day); // month is 0-indexed
+                    };
+                    const startDate = parseLocalDate(start);
+                    const endDate = parseLocalDate(end);
                     if (isNaN(startDate) || isNaN(endDate)) return null;
                     // Add 1 to include both start and end dates
                     return Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
