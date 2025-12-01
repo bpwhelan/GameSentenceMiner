@@ -188,6 +188,13 @@ const GoalsUtils = {
         return str.charAt(0).toUpperCase() + str.slice(1);
     },
 
+    // Parse YYYY-MM-DD date string as local date (not UTC)
+    parseLocalDate(dateStr) {
+        if (!dateStr) return null;
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return new Date(year, month - 1, day); // month is 0-indexed
+    },
+
     // Get goals from database (uses cache if available)
     async getGoalsWithFallback() {
         const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
@@ -395,9 +402,7 @@ const CustomGoalCheckboxManager = {
 
         // Start from the most recent completion date
         let streak = 1;
-        // Parse YYYY-MM-DD as local date
-        const [year, month, day] = sortedDates[0].split('-').map(Number);
-        let prevDate = new Date(year, month - 1, day); // month is 0-indexed
+        let prevDate = GoalsUtils.parseLocalDate(sortedDates[0]);
 
         // Count consecutive days backwards from the most recent date
         for (let i = 1; i < sortedDates.length; i++) {
@@ -728,14 +733,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const progressBarClass = `completion-${Math.floor(percentage / 25) * 25}`;
 
         // Format dates for display - parse YYYY-MM-DD as local date
-        const parseLocalDate = (dateStr) => {
-            if (!dateStr) return null;
-            const [year, month, day] = dateStr.split('-').map(Number);
-            return new Date(year, month - 1, day); // month is 0-indexed
-        };
-        
-        const startDate = parseLocalDate(goal.startDate);
-        const endDate = parseLocalDate(goal.endDate);
+        const startDate = GoalsUtils.parseLocalDate(goal.startDate);
+        const endDate = GoalsUtils.parseLocalDate(goal.endDate);
         let formattedStartDate = 'N/A';
 
         if (startDate && startDate >= new Date(1980, 0, 1)) {
@@ -1153,12 +1152,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         // Format target date - parse YYYY-MM-DD as local date
-        const parseLocalDate = (dateStr) => {
-            if (!dateStr) return null;
-            const [year, month, day] = dateStr.split('-').map(Number);
-            return new Date(year, month - 1, day); // month is 0-indexed
-        };
-        const targetDate = parseLocalDate(projectionData.end_date);
+        const targetDate = GoalsUtils.parseLocalDate(projectionData.end_date);
         const formattedTargetDate = targetDate ? targetDate.toLocaleDateString(navigator.language) : 'N/A';
 
         // Calculate projected completion date
@@ -1394,13 +1388,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Helper to calculate days between two dates (inclusive)
                 function getDaysBetween(start, end) {
                     if (!start || !end) return null;
-                    // Parse YYYY-MM-DD as local dates
-                    const parseLocalDate = (dateStr) => {
-                        const [year, month, day] = dateStr.split('-').map(Number);
-                        return new Date(year, month - 1, day); // month is 0-indexed
-                    };
-                    const startDate = parseLocalDate(start);
-                    const endDate = parseLocalDate(end);
+                    const startDate = GoalsUtils.parseLocalDate(start);
+                    const endDate = GoalsUtils.parseLocalDate(end);
                     if (isNaN(startDate) || isNaN(endDate)) return null;
                     // Add 1 to include both start and end dates
                     return Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
