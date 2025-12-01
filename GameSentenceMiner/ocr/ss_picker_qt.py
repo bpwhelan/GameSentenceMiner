@@ -227,6 +227,14 @@ def show_screen_cropper(on_complete=None, transparent_mode=False):
     Reuses the existing widget instance.
     """
     global _screen_cropper_instance
+    
+    # Set DPI awareness for Windows
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-monitor DPI awareness
+        except Exception as e:
+            logger.warning(f"Failed to set DPI awareness: {e}")
 
     if not transparent_mode:
         # Original mode: capture screen first
@@ -272,14 +280,6 @@ def show_screen_cropper(on_complete=None, transparent_mode=False):
             if on_complete:
                 on_complete(None)
             return
-    
-    # Set DPI awareness for Windows
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-monitor DPI awareness
-        except Exception as e:
-            logger.warning(f"Failed to set DPI awareness: {e}")
     
     # Create QApplication if it doesn't exist
     app = QApplication.instance()
