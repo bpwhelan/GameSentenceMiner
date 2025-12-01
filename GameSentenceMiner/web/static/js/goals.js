@@ -162,6 +162,13 @@ const GoalsUtils = {
         };
     },
 
+    // Parse YYYY-MM-DD date string to local Date object
+    parseLocalDate(dateStr) {
+        if (!dateStr) return null;
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return new Date(year, month - 1, day); // month is 0-indexed
+    },
+
     // Format date as YYYY-MM-DD
     formatDateString(date) {
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -395,7 +402,7 @@ const CustomGoalCheckboxManager = {
 
         // Start from the most recent completion date
         let streak = 1;
-        let prevDate = new Date(sortedDates[0]);
+        let prevDate = GoalsUtils.parseLocalDate(sortedDates[0]);
 
         // Count consecutive days backwards from the most recent date
         for (let i = 1; i < sortedDates.length; i++) {
