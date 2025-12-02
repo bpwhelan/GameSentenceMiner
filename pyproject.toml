@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.21.29"
+version = "2.21.30"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -33,7 +33,6 @@ dependencies = [
   "keyboard~=0.13.5",
   "websockets~=15.0.1",
   "dataclasses_json~=0.6.7",
-  "betterproto==2.0.0b7",
   "obsws-python~=1.8.0",
   "numpy==2.2.6",
   "faster-whisper~=1.2.0",
@@ -69,6 +68,12 @@ dependencies = [
   "langid~=1.1.6",
   "pysbd~=0.3.4",
   "pypresence>=4.6.1",
+  "tokenizers~=0.22.1",
+]
+
+[project.optional-dependencies]
+lens = [
+  "betterproto==2.0.0b7",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
