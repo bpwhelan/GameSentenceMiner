@@ -50,6 +50,7 @@ from GameSentenceMiner.web.rollup_stats import (
     build_daily_chart_data_from_rollup,
     calculate_day_of_week_averages_from_rollup,
     calculate_difficulty_speed_from_rollup,
+    calculate_genre_tag_stats_from_rollup,
 )
 
 
@@ -1037,6 +1038,22 @@ def register_stats_api_routes(app):
                 logger.error(f"Error calculating game type distribution: {e}")
                 game_type_data = {"labels": [], "counts": []}
 
+            # 15. Calculate genre and tag statistics (ROLLUP ONLY - no live data)
+            try:
+                # Use pre-computed function from rollup_stats with rollup data only
+                genre_tag_data = calculate_genre_tag_stats_from_rollup(rollup_stats if rollup_stats else {})
+            except Exception as e:
+                logger.error(f"Error calculating genre/tag statistics: {e}")
+                genre_tag_data = {
+                    "genres": {
+                        "top_speed": {"labels": [], "speeds": []},
+                        "top_chars": {"labels": [], "chars": []}
+                    },
+                    "tags": {
+                        "top_speed": {"labels": [], "speeds": []},
+                        "top_chars": {"labels": [], "chars": []}
+                    }
+                }
 
             # Log total request time
             total_time = time.time() - request_start_time
@@ -1064,6 +1081,7 @@ def register_stats_api_routes(app):
                     "dayOfWeekData": day_of_week_data,
                     "difficultySpeedData": difficulty_speed_data,
                     "gameTypeData": game_type_data,
+                    "genreTagData": genre_tag_data,
                 }
             )
 
@@ -2019,6 +2037,8 @@ def register_stats_api_routes(app):
                             "difficulty": game_metadata.difficulty,
                             "links": game_metadata.links or [],
                             "completed": game_metadata.completed or False,
+                            "genres": game_metadata.genres or [],
+                            "tags": game_metadata.tags or [],
                         }
                     else:
                         game_name_to_title[line.game_name] = line.game_name
