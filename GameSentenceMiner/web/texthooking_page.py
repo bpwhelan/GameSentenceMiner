@@ -68,6 +68,55 @@ except ImportError:
         "flask-compress not installed. Run 'pip install flask-compress' for better performance."
     )
 
+# Configure Swagger/Flasgger for API documentation
+try:
+    from flasgger import Swagger
+    
+    swagger_config = {
+        "headers": [],
+        "specs": [
+            {
+                "endpoint": "apispec",
+                "route": "/apispec.json",
+                "rule_filter": lambda rule: True,
+                "model_filter": lambda tag: True,
+            }
+        ],
+        "static_url_path": "/flasgger_static",
+        "swagger_ui": True,
+        "specs_route": "/api/docs"
+    }
+    
+    swagger_template = {
+        "swagger": "2.0",
+        "info": {
+            "title": "GameSentenceMiner API",
+            "description": "API documentation for GameSentenceMiner - A tool for mining sentences from Japanese games",
+            "version": "1.0.0",
+            "contact": {
+                "name": "GameSentenceMiner",
+                "url": "https://github.com/yourusername/GameSentenceMiner"
+            }
+        },
+        "host": f"localhost:{port}",
+        "basePath": "/",
+        "schemes": ["http"],
+        "tags": [
+            {"name": "Database", "description": "Database operations and search"},
+            {"name": "Statistics", "description": "Statistics and analytics endpoints"},
+            {"name": "Anki", "description": "Anki integration endpoints"},
+            {"name": "Jiten", "description": "Jiten.moe integration endpoints"},
+            {"name": "Text Processing", "description": "Text replacement and processing"},
+            {"name": "Goals", "description": "Goals and progress tracking"},
+        ]
+    }
+    
+    Swagger(app, config=swagger_config, template=swagger_template)
+    logger.info("Swagger API documentation enabled at /api/docs")
+except ImportError:
+    logger.warning(
+        "flasgger not installed. Run 'pip install flasgger' for API documentation support."
+    )
 
 # Add cache control headers for static files
 @app.after_request
@@ -133,6 +182,30 @@ def load_data():
 
 @app.route("/save-data", methods=["POST"])
 def save_data():
+    """
+    Save text replacement data
+    ---
+    tags:
+      - Text Processing
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            args:
+              type: object
+    responses:
+      200:
+        description: Data saved successfully
+      400:
+        description: Invalid data format
+      500:
+        description: Failed to save data
+    """
     try:
         data = request.get_json()
         if not isinstance(data, dict):
@@ -177,6 +250,26 @@ def texthooker():
 
 @app.route("/textreplacements")
 def textreplacements():
+    """
+    Get text replacements configuration
+    ---
+    tags:
+      - Text Processing
+    responses:
+      200:
+        description: Text replacements configuration
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            args:
+              type: object
+      404:
+        description: Text replacements file not found
+      500:
+        description: Failed to load text replacements
+    """
     # Serve the text replacements data as JSON for compatibility
     try:
         if not os.path.exists(TEXT_REPLACEMENTS_FILE):
@@ -265,7 +358,29 @@ def update_event():
 
 @app.route("/get-screenshot", methods=["Post"])
 def get_screenshot():
-    """Endpoint to get a screenshot of the current game screen."""
+    """
+    Get screenshot of current game screen
+    ---
+    tags:
+      - Text Processing
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            id:
+              type: string
+              description: Event ID
+    responses:
+      200:
+        description: Screenshot captured successfully
+      400:
+        description: Missing or invalid event ID
+      500:
+        description: Failed to capture screenshot
+    """
     data = request.get_json()
     event_id = data.get("id")
     if event_id is None:
@@ -289,7 +404,29 @@ def get_screenshot():
 
 @app.route("/play-audio", methods=["POST"])
 def play_audio():
-    """Endpoint to play audio for a specific event."""
+    """
+    Play audio for a specific event
+    ---
+    tags:
+      - Text Processing
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            id:
+              type: string
+              description: Event ID
+    responses:
+      200:
+        description: Audio played successfully
+      400:
+        description: Missing or invalid event ID
+      500:
+        description: Failed to play audio
+    """
     data = request.get_json()
     event_id = data.get("id")
     if event_id is None:
@@ -315,6 +452,36 @@ def play_audio():
 
 @app.route("/translate-line", methods=["POST"])
 def translate_line():
+    """
+    Translate a single line using AI
+    ---
+    tags:
+      - Text Processing
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            id:
+              type: string
+              description: Line ID to translate
+            text:
+              type: string
+              description: Optional text override
+    responses:
+      200:
+        description: Translation result
+        schema:
+          type: object
+          properties:
+            TL:
+              type: string
+              description: Translated text
+      400:
+        description: Invalid request or AI not configured
+    """
     data = request.get_json()
     event_id = data.get("id")
     text = data.get("text", "").strip()
@@ -358,6 +525,33 @@ def translate_line():
 
 @app.route("/translate-multiple", methods=["POST"])
 def translate_multiple():
+    """
+    Translate multiple lines using AI
+    ---
+    tags:
+      - Text Processing
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            ids:
+              type: array
+              items:
+                type: string
+              description: List of line IDs to translate
+    responses:
+      200:
+        description: Translation result
+        schema:
+          type: string
+      400:
+        description: Invalid request or AI not configured
+      500:
+        description: Translation failed
+    """
     data = request.get_json()
     event_ids = data.get("ids", [])
     if not event_ids:
@@ -407,6 +601,17 @@ def translate_multiple():
 
 @app.route("/get_status", methods=["GET"])
 def get_status():
+    """
+    Get current GSM status
+    ---
+    tags:
+      - Text Processing
+    responses:
+      200:
+        description: Current status information
+        schema:
+          type: object
+    """
     return jsonify(gsm_status.to_dict()), 200
 
 
@@ -529,7 +734,7 @@ def start_web_server(debug=False):
     # FOR TEXTHOOKER DEVELOPMENT, UNCOMMENT THE FOLLOWING LINE WITH Flask-CORS INSTALLED:
     # from flask_cors import CORS
     # CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
-    app.run(host=get_config().advanced.localhost_bind_address, port=port, debug=debug)
+    app.run(host=get_config().advanced.localhost_bind_address, port=port, debug=debug, threaded=True)
 
 
 async def texthooker_page_coro(wait=False, debug=False):

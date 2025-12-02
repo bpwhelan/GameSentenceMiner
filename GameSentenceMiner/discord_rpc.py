@@ -1,22 +1,26 @@
 import asyncio
-import time
 import threading
+import time
 
 from pypresence import Presence, PyPresenceException
-from GameSentenceMiner.util.configuration import logger, get_config
+
 from GameSentenceMiner.live_stats import live_stats_tracker
+from GameSentenceMiner.util.configuration import get_config, logger
+
 
 # Decorator to guard methods if self.DISABLED is True
 def disabled_guard(method):
     def wrapper(self, *args, **kwargs):
-        if getattr(self, 'DISABLED', False):
+        if getattr(self, "DISABLED", False):
             return
         return method(self, *args, **kwargs)
+
     return wrapper
+
 
 class DiscordRPCManager:
     def __init__(self):
-        self.client_id = '1441571345942052935'  # Public GSM App ID
+        self.client_id = "1441571345942052935"  # Public GSM App ID
         self.rpc = None
         self.rpc_thread = None
         self.running = False
@@ -25,7 +29,7 @@ class DiscordRPCManager:
         self.current_cph = 0
         self.stop_timer = None
         # Flag to disable all functionality, to release this feature, change this to False
-        self.DISABLED = True
+        self.DISABLED = False
 
     @disabled_guard
     def _run(self):
@@ -67,7 +71,10 @@ class DiscordRPCManager:
                 self.stop_rpc_instance()
                 time.sleep(20)
             except Exception as e:
-                logger.error(f"An unexpected error occurred in Discord RPC thread: {e}", exc_info=True)
+                logger.error(
+                    f"An unexpected error occurred in Discord RPC thread: {e}",
+                    exc_info=True,
+                )
                 self.running = False
 
     @disabled_guard
@@ -128,6 +135,7 @@ class DiscordRPCManager:
                 logger.warning(f"Error closing Discord RPC: {e}")
             finally:
                 self.rpc = None
+
 
 # Singleton instance
 discord_rpc_manager = DiscordRPCManager()

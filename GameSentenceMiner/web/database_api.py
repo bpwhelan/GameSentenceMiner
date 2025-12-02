@@ -51,6 +51,240 @@ from GameSentenceMiner.web.rollup_stats import (
 )
 
 
+def delete_text_lines(regex_pattern=None, exact_text=None, case_sensitive=False, use_regex=False):
+    """
+    Core function to delete lines matching specified pattern.
+    
+    Args:
+        regex_pattern: Regex pattern to match (if use_regex is True)
+        exact_text: Exact text to match (string or list of strings)
+        case_sensitive: Whether matching is case sensitive
+        use_regex: Whether to use regex matching
+    
+    Returns:
+        dict: {"deleted_count": int, "failed_ids": list}
+    
+    Raises:
+        ValueError: If invalid parameters or regex pattern
+    """
+    if not regex_pattern and not exact_text:
+        raise ValueError("Either regex_pattern or exact_text must be provided")
+    
+    # Get all lines from database
+    all_lines = GameLinesTable.all()
+    if not all_lines:
+        return {"deleted_count": 0, "failed_ids": []}
+    
+    lines_to_delete = []
+    
+    if regex_pattern and use_regex:
+        # Use regex matching
+        if not isinstance(regex_pattern, str):
+            raise ValueError("Regex pattern must be a string")
+        
+        flags = 0 if case_sensitive else re.IGNORECASE
+        try:
+            pattern = re.compile(regex_pattern, flags)
+        except re.error as e:
+            raise ValueError(f"Invalid regex pattern: {str(e)}")
+        
+        for line in all_lines:
+            if (
+                line.line_text
+                and isinstance(line.line_text, str)
+                and pattern.search(line.line_text)
+            ):
+                lines_to_delete.append(line.id)
+    
+    elif exact_text:
+        # Use exact text matching
+        if isinstance(exact_text, list):
+            text_lines = exact_text
+        elif isinstance(exact_text, str):
+            text_lines = [exact_text]
+        else:
+            raise ValueError("exact_text must be a string or list of strings")
+        
+        for line in all_lines:
+            if line.line_text and isinstance(line.line_text, str):
+                line_text = (
+                    line.line_text if case_sensitive else line.line_text.lower()
+                )
+                
+                for target_text in text_lines:
+                    if not isinstance(target_text, str):
+                        continue
+                    compare_text = (
+                        target_text if case_sensitive else target_text.lower()
+                    )
+                    if compare_text in line_text:
+                        lines_to_delete.append(line.id)
+                        break
+    
+    # Delete the matching lines
+    deleted_count = 0
+    failed_ids = []
+    
+    for line_id in set(lines_to_delete):  # Remove duplicates
+        try:
+            GameLinesTable._db.execute(
+                f"DELETE FROM {GameLinesTable._table} WHERE id=?",
+                (line_id,),
+                commit=True,
+            )
+            deleted_count += 1
+        except Exception as e:
+            logger.warning(f"Failed to delete line {line_id}: {e}")
+            failed_ids.append(line_id)
+    
+    logger.info(
+        f"Deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}"
+    )
+    
+    return {"deleted_count": deleted_count, "failed_ids": failed_ids}
+
+
+def deduplicate_lines_core(games, time_window_minutes=5, case_sensitive=False,
+                          preserve_newest=False, ignore_time_window=False):
+    """
+    Core function to remove duplicate sentences from selected games.
+    
+    Args:
+        games: List of game names to process (or ["all"] for all games)
+        time_window_minutes: Time window in minutes for duplicate detection
+        case_sensitive: Whether matching is case sensitive
+        preserve_newest: Whether to preserve newest duplicates
+        ignore_time_window: Whether to ignore time window and remove all duplicates
+    
+    Returns:
+        dict: {"deleted_count": int, "failed_ids": list}
+    
+    Raises:
+        ValueError: If invalid parameters
+    """
+    if not games:
+        raise ValueError("At least one game must be selected")
+    
+    # Get lines from selected games
+    if "all" in games:
+        all_lines = GameLinesTable.all()
+    else:
+        all_lines = []
+        for game_name in games:
+            game_lines = GameLinesTable.get_all_lines_for_scene(game_name)
+            all_lines.extend(game_lines)
+    
+    if not all_lines:
+        return {"deleted_count": 0, "failed_ids": []}
+    
+    # Group lines by game and sort by timestamp
+    game_lines = defaultdict(list)
+    for line in all_lines:
+        game_name = line.game_name or "Unknown Game"
+        game_lines[game_name].append(line)
+    
+    # Sort lines within each game by timestamp
+    for game_name in game_lines:
+        game_lines[game_name].sort(key=lambda x: float(x.timestamp))
+    
+    duplicates_to_remove = []
+    time_window_seconds = time_window_minutes * 60
+    
+    # Find duplicates for each game
+    for game_name, lines in game_lines.items():
+        if ignore_time_window:
+            # Find all duplicates regardless of time
+            seen_texts = {}
+            for line in lines:
+                if not line.line_text or not line.line_text.strip():
+                    continue
+                
+                line_text = (
+                    line.line_text if case_sensitive else line.line_text.lower()
+                )
+                
+                if line_text in seen_texts:
+                    # Found duplicate
+                    if preserve_newest:
+                        # Remove the older one (previous)
+                        duplicates_to_remove.append(seen_texts[line_text])
+                        seen_texts[line_text] = line.id  # Update to keep newest
+                    else:
+                        # Remove the newer one (current)
+                        duplicates_to_remove.append(line.id)
+                else:
+                    seen_texts[line_text] = line.id
+        else:
+            # Find duplicates within time window
+            text_timeline = []
+            
+            for line in lines:
+                if not line.line_text or not line.line_text.strip():
+                    continue
+                
+                line_text = (
+                    line.line_text if case_sensitive else line.line_text.lower()
+                )
+                timestamp = float(line.timestamp)
+                
+                # Check for duplicates within time window
+                duplicate_found = False
+                for i, (prev_text, prev_timestamp, prev_line_id) in enumerate(
+                    reversed(text_timeline)
+                ):
+                    if timestamp - prev_timestamp > time_window_seconds:
+                        break  # Outside time window
+                    
+                    if prev_text == line_text:
+                        # Found duplicate within time window
+                        if preserve_newest:
+                            # Remove the older one (previous)
+                            duplicates_to_remove.append(prev_line_id)
+                            # Update timeline to replace old entry with new one
+                            timeline_index = len(text_timeline) - 1 - i
+                            text_timeline[timeline_index] = (
+                                line_text,
+                                timestamp,
+                                line.id,
+                            )
+                        else:
+                            # Remove the newer one (current)
+                            duplicates_to_remove.append(line.id)
+                        
+                        duplicate_found = True
+                        break
+                
+                if not duplicate_found:
+                    text_timeline.append((line_text, timestamp, line.id))
+    
+    # Delete the duplicate lines
+    deleted_count = 0
+    failed_ids = []
+    
+    for line_id in set(duplicates_to_remove):  # Remove duplicates from deletion list
+        try:
+            GameLinesTable._db.execute(
+                f"DELETE FROM {GameLinesTable._table} WHERE id=?",
+                (line_id,),
+                commit=True,
+            )
+            deleted_count += 1
+        except Exception as e:
+            logger.warning(f"Failed to delete duplicate line {line_id}: {e}")
+            failed_ids.append(line_id)
+    
+    mode_desc = (
+        "entire game"
+        if ignore_time_window
+        else f"{time_window_minutes}min window"
+    )
+    logger.info(
+        f"Deduplication completed: removed {deleted_count} duplicate sentences from {len(games)} games with {mode_desc}"
+    )
+    
+    return {"deleted_count": deleted_count, "failed_ids": failed_ids}
+
+
 def register_database_api_routes(app):
     """Register all database API routes with the Flask app."""
 
@@ -1406,83 +1640,15 @@ def register_database_api_routes(app):
             case_sensitive = data.get("case_sensitive", False)
             use_regex = data.get("use_regex", False)
 
-            if not regex_pattern and not exact_text:
-                return jsonify(
-                    {"error": "Either regex_pattern or exact_text must be provided"}
-                ), 400
-
-            # Get all lines from database
-            all_lines = GameLinesTable.all()
-            if not all_lines:
-                return jsonify({"deleted_count": 0}), 200
-
-            lines_to_delete = []
-
-            if regex_pattern and use_regex:
-                # Use regex matching
-                try:
-                    # Ensure regex_pattern is a string
-                    if not isinstance(regex_pattern, str):
-                        return jsonify({"error": "Regex pattern must be a string"}), 400
-
-                    flags = 0 if case_sensitive else re.IGNORECASE
-                    pattern = re.compile(regex_pattern, flags)
-
-                    for line in all_lines:
-                        if (
-                            line.line_text
-                            and isinstance(line.line_text, str)
-                            and pattern.search(line.line_text)
-                        ):
-                            lines_to_delete.append(line.id)
-
-                except re.error as e:
-                    return jsonify({"error": f"Invalid regex pattern: {str(e)}"}), 400
-
-            elif exact_text:
-                # Use exact text matching - ensure exact_text is properly handled
-                if isinstance(exact_text, list):
-                    text_lines = exact_text
-                elif isinstance(exact_text, str):
-                    text_lines = [exact_text]
-                else:
-                    return jsonify(
-                        {"error": "exact_text must be a string or list of strings"}
-                    ), 400
-
-                for line in all_lines:
-                    if line.line_text and isinstance(line.line_text, str):
-                        line_text = (
-                            line.line_text if case_sensitive else line.line_text.lower()
-                        )
-
-                        for target_text in text_lines:
-                            # Ensure target_text is a string
-                            if not isinstance(target_text, str):
-                                continue
-                            compare_text = (
-                                target_text if case_sensitive else target_text.lower()
-                            )
-                            if compare_text in line_text:
-                                lines_to_delete.append(line.id)
-                                break
-
-            # Delete the matching lines
-            deleted_count = 0
-            for line_id in set(lines_to_delete):  # Remove duplicates
-                try:
-                    GameLinesTable._db.execute(
-                        f"DELETE FROM {GameLinesTable._table} WHERE id=?",
-                        (line_id,),
-                        commit=True,
-                    )
-                    deleted_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to delete line {line_id}: {e}")
-
-            logger.info(
-                f"Deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}"
+            # Call core function
+            result = delete_text_lines_core(
+                regex_pattern=regex_pattern,
+                exact_text=exact_text,
+                case_sensitive=case_sensitive,
+                use_regex=use_regex
             )
+            
+            deleted_count = result["deleted_count"]
 
             # Trigger stats rollup after successful deletion
             if deleted_count > 0:
@@ -1500,6 +1666,8 @@ def register_database_api_routes(app):
                 }
             ), 200
 
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
         except Exception as e:
             logger.error(f"Error in delete text lines: {e}")
             return jsonify({"error": f"Deletion failed: {str(e)}"}), 500
@@ -1762,124 +1930,16 @@ def register_database_api_routes(app):
             preserve_newest = data.get("preserve_newest", False)
             ignore_time_window = data.get("ignore_time_window", False)
 
-            if not games:
-                return jsonify({"error": "At least one game must be selected"}), 400
-
-            # Get lines from selected games
-            if "all" in games:
-                all_lines = GameLinesTable.all()
-            else:
-                all_lines = []
-                for game_name in games:
-                    game_lines = GameLinesTable.get_all_lines_for_scene(game_name)
-                    all_lines.extend(game_lines)
-
-            if not all_lines:
-                return jsonify({"deleted_count": 0}), 200
-
-            # Group lines by game and sort by timestamp
-            game_lines = defaultdict(list)
-            for line in all_lines:
-                game_name = line.game_name or "Unknown Game"
-                game_lines[game_name].append(line)
-
-            # Sort lines within each game by timestamp
-            for game_name in game_lines:
-                game_lines[game_name].sort(key=lambda x: float(x.timestamp))
-
-            duplicates_to_remove = []
-            time_window_seconds = time_window_minutes * 60
-
-            # Find duplicates for each game
-            for game_name, lines in game_lines.items():
-                if ignore_time_window:
-                    # Find all duplicates regardless of time
-                    seen_texts = {}
-                    for line in lines:
-                        if not line.line_text or not line.line_text.strip():
-                            continue
-
-                        line_text = (
-                            line.line_text if case_sensitive else line.line_text.lower()
-                        )
-
-                        if line_text in seen_texts:
-                            # Found duplicate
-                            if preserve_newest:
-                                # Remove the older one (previous)
-                                duplicates_to_remove.append(seen_texts[line_text])
-                                seen_texts[line_text] = line.id  # Update to keep newest
-                            else:
-                                # Remove the newer one (current)
-                                duplicates_to_remove.append(line.id)
-                        else:
-                            seen_texts[line_text] = line.id
-                else:
-                    # Find duplicates within time window (original logic)
-                    text_timeline = []
-
-                    for line in lines:
-                        if not line.line_text or not line.line_text.strip():
-                            continue
-
-                        line_text = (
-                            line.line_text if case_sensitive else line.line_text.lower()
-                        )
-                        timestamp = float(line.timestamp)
-
-                        # Check for duplicates within time window
-                        duplicate_found = False
-                        for i, (prev_text, prev_timestamp, prev_line_id) in enumerate(
-                            reversed(text_timeline)
-                        ):
-                            if timestamp - prev_timestamp > time_window_seconds:
-                                break  # Outside time window
-
-                            if prev_text == line_text:
-                                # Found duplicate within time window
-                                if preserve_newest:
-                                    # Remove the older one (previous)
-                                    duplicates_to_remove.append(prev_line_id)
-                                    # Update timeline to replace old entry with new one
-                                    timeline_index = len(text_timeline) - 1 - i
-                                    text_timeline[timeline_index] = (
-                                        line_text,
-                                        timestamp,
-                                        line.id,
-                                    )
-                                else:
-                                    # Remove the newer one (current)
-                                    duplicates_to_remove.append(line.id)
-
-                                duplicate_found = True
-                                break
-
-                        if not duplicate_found:
-                            text_timeline.append((line_text, timestamp, line.id))
-
-            # Delete the duplicate lines
-            deleted_count = 0
-            for line_id in set(
-                duplicates_to_remove
-            ):  # Remove duplicates from deletion list
-                try:
-                    GameLinesTable._db.execute(
-                        f"DELETE FROM {GameLinesTable._table} WHERE id=?",
-                        (line_id,),
-                        commit=True,
-                    )
-                    deleted_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to delete duplicate line {line_id}: {e}")
-
-            mode_desc = (
-                "entire game"
-                if ignore_time_window
-                else f"{time_window_minutes}min window"
+            # Call core function
+            result = deduplicate_lines_core(
+                games=games,
+                time_window_minutes=time_window_minutes,
+                case_sensitive=case_sensitive,
+                preserve_newest=preserve_newest,
+                ignore_time_window=ignore_time_window
             )
-            logger.info(
-                f"Deduplication completed: removed {deleted_count} duplicate sentences from {len(games)} games with {mode_desc}"
-            )
+            
+            deleted_count = result["deleted_count"]
 
             # Trigger stats rollup after successful deduplication
             if deleted_count > 0:
@@ -1897,6 +1957,8 @@ def register_database_api_routes(app):
                 }
             ), 200
 
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
         except Exception as e:
             logger.error(f"Error in deduplication: {e}")
             return jsonify({"error": f"Deduplication failed: {str(e)}"}), 500

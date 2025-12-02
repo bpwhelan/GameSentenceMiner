@@ -624,6 +624,209 @@ def format_requirement_display(value, metric_type):
         return str(int(value))
 
 
+def get_todays_goals(user_tz=None):
+    """
+    Get all goals for today with their current progress and required amounts.
+    Returns a consolidated list of all active goals for today.
+    
+    This is a standalone function that can be called directly without Flask context.
+    
+    Args:
+        user_tz: Optional pytz timezone object. If None, uses UTC.
+        
+    Returns:
+        dict: {
+            "date": "2025-01-14",
+            "goals": [
+                {
+                    "goal_name": "Read for 6 hours in October",
+                    "progress_today": 2.5,
+                    "progress_needed": 1.8,
+                    "metric_type": "hours",
+                    "goal_icon": "⏱️"
+                },
+                ...
+            ]
+        }
+    
+    Example:
+        from GameSentenceMiner.web.goals_api import get_todays_goals
+        import pytz
+        
+        # Get today's goals
+        data = get_todays_goals()
+        
+        # Or with specific timezone
+        data = get_todays_goals(user_tz=pytz.timezone('Asia/Tokyo'))
+        
+        for g in data.get("goals", []):
+            name = g.get("goal_name")
+            today = g.get("progress_today")
+            needed = g.get("progress_needed")
+            icon = g.get("goal_icon", "🎯")
+            print(f"{icon} {name}: {today}/{needed}")
+    """
+    logger.info("Getting today's goals")
+    try:
+        # Get user's timezone and today's date
+        if user_tz is None:
+            user_tz = pytz.UTC
+        today = get_today_in_timezone(user_tz)
+        today_str = today.strftime("%Y-%m-%d")
+        logger.info(f"Today is {today_str}")
+        
+        # Get current goals and settings
+        logger.info("Fetching current goals from database")
+        current_entry = GoalsTable.get_by_date('current')
+        
+        if not current_entry:
+            logger.info("No current goals found, returning empty list")
+            return {
+                "date": today_str,
+                "goals": []
+            }
+        
+        # Parse current goals
+        logger.info("Parsing current goals")
+        if isinstance(current_entry.current_goals, str):
+            try:
+                current_goals = json.loads(current_entry.current_goals)
+            except json.JSONDecodeError:
+                current_goals = []
+        else:
+            current_goals = current_entry.current_goals if current_entry.current_goals else []
+        
+        logger.info(f"Found {len(current_goals)} goals to process")
+        
+        # Parse goals settings
+        if isinstance(current_entry.goals_settings, str):
+            try:
+                goals_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
+            except json.JSONDecodeError:
+                goals_settings = {}
+        else:
+            goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
+        
+        today_goals = []
+        
+        # Fetch today's live data once for all goals (optimization)
+        logger.info("Fetching today's live data")
+        today_lines, live_stats = get_todays_live_data(today)
+        logger.info(f"Found {len(today_lines) if today_lines else 0} lines for today")
+        
+        yesterday = today - datetime.timedelta(days=1)
+        
+        # Cache for rollup stats to avoid repeated database queries
+        rollup_cache = {}
+        
+        # Process each goal
+        for i, goal in enumerate(current_goals):
+            logger.info(f"Processing goal {i+1}/{len(current_goals)}")
+            goal_name = goal.get('name', 'Unknown Goal')
+            metric_type = goal.get('metricType')
+            target_value = goal.get('targetValue')
+            start_date_str = goal.get('startDate')
+            end_date_str = goal.get('endDate')
+            goal_icon = goal.get('icon', '🎯')
+            
+            logger.info(f"Goal: {goal_name}, metric: {metric_type}")
+            
+            # Skip custom goals (they don't have numeric progress)
+            if metric_type == 'custom':
+                logger.info("Skipping custom goal")
+                continue
+            
+            # Validate required fields
+            if not all([metric_type, target_value, start_date_str, end_date_str]):
+                continue
+            
+            # Parse dates
+            try:
+                start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+            except ValueError:
+                continue
+            
+            # Check if goal is active today
+            if today < start_date or today > end_date:
+                continue
+            
+            # Get today's progress for this goal
+            try:
+                # Calculate today's progress
+                today_progress = 0
+                if live_stats:
+                    today_stats_only = combine_rollup_and_live_stats(None, live_stats)
+                    today_progress = extract_metric_value(
+                        today_stats_only, metric_type,
+                        today_lines=today_lines,
+                        start_date=None,
+                        yesterday=None,
+                        goals_settings=goals_settings,
+                        for_today_only=True
+                    )
+                
+                # Calculate today's required amount
+                # Get easy day multiplier for today
+                easy_day_multiplier = calculate_easy_day_multiplier(today, goals_settings)
+                
+                # Calculate total progress from start_date to yesterday
+                # Use cache to avoid repeated database queries for the same date range
+                rollup_stats = None
+                if start_date <= yesterday:
+                    cache_key = (start_date.strftime("%Y-%m-%d"), yesterday.strftime("%Y-%m-%d"))
+                    if cache_key not in rollup_cache:
+                        rollup_cache[cache_key] = get_rollup_stats_for_range(start_date, yesterday)
+                    rollup_stats = rollup_cache[cache_key]
+                
+                # Combine stats for total progress
+                combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
+                
+                # Extract total progress
+                total_progress = extract_metric_value(
+                    combined_stats, metric_type,
+                    today_lines=today_lines,
+                    start_date=start_date if start_date <= yesterday else None,
+                    yesterday=yesterday if start_date <= yesterday else None,
+                    goals_settings=goals_settings
+                )
+                
+                # Calculate days remaining (including today)
+                days_remaining = (end_date - today).days + 1
+                
+                # Calculate daily requirement
+                remaining_work = max(0, target_value - total_progress)
+                daily_required = remaining_work / days_remaining if days_remaining > 0 else 0
+                
+                # Apply easy day multiplier to reduce today's requirement
+                daily_required_adjusted = daily_required * easy_day_multiplier
+                
+                # Format values
+                formatted_progress = format_metric_value(today_progress, metric_type)
+                formatted_required = format_metric_value(daily_required_adjusted, metric_type)
+                
+                today_goals.append({
+                    "goal_name": goal_name,
+                    "progress_today": formatted_progress,
+                    "progress_needed": formatted_required,
+                    "metric_type": metric_type,
+                    "goal_icon": goal_icon
+                })
+                
+            except Exception as e:
+                logger.warning(f"Error calculating progress for goal '{goal_name}': {e}")
+                continue
+        
+        logger.info(f"Successfully processed {len(today_goals)} active goals for today")
+        return {
+            "date": today_str,
+            "goals": today_goals
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting today's goals: {e}", exc_info=True)
+        raise
+
+
 def register_goals_api_routes(app):
     """Register goals API routes with the Flask app."""
 
@@ -1549,6 +1752,24 @@ def register_goals_api_routes(app):
             },
             "last_updated": <timestamp>
         }
+
+        Example:
+            import requests
+
+            url = "http://localhost:5050/api/goals/current"
+
+            try:
+                response = requests.get(url)
+                response.raise_for_status()  # raise error for non-200
+
+                data = response.json()
+                print("Current goals:", data.get("current_goals"))
+                print("Settings:", data.get("goals_settings"))
+                print("Last updated:", data.get("last_updated"))
+
+            except requests.exceptions.RequestException as e:
+                print("Request failed:", e)
+
         """
         try:
             # Try to get the 'current' entry (date='current')
@@ -1716,3 +1937,65 @@ def register_goals_api_routes(app):
         except Exception as e:
             logger.error(f"Error updating current goals: {e}", exc_info=True)
             return jsonify({"error": "Failed to update goals"}), 500
+    
+    @app.route("/api/goals/today", methods=["GET"])
+    def api_get_todays_goals():
+        """
+        Get all goals for today with their current progress and required amounts.
+        Returns a consolidated list of all active goals for today.
+        
+        Returns:
+        {
+            "date": "2025-01-14",
+            "goals": [
+                {
+                    "goal_name": "Read for 6 hours in October",
+                    "progress_today": 2.5,
+                    "progress_needed": 1.8,
+                    "metric_type": "hours",
+                    "goal_icon": "⏱️"
+                },
+                ...
+            ]
+        }
+
+        Example:
+            import requests
+
+            def fetch_todays_goals():
+                try:
+                    data = requests.get("http://localhost:5050/api/goals/today").json()
+                    print(f"📅 {data.get('date')}")
+
+                    for g in data.get("goals", []):
+                        name = g.get("goal_name")
+                        today = g.get("progress_today")
+                        needed = g.get("progress_needed")
+                        icon = g.get("goal_icon", "🎯")
+
+                        print(f"{icon} {name}: {today}/{needed}")
+
+                except Exception as e:
+                    print("Error:", e)
+
+            fetch_todays_goals()
+
+        """
+        logger.info("API /api/goals/today called")
+        try:
+            # Get user's timezone from request headers
+            user_tz = get_user_timezone()
+            
+            # Call the standalone function
+            response_data = get_todays_goals(user_tz)
+            
+            # Return JSON response with headers
+            result = jsonify(response_data)
+            result.headers['Connection'] = 'keep-alive'
+            result.headers['Content-Type'] = 'application/json'
+            logger.info("Returning response with keep-alive headers")
+            return result, 200
+            
+        except Exception as e:
+            logger.error(f"Error getting today's goals: {e}", exc_info=True)
+            return jsonify({"error": "Failed to get today's goals"}), 500

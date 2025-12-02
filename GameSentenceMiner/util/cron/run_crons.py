@@ -20,6 +20,7 @@ class Crons(enum.Enum):
     POPULATE_GAMES = 'populate_games'
     JITEN_SYNC = 'jiten_sync'
     DAILY_STATS_ROLLUP = 'daily_stats_rollup'
+    USER_PLUGINS = "user_plugins"
 
 @dataclass
 class MockCron:
@@ -225,7 +226,7 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
                 
                 logger.info(f"Successfully executed {cron.name}")
                 
-            elif cron.name == 'plugins':
+            elif cron.name == Crons.USER_PLUGINS.value:
                 from GameSentenceMiner.util.cron.user_plugins import execute_user_plugins
                 result = execute_user_plugins()
                 

@@ -285,3 +285,146 @@ But probably best to wait.
 * Download your data from another service, convert to ExStatic format and automatically import that into GSM
 
 If you make a cool plugin, please share it in #resource-sharing in the Discord!
+
+# Real world example
+
+This is **my** plugin file:
+
+```python
+"""
+User Plugins - Runs every minute via GSM cron system
+
+Edit this file to customize GSM behavior. See USER_PLUGINS_README.md for full documentation.
+https://github.com/YOUR_REPO/blob/main/GameSentenceMiner/util/cron/USER_PLUGINS_README.md
+
+Your code runs automatically every minute when enabled.
+"""
+
+def main():
+    """
+    Main entry point - called every minute by GSM cron system.
+    Add your custom code here.
+    """
+    dailies()
+
+
+def delete_duplicates_from_games():
+    import requests
+    from GameSentenceMiner.util.configuration import logger
+
+    # from all games
+    games = ["all"]
+    # delete all lines:
+    # regardless of case
+    case = "case_insensitive"
+    # within 5 minutes of each other
+    window = 5
+    # burt keep the newest line
+    preserve = "preserve_newest"
+
+    payload = {
+            "games": games,
+            "case_sensitive": case,
+            "preserve_newest": preserve,
+            "time_window_minutes": window,
+            "ignore_time_window": False
+    }
+
+    response = requests.post(
+        "http://localhost:5000/api/preview-deduplication",
+        json=payload,
+        timeout=300
+    )
+
+    if response.status_code == 200:
+        deleted_count = result.get("deleted_count", 0)
+        # 100 duplicates within 5 mins of each other, alert me as it may be a bug
+        if deleted_count > 100:
+            logger.error("[Plugin] Deduplicate might be broken. More than 100 dupes")
+            send_notification("[Plugin] Deduplicate might be broken. More than 100 dupes")
+            # i think exit() would make GSM really really unhappy, which is good, I want to be alerted ASAP
+            exit()
+
+    else:
+        logger.error(f"[Plugin] API error: {response.status_code} - {response.text}")
+    
+    # now do it for realsies
+    response = requests.post(
+        "http://localhost:5000/api/deduplicate",
+        json=payload,
+        timeout=300
+    )
+
+    if response.status_code == 200:
+        deleted_count = result.get("deleted_count", 0)
+        if deleted_count > 0:
+            logger.info(f"[Plugin] Deleted {deleted_count} duplicate sentences")
+            send_notification(f"[Plugin] Deleted {deleted_count} duplicate sentences")
+        else:
+            logger.info("[Plugin] No duplicates found")
+    else:
+        logger.error(f"[Plugin] API error: {response.status_code} - {response.text}")
+    
+def send_notification(message):
+    # uses https://ntfy.sh/ to send notifications to me phone
+    requests.post("https://ntfy.sh/gsm",data=message.encode(encoding='utf-8'))
+
+def dailies():
+    import random
+    import requests
+    # this runs every 5 mins
+    # in a 1 hour session thats 12
+    x = random.randint(0, 11)
+    if x > 0:
+        # easy cheat way to run once an hour roughly
+        return
+    message = []
+    data = requests.get("http://localhost:5050/api/goals/today").json()
+    for g in data.get("goals", []):
+        name = g.get("goal_name")
+        today = g.get("progress_today")
+        needed = g.get("progress_needed")
+        icon = g.get("goal_icon", "🎯")
+        message.append(f"{icon} {name}: {today}/{needed}")
+    output =  "\n".join(message)
+    send_notification(output)
+
+def delete_regex_lines():
+    import requests
+    from GameSentenceMiner.util.configuration import logger
+    import re
+
+    # anything over 50 chars gets deleted
+    pattern = re.compile(r"^.{51,}$")
+    try:
+        # Prepare API request
+        payload = {
+            # ur regex goes here
+            "regex_pattern": pattern,
+            "case_sensitive": False,
+            "use_regex": True
+        }
+        
+        # Call the delete text lines API
+        response = requests.post(
+            "http://localhost:5000/api/delete-text-lines",
+            json=payload,
+            timeout=300
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            deleted_count = result.get("deleted_count", 0)
+            if deleted_count > 0:
+                logger.info(f"[Plugin] Deleted {deleted_count} lines matching pattern: {pattern}")
+                send_notification(f"[Plugin] Deleted {deleted_count} lines matching pattern: {pattern}")
+            else:
+                logger.info(f"[Plugin] No lines matched pattern: {pattern}")
+        else:
+            logger.error(f"[Plugin] API error: {response.status_code} - {response.text}")
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Plugin] Failed to connect to GSM API: {e}", exc_info=True)
+    except Exception as e:
+        logger.error(f"[Plugin] Error in delete_lines_matching_regex: {e}", exc_info=True)
+```

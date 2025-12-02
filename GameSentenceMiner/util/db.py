@@ -703,20 +703,26 @@ class GoalsTable(SQLiteDBTable):
             today_str: Date string in YYYY-MM-DD format (should be in user's local timezone)
             timezone_str: IANA timezone string (e.g., 'Asia/Tokyo', 'UTC') - used for logging only
         """
-        latest = cls.get_latest()
-        
-        if not latest:
-            # First entry ever - start both streaks at 1
+        try:
+            today_date = datetime.strptime(today_str, '%Y-%m-%d').date()
+            latest = get_by_date(today_date)
+        except (ValueError, AttributeError) as e:
             return (1, 1)
         
+
         # Calculate current streak
         current_streak = 1
         try:
             from datetime import datetime, timedelta
-            latest_date = datetime.strptime(latest.date, '%Y-%m-%d').date()
-            today_date = datetime.strptime(today_str, '%Y-%m-%d').date()
-            yesterday = today_date - timedelta(days=1)
+            try:
+                today_date = datetime.strptime(today_str, '%Y-%m-%d').date()
+            except (ValueError, AttributeError) as e:
+                # today does not exist in db, so user has not pressed "done" yet
+                current_streak = latest
             
+            
+            # if user does not commit to pressing "completed", then break streak because distance
+            yesterday = today_date - timedelta(days=1)            
             # Check if latest entry is from yesterday (consecutive)
             if latest_date == yesterday:
                 current_streak = latest.streak + 1
@@ -1009,6 +1015,27 @@ def check_and_run_migrations():
         else:
             logger.debug("populate_games cron job already exists, skipping creation.")
     
+    def migrate_user_plugins_cron_job():
+        """
+        Create the user_plugins cron job if it doesn't exist.
+        """
+        existing_cron = CronTable.get_by_name('user_plugins')
+        if not existing_cron:
+            logger.info("Creating user_plugins cron job...")
+            # Schedule to run immediately (2 minutes ago)
+            now = datetime.now()
+            two_minutes_ago = now - timedelta(minutes=2)
+            
+            CronTable.create_cron_entry(
+                name='user_plugins',
+                description='Custom user plugins',
+                next_run=two_minutes_ago.timestamp(),
+                schedule='minutely'  # by default gsm checks crons every 5 mins, so this actually runs every 5 mins
+            )
+            logger.info(f"✅ Created user_plugins cron job - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})")
+        else:
+            logger.debug("user_plugins cron job already exists, skipping creation.")
+    
     def migrate_genres_and_tags():
         """
         Add genres and tags columns to games table.
@@ -1057,6 +1084,7 @@ def check_and_run_migrations():
     migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
     migrate_genres_and_tags()  # Add genres and tags columns
+    migrate_user_plugins_cron_job()
         
 check_and_run_migrations()
     
