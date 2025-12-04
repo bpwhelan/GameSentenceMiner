@@ -292,7 +292,7 @@ class ConfigChangeCheckThread(threading.Thread):
                     reset_callback_vars()
             except Exception as e:
                 logger.debug(f"ConfigChangeCheckThread error: {e}")
-            time.sleep(0.25)  # Lowered to 0.25s for more responsiveness
+            time.sleep(0.5)
 
     def add_config_callback(self, callback):
         self.config_callbacks.append(callback)
@@ -677,9 +677,11 @@ def add_ss_hotkey(ss_hotkey="ctrl+shift+g"):
         ocr_config = get_ocr_config()
         img = obs.get_screenshot_PIL(compression=80, img_format="jpg")
         ocr_config.scale_to_custom_size(img.width, img.height)
-        for rectangle in [rectangle for rectangle in ocr_config.rectangles if rectangle.is_secondary]:
-            new_img = run.apply_ocr_config_to_image(img, ocr_config, is_secondary=True, rectangles=[rectangle])
-            second_ocr_processor.do_second_ocr("", datetime.now(), new_img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
+        # for rectangle in [rectangle for rectangle in ocr_config.rectangles if rectangle.is_secondary]:
+        has_secondary_rectangles = any(rectangle.is_secondary for rectangle in ocr_config.rectangles)
+        if has_secondary_rectangles:
+            img = run.apply_ocr_config_to_image(img, ocr_config, is_secondary=True)
+        second_ocr_processor.do_second_ocr("", datetime.now(), img, TextFiltering(lang=get_ocr_language()), ignore_furigana_filter=True, ignore_previous_result=True)
 
     filtering = TextFiltering(lang=get_ocr_language())
     

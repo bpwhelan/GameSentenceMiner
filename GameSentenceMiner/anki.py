@@ -159,7 +159,7 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
         if config.screenshot.animated:
             assets.screenshot_path = ffmpeg.get_anki_compatible_video(
                 video_path, start_time, vad_result.start, vad_result.end, 
-                codec='webp', quality=10, fps=12, audio=False
+                codec='avif', quality=10, fps=12, audio=False
             )
         else:
             assets.screenshot_path = ffmpeg.get_screenshot(
@@ -170,7 +170,7 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
     if config.anki.video_field and vad_result:
         assets.video_path = ffmpeg.get_anki_compatible_video(
             video_path, start_time, vad_result.start, vad_result.end, 
-            codec='webp', quality=10, fps=12, audio=True
+            codec='avif', quality=10, fps=12, audio=True
         )
 
     if config.anki.previous_image_field and game_line.prev:

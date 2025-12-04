@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2.21.33"
+version = "2.21.34"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -35,8 +35,8 @@ dependencies = [
   "dataclasses_json~=0.6.7",
   "obsws-python~=1.8.0",
   "numpy==2.2.6",
-  "faster-whisper~=1.2.0",
-  "silero-vad~=6.0.0",
+  "faster-whisper~=1.2.1",
+  "silero-vad~=6.2.0",
   "regex~=2025.10.23",
   "opencv-python~=4.12.0.88",
   "scikit-image~=0.25.2",
@@ -51,8 +51,8 @@ dependencies = [
   "pywin32==311; sys_platform == 'win32'",
   "win10toast==0.9; sys_platform == 'win32'",
   "stable-ts~=2.19.1",
-  "torchcodec~=0.7.0",
-  "torchaudio==2.8.0",
+  "torchcodec~=0.8.1",
+  "torchaudio==2.9.0",
   "pillow~=12.0.0",
   "openai~=2.6.0",
   "flask-compress~=1.15",
@@ -69,7 +69,10 @@ dependencies = [
   "pysbd~=0.3.4",
   "pypresence>=4.6.1",
   "tokenizers==0.22.1",
-  "betterproto==2.0.0b7"
+  "curl-cffi~=0.13.0",
+  "betterproto==2.0.0b7",
+  "py7zr~=1.0.0",
+  "pynput~=1.8.1",
 ]
 
 [project.optional-dependencies]

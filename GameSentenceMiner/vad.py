@@ -50,17 +50,21 @@ class VADSystem:
             return result
 
     def _do_vad_processing(self, model, input_audio, output_audio, game_line, text_mined):
-        match model:
-            case configuration.OFF:
-                return VADResult(False, 0, 0, "OFF")
-            case configuration.SILERO:
-                if not self.silero:
-                    self.silero = SileroVADProcessor()
-                return self.silero.process_audio(input_audio, output_audio, game_line, text_mined)
-            case configuration.WHISPER:
-                if not self.whisper:
-                    self.whisper = WhisperVADProcessor()
-                return self.whisper.process_audio(input_audio, output_audio, game_line, text_mined)
+        try:
+            match model:
+                case configuration.OFF:
+                    return VADResult(False, 0, 0, "OFF")
+                case configuration.SILERO:
+                    if not self.silero:
+                        self.silero = SileroVADProcessor()
+                    return self.silero.process_audio(input_audio, output_audio, game_line, text_mined)
+                case configuration.WHISPER:
+                    if not self.whisper:
+                        self.whisper = WhisperVADProcessor()
+                    return self.whisper.process_audio(input_audio, output_audio, game_line, text_mined)
+        except Exception as e:
+            logger.error(f"Error during VAD processing with model {model}: {e}", exc_info=True)
+            return VADResult(False, 0, 0, model)
 
 # Base class for VAD systems
 class VADProcessor(ABC):
@@ -413,7 +417,7 @@ def test_vad_processors():
     output_dir = r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\test\output"
     os.makedirs(output_dir, exist_ok=True)
     processors = [
-        (WhisperVADProcessor(), "after_splice_whisper.opus"),
+        # (WhisperVADProcessor(), "after_splice_whisper.opus"),
         (SileroVADProcessor(), "after_splice_silero.opus"),
         # (VoskVADProcessor(), "after_splice_vosk.opus"),
         # (GroqVADProcessor(), "after_splice_groq.opus"),

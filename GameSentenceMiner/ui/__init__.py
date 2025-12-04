@@ -2,7 +2,7 @@ import os
 import json
 from enum import Enum
 from PyQt6.QtWidgets import QWidget
-from GameSentenceMiner.util.configuration import logger, get_temporary_directory
+from GameSentenceMiner.util.configuration import logger, get_app_directory
 
 class WindowId(Enum):
     ANKI_CONFIRMATION = "anki_confirmation"
@@ -17,7 +17,7 @@ class WindowStateManager:
     """
     def __init__(self, file_path: str = None):
         if file_path is None:
-            directory = get_temporary_directory()
+            directory = get_app_directory()
             self.file_path = os.path.join(directory, "window_layout.json")
         else:
             self.file_path = file_path

@@ -115,3 +115,4 @@ oneocr_results.json
 # Test scripts
 test-updates.ps1
 run_gsm.ps1
+project_combined.txt
