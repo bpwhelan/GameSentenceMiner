@@ -779,12 +779,23 @@ function createTray() {
         }
         
         tray = new Tray(iconPath);
-        const contextMenu = Menu.buildFromTemplate([
+        let template = [
             { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
             { label: 'Restart Python App', click: () => restartGSM() },
             { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
             { label: 'Quit', click: () => quit() },
-        ]);
+        ]
+
+        if (isDev) {
+            template.push({ label: 'Restart App', click: async () => {
+                closeAllPythonProcesses().then(() => {
+                    app.relaunch();
+                    app.exit(0);
+                });
+            }});
+        }
+        
+        const contextMenu = Menu.buildFromTemplate(template);
 
         tray.setToolTip('GameSentenceMiner');
         tray.setContextMenu(contextMenu);

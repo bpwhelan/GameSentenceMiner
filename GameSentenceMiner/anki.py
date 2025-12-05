@@ -18,6 +18,7 @@ from GameSentenceMiner.util.gsm_utils import make_unique, sanitize_filename, wai
 from GameSentenceMiner.util import ffmpeg, notification
 from GameSentenceMiner.util.configuration import get_config, AnkiUpdateResult, logger, anki_results, gsm_status, \
     gsm_state
+from GameSentenceMiner.util.live_stats import live_stats_tracker
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY, ID_PLAINTEXT, ID_HOOKER
 from GameSentenceMiner.util.model import AnkiCard
 from GameSentenceMiner.util.text_log import GameLine, get_all_lines, get_text_event, get_mined_line, lines_match
@@ -157,9 +158,10 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
     if config.anki.picture_field and config.screenshot.enabled:
         logger.info("Getting Screenshot...")
         if config.screenshot.animated:
+            animated_settings = config.screenshot.animated_settings
             assets.screenshot_path = ffmpeg.get_anki_compatible_video(
                 video_path, start_time, vad_result.start, vad_result.end, 
-                codec='avif', quality=10, fps=12, audio=False
+                codec=animated_settings.extension, quality=animated_settings.scaled_quality, fps=animated_settings.fps, audio=False
             )
         else:
             assets.screenshot_path = ffmpeg.get_screenshot(
@@ -168,9 +170,10 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
         wait_for_stable_file(assets.screenshot_path)
 
     if config.anki.video_field and vad_result:
+        animated_settings = config.screenshot.animated_settings
         assets.video_path = ffmpeg.get_anki_compatible_video(
             video_path, start_time, vad_result.start, vad_result.end, 
-            codec='avif', quality=10, fps=12, audio=True
+            codec=animated_settings.extension, quality=animated_settings.scaled_quality, fps=animated_settings.fps, audio=True
         )
 
     if config.anki.previous_image_field and game_line.prev:
@@ -182,9 +185,6 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
                 video_path, line_for_prev_ss, try_selector=config.screenshot.use_screenshot_selector
             )
             wait_for_stable_file(assets.prev_screenshot_path)
-            assets.prev_screenshot_in_anki = store_media_file(assets.prev_screenshot_path)
-            if config.paths.remove_screenshot:
-                os.remove(assets.prev_screenshot_path)
                 
     return assets
 
@@ -348,6 +348,11 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         if assets.screenshot_path:
             assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
             logger.info("Stored screenshot in Anki media collection: " + str(assets.screenshot_in_anki))
+        if assets.prev_screenshot_path:
+            assets.prev_screenshot_in_anki = store_media_file(assets.prev_screenshot_path)
+            logger.info("Stored previous screenshot in Anki media collection: " + str(assets.prev_screenshot_in_anki))
+            if config.paths.remove_screenshot:
+                os.remove(assets.prev_screenshot_path)
         if use_voice and assets.audio_path:
             assets.audio_in_anki = store_media_file(assets.audio_path)
             logger.info("Stored audio in Anki media collection: " + str(assets.audio_in_anki))
@@ -358,6 +363,9 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
     
     if update_picture_flag and assets.screenshot_in_anki:
         note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
+    
+    if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
+        note['fields'][config.anki.previous_image_field] = f"<img src=\"{assets.prev_screenshot_in_anki}\">"
 
     if use_voice and assets.audio_in_anki:
         note['fields'][config.anki.sentence_audio_field] = f"[sound:{assets.audio_in_anki}]"
@@ -393,6 +401,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
     anki_audio_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki) if assets.audio_in_anki else ''
     anki_screenshot_path = os.path.join(config.audio.anki_media_collection, assets.screenshot_in_anki) if assets.screenshot_in_anki else ''
     
+    live_stats_tracker.add_mined_line()
     GameLinesTable.update(
         line_id=game_line.id, 
         screenshot_path=assets.final_screenshot_path, 

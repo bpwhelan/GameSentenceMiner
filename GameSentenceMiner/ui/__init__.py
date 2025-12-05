@@ -58,7 +58,9 @@ class WindowStateManager:
             geom = self.data[key]
             try:
                 if all(k in geom for k in ('x', 'y', 'w', 'h')):
-                    window.setGeometry(geom['x'], geom['y'], geom['w'], geom['h'])
+                    # Use move() and resize() for proper window positioning
+                    window.move(geom['x'], geom['y'])
+                    window.resize(geom['w'], geom['h'])
                     return True
             except Exception as e:
                 logger.error(f"Error restoring geometry for {key}: {e}")
@@ -69,16 +71,20 @@ class WindowStateManager:
         Saves the current geometry of the window.
         """
         key = window_id.value if isinstance(window_id, WindowId) else str(window_id)
-        rect = window.geometry()
+        
+        # Use pos() and size() for top-level windows to get actual screen position
+        # geometry() can return position relative to parent (often 0,0 for top-level windows)
+        pos = window.pos()
+        size = window.size()
         
         # Reload current file state to ensure we don't overwrite other windows' updates
         current_file_data = self._load_data()
         
         current_file_data[key] = {
-            'x': rect.x(),
-            'y': rect.y(),
-            'w': rect.width(),
-            'h': rect.height()
+            'x': pos.x(),
+            'y': pos.y(),
+            'w': size.width(),
+            'h': size.height()
         }
         
         self.data = current_file_data

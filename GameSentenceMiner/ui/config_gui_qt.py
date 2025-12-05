@@ -6,12 +6,14 @@ import subprocess
 import sys
 import threading
 import time
+from enum import Enum
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
                              QFormLayout, QLabel, QLineEdit, QCheckBox, QComboBox,
                              QPushButton, QFileDialog, QMessageBox, QInputDialog,
                              QListWidget, QListWidgetItem, QTextEdit, QSizePolicy,
-                             QAbstractItemView, QProxyStyle, QKeySequenceEdit)
+                             QAbstractItemView, QProxyStyle, QKeySequenceEdit, QGroupBox,
+                             QSpinBox)
 from PyQt6.QtGui import QIcon, QKeySequence
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QIcon
@@ -26,7 +28,8 @@ from GameSentenceMiner.util.configuration import (Config, Locale, logger, Common
                                                   WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM,
                                                   WHISPER_TURBO, SILERO, WHISPER, OFF, gsm_state, DEFAULT_CONFIG,
                                                   get_latest_version, get_current_version, AI_GEMINI, AI_GROQ,
-                                                  AI_OPENAI, save_full_config, get_default_anki_media_collection_path)
+                                                  AI_OPENAI, save_full_config, get_default_anki_media_collection_path,
+                                                  AnimatedScreenshotSettings, Discord)
 from GameSentenceMiner.util.db import AIModelsTable
 from GameSentenceMiner.util.downloader.download_tools import download_ocenaudio_if_needed
 
@@ -40,6 +43,24 @@ RECOMMENDED_GROQ_MODELS = ['meta-llama/llama-4-maverick-17b-128e-instruct',
                            'openai/gpt-oss-120b']
 RECOMMENDED_GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemma-3-27b-it"]
 on_save = []
+
+
+class LabelColor(Enum):
+    """Enum for different label color styles to indicate importance/category."""
+    DEFAULT = "default"  # White/default color
+    IMPORTANT = "important"  # Orange - important settings
+    ADVANCED = "advanced"  # Red - advanced/dangerous settings
+    RECOMMENDED = "recommended"  # Green - recommended settings
+    
+    def get_qt_color(self):
+        """Returns the Qt color string for this label type."""
+        color_map = {
+            LabelColor.DEFAULT: "white",
+            LabelColor.IMPORTANT: "#FFA500",  # Orange
+            LabelColor.ADVANCED: "#FF0000",  # Red
+            LabelColor.RECOMMENDED: "#00FF00"  # Green
+        }
+        return color_map.get(self, "white")
 
 class FastTooltipStyle(QProxyStyle):
     """Custom style to make tooltips appear faster (reduced hover delay)."""
@@ -127,6 +148,7 @@ class ConfigWindow(QWidget):
     _close_window_signal = pyqtSignal()
     _reload_settings_signal = pyqtSignal()
     _quit_app_signal = pyqtSignal()
+    _selector_finished_signal = pyqtSignal()
     
     def __init__(self):
         super().__init__()
@@ -179,11 +201,18 @@ class ConfigWindow(QWidget):
         self._close_window_signal.connect(self._close_window_impl)
         self._reload_settings_signal.connect(self._reload_settings_impl)
         self._quit_app_signal.connect(QApplication.instance().quit)
+        self._selector_finished_signal.connect(self.on_selector_finished)
 
         # --- Periodic OBS Error Check ---
         self.obs_error_timer = QTimer(self)
         self.obs_error_timer.timeout.connect(self.check_obs_errors)
         self.obs_error_timer.start(1000)
+        
+        # --- Periodic OBS Scene Refresh ---
+        self.obs_scene_refresh_count = 0
+        self.obs_scene_refresh_timer = QTimer(self)
+        self.obs_scene_refresh_timer.timeout.connect(self._auto_refresh_obs_scenes)
+        self.obs_scene_refresh_timer.start(2000)  # Start with 2 seconds
 
     # --- Public Methods (API for other parts of the app) ---
     def show_window(self):
@@ -263,6 +292,22 @@ class ConfigWindow(QWidget):
         
         # Hide the label after 3 seconds
         QTimer.singleShot(3000, self.save_status_label.hide)
+    
+    def show_area_selector_success_indicator(self):
+        """Shows a temporary success indicator for area selection completion."""
+        # Get localized text or use default for area selection
+        success_text = self.i18n.get('overlay', {}).get('area_selection_complete', '✓ Area Selection Complete!')
+        
+        self.save_status_label.setText(success_text)
+        self.save_status_label.show()
+        
+        # Reset to default "Settings Saved" text after 3 seconds
+        def reset_to_default():
+            default_text = self.i18n.get('buttons', {}).get('save_success', '✓ Settings Saved Successfully!')
+            self.save_status_label.setText(default_text)
+            self.save_status_label.hide()
+        
+        QTimer.singleShot(3000, reset_to_default)
 
     def showEvent(self, event):
         """Handle window showing: restore position."""
@@ -354,7 +399,12 @@ class ConfigWindow(QWidget):
                 screenshot_timing_setting=self.screenshot_timing_combo.currentText(),
                 use_screenshot_selector=self.use_screenshot_selector_check.isChecked(),
                 animated=self.animated_screenshot_check.isChecked(),
-                trim_black_bars_wip=self.trim_black_bars_check.isChecked()
+                trim_black_bars_wip=self.trim_black_bars_check.isChecked(),
+                animated_settings=AnimatedScreenshotSettings(
+                    fps=max(10, min(30, self.animated_fps_spin.value())),
+                    extension=self.animated_extension_combo.currentText(),
+                    quality=max(0, min(10, self.animated_quality_spin.value()))
+                )
             ),
             audio=Audio(
                 enabled=self.audio_enabled_check.isChecked(),
@@ -459,6 +509,25 @@ class ConfigWindow(QWidget):
 
         self.master_config.locale = Locale[self.locale_combo.currentText()].value
         self.master_config.overlay = config.overlay
+        
+        # Get selected blacklisted scenes from Discord list
+        discord_blacklisted = [item.text() for item in self.discord_blacklisted_scenes_list.selectedItems()]
+        
+        # Clamp inactivity to allowed range before saving
+        try:
+            inactivity_to_save = int(self.discord_inactivity_spin.value())
+        except Exception:
+            inactivity_to_save = 300
+        inactivity_to_save = max(120, min(900, inactivity_to_save))
+
+        self.master_config.discord = Discord(
+            enabled=self.discord_enabled_check.isChecked(),
+            # update_interval=self.discord_update_interval_spin.value(),
+            inactivity_timer=inactivity_to_save,
+            icon=self.discord_icon_combo.currentText(),
+            show_reading_stats=self.discord_show_stats_combo.currentText(),
+            blacklisted_scenes=discord_blacklisted
+        )
 
         # Backup and save
         config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
@@ -516,6 +585,17 @@ class ConfigWindow(QWidget):
     def _on_obs_scene_selection_changed(self):
         selected_items = self.obs_scene_list.selectedItems()
         self.settings.scenes = [item.text() for item in selected_items]
+    
+    def _auto_refresh_obs_scenes(self):
+        """Auto-refresh OBS scenes with adaptive timing."""
+        self.obs_scene_refresh_count += 1
+        
+        # Refresh the scenes
+        self.refresh_obs_scenes()
+        
+        # After 5 refreshes (10 seconds at 2s intervals), switch to 10 second intervals
+        if self.obs_scene_refresh_count >= 5:
+            self.obs_scene_refresh_timer.setInterval(10000)  # 10 seconds
 
     # --- UI Creation Helpers ---
     def _create_all_widgets(self):
@@ -585,6 +665,32 @@ class ConfigWindow(QWidget):
         self.take_screenshot_hotkey_edit = QKeySequenceEdit()
         self.screenshot_hotkey_update_anki_check = QCheckBox()
         self.trim_black_bars_check = QCheckBox()
+        
+        # Animated Screenshot Settings
+        self.animated_fps_spin = QSpinBox()
+        self.animated_fps_spin.setRange(10, 30)
+        self.animated_extension_combo = QComboBox()
+        self.animated_quality_spin = QSpinBox()
+        self.animated_quality_spin.setRange(0, 10)
+        self.animated_settings_group = QGroupBox()
+        
+        # Discord Settings
+        self.discord_enabled_check = QCheckBox()
+        # self.discord_update_interval_spin = QSpinBox()
+        # self.discord_update_interval_spin.setRange(15, 300)
+        # Inactivity timer controls how many seconds of inactivity before Discord RPC stops
+        self.discord_inactivity_spin = QSpinBox()
+        self.discord_inactivity_spin.setRange(120, 900)  # 2 minutes to 15 minutes
+        self.discord_inactivity_spin.setToolTip("Seconds of inactivity before Discord RPC stops (120-900)")
+        self.discord_icon_combo = QComboBox()
+        self.discord_show_stats_combo = QComboBox()
+        self.discord_blacklisted_scenes_list = QListWidget()
+        self.discord_settings_group = QGroupBox()
+        
+        # AI Provider Groups
+        self.gemini_settings_group = QGroupBox()
+        self.groq_settings_group = QGroupBox()
+        self.openai_settings_group = QGroupBox()
         
         # Audio
         self.audio_enabled_check = QCheckBox()
@@ -671,6 +777,27 @@ class ConfigWindow(QWidget):
         # Profiles
         self.profile_combo = QComboBox()
         self.obs_scene_list = QListWidget()
+        # Make OBS scene list visually cleaner: alternating row colors and compact padding
+        try:
+            self.obs_scene_list.setAlternatingRowColors(True)
+        except Exception:
+            pass
+        self.obs_scene_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #333;
+                border-radius: 6px;
+                padding: 4px;
+                alternate-background-color: transparent;
+                color: #e6e6e6;
+            }
+            QListWidget::item {
+                padding: 6px 8px;
+            }
+            QListWidget::item:selected {
+                background: #265a88;
+                color: white;
+            }
+        """)
         self.switch_to_default_if_not_found_check = QCheckBox()
 
         # Required Settings Tab - Duplicate widgets that mirror the main ones
@@ -774,6 +901,16 @@ class ConfigWindow(QWidget):
         self._sync_widget_bidirectional(self.external_tool_edit, self.req_external_tool_edit)
         self._sync_widget_bidirectional(self.open_anki_edit_check, self.req_open_anki_edit_check)
         self._sync_widget_bidirectional(self.open_anki_browser_check, self.req_open_anki_browser_check)
+        
+        # Connect signals for animated settings visibility
+        self.animated_screenshot_check.stateChanged.connect(self._update_animated_settings_visibility)
+        self.video_field_edit.textChanged.connect(self._update_animated_settings_visibility)
+        
+        # Connect signals for Discord settings visibility
+        self.discord_enabled_check.stateChanged.connect(self._update_discord_settings_visibility)
+        
+        # Connect signals for AI provider visibility
+        self.ai_provider_combo.currentTextChanged.connect(self._update_ai_provider_visibility)
     
     def _sync_widget_bidirectional(self, main_widget, req_widget):
         """Syncs two widgets bidirectionally so changes in one update the other."""
@@ -783,6 +920,15 @@ class ConfigWindow(QWidget):
         elif isinstance(main_widget, QCheckBox):
             main_widget.stateChanged.connect(lambda state: req_widget.setChecked(main_widget.isChecked()) if req_widget.isChecked() != main_widget.isChecked() else None)
             req_widget.stateChanged.connect(lambda state: main_widget.setChecked(req_widget.isChecked()) if main_widget.isChecked() != req_widget.isChecked() else None)
+    
+    def _update_animated_settings_visibility(self):
+        """Shows/hides animated screenshot settings based on animated checkbox or video field."""
+        should_show = self.animated_screenshot_check.isChecked() or bool(self.video_field_edit.text().strip())
+        self.animated_settings_group.setVisible(should_show)
+    
+    def _update_discord_settings_visibility(self):
+        """Shows/hides Discord settings based on enabled checkbox."""
+        self.discord_settings_container.setVisible(self.discord_enabled_check.isChecked())
 
     # --- Individual Tab Creation Methods ---
     def _create_required_settings_tab(self):
@@ -863,10 +1009,10 @@ class ConfigWindow(QWidget):
         layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         i18n = self.i18n.get('tabs', {})
         
-        layout.addRow(self._create_labeled_widget(i18n, 'general', 'websocket_enabled'), self.websocket_enabled_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'general', 'clipboard_enabled'), self.clipboard_enabled_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'general', 'allow_both_simultaneously'), self.use_both_clipboard_and_websocket_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'general', 'merge_sequential_text'), self.merge_matching_sequential_text_check)
+        layout.addRow(self._create_labeled_widget(i18n, 'general', 'websocket_enabled', color=LabelColor.IMPORTANT, bold=True), self.websocket_enabled_check)
+        layout.addRow(self._create_labeled_widget(i18n, 'general', 'clipboard_enabled', color=LabelColor.IMPORTANT, bold=True), self.clipboard_enabled_check)
+        layout.addRow(self._create_labeled_widget(i18n, 'general', 'allow_both_simultaneously', color=LabelColor.ADVANCED, bold=True), self.use_both_clipboard_and_websocket_check)
+        layout.addRow(self._create_labeled_widget(i18n, 'general', 'merge_sequential_text', color=LabelColor.ADVANCED, bold=True), self.merge_matching_sequential_text_check)
         layout.addRow(self._create_labeled_widget(i18n, 'general', 'websocket_uri'), self.websocket_uri_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'general', 'texthook_regex'), self.texthook_replacement_regex_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'general', 'open_config_on_startup'), self.open_config_on_startup_check)
@@ -875,13 +1021,115 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'plaintext_export_port'), self.plaintext_websocket_export_port_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'general', 'native_language'), self.native_language_combo)
         layout.addRow(self._create_labeled_widget(i18n, 'features', 'notify_on_update'), self.notify_on_update_check)
+        
+        # Discord Settings Group
+        self.discord_settings_group.setTitle("Discord Rich Presence")
+        self.discord_settings_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #555;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+        
+        discord_layout = QFormLayout()
+        
+        enabled_label = QLabel("Enabled:")
+        enabled_label.setToolTip("Enable or disable Discord Rich Presence")
+        discord_layout.addRow(enabled_label, self.discord_enabled_check)
+        
+        # Container for settings that should hide when disabled
+        self.discord_settings_container = QWidget()
+        discord_settings_layout = QFormLayout(self.discord_settings_container)
+        discord_settings_layout.setContentsMargins(0, 5, 0, 0)
+        
+        # interval_label = QLabel("Update Interval (seconds):")
+        # interval_label.setToolTip("How often to update Discord status (15-300 seconds)")
+        # discord_settings_layout.addRow(interval_label, self.discord_update_interval_spin)
+
+        inactivity_label = QLabel("Inactivity Timer (seconds):")
+        inactivity_label.setToolTip("How many seconds of inactivity before Discord Rich Presence stops (120-900)")
+        discord_settings_layout.addRow(inactivity_label, self.discord_inactivity_spin)
+        
+        icon_label = QLabel("Icon:")
+        icon_label.setToolTip("Choose which GSM icon to display on Discord")
+        discord_settings_layout.addRow(icon_label, self.discord_icon_combo)
+        
+        stats_label = QLabel("Show Stats:")
+        stats_label.setToolTip("Choose which reading statistics to display on Discord")
+        discord_settings_layout.addRow(stats_label, self.discord_show_stats_combo)
+        
+        # Blacklisted scenes with refresh button - styled container, but NO background color set to avoid theme issues
+        self.discord_blacklisted_scenes_list.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.discord_blacklisted_scenes_list.setMaximumHeight(150)
+        self.discord_blacklisted_scenes_list.setToolTip("Select OBS scenes where Discord RPC should be disabled")
+        try:
+            self.discord_blacklisted_scenes_list.setAlternatingRowColors(True)
+        except Exception:
+            pass
+        # Keep neutral styling for background; only set border/padding and item spacing
+        self.discord_blacklisted_scenes_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #333;
+                border-radius: 6px;
+                padding: 4px;
+                alternate-background-color: transparent;
+                color: #e6e6e6;
+            }
+            QListWidget::item {
+                padding: 6px 8px;
+            }
+            QListWidget::item:selected {
+                background: #265a88;
+                color: white;
+            }
+        """)
+
+        blacklist_container = QWidget()
+        # Remove the padding that was pushing the list down
+        blacklist_container.setStyleSheet("""
+            QWidget { padding: 0px; }
+        """)
+        blacklist_layout = QHBoxLayout(blacklist_container)
+        blacklist_layout.setContentsMargins(0,0,0,0)
+        blacklist_layout.setSpacing(6)
+        blacklist_layout.addWidget(self.discord_blacklisted_scenes_list)
+        discord_refresh_button = QPushButton(i18n.get('profiles', {}).get('refresh_scenes_button', 'Refresh'))
+        discord_refresh_button.setToolTip("Refresh the list of available OBS scenes")
+        discord_refresh_button.clicked.connect(self.refresh_obs_scenes)
+        # Align the refresh button to the top so it doesn't stretch to the full height
+        blacklist_layout.addWidget(discord_refresh_button, 0, Qt.AlignmentFlag.AlignCenter)
+
+        blacklist_label = QLabel("Blacklisted Scenes:")
+        blacklist_label.setToolTip("OBS scenes where Discord RPC will be disabled (e.g., private/sensitive content)")
+        discord_settings_layout.addRow(blacklist_label, blacklist_container)
+        
+        discord_layout.addRow(self.discord_settings_container)
+        
+        self.discord_settings_group.setLayout(discord_layout)
+        layout.addRow(self.discord_settings_group)
+        
+        # Update visibility based on enabled checkbox
+        self._update_discord_settings_visibility()
 
         if is_beangate:
             test_button = QPushButton(self.i18n.get('buttons', {}).get('run_function', 'Run Function'))
             test_button.clicked.connect(lambda: self.test_func() if self.test_func else None)
             layout.addRow(test_button)
-            
-        layout.addRow(self._create_reset_button("general", self._create_general_tab))
+        
+        # Add stretch to push reset button to bottom
+        layout.addItem(QVBoxLayout().addStretch())
+        
+        # Add reset button at the bottom
+        reset_widget = self._create_reset_button("general", self._create_general_tab)
+        layout.addRow(reset_widget)
         return widget
 
     def _create_paths_tab(self):
@@ -906,7 +1154,8 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'paths', 'open_output_folder_on_card_creation'), self.open_output_folder_on_card_creation_check)
         layout.addRow(self._create_labeled_widget(i18n, 'paths', 'remove_video'), self.remove_video_check)
         
-        layout.addRow(self._create_reset_button("paths", self._create_paths_tab))
+        reset_widget = self._create_reset_button("paths", self._create_paths_tab)
+        layout.addRow(reset_widget)
         return widget
 
     def _create_anki_tab(self):
@@ -919,25 +1168,44 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'show_update_confirmation_dialog'), self.show_update_confirmation_dialog_check)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'auto_accept_timer', "Accept The Result without user input after # of seconds, 0 disables this feature"), self.auto_accept_timer_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'url'), self.anki_url_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'sentence_field'), self.sentence_field_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'sentence_audio_field'), self.sentence_audio_field_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'picture_field'), self.picture_field_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'word_field'), self.word_field_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'previous_sentence_field'), self.previous_sentence_field_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'previous_image_field'), self.previous_image_field_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'video_field'), self.video_field_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'game_name_field'), self.game_name_field_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'custom_tags'), self.custom_tags_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'tags_to_check'), self.tags_to_check_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'add_game_tag'), self.add_game_tag_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'parent_tag'), self.parent_tag_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'overwrite_audio'), self.overwrite_audio_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'overwrite_picture'), self.overwrite_picture_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'anki', 'multi_overwrites_sentence'), self.multi_overwrites_sentence_check)
+        
+        # Field Mappings Group
+        fields_group = self._create_group_box("Field Mappings")
+        fields_layout = QFormLayout()
+        fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'sentence_field', color=LabelColor.ADVANCED, bold=True), self.sentence_field_edit)
+        fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'sentence_audio_field', color=LabelColor.IMPORTANT, bold=True), self.sentence_audio_field_edit)
+        fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'picture_field', color=LabelColor.IMPORTANT, bold=True), self.picture_field_edit)
+        fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'word_field', color=LabelColor.IMPORTANT, bold=True), self.word_field_edit)
+        fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'previous_sentence_field'), self.previous_sentence_field_edit)
+        fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'previous_image_field'), self.previous_image_field_edit)
+        fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'video_field', color=LabelColor.ADVANCED), self.video_field_edit)
+        fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'game_name_field'), self.game_name_field_edit)
+        fields_group.setLayout(fields_layout)
+        layout.addRow(fields_group)
+        
+        # Tagging Settings Group
+        tags_group = self._create_group_box("Tag Settings")
+        tags_layout = QFormLayout()
+        tags_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'custom_tags', color=LabelColor.RECOMMENDED, bold=True), self.custom_tags_edit)
+        tags_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'tags_to_check'), self.tags_to_check_edit)
+        tags_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'add_game_tag', color=LabelColor.RECOMMENDED, bold=True), self.add_game_tag_check)
+        tags_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'parent_tag', color=LabelColor.RECOMMENDED, bold=True), self.parent_tag_edit)
+        tags_group.setLayout(tags_layout)
+        layout.addRow(tags_group)
+        
+        # Overwrite Settings Group
+        overwrite_group = self._create_group_box("Overwrite Settings")
+        overwrite_layout = QFormLayout()
+        overwrite_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'overwrite_audio'), self.overwrite_audio_check)
+        overwrite_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'overwrite_picture'), self.overwrite_picture_check)
+        overwrite_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'multi_overwrites_sentence'), self.multi_overwrites_sentence_check)
+        overwrite_group.setLayout(overwrite_layout)
+        layout.addRow(overwrite_group)
         
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'multiline_linebreak'), self.multi_line_line_break_edit)
 
-        layout.addRow(self._create_reset_button("anki", self._create_anki_tab))
+        reset_widget = self._create_reset_button("anki", self._create_anki_tab)
+        layout.addRow(reset_widget)
         return widget
 
     def _create_vad_tab(self):
@@ -948,13 +1216,22 @@ class ConfigWindow(QWidget):
 
         layout.addRow(self._create_labeled_widget(i18n, 'vad', 'do_postprocessing'), self.do_vad_postprocessing_check)
         layout.addRow(self._create_labeled_widget(i18n, 'vad', 'language'), self.language_combo)
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'whisper_model'), self.whisper_model_combo)
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'selected_model'), self.selected_vad_model_combo)
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'backup_model'), self.backup_vad_model_combo)
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'add_on_no_results'), self.add_audio_on_no_results_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'use_tts_as_fallback'), self.use_tts_as_fallback_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'tts_url'), self.tts_url_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'audio_end_offset'), self.end_offset_edit)
+        
+        # Model Selection Group
+        models_group = self._create_group_box("VAD Models")
+        models_layout = QFormLayout()
+        models_layout.addRow(self._create_labeled_widget(i18n, 'vad', 'whisper_model'), self.whisper_model_combo)
+        models_layout.addRow(self._create_labeled_widget(i18n, 'vad', 'selected_model'), self.selected_vad_model_combo)
+        models_layout.addRow(self._create_labeled_widget(i18n, 'vad', 'backup_model'), self.backup_vad_model_combo)
+        models_layout.addRow(self._create_labeled_widget(i18n, 'vad', 'use_cpu_for_inference'), self.use_cpu_for_inference_check)
+        models_layout.addRow(self._create_labeled_widget(i18n, 'vad', 'use_vad_filter_for_whisper'), self.use_vad_filter_for_whisper_check)
+        models_group.setLayout(models_layout)
+        layout.addRow(models_group)
+        
+        # Audio Trimming & Splicing Group
+        trimming_group = self._create_group_box("Audio Trimming")
+        trimming_layout = QFormLayout()
+        trimming_layout.addRow(self._create_labeled_widget(i18n, 'vad', 'audio_end_offset', color=LabelColor.IMPORTANT, bold=True), self.end_offset_edit)
         
         trim_begin_widget = QWidget()
         trim_begin_layout = QHBoxLayout(trim_begin_widget)
@@ -963,7 +1240,7 @@ class ConfigWindow(QWidget):
         trim_begin_layout.addWidget(self._create_labeled_widget(i18n, 'vad', 'beginning_offset'))
         trim_begin_layout.addWidget(self.vad_beginning_offset_edit)
         trim_begin_layout.addStretch()
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'trim_beginning'), trim_begin_widget)
+        trimming_layout.addRow(self._create_labeled_widget(i18n, 'vad', 'trim_beginning'), trim_begin_widget)
 
         splice_widget = QWidget()
         splice_layout = QHBoxLayout(splice_widget)
@@ -972,12 +1249,17 @@ class ConfigWindow(QWidget):
         splice_layout.addWidget(self._create_labeled_widget(i18n, 'vad', 'splice_padding'))
         splice_layout.addWidget(self.splice_padding_edit)
         splice_layout.addStretch()
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'cut_and_splice'), splice_widget)
+        trimming_layout.addRow(self._create_labeled_widget(i18n, 'vad', 'cut_and_splice'), splice_widget)
         
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'use_cpu_for_inference'), self.use_cpu_for_inference_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'use_vad_filter_for_whisper'), self.use_vad_filter_for_whisper_check)
+        trimming_group.setLayout(trimming_layout)
+        layout.addRow(trimming_group)
         
-        layout.addRow(self._create_reset_button("vad", self._create_vad_tab))
+        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'add_on_no_results'), self.add_audio_on_no_results_check)
+        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'use_tts_as_fallback'), self.use_tts_as_fallback_check)
+        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'tts_url'), self.tts_url_edit)
+        
+        reset_widget = self._create_reset_button("vad", self._create_vad_tab)
+        layout.addRow(reset_widget)
         return widget
 
     def _create_features_tab(self):
@@ -1009,11 +1291,39 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'screenshot', 'animated'), self.animated_screenshot_check)
         layout.addRow(self._create_labeled_widget(i18n, 'screenshot', 'ffmpeg_options'), self.screenshot_custom_ffmpeg_settings_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'screenshot', 'timing'), self.screenshot_timing_combo)
-        layout.addRow(self._create_labeled_widget(i18n, 'screenshot', 'offset'), self.seconds_after_line_edit)
+        layout.addRow(self._create_labeled_widget(i18n, 'screenshot', 'offset', color=LabelColor.IMPORTANT), self.seconds_after_line_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'screenshot', 'use_selector'), self.use_screenshot_selector_check)
         layout.addRow(self._create_labeled_widget(i18n, 'screenshot', 'hotkey'), self.take_screenshot_hotkey_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'screenshot', 'hotkey_updates_anki'), self.screenshot_hotkey_update_anki_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'screenshot', 'trim_black_bars'), self.trim_black_bars_check)
+        layout.addRow(self._create_labeled_widget(i18n, 'screenshot', 'trim_black_bars', color=LabelColor.RECOMMENDED), self.trim_black_bars_check)
+        
+        # Animated Screenshot Settings Group
+        self.animated_settings_group.setTitle("Animated Screenshot Settings")
+        self.animated_settings_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #555;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+        
+        animated_layout = QFormLayout()
+        animated_layout.addRow(QLabel("FPS (10-30):"), self.animated_fps_spin)
+        animated_layout.addRow(QLabel("Extension:"), self.animated_extension_combo)
+        animated_layout.addRow(QLabel("Quality (0-10):"), self.animated_quality_spin)
+        self.animated_settings_group.setLayout(animated_layout)
+        
+        layout.addRow(self.animated_settings_group)
+        
+        # Update visibility based on animated checkbox and video field
+        self._update_animated_settings_visibility()
 
         layout.addRow(self._create_reset_button("screenshot", self._create_screenshot_tab))
         return widget
@@ -1031,12 +1341,12 @@ class ConfigWindow(QWidget):
         offset_layout = QHBoxLayout(offset_widget)
         offset_layout.setContentsMargins(0,0,0,0)
         offset_layout.addWidget(self.beginning_offset_edit)
-        find_offset_button = QPushButton(i18n.get('audio', {}).get('find_offset_button', 'Find Offset (WIP)'))
-        find_offset_button.clicked.connect(self.call_audio_offset_selector)
-        offset_layout.addWidget(find_offset_button)
-        layout.addRow(self._create_labeled_widget(i18n, 'audio', 'beginning_offset'), offset_widget)
+        # find_offset_button = QPushButton(i18n.get('audio', {}).get('find_offset_button', 'Find Offset (WIP)'))
+        # find_offset_button.clicked.connect(self.call_audio_offset_selector)
+        # offset_layout.addWidget(find_offset_button)
+        layout.addRow(self._create_labeled_widget(i18n, 'audio', 'beginning_offset', color=LabelColor.IMPORTANT, bold=True), offset_widget)
 
-        layout.addRow(self._create_labeled_widget(i18n, 'audio', 'end_offset'), self.pre_vad_audio_offset_edit)
+        layout.addRow(self._create_labeled_widget(i18n, 'audio', 'end_offset', color=LabelColor.IMPORTANT, bold=True), self.pre_vad_audio_offset_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'audio', 'ffmpeg_preset'), self.ffmpeg_audio_preset_combo)
         layout.addRow(self._create_labeled_widget(i18n, 'audio', 'ffmpeg_options'), self.audio_ffmpeg_reencode_options_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'audio', 'anki_media_collection'), self.anki_media_collection_edit)
@@ -1071,12 +1381,18 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'obs', 'open_obs'), self.obs_open_obs_check)
         layout.addRow(self._create_labeled_widget(i18n, 'obs', 'close_obs'), self.obs_close_obs_check)
         layout.addRow(self._create_labeled_widget(i18n, 'obs', 'obs_path'), self._create_browse_widget(self.obs_path_edit, QFileDialog.FileMode.ExistingFile))
-        layout.addRow(self._create_labeled_widget(i18n, 'obs', 'host'), self.obs_host_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'obs', 'port'), self.obs_port_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'obs', 'password'), self.obs_password_edit)
+        
+        # Connection Settings Group
+        connection_group = self._create_group_box("OBS WebSocket Connection")
+        connection_layout = QFormLayout()
+        connection_layout.addRow(self._create_labeled_widget(i18n, 'obs', 'host'), self.obs_host_edit)
+        connection_layout.addRow(self._create_labeled_widget(i18n, 'obs', 'port'), self.obs_port_edit)
+        connection_layout.addRow(self._create_labeled_widget(i18n, 'obs', 'password'), self.obs_password_edit)
+        connection_group.setLayout(connection_layout)
+        layout.addRow(connection_group)
+        
         self.obs_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addRow(self._create_labeled_widget(i18n, 'obs', 'min_replay_size'), self.obs_minimum_replay_size_edit)
-        # The 'automatically_manage_replay_buffer' setting seems to be missing from the original Tkinter UI, adding it here for completeness.
         layout.addRow(QLabel("Auto-Manage Replay Buffer"), self.automatically_manage_replay_buffer_check)
         
         layout.addRow(self._create_reset_button("obs", self._create_obs_tab))
@@ -1090,22 +1406,48 @@ class ConfigWindow(QWidget):
 
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'enabled'), self.ai_enabled_check)
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'provider'), self.ai_provider_combo)
-        layout.addRow(self._create_labeled_widget(i18n, 'ai', 'gemini_model'), self.gemini_model_combo)
-        layout.addRow(self._create_labeled_widget(i18n, 'ai', 'gemini_api_key'), self.gemini_api_key_edit)
+        
+        # Gemini Settings Group
+        self.gemini_settings_group.setTitle("Google Gemini Settings")
+        self.gemini_settings_group.setStyleSheet(self._get_group_box_style())
+        gemini_layout = QFormLayout()
+        gemini_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'gemini_model'), self.gemini_model_combo)
+        gemini_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'gemini_api_key'), self.gemini_api_key_edit)
         self.gemini_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        layout.addRow(self._create_labeled_widget(i18n, 'ai', 'groq_model'), self.groq_model_combo)
-        layout.addRow(self._create_labeled_widget(i18n, 'ai', 'groq_api_key'), self.groq_api_key_edit)
+        self.gemini_settings_group.setLayout(gemini_layout)
+        layout.addRow(self.gemini_settings_group)
+        
+        # Groq Settings Group
+        self.groq_settings_group.setTitle("Groq Settings")
+        self.groq_settings_group.setStyleSheet(self._get_group_box_style())
+        groq_layout = QFormLayout()
+        groq_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'groq_model'), self.groq_model_combo)
+        groq_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'groq_api_key'), self.groq_api_key_edit)
         self.groq_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        layout.addRow(self._create_labeled_widget(i18n, 'ai', 'openai_url'), self.open_ai_url_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'ai', 'openai_model'), self.open_ai_model_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'ai', 'openai_apikey'), self.open_ai_api_key_edit)
+        self.groq_settings_group.setLayout(groq_layout)
+        layout.addRow(self.groq_settings_group)
+        
+        # OpenAI Settings Group
+        self.openai_settings_group.setTitle("OpenAI-Compatible API Settings")
+        self.openai_settings_group.setStyleSheet(self._get_group_box_style())
+        openai_layout = QFormLayout()
+        openai_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'openai_url'), self.open_ai_url_edit)
+        openai_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'openai_model'), self.open_ai_model_edit)
+        openai_layout.addRow(self._create_labeled_widget(i18n, 'ai', 'openai_apikey'), self.open_ai_api_key_edit)
         self.open_ai_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.openai_settings_group.setLayout(openai_layout)
+        layout.addRow(self.openai_settings_group)
+        
+        # Common AI Settings
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'anki_field'), self.ai_anki_field_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'ai', 'context_length'), self.ai_dialogue_context_length_edit)
+        layout.addRow(self._create_labeled_widget(i18n, 'ai', 'context_length', color=LabelColor.ADVANCED), self.ai_dialogue_context_length_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'use_canned_translation'), self.use_canned_translation_prompt_check)
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'use_canned_context'), self.use_canned_context_prompt_check)
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'custom_prompt'), self.custom_prompt_textedit)
         layout.addRow(self._create_labeled_widget(i18n, 'ai', 'custom_texthooker_prompt'), self.custom_texthooker_prompt_textedit)
+        
+        # Update visibility based on provider selection
+        self._update_ai_provider_visibility()
 
         layout.addRow(self._create_reset_button("ai", self._create_ai_tab))
         return widget
@@ -1120,11 +1462,17 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'overlay_monitor'), self.overlay_monitor_combo)
         layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'overlay_engine'), self.overlay_engine_combo)
         layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'scan_delay'), self.scan_delay_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic'), self.periodic_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic_interval'), self.periodic_interval_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic_ratio'), self.periodic_ratio_edit)
-        layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'number_of_local_scans_per_event'), self.number_of_local_scans_per_event_edit)
         layout.addRow(self._create_labeled_widget(i18n, "overlay", 'manual_overlay_scan_hotkey',), self.manual_overlay_scan_hotkey_edit)
+        
+        # Periodic Scanning Group
+        periodic_group = self._create_group_box("Periodic Scanning")
+        periodic_layout = QFormLayout()
+        periodic_layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic'), self.periodic_check)
+        periodic_layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic_interval'), self.periodic_interval_edit)
+        periodic_layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic_ratio'), self.periodic_ratio_edit)
+        periodic_layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'number_of_local_scans_per_event'), self.number_of_local_scans_per_event_edit)
+        periodic_group.setLayout(periodic_layout)
+        layout.addRow(periodic_group)
 
         min_char_widget = QWidget()
         min_char_layout = QHBoxLayout(min_char_widget)
@@ -1135,7 +1483,13 @@ class ConfigWindow(QWidget):
         min_char_layout.addWidget(find_size_button)
         layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'minimum_character_size'), min_char_widget)
         
-        layout.addRow(self._create_reset_button("overlay", self._create_overlay_tab))
+        # Area Selection Button
+        select_area_button = QPushButton(i18n.get('overlay', {}).get('select_area_button', 'Select Area for Current Scene'))
+        select_area_button.clicked.connect(self.open_monitor_area_selector)
+        layout.addRow(select_area_button)
+        
+        reset_widget = self._create_reset_button("overlay", self._create_overlay_tab)
+        layout.addRow(reset_widget)
         return widget
 
     def _create_advanced_tab(self):
@@ -1160,7 +1514,8 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'current_version'), self.current_version_label)
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'latest_version'), self.latest_version_label)
 
-        layout.addRow(self._create_reset_button("advanced", self._create_advanced_tab))
+        reset_widget = self._create_reset_button("advanced", self._create_advanced_tab)
+        layout.addRow(reset_widget)
         return widget
 
     def _create_profiles_tab(self):
@@ -1186,15 +1541,24 @@ class ConfigWindow(QWidget):
         button_layout.addStretch()
         layout.addRow(button_widget)
 
-        scene_widget = QWidget()
-        scene_layout = QHBoxLayout(scene_widget)
-        scene_layout.setContentsMargins(0,0,0,0)
+        # Styled container for OBS scene list and refresh button
+        scene_container = QWidget()
+        scene_container.setStyleSheet("""
+            QWidget {
+                border: 1px solid #333;
+                border-radius: 6px;
+                padding: 6px;
+            }
+        """)
+        scene_layout = QHBoxLayout(scene_container)
+        scene_layout.setContentsMargins(6,6,6,6)
+        scene_layout.setSpacing(8)
         self.obs_scene_list.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         scene_layout.addWidget(self.obs_scene_list)
         refresh_button = QPushButton(i18n.get('profiles', {}).get('refresh_scenes_button', 'Refresh'))
         refresh_button.clicked.connect(self.refresh_obs_scenes)
         scene_layout.addWidget(refresh_button)
-        layout.addRow(self._create_labeled_widget(i18n, 'profiles', 'obs_scene'), scene_widget)
+        layout.addRow(self._create_labeled_widget(i18n, 'profiles', 'obs_scene'), scene_container)
 
         layout.addRow(self._create_labeled_widget(i18n, 'profiles', 'switch_to_default'), self.switch_to_default_if_not_found_check)
 
@@ -1229,6 +1593,27 @@ class ConfigWindow(QWidget):
         self.locale_combo.blockSignals(False)
         
         self.notify_on_update_check.setChecked(s.features.notify_on_update)
+        
+        # Discord Settings
+        self.discord_enabled_check.setChecked(self.master_config.discord.enabled)
+        # self.discord_update_interval_spin.setValue(self.master_config.discord.update_interval)
+        # Load inactivity timer and clamp to allowed range
+        try:
+            inactivity_val = int(getattr(self.master_config.discord, 'inactivity_timer', 300))
+        except Exception:
+            inactivity_val = 300
+        inactivity_val = max(120, min(900, inactivity_val))
+        self.discord_inactivity_spin.setValue(inactivity_val)
+        self.discord_icon_combo.clear()
+        self.discord_icon_combo.addItems(['GSM', 'Cute', 'Jacked', 'Cursed'])
+        self.discord_icon_combo.setCurrentText(self.master_config.discord.icon)
+        self.discord_show_stats_combo.clear()
+        self.discord_show_stats_combo.addItems(['None', 'Characters per Hour', 'Total Characters', 'Cards Mined', 'Active Reading Time'])
+        self.discord_show_stats_combo.setCurrentText(self.master_config.discord.show_reading_stats)
+        # Discord blacklisted scenes will be populated by refresh_obs_scenes
+        
+        # Update visibility of Discord settings
+        self._update_discord_settings_visibility()
         
         # Paths
         self.folder_to_watch_edit.setText(s.paths.folder_to_watch)
@@ -1284,6 +1669,16 @@ class ConfigWindow(QWidget):
         self.take_screenshot_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.take_screenshot or ""))
         self.screenshot_hotkey_update_anki_check.setChecked(s.screenshot.screenshot_hotkey_updates_anki)
         self.trim_black_bars_check.setChecked(s.screenshot.trim_black_bars_wip)
+        
+        # Animated Screenshot Settings
+        self.animated_fps_spin.setValue(max(10, min(30, s.screenshot.animated_settings.fps)))
+        self.animated_extension_combo.clear()
+        self.animated_extension_combo.addItems(['avif', 'webp'])
+        self.animated_extension_combo.setCurrentText(s.screenshot.animated_settings.extension)
+        self.animated_quality_spin.setValue(max(0, min(10, s.screenshot.animated_settings.quality)))
+        
+        # Update visibility of animated settings
+        self._update_animated_settings_visibility()
         
         # Audio
         self.audio_enabled_check.setChecked(s.audio.enabled)
@@ -1356,6 +1751,8 @@ class ConfigWindow(QWidget):
         self.custom_prompt_textedit.setPlainText(s.ai.custom_prompt)
         self.custom_texthooker_prompt_textedit.setPlainText(s.ai.custom_texthooker_prompt)
         self.get_online_models()
+        # Update AI provider group visibility based on loaded provider
+        self._update_ai_provider_visibility()
         
         # Overlay
         self.overlay_websocket_port_edit.setText(str(s.overlay.websocket_port))
@@ -1434,16 +1831,74 @@ class ConfigWindow(QWidget):
         except Exception as e:
             logger.debug(f"Error checking OBS error queue: {e}")
 
-    def _create_labeled_widget(self, i18n_dict, key1, key2=None, default_tooltip='...'):
-        """Helper to create a QLabel with text and tooltip from the i18n dict."""
+    def _create_labeled_widget(self, i18n_dict, key1, key2=None, default_tooltip='...', color=LabelColor.DEFAULT, bold=False):
+        """Helper to create a QLabel with text and tooltip from the i18n dict.
+        
+        Args:
+            i18n_dict: The i18n dictionary containing label/tooltip data
+            key1: First key for nested dict lookup
+            key2: Optional second key for nested dict lookup
+            default_tooltip: Default tooltip if not found in i18n
+            color: LabelColor enum value to set the label color
+            bold: Whether to make the label text bold
+        
+        Returns:
+            QLabel: Configured label widget
+        """
         if key2:
             data = i18n_dict.get(key1, {}).get(key2, {})
         else:
             data = i18n_dict.get(key1, {})
             
-        label = QLabel(data.get('label', f'{key1}.{key2}'))
+        label_text = data.get('label')
+        if not label_text:
+            # If no label, use key2 (or key1 if key2 is None), convert snake_case to "Snake Case"
+            key = key2 if key2 else key1
+            label_text = ' '.join(word.capitalize() for word in key.split('_'))
+        label = QLabel(label_text)
         label.setToolTip(data.get('tooltip', default_tooltip))
+        
+        # Apply color styling
+        style_parts = []
+        if color != LabelColor.DEFAULT:
+            style_parts.append(f"color: {color.get_qt_color()};")
+        if bold:
+            style_parts.append("font-weight: bold;")
+        
+        if style_parts:
+            label.setStyleSheet(" ".join(style_parts))
+        
         return label
+    
+    def _create_group_box(self, title):
+        """Helper to create a styled QGroupBox with consistent styling."""
+        group = QGroupBox(title)
+        group.setStyleSheet(self._get_group_box_style())
+        return group
+    
+    def _get_group_box_style(self):
+        """Returns the consistent group box stylesheet."""
+        return """
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #555;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """
+    
+    def _update_ai_provider_visibility(self):
+        """Shows/hides AI provider settings based on selected provider."""
+        provider = self.ai_provider_combo.currentText()
+        self.gemini_settings_group.setVisible(provider == AI_GEMINI)
+        self.groq_settings_group.setVisible(provider == AI_GROQ)
+        self.openai_settings_group.setVisible(provider == AI_OPENAI)
 
     def _create_browse_widget(self, line_edit, mode):
         """Helper to create a LineEdit with a Browse button."""
@@ -1471,10 +1926,36 @@ class ConfigWindow(QWidget):
             
     def _create_reset_button(self, category, recreate_func):
         i18n = self.i18n.get('buttons', {}).get('reset_to_default', {})
+        
+        # Create a container widget with spacing
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 20, 0, 0)  # Add top margin for spacing
+        
+        # Add a horizontal line separator
+        separator = QWidget()
+        separator.setFixedHeight(1)
+        separator.setStyleSheet("background-color: #444444;")
+        container_layout.addWidget(separator)
+        
+        # Add some spacing after separator
+        container_layout.addSpacing(10)
+        
+        # Create the reset button
         button = QPushButton(i18n.get('text', 'Reset to Default'))
         button.setToolTip(i18n.get('tooltip', 'Reset current tab to default.'))
         button.clicked.connect(lambda: self._reset_to_default(category, recreate_func))
-        return button
+        button.setMaximumWidth(200)
+        
+        # Center the button
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(button)
+        button_layout.addStretch()
+        
+        container_layout.addLayout(button_layout)
+        
+        return container
 
     def _reset_to_default(self, category, recreate_func):
         i18n = self.i18n.get('dialogs', {}).get('reset_to_default', {})
@@ -1527,13 +2008,23 @@ class ConfigWindow(QWidget):
 
     def refresh_obs_scenes(self):
         self.obs_scene_list.clear()
+        self.discord_blacklisted_scenes_list.clear()
         try:
             scenes = obs.get_obs_scenes()
             scene_names = [scene['sceneName'] for scene in scenes]
+            
+            # Update profile OBS scene list
             self.obs_scene_list.addItems(scene_names)
             for i in range(self.obs_scene_list.count()):
                 item = self.obs_scene_list.item(i)
                 if item.text() in self.settings.scenes:
+                    item.setSelected(True)
+            
+            # Update Discord blacklisted scenes list
+            self.discord_blacklisted_scenes_list.addItems(scene_names)
+            for i in range(self.discord_blacklisted_scenes_list.count()):
+                item = self.discord_blacklisted_scenes_list.item(i)
+                if item.text() in self.master_config.discord.blacklisted_scenes:
                     item.setSelected(True)
         except Exception as e:
             logger.error(f"Failed to refresh OBS scenes: {e}")
@@ -1619,6 +2110,84 @@ class ConfigWindow(QWidget):
         if new_size is not None:
             self.overlay_minimum_character_size_edit.setText(str(new_size))
         self.save_settings()
+    
+    def on_selector_finished(self):
+            """Called via signal when the subprocess ends."""
+            self.showNormal() # Restores the window
+            self.activateWindow() # Brings it to front
+            self.show_area_selector_success_indicator() # Show success feedback
+
+    def open_monitor_area_selector(self):
+        """Launch the monitor area selector as a separate subprocess."""
+        try:
+            monitor_index = int(self.overlay_monitor_combo.currentIndex() or 0)
+        except (ValueError, AttributeError):
+            monitor_index = 0
+        
+        # Show confirmation dialog
+        reply = QMessageBox.question(
+            self, # Use self as parent so it centers on app
+            "Prepare for Area Selection",
+            f"Make sure your game is visible on Monitor {monitor_index + 1} before proceeding.\n\n"
+            "The config gui will minimize and the area selector will open in 1 second after you click OK.\n\n"
+            "Ready to continue?",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Ok
+        )
+        
+        if reply != QMessageBox.StandardButton.Ok:
+            logger.info("Monitor area selector cancelled by user")
+            return
+        
+        # Hide the config GUI NOW, before the thread starts
+        self.showMinimized() 
+        
+        logger.info(f"Launching monitor area selector for monitor {monitor_index}")
+        
+        def delayed_launch():
+            try:
+                time.sleep(1)
+                python_executable = sys.executable
+                
+                # 2. Add flags to completely detach the process (Windows specific optimization)
+                creationflags = 0
+                if sys.platform == "win32":
+                    creationflags = subprocess.CREATE_NO_WINDOW
+                
+                cmd = [
+                    python_executable,
+                    "-m",
+                    "GameSentenceMiner.ocr.owocr_area_selector_qt",
+                    "--monitor",
+                    str(monitor_index)
+                ]
+                
+                # 3. Use Popen with DEVNULL for all pipes to prevent deadlocks
+                #    using .wait() keeps this thread alive until the selector closes
+                process = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=creationflags
+                )
+                
+                process.wait() # Wait for the selector to be closed by the user
+                
+                logger.info("Monitor area selector finished")
+            
+            except Exception as e:
+                logger.error(f"Failed to launch monitor area selector: {e}", exc_info=True)
+            
+            finally:
+                # 4. Emit signal to restore window (Thread-safe way)
+                self._selector_finished_signal.emit()
+        
+        # Start the background thread
+        threading.Thread(target=delayed_launch, daemon=True).start()
+        
+        # REMOVED: self.show() 
+        # (It is now handled by the signal after the process dies)
 
     def get_online_models(self):
         ai_models = AIModelsTable.one()

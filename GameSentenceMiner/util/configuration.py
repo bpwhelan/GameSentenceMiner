@@ -495,8 +495,32 @@ class Features:
     open_anki_in_browser: bool = True
     browser_query: str = ''
     generate_longplay: bool = False
-    discord_rpc_enable: bool = True
 
+@dataclass_json
+@dataclass
+class AnimatedScreenshotSettings:
+    fps: int = 15 # max 30
+    extension: str = 'avif' # 'webp'
+    quality: int = 10 # 0-10
+    scaled_quality: int = 10 # 0-90 for webp, 10-45 for avif
+    
+    def __post_init__(self):
+        self.scaled_quality = self._scale_quality(self.quality, self.extension)
+    
+    def _scale_quality(self, q: int, codec: str) -> int:
+        q = max(0, min(10, q))
+
+        if codec == "webp":
+            # 0 → 70, 10 → 90
+            return int(70 + q * 2)
+
+        if codec == "avif":
+            # AV1 CRF: 0 = best, 63 = worst
+            # We expose 10-45 (recommended usable range)
+            # 0 → 45, 10 → 10
+            return int(45 - q * 3.5)
+
+        return q
 
 @dataclass_json
 @dataclass
@@ -510,6 +534,7 @@ class Screenshot:
     custom_ffmpeg_option_selected: str = ''
     screenshot_hotkey_updates_anki: bool = False
     animated: bool = False
+    animated_settings: AnimatedScreenshotSettings = field(default_factory=AnimatedScreenshotSettings)
     seconds_after_line: float = 1.0
     use_beginning_of_line_as_screenshot: bool = True
     use_new_screenshot_logic: bool = False
@@ -892,6 +917,16 @@ class StatsConfig:
         'saturday': 100,
         'sunday': 100
     })
+    
+@dataclass_json
+@dataclass
+class Discord:
+    enabled: bool = True
+    update_interval: int = 15
+    inactivity_timer: int = 300
+    icon: str = "GSM" # "Cute", "Jacked", "Cursed"
+    show_reading_stats: str = "Total Characters"  # 'None', 'Characters per Hour', 'Total Characters', 'Cards Mined', 'Active Reading Time'
+    blacklisted_scenes: List[str] = field(default_factory=list)
 
 @dataclass_json
 @dataclass
@@ -902,6 +937,7 @@ class Config:
     locale: str = Locale.English.value
     stats: StatsConfig = field(default_factory=StatsConfig)
     overlay: Overlay = field(default_factory=Overlay)
+    discord: Discord = field(default_factory=Discord)
     version: str = ""
 
     @classmethod
@@ -1046,8 +1082,6 @@ class Config:
                 config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(
                 config.general, profile.general, "open_multimine_on_startup")
-            self.sync_shared_field(
-                config.features, profile.features, "discord_rpc_enable")
             self.sync_shared_field(
                 config.general, profile.general, "websocket_uri")
             self.sync_shared_field(

@@ -17,6 +17,7 @@ class LiveSessionTracker:
         self.total_characters = 0
         self.total_reading_seconds = 0.0
         self.session_start_time = None
+        self.times_mined = 0
 
     def add_line(self, line_text: str, timestamp: float):
         """
@@ -53,6 +54,22 @@ class LiveSessionTracker:
             hours = self.total_reading_seconds / 3600
             return int(self.total_characters / hours)
         return 0
+    
+    def get_total_chars(self) -> int:
+        """Returns the total characters read in this session."""
+        return self.total_characters
+    
+    def get_cards_mined(self) -> int:
+        """Returns the number of cards mined in this session."""
+        return self.times_mined
+    
+    def get_active_reading_time(self) -> float:
+        """Returns the active reading time in seconds for this session."""
+        return self.total_reading_seconds
+    
+    def add_mined_line(self):
+        """Increments the count of lines mined in this session."""
+        self.times_mined += 1
 
 # Singleton instance to be used across the application
 live_stats_tracker = LiveSessionTracker()

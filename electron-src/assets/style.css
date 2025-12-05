@@ -406,3 +406,48 @@ button.danger:hover {
 #terminal-container {
     -ms-overflow-style: none; /* Hides the scrollbar */
 }
+
+/* ========================================================= */
+/* === ADVANCED MODE TOGGLE SWITCH === */
+/* ========================================================= */
+
+#settings-mode-toggle {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    width: 48px;
+    height: 24px;
+    background-color: #555;
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    vertical-align: middle;
+    margin-right: 0;
+}
+
+#settings-mode-toggle:checked {
+    background-color: var(--primary-color);
+}
+
+#settings-mode-toggle::before {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background-color: white;
+    top: 3px;
+    left: 3px;
+    transition: transform 0.3s ease;
+}
+
+#settings-mode-toggle:checked::before {
+    transform: translateX(24px);
+}
+
+#settings-mode-toggle:focus {
+    outline: 2px solid var(--lighter_primary-color);
+    outline-offset: 2px;
+}
+

@@ -16,8 +16,8 @@ from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, TEXT_REPLACEMENTS_FILE, run_new_thread
 from GameSentenceMiner import obs
-from GameSentenceMiner.discord_rpc import discord_rpc_manager
-from GameSentenceMiner.live_stats import live_stats_tracker
+from GameSentenceMiner.util.discord_rpc import discord_rpc_manager
+from GameSentenceMiner.util.live_stats import live_stats_tracker
 from GameSentenceMiner.util.gsm_utils import add_srt_line
 from GameSentenceMiner.util.text_log import add_line, get_text_log
 from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker
@@ -189,8 +189,11 @@ async def listen_websockets():
                         except (json.JSONDecodeError, TypeError):
                             current_clipboard = message
                             
-                        if current_clipboard != current_line:
-                            await handle_new_text_event(current_clipboard, line_time if line_time else message_received_time)
+                        try:
+                            if current_clipboard != current_line:
+                                await handle_new_text_event(current_clipboard, line_time if line_time else message_received_time)
+                        except Exception as e:
+                            logger.error(f"Error handling new text event: {e}", exc_info=True)
                             
             except (websockets.ConnectionClosed, ConnectionError, websockets.InvalidStatus, ConnectionResetError, Exception) as e:
                 if websocket_url in gsm_status.websockets_connected:

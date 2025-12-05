@@ -43,8 +43,6 @@ interface OCRConfig {
     optimize_second_scan: boolean;
     ocr1: string;
     ocr2: string;
-    window_name: string;
-    requiresOpenWindow: boolean;
     scanRate: number;
     language: string;
     ocr_screenshots: boolean;
@@ -52,10 +50,8 @@ interface OCRConfig {
     manualOcrHotkey: string;
     areaSelectOcrHotkey: string;
     sendToClipboard: boolean;
-    useWindowForConfig: boolean;
-    lastWindowSelected: string;
     keep_newline: boolean;
-    useObsAsOCRSource: boolean;
+    advancedMode?: boolean;
 }
 
 export enum HookableGameType {
@@ -151,7 +147,6 @@ export const store = new Store<StoreConfig>({
             optimize_second_scan: true,
             ocr1: "oneocr",
             ocr2: "glens",
-            window_name: "",
             language: "ja",
             ocr_screenshots: false,
             furigana_filter_sensitivity: 0,
@@ -159,11 +154,8 @@ export const store = new Store<StoreConfig>({
             areaSelectOcrHotkey: "Ctrl+Shift+O",
             sendToClipboard: false,
             scanRate: 0.5,
-            requiresOpenWindow: false,
-            useWindowForConfig: false,
-            lastWindowSelected: "",
             keep_newline: false,
-            useObsAsOCRSource: true
+            advancedMode: false
         },
         customPythonPackage: "GameSentenceMiner",
         windowTransparencyToolHotkey: 'Ctrl+Alt+Y',
@@ -339,22 +331,6 @@ export function setOCR2(ocr: string): void {
     store.set("OCR.ocr2", ocr);
 }
 
-export function getWindowName(): string {
-    return store.get("OCR.window_name");
-}
-
-export function setWindowName(name: string): void {
-    store.set("OCR.window_name", name);
-}
-
-export function getRequiresOpenWindow(): boolean {
-    return store.get("OCR.requiresOpenWindow");
-}
-
-export function setRequiresOpenWindow(requiresOpenWindow: boolean): void {
-    store.set("OCR.requiresOpenWindow", requiresOpenWindow);
-}
-
 export function getOCRScanRate(): number {
     return store.get("OCR.scanRate");
 }
@@ -415,29 +391,12 @@ export function setOptimizeSecondScan(optimize: boolean): void {
     store.set("OCR.optimize_second_scan", optimize);
 }
 
-export function setUseObsAsSource(useObs: boolean): void {
-    store.set("OCR.useObsAsOCRSource", useObs);
+export function getAdvancedMode(): boolean {
+    return store.get("OCR.advancedMode") || false;
 }
 
-export function getUseObsAsSource(): boolean {
-    return store.get("OCR.useObsAsOCRSource");
-}
-
-// Use Window for Config
-export function getUseWindowForConfig(): boolean {
-    return store.get("OCR.useWindowForConfig");
-}
-
-export function setUseWindowForConfig(useWindow: boolean): void {
-    store.set("OCR.useWindowForConfig", useWindow);
-}
-
-export function getLastWindowSelected(): string {
-    return store.get("OCR.lastWindowSelected");
-}
-
-export function setLastWindowSelected(window: string): void {
-    store.set("OCR.lastWindowSelected", window);
+export function setAdvancedMode(advancedMode: boolean): void {
+    store.set("OCR.advancedMode", advancedMode);
 }
 
 // Yuzu config getters and setters

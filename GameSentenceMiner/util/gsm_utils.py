@@ -17,6 +17,14 @@ from GameSentenceMiner.util.configuration import gsm_state, logger, get_config, 
 
 SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
 
+def time_it(func, *args, **kwargs):
+    start_time = time.perf_counter()
+    result = func(*args, **kwargs)
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    logger.info(f"Function executed in {elapsed_time:.4f} seconds.")
+    return result
+
 def run_new_thread(func):
     thread = threading.Thread(target=func, daemon=True)
     thread.start()
