@@ -19,50 +19,79 @@ from GameSentenceMiner.obs import get_screenshot_PIL
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
-# def align_and_correct(ocr_json, reference_text):
-#     logger.info(f"Starting align_and_correct with reference_text: '{reference_text}'")
-#     corrected = []
-#     ref_chars = list(reference_text)
-#     logger.info(f"Reference chars: {ref_chars}")
+def load_overlay_config_for_scene(scene_name: str = None) -> Dict[str, Any]:
+    """
+    Load the overlay config file for a specific scene.
+    Returns None if not found.
+    """
+    try:
+        from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config_path
+        from GameSentenceMiner.util.gsm_utils import sanitize_filename
+        
+        if not scene_name:
+            from GameSentenceMiner.util.electron_config import get_current_game
+            scene_name = get_current_game()
+        
+        scene = sanitize_filename(scene_name or "Default")
+        ocr_config_dir = get_ocr_config_path()
+        overlay_config_path = os.path.join(ocr_config_dir, f"{scene}_overlay.json")
+        
+        if not os.path.exists(overlay_config_path):
+            return None
+        
+        with open(overlay_config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.debug(f"Error loading overlay config: {e}")
+        return None
 
-#     for block_idx, block in enumerate(ocr_json):
-#         logger.info(f"Processing block {block_idx}: {block}")
-#         ocr_chars = [w["text"] for w in block["words"]]
-#         ocr_str = "".join(ocr_chars)
 
-#         # Compute edit operations from OCR → Reference
-#         ops = Levenshtein.editops(ocr_str, "".join(ref_chars))
+def apply_overlay_config_to_image(img: Image.Image, overlay_config: Dict[str, Any]) -> Image.Image:
+    """
+    Apply overlay config rectangles to an image by creating a transparent canvas
+    and pasting only the specified regions.
+    
+    Args:
+        img: PIL Image to process
+        overlay_config: Dict with 'rects' key containing list of rectangles
+                       Each rect has 'x', 'y', 'w', 'h' in pixel coordinates
+    
+    Returns:
+        Composite image with only the specified regions on transparent background
+    """
+    if not overlay_config or 'rects' not in overlay_config:
+        return img
+    
+    rects = overlay_config.get('rects', [])
+    if not rects:
+        return img
+    
+    # Create a transparent canvas with the same size as the original image
+    composite_img = Image.new("RGBA", (img.width, img.height), (0, 0, 0, 0))
+    
+    for rect in rects:
+        # Extract rectangle coordinates
+        left = max(0, rect['x'])
+        top = max(0, rect['y'])
+        right = min(img.width, rect['x'] + rect['w'])
+        bottom = min(img.height, rect['y'] + rect['h'])
+        
+        # Skip if the coordinates result in an invalid box
+        if left >= right or top >= bottom:
+            continue
+            
+        try:
+            cropped_image = img.crop((left, top, right, bottom))
+            # Paste the cropped image onto the canvas at its original location
+            paste_x = int(left)
+            paste_y = int(top)
+            composite_img.paste(cropped_image, (paste_x, paste_y))
+        except ValueError:
+            logger.warning("Error cropping image region, skipping rectangle")
+            continue
+    
+    return composite_img
 
-#         corrected_words = block["words"][:]
-
-#         # Apply corrections
-#         for op_idx, (op, i, j) in enumerate(ops):
-#             logger.info(f"Operation {op_idx}: {op}, i={i}, j={j}")
-#             if op == "replace":
-#                 logger.info(f"Replacing word at index {i} ('{corrected_words[i]['text']}') with reference char '{ref_chars[j]}'")
-#                 corrected_words[i]["text"] = ref_chars[j]
-#             elif op == "insert":
-#                 if i > 0:
-#                     prev = corrected_words[i - 1]["bounding_rect"]
-#                     bbox = prev  # simple: copy neighbor bbox
-#                 else:
-#                     bbox = corrected_words[0]["bounding_rect"]
-#                 corrected_words.insert(i, {
-#                     "text": ref_chars[j],
-#                     "bounding_rect": bbox,
-#                     "confidence": 1.0
-#                 })
-#             elif op == "delete":
-#                 logger.info(f"Deleting word at index {i} ('{corrected_words[i]['text']}')")
-#                 corrected_words[i]["text"] = ""  # mark empty
-
-#         corrected_words = [w for w in corrected_words if w["text"]]
-
-#         block["words"] = corrected_words
-#         block["text"] = "".join(w["text"] for w in corrected_words)
-#         corrected.append(block)
-
-#     return corrected
 
 # Conditionally import OCR engines
 try:
@@ -303,7 +332,7 @@ class OverlayProcessor:
 
         for crop_coords in crop_coords_list:
             # Ensure crop coordinates are within image bounds
-            x1, y1, x2, y2 = crop_coords
+            x1, y1, x2, y2, = crop_coords[:4]
             x1 = max(0, min(x1, full_screenshot.width))
             y1 = max(0, min(y1, full_screenshot.height))
             x2 = max(x1, min(x2, full_screenshot.width))
@@ -358,6 +387,14 @@ class OverlayProcessor:
         # Check for cancellation after screenshot
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
+        
+        # Load and apply overlay config if it exists (before OneOCR)
+        from GameSentenceMiner.obs import get_current_game
+        overlay_config = load_overlay_config_for_scene(get_current_game())
+        if overlay_config:
+            logger.debug("Applying overlay config to screenshot before OCR")
+            full_screenshot = apply_overlay_config_to_image(full_screenshot, overlay_config)
+            full_screenshot.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_with_config.png"))
         
         if self.oneocr:
             tries = get_overlay_config().number_of_local_scans_per_event if not check_against_last else 1
