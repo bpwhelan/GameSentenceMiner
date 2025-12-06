@@ -878,7 +878,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2.22.0"
+version = "2.22.3"
 source = { editable = "." }
 dependencies = [
     { name = "betterproto" },
@@ -973,7 +973,7 @@ requires-dist = [
     { name = "pynput", specifier = "~=1.8.1" },
     { name = "pyobjc", marker = "sys_platform == 'darwin'", specifier = "~=10.3.1" },
     { name = "pyperclipfix", specifier = ">=1.9.4" },
-    { name = "pypresence", specifier = ">=4.6.1" },
+    { name = "pypresence", url = "https://github.com/qwertyquerty/pypresence/archive/168c0fc3c00d8b974017cfcd18a4e801b6b78dae.zip" },
     { name = "pyqt6", specifier = "~=6.10.0" },
     { name = "pyqtdarktheme", specifier = "~=2.1.0" },
     { name = "pysbd", specifier = "~=0.3.4" },
@@ -5112,12 +5112,24 @@ wheels = [
 
 [[package]]
 name = "pypresence"
-version = "4.6.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f6/6b/dedacb949ee73c3fd4a11992a4e9a70fc4cd1046ed6870f9138348293ded/pypresence-4.6.1.tar.gz", hash = "sha256:05199516a3b4e182b637b3cd5415aab7ba542707664f634f35a7220c4f10334f", size = 20419, upload-time = "2025-10-17T18:53:39.484Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/0d/1c817c6769ce0b64cc0dcc20bc9d0edb4dc560e83a3b5f0d5cbda04c3d35/pypresence-4.6.1-py3-none-any.whl", hash = "sha256:33d4549fcdf4102f81935df4ba587bacb22193e0c50c541d1ab9329b21df33cd", size = 14033, upload-time = "2025-10-17T18:53:38.184Z" },
+version = "4.7.0a2"
+source = { url = "https://github.com/qwertyquerty/pypresence/archive/168c0fc3c00d8b974017cfcd18a4e801b6b78dae.zip" }
+sdist = { hash = "sha256:c315f0e0f410a4bb05f28bbea06c14fba498daa40facc4512fb540ffdbe06969" }
+
+[package.metadata]
+requires-dist = [
+    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
+    { name = "flake8", marker = "extra == 'dev'", specifier = ">=6.0.0" },
+    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+    { name = "pytest-mock", marker = "extra == 'dev'", specifier = ">=3.10.0" },
+    { name = "sphinx", marker = "extra == 'dev'", specifier = ">=5.0.0" },
+    { name = "sphinx-rtd-theme", marker = "extra == 'dev'", specifier = ">=1.2.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "pyqt6"

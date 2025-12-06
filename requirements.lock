@@ -10,7 +10,7 @@ anyio==4.12.0
     #   openai
 av==16.0.1
     # via faster-whisper
-backports-zstd==1.1.0 ; python_full_version < '3.14'
+backports-zstd==1.2.0 ; python_full_version < '3.14'
     # via flask-compress
 betterproto==2.0.0b7
     # via gamesentenceminer (pyproject.toml)
@@ -1012,13 +1012,13 @@ pypiwin32==223 ; sys_platform == 'win32'
     # via win10toast
 pyppmd==1.2.0
     # via py7zr
-pypresence==4.6.1
+pypresence @ https://github.com/qwertyquerty/pypresence/archive/168c0fc3c00d8b974017cfcd18a4e801b6b78dae.zip
     # via gamesentenceminer (pyproject.toml)
-pyqt6==6.10.0
+pyqt6==6.10.1
     # via gamesentenceminer (pyproject.toml)
 pyqt6-qt6==6.10.1
     # via pyqt6
-pyqt6-sip==13.10.2
+pyqt6-sip==13.10.3
     # via pyqt6
 pyqtdarktheme==2.1.0
     # via gamesentenceminer (pyproject.toml)
