@@ -33,22 +33,36 @@ class SQLiteDB:
     """
     Multi-purpose SQLite database utility class for general use.
     Thread-safe for basic operations.
+    Supports optional read-only mode.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, read_only: bool = False):
         self.db_path = db_path
+        self.read_only = read_only
         self._lock = threading.Lock()
-        
+
+    def _get_connection(self):
+        if self.read_only:
+            # Use URI mode for read-only
+            uri = f"file:{self.db_path}?mode=ro"
+            return sqlite3.connect(uri, uri=True, check_same_thread=False)
+        else:
+            return sqlite3.connect(self.db_path, check_same_thread=False)
+
     def backup(self, backup_path: str):
         """ Create a backup of the database using built in SQLite backup API. """
-        with self._lock, sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+        if self.read_only:
+            raise RuntimeError("Cannot backup a database opened in read-only mode.")
+        with self._lock, self._get_connection() as conn:
             with sqlite3.connect(backup_path, check_same_thread=False) as backup_conn:
                 conn.backup(backup_conn)
                 if is_dev:
                     logger.debug(f"Database backed up to {backup_path}")
 
     def execute(self, query: str, params: Union[Tuple, Dict] = (), commit: bool = False) -> sqlite3.Cursor:
-        with self._lock, sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+        if self.read_only and commit:
+            raise RuntimeError("Cannot commit changes in read-only mode.")
+        with self._lock, self._get_connection() as conn:
             if is_dev:
                 logger.debug(f"Executed query: {query} with params: {params}")
             cur = conn.cursor()
@@ -58,7 +72,9 @@ class SQLiteDB:
             return cur
 
     def executemany(self, query: str, seq_of_params: List[Union[Tuple, Dict]], commit: bool = False) -> sqlite3.Cursor:
-        with self._lock, sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+        if self.read_only and commit:
+            raise RuntimeError("Cannot commit changes in read-only mode.")
+        with self._lock, self._get_connection() as conn:
             cur = conn.cursor()
             cur.executemany(query, seq_of_params)
             if commit:
@@ -74,6 +90,8 @@ class SQLiteDB:
         return cur.fetchone()
 
     def create_table(self, table_sql: str):
+        if self.read_only:
+            raise RuntimeError("Cannot create tables in read-only mode.")
         self.execute(table_sql, commit=True)
 
     def table_exists(self, table: str) -> bool:
@@ -803,13 +821,16 @@ def backup_db(db_path: str):
                 shutil.copyfileobj(f_in, gz_out)
         logger.info(f"Database backup created: {backup_file}")
 
+
 db_path = get_db_directory()
 if os.path.exists(db_path):
     backup_db(db_path)
 
 # db_path = get_db_directory(test=True, delete_test=False)
 
-gsm_db = SQLiteDB(db_path)
+# Default: normal read/write, but allow environment variable to override for read-only mode
+_gsm_db_read_only = os.environ.get("GSM_DB_READ_ONLY", "0") == "1"
+gsm_db = SQLiteDB(db_path, read_only=_gsm_db_read_only)
 
 # Import GamesTable, CronTable, and StatsRollupTable after gsm_db is created to avoid circular import
 from GameSentenceMiner.util.games_table import GamesTable
@@ -822,6 +843,7 @@ for cls in [AIModelsTable, GameLinesTable, GoalsTable, GamesTable, CronTable, St
     # cls.drop()
     # cls.set_db(gsm_db)  # --- IGNORE ---
     
+logger.info("Database initialized at %s", db_path)
 # GameLinesTable.drop_column('timestamp')
     
 # if GameLinesTable.has_column('timestamp_old'):
@@ -1015,6 +1037,7 @@ def check_and_run_migrations():
         else:
             logger.debug("populate_games cron job already exists, skipping creation.")
     
+<<<<<<< HEAD
     def migrate_user_plugins_cron_job():
         """
         Create the user_plugins cron job if it doesn't exist.
@@ -1036,6 +1059,8 @@ def check_and_run_migrations():
         else:
             logger.debug("user_plugins cron job already exists, skipping creation.")
     
+=======
+>>>>>>> main
     def migrate_genres_and_tags():
         """
         Add genres and tags columns to games table.
@@ -1084,7 +1109,10 @@ def check_and_run_migrations():
     migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
     migrate_genres_and_tags()  # Add genres and tags columns
+<<<<<<< HEAD
     migrate_user_plugins_cron_job()
+=======
+>>>>>>> main
         
 check_and_run_migrations()
     

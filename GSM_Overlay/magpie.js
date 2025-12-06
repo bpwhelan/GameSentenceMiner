@@ -2,6 +2,7 @@
 const { ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
+const { existsSync } = require('fs');
 
 // Magpie is windows only, disable this and just export no-ops on other platforms
 if (process.platform !== 'win32') {
@@ -32,6 +33,10 @@ if (process.platform !== 'win32') {
         // Use the pythonPath variable defined earlier.
         // Use app.isPackaged to determine if running from source or packaged
         const scriptPath = path.join(app.isPackaged ? process.resourcesPath : __dirname, 'magpie_compat.py');
+
+        if (existsSync(pythonPath) === false) {
+            return Promise.reject(new Error(`Python executable not found at path: ${pythonPath}`));
+        }
 
         // Use the pythonPath variable defined earlier.
         const pyProcess = spawn(pythonPath, [scriptPath, ...args]);

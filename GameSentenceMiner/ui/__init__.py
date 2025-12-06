@@ -2,7 +2,7 @@ import os
 import json
 from enum import Enum
 from PyQt6.QtWidgets import QWidget
-from GameSentenceMiner.util.configuration import logger, get_temporary_directory
+from GameSentenceMiner.util.configuration import logger, get_app_directory
 
 class WindowId(Enum):
     ANKI_CONFIRMATION = "anki_confirmation"
@@ -17,7 +17,7 @@ class WindowStateManager:
     """
     def __init__(self, file_path: str = None):
         if file_path is None:
-            directory = get_temporary_directory()
+            directory = get_app_directory()
             self.file_path = os.path.join(directory, "window_layout.json")
         else:
             self.file_path = file_path
@@ -58,7 +58,9 @@ class WindowStateManager:
             geom = self.data[key]
             try:
                 if all(k in geom for k in ('x', 'y', 'w', 'h')):
-                    window.setGeometry(geom['x'], geom['y'], geom['w'], geom['h'])
+                    # Use move() and resize() for proper window positioning
+                    window.move(geom['x'], geom['y'])
+                    window.resize(geom['w'], geom['h'])
                     return True
             except Exception as e:
                 logger.error(f"Error restoring geometry for {key}: {e}")
@@ -69,16 +71,20 @@ class WindowStateManager:
         Saves the current geometry of the window.
         """
         key = window_id.value if isinstance(window_id, WindowId) else str(window_id)
-        rect = window.geometry()
+        
+        # Use pos() and size() for top-level windows to get actual screen position
+        # geometry() can return position relative to parent (often 0,0 for top-level windows)
+        pos = window.pos()
+        size = window.size()
         
         # Reload current file state to ensure we don't overwrite other windows' updates
         current_file_data = self._load_data()
         
         current_file_data[key] = {
-            'x': rect.x(),
-            'y': rect.y(),
-            'w': rect.width(),
-            'h': rect.height()
+            'x': pos.x(),
+            'y': pos.y(),
+            'w': size.width(),
+            'h': size.height()
         }
         
         self.data = current_file_data

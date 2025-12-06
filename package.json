@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.15.5",
+  "version": "1.15.7",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -41,6 +41,10 @@
       {
         "from": "GSM_Overlay/out",
         "to": "resources/GSM_Overlay"
+      },
+      {
+        "from": "requirements.lock",
+        "to": "resources/requirements.lock"
       }
     ],
     "win": {

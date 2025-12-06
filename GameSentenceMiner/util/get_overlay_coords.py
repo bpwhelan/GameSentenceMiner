@@ -6,9 +6,9 @@ import math
 import os
 import threading
 import time
+import difflib
 from PIL import Image
 from typing import Dict, Any, List, Tuple
-import json
 from rapidfuzz import fuzz
 
 # Local application imports
@@ -19,50 +19,79 @@ from GameSentenceMiner.obs import get_screenshot_PIL
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
-# def align_and_correct(ocr_json, reference_text):
-#     logger.info(f"Starting align_and_correct with reference_text: '{reference_text}'")
-#     corrected = []
-#     ref_chars = list(reference_text)
-#     logger.info(f"Reference chars: {ref_chars}")
+def load_overlay_config_for_scene(scene_name: str = None) -> Dict[str, Any]:
+    """
+    Load the overlay config file for a specific scene.
+    Returns None if not found.
+    """
+    try:
+        from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config_path
+        from GameSentenceMiner.util.gsm_utils import sanitize_filename
+        
+        if not scene_name:
+            from GameSentenceMiner.util.electron_config import get_current_game
+            scene_name = get_current_game()
+        
+        scene = sanitize_filename(scene_name or "Default")
+        ocr_config_dir = get_ocr_config_path()
+        overlay_config_path = os.path.join(ocr_config_dir, f"{scene}_overlay.json")
+        
+        if not os.path.exists(overlay_config_path):
+            return None
+        
+        with open(overlay_config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.debug(f"Error loading overlay config: {e}")
+        return None
 
-#     for block_idx, block in enumerate(ocr_json):
-#         logger.info(f"Processing block {block_idx}: {block}")
-#         ocr_chars = [w["text"] for w in block["words"]]
-#         ocr_str = "".join(ocr_chars)
 
-#         # Compute edit operations from OCR → Reference
-#         ops = Levenshtein.editops(ocr_str, "".join(ref_chars))
+def apply_overlay_config_to_image(img: Image.Image, overlay_config: Dict[str, Any]) -> Image.Image:
+    """
+    Apply overlay config rectangles to an image by creating a transparent canvas
+    and pasting only the specified regions.
+    
+    Args:
+        img: PIL Image to process
+        overlay_config: Dict with 'rects' key containing list of rectangles
+                       Each rect has 'x', 'y', 'w', 'h' in pixel coordinates
+    
+    Returns:
+        Composite image with only the specified regions on transparent background
+    """
+    if not overlay_config or 'rects' not in overlay_config:
+        return img
+    
+    rects = overlay_config.get('rects', [])
+    if not rects:
+        return img
+    
+    # Create a transparent canvas with the same size as the original image
+    composite_img = Image.new("RGBA", (img.width, img.height), (0, 0, 0, 0))
+    
+    for rect in rects:
+        # Extract rectangle coordinates
+        left = max(0, rect['x'])
+        top = max(0, rect['y'])
+        right = min(img.width, rect['x'] + rect['w'])
+        bottom = min(img.height, rect['y'] + rect['h'])
+        
+        # Skip if the coordinates result in an invalid box
+        if left >= right or top >= bottom:
+            continue
+            
+        try:
+            cropped_image = img.crop((left, top, right, bottom))
+            # Paste the cropped image onto the canvas at its original location
+            paste_x = int(left)
+            paste_y = int(top)
+            composite_img.paste(cropped_image, (paste_x, paste_y))
+        except ValueError:
+            logger.warning("Error cropping image region, skipping rectangle")
+            continue
+    
+    return composite_img
 
-#         corrected_words = block["words"][:]
-
-#         # Apply corrections
-#         for op_idx, (op, i, j) in enumerate(ops):
-#             logger.info(f"Operation {op_idx}: {op}, i={i}, j={j}")
-#             if op == "replace":
-#                 logger.info(f"Replacing word at index {i} ('{corrected_words[i]['text']}') with reference char '{ref_chars[j]}'")
-#                 corrected_words[i]["text"] = ref_chars[j]
-#             elif op == "insert":
-#                 if i > 0:
-#                     prev = corrected_words[i - 1]["bounding_rect"]
-#                     bbox = prev  # simple: copy neighbor bbox
-#                 else:
-#                     bbox = corrected_words[0]["bounding_rect"]
-#                 corrected_words.insert(i, {
-#                     "text": ref_chars[j],
-#                     "bounding_rect": bbox,
-#                     "confidence": 1.0
-#                 })
-#             elif op == "delete":
-#                 logger.info(f"Deleting word at index {i} ('{corrected_words[i]['text']}')")
-#                 corrected_words[i]["text"] = ""  # mark empty
-
-#         corrected_words = [w for w in corrected_words if w["text"]]
-
-#         block["words"] = corrected_words
-#         block["text"] = "".join(w["text"] for w in corrected_words)
-#         corrected.append(block)
-
-#     return corrected
 
 # Conditionally import OCR engines
 try:
@@ -217,38 +246,6 @@ class OverlayProcessor:
                 "width": monitor["width"],
                 "height": monitor["height"] - 1
             }
-            # # return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
-            # if is_windows() and monitor_index == 0:
-            #     from ctypes import wintypes
-            #     import ctypes
-            #     # Get work area for primary monitor (ignores taskbar)
-            #     SPI_GETWORKAREA = 0x0030
-            #     rect = wintypes.RECT()
-            #     res = ctypes.windll.user32.SystemParametersInfoW(
-            #         SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
-            #     )
-            #     if not res:
-            #         raise ctypes.WinError()
-                
-            #     return {
-            #         "left": rect.left,
-            #         "top": rect.top,
-            #         "width": rect.right - rect.left,
-            #         "height": rect.bottom - rect.top,
-            #     }
-            # elif is_windows() and monitor_index > 0:
-            #     # Secondary monitors: just return with a guess of how tall the taskbar is
-            #     taskbar_height_guess = 48  # A common taskbar height, may vary
-            #     mon = monitors[monitor_index]
-            #     return {
-            #         "left": mon["left"],
-            #         "top": mon["top"],
-            #         "width": mon["width"],
-            #         "height": mon["height"] - taskbar_height_guess
-            #     }
-            # else:
-            #     # For non-Windows systems or unspecified monitors, return the monitor area as-is
-            #     return monitors[monitor_index] if 0 <= monitor_index < len(monitors) else monitors[0]
 
 
     def _get_full_screenshot(self) -> Tuple[Image.Image | None, int, int]:
@@ -303,7 +300,7 @@ class OverlayProcessor:
 
         for crop_coords in crop_coords_list:
             # Ensure crop coordinates are within image bounds
-            x1, y1, x2, y2 = crop_coords
+            x1, y1, x2, y2, = crop_coords[:4]
             x1 = max(0, min(x1, full_screenshot.width))
             y1 = max(0, min(y1, full_screenshot.height))
             x2 = max(x1, min(x2, full_screenshot.width))
@@ -359,6 +356,14 @@ class OverlayProcessor:
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
         
+        # Load and apply overlay config if it exists (before OneOCR)
+        from GameSentenceMiner.obs import get_current_game
+        overlay_config = load_overlay_config_for_scene(get_current_game())
+        if overlay_config:
+            logger.debug("Applying overlay config to screenshot before OCR")
+            full_screenshot = apply_overlay_config_to_image(full_screenshot, overlay_config)
+            full_screenshot.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_with_config.png"))
+        
         if self.oneocr:
             tries = get_overlay_config().number_of_local_scans_per_event if not check_against_last else 1
             for i in range(tries):
@@ -369,6 +374,7 @@ class OverlayProcessor:
                         logger.info("OCR task cancelled during local scan delay")
                         raise
                 # 2. Use OneOCR to find general text areas (fast)
+                start_time = time.perf_counter()
                 res, text, oneocr_results, crop_coords_list = self.oneocr(
                     full_screenshot,
                     return_coords=True,
@@ -376,6 +382,8 @@ class OverlayProcessor:
                     return_one_box=False,
                     furigana_filter_sensitivity=get_overlay_config().minimum_character_size,
                 )
+                end_time = time.perf_counter()
+                # logger.info("OneOCR processing took %.4f seconds.", end_time - start_time)
                 
                 if not crop_coords_list:
                     return        
@@ -394,7 +402,17 @@ class OverlayProcessor:
                         return
                 self.last_oneocr_result = text_str
                 
-                await send_word_coordinates_to_overlay(self._convert_oneocr_results_to_percentages(oneocr_results, monitor_width, monitor_height))
+                # Convert results
+                oneocr_final = self._convert_oneocr_results_to_percentages(oneocr_results, monitor_width, monitor_height)
+
+                # Correct text if ground truth is available
+                if sentence_to_check:
+                    start_time = time.perf_counter()
+                    oneocr_final = self._correct_ocr_text(oneocr_final, sentence_to_check)
+                    end_time = time.perf_counter()
+                    # logger.info("OCR text correction took %.4f seconds.", end_time - start_time)
+                
+                await send_word_coordinates_to_overlay(oneocr_final)
                 
                 # If User Home is beangate
                 if is_beangate:
@@ -416,6 +434,7 @@ class OverlayProcessor:
                     monitor_width, 
                     monitor_height
                 )
+                
         else:
             composite_image = full_screenshot
         
@@ -424,11 +443,14 @@ class OverlayProcessor:
             raise asyncio.CancelledError()
         
         # 4. Use Google Lens on the cleaner composite image for higher accuracy
+        start_time = time.perf_counter()
         res = self.lens(
             composite_image,
             return_coords=True,
             furigana_filter_sensitivity=get_overlay_config().minimum_character_size
         )
+        end_time = time.perf_counter()
+        # logger.info("Google Lens processing took %.4f seconds.", end_time - start_time)
         
         # Check for cancellation after Google Lens
         if asyncio.current_task().cancelled():
@@ -467,9 +489,105 @@ class OverlayProcessor:
             crop_height=composite_image.height,
             use_percentages=True
         )
+
+        # Correct text if ground truth is available
+        if sentence_to_check:
+            start_time = time.perf_counter()
+            extracted_data = self._correct_ocr_text(extracted_data, sentence_to_check)
+            end_time = time.perf_counter()
+            # logger.info("OCR text correction took %.4f seconds.", end_time - start_time)
+
         await send_word_coordinates_to_overlay(extracted_data)
         
         logger.info("Sent %d text boxes to overlay.", len(extracted_data))
+
+    def _correct_ocr_text(self, ocr_results: List[Dict[str, Any]], sentence: str) -> List[Dict[str, Any]]:
+        """
+        Matches the OCR results against a ground truth sentence and corrects 
+        characters in the OCR results where they align 1-to-1.
+        """
+        if not sentence or not ocr_results:
+            return ocr_results
+
+        # 1. Flatten OCR content into a list of characters with mapping to their structure
+        flat_ocr_chars = []
+        # map flat_index -> (line_idx, word_idx, char_idx)
+        char_map = {} 
+        current_idx = 0
+
+        # Buffer to hold mutable chars for reconstruction
+        # (line_idx, word_idx) -> list of chars
+        word_buffers = {}
+
+        for l_idx, line in enumerate(ocr_results):
+            words = line.get('words', [])
+            if words:
+                for w_idx, word in enumerate(words):
+                    text = word.get('text', '')
+                    # Initialize buffer
+                    word_buffers[(l_idx, w_idx)] = list(text)
+                    
+                    for c_idx, char in enumerate(text):
+                        flat_ocr_chars.append(char)
+                        char_map[current_idx] = (l_idx, w_idx, c_idx)
+                        current_idx += 1
+            else:
+                # Handle lines without words (fallback)
+                text = line.get('text', '')
+                word_buffers[(l_idx, -1)] = list(text)
+                for c_idx, char in enumerate(text):
+                    flat_ocr_chars.append(char)
+                    char_map[current_idx] = (l_idx, -1, c_idx)
+                    current_idx += 1
+        
+        flat_ocr_str = "".join(flat_ocr_chars)
+        
+        # 2. Match OCR string against the ground truth sentence
+        matcher = difflib.SequenceMatcher(None, flat_ocr_str, sentence)
+        
+        # 3. Apply corrections
+        # We only apply 1-to-1 replacements to preserve coordinate validity
+        corrections_made = 0
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == 'replace':
+                ocr_segment_len = i2 - i1
+                sent_segment_len = j2 - j1
+                
+                # Only correct if lengths match (simple character misrecognition)
+                # This avoids messing up coordinates if OCR completely missed a char or saw duplicates
+                if ocr_segment_len == sent_segment_len:
+                    correct_segment = sentence[j1:j2]
+                    ocr_segment = flat_ocr_str[i1:i2]
+                    for k, new_char in enumerate(correct_segment):
+                        flat_idx = i1 + k
+                        if flat_idx in char_map:
+                            l, w, c = char_map[flat_idx]
+                            old_char = word_buffers[(l, w)][c]
+                            # Update the buffer
+                            word_buffers[(l, w)][c] = new_char
+                            if old_char != new_char:
+                                corrections_made += 1
+                    
+                    if ocr_segment != correct_segment:
+                        logger.info(f"OCR correction: '{ocr_segment}' -> '{correct_segment}'")
+
+        # 4. Reconstruct OCR results from the modified buffers
+        for (l, w), char_list in word_buffers.items():
+            new_text = "".join(char_list)
+            if w == -1:
+                ocr_results[l]['text'] = new_text
+            else:
+                ocr_results[l]['words'][w]['text'] = new_text
+                
+        # 5. Re-generate main line text from words if words exist to keep consistency
+        for line in ocr_results:
+            if line.get('words'):
+                line['text'] = "".join([wd['text'] for wd in line['words']])
+        
+        if corrections_made > 0:
+            logger.info(f"Made {corrections_made} character correction(s) in OCR results")
+                
+        return ocr_results
 
     def _extract_text_with_pixel_boxes(
         self,

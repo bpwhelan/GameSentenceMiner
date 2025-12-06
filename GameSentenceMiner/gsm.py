@@ -92,7 +92,7 @@ try:
 
     start_time = time.time()
     from GameSentenceMiner import obs
-    from GameSentenceMiner.discord_rpc import discord_rpc_manager
+    from GameSentenceMiner.util.discord_rpc import discord_rpc_manager
     logger.debug(f"[Import] obs: {time.time() - start_time:.3f}s")
 
     start_time = time.time()

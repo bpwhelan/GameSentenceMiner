@@ -20,6 +20,8 @@ export const BASE_DIR = process.env.APPDATA
     ? path.join(process.env.APPDATA, APP_NAME) // Windows
     : path.join(os.homedir(), '.config', APP_NAME); // macOS/Linux
 
+export const DOWNLOAD_DIR = path.join(BASE_DIR, 'downloads');
+
 export const getPlatform = (): SupportedPlatform => {
     const platform = os.platform();
     switch (platform) {
@@ -70,7 +72,7 @@ export function getGSMBaseDir(): string {
 export function getResourcesDir(): string {
     return isDev
         ? path.join(__dirname, "../../") // Development path
-        : path.join(process.resourcesPath, "resources"); // Production (ASAR-safe)
+        : path.join(process.resourcesPath); // Production (ASAR-safe)
 }
 
 export function getOverlayPath(): string {

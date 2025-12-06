@@ -16,9 +16,11 @@ import { getOrInstallPython } from './python/python_downloader.js';
 import {
     APP_NAME,
     BASE_DIR,
+    DOWNLOAD_DIR,
     execFileAsync,
     getAssetsDir,
     getGSMBaseDir,
+    getResourcesDir,
     getSanitizedPythonEnv,
     isConnected,
     isDev,
@@ -42,7 +44,6 @@ import {
     getRunManualOCROnStartup,
     getStartConsoleMinimized,
     setPythonPath,
-    setWindowName,
     getIconStyle,
 } from './store.js';
 import { launchYuzuGameID, openYuzuWindow, registerYuzuIPC } from './ui/yuzu.js';
@@ -134,6 +135,9 @@ const originalError = console.error;
 // TODO FLIP THIS TO false BEFORE RELEASE
 export const preReleaseVersion = false;
 
+// Turn off auto updates in dev for testing
+export const alwaysUpdateInDev = true;
+
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
 
@@ -190,6 +194,11 @@ function registerIPC() {
         } catch (err: any) {
             return { success: false, error: err && err.message ? err.message : String(err) };
         }
+    });
+
+    // Get platform information
+    ipcMain.handle('get-platform', async () => {
+        return process.platform; // Returns 'win32', 'darwin', 'linux', etc.
     });
 
     // Listen for icon setting changes from renderer
@@ -305,6 +314,57 @@ async function updateGSM(shouldRestart: boolean = false, force: boolean = false,
     await gsmUpdatePromise;
 }
 
+// Add this helper near the top or inside the function scope
+import { pipeline } from 'stream/promises';
+import { createWriteStream } from 'fs';
+
+/**
+ * Downloads the requirements.lock from GitHub to the local assets folder (or temp).
+ */
+async function downloadLockfile(destPath: string): Promise<boolean> {
+    const url = 'https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/main/requirements.lock';
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            console.error(`Failed to download lockfile: ${response.statusText}`);
+            return false;
+        }
+        // Write file to disk
+        // Note: We need to convert the web stream to a node stream or write text
+        const text = await response.text();
+        fs.writeFileSync(destPath, text);
+        return true;
+    } catch (err) {
+        console.error('Error downloading lockfile:', err);
+        return false;
+    }
+}
+
+async function getLockFile(updateAvailable: boolean, force: boolean, preRelease: boolean) {
+    let lockfilePath = isDev ? './requirements.lock' : path.join(DOWNLOAD_DIR, 'requirements.lock');
+
+    // Download the latest lockfile if we are updating or forcing
+    let hasLockfile = false;
+    if ((updateAvailable || force) && !preRelease && !isDev) {
+        console.log("Downloading latest requirements.lock from GitHub...");
+        hasLockfile = await downloadLockfile(lockfilePath);
+    } else if (isDev) {
+        hasLockfile = true;
+    } else if (fs.existsSync(lockfilePath)) {
+        // Use existing cached lockfile if we aren't updating but just syncing
+        hasLockfile = true;
+    }
+
+    if (!hasLockfile && !isDev) {
+        const assetsLockfilePath = path.join(getResourcesDir(), 'requirements.lock');
+        if (fs.existsSync(assetsLockfilePath)) {
+            hasLockfile = true;
+            lockfilePath = assetsLockfilePath;
+        }
+    }
+    return { hasLockfile, lockfilePath };
+}
+
 /**
  * The internal implementation of the Python update logic.
  */
@@ -313,14 +373,23 @@ async function _updateGSMInternal(
     force: boolean = false,
     preRelease: boolean = false
 ): Promise<void> {
-    // The pythonUpdating flag is no longer needed for coordination.
     isUpdating = true;
-    const package_name = preRelease
-        ? 'git+https://github.com/bpwhelan/GameSentenceMiner@develop'
-        : PACKAGE_NAME;
+    
+    let package_name = PACKAGE_NAME;
+    if (preRelease) {
+        package_name = 'git+https://github.com/bpwhelan/GameSentenceMiner@develop';
+    } else if (isDev) {
+        package_name = '.'; 
+    }
+
     try {
         const { updateAvailable, latestVersion } = await checkForUpdates();
-        if (updateAvailable || force) {
+        
+        // Define where we store the downloaded lockfile. 
+        // Using userData is safer than assets for writing files at runtime.
+        var { hasLockfile, lockfilePath } = await getLockFile(updateAvailable, force, preRelease); 
+
+        if (updateAvailable || force || (isDev && alwaysUpdateInDev)) {
             if (pyProc) {
                 await closeAllPythonProcesses();
                 await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -329,39 +398,77 @@ async function _updateGSMInternal(
 
             await checkAndInstallUV(pythonPath);
 
-            try {
-                await runCommand(
-                    pythonPath,
-                    ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', package_name],
-                    true,
-                    true,
-                    "Install:"
-                );
-            } catch (err) {
-                log.error(
-                    'Failed to install custom Python package. Falling back to default package and forcing upgrade.',
-                    err
-                );
-                await cleanCache();
-                await runCommand(
-                    pythonPath,
-                    ['-m', 'uv', 'pip', 'install', '--upgrade', '--prerelease=allow', package_name],
-                    true,
-                    true,
-                    "Install:"
-                );
-            }
+            // STRATEGY: LOCKFILE vs LOOSE
+            if (hasLockfile && !preRelease) {
+                log.info(`Syncing environment to downloaded lockfile at ${lockfilePath}...`);
+                try {
+                    await runCommand(
+                        pythonPath,
+                        ['-m', 'uv', 'pip', 'sync', lockfilePath],
+                        true,
+                        true,
+                        "Install:"
+                    );
+                } catch (err) {
+                    log.error('Failed to sync lockfile, attempting to clean cache and retry', err);
+                    await cleanCache();
+                    await runCommand(
+                        pythonPath,
+                        ['-m', 'uv', 'pip', 'sync', lockfilePath],
+                        true,
+                        true,
+                        "Install (Retry):"
+                    );
+                }
 
-            try {
-                await runCommand(
-                    pythonPath,
-                    ['-m', 'uv', 'pip', 'install', 'pynput'],
-                    true,
-                    true,
-                    "Install:"
-                );
-            } catch (err) {
-                log.error('Failed to install pynput package, keyboard shortcuts will not work on Linux/Mac (Needs Community Help/Guide):', err);
+                log.info("Installing GSM App on top of locked environment...");
+                try {
+                    await runCommand(
+                        pythonPath,
+                        ['-m', 'uv', 'pip', 'install', '--no-deps', '--upgrade', package_name],
+                        true,
+                        true,
+                        "Install:"
+                    );
+                } catch (e) {
+                    log.warn("Standard install failed, forcing install ignoring deps check");
+                    await runCommand(
+                        pythonPath,
+                        ['-m', 'uv', 'pip', 'install', '--no-deps', '--ignore-installed', package_name],
+                        true,
+                        true,
+                        "Force Install:"
+                    );
+                }
+
+            } else {
+                // LOOSE MODE
+                log.info("No lockfile downloaded (or pre-release/dev mode). Using standard loose update.");
+                
+                try {
+                    await runCommand(
+                        pythonPath,
+                        ['-m', 'uv', 'pip', 'install', '--upgrade', package_name],
+                        true,
+                        true,
+                        "Install:"
+                    );
+                } catch (err) {
+                    log.error('Failed to install custom Python package. Retry with clean cache.', err);
+                    await cleanCache();
+                    await runCommand(
+                        pythonPath,
+                        ['-m', 'uv', 'pip', 'install', '--upgrade', package_name],
+                        true,
+                        true,
+                        "Install:"
+                    );
+                }
+
+                // Extras for loose mode
+                try {
+                    await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', 'pynput==1.8.1'], true, true, "Install:");
+                } catch (e) { log.warn(e); }
             }
 
             log.info('Success! Python update completed successfully.');
@@ -381,9 +488,7 @@ async function _updateGSMInternal(
         }
     } catch (error) {
         log.error('An error occurred during the Python update process:', error);
-        // Optionally re-throw or display an error to the user
     } finally {
-        // **IMPROVEMENT**: Use a finally block to ensure state is always cleaned up.
         isUpdating = false;
         log.info('Finished Python update internal process.');
     }
@@ -674,12 +779,23 @@ function createTray() {
         }
         
         tray = new Tray(iconPath);
-        const contextMenu = Menu.buildFromTemplate([
+        let template = [
             { label: 'Update GSM', click: () => runUpdateChecks(true, true) },
             { label: 'Restart Python App', click: () => restartGSM() },
             { label: 'Open GSM Folder', click: () => shell.openPath(BASE_DIR) },
             { label: 'Quit', click: () => quit() },
-        ]);
+        ]
+
+        if (isDev) {
+            template.push({ label: 'Restart App', click: async () => {
+                closeAllPythonProcesses().then(() => {
+                    app.relaunch();
+                    app.exit(0);
+                });
+            }});
+        }
+        
+        const contextMenu = Menu.buildFromTemplate(template);
 
         tray.setToolTip('GameSentenceMiner');
         tray.setContextMenu(contextMenu);
@@ -762,20 +878,47 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
 
     await checkAndInstallUV(pythonPath);
 
-    // TODO REMOVE THIS/COMMENT THIS
-    // console.log('Starting GameSentenceMiner...');
-    // return await runGSM(pythonPath, ['-m', 'uv', 'run', path.join(getGSMBaseDir(), "GameSentenceMiner", "gsm.py")]);
+    const { hasLockfile, lockfilePath } = await getLockFile(true, true, preReleaseVersion);
 
     if (!isInstalled) {
         console.log(`${APP_NAME} is not installed. Installing now...`);
         try {
-            const pkg = isDev ? "." : PACKAGE_NAME;
-            await runCommand(
-                pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--prerelease=allow', pkg],
-                true,
-                true
-            );
+            // Check for lockfile first
+            if (hasLockfile && !preReleaseVersion) {
+                console.log("Found requirements.lock, syncing strict environment...");
+                
+                // 1. Sync deps
+                await runCommand(pythonPath, ['-m', 'uv', 'pip', 'sync', lockfilePath], true, true);
+                
+                // 2. Install App (assume no deps needed as they are in lockfile)
+                await runCommand(
+                    pythonPath, 
+                    ['-m', 'uv', 'pip', 'install', '--no-deps', PACKAGE_NAME], 
+                    true, true
+                );
+                try {
+                    await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', 'pynput==1.8.1'], true, true);
+                } catch (e) {
+                    console.warn("Failed to install extra dep hotkeys for some stuff may not work!", e);
+                }
+            } else {
+                // Fallback loose install
+                console.log("No lockfile found (or pre-release), using loose install...");
+                const pkg = isDev ? "." : PACKAGE_NAME;
+                await runCommand(
+                    pythonPath,
+                    ['-m', 'uv', 'pip', 'install', '--prerelease=allow', pkg],
+                    true,
+                    true
+                );
+                
+                // Extras logic from original file
+                try {
+                    await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', 'pynput==1.8.1'], true, true);
+                } catch (e) {
+                    console.warn("Failed to install extra deps", e);
+                }
+            }
             console.log('Installation complete.');
         } catch (err) {
             console.error('Failed to install package:', err);
@@ -798,20 +941,27 @@ async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
             );
             await closeAllPythonProcesses();
             await cleanCache();
-            await runCommand(
-                pythonPath,
-                [
-                    '-m',
-                    'uv',
-                    'pip',
-                    'install',
-                    '--force-reinstall',
-                    '--prerelease=allow',
-                    PACKAGE_NAME,
-                ],
-                true,
-                true
-            );
+            
+            // Repair Logic
+            if (hasLockfile) {
+                 await runCommand(pythonPath, ['-m', 'uv', 'pip', 'sync', lockfilePath], true, true);
+                 await runCommand(pythonPath, ['-m', 'uv', 'pip', 'install', '--no-deps', '--force-reinstall', PACKAGE_NAME], true, true);
+            } else {
+                await runCommand(
+                    pythonPath,
+                    [
+                        '-m',
+                        'uv',
+                        'pip',
+                        'install',
+                        '--force-reinstall',
+                        '--prerelease=allow',
+                        PACKAGE_NAME,
+                    ],
+                    true,
+                    true
+                );
+            }
             console.log('reinstall complete, retrying to start GSM...');
             await ensureAndRunGSM(pythonPath, retry - 1);
         }
@@ -835,9 +985,6 @@ async function processArgsAndStartSettings() {
         } else if (args[i] === '--game' && args[i + 1]) {
             gameName = args[i + 1];
             i++;
-        } else if (args[i] === '--window' && args[i + 1]) {
-            windowName = args[i + 1];
-            i++;
         } else if (args[i] === '--ocr') {
             runOCR = true;
         } else if (args[i] === '--force-python-update') {
@@ -847,9 +994,6 @@ async function processArgsAndStartSettings() {
         }
     }
 
-    if (windowName) {
-        setWindowName(windowName);
-    }
     if (gameName) {
         await launchSteamGameID(gameName);
     }

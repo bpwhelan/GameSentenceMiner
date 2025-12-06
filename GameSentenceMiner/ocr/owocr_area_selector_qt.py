@@ -1,14 +1,18 @@
 import argparse
 import json
 import sys
+import os
 from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMenu
 from PyQt6.QtCore import Qt, QRect, QTimer
 from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage, QBrush, QAction
 from PIL import Image
+import mss
 
+# Assuming get_config is available here based on your request
+from GameSentenceMiner.util.configuration import logger, get_config 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config_path
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_window, get_scene_ocr_config_path, get_ocr_config_path
+from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 MIN_RECT_WIDTH = 25
 MIN_RECT_HEIGHT = 25
@@ -58,13 +62,27 @@ class ControlPanelWidget(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         
         # Instructions label
-        instructions = QLabel(
-            "How to Use:\n"
-            "• Left Click + Drag: Create a capture area (green).\n"
-            "• Shift + Left Click + Drag: Create an exclusion area (orange).\n"
-            "• Ctrl + Left Click + Drag: Create a secondary (menu) area (purple).\n"
-            "• Right-Click on a box: Delete it."
-        )
+        if getattr(self.parent_selector, 'select_monitor_area', False):
+            # Simplified instructions for monitor selection mode
+            instr_text = (
+                "Monitor Selection Mode:\n"
+                "• Left Click + Drag: Create selection area.\n"
+                "• Ctrl + A: Select entire screen.\n"
+                "• Right-Click on a box: Delete it.\n"
+                "• Modifiers (Shift/Ctrl) are disabled."
+            )
+        else:
+            # Original instructions
+            instr_text = (
+                "How to Use:\n"
+                "• Left Click + Drag: Create a capture area (green).\n"
+                "• Shift + Left Click + Drag: Create an exclusion area (orange).\n"
+                "• Ctrl + Left Click + Drag: Create a secondary (menu) area (purple).\n"
+                "• Ctrl + A: Select entire screen (green).\n"
+                "• Right-Click on a box: Delete it."
+            )
+
+        instructions = QLabel(instr_text)
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
         
@@ -114,14 +132,23 @@ class ControlPanelWidget(QWidget):
 
 
 class OWOCRAreaSelectorWidget(QWidget):
-    def __init__(self, window_name, use_window_as_config=False, use_obs_screenshot=False, on_complete=None):
+    def __init__(self, window_name, use_window_as_config=False, use_obs_screenshot=False, 
+                 on_complete=None, select_monitor_area=False, monitor_index=None):
         super().__init__()
         self.window_name = window_name
         self.use_window_as_config = use_window_as_config
         self.use_obs_screenshot = use_obs_screenshot
         self.on_complete = on_complete
-        self.scene = None
         
+        # New mode flag and monitor index
+        self.select_monitor_area = select_monitor_area
+        self.target_monitor_index = monitor_index
+        
+        self.scale_factor_w = 1.0
+        self.scale_factor_h = 1.0
+        self.monitor_geometry = None # To store left/top/width/height of physical monitor
+        
+        self.scene = None
         self.screenshot_img = None
         self.pixmap = None
         self.target_window_geometry = {}
@@ -140,32 +167,36 @@ class OWOCRAreaSelectorWidget(QWidget):
         
         self.instructions_visible = True
         self.instructions_dimmed = False
-        self.instructions_rect = QRect(20, 20, 400, 320)  # Panel position and size (increased height)
+        self.instructions_rect = QRect(20, 20, 400, 320)
         
-        self.control_panel = None  # Control panel widget
+        self.control_panel = None
         
-        # Long-press detection for save menu
         self.long_press_timer = QTimer()
         self.long_press_timer.timeout.connect(self._show_save_menu)
         self.long_press_pos = None
         self.long_press_active = False
         
-        # Initialize
         self._initialize()
         self.init_ui()
     
     def _initialize(self):
-        """Initialize OBS connection and capture screenshot."""
+        """Initialize appropriate capture method."""
         try:
-            obs.connect_to_obs_sync()
-            self.scene = obs.get_current_scene()
-            
-            if self.use_obs_screenshot:
-                self._init_obs_screenshot()
+            if self.select_monitor_area:
+                self._init_monitor_capture()
+                obs.connect_to_obs_sync()
+                self.scene = obs.get_current_scene()
+                self._load_existing_overlay_rectangles()    
             else:
-                self._init_window_capture()
-            
-            self._load_existing_rectangles()
+                obs.connect_to_obs_sync()
+                self.scene = obs.get_current_scene()
+                
+                if self.use_obs_screenshot:
+                    self._init_obs_screenshot()
+                else:
+                    self._init_window_capture()
+                
+                self._load_existing_rectangles()
             
             # Convert PIL Image to QPixmap
             img_to_convert = self.screenshot_img
@@ -184,7 +215,69 @@ class OWOCRAreaSelectorWidget(QWidget):
         except Exception as e:
             logger.error(f"Failed to initialize: {e}")
             raise
-    
+
+    def _init_monitor_capture(self):
+        """Initialize by capturing the configured monitor via MSS."""
+        
+        # Determine target monitor index
+        if self.target_monitor_index is not None:
+            target_idx = self.target_monitor_index
+        else:
+            try:
+                config = get_config()
+                target_idx = config.overlay.monitor
+            except Exception as e:
+                logger.warning(f"Could not read config for monitor index, defaulting to 0. Error: {e}")
+                target_idx = 0
+
+        self.target_monitor_index = target_idx
+        logger.info(f"Monitor Selection Mode: Targeting monitor index {target_idx}")
+
+        with mss.mss() as sct:
+            # MSS monitors list starts with [0] as 'All Monitors Combined'.
+            # Index 1 in MSS is usually the primary monitor (OS index 0).
+            mss_idx = target_idx + 1
+            
+            if mss_idx >= len(sct.monitors):
+                logger.error(f"Monitor index {target_idx} out of range (Found {len(sct.monitors)-1} monitors). Using primary.")
+                mss_idx = 1 # Fallback to primary
+                self.target_monitor_index = 0
+            
+            monitor_info = sct.monitors[mss_idx]
+            self.monitor_geometry = monitor_info # Store for UI positioning
+            
+            # Capture specific monitor
+            sct_img = sct.grab(monitor_info)
+            full_img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+            
+            original_w = full_img.width
+            original_h = full_img.height
+
+            # Scale down logic for the canvas
+            target_w, target_h = scale_down_width_height(original_w, original_h)
+            
+            if target_w != original_w or target_h != original_h:
+                logger.info(f"Scaling monitor capture from {original_w}x{original_h} to {target_w}x{target_h}")
+                self.screenshot_img = full_img.resize((target_w, target_h), Image.LANCZOS)
+                self.scale_factor_w = original_w / target_w
+                self.scale_factor_h = original_h / target_h
+            else:
+                self.screenshot_img = full_img
+                self.scale_factor_w = 1.0
+                self.scale_factor_h = 1.0
+            
+            # For this mode, the bounding box determines the window size (scaled)
+            self.bounding_box = {
+                'left': 0, 'top': 0, 
+                'width': self.screenshot_img.width, 
+                'height': self.screenshot_img.height
+            }
+            self.target_window_geometry = self.bounding_box
+            
+            # Dummy monitor list for compatibility
+            self.monitors = [{'index': self.target_monitor_index, 'left': 0, 'top': 0, 
+                              'width': self.screenshot_img.width, 'height': self.screenshot_img.height}]
+
     def _init_obs_screenshot(self):
         """Initialize using OBS screenshot."""
         sources = obs.get_active_video_sources()
@@ -262,6 +355,9 @@ class OWOCRAreaSelectorWidget(QWidget):
     
     def _load_existing_rectangles(self):
         """Load rectangles from config file."""
+        if self.select_monitor_area:
+            return
+
         config_path = get_scene_ocr_config_path(self.use_window_as_config, self.window_name)
         win_geom = self.target_window_geometry
         win_w, win_h, win_l, win_t = win_geom['width'], win_geom['height'], win_geom['left'], win_geom['top']
@@ -311,6 +407,51 @@ class OWOCRAreaSelectorWidget(QWidget):
         except Exception as e:
             logger.error(f"Error loading config: {e}")
     
+    def _load_existing_overlay_rectangles(self):
+        """Load rectangles from overlay config file for monitor mode."""
+        try:
+            # Get scene name
+            scene = sanitize_filename(self.scene or "Default")
+            ocr_config_dir = get_ocr_config_path()
+            overlay_config_path = os.path.join(ocr_config_dir, f"{scene}_overlay.json")
+            
+            if not os.path.exists(overlay_config_path):
+                logger.info(f"No overlay config found at {overlay_config_path}. Starting fresh.")
+                return
+            
+            with open(overlay_config_path, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+            
+            logger.info(f"Loading overlay rectangles from {overlay_config_path}")
+            print(f"Existing overlay config: {json.dumps(config_data, indent=2)}")
+            
+            loaded_count = 0
+            for rect_data in config_data.get("rects", []):
+                try:
+                    # Scale from original monitor coords to scaled widget coords
+                    x_scaled = int(rect_data["x"] / self.scale_factor_w)
+                    y_scaled = int(rect_data["y"] / self.scale_factor_h)
+                    w_scaled = int(rect_data["w"] / self.scale_factor_w)
+                    h_scaled = int(rect_data["h"] / self.scale_factor_h)
+                    
+                    self.rectangles.append({
+                        'x': x_scaled,
+                        'y': y_scaled,
+                        'w': w_scaled,
+                        'h': h_scaled,
+                        'monitor_index': self.target_monitor_index,
+                        'is_excluded': False,
+                        'is_secondary': False
+                    })
+                    self.undo_stack.append(('add', len(self.rectangles) - 1))
+                    loaded_count += 1
+                except (KeyError, ValueError, TypeError) as e:
+                    logger.warning(f"Skipping malformed rectangle: {e}")
+            
+            logger.info(f"Loaded {loaded_count} overlay rectangles")
+        except Exception as e:
+            logger.error(f"Error loading overlay config: {e}")
+    
     def init_ui(self):
         # Set window properties
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
@@ -322,18 +463,32 @@ class OWOCRAreaSelectorWidget(QWidget):
         # Set window title
         self.setWindowTitle('OWOCR Area Selector')
         
-        # For OBS mode, center the window on the primary monitor
-        if self.use_obs_screenshot:
+        # Positioning logic
+        if self.select_monitor_area and self.monitor_geometry:
+            # Center the selector on the target monitor
+            monitor_width = self.monitor_geometry['width']
+            monitor_height = self.monitor_geometry['height']
+            window_width = self.bounding_box['width']
+            window_height = self.bounding_box['height']
+            
+            x = self.monitor_geometry['left'] + (monitor_width - window_width) // 2
+            y = self.monitor_geometry['top'] + (monitor_height - window_height) // 2
+            
+            self.move(x, y)
+            self.resize(window_width, window_height)
+        
+        elif self.use_obs_screenshot:
+            # Center on primary screen
             screen = QApplication.primaryScreen()
             if screen:
                 screen_geometry = screen.geometry()
-                # Center the window
                 x = screen_geometry.x() + (screen_geometry.width() - self.bounding_box['width']) // 2
                 y = screen_geometry.y() + (screen_geometry.height() - self.bounding_box['height']) // 2
                 self.move(x, y)
                 self.resize(self.bounding_box['width'], self.bounding_box['height'])
+        
         else:
-            # Set geometry to bounding box for multi-monitor
+            # Set geometry to bounding box for multi-monitor window capture
             self.move(self.bounding_box['left'], self.bounding_box['top'])
             self.resize(self.bounding_box['width'], self.bounding_box['height'])
         
@@ -357,6 +512,14 @@ class OWOCRAreaSelectorWidget(QWidget):
         
         # Draw the screenshot
         painter.drawPixmap(0, 0, self.pixmap)
+        
+        # Draw a bright border around the entire window
+        border_color = QColor(0, 255, 255)  # Cyan
+        border_pen = QPen(border_color, 2)  # 2 pixels thick
+        painter.setPen(border_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        # Draw rectangle slightly inset so the border is fully visible
+        painter.drawRect(1, 1, self.width() - 2, self.height() - 2)
         
         # Draw existing rectangles
         for rect in self.rectangles:
@@ -420,9 +583,9 @@ class OWOCRAreaSelectorWidget(QWidget):
         panel_height = 320
         
         # Determine opacity based on hover state
-        alpha = 50 if self.instructions_dimmed else 230
-        text_alpha = 80 if self.instructions_dimmed else 255
-        border_alpha = 30 if self.instructions_dimmed else 100
+        alpha = 5 if self.instructions_dimmed else 230
+        text_alpha = 10 if self.instructions_dimmed else 255
+        border_alpha = 5 if self.instructions_dimmed else 100
         
         # Background
         painter.fillRect(panel_x, panel_y, panel_width, panel_height, QColor(0, 0, 0, alpha))
@@ -438,20 +601,35 @@ class OWOCRAreaSelectorWidget(QWidget):
         y_offset = panel_y + 55
         line_height = 20
         
-        instructions = [
-            "Controls:",
-            "• Left Click + Drag: Create capture area (green)",
-            "• Shift + Left Click + Drag: Exclusion area (orange)",
-            "• Ctrl + Left Click + Drag: Secondary area (purple)",
-            "• Right-Click on box: Delete it",
-            "• Right-Click empty space: Menu",
-            "",
-            "Save Options (No Keyboard Needed!):",
-            "• Double-Click empty space",
-            "• Middle Mouse Button",
-            "• Long-press (1s) empty space",
-            "• Ctrl + S or use Control Panel"
-        ]
+        if self.select_monitor_area:
+            instructions = [
+                f"Monitor Selection Mode (Monitor {self.target_monitor_index}):",
+                "• Left Click + Drag: Create selection area",
+                "• Ctrl + A: Select entire screen",
+                "• Right-Click on box: Delete it",
+                "• Modifiers (Shift/Ctrl) are DISABLED",
+                "",
+                "Save Options:",
+                "• Double-Click empty space",
+                "• Middle Mouse Button",
+                "• Ctrl + S or use Control Panel"
+            ]
+        else:
+            instructions = [
+                "Controls:",
+                "• Left Click + Drag: Create capture area (green)",
+                "• Shift + Left Click + Drag: Exclusion area (orange)",
+                "• Ctrl + Left Click + Drag: Secondary area (purple)",
+                "• Ctrl + A: Select entire screen (green)",
+                "• Right-Click on box: Delete it",
+                "• Right-Click empty space: Menu",
+                "",
+                "Save Options (No Keyboard Needed!):",
+                "• Double-Click empty space",
+                "• Middle Mouse Button",
+                "• Long-press (1s) empty space",
+                "• Ctrl + S or use Control Panel"
+            ]
         
         for line in instructions:
             painter.drawText(panel_x + 10, y_offset, line)
@@ -462,11 +640,19 @@ class OWOCRAreaSelectorWidget(QWidget):
     
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.start_pos = event.pos()
-            self.current_pos = event.pos()
+            # Clamp position to window bounds
+            clamped_pos = self._clamp_position(event.pos())
+            self.start_pos = clamped_pos
+            self.current_pos = clamped_pos
             self.is_drawing = True
-            self.drawing_excluded = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-            self.drawing_secondary = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            
+            if self.select_monitor_area:
+                # In monitor selection mode, strictly prevent specialized rectangles
+                self.drawing_excluded = False
+                self.drawing_secondary = False
+            else:
+                self.drawing_excluded = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                self.drawing_secondary = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
             
             # Start long-press timer (1 second)
             self.long_press_pos = event.pos()
@@ -494,23 +680,26 @@ class OWOCRAreaSelectorWidget(QWidget):
     
     def mouseMoveEvent(self, event):
         """Handle mouse movement for drawing and hover detection."""
+        # Clamp position to window bounds
+        clamped_pos = self._clamp_position(event.pos())
+        
         # Check if mouse is over instructions panel
         if self.instructions_visible:
-            mouse_over_panel = self.instructions_rect.contains(event.pos())
+            mouse_over_panel = self.instructions_rect.contains(clamped_pos)
             if mouse_over_panel != self.instructions_dimmed:
                 self.instructions_dimmed = mouse_over_panel
                 self.update()  # Trigger repaint
         
         # Cancel long-press if mouse moves too much
         if self.long_press_active and self.long_press_pos:
-            distance = (event.pos() - self.long_press_pos).manhattanLength()
+            distance = (clamped_pos - self.long_press_pos).manhattanLength()
             if distance > 10:  # 10 pixel threshold
                 self.long_press_timer.stop()
                 self.long_press_active = False
         
         # Handle drawing
         if self.is_drawing:
-            self.current_pos = event.pos()
+            self.current_pos = clamped_pos
             self.update()
     
     def mouseReleaseEvent(self, event):
@@ -520,7 +709,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.long_press_active = False
             
             self.is_drawing = False
-            self.current_pos = event.pos()
+            self.current_pos = self._clamp_position(event.pos())
             
             x1 = min(self.start_pos.x(), self.current_pos.x())
             y1 = min(self.start_pos.y(), self.current_pos.y())
@@ -573,6 +762,13 @@ class OWOCRAreaSelectorWidget(QWidget):
                 self.update()
                 break
     
+    def _clamp_position(self, pos):
+        """Clamp a position to stay within the window bounds."""
+        from PyQt6.QtCore import QPoint
+        x = max(0, min(pos.x(), self.width() - 1))
+        y = max(0, min(pos.y(), self.height() - 1))
+        return QPoint(x, y)
+    
     def _show_context_menu(self, pos):
         """Show context menu with save/quit options."""
         menu = QMenu(self)
@@ -582,13 +778,15 @@ class OWOCRAreaSelectorWidget(QWidget):
         draw_normal_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=False, secondary=False))
         menu.addAction(draw_normal_action)
         
-        draw_exclusion_action = QAction("🟠 Draw Exclusion Area", self)
-        draw_exclusion_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=True, secondary=False))
-        menu.addAction(draw_exclusion_action)
-        
-        draw_secondary_action = QAction("🟣 Draw Secondary (Menu) Area", self)
-        draw_secondary_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=False, secondary=True))
-        menu.addAction(draw_secondary_action)
+        # Only show specific drawing options if NOT in monitor selection mode
+        if not self.select_monitor_area:
+            draw_exclusion_action = QAction("🟠 Draw Exclusion Area", self)
+            draw_exclusion_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=True, secondary=False))
+            menu.addAction(draw_exclusion_action)
+            
+            draw_secondary_action = QAction("🟣 Draw Secondary (Menu) Area", self)
+            draw_secondary_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=False, secondary=True))
+            menu.addAction(draw_secondary_action)
         
         menu.addSeparator()
         
@@ -629,8 +827,14 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.start_pos = pos
         self.current_pos = pos
         self.is_drawing = True
-        self.drawing_excluded = excluded
-        self.drawing_secondary = secondary
+        
+        if self.select_monitor_area:
+            self.drawing_excluded = False
+            self.drawing_secondary = False
+        else:
+            self.drawing_excluded = excluded
+            self.drawing_secondary = secondary
+            
         self.update()
         
         # Set cursor to indicate drawing mode
@@ -669,6 +873,8 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.close()
         elif event.key() == Qt.Key.Key_S and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             self.save_and_quit()
+        elif event.key() == Qt.Key.Key_A and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.create_fullscreen_box()
         elif event.key() == Qt.Key.Key_Z and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             self.undo()
         elif event.key() == Qt.Key.Key_Y and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -715,9 +921,105 @@ class OWOCRAreaSelectorWidget(QWidget):
         logger.info(f"Redid action: {action[0]}")
         self.update()
     
+    def create_fullscreen_box(self):
+        """Create a rectangle covering the entire window (Ctrl+A)."""
+        # Remove all existing green (normal) rectangles first
+        remaining_rects = []
+        removed_indices = []
+        
+        for i, rect in enumerate(self.rectangles):
+            if rect['is_excluded'] or rect.get('is_secondary', False):
+                # Keep excluded and secondary rectangles
+                remaining_rects.append(rect)
+            else:
+                # Track removed green rectangles for undo
+                removed_indices.append((i, rect.copy()))
+        
+        # Add all removed rectangles to undo stack (in reverse order so undo works correctly)
+        for idx, rect in reversed(removed_indices):
+            self.undo_stack.append(('delete', len(remaining_rects), rect))
+        
+        # Update rectangles list
+        num_removed = len(removed_indices)
+        self.rectangles = remaining_rects
+        
+        if num_removed > 0:
+            logger.info(f"Removed {num_removed} existing green rectangle(s)")
+        
+        # Determine which monitor this is on
+        monitor_index = 0
+        if self.monitors:
+            monitor_index = self.monitors[0]['index']
+        
+        # Create a green (normal) rectangle covering the entire visible area
+        new_rect = {
+            'x': 0,
+            'y': 0,
+            'w': self.width(),
+            'h': self.height(),
+            'monitor_index': monitor_index,
+            'is_excluded': False,
+            'is_secondary': False
+        }
+        
+        self.undo_stack.append(('add', len(self.rectangles)))
+        self.rectangles.append(new_rect)
+        self.redo_stack.clear()
+        
+        logger.info(f"Created fullscreen rectangle: {new_rect}")
+        self.update()
+    
     def save_and_quit(self):
         """Save rectangles and quit."""
         logger.info("Saving rectangles...")
+        
+        # =========================================================
+        # SPECIAL BRANCH: Monitor Area Selection
+        # =========================================================
+        if self.select_monitor_area:
+            final_rects = []
+            monitor_offset_x = self.monitor_geometry['left'] if self.monitor_geometry else 0
+            monitor_offset_y = self.monitor_geometry['top'] if self.monitor_geometry else 0
+
+            for rect in self.rectangles:
+                # Convert from widget/scaled coords back to monitor pixel coords
+                x_orig = int(rect['x'] * self.scale_factor_w)
+                y_orig = int(rect['y'] * self.scale_factor_h)
+                w_orig = int(rect['w'] * self.scale_factor_w)
+                h_orig = int(rect['h'] * self.scale_factor_h)
+                
+                final_rects.append({
+                    "x": x_orig,
+                    "y": y_orig,
+                    "w": w_orig,
+                    "h": h_orig,
+                    # Optional: global coords if needed later
+                    "x_global": x_orig + monitor_offset_x,
+                    "y_global": y_orig + monitor_offset_y
+                })
+            
+            output_data = {
+                "monitor_index": self.target_monitor_index,
+                "rects": final_rects
+            }
+
+            # Print to stdout
+            print(json.dumps(output_data, indent=2))
+            
+            # Save to specific file with scene name + _overlay.json
+            try:
+                scene = sanitize_filename(self.scene or "Default")
+                ocr_config_dir = get_ocr_config_path()
+                out_path = os.path.join(ocr_config_dir, f"{scene}_overlay.json")
+                with open(out_path, 'w') as f:
+                    json.dump(output_data, f, indent=2)
+                logger.info(f"Saved {len(final_rects)} monitor regions and index {self.target_monitor_index} to {out_path}")
+            except Exception as e:
+                logger.error(f"Failed to save monitor selection: {e}")
+            
+            self.close()
+            return
+        # =========================================================
         
         win_geom = self.target_window_geometry
         win_w, win_h, win_l, win_t = win_geom['width'], win_geom['height'], win_geom['left'], win_geom['top']
@@ -773,28 +1075,41 @@ class OWOCRAreaSelectorWidget(QWidget):
         if self.on_complete:
             # Return the rectangles in the expected format
             result_rectangles = []
-            win_geom = self.target_window_geometry
-            win_w, win_h, win_l, win_t = win_geom['width'], win_geom['height'], win_geom['left'], win_geom['top']
             
-            for rect in self.rectangles:
-                # Convert back from bounding-box-relative to absolute
-                x_abs = rect['x'] + self.bounding_box['left']
-                y_abs = rect['y'] + self.bounding_box['top']
+            # Helper for export logic
+            if self.select_monitor_area:
+                 for rect in self.rectangles:
+                     result_rectangles.append({
+                        'x': int(rect['x'] * self.scale_factor_w),
+                        'y': int(rect['y'] * self.scale_factor_h),
+                        'width': int(rect['w'] * self.scale_factor_w),
+                        'height': int(rect['h'] * self.scale_factor_h),
+                        'is_excluded': False,
+                        'is_secondary': False
+                     })
+            else:
+                win_geom = self.target_window_geometry
+                win_w, win_h, win_l, win_t = win_geom['width'], win_geom['height'], win_geom['left'], win_geom['top']
                 
-                # Convert to percentage relative to target window
-                x_pct = (x_abs - win_l) / win_w if win_w > 0 else 0
-                y_pct = (y_abs - win_t) / win_h if win_h > 0 else 0
-                w_pct = rect['w'] / win_w if win_w > 0 else 0
-                h_pct = rect['h'] / win_h if win_h > 0 else 0
-                
-                result_rectangles.append({
-                    'x': x_pct,
-                    'y': y_pct,
-                    'width': w_pct,
-                    'height': h_pct,
-                    'is_excluded': rect['is_excluded'],
-                    'is_secondary': rect.get('is_secondary', False)
-                })
+                for rect in self.rectangles:
+                    # Convert back from bounding-box-relative to absolute
+                    x_abs = rect['x'] + self.bounding_box['left']
+                    y_abs = rect['y'] + self.bounding_box['top']
+                    
+                    # Convert to percentage relative to target window
+                    x_pct = (x_abs - win_l) / win_w if win_w > 0 else 0
+                    y_pct = (y_abs - win_t) / win_h if win_h > 0 else 0
+                    w_pct = rect['w'] / win_w if win_w > 0 else 0
+                    h_pct = rect['h'] / win_h if win_h > 0 else 0
+                    
+                    result_rectangles.append({
+                        'x': x_pct,
+                        'y': y_pct,
+                        'width': w_pct,
+                        'height': h_pct,
+                        'is_excluded': rect['is_excluded'],
+                        'is_secondary': rect.get('is_secondary', False)
+                    })
             
             self.on_complete(result_rectangles)
         
@@ -836,12 +1151,39 @@ def show_area_selector(window_name, use_window_as_config=False, use_obs_screensh
     
     return _selector
 
+def show_monitor_selector(monitor_index=0, on_complete=None):
+    """
+    Displays a Qt-based area selector for a specific monitor defined in config.
+    Captures via MSS, scales down, and allows basic rectangle selection.
+    """
+    app = QApplication.instance()
+    created_app = False
+    if app is None:
+        app = QApplication(sys.argv)
+        created_app = True
+        
+    _selector = OWOCRAreaSelectorWidget(
+        window_name="", 
+        use_window_as_config=False, 
+        use_obs_screenshot=False, 
+        on_complete=on_complete,
+        select_monitor_area=True,
+        monitor_index=monitor_index
+    )
+    
+    if created_app:
+        app.exec()
+        app.quit()
+        del app
+    
+    return _selector
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="OWOCR Area Selector")
     parser.add_argument("window_name", nargs='?', default="", help="Target window name")
     parser.add_argument("--use-window-as-config", action="store_true", help="Use window name for config")
     parser.add_argument("--obs", action="store_true", default=True, help="Use OBS screenshot")
+    parser.add_argument("--monitor", action="store", default=None, help="Use monitor selection mode with index (0=Primary)")
     
     args = parser.parse_args()
     
@@ -849,5 +1191,8 @@ if __name__ == "__main__":
     
     def on_complete(rectangles):
         logger.info(f"Completed with {len(rectangles)} rectangles")
-    
-    show_area_selector(args.window_name, args.use_window_as_config, args.obs, on_complete)
+        
+    if args.monitor is not None:
+        show_monitor_selector(monitor_index=int(args.monitor), on_complete=on_complete)
+    else:
+        show_area_selector(args.window_name, args.use_window_as_config, args.obs, on_complete)
