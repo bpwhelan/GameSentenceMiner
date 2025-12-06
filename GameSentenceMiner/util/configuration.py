@@ -1360,6 +1360,16 @@ error_handler.setFormatter(formatter)
 error_handler.addFilter(lambda record: record.levelno >= logging.ERROR)
 logger.addHandler(error_handler)
 
+logger.display = lambda msg: console_handler.emit(logging.LogRecord(
+    name=logger.name,
+    level=logging.INFO,
+    pathname='',
+    lineno=0,
+    msg=msg,
+    args=(),
+    exc_info=None
+))
+
 DB_PATH = os.path.join(get_app_directory(), 'gsm.db')
 
 # Clean up files in log directory older than 7 days

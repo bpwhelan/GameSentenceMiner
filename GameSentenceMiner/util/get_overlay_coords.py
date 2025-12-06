@@ -569,7 +569,7 @@ class OverlayProcessor:
                                 corrections_made += 1
                     
                     if ocr_segment != correct_segment:
-                        logger.info(f"OCR correction: '{ocr_segment}' -> '{correct_segment}'")
+                        logger.display(f"OCR correction: '{ocr_segment}' -> '{correct_segment}'")
 
         # 4. Reconstruct OCR results from the modified buffers
         for (l, w), char_list in word_buffers.items():
@@ -585,7 +585,7 @@ class OverlayProcessor:
                 line['text'] = "".join([wd['text'] for wd in line['words']])
         
         if corrections_made > 0:
-            logger.info(f"Made {corrections_made} character correction(s) in OCR results")
+            logger.display(f"Made {corrections_made} character correction(s) in OCR results")
                 
         return ocr_results
 

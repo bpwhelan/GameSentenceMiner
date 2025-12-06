@@ -323,6 +323,10 @@ import { createWriteStream } from 'fs';
  */
 async function downloadLockfile(destPath: string): Promise<boolean> {
     const url = 'https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/main/requirements.lock';
+
+    // Make sure path exists
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+
     try {
         const response = await fetch(url);
         if (!response.ok) {
