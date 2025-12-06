@@ -10,7 +10,6 @@ import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from tkinter import messagebox
 
 import mss
 import mss.tools
