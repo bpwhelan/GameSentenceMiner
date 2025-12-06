@@ -1037,7 +1037,6 @@ def check_and_run_migrations():
         else:
             logger.debug("populate_games cron job already exists, skipping creation.")
     
-<<<<<<< HEAD
     def migrate_user_plugins_cron_job():
         """
         Create the user_plugins cron job if it doesn't exist.
@@ -1059,8 +1058,6 @@ def check_and_run_migrations():
         else:
             logger.debug("user_plugins cron job already exists, skipping creation.")
     
-=======
->>>>>>> main
     def migrate_genres_and_tags():
         """
         Add genres and tags columns to games table.
@@ -1109,10 +1106,7 @@ def check_and_run_migrations():
     migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
     migrate_genres_and_tags()  # Add genres and tags columns
-<<<<<<< HEAD
     migrate_user_plugins_cron_job()
-=======
->>>>>>> main
         
 check_and_run_migrations()
     

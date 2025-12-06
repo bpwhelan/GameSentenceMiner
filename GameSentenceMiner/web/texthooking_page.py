@@ -5,6 +5,7 @@ import os
 import threading
 
 import flask
+from waitress import serve
 import webbrowser
 
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
@@ -36,7 +37,7 @@ websocket_port = 55001
 
 server_start_time = datetime.datetime.now().timestamp()
 
-app = flask.Flask(__name__)
+app = flask.Flask(__name__, static_folder="static", static_url_path="/static")
 
 # Configure Flask-Compress for Brotli compression
 try:
@@ -734,7 +735,12 @@ def start_web_server(debug=False):
     # FOR TEXTHOOKER DEVELOPMENT, UNCOMMENT THE FOLLOWING LINE WITH Flask-CORS INSTALLED:
     # from flask_cors import CORS
     # CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
-    app.run(host=get_config().advanced.localhost_bind_address, port=port, debug=debug, threaded=True)
+    serve(
+        app,
+        host=get_config().advanced.localhost_bind_address,
+        port=port,
+        threads=4 
+    )
 
 
 async def texthooker_page_coro(wait=False, debug=False):
