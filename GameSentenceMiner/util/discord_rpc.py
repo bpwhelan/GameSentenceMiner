@@ -121,8 +121,9 @@ class DiscordRPCManager:
                     )
                 time.sleep(discord_config.update_interval)
             except PyPresenceException as e:
-                logger.warning(f"Discord RPC connection error: {e}. Retrying in 20s.")
-                self.stop_rpc_instance()
+                # logger.warning(f"Discord RPC connection error: {e}. Retrying in 20s.")
+                if self.rpc:
+                    self.stop_rpc_instance()
                 time.sleep(20)
             except Exception as e:
                 logger.error(f"An unexpected error occurred in Discord RPC thread: {e}", exc_info=True)

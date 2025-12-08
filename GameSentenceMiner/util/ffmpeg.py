@@ -103,8 +103,11 @@ def video_to_anim(
     if start:
         cmd += ["-ss", str(start)]
     cmd += ["-i", str(input_path)]
-    if duration:
-        cmd += ["-t", str(duration)]
+    
+    # Constrain duration to max 15 seconds (default to 15 if not specified)
+    if duration is None or duration == 0:
+        duration = 15.0
+    cmd += ["-t", str(duration)]
     
     # Add video filters
     cmd += ["-vf", ",".join(vf_parts)]

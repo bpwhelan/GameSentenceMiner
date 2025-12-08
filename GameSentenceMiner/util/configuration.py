@@ -501,18 +501,20 @@ class Features:
 class AnimatedScreenshotSettings:
     fps: int = 15 # max 30
     extension: str = 'avif' # 'webp'
-    quality: int = 10 # 0-10
+    quality: int = 8 # 0-10
     scaled_quality: int = 10 # 0-90 for webp, 10-45 for avif
     
     def __post_init__(self):
+        # Disable webp due to it being garbage
+        self.extension = 'avif'
         self.scaled_quality = self._scale_quality(self.quality, self.extension)
     
     def _scale_quality(self, q: int, codec: str) -> int:
         q = max(0, min(10, q))
 
         if codec == "webp":
-            # 0 → 70, 10 → 90
-            return int(70 + q * 2)
+            # 0 → 60, 10 → 80
+            return int(60 + q * 2)
 
         if codec == "avif":
             # AV1 CRF: 0 = best, 63 = worst
@@ -1417,6 +1419,7 @@ class GsmAppState:
         self.videos_to_remove = set()
         self.recording_started_time = None
         self.current_srt = None
+        self.current_recording = None
         self.srt_index = 1
         self.current_audio_stream = None
         self.replay_buffer_length = 0
