@@ -402,7 +402,7 @@ class ConfigWindow(QWidget):
                 trim_black_bars_wip=self.trim_black_bars_check.isChecked(),
                 animated_settings=AnimatedScreenshotSettings(
                     fps=max(10, min(30, self.animated_fps_spin.value())),
-                    extension=self.animated_extension_combo.currentText(),
+                    # extension=self.animated_extension_combo.currentText(),
                     quality=max(0, min(10, self.animated_quality_spin.value()))
                 )
             ),
@@ -669,7 +669,7 @@ class ConfigWindow(QWidget):
         # Animated Screenshot Settings
         self.animated_fps_spin = QSpinBox()
         self.animated_fps_spin.setRange(10, 30)
-        self.animated_extension_combo = QComboBox()
+        # self.animated_extension_combo = QComboBox()
         self.animated_quality_spin = QSpinBox()
         self.animated_quality_spin.setRange(0, 10)
         self.animated_settings_group = QGroupBox()
@@ -1316,7 +1316,7 @@ class ConfigWindow(QWidget):
         
         animated_layout = QFormLayout()
         animated_layout.addRow(QLabel("FPS (10-30):"), self.animated_fps_spin)
-        animated_layout.addRow(QLabel("Extension:"), self.animated_extension_combo)
+        # animated_layout.addRow(QLabel("Extension:"), self.animated_extension_combo)
         animated_layout.addRow(QLabel("Quality (0-10):"), self.animated_quality_spin)
         self.animated_settings_group.setLayout(animated_layout)
         
@@ -1672,9 +1672,9 @@ class ConfigWindow(QWidget):
         
         # Animated Screenshot Settings
         self.animated_fps_spin.setValue(max(10, min(30, s.screenshot.animated_settings.fps)))
-        self.animated_extension_combo.clear()
-        self.animated_extension_combo.addItems(['avif', 'webp'])
-        self.animated_extension_combo.setCurrentText(s.screenshot.animated_settings.extension)
+        # self.animated_extension_combo.clear()
+        # self.animated_extension_combo.addItems(['avif'])
+        # self.animated_extension_combo.setCurrentText(s.screenshot.animated_settings.extension)
         self.animated_quality_spin.setValue(max(0, min(10, s.screenshot.animated_settings.quality)))
         
         # Update visibility of animated settings

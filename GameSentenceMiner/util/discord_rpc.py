@@ -98,12 +98,15 @@ class DiscordRPCManager:
 
                 if self.last_game_name:
                     self.rpc.update(
-                        name=f"GSM: {self.last_game_name}",
+                        name=f"{self.last_game_name}",
                         details="Mining with GameSentenceMiner...",
                         state=state_message,
                         start=self.start_time,
                         large_image=icon,
                         large_text="GameSentenceMiner",
+                        state_url="https://github.com/bpwhelan/GameSentenceMiner",
+                        details_url="https://github.com/bpwhelan/GameSentenceMiner",
+                        large_url="https://github.com/bpwhelan/GameSentenceMiner",
                     )
                 else:
                     self.rpc.update(
@@ -112,11 +115,15 @@ class DiscordRPCManager:
                         start=self.start_time,
                         large_image=icon,
                         large_text="GameSentenceMiner",
+                        state_url="https://github.com/bpwhelan/GameSentenceMiner",
+                        details_url="https://github.com/bpwhelan/GameSentenceMiner",
+                        large_url="https://github.com/bpwhelan/GameSentenceMiner",
                     )
                 time.sleep(discord_config.update_interval)
             except PyPresenceException as e:
-                logger.warning(f"Discord RPC connection error: {e}. Retrying in 20s.")
-                self.stop_rpc_instance()
+                # logger.warning(f"Discord RPC connection error: {e}. Retrying in 20s.")
+                if self.rpc:
+                    self.stop_rpc_instance()
                 time.sleep(20)
             except Exception as e:
                 logger.error(f"An unexpected error occurred in Discord RPC thread: {e}", exc_info=True)

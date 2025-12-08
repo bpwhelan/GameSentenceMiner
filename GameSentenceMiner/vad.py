@@ -159,7 +159,9 @@ class SileroVADProcessor(VADProcessor):
         from silero_vad import read_audio, get_speech_timestamps
         temp_wav = tempfile.NamedTemporaryFile(dir=configuration.get_temporary_directory(), suffix='.wav').name
         ffmpeg.convert_audio_to_wav(input_audio, temp_wav)
-        wav = read_audio(temp_wav)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            wav = read_audio(temp_wav)
         speech_timestamps = get_speech_timestamps(wav, self.vad_model, return_seconds=True)
         logger.debug(speech_timestamps)
         return speech_timestamps
@@ -443,11 +445,11 @@ def test_vad_processors():
         result = processor.process_audio(test_audio, out_path, None, "")
         print(result)
         
-    vad_system = VADSystem()
-    vad_system.init()
+    # vad_system = VADSystem()
+    # vad_system.init()
     
-    result = vad_system.trim_audio_with_vad(test_audio, os.path.join(output_dir, "after_vad.opus"), None, full_text="")
-    print(result)
+    # result = vad_system.trim_audio_with_vad(test_audio, os.path.join(output_dir, "after_vad.opus"), None, full_text="")
+    # print(result)
 
 
 if __name__ == "__main__":

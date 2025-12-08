@@ -338,10 +338,12 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         if add_nsfw_tag:
             assets.extra_tags.append("NSFW")
             
-    logger.info("Uploading Media to Anki...")
-    # 5. If creating new media, store files in Anki's collection. Then update note fields.
-    if not use_existing_files:
-        # Only store new files in Anki if we are not reusing existing ones.
+    # 5. Prepare tags
+    for extra_tag in assets.extra_tags:
+        tags.append(extra_tag)
+        
+    if assets and not use_existing_files:
+        logger.info("Uploading Media to Anki...")
         if assets.video_path:
             assets.video_in_anki = store_media_file(assets.video_path)
             logger.info("Stored video in Anki media collection: " + str(assets.video_in_anki))
@@ -357,27 +359,25 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
             assets.audio_in_anki = store_media_file(assets.audio_path)
             logger.info("Stored audio in Anki media collection: " + str(assets.audio_in_anki))
     
-    # Now, update the note fields using the Anki filenames (either from cache or newly stored)
-    if assets.video_in_anki:
-        note['fields'][config.anki.video_field] = assets.video_in_anki
-    
-    if update_picture_flag and assets.screenshot_in_anki:
-        note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
-    
-    if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
-        note['fields'][config.anki.previous_image_field] = f"<img src=\"{assets.prev_screenshot_in_anki}\">"
+    # Update note fields with media references
+    if assets:
+        if assets.video_in_anki:
+            note['fields'][config.anki.video_field] = assets.video_in_anki
+        
+        if update_picture_flag and assets.screenshot_in_anki:
+            note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
+        
+        if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
+            note['fields'][config.anki.previous_image_field] = f"<img src=\"{assets.prev_screenshot_in_anki}\">"
 
-    if use_voice and assets.audio_in_anki:
-        note['fields'][config.anki.sentence_audio_field] = f"[sound:{assets.audio_in_anki}]"
-        if config.audio.external_tool and config.audio.external_tool_enabled:
-            anki_media_audio_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki)
-            open_audio_in_external(anki_media_audio_path)
-            
-    for extra_tag in assets.extra_tags:
-        tags.append(extra_tag)
+        if use_voice and assets.audio_in_anki:
+            note['fields'][config.anki.sentence_audio_field] = f"[sound:{assets.audio_in_anki}]"
+            if config.audio.external_tool and config.audio.external_tool_enabled:
+                anki_media_audio_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki)
+                open_audio_in_external(anki_media_audio_path)
 
-    # 6. Asynchronously update the note in Anki
-    run_new_thread(lambda: check_and_update_note(last_note, note, tags))
+    # 6. Asynchronously update the note in Anki (media upload now happens in the same thread)
+    run_new_thread(lambda: check_and_update_note(last_note, note, tags, assets, use_voice, update_picture_flag, use_existing_files))
 
     # 7. Handle post-creation file management (copying to output folder)
     word_path = _handle_file_management(tango, use_existing_files, game_line, assets, video_path, start_time, end_time)
@@ -412,7 +412,22 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         translation=translation
     )
     
-def check_and_update_note(last_note, note, tags=[]):
+def check_and_update_note(last_note, note, tags=[], assets=None, use_voice=False, update_picture_flag=False, use_existing_files=False):
+    """Update note in Anki, including uploading media files.
+    
+    Args:
+        last_note: The AnkiCard being updated
+        note: Dictionary with note fields to update
+        tags: List of tags to add
+        assets: MediaAssets object with paths to media files
+        use_voice: Whether to include audio
+        update_picture_flag: Whether to update the picture field
+        use_existing_files: Whether we're reusing existing media
+    """
+    config = get_config()
+    
+    # Upload media files if we have new files to store
+    
     selected_notes = invoke("guiSelectedNotes")
     if last_note.noteId in selected_notes:
         notification.open_browser_window(1)
@@ -442,19 +457,15 @@ def add_image_to_card(last_note: AnkiCard, image_path):
     global screenshot_in_anki
     update_picture = get_config().anki.overwrite_picture or not last_note.get_field(get_config().anki.picture_field)
 
+    # Create a MediaAssets object for just the screenshot
+    assets = MediaAssets()
     if update_picture:
-        screenshot_in_anki = store_media_file(image_path)
-        if get_config().paths.remove_screenshot:
-            os.remove(image_path)
-
-    image_html = f"<img src=\"{screenshot_in_anki}\">"
+        assets.screenshot_path = image_path
 
     note = {'id': last_note.noteId, 'fields': {}}
 
-    if update_picture:
-        note['fields'][get_config().anki.picture_field] = image_html
-
-    run_new_thread(lambda: check_and_update_note(last_note, note))
+    # Media upload and field update will happen in check_and_update_note
+    run_new_thread(lambda: check_and_update_note(last_note, note, tags=[], assets=assets, use_voice=False, update_picture_flag=update_picture, use_existing_files=False))
 
     logger.info(f"UPDATED IMAGE FOR ANKI CARD {last_note.noteId}")
     
@@ -563,11 +574,17 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
     return note, last_note
 
 
-def store_media_file(path):
+def store_media_file(path, retries=24):
+    """Store media file in Anki with retry logic.
+    
+    Args:
+        path: Path to the media file
+        retries: Number of retries (default 24 gives ~2 minutes with exponential backoff)
+    """
     try:
-        return invoke('storeMediaFile', filename=path, data=convert_to_base64(path))
+        return invoke('storeMediaFile', filename=path, data=convert_to_base64(path), retries=retries, timeout=60)
     except Exception as e:
-        logger.error(f"Error storing media file, check anki card for blank media fields: {e}")
+        logger.error(f"Error storing media file after retries, check anki card for blank media fields: {e}")
         return None
 
 
@@ -581,7 +598,7 @@ def request(action, **params):
     return {'action': action, 'params': params, 'version': 6}
 
 
-def invoke(action, retries: int = 0, **params):
+def invoke(action, retries: int = 0, timeout=10, **params):
     payload = request(action, **params)
     url = get_config().anki.url
     headers = {"Content-Type": "application/json"}
@@ -594,7 +611,7 @@ def invoke(action, retries: int = 0, **params):
     max_backoff = 5.0
     while True:
         try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=10)
+            resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
             resp.raise_for_status()
             response = resp.json()
 
