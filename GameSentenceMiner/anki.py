@@ -341,6 +341,40 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
     # 5. Prepare tags
     for extra_tag in assets.extra_tags:
         tags.append(extra_tag)
+        
+    if assets and not use_existing_files:
+        logger.info("Uploading Media to Anki...")
+        if assets.video_path:
+            assets.video_in_anki = store_media_file(assets.video_path)
+            logger.info("Stored video in Anki media collection: " + str(assets.video_in_anki))
+        if assets.screenshot_path:
+            assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
+            logger.info("Stored screenshot in Anki media collection: " + str(assets.screenshot_in_anki))
+        if assets.prev_screenshot_path:
+            assets.prev_screenshot_in_anki = store_media_file(assets.prev_screenshot_path)
+            logger.info("Stored previous screenshot in Anki media collection: " + str(assets.prev_screenshot_in_anki))
+            if config.paths.remove_screenshot:
+                os.remove(assets.prev_screenshot_path)
+        if use_voice and assets.audio_path:
+            assets.audio_in_anki = store_media_file(assets.audio_path)
+            logger.info("Stored audio in Anki media collection: " + str(assets.audio_in_anki))
+    
+    # Update note fields with media references
+    if assets:
+        if assets.video_in_anki:
+            note['fields'][config.anki.video_field] = assets.video_in_anki
+        
+        if update_picture_flag and assets.screenshot_in_anki:
+            note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
+        
+        if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
+            note['fields'][config.anki.previous_image_field] = f"<img src=\"{assets.prev_screenshot_in_anki}\">"
+
+        if use_voice and assets.audio_in_anki:
+            note['fields'][config.anki.sentence_audio_field] = f"[sound:{assets.audio_in_anki}]"
+            if config.audio.external_tool and config.audio.external_tool_enabled:
+                anki_media_audio_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki)
+                open_audio_in_external(anki_media_audio_path)
 
     # 6. Asynchronously update the note in Anki (media upload now happens in the same thread)
     run_new_thread(lambda: check_and_update_note(last_note, note, tags, assets, use_voice, update_picture_flag, use_existing_files))
@@ -393,39 +427,6 @@ def check_and_update_note(last_note, note, tags=[], assets=None, use_voice=False
     config = get_config()
     
     # Upload media files if we have new files to store
-    if assets and not use_existing_files:
-        logger.info("Uploading Media to Anki...")
-        if assets.video_path:
-            assets.video_in_anki = store_media_file(assets.video_path)
-            logger.info("Stored video in Anki media collection: " + str(assets.video_in_anki))
-        if assets.screenshot_path:
-            assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
-            logger.info("Stored screenshot in Anki media collection: " + str(assets.screenshot_in_anki))
-        if assets.prev_screenshot_path:
-            assets.prev_screenshot_in_anki = store_media_file(assets.prev_screenshot_path)
-            logger.info("Stored previous screenshot in Anki media collection: " + str(assets.prev_screenshot_in_anki))
-            if config.paths.remove_screenshot:
-                os.remove(assets.prev_screenshot_path)
-        if use_voice and assets.audio_path:
-            assets.audio_in_anki = store_media_file(assets.audio_path)
-            logger.info("Stored audio in Anki media collection: " + str(assets.audio_in_anki))
-    
-    # Update note fields with media references
-    if assets:
-        if assets.video_in_anki:
-            note['fields'][config.anki.video_field] = assets.video_in_anki
-        
-        if update_picture_flag and assets.screenshot_in_anki:
-            note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
-        
-        if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
-            note['fields'][config.anki.previous_image_field] = f"<img src=\"{assets.prev_screenshot_in_anki}\">"
-
-        if use_voice and assets.audio_in_anki:
-            note['fields'][config.anki.sentence_audio_field] = f"[sound:{assets.audio_in_anki}]"
-            if config.audio.external_tool and config.audio.external_tool_enabled:
-                anki_media_audio_path = os.path.join(config.audio.anki_media_collection, assets.audio_in_anki)
-                open_audio_in_external(anki_media_audio_path)
     
     selected_notes = invoke("guiSelectedNotes")
     if last_note.noteId in selected_notes:
