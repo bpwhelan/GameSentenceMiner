@@ -1623,8 +1623,7 @@ class ConfigWindow(QWidget):
     def get_online_models(self):
         ai_models = AIModelsTable.one()
         if ai_models and ai_models.gemini_models and ai_models.groq_models and (time.time() - ai_models.last_updated < 3600 * 6):
-            self.gemini_model_combo.addItems(ai_models.gemini_models)
-            self.groq_model_combo.addItems(ai_models.groq_models)
+            self._update_ai_model_combos(ai_models.gemini_models, ai_models.groq_models)
         else:
             logger.info("AI models outdated or not found, fetching new ones.")
             self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text())
