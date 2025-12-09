@@ -531,6 +531,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function createHourlyActivityChart(canvasId, hourlyData) {
         if (!hourlyData || !Array.isArray(hourlyData)) return null;
         
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
+        
         // Create hour labels (0-23)
         const hourLabels = [];
         for (let i = 0; i < 24; i++) {
@@ -869,6 +875,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function createAvgHoursByDayChart(canvasId, dayOfWeekData) {
         if (!dayOfWeekData) return null;
         
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
+        
         const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
         const hoursData = dayOfWeekData.avg_hours || [0, 0, 0, 0, 0, 0, 0];
         
@@ -1028,6 +1040,12 @@ document.addEventListener('DOMContentLoaded', function () {
         
         if (!canvas) return null;
         
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
+        
         if (!gameTypeData || !gameTypeData.labels || gameTypeData.labels.length === 0) {
             canvas.style.display = 'none';
             if (noDataEl) {
@@ -1069,6 +1087,12 @@ document.addEventListener('DOMContentLoaded', function () {
         
         if (!canvas) return null;
         
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
+        
         if (!genreSpeedData || !genreSpeedData.labels || genreSpeedData.labels.length === 0) {
             canvas.style.display = 'none';
             if (noDataEl) {
@@ -1107,6 +1131,12 @@ document.addEventListener('DOMContentLoaded', function () {
         const noDataEl = document.getElementById('genreCharsNoData');
         
         if (!canvas) return null;
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
         
         if (!genreCharsData || !genreCharsData.labels || genreCharsData.labels.length === 0) {
             canvas.style.display = 'none';
@@ -1147,6 +1177,12 @@ document.addEventListener('DOMContentLoaded', function () {
         
         if (!canvas) return null;
         
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
+        
         if (!tagSpeedData || !tagSpeedData.labels || tagSpeedData.labels.length === 0) {
             canvas.style.display = 'none';
             if (noDataEl) {
@@ -1185,6 +1221,12 @@ document.addEventListener('DOMContentLoaded', function () {
         const noDataEl = document.getElementById('tagCharsNoData');
         
         if (!canvas) return null;
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
         
         if (!tagCharsData || !tagCharsData.labels || tagCharsData.labels.length === 0) {
             canvas.style.display = 'none';
@@ -1387,6 +1429,12 @@ document.addEventListener('DOMContentLoaded', function () {
     // Function to create top 5 character count days horizontal bar chart
     function createTopCharacterDaysChart(canvasId, heatmapData) {
         if (!heatmapData) return null;
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
         
         // Extract all dates and character counts from heatmap data
         const allDays = [];
@@ -2225,6 +2273,73 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // Function to update average statistics for time period display
+    function updateTimePeriodAverages(timePeriodAverages) {
+        // Helper function to format large numbers
+        function formatLargeNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            } else {
+                return num.toString();
+            }
+        }
+
+        // Helper function to format time in human-readable format
+        function formatTimeHuman(hours) {
+            if (hours < 1) {
+                const minutes = Math.round(hours * 60);
+                return minutes + 'm';
+            } else if (hours < 24) {
+                const wholeHours = Math.floor(hours);
+                const minutes = Math.round((hours - wholeHours) * 60);
+                if (minutes > 0) {
+                    return wholeHours + 'h ' + minutes + 'm';
+                } else {
+                    return wholeHours + 'h';
+                }
+            } else {
+                const days = Math.floor(hours / 24);
+                const remainingHours = Math.floor(hours % 24);
+                if (remainingHours > 0) {
+                    return days + 'd ' + remainingHours + 'h';
+                } else {
+                    return days + 'd';
+                }
+            }
+        }
+
+        // Update the average display elements
+        const avgHoursEl = document.getElementById('avgHoursPerDay');
+        const avgCharsEl = document.getElementById('avgCharsPerDay');
+        const avgSpeedEl = document.getElementById('avgSpeedPerDay');
+
+        if (avgHoursEl) {
+            avgHoursEl.textContent = formatTimeHuman(timePeriodAverages.avgHoursPerDay || 0);
+        }
+
+        if (avgCharsEl) {
+            avgCharsEl.textContent = formatLargeNumber(timePeriodAverages.avgCharsPerDay || 0);
+        }
+
+        if (avgSpeedEl) {
+            avgSpeedEl.textContent = formatLargeNumber(timePeriodAverages.avgSpeedPerDay || 0);
+        }
+
+        // Update the totals display elements
+        const totalHoursEl = document.getElementById('totalHoursForPeriod');
+        const totalCharsEl = document.getElementById('totalCharsForPeriod');
+
+        if (totalHoursEl) {
+            totalHoursEl.textContent = formatTimeHuman(timePeriodAverages.totalHours || 0);
+        }
+
+        if (totalCharsEl) {
+            totalCharsEl.textContent = formatLargeNumber(timePeriodAverages.totalChars || 0);
+        }
+    }
+
     function showNoDataPopup() {
         const popup = document.getElementById("noDataPopup");
         if (popup) popup.classList.remove("hidden");
@@ -2478,6 +2593,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Update game milestones if data exists
                 if (data.gameMilestones) {
                     updateGameMilestones(data.gameMilestones);
+                }
+
+                // Update time period averages if data exists
+                if (data.timePeriodAverages) {
+                    updateTimePeriodAverages(data.timePeriodAverages);
                 }
 
                 return data;

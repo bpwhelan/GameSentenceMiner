@@ -1102,6 +1102,104 @@ def register_stats_api_routes(app):
                     }
                 }
 
+            # 16. Calculate average stats and totals for the time period
+            try:
+                avg_hours_per_day = 0.0
+                avg_chars_per_day = 0.0
+                avg_speed_per_day = 0.0
+                total_hours_period = 0.0
+                total_chars_period = 0
+                
+                # Calculate averages and totals from rollup data
+                if start_date_str:
+                    yesterday = today - datetime.timedelta(days=1)
+                    yesterday_str = yesterday.strftime("%Y-%m-%d")
+                    
+                    if start_date_str <= yesterday_str:
+                        rollup_end = (
+                            min(end_date_str, yesterday_str)
+                            if end_date_str
+                            else yesterday_str
+                        )
+                        rollups_for_avg = StatsRollupTable.get_date_range(
+                            start_date_str, rollup_end
+                        )
+                        
+                        if rollups_for_avg:
+                            # Calculate totals
+                            total_hours = 0.0
+                            total_chars = 0
+                            total_speed_sum = 0.0
+                            speed_count = 0
+                            
+                            for rollup in rollups_for_avg:
+                                # Sum hours
+                                total_hours += rollup.total_reading_time_seconds / 3600
+                                
+                                # Sum characters
+                                total_chars += rollup.total_characters
+                                
+                                # Calculate speed for days with data
+                                if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
+                                    day_hours = rollup.total_reading_time_seconds / 3600
+                                    day_speed = rollup.total_characters / day_hours
+                                    total_speed_sum += day_speed
+                                    speed_count += 1
+                            
+                            # Add today's data if in range
+                            if today_in_range and live_stats:
+                                total_hours += live_stats.get("total_reading_time_seconds", 0) / 3600
+                                total_chars += live_stats.get("total_characters", 0)
+                                
+                                today_hours = live_stats.get("total_reading_time_seconds", 0) / 3600
+                                today_chars = live_stats.get("total_characters", 0)
+                                if today_hours > 0 and today_chars > 0:
+                                    today_speed = today_chars / today_hours
+                                    total_speed_sum += today_speed
+                                    speed_count += 1
+                            
+                            # Store totals for the period
+                            total_hours_period = total_hours
+                            total_chars_period = total_chars
+                            
+                            # Calculate number of days in range
+                            start_date_obj = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+                            end_date_obj = datetime.datetime.strptime(end_date_str if end_date_str else today_str, "%Y-%m-%d").date()
+                            num_days = (end_date_obj - start_date_obj).days + 1
+                            
+                            # Calculate averages
+                            if num_days > 0:
+                                avg_hours_per_day = total_hours / num_days
+                                avg_chars_per_day = total_chars / num_days
+                            
+                            if speed_count > 0:
+                                avg_speed_per_day = total_speed_sum / speed_count
+                    elif today_in_range and live_stats:
+                        # Only today's data
+                        total_hours_period = live_stats.get("total_reading_time_seconds", 0) / 3600
+                        total_chars_period = live_stats.get("total_characters", 0)
+                        avg_hours_per_day = total_hours_period
+                        avg_chars_per_day = total_chars_period
+                        
+                        if avg_hours_per_day > 0 and avg_chars_per_day > 0:
+                            avg_speed_per_day = avg_chars_per_day / avg_hours_per_day
+                
+                time_period_averages = {
+                    "avgHoursPerDay": round(avg_hours_per_day, 2),
+                    "avgCharsPerDay": int(avg_chars_per_day),
+                    "avgSpeedPerDay": int(avg_speed_per_day),
+                    "totalHours": round(total_hours_period, 2),
+                    "totalChars": int(total_chars_period)
+                }
+                
+            except Exception as e:
+                logger.error(f"Error calculating time period averages: {e}")
+                time_period_averages = {
+                    "avgHoursPerDay": 0.0,
+                    "avgCharsPerDay": 0,
+                    "avgSpeedPerDay": 0
+                }
+
             # Log total request time
             total_time = time.time() - request_start_time
 
@@ -1129,6 +1227,7 @@ def register_stats_api_routes(app):
                     "difficultySpeedData": difficulty_speed_data,
                     "gameTypeData": game_type_data,
                     "genreTagData": genre_tag_data,
+                    "timePeriodAverages": time_period_averages,
                 }
             )
 

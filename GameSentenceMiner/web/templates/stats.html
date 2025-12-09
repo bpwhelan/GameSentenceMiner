@@ -21,6 +21,27 @@
         <!-- Include shared popup components -->
         {% include 'components/popups.html' %}
 
+        <!-- SECTION 0: Totals for Time Period -->
+        <div class="dashboard-card peak-stats">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">📈</span>
+                    Totals for Time Period
+                </h3>
+            </div>
+            <div class="dashboard-stats-grid">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total characters read in the selected time period">
+                    <span class="dashboard-stat-value" id="totalCharsForPeriod">-</span>
+                    <span class="dashboard-stat-label">Total Characters</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total hours spent reading in the selected time period">
+                    <span class="dashboard-stat-value" id="totalHoursForPeriod">-</span>
+                    <span class="dashboard-stat-label">Total Hours</span>
+                </div>
+            </div>
+        </div>
+        <br>
+
         <!-- SECTION 1: Summary Cards -->
         <div class="dashboard-card peak-stats">
             <div class="dashboard-card-header">
@@ -45,6 +66,31 @@
                 <div class="dashboard-stat-item tooltip" data-tooltip="Maximum characters read in a single session">
                     <span class="dashboard-stat-value" id="maxSessionChars">-</span>
                     <span class="dashboard-stat-label">Most Chars/Session</span>
+                </div>
+            </div>
+        </div>
+        <br>
+
+        <!-- SECTION: Average Stats for Time Period -->
+        <div class="dashboard-card peak-stats">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">📊</span>
+                    Average Stats for Time Period
+                </h3>
+            </div>
+            <div class="dashboard-stats-grid">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Average reading hours per day in the selected time period">
+                    <span class="dashboard-stat-value" id="avgHoursPerDay">-</span>
+                    <span class="dashboard-stat-label">Avg Hours/Day</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Average characters read per day in the selected time period">
+                    <span class="dashboard-stat-value" id="avgCharsPerDay">-</span>
+                    <span class="dashboard-stat-label">Avg Chars/Day</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Average reading speed (chars/hour) per day in the selected time period">
+                    <span class="dashboard-stat-value" id="avgSpeedPerDay">-</span>
+                    <span class="dashboard-stat-label">Avg Speed/Day</span>
                 </div>
             </div>
         </div>
