@@ -65,6 +65,7 @@ GSM includes a transparent overlay for instant dictionary lookups.
 Currently Windows only, Linux and Mac support are WIP.
 *   Hover over characters in-game to see definitions via Yomitan.
 *   Create cards without ever leaving the game window.
+*   Automatically Generated Furigana Display In Game.
 
 ![Overlay Demo](https://github.com/user-attachments/assets/c8374705-efa0-497b-b979-113fae8a1e31)
 
