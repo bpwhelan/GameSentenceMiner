@@ -632,6 +632,20 @@ document.addEventListener('DOMContentLoaded', function () {
         console.error('Error initializing checkbox states:', err);
     });
 
+    // Global variable to store time format preference
+    let globalUseRawHours = false;
+
+    // Helper function to get time format preference
+    async function getTimeFormatPreference() {
+        try {
+            const data = GoalsDataManager.getCached() || await GoalsDataManager.fetchCurrent();
+            return data.goals_settings?.useRawHours || false;
+        } catch (error) {
+            console.error('Error reading time format preference:', error);
+            return false;
+        }
+    }
+
     // Helper function to format large numbers
     function formatGoalNumber(num) {
         if (num >= 1000000) {
@@ -643,7 +657,13 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Helper function to format hours
-    function formatHours(hours) {
+    function formatHours(hours, useRawHours = false) {
+        if (useRawHours) {
+            // Raw hours format: just show the number with "hours"
+            return `${Math.round(hours)} hours`;
+        }
+        
+        // Human-readable format
         if (hours < 1) {
             const minutes = Math.round(hours * 60);
             return `${minutes}m`;
@@ -933,7 +953,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Function to format projection text
-    function formatProjection(currentValue, targetValue, dailyAverage) {
+    function formatProjection(currentValue, targetValue, dailyAverage, useRawHours = false) {
         if (currentValue >= targetValue) {
             return 'Goal achieved! 🎉';
         }
@@ -947,7 +967,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (daysToComplete <= 0) {
             return 'Goal achieved! 🎉';
-        } else if (daysToComplete === 1) {
+        }
+        
+        if (useRawHours) {
+            // Raw hours format: just show total hours
+            const totalHours = Math.ceil(daysToComplete * 24);
+            return `~${totalHours} hours remaining`;
+        }
+        
+        // Human-readable format
+        if (daysToComplete === 1) {
             return '~1 day remaining';
         } else if (daysToComplete <= 7) {
             return `~${daysToComplete} days remaining`;
@@ -995,8 +1024,8 @@ document.addEventListener('DOMContentLoaded', function () {
         // Format values based on metric type
         let formattedProgress, formattedRequired;
         if (goal.metricType === 'hours') {
-            formattedProgress = formatHours(todayData.progress);
-            formattedRequired = formatHours(todayData.required);
+            formattedProgress = formatHours(todayData.progress, globalUseRawHours);
+            formattedRequired = formatHours(todayData.required, globalUseRawHours);
         } else if (goal.metricType === 'characters') {
             formattedProgress = formatGoalNumber(todayData.progress);
             formattedRequired = formatGoalNumber(todayData.required);
@@ -1144,7 +1173,11 @@ document.addEventListener('DOMContentLoaded', function () {
         // Format projected value based on metric type
         let formattedProjection;
         if (goal.metricType === 'hours') {
-            formattedProjection = Math.floor(projectionData.projection).toLocaleString() + 'h';
+            if (globalUseRawHours) {
+                formattedProjection = Math.round(projectionData.projection) + ' hours';
+            } else {
+                formattedProjection = Math.floor(projectionData.projection).toLocaleString() + 'h';
+            }
         } else if (goal.metricType === 'characters') {
             formattedProjection = formatGoalNumber(projectionData.projection);
         } else {
@@ -2019,11 +2052,22 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // Load time format setting into UI
+    async function loadTimeFormatUI() {
+        const useRawHours = await getTimeFormatPreference();
+        const useRawHoursCheckbox = document.getElementById('useRawHours');
+
+        if (useRawHoursCheckbox) {
+            useRawHoursCheckbox.checked = useRawHours;
+        }
+    }
+
     // Open settings modal
     if (settingsToggle) {
         settingsToggle.addEventListener('click', async function () {
             await loadEasyDaysUI();
             await loadAnkiConnectUI();
+            await loadTimeFormatUI();
             settingsModal.style.display = 'flex';
             settingsModal.classList.add('show');
         });
@@ -2074,6 +2118,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 deckName: deckNameInput ? deckNameInput.value.trim() : ''
             };
 
+            // Read time format setting
+            const useRawHoursCheckbox = document.getElementById('useRawHours');
+            const useRawHours = useRawHoursCheckbox ? useRawHoursCheckbox.checked : false;
+
             // Validate easy days (at least one day must be 100%)
             const values = Object.values(easyDaysSettings);
             if (!values.some(val => val === 100)) {
@@ -2088,11 +2136,20 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Save to database via GoalsDataManager
                 await EasyDaysManager.saveSettings(easyDaysSettings);
                 await AnkiConnectManager.saveSettings(ankiConnectSettings);
+                await GoalsDataManager.updatePartialSettings({ useRawHours: useRawHours });
+
+                // Update global variable
+                globalUseRawHours = useRawHours;
 
                 if (settingsSuccess) {
                     settingsSuccess.textContent = 'Settings saved successfully!';
                     settingsSuccess.style.display = 'block';
                 }
+
+                // Reload goal displays to apply new time format
+                loadGoalProgress();
+                loadTodayGoals();
+                loadGoalProjections();
 
                 // Close modal after a short delay
                 setTimeout(() => {
@@ -2110,8 +2167,11 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Initialize goals data from database on page load
-    GoalsDataManager.fetchCurrent().then(() => {
+    GoalsDataManager.fetchCurrent().then(async () => {
         console.log('Goals data initialized from database');
+        // Load time format preference
+        globalUseRawHours = await getTimeFormatPreference();
+        console.log('Time format preference:', globalUseRawHours ? 'Raw hours' : 'Human-readable');
     }).catch(err => {
         console.error('Error initializing goals data:', err);
     });
