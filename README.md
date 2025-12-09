@@ -29,7 +29,7 @@ English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md)
 ![Demo Gif](.github/files/readme_demo.avif)
 
 - OCR to get get text from a game that doesn't support text hooks.
-- Look up words with Yomitan in the game itself using GSM Overlay.
+- Look up words with Yomitan in game.
 - Create Anki cards with game audio + a gif automatically.
 
 ---
@@ -41,20 +41,25 @@ GSM is an application designed to automate the process of creating flashcards wh
 ### 🃏 Anki Card Enhancement
 GSM automatically adds context to your Anki cards when you look up words.
 *   **Automated Audio:** Uses Voice Activity Detection (VAD) to record and trim the specific voice line associated with the text.
-*   **Screenshots:** Captures the game state the moment the line is spoken.
+*   **Screenshots:** Captures the game state the moment the line is spoken. GIFs and Black Bar Removal are supported.
+*  **Mine from History:** Go back and create cards from previous lines you've encountered (i.e. cutscenes).
 *   **Multi-Line Support:** Capture multiple lines of dialogue at once using the built-in Texthooker.
 *   **AI Translation:** Optional integration to provide sentence translations using your own API key.
 
+https://github.com/user-attachments/assets/df6bc38e-d74d-423e-b270-8a82eec2394c
+
 ### 👁️ OCR (Text Recognition)
 For games that don't have a text hook (Agent/Textractor), GSM uses a custom fork of [OwOCR](https://github.com/AuroraWright/owocr/) to read text directly from the screen.
-*   **Easy Setup:** Managed Python installation means you don't need to fiddle with dependencies.
-*   **Two-Pass System:** Runs a fast scan constantly, then a high-accuracy scan when the text stabilizes.
-*   **Exclusion Zones:** Ignore specific parts of the screen (like UI or maps) to keep the text output clean.
+*   **Easy Setup:** Managed installation means you don't need to fiddle with terminals.
+*   **Two-Pass System:** Clean, fast output similar to as if you had a hook.
+*   **Exclusion Zones:** Ignore specific parts of the screen (like UI or maps) to simplify setup.
+
+https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
 ### 🖥️ Overlay
 GSM includes a transparent overlay for instant dictionary lookups.
 *   Hover over characters in-game to see definitions via Yomitan.
-*   Create cards without leaving the game window.
+*   Create cards without ever leaving the game window.
 
 ![Overlay Demo](https://github.com/user-attachments/assets/c8374705-efa0-497b-b979-113fae8a1e31)
 
