@@ -38,26 +38,31 @@ English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md)
 
 GSM is an application designed to automate the process of creating flashcards while you play. It sits between your game and Anki, handling audio recording, screenshots, and OCR so you don't have to interrupt your gameplay.
 
-### 🃏 Anki Card Enhancement
+### 📝 Anki Card Enhancement
 GSM automatically adds context to your Anki cards when you look up words.
-*   **Automated Audio:** Uses Voice Activity Detection (VAD) to record and trim the specific voice line associated with the text.
+*   **Audio Capture:** Uses Voice Activity Detection (VAD) to record and trim the specific voice line associated with the text.
 *   **Screenshots:** Captures the game state the moment the line is spoken. GIFs and Black Bar Removal are supported.
 *  **Mine from History:** Go back and create cards from previous lines you've encountered (i.e. cutscenes).
-*   **Multi-Line Support:** Capture multiple lines of dialogue at once using the built-in Texthooker.
+*   **Multi-Line Support:** Capture multiple lines of dialogue into one card using the built-in Texthooker.
 *   **AI Translation:** Optional integration to provide sentence translations using your own API key.
 
 https://github.com/user-attachments/assets/df6bc38e-d74d-423e-b270-8a82eec2394c
 
 ### 👁️ OCR (Text Recognition)
 For games that don't have a text hook (Agent/Textractor), GSM uses a custom fork of [OwOCR](https://github.com/AuroraWright/owocr/) to read text directly from the screen.
+
+This opens up all kinds of posssibilities for games that would otherwise be inaccessible for language learning/sentence mining. For example I've made cards with games like Metal Gear Solid 1+2, Titanfall 2, and Sekiro, all using GSM's OCR.
+
 *   **Easy Setup:** Managed installation means you don't need to fiddle with terminals.
 *   **Two-Pass System:** Clean, fast output similar to as if you had a hook.
-*   **Exclusion Zones:** Ignore specific parts of the screen (like UI or maps) to simplify setup.
+*   **Customizable Capture Zones:** Define exactly where text appears on your screen for optimal results.
 
 https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 
 ### 🖥️ Overlay
 GSM includes a transparent overlay for instant dictionary lookups.
+
+Currently Windows only, Linux and Mac support are WIP.
 *   Hover over characters in-game to see definitions via Yomitan.
 *   Create cards without ever leaving the game window.
 
