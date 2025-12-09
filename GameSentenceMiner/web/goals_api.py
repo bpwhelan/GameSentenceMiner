@@ -82,7 +82,7 @@ def validate_metric_type(metric_type, allowed_types=None):
     
     Args:
         metric_type: The metric type to validate
-        allowed_types: List of allowed types (defaults to standard 6 metrics)
+        allowed_types: List of allowed types (defaults to standard metrics + static)
         
     Returns:
         bool: True if valid
@@ -91,7 +91,11 @@ def validate_metric_type(metric_type, allowed_types=None):
         ValueError: If metric_type is not in allowed_types
     """
     if allowed_types is None:
-        allowed_types = ["hours", "characters", "games", "cards", "mature_cards", "anki_backlog"]
+        allowed_types = [
+            "hours", "characters", "games", "cards", "mature_cards",
+            "hours_static", "characters_static", "cards_static",
+            "anki_backlog"
+        ]
     
     if metric_type not in allowed_types:
         raise ValueError(f"Invalid metric_type. Must be one of: {', '.join(allowed_types)}")
@@ -489,12 +493,13 @@ def get_rollup_stats_for_range(start_date, end_date):
 def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_stats=None, start_date=None, yesterday=None, goals_settings=None, for_today_only=False):
     """
     Extract progress value from combined stats based on metric type.
+    Static types (hours_static, characters_static, cards_static) behave like their non-static counterparts.
     For 'cards' metric, requires additional parameters to calculate from rollups and lines.
     For 'mature_cards' metric, queries AnkiConnect directly.
     
     Args:
         combined_stats: Combined rollup and live stats dictionary
-        metric_type: Type of metric ("hours", "characters", "games", "cards", "mature_cards")
+        metric_type: Type of metric ("hours", "characters", "games", "cards", "mature_cards", or static variants)
         today_lines: Today's game lines (required for cards)
         rollup_stats: Rollup stats (used to check if we need to query for cards)
         start_date: Start date for card calculation
@@ -505,13 +510,16 @@ def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_s
     Returns:
         float or int: The metric value
     """
-    if metric_type == "hours":
+    # Map static types to their base types for calculation
+    base_metric_type = metric_type.replace('_static', '') if metric_type.endswith('_static') else metric_type
+    
+    if base_metric_type == "hours":
         return combined_stats.get("total_reading_time_seconds", 0) / 3600
-    elif metric_type == "characters":
+    elif base_metric_type == "characters":
         return combined_stats.get("total_characters", 0)
-    elif metric_type == "games":
+    elif base_metric_type == "games":
         return combined_stats.get("unique_games_played", 0)
-    elif metric_type == "cards":
+    elif base_metric_type == "cards":
         # Cards require special handling - sum from rollups + today's lines
         total_cards = 0
         
@@ -529,7 +537,7 @@ def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_s
             total_cards += count_cards_from_lines(today_lines)
         
         return total_cards
-    elif metric_type == "mature_cards":
+    elif base_metric_type == "mature_cards":
         # Query AnkiConnect for mature cards
         deck_name = None
         if goals_settings:
@@ -546,7 +554,7 @@ def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_s
         if error:
             logger.warning(f"Mature cards query failed: {error}")
         return card_count
-    elif metric_type == "anki_backlog":
+    elif base_metric_type == "anki_backlog":
         # Query AnkiConnect for new cards (backlog)
         deck_name = None
         if goals_settings:
@@ -953,13 +961,14 @@ def register_goals_api_routes(app):
     def api_goals_today_progress():
         """
         Calculate today's required progress for a custom goal.
+        For static goals, always returns the target value as required.
         Shows what needs to be accomplished today to stay on track.
         Applies easy days percentage reduction based on current day of week.
         
         Request body:
         {
             "goal_id": "goal_xxx",
-            "metric_type": "hours" | "characters" | "games",
+            "metric_type": "hours" | "characters" | "games" | "hours_static" | "characters_static" | "cards_static",
             "target_value": <number>,
             "start_date": "YYYY-MM-DD",
             "end_date": "YYYY-MM-DD",
@@ -988,8 +997,13 @@ def register_goals_api_routes(app):
             end_date_str = data.get("end_date")
             goals_settings = data.get("goals_settings", {})
             
-            # Validate required fields
-            if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
+            # Check if this is a static goal
+            is_static = metric_type.endswith('_static')
+            
+            # Validate required fields (static goals don't need dates)
+            if not is_static and not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
+                return jsonify({"error": "Missing required fields"}), 400
+            elif is_static and not all([goal_id, metric_type, target_value]):
                 return jsonify({"error": "Missing required fields"}), 400
             
             # Validate metric type
@@ -998,11 +1012,43 @@ def register_goals_api_routes(app):
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
             
-            # Parse dates
+            # Get user timezone and today
+            user_tz = get_user_timezone()
+            today = get_today_in_timezone(user_tz)
+            
+            # Handle static goals separately
+            if is_static:
+                # For static goals: required = target_value (fixed daily), progress = today only
+                # Get today's live data
+                today_lines, live_stats = get_todays_live_data(today, user_tz)
+                
+                # Extract today's progress (map static type to base type)
+                base_metric_type = metric_type.replace('_static', '')
+                today_progress = 0
+                if live_stats:
+                    today_stats_only = combine_rollup_and_live_stats(None, live_stats)
+                    today_progress = extract_metric_value(
+                        today_stats_only, base_metric_type,
+                        today_lines=today_lines,
+                        start_date=None,
+                        yesterday=None,
+                        goals_settings=goals_settings,
+                        for_today_only=True
+                    )
+                
+                return jsonify({
+                    "required": format_metric_value(target_value, metric_type),
+                    "progress": format_metric_value(today_progress, metric_type),
+                    "has_target": True,
+                    "days_remaining": None,  # Static goals have no end date
+                    "total_progress": None,  # Not relevant for daily view
+                    "easy_day_percentage": 100,  # Static goals don't use easy days
+                    "is_static": True
+                }), 200
+            
+            # Parse dates for regular goals
             try:
                 start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
-                user_tz = get_user_timezone()
-                today = get_today_in_timezone(user_tz)
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
             
@@ -1597,6 +1643,19 @@ def register_goals_api_routes(app):
                 end_date_str = goal.get('endDate')
                 goal_name = goal.get('name', 'Unknown Goal')
                 goal_icon = goal.get('icon', '🎯')
+                is_static = metric_type.endswith('_static')
+                
+                # For static goals, requirement is always the target value
+                if is_static:
+                    formatted = format_requirement_display(target_value, metric_type)
+                    requirements.append({
+                        "goal_name": goal_name,
+                        "goal_icon": goal_icon,
+                        "metric_type": metric_type,
+                        "required_tomorrow": format_metric_value(target_value, metric_type),
+                        "formatted_required": formatted
+                    })
+                    continue
                 
                 # Validate required fields
                 if not all([metric_type, target_value, start_date_str, end_date_str]):

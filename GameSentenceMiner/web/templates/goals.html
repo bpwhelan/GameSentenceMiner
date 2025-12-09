@@ -138,14 +138,17 @@
                             <select id="goalMetricType" name="goalMetricType" required
                                 style="width: 95%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
                                 <option value="">Select metric type...</option>
-                                <option value="hours">Reading Hours</option>
-                                <option value="characters">Characters Read</option>
+                                <option value="hours">Reading Hours (with date range)</option>
+                                <option value="characters">Characters Read (with date range)</option>
                                 <option value="games">Games Completed</option>
-                                <option value="cards">Cards Mined</option>
+                                <option value="cards">Cards Mined (with date range)</option>
                                 <!--<option value="mature_cards">Mature Anki Cards</option>-->
                                 <!---Not only counts cards that matured today, but also mature cards that stayed mature so its not a good metric. Will need a new AnkiConnect endpoint or to loop through all cards and see their history and work out if they were matured today or not-->
                                 <!-- <option value="anki_backlog">Clear Anki Backlog</option> -->
                                 <!-- Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later -->
+                                <option value="hours_static">Reading Hours (daily, no end date)</option>
+                                <option value="characters_static">Characters Read (daily, no end date)</option>
+                                <option value="cards_static">Cards Mined (daily, no end date)</option>
                                 <option value="custom">Custom (Daily Checkbox)</option>
                             </select>
                         </div>
@@ -158,6 +161,19 @@
                                     <strong style="color: var(--text-primary); display: block; margin-bottom: 4px;">Daily Habit Tracker</strong>
                                     <p style="color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;">
                                         Custom goals are for tracking daily habits with a simple checkbox. No targets or dates needed - just mark it complete each day to build your streak!
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Help text for Static goals -->
+                        <div id="staticGoalHelpText" class="static-goal-help-text" style="display: none; margin-bottom: 20px; padding: 12px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(79, 70, 229, 0.05) 100%); border-left: 4px solid #6366f1; border-radius: 6px;">
+                            <div style="display: flex; align-items: start; gap: 10px;">
+                                <span style="font-size: 20px;">♾️</span>
+                                <div>
+                                    <strong style="color: var(--text-primary); display: block; margin-bottom: 4px;">Daily Target Goal</strong>
+                                    <p style="color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;">
+                                        Static goals set a fixed daily target that never changes. Each day you'll see the same target in your dailies (e.g., "Read 100 characters"). Your cumulative progress is tracked in the Goals section.
                                     </p>
                                 </div>
                             </div>
