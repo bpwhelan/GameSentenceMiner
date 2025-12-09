@@ -99,18 +99,26 @@ def validate_metric_type(metric_type, allowed_types=None):
     return True
 
 
-def get_todays_live_data(today):
+def get_todays_live_data(today, user_tz=None):
     """
     Fetch today's game lines and calculate live statistics.
     
     Args:
         today: date object for today
+        user_tz: Optional pytz timezone object. If provided, timestamps will be created
+                 in this timezone. If None, uses naive datetime (system timezone).
         
     Returns:
         tuple: (today_lines, live_stats) where live_stats may be None
     """
-    today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
-    today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
+    if user_tz:
+        # Create timezone-aware datetimes to get correct timestamps
+        today_start = user_tz.localize(datetime.datetime.combine(today, datetime.time.min)).timestamp()
+        today_end = user_tz.localize(datetime.datetime.combine(today, datetime.time.max)).timestamp()
+    else:
+        # Fallback to naive datetime (for backward compatibility)
+        today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
+        today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
     today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
         start=today_start, end=today_end, for_stats=True
     )
@@ -711,7 +719,7 @@ def get_todays_goals(user_tz=None):
         
         # Fetch today's live data once for all goals (optimization)
         logger.info("Fetching today's live data")
-        today_lines, live_stats = get_todays_live_data(today)
+        today_lines, live_stats = get_todays_live_data(today, user_tz)
         logger.info(f"Found {len(today_lines) if today_lines else 0} lines for today")
         
         yesterday = today - datetime.timedelta(days=1)
@@ -911,7 +919,7 @@ def register_goals_api_routes(app):
             today_lines = None
             live_stats = None
             if include_today:
-                today_lines, live_stats = get_todays_live_data(today)
+                today_lines, live_stats = get_todays_live_data(today, user_tz)
             
             # Combine rollup and live stats
             combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
@@ -1020,7 +1028,7 @@ def register_goals_api_routes(app):
                 rollup_stats = get_rollup_stats_for_range(start_date, yesterday)
             
             # Get today's live data
-            today_lines, live_stats = get_todays_live_data(today)
+            today_lines, live_stats = get_todays_live_data(today, user_tz)
             
             # Combine stats for total progress
             combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
@@ -1136,7 +1144,7 @@ def register_goals_api_routes(app):
             rollups_30d = StatsRollupTable.get_date_range(thirty_days_ago_str, yesterday_str)
             
             # Get today's live data
-            today_lines, live_stats_today = get_todays_live_data(today)
+            today_lines, live_stats_today = get_todays_live_data(today, user_tz)
             
             # Calculate 30-day average based on metric type
             if metric_type == "cards":
@@ -1612,7 +1620,7 @@ def register_goals_api_routes(app):
                     rollup_stats = get_rollup_stats_for_range(start_date, yesterday)
                 
                 # Get today's live data
-                today_lines, live_stats = get_todays_live_data(today)
+                today_lines, live_stats = get_todays_live_data(today, user_tz)
                 
                 # Combine stats for total progress
                 combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
@@ -1699,7 +1707,7 @@ def register_goals_api_routes(app):
                 rollup_stats = get_rollup_stats_for_range(start_date_str, yesterday_str)
             
             # 3. Get Live Data (Today)
-            today_lines, live_stats = get_todays_live_data(today)
+            today_lines, live_stats = get_todays_live_data(today, user_tz)
             
             # 4. Combine Data
             # This sums up characters and seconds from both sources
