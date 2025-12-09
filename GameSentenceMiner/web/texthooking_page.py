@@ -739,7 +739,8 @@ def start_web_server(debug=False):
         app,
         host=get_config().advanced.localhost_bind_address,
         port=port,
-        threads=4 
+        threads=8,
+        backlog=10
     )
 
 
