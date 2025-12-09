@@ -26,21 +26,11 @@ English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md)
 
 ### 🎮 See it in Action
 
-<!-- REPLACE THIS LINK BELOW WITH A GIF HOSTED IN YOUR REPO FOR BEST RESULTS -->
-<div align="center">
-  <video src=".github/files/readme_demo.mp4" 
-       autoplay 
-       loop 
-       playsinline 
-       controls 
-       style="max-width:100%;">
-    Your browser does not support the video tag.
-</video>
-  <p><i>Click to watch the full demo where I demonstrate:</i></p>
-</div>
+![Demo Gif](.github/files/readme_demo.avif)
 
-- Looking up words with Yomitan in the game itself using GSM Overlay.
-- Creating Anki cards with game audio + a gif automatically.
+- OCR to get get text from a game that doesn't support text hooks.
+- Look up words with Yomitan in the game itself using GSM Overlay.
+- Create Anki cards with game audio + a gif automatically.
 
 ---
 
