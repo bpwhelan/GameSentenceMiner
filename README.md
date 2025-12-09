@@ -39,7 +39,7 @@ English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md)
 GSM is an application designed to automate the process of creating flashcards while you play. It sits between your game and Anki, handling audio recording, screenshots, and OCR so you don't have to interrupt your gameplay.
 
 ### 📝 Anki Card Enhancement
-GSM automatically adds context to your Anki cards when you look up words.
+GSM automatically adds context to your Anki cards whenever you create them.
 *   **Audio Capture:** Uses Voice Activity Detection (VAD) to record and trim the specific voice line associated with the text.
 *   **Screenshots:** Captures the game state the moment the line is spoken. GIFs and Black Bar Removal are supported.
 *  **Mine from History:** Go back and create cards from previous lines you've encountered (i.e. cutscenes).
