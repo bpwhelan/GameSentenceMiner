@@ -684,9 +684,9 @@ class GoalsTable(SQLiteDBTable):
 
     @classmethod
     def get_latest(cls) -> Optional['GoalsTable']:
-        """Get the most recent goals entry."""
+        """Get the most recent goals entry (excludes 'current' entry)."""
         row = cls._db.fetchone(
-            f"SELECT * FROM {cls._table} ORDER BY date DESC LIMIT 1")
+            f"SELECT * FROM {cls._table} WHERE date != 'current' ORDER BY date DESC LIMIT 1")
         return cls.from_row(row) if row else None
 
     @classmethod
@@ -723,34 +723,53 @@ class GoalsTable(SQLiteDBTable):
         """
         try:
             today_date = datetime.strptime(today_str, '%Y-%m-%d').date()
-            latest = get_by_date(today_date)
         except (ValueError, AttributeError) as e:
+            logger.error(f"Invalid date format for today_str: {today_str}: {e}")
             return (1, 1)
         
-
-        # Calculate current streak
-        current_streak = 1
+        # Get the latest historical entry (excludes "current")
+        latest = cls.get_latest()
+        
+        if not latest:
+            # No historical entries yet, this will be the first
+            return (1, 1)
+        
+        # Parse the latest entry's date
         try:
-            from datetime import datetime, timedelta
-            try:
-                today_date = datetime.strptime(today_str, '%Y-%m-%d').date()
-            except (ValueError, AttributeError) as e:
-                # today does not exist in db, so user has not pressed "done" yet
-                current_streak = latest
-            
-            
-            # if user does not commit to pressing "completed", then break streak because distance
-            yesterday = today_date - timedelta(days=1)            
-            # Check if latest entry is from yesterday (consecutive)
-            if latest_date == yesterday:
-                current_streak = latest.streak + 1
-            else:
-                # Streak is broken, start fresh
-                current_streak = 1
-                
+            latest_date = datetime.strptime(latest.date, '%Y-%m-%d').date()
         except (ValueError, AttributeError) as e:
-            logger.error(f"Error calculating current streak: {e}")
-            current_streak = 1
+            logger.error(f"Invalid date in latest entry: {latest.date}: {e}")
+            return (1, 1)
+        
+        # Calculate current streak
+        current_streak = 0
+        yesterday = today_date - timedelta(days=1)
+        
+        # Check if streak is still active (latest entry is today or yesterday)
+        if latest_date == today_date or latest_date == yesterday:
+            # Get all historical entries to count consecutive days backwards
+            # Fetch entries in descending order (most recent first)
+            query = f"SELECT * FROM {cls._table} WHERE date != 'current' ORDER BY date DESC"
+            rows = cls._db.fetchall(query)
+            
+            if rows:
+                current_streak = 1
+                prev_date = datetime.strptime(rows[0][1], '%Y-%m-%d').date()  # rows[0][1] is the date column
+                
+                # Count consecutive days backwards from the most recent entry
+                for i in range(1, len(rows)):
+                    entry_date = datetime.strptime(rows[i][1], '%Y-%m-%d').date()
+                    expected_prev_date = prev_date - timedelta(days=1)
+                    
+                    if entry_date == expected_prev_date:
+                        current_streak += 1
+                        prev_date = entry_date
+                    else:
+                        # Streak is broken
+                        break
+        else:
+            # Streak is broken (latest entry is older than yesterday)
+            current_streak = 0
         
         # Get longest streak from goals_settings JSON
         previous_longest = 0

@@ -1425,6 +1425,7 @@ def register_goals_api_routes(app):
         }
         """
         try:
+            # Get latest historical entry (excludes "current")
             latest_entry = GoalsTable.get_latest()
             
             if not latest_entry:
@@ -1434,21 +1435,13 @@ def register_goals_api_routes(app):
                     "last_completion_date": None
                 }), 200
             
-            # Check if streak is still valid (latest entry should be today or yesterday)
+            # Calculate current streak using the calculate_streak method
             user_tz = get_user_timezone()
             today = get_today_in_timezone(user_tz)
-            try:
-                latest_date = datetime.datetime.strptime(latest_entry.date, '%Y-%m-%d').date()
-                yesterday = today - datetime.timedelta(days=1)
-                
-                # If latest entry is older than yesterday, streak is broken
-                if latest_date < yesterday:
-                    current_streak = 0
-                else:
-                    current_streak = latest_entry.streak
-                    
-            except (ValueError, AttributeError):
-                current_streak = 0
+            today_str = today.strftime('%Y-%m-%d')
+            
+            # Use calculate_streak to get accurate streak count
+            current_streak, longest_from_calculation = GoalsTable.calculate_streak(today_str, str(user_tz))
             
             # Get longest streak from goals_settings JSON (always preserved even if current streak is broken)
             longest_streak = 0
@@ -1458,6 +1451,9 @@ def register_goals_api_routes(app):
                     longest_streak = settings.get('longestStreak', 0)
             except (json.JSONDecodeError, AttributeError):
                 longest_streak = 0
+            
+            # Use the higher of the two (from calculation or from stored settings)
+            longest_streak = max(longest_streak, longest_from_calculation)
             
             return jsonify({
                 "streak": current_streak,
