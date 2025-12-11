@@ -14,13 +14,15 @@ from flask import request, jsonify
 import regex
 
 from GameSentenceMiner.util.db import GameLinesTable
+from GameSentenceMiner.util.db import gsm_db, get_db_directory
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.configuration import (
     get_stats_config,
-logger,
+    logger,
     get_config,
     save_current_config,
     save_stats_config,
+    get_app_directory
 )
 from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.text_log import GameLine
@@ -2470,3 +2472,53 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error deleting regex from game lines: {e}")
             return jsonify({"error": f"Failed to process regex deletion: {str(e)}"}), 500
+
+    @app.route("/api/database_backup", methods=["POST"])
+    def api_backup_db():
+        """
+        Perform a backup of the database
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: false
+        responses:
+          200:
+            description: Backup successful
+
+          400:
+            description: Invalid request
+          500:
+            description: Backup failed
+        """
+        try:
+            # Backup and save
+            config_backup_folder = os.path.join(get_app_directory(), "backup", "config")
+            os.makedirs(config_backup_folder, exist_ok=True)
+            timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+
+            # Get the database path
+            db_path = get_db_directory()
+            
+            # Create backup filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_dir = os.path.join(os.path.dirname(db_path), "backup")
+            os.makedirs(backup_dir, exist_ok=True)
+            backup_path = os.path.join(backup_dir, f"gsm_backup_{timestamp}.db")
+            
+            # Perform the actual backup
+            gsm_db.backup(backup_path)
+            
+            logger.info(f"Database backup created at: {backup_path}")
+            
+            return jsonify({
+                "message": "Database backup successful",
+                "backup_path": backup_path,
+                "timestamp": timestamp
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Database backup failed: {e}")
+            return jsonify({"error": f"Backup failed: {str(e)}"}), 500
