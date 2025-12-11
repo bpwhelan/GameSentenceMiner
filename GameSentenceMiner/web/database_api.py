@@ -198,6 +198,8 @@ def deduplicate_lines_core(games, time_window_minutes=5, case_sensitive=False,
             # Find all duplicates regardless of time
             seen_texts = {}
             for line in lines:
+                if not isinstance(line.line_text, str):
+                    continue
                 if not line.line_text or not line.line_text.strip():
                     continue
                 
@@ -221,6 +223,8 @@ def deduplicate_lines_core(games, time_window_minutes=5, case_sensitive=False,
             text_timeline = []
             
             for line in lines:
+                if not isinstance(line.line_text, str):
+                    continue
                 if not line.line_text or not line.line_text.strip():
                     continue
                 
@@ -1782,6 +1786,8 @@ def register_database_api_routes(app):
                     # Find all duplicates regardless of time
                     seen_texts = {}
                     for line in lines:
+                        if not isinstance(line.line_text, str):
+                            continue
                         if not line.line_text or not line.line_text.strip():
                             continue
 
@@ -1807,6 +1813,8 @@ def register_database_api_routes(app):
                     text_timeline = []
 
                     for line in lines:
+                        if not isinstance(line.line_text, str):
+                            continue
                         if not line.line_text or not line.line_text.strip():
                             continue
 

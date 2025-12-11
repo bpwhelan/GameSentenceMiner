@@ -70,7 +70,7 @@ def delete_duplicates_from_games(games=None, case_sensitive=False, preserve_newe
             # for example, it will delete "arigatou" from EVERY game ever
             # If you want to use "all", set a time window.
             # If you do not want a time window, set a specific game.
-            games = ["all"]
+            games = [all]
             # I believe games needs to be GameID from games_table
             # there is an API to get this
             # I will link proper API docs later on, this is just an example
