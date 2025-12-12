@@ -74,7 +74,9 @@ dependencies = [
   "betterproto==2.0.0b7",
   "py7zr~=1.0.0",
   "pynput~=1.8.1",
+  "waitress==3.0.2",
 ]
+
 
 [project.optional-dependencies]
 lens = [

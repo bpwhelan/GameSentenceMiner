@@ -20,6 +20,7 @@ class Crons(enum.Enum):
     POPULATE_GAMES = 'populate_games'
     JITEN_SYNC = 'jiten_sync'
     DAILY_STATS_ROLLUP = 'daily_stats_rollup'
+    USER_PLUGINS = "user_plugins"
 
 @dataclass
 class MockCron:
@@ -224,6 +225,21 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
                 detail['result'] = result
                 
                 logger.info(f"Successfully executed {cron.name}")
+                
+            elif cron.name == Crons.USER_PLUGINS.value:
+                from GameSentenceMiner.util.cron.user_plugins import execute_user_plugins
+                result = execute_user_plugins()
+                
+                # Mark as successfully run (even if plugins had errors, the system ran)
+                CronTable.just_ran(cron.id)
+                executed_count += 1
+                detail['success'] = result.get('executed', False)
+                detail['result'] = result
+                
+                if result.get('error'):
+                    logger.warning(f"User plugins completed with warning: {result['error']}")
+                else:
+                    logger.info(f"Successfully executed {cron.name}")
                 
             else:
                 logger.error(f"⚠️ Unknown cron job: {cron.name}")
