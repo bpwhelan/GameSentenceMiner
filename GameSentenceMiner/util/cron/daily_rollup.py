@@ -335,23 +335,22 @@ def analyze_genre_activity(lines: List, date_str: str) -> Dict:
                    if (line.screenshot_in_anki and line.screenshot_in_anki.strip()) or
                       (line.audio_in_anki and line.audio_in_anki.strip()))
         
-        # Parse genres (stored as comma-separated string of IDs)
+        # Parse genres (stored as JSON array of genre names)
         try:
             import json
-            genre_ids = json.loads(game.genres) if isinstance(game.genres, str) else game.genres
+            # game.genres can be a JSON string or already a list
+            if isinstance(game.genres, str):
+                genre_names = json.loads(game.genres)
+            elif isinstance(game.genres, list):
+                genre_names = game.genres
+            else:
+                logger.debug(f"Unexpected genres type for game {game_id[:8]}...: {type(game.genres)}")
+                continue
             
-            # Genre ID to name mapping (from jiten_api_client.py)
-            genre_map = {
-                1: "Action", 2: "Adventure", 3: "Comedy", 4: "Drama",
-                5: "Ecchi", 6: "Fantasy", 7: "Horror", 8: "Mecha",
-                9: "Music", 10: "Mystery", 11: "Psychological", 12: "Romance",
-                13: "SciFi", 14: "Slice of Life", 15: "Sports",
-                16: "Supernatural", 17: "Thriller", 18: "NSFW"
-            }
-            
-            # Accumulate stats to all genres for this game
-            for genre_id in genre_ids:
-                genre_name = genre_map.get(int(genre_id), f"Genre_{genre_id}")
+            # Accumulate stats to all genres for this game (genres are already names, not IDs)
+            for genre_name in genre_names:
+                if not genre_name or not isinstance(genre_name, str):
+                    continue
                 genre_stats[genre_name]['chars'] += chars
                 genre_stats[genre_name]['time'] += time_spent
                 genre_stats[genre_name]['cards'] += cards
@@ -420,15 +419,13 @@ def analyze_type_activity(lines: List, date_str: str) -> Dict:
                    if (line.screenshot_in_anki and line.screenshot_in_anki.strip()) or
                       (line.audio_in_anki and line.audio_in_anki.strip()))
         
-        # Media type ID to name mapping (from jiten_api_client.py)
-        type_map = {
-            1: "Anime", 2: "Manga", 3: "Light Novel", 4: "Web Novel",
-            5: "Book", 6: "Game", 7: "Visual Novel"
-        }
-        
+        # game.type is stored as a string name (e.g., "Visual Novel", "Anime", etc.)
         try:
-            type_id = int(game.type)
-            type_name = type_map.get(type_id, f"Type_{type_id}")
+            if not game.type or not isinstance(game.type, str):
+                logger.debug(f"Invalid type for game {game_id[:8]}...: {game.type}")
+                continue
+            
+            type_name = game.type.strip()
             
             # Accumulate stats to this type
             type_stats[type_name]['chars'] += chars

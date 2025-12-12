@@ -156,6 +156,96 @@ def count_cards_from_lines(lines):
     return count
 
 
+def filter_stats_by_media_type(combined_stats, media_type):
+    """
+    Filter combined stats by media type.
+    
+    Args:
+        combined_stats: Combined rollup and live stats dictionary
+        media_type: Media type string ("Anime", "Visual Novel", "ALL", etc.)
+        
+    Returns:
+        dict: Filtered stats containing only data for specified media type
+    """
+    if not media_type or media_type == "ALL":
+        # Return all stats unchanged
+        return combined_stats
+    
+    # Get type_activity_data from combined_stats
+    type_activity = combined_stats.get("type_activity_data", {})
+    
+    if media_type not in type_activity:
+        # Media type not found, return zero stats
+        return {
+            "total_characters": 0,
+            "total_reading_time_seconds": 0,
+            "total_lines": 0,
+            "unique_games_played": 0
+        }
+    
+    # Return stats for specific media type
+    type_stats = type_activity[media_type]
+    return {
+        "total_characters": type_stats.get("chars", 0),
+        "total_reading_time_seconds": type_stats.get("time", 0),
+        "total_lines": type_stats.get("lines", 0),
+        "unique_games_played": 0  # Not tracked per type
+    }
+
+
+def count_cards_from_lines_by_type(lines, media_type):
+    """
+    Count cards from lines, filtered by media type.
+    Requires joining with GamesTable to get type information.
+    """
+    if not lines or not media_type or media_type == "ALL":
+        return count_cards_from_lines(lines)
+    
+    card_count = 0
+    for line in lines:
+        # Check if line has card
+        if not ((line.audio_in_anki or '').strip() or (line.screenshot_in_anki or '').strip()):
+            continue
+        
+        # Get game metadata to check type
+        game = GamesTable.get_by_game_line(line)
+        if game and game.type == media_type:
+            card_count += 1
+    
+    return card_count
+
+
+def sum_rollup_cards_by_type(start_date, end_date, media_type):
+    """
+    Sum cards from rollup data, filtered by media type.
+    Uses type_activity_data from rollups.
+    """
+    if not media_type or media_type == "ALL":
+        rollups = StatsRollupTable.get_date_range(
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d")
+        )
+        return sum(rollup.anki_cards_created or 0 for rollup in rollups)
+    
+    # Get rollups and extract type-specific card counts
+    rollups = StatsRollupTable.get_date_range(
+        start_date.strftime("%Y-%m-%d"),
+        end_date.strftime("%Y-%m-%d")
+    )
+    
+    total_cards = 0
+    for rollup in rollups:
+        if rollup.type_activity_data:
+            try:
+                type_data = json.loads(rollup.type_activity_data) if isinstance(rollup.type_activity_data, str) else rollup.type_activity_data
+                if media_type in type_data:
+                    total_cards += type_data[media_type].get('cards', 0)
+            except (json.JSONDecodeError, TypeError):
+                continue
+    
+    return total_cards
+
+
 def query_anki_connect_mature_cards(deck_name=None, start_date=None, for_today=False):
     """
     Query AnkiConnect for mature cards (interval > 21 days).
@@ -490,12 +580,13 @@ def get_rollup_stats_for_range(start_date, end_date):
     return None
 
 
-def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_stats=None, start_date=None, yesterday=None, goals_settings=None, for_today_only=False):
+def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_stats=None, start_date=None, yesterday=None, goals_settings=None, for_today_only=False, media_type=None):
     """
     Extract progress value from combined stats based on metric type.
     Static types (hours_static, characters_static, cards_static) behave like their non-static counterparts.
     For 'cards' metric, requires additional parameters to calculate from rollups and lines.
     For 'mature_cards' metric, queries AnkiConnect directly.
+    Filters by media_type if specified.
     
     Args:
         combined_stats: Combined rollup and live stats dictionary
@@ -506,37 +597,56 @@ def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_s
         yesterday: Yesterday's date for card calculation
         goals_settings: Goals settings dict (required for mature_cards to get deck name)
         for_today_only: If True, for mature_cards returns cards that matured today
+        media_type: Optional media type filter ("Anime", "Visual Novel", "ALL", etc.)
         
     Returns:
         float or int: The metric value
     """
+    # Filter stats by media type before processing
+    if media_type and media_type != "ALL":
+        filtered_stats = filter_stats_by_media_type(combined_stats, media_type)
+    else:
+        filtered_stats = combined_stats
+    
     # Map static types to their base types for calculation
     base_metric_type = metric_type.replace('_static', '') if metric_type.endswith('_static') else metric_type
     
     if base_metric_type == "hours":
-        return combined_stats.get("total_reading_time_seconds", 0) / 3600
+        return filtered_stats.get("total_reading_time_seconds", 0) / 3600
     elif base_metric_type == "characters":
-        return combined_stats.get("total_characters", 0)
+        return filtered_stats.get("total_characters", 0)
     elif base_metric_type == "games":
+        # Games metric doesn't support type filtering (can't filter unique games by type easily)
         return combined_stats.get("unique_games_played", 0)
     elif base_metric_type == "cards":
         # Cards require special handling - sum from rollups + today's lines
-        total_cards = 0
-        
-        # Sum from rollups if we have the date range
-        if start_date and yesterday:
-            rollups = StatsRollupTable.get_date_range(
-                start_date.strftime("%Y-%m-%d"),
-                yesterday.strftime("%Y-%m-%d")
-            )
-            for rollup in rollups:
-                total_cards += rollup.anki_cards_created or 0
-        
-        # Add today's cards
-        if today_lines:
-            total_cards += count_cards_from_lines(today_lines)
-        
-        return total_cards
+        # For cards, need special handling with type filtering
+        if media_type and media_type != "ALL":
+            # Filter today's lines by media type
+            filtered_cards = count_cards_from_lines_by_type(today_lines, media_type) if today_lines else 0
+            
+            # Filter rollup cards by type
+            rollup_cards = sum_rollup_cards_by_type(start_date, yesterday, media_type) if start_date and yesterday else 0
+            
+            return rollup_cards + filtered_cards
+        else:
+            # Existing logic for ALL types
+            total_cards = 0
+            
+            # Sum from rollups if we have the date range
+            if start_date and yesterday:
+                rollups = StatsRollupTable.get_date_range(
+                    start_date.strftime("%Y-%m-%d"),
+                    yesterday.strftime("%Y-%m-%d")
+                )
+                for rollup in rollups:
+                    total_cards += rollup.anki_cards_created or 0
+            
+            # Add today's cards
+            if today_lines:
+                total_cards += count_cards_from_lines(today_lines)
+            
+            return total_cards
     elif base_metric_type == "mature_cards":
         # Query AnkiConnect for mature cards
         deck_name = None
@@ -744,8 +854,9 @@ def get_todays_goals(user_tz=None):
             start_date_str = goal.get('startDate')
             end_date_str = goal.get('endDate')
             goal_icon = goal.get('icon', '🎯')
+            media_type = goal.get('mediaType', 'ALL')  # Extract media type from goal
             
-            logger.info(f"Goal: {goal_name}, metric: {metric_type}")
+            logger.info(f"Goal: {goal_name}, metric: {metric_type}, media_type: {media_type}")
             
             # Skip custom goals (they don't have numeric progress)
             if metric_type == 'custom':
@@ -803,7 +914,8 @@ def get_todays_goals(user_tz=None):
                     today_lines=today_lines,
                     start_date=start_date if start_date <= yesterday else None,
                     yesterday=yesterday if start_date <= yesterday else None,
-                    goals_settings=goals_settings
+                    goals_settings=goals_settings,
+                    media_type=media_type
                 )
                 
                 # Calculate days remaining (including today)
@@ -876,6 +988,7 @@ def register_goals_api_routes(app):
             start_date_str = data.get("start_date")
             end_date_str = data.get("end_date")
             goals_settings = data.get("goals_settings", {})
+            media_type = data.get("media_type", "ALL")
             
             # Validate required fields
             if not metric_type or not start_date_str or not end_date_str:
@@ -938,7 +1051,8 @@ def register_goals_api_routes(app):
                 today_lines=today_lines if include_today else None,
                 start_date=start_date if start_date <= rollup_end_date else None,
                 yesterday=rollup_end_date if start_date <= rollup_end_date else None,
-                goals_settings=goals_settings
+                goals_settings=goals_settings,
+                media_type=media_type
             )
             
             # Calculate days in range
@@ -996,6 +1110,7 @@ def register_goals_api_routes(app):
             start_date_str = data.get("start_date")
             end_date_str = data.get("end_date")
             goals_settings = data.get("goals_settings", {})
+            media_type = data.get("media_type", "ALL")
             
             # Check if this is a static goal
             is_static = metric_type.endswith('_static')
@@ -1033,7 +1148,8 @@ def register_goals_api_routes(app):
                         start_date=None,
                         yesterday=None,
                         goals_settings=goals_settings,
-                        for_today_only=True
+                        for_today_only=True,
+                        media_type=media_type
                     )
                 
                 return jsonify({
@@ -1085,7 +1201,8 @@ def register_goals_api_routes(app):
                 today_lines=today_lines,
                 start_date=start_date if start_date <= yesterday else None,
                 yesterday=yesterday if start_date <= yesterday else None,
-                goals_settings=goals_settings
+                goals_settings=goals_settings,
+                media_type=media_type
             )
             
             # Extract today's progress
@@ -1098,7 +1215,8 @@ def register_goals_api_routes(app):
                     start_date=None,
                     yesterday=None,
                     goals_settings=goals_settings,
-                    for_today_only=True  # For mature_cards, get cards that matured today
+                    for_today_only=True,  # For mature_cards, get cards that matured today
+                    media_type=media_type
                 )
             
             # Calculate days remaining (including today)
@@ -1161,6 +1279,7 @@ def register_goals_api_routes(app):
             target_value = data.get("target_value")
             start_date_str = data.get("start_date")
             end_date_str = data.get("end_date")
+            media_type = data.get("media_type", "ALL")
             
             # Validate required fields
             if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
@@ -1195,8 +1314,13 @@ def register_goals_api_routes(app):
             # Calculate 30-day average based on metric type
             if metric_type == "cards":
                 # For cards, count from rollups + today
-                total_cards = sum(r.anki_cards_created or 0 for r in rollups_30d)
-                total_cards += count_cards_from_lines(today_lines)
+                if media_type and media_type != "ALL":
+                    # Filter by media type
+                    total_cards = sum_rollup_cards_by_type(thirty_days_ago, yesterday, media_type)
+                    total_cards += count_cards_from_lines_by_type(today_lines, media_type)
+                else:
+                    total_cards = sum(r.anki_cards_created or 0 for r in rollups_30d)
+                    total_cards += count_cards_from_lines(today_lines)
                 avg_daily = total_cards / 30
             elif metric_type == "mature_cards":
                 # For mature_cards, calculate daily growth by sampling cards that matured on specific days
@@ -1251,36 +1375,52 @@ def register_goals_api_routes(app):
                     avg_daily = 0
             else:
                 # For hours, characters, games - use existing rollup aggregation
-                total_value = 0
-                
-                for rollup in rollups_30d:
+                if media_type and media_type != "ALL":
+                    # Filter by media type for hours/characters
+                    rollup_stats_30d = aggregate_rollup_data(rollups_30d) if rollups_30d else None
+                    combined_stats_30d = combine_rollup_and_live_stats(rollup_stats_30d, live_stats_today)
+                    filtered_stats_30d = filter_stats_by_media_type(combined_stats_30d, media_type)
+                    
                     if metric_type == "hours":
-                        total_value += rollup.total_reading_time_seconds / 3600
+                        total_value = filtered_stats_30d.get("total_reading_time_seconds", 0) / 3600
                     elif metric_type == "characters":
-                        total_value += rollup.total_characters
+                        total_value = filtered_stats_30d.get("total_characters", 0)
                     elif metric_type == "games":
-                        if rollup.games_played_ids:
-                            try:
-                                games_ids = (
-                                    json.loads(rollup.games_played_ids)
-                                    if isinstance(rollup.games_played_ids, str)
-                                    else rollup.games_played_ids
-                                )
-                                # Count unique games for this day
-                                total_value += len(set(games_ids))
-                            except (json.JSONDecodeError, TypeError):
-                                pass
-                
-                # Add today's value
-                if live_stats_today:
-                    if metric_type == "hours":
-                        total_value += live_stats_today.get("total_reading_time_seconds", 0) / 3600
-                    elif metric_type == "characters":
-                        total_value += live_stats_today.get("total_characters", 0)
-                    elif metric_type == "games":
-                        total_value += len(live_stats_today.get("games_played_ids", []))
-                
-                avg_daily = total_value / 30
+                        # Games metric doesn't support type filtering
+                        total_value = combined_stats_30d.get("unique_games_played", 0)
+                    
+                    avg_daily = total_value / 30
+                else:
+                    total_value = 0
+                    
+                    for rollup in rollups_30d:
+                        if metric_type == "hours":
+                            total_value += rollup.total_reading_time_seconds / 3600
+                        elif metric_type == "characters":
+                            total_value += rollup.total_characters
+                        elif metric_type == "games":
+                            if rollup.games_played_ids:
+                                try:
+                                    games_ids = (
+                                        json.loads(rollup.games_played_ids)
+                                        if isinstance(rollup.games_played_ids, str)
+                                        else rollup.games_played_ids
+                                    )
+                                    # Count unique games for this day
+                                    total_value += len(set(games_ids))
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                    
+                    # Add today's value
+                    if live_stats_today:
+                        if metric_type == "hours":
+                            total_value += live_stats_today.get("total_reading_time_seconds", 0) / 3600
+                        elif metric_type == "characters":
+                            total_value += live_stats_today.get("total_characters", 0)
+                        elif metric_type == "games":
+                            total_value += len(live_stats_today.get("games_played_ids", []))
+                    
+                    avg_daily = total_value / 30
             
             # Get current total (all-time)
             first_rollup_date = StatsRollupTable.get_first_date()
@@ -1320,7 +1460,8 @@ def register_goals_api_routes(app):
                         today_lines=today_lines,
                         start_date=datetime.datetime.strptime(first_rollup_date, "%Y-%m-%d").date(),
                         yesterday=yesterday,
-                        goals_settings=data.get("goals_settings", {})
+                        goals_settings=data.get("goals_settings", {}),
+                        media_type=media_type
                     )
             
             # Calculate projection
@@ -1684,13 +1825,15 @@ def register_goals_api_routes(app):
                 # Combine stats for total progress
                 combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
                 
-                # Extract total progress
+                # Extract total progress (with media type filtering if specified)
+                media_type = goal.get('mediaType', 'ALL')
                 total_progress = extract_metric_value(
                     combined_stats, metric_type,
                     today_lines=today_lines,
                     start_date=start_date if start_date <= yesterday else None,
                     yesterday=yesterday if start_date <= yesterday else None,
-                    goals_settings=goals_settings
+                    goals_settings=goals_settings,
+                    media_type=media_type
                 )
                 
                 # Calculate days remaining from tomorrow to end date (inclusive)

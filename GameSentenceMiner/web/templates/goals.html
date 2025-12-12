@@ -153,6 +153,27 @@
                             </select>
                         </div>
 
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalMediaType" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Media Type
+                                <span style="color: var(--text-tertiary); font-weight: 400; font-size: 0.9em;">(filter progress by media type)</span>
+                            </label>
+                            <select id="goalMediaType" name="goalMediaType"
+                                style="width: 95%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <option value="ALL">All Media Types</option>
+                                <option value="Anime">📺 Anime</option>
+                                <option value="Manga">📖 Manga</option>
+                                <option value="Light Novel">📚 Light Novel</option>
+                                <option value="Web Novel">🌐 Web Novel</option>
+                                <option value="Book">📕 Book</option>
+                                <option value="Game">🎮 Game</option>
+                                <option value="Visual Novel">🎭 Visual Novel</option>
+                            </select>
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Select "All Media Types" to track progress across all content, or choose a specific type to only count progress from that media type.
+                            </small>
+                        </div>
+
                         <!-- Help text for Custom goals -->
                         <div id="customGoalHelpText" class="custom-goal-help-text" style="display: none; margin-bottom: 20px; padding: 12px; background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(22, 163, 74, 0.05) 100%); border-left: 4px solid #22c55e; border-radius: 6px;">
                             <div style="display: flex; align-items: start; gap: 10px;">

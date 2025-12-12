@@ -6,6 +6,17 @@
 // ================================
 const ALLOWED_METRIC_TYPES = ['hours', 'characters', 'games', 'cards', 'mature_cards', 'hours_static', 'characters_static', 'cards_static', /* 'anki_backlog', */ 'custom'];
 
+const MEDIA_TYPES = [
+    { value: 'ALL', label: 'All Media Types' },
+    { value: 'Anime', label: 'Anime' },
+    { value: 'Manga', label: 'Manga' },
+    { value: 'Light Novel', label: 'Light Novel' },
+    { value: 'Web Novel', label: 'Web Novel' },
+    { value: 'Book', label: 'Book' },
+    { value: 'Game', label: 'Game' },
+    { value: 'Visual Novel', label: 'Visual Novel' }
+];
+
 // ================================
 // Goals Data Manager - Centralized API Interface
 // ================================
@@ -534,6 +545,7 @@ const CustomGoalsManager = {
             startDate: goalData.startDate || "1970-01-01",
             endDate: goalData.endDate,
             icon: goalData.icon || this.getDefaultIcon(goalData.metricType),
+            mediaType: goalData.mediaType || "ALL",
             createdAt: Date.now()
         };
 
@@ -558,7 +570,8 @@ const CustomGoalsManager = {
             targetValue: goalData.targetValue,
             startDate: goalData.startDate || "1970-01-01",
             endDate: goalData.endDate,
-            icon: goalData.icon || goals[index].icon
+            icon: goalData.icon || goals[index].icon,
+            mediaType: goalData.mediaType || "ALL"
         };
 
         return await this.saveAll(goals);
@@ -716,6 +729,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     metric_type: goal.metricType,
                     start_date: goal.startDate,
                     end_date: goal.endDate,
+                    media_type: goal.mediaType || 'ALL',
                     goals_settings: goalsSettings
                 })
             });
@@ -737,6 +751,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Helper function to render a custom goal card
     function renderCustomGoalCard(goal, currentProgress, dailyAverage) {
+        // Add media type badge if not ALL
+        const mediaTypeBadge = goal.mediaType && goal.mediaType !== 'ALL'
+            ? `<div class="media-type-badge" data-type="${goal.mediaType}">
+                   ${goal.mediaType}
+               </div>`
+            : '';
+        
         // Handle custom metric type differently
         if (goal.metricType === 'custom') {
             const state = CustomGoalCheckboxManager.getState(goal.id);
@@ -749,6 +770,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             ${goal.name}
                         </div>
                     </div>
+                    ${mediaTypeBadge}
                     ${GoalsUtils.renderActionButtons(goal.id)}
                 </div>
             `;
@@ -775,6 +797,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             <span class="goal-separator" style="opacity: 0.5;"> total</span>
                         </div>
                     </div>
+                    ${mediaTypeBadge}
                     <div class="custom-goal-date-range" style="margin: 8px 0; padding: 6px 12px; background: var(--bg-tertiary); border-radius: 6px; border-left: 3px solid var(--primary-color); font-size: 0.9em;">
                         <span style="opacity: 0.8;">♾️</span>
                         <strong style="margin-left: 4px;">Daily Target: ${goal.targetValue} ${metricName}</strong>
@@ -818,6 +841,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         <span class="goal-target">${formattedTarget}</span>
                     </div>
                 </div>
+                ${mediaTypeBadge}
                 <div class="custom-goal-date-range" style="margin: 8px 0; padding: 6px 12px; background: var(--bg-tertiary); border-radius: 6px; border-left: 3px solid var(--primary-color); font-size: 0.9em;">
                     <span style="opacity: 0.8;">📅</span>
                     <strong style="margin-left: 4px;">${formattedStartDate}</strong>
@@ -1037,6 +1061,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Helper function to render a custom goal today item
     function renderCustomGoalTodayItem(goal, todayData) {
+        // Add media type badge if not ALL
+        const mediaTypeBadge = goal.mediaType && goal.mediaType !== 'ALL'
+            ? `<div class="media-type-badge" data-type="${goal.mediaType}">
+                   ${goal.mediaType}
+               </div>`
+            : '';
+        
         // Handle custom metric type with checkbox
         if (goal.metricType === 'custom') {
             const isCompleted = CustomGoalCheckboxManager.isCompletedToday(goal.id);
@@ -1056,6 +1087,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             <span class="custom-goal-checkbox-icon">${isCompleted ? '✓' : ''}</span>
                         </div>
                     </div>
+                    ${mediaTypeBadge}
                 </div>
             `;
         }
@@ -1096,6 +1128,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <span style="margin-left: 4px;">${metricLabel}</span>
                 </span>
                 <span class="dashboard-stat-label">${goal.name}</span>
+                ${mediaTypeBadge}
             </div>
         `;
     }
@@ -1170,6 +1203,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                     target_value: goal.targetValue,
                                     start_date: goal.startDate,
                                     end_date: goal.endDate,
+                                    media_type: goal.mediaType || 'ALL',
                                     goals_settings: goalsSettings
                                 })
                             });
@@ -1338,6 +1372,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                 target_value: goal.targetValue,
                                 start_date: goal.startDate,
                                 end_date: goal.endDate,
+                                media_type: goal.mediaType || 'ALL',
                                 goals_settings: goalsSettings
                             })
                         });
@@ -1645,7 +1680,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 targetValue: parseInt(document.getElementById('goalTargetValue').value),
                 startDate: document.getElementById('goalStartDate').value,
                 endDate: document.getElementById('goalEndDate').value,
-                icon: icon
+                icon: icon,
+                mediaType: document.getElementById('goalMediaType').value || 'ALL'
             };
 
             // Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later
@@ -1706,6 +1742,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('goalEndDate').value = goal.endDate || '';
         document.getElementById('goalIconSelector').value = goal.icon;
         document.getElementById('customGoalIcon').value = goal.icon;
+        document.getElementById('goalMediaType').value = goal.mediaType || 'ALL';
 
         customGoalModal.style.display = 'flex';
         customGoalModal.classList.add('show');
