@@ -1102,7 +1102,81 @@ def register_stats_api_routes(app):
                     }
                 }
 
-            # 16. Calculate average stats and totals for the time period
+            # 16. Extract and calculate genre and type statistics from combined stats
+            try:
+                # Get genre activity data from combined stats
+                genre_activity_data = combined_stats.get("genre_activity_data", {})
+                genre_stats = {
+                    "labels": [],
+                    "chars_data": [],
+                    "time_data": [],
+                    "speed_data": [],
+                    "cards_data": []
+                }
+                
+                for genre in sorted(genre_activity_data.keys()):
+                    stats = genre_activity_data[genre]
+                    chars = stats.get('chars', 0)
+                    time_sec = stats.get('time', 0)
+                    cards = stats.get('cards', 0)
+                    
+                    genre_stats["labels"].append(genre)
+                    genre_stats["chars_data"].append(chars)
+                    genre_stats["time_data"].append(round(time_sec / 3600, 2))  # Convert to hours
+                    genre_stats["cards_data"].append(cards)
+                    
+                    # Calculate chars/hour
+                    if time_sec > 0 and chars > 0:
+                        speed = int(chars / (time_sec / 3600))
+                        genre_stats["speed_data"].append(speed)
+                    else:
+                        genre_stats["speed_data"].append(0)
+                
+                # Get type activity data from combined stats
+                type_activity_data = combined_stats.get("type_activity_data", {})
+                type_stats = {
+                    "labels": [],
+                    "chars_data": [],
+                    "time_data": [],
+                    "speed_data": [],
+                    "cards_data": []
+                }
+                
+                for media_type in sorted(type_activity_data.keys()):
+                    stats = type_activity_data[media_type]
+                    chars = stats.get('chars', 0)
+                    time_sec = stats.get('time', 0)
+                    cards = stats.get('cards', 0)
+                    
+                    type_stats["labels"].append(media_type)
+                    type_stats["chars_data"].append(chars)
+                    type_stats["time_data"].append(round(time_sec / 3600, 2))
+                    type_stats["cards_data"].append(cards)
+                    
+                    if time_sec > 0 and chars > 0:
+                        speed = int(chars / (time_sec / 3600))
+                        type_stats["speed_data"].append(speed)
+                    else:
+                        type_stats["speed_data"].append(0)
+                        
+            except Exception as e:
+                logger.error(f"Error calculating genre/type statistics: {e}")
+                genre_stats = {
+                    "labels": [],
+                    "chars_data": [],
+                    "time_data": [],
+                    "speed_data": [],
+                    "cards_data": []
+                }
+                type_stats = {
+                    "labels": [],
+                    "chars_data": [],
+                    "time_data": [],
+                    "speed_data": [],
+                    "cards_data": []
+                }
+
+            # 17. Calculate average stats and totals for the time period
             try:
                 avg_hours_per_day = 0.0
                 avg_chars_per_day = 0.0
@@ -1227,6 +1301,8 @@ def register_stats_api_routes(app):
                     "difficultySpeedData": difficulty_speed_data,
                     "gameTypeData": game_type_data,
                     "genreTagData": genre_tag_data,
+                    "genreStats": genre_stats,
+                    "typeStats": type_stats,
                     "timePeriodAverages": time_period_averages,
                 }
             )

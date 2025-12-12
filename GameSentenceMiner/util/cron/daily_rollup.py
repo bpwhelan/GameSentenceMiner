@@ -278,6 +278,170 @@ def analyze_kanji_data(lines: List) -> Dict:
     }
 
 
+def analyze_genre_activity(lines: List, date_str: str) -> Dict:
+    """
+    Analyze per-genre activity for the day.
+    
+    Args:
+        lines: List of GameLinesTable records
+        date_str: Date in YYYY-MM-DD format
+        
+    Returns:
+        Dictionary with genre activity data:
+        {
+            'genre_details': {
+                'Action': {'chars': N, 'time': N, 'cards': N},
+                'Drama': {'chars': N, 'time': N, 'cards': N},
+                ...
+            }
+        }
+    """
+    if not lines:
+        return {'genre_details': {}}
+    
+    # Group lines by game_id
+    game_lines = defaultdict(list)
+    for line in lines:
+        if line.game_id and line.game_id.strip():
+            game_lines[str(line.game_id)].append(line)
+    
+    # Cache for GamesTable lookups
+    games_cache = {}
+    
+    # Accumulate stats per genre
+    genre_stats = defaultdict(lambda: {'chars': 0, 'time': 0, 'cards': 0})
+    
+    for game_id, game_line_list in game_lines.items():
+        # Get game metadata
+        if game_id not in games_cache:
+            try:
+                game = GamesTable.get(game_id)
+                games_cache[game_id] = game
+            except Exception as e:
+                logger.debug(f"Could not fetch game {game_id[:8]}... for genre analysis: {e}")
+                games_cache[game_id] = None
+        
+        game = games_cache[game_id]
+        
+        # Skip if no game metadata or no genres
+        if not game or not game.genres:
+            continue
+        
+        # Calculate stats for this game
+        chars = sum(len(line.line_text) if line.line_text else 0 for line in game_line_list)
+        timestamps = [float(line.timestamp) for line in game_line_list]
+        time_spent = calculate_actual_reading_time(timestamps) if len(timestamps) >= 2 else 0.0
+        cards = sum(1 for line in game_line_list
+                   if (line.screenshot_in_anki and line.screenshot_in_anki.strip()) or
+                      (line.audio_in_anki and line.audio_in_anki.strip()))
+        
+        # Parse genres (stored as comma-separated string of IDs)
+        try:
+            import json
+            genre_ids = json.loads(game.genres) if isinstance(game.genres, str) else game.genres
+            
+            # Genre ID to name mapping (from jiten_api_client.py)
+            genre_map = {
+                1: "Action", 2: "Adventure", 3: "Comedy", 4: "Drama",
+                5: "Ecchi", 6: "Fantasy", 7: "Horror", 8: "Mecha",
+                9: "Music", 10: "Mystery", 11: "Psychological", 12: "Romance",
+                13: "SciFi", 14: "Slice of Life", 15: "Sports",
+                16: "Supernatural", 17: "Thriller", 18: "NSFW"
+            }
+            
+            # Accumulate stats to all genres for this game
+            for genre_id in genre_ids:
+                genre_name = genre_map.get(int(genre_id), f"Genre_{genre_id}")
+                genre_stats[genre_name]['chars'] += chars
+                genre_stats[genre_name]['time'] += time_spent
+                genre_stats[genre_name]['cards'] += cards
+                
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.debug(f"Could not parse genres for game {game_id[:8]}...: {e}")
+            continue
+    
+    return {'genre_details': dict(genre_stats)}
+
+
+def analyze_type_activity(lines: List, date_str: str) -> Dict:
+    """
+    Analyze per-media-type activity for the day.
+    
+    Args:
+        lines: List of GameLinesTable records
+        date_str: Date in YYYY-MM-DD format
+        
+    Returns:
+        Dictionary with type activity data:
+        {
+            'type_details': {
+                'Visual Novel': {'chars': N, 'time': N, 'cards': N},
+                'Manga': {'chars': N, 'time': N, 'cards': N},
+                ...
+            }
+        }
+    """
+    if not lines:
+        return {'type_details': {}}
+    
+    # Group lines by game_id
+    game_lines = defaultdict(list)
+    for line in lines:
+        if line.game_id and line.game_id.strip():
+            game_lines[str(line.game_id)].append(line)
+    
+    # Cache for GamesTable lookups
+    games_cache = {}
+    
+    # Accumulate stats per type
+    type_stats = defaultdict(lambda: {'chars': 0, 'time': 0, 'cards': 0})
+    
+    for game_id, game_line_list in game_lines.items():
+        # Get game metadata
+        if game_id not in games_cache:
+            try:
+                game = GamesTable.get(game_id)
+                games_cache[game_id] = game
+            except Exception as e:
+                logger.debug(f"Could not fetch game {game_id[:8]}... for type analysis: {e}")
+                games_cache[game_id] = None
+        
+        game = games_cache[game_id]
+        
+        # Skip if no game metadata or no type
+        if not game or not game.type:
+            continue
+        
+        # Calculate stats for this game
+        chars = sum(len(line.line_text) if line.line_text else 0 for line in game_line_list)
+        timestamps = [float(line.timestamp) for line in game_line_list]
+        time_spent = calculate_actual_reading_time(timestamps) if len(timestamps) >= 2 else 0.0
+        cards = sum(1 for line in game_line_list
+                   if (line.screenshot_in_anki and line.screenshot_in_anki.strip()) or
+                      (line.audio_in_anki and line.audio_in_anki.strip()))
+        
+        # Media type ID to name mapping (from jiten_api_client.py)
+        type_map = {
+            1: "Anime", 2: "Manga", 3: "Light Novel", 4: "Web Novel",
+            5: "Book", 6: "Game", 7: "Visual Novel"
+        }
+        
+        try:
+            type_id = int(game.type)
+            type_name = type_map.get(type_id, f"Type_{type_id}")
+            
+            # Accumulate stats to this type
+            type_stats[type_name]['chars'] += chars
+            type_stats[type_name]['time'] += time_spent
+            type_stats[type_name]['cards'] += cards
+            
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Could not parse type for game {game_id[:8]}...: {e}")
+            continue
+    
+    return {'type_details': dict(type_stats)}
+
+
 def calculate_daily_stats(date_str: str) -> Dict:
     """
     Calculate comprehensive daily statistics for a given date using existing functions.
@@ -362,6 +526,10 @@ def calculate_daily_stats(date_str: str) -> Dict:
     # Analyze kanji
     kanji_data = analyze_kanji_data(lines)
     
+    # Analyze genre and type activity
+    genre_activity = analyze_genre_activity(lines, date_str)
+    type_activity = analyze_type_activity(lines, date_str)
+    
     # Import json for serialization
     import json
     
@@ -390,6 +558,8 @@ def calculate_daily_stats(date_str: str) -> Dict:
         'hourly_reading_speed_data': json.dumps(hourly_data['hourly_speeds']),
         'game_activity_data': json.dumps(game_activity['details'], ensure_ascii=False),
         'games_played_ids': json.dumps(game_activity['game_ids']),
+        'genre_activity_data': json.dumps(genre_activity['genre_details'], ensure_ascii=False),
+        'type_activity_data': json.dumps(type_activity['type_details'], ensure_ascii=False),
         'max_chars_in_session': session_stats['max_chars'],
         'max_time_in_session_seconds': session_stats['max_time']
     }
@@ -508,6 +678,8 @@ def run_daily_rollup() -> Dict:
                     existing.hourly_reading_speed_data = stats['hourly_reading_speed_data']
                     existing.game_activity_data = stats['game_activity_data']
                     existing.games_played_ids = stats['games_played_ids']
+                    existing.genre_activity_data = stats['genre_activity_data']
+                    existing.type_activity_data = stats['type_activity_data']
                     existing.max_chars_in_session = stats['max_chars_in_session']
                     existing.max_time_in_session_seconds = stats['max_time_in_session_seconds']
                     existing.updated_at = time.time()
@@ -542,6 +714,8 @@ def run_daily_rollup() -> Dict:
                         hourly_reading_speed_data=stats['hourly_reading_speed_data'],
                         game_activity_data=stats['game_activity_data'],
                         games_played_ids=stats['games_played_ids'],
+                        genre_activity_data=stats['genre_activity_data'],
+                        type_activity_data=stats['type_activity_data'],
                         max_chars_in_session=stats['max_chars_in_session'],
                         max_time_in_session_seconds=stats['max_time_in_session_seconds'],
                         created_at=time.time(),
