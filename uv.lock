@@ -878,7 +878,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2.22.3"
+version = "2.22.8"
 source = { editable = "." }
 dependencies = [
     { name = "betterproto" },
@@ -958,7 +958,7 @@ requires-dist = [
     { name = "langid", specifier = "~=1.1.6" },
     { name = "loguru", specifier = "~=0.7.3" },
     { name = "matplotlib", specifier = "~=3.10.6" },
-    { name = "meikiocr", specifier = "~=0.1.1" },
+    { name = "meikiocr", specifier = "~=0.1.2" },
     { name = "mss", specifier = ">=10.1.0" },
     { name = "numpy", specifier = "==2.2.6" },
     { name = "obsws-python", specifier = "~=1.8.0" },
@@ -990,7 +990,7 @@ requires-dist = [
     { name = "tokenizers", specifier = "==0.22.1" },
     { name = "toml", specifier = "~=0.10.2" },
     { name = "torch", specifier = "~=2.8.0" },
-    { name = "torchaudio", specifier = "==2.8.0" },
+    { name = "torchaudio", specifier = "~=2.8.0" },
     { name = "torchcodec", specifier = "~=0.8.1" },
     { name = "watchdog", specifier = "~=6.0.0" },
     { name = "websockets", specifier = "~=15.0.1" },
@@ -1637,7 +1637,7 @@ wheels = [
 
 [[package]]
 name = "meikiocr"
-version = "0.1.1"
+version = "0.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -1645,9 +1645,9 @@ dependencies = [
     { name = "onnxruntime" },
     { name = "opencv-python-headless" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/b9/ee010e82a65fd5908e50e8eefebad5a50a417dcfa8116e2c1ddb36533089/meikiocr-0.1.1.tar.gz", hash = "sha256:b6431673a74166243d7649900d32c1aa7ab61812037f5ce66ec8ddf3c5bff817", size = 11940, upload-time = "2025-11-06T10:20:19.532Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/ef/42fcbdffdd5df4b044552b42311b935dcf49cbdad01ce3a8a497c09b2c5c/meikiocr-0.1.3.tar.gz", hash = "sha256:6759822b28cef84cacf7669a2cc670ee495bbeea92998ea2c9ca1479c0897b7f", size = 12299, upload-time = "2025-11-23T11:51:44.278Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c0/a7/358cc004611fe5be39a649aa14b4548b8338089a901d369f0079a9fd74e9/meikiocr-0.1.1-py3-none-any.whl", hash = "sha256:ff98c8ab7ff2abb8cce2a7c27fbfdf182dddddedbdbb36b37758b3799a32023e", size = 12076, upload-time = "2025-11-06T10:20:18.712Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/6a/4b03487c67423d145c966076f1de3016c1ac3f5a02e40b6aaacf083e938f/meikiocr-0.1.3-py3-none-any.whl", hash = "sha256:650dd19ff3e50bab7d56eddbecde34211252628bcdae792e61af139259a905bf", size = 12409, upload-time = "2025-11-23T11:51:43.186Z" },
 ]
 
 [[package]]
