@@ -126,7 +126,8 @@ class AnkiCard:
         "word_field": ["Front", "Word", "TargetWord", "Expression"],
         "sentence_field": ["Example", "Context", "Back", "Sentence"],
         "picture_field": ["Image", "Visual", "Media", "Picture", "Screenshot", 'AnswerImage'],
-        "sentence_audio_field": ["SentenceAudio"]
+        "sentence_audio_field": ["SentenceAudio"],
+        "sentence_furigana_field": ["SentenceFurigana"]
     }
 
     def get_field(self, field_name: str) -> str:
@@ -169,19 +170,43 @@ class AnkiCard:
                 config.anki.sentence_audio_field = field
                 changes_found = True
 
+        if config.anki.sentence_furigana_field and not self.has_field(config.anki.sentence_furigana_field):
+            found_alternative_field, field = self.find_field(config.anki.sentence_furigana_field, "sentence_furigana_field")
+            if found_alternative_field:
+                logger.warning(f"{config.anki.sentence_furigana_field} Not found in Anki Card! Saving alternative field '{field}' for sentence_furigana_field to settings.")
+                config.anki.sentence_furigana_field = field
+                changes_found = True
+
         if changes_found:
             save_current_config(config)
 
     def find_field(self, field, field_type):
+        # First check for exact match
         if field in self.fields:
             return False, field
 
-        for alt_field in self.alternatives[field_type]:
-            for key in self.fields:
-                if alt_field.lower() == key.lower():
-                    return True, key
+        # Then check if configured field exists with different case
+        for key in self.fields:
+            if field.lower() == key.lower():
+                # Found case-insensitive match, update to use the actual field name from Anki
+                return True, key
+
+        # Finally check alternatives list
+        if field_type in self.alternatives:
+            for alt_field in self.alternatives[field_type]:
+                for key in self.fields:
+                    if alt_field.lower() == key.lower():
+                        return True, key
 
         return False, None
+    
+    def pretty_print(self):
+        field_strings = [
+            f"{key}: {field.value}"
+            for key, field in self.fields.items()
+            if "dictionary" not in key.lower() and "glossary" not in key.lower()
+        ]
+        return f"AnkiCard(noteId={self.noteId}, tags={self.tags}, fields={{" + ", ".join(field_strings) + "}}, cards={self.cards})"
 
 
 class VADResult:

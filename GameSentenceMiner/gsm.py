@@ -1,5 +1,9 @@
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
+
+from GameSentenceMiner.util.communication.electron_ipc import send_message
+
+
 def handle_error_in_initialization(e):
     """Handle errors that occur during initialization."""
     logger.exception(e, exc_info=True)
@@ -161,7 +165,9 @@ class VideoToAudioHandler(FileSystemEventHandler):
 
     def on_created(self, event):
         file_name = os.path.basename(event.src_path)
-        if event.is_directory or ("Replay" not in file_name and "GSM" not in file_name):
+        if event.is_directory:
+            return
+        if "Replay" not in file_name and "GSM" not in file_name:
             # This shows up as soon as recording starts, so it's kinda hard to use...
             # if get_config().features.generate_longplay and event.src_path.endswith(".mkv") or event.src_path.endswith(".mp4"):
             #     add_srt_line(datetime.datetime.now(), get_all_lines()[-1])
@@ -244,7 +250,7 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 return
 
             if last_note:
-                logger.debug(last_note.to_json())
+                logger.debug(last_note.pretty_print())
 
             if get_config().anki.sentence_audio_field and get_config().audio.enabled:
                 logger.debug("Attempting to get audio from video")
@@ -688,8 +694,6 @@ def restart_obs():
 
 def cleanup():
     try:
-        if gsm_state.current_srt and len(get_all_lines()) > 0:
-            add_srt_line(datetime.datetime.now(), get_all_lines()[-1])
         logger.info("Performing cleanup...")
         gsm_state.keep_running = False
 
@@ -697,6 +701,7 @@ def cleanup():
             obs.obs_connection_manager.stop()
         obs.stop_replay_buffer()
         obs.disconnect_from_obs()
+        
         if get_config().obs.close_obs:
             close_obs()
 
@@ -741,7 +746,8 @@ def cleanup():
         qt_main.shutdown_qt_app()
             
         # time.sleep(5)
-        logger.info("Cleanup complete.")
+        send_message("cleanup_complete")
+        
     except Exception as e:
         logger.error(f"Error during cleanup: {e}", exc_info=True)
         sys.exit(1)

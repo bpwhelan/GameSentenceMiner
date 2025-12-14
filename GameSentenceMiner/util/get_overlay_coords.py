@@ -54,7 +54,9 @@ def apply_overlay_config_to_image(img: Image.Image, overlay_config: Dict[str, An
     Args:
         img: PIL Image to process
         overlay_config: Dict with 'rects' key containing list of rectangles
-                       Each rect has 'x', 'y', 'w', 'h' in pixel coordinates
+                       Each rect has 'x', 'y', 'w', 'h' in either:
+                       - Percentage coordinates (0-1 range) if coordinate_system is 'percentage'
+                       - Pixel coordinates (legacy support)
     
     Returns:
         Composite image with only the specified regions on transparent background
@@ -66,15 +68,32 @@ def apply_overlay_config_to_image(img: Image.Image, overlay_config: Dict[str, An
     if not rects:
         return img
     
+    # Check if using percentage-based coordinates
+    use_percentage = overlay_config.get('coordinate_system') == 'percentage'
+    
     # Create a transparent canvas with the same size as the original image
     composite_img = Image.new("RGBA", (img.width, img.height), (0, 0, 0, 0))
     
     for rect in rects:
+        # Convert coordinates based on system
+        if use_percentage:
+            # Convert from percentage to pixels
+            x = int(rect['x'] * img.width)
+            y = int(rect['y'] * img.height)
+            w = int(rect['w'] * img.width)
+            h = int(rect['h'] * img.height)
+        else:
+            # Legacy: use pixel coordinates directly
+            x = rect['x']
+            y = rect['y']
+            w = rect['w']
+            h = rect['h']
+        
         # Extract rectangle coordinates
-        left = max(0, rect['x'])
-        top = max(0, rect['y'])
-        right = min(img.width, rect['x'] + rect['w'])
-        bottom = min(img.height, rect['y'] + rect['h'])
+        left = max(0, x)
+        top = max(0, y)
+        right = min(img.width, x + w)
+        bottom = min(img.height, y + h)
         
         # Skip if the coordinates result in an invalid box
         if left >= right or top >= bottom:
@@ -99,11 +118,11 @@ try:
         from GameSentenceMiner.owocr.owocr.ocr import OneOCR
     else:
         OneOCR = None
-    from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, get_regex
+    from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, get_regex, MeikiOCR
 except ImportError as import_err:
-    GoogleLens, OneOCR, get_regex = None, None, None
+    GoogleLens, OneOCR, get_regex, MeikiOCR = None, None, None, None
 except Exception as e:
-    GoogleLens, OneOCR, get_regex = None, None, None
+    GoogleLens, OneOCR, get_regex, MeikiOCR = None, None, None, None
     logger.error(f"Error importing OCR engines: {e}", exc_info=True)
 
 # Conditionally import screenshot library
@@ -160,6 +179,7 @@ class OverlayProcessor:
     def __init__(self):
         self.config = get_config()
         self.oneocr = None
+        self.meikiocr = None
         self.lens = None
         self.regex = None
         self.ready = False
@@ -168,6 +188,10 @@ class OverlayProcessor:
         self.current_task = None  # Track current running task
         self.windows_warning_shown = False
         self.processing_loop: asyncio.AbstractEventLoop = None
+        self.last_sentences = []  # Backlog of last 8 sentences
+        self.sentence_backlog_max_size = 8
+        self.remove_used_sentences = True  # Flag to control removal of sentences from backlog
+        self.current_engine_config = None  # Track current engine configuration
 
     def init(self):
         """Initializes the OCR engines and configuration."""
@@ -191,6 +215,62 @@ class OverlayProcessor:
             self.oneocr = None
             self.lens = None
             self.regex = None
+    
+    def _get_effective_engine(self) -> str:
+        """
+        Determines which engine to use based on platform and configuration.
+        On non-Windows platforms, forces meikiocr if oneocr or lens is selected.
+        """
+        overlay_config = get_overlay_config()
+        engine = getattr(overlay_config, 'engine_v2', overlay_config.engine)
+        
+        # Force meikiocr on non-Windows if oneocr or lens is selected
+        if not is_windows() and engine in [OverlayEngine.ONEOCR.value, OverlayEngine.LENS.value]:
+            logger.info(f"Forcing MeikiOCR on non-Windows platform (selected: {engine})")
+            return OverlayEngine.MEIKIOCR.value
+        
+        return engine
+    
+    def _ensure_correct_engine_loaded(self):
+        """
+        Ensures the correct OCR engine is loaded based on current configuration.
+        Closes and clears engines that are no longer needed when config changes.
+        """
+        effective_engine = self._get_effective_engine()
+        
+        # Check if engine config has changed
+        if self.current_engine_config == effective_engine:
+            return  # No change, engines already correct
+        
+        logger.info(f"Engine config changed from {self.current_engine_config} to {effective_engine}")
+        
+        # Close and clear all engines
+        if self.oneocr:
+            try:
+                if hasattr(self.oneocr, 'close'):
+                    self.oneocr.close()
+            except Exception as e:
+                logger.debug(f"Error closing oneocr: {e}")
+            self.oneocr = None
+        
+        if self.meikiocr:
+            try:
+                if hasattr(self.meikiocr, 'close'):
+                    self.meikiocr.close()
+            except Exception as e:
+                logger.debug(f"Error closing meikiocr: {e}")
+            self.meikiocr = None
+        
+        if self.lens:
+            try:
+                if hasattr(self.lens, 'close'):
+                    self.lens.close()
+            except Exception as e:
+                logger.debug(f"Error closing lens: {e}")
+            self.lens = None
+        
+        # Update current engine config
+        self.current_engine_config = effective_engine
             
     async def find_box_and_send_to_overlay(self, sentence_to_check: str = None, check_against_last: bool = False):
         """
@@ -204,10 +284,22 @@ class OverlayProcessor:
                 await self.current_task
             except asyncio.CancelledError:
                 logger.info("Previous OCR task was cancelled")
-        if OneOCR and not self.oneocr:
-            self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
-        if GoogleLens and not self.lens:
-            self.lens = GoogleLens(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+        
+        # Ensure correct engine is loaded based on current config
+        self._ensure_correct_engine_loaded()
+        effective_engine = self._get_effective_engine()
+        
+        # Initialize engines based on effective engine configuration
+        if effective_engine == OverlayEngine.LENS.value:
+            if GoogleLens and not self.lens:
+                self.lens = GoogleLens(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+        elif effective_engine == OverlayEngine.ONEOCR.value:
+            if OneOCR and not self.oneocr:
+                self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+        elif effective_engine == OverlayEngine.MEIKIOCR.value:
+            if MeikiOCR and not self.meikiocr:
+                self.meikiocr = MeikiOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+        
         # Start new task
         self.current_task = self.processing_loop.create_task(self.find_box_for_sentence(sentence_to_check, check_against_last))
         try:
@@ -325,14 +417,11 @@ class OverlayProcessor:
 
     async def _do_work(self, sentence_to_check: str = None, check_against_last: bool = False) -> Tuple[List[Dict[str, Any]], int]:
         """The main OCR workflow with cancellation support."""
-        if not self.lens:
-            logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
-            return []
+        effective_engine = self._get_effective_engine()
         
-        if not is_windows:
-            if self.windows_warning_shown is False:
-                logger.warning("Overlay OCR is only fully supported on Windows currently. This may change in future versions.")
-            self.windows_warning_shown = True
+        # Check if any required engine is initialized
+        if not self.lens and not self.oneocr and not self.meikiocr:
+            logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
             return []
         
         if get_config().overlay.scan_delay > 0:
@@ -356,7 +445,7 @@ class OverlayProcessor:
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
         
-        # Load and apply overlay config if it exists (before OneOCR)
+        # Load and apply overlay config if it exists (before local OCR)
         from GameSentenceMiner.obs import get_current_game
         overlay_config = load_overlay_config_for_scene(get_current_game())
         if overlay_config:
@@ -364,7 +453,9 @@ class OverlayProcessor:
             full_screenshot = apply_overlay_config_to_image(full_screenshot, overlay_config)
             full_screenshot.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_with_config.png"))
         
-        if self.oneocr:
+        # Use local OCR engine (OneOCR or MeikiOCR) if configured
+        local_ocr_engine = self.oneocr or self.meikiocr
+        if local_ocr_engine:
             tries = get_overlay_config().number_of_local_scans_per_event if not check_against_last else 1
             for i in range(tries):
                 if i > 0:
@@ -373,9 +464,9 @@ class OverlayProcessor:
                     except asyncio.CancelledError:
                         logger.info("OCR task cancelled during local scan delay")
                         raise
-                # 2. Use OneOCR to find general text areas (fast)
+                # 2. Use local OCR (OneOCR or MeikiOCR) to find general text areas (fast)
                 start_time = time.perf_counter()
-                res, text, oneocr_results, crop_coords_list = self.oneocr(
+                res, text, oneocr_results, crop_coords_list = local_ocr_engine(
                     full_screenshot,
                     return_coords=True,
                     multiple_crop_coords=True,
@@ -383,7 +474,7 @@ class OverlayProcessor:
                     furigana_filter_sensitivity=get_overlay_config().minimum_character_size,
                 )
                 end_time = time.perf_counter()
-                # logger.info("OneOCR processing took %.4f seconds.", end_time - start_time)
+                # logger.info("Local OCR processing took %.4f seconds.", end_time - start_time)
                 
                 if not crop_coords_list:
                     return        
@@ -405,10 +496,10 @@ class OverlayProcessor:
                 # Convert results
                 oneocr_final = self._convert_oneocr_results_to_percentages(oneocr_results, monitor_width, monitor_height)
 
-                # Correct text if ground truth is available
+                # Correct text if ground truth is available and conditions are met
                 if sentence_to_check:
                     start_time = time.perf_counter()
-                    oneocr_final = self._correct_ocr_text(oneocr_final, sentence_to_check)
+                    oneocr_final = self._correct_ocr_with_backlog(oneocr_final, sentence_to_check)
                     end_time = time.perf_counter()
                     # logger.info("OCR text correction took %.4f seconds.", end_time - start_time)
                 
@@ -419,7 +510,8 @@ class OverlayProcessor:
                     with open("oneocr_results.json", "w", encoding="utf-8") as f:
                         f.write(json.dumps(oneocr_results, ensure_ascii=False, indent=2))
                 
-                if get_config().overlay.engine == OverlayEngine.ONEOCR.value and self.oneocr:
+                # Check if we're using a local-only engine (not lens)
+                if effective_engine in [OverlayEngine.ONEOCR.value, OverlayEngine.MEIKIOCR.value] and local_ocr_engine:
                     logger.info("Sent %d text boxes to overlay.", len(oneocr_results))
                     return
 
@@ -490,16 +582,67 @@ class OverlayProcessor:
             use_percentages=True
         )
 
-        # Correct text if ground truth is available
+        # Correct text if ground truth is available and conditions are met
         if sentence_to_check:
             start_time = time.perf_counter()
-            extracted_data = self._correct_ocr_text(extracted_data, sentence_to_check)
+            extracted_data = self._correct_ocr_with_backlog(extracted_data, sentence_to_check)
             end_time = time.perf_counter()
             # logger.info("OCR text correction took %.4f seconds.", end_time - start_time)
 
         await send_word_coordinates_to_overlay(extracted_data)
         
         logger.info("Sent %d text boxes to overlay.", len(extracted_data))
+
+    def _correct_ocr_with_backlog(self, ocr_results: List[Dict[str, Any]], current_sentence: str) -> List[Dict[str, Any]]:
+        """
+        Corrects OCR results using sentence backlog with conditional logic:
+        1. If past sentence is NOT within 50% partial_ratio of CURRENT sentence
+        2. If past sentence is AT LEAST 80% partial ratio with the current OCR result
+        
+        This handles cases where games require multiple clicks and previous sentences remain visible.
+        If remove_used_sentences is True, sentences meeting both conditions are removed from backlog.
+        """
+        if not current_sentence or not ocr_results:
+            return ocr_results
+        
+        # Extract OCR text for comparison
+        ocr_text = "".join([line.get('text', '') for line in ocr_results])
+        
+        # Track sentences to remove if flag is enabled
+        sentences_to_remove = []
+        
+        # Check backlog and apply corrections
+        for past_sentence in self.last_sentences:
+            # Condition 1: Past sentence is NOT similar to current sentence (< 50% partial_ratio)
+            current_similarity = fuzz.partial_ratio(past_sentence, current_sentence)
+            if current_similarity >= 50:
+                continue  # Skip if past and current are too similar
+            
+            # Condition 2: Past sentence IS similar to OCR result (>= 80% partial_ratio)
+            ocr_similarity = fuzz.partial_ratio(past_sentence, ocr_text)
+            if ocr_similarity >= 80:
+                logger.debug(f"Applying OCR correction with past sentence (current_sim={current_similarity}%, ocr_sim={ocr_similarity}%)")
+                ocr_results = self._correct_ocr_text(ocr_results, past_sentence)
+                
+                # Mark for removal if flag is enabled
+                if self.remove_used_sentences:
+                    sentences_to_remove.append(past_sentence)
+        
+        # Remove used sentences from backlog if flag is enabled
+        if self.remove_used_sentences and sentences_to_remove:
+            for sentence in sentences_to_remove:
+                self.last_sentences.remove(sentence)
+            logger.debug(f"Removed {len(sentences_to_remove)} used sentence(s) from backlog")
+        
+        # Always try to correct with the current sentence as well
+        ocr_results = self._correct_ocr_text(ocr_results, current_sentence)
+        
+        # Update backlog
+        self.last_sentences.append(current_sentence)
+        if len(self.last_sentences) > self.sentence_backlog_max_size:
+            self.last_sentences.pop(0)  # Remove oldest sentence
+        
+        return ocr_results
 
     def _correct_ocr_text(self, ocr_results: List[Dict[str, Any]], sentence: str) -> List[Dict[str, Any]]:
         """

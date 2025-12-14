@@ -23,6 +23,159 @@ export interface ObsScene {
     id: string;
 }
 
+// -------------------------------------------------------------------------
+// GAME TITLE PARSING CONFIGURATION
+// -------------------------------------------------------------------------
+
+interface TitleMatcher {
+    name: string; // Identifier for debugging
+    pattern: RegExp; // Regex to test if the window belongs to this category
+    // Logic to extract the clean name from the MatchArray
+    getName: (match: RegExpMatchArray) => string;
+    // Logic to create the OBS Auto Switcher Regex based on the extracted name
+    getSwitcherPattern: (cleanName: string) => string;
+}
+
+/**
+ * Expandable list of regex patterns for Emulators and Games.
+ * The system checks these in order. The first match wins.
+ */
+const TITLE_MATCHERS: TitleMatcher[] = [
+    {
+        name: 'Vita3K',
+        // Pattern: Vita3K [ver] | Game Name (ID) | ...
+        pattern: /^Vita3K.*?\|\s*(.+?)\s*\(/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^Vita3K.*?\\|\\s*${escapeRegexCharacters(n)}\\s*\\(.*`
+    },
+    {
+        name: 'Eden/Yuzu/Suyu',
+        // Pattern: Eden | v0.0.3 | Game Name (64-bit) | ...
+        // Pattern: yuzu | v0.0.3 | Game Name (64-bit) | ...
+        // Pattern: suyu | v0.0.3 | Game Name (64-bit) | ...
+        pattern: /^(?:Eden|yuzu|suyu)\s*\|\s*v[\d.]+\s*\|\s*(.+?)\s*(\(64-bit\)|\(32-bit\)|\||$)/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^(?:Eden|yuzu|suyu)\\s*\\|.*?\\|\\s*${escapeRegexCharacters(n)}\\s*.*`
+    },
+    {
+        name: 'RPCS3',
+        // Pattern: FPS: 30.22 | Vulkan | 0.0.38 | Demon's Souls [BLES00932]
+        // Updated to use greedy matching (.*) before the pipe to skip 'Vulkan'/'Version' segments
+        pattern: /^FPS:.*\|\s*([^|]+?)\s*\[\w+\]$/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^FPS:.*\\|\\s*${escapeRegexCharacters(n)}\\s*\\[\\w+\\]$`
+    },
+    {
+        name: 'Cemu',
+        // Pattern: Cemu ... [TitleId: 000...] Breath of the Wild [US v208]
+        // Anchors on the [TitleId: ...] block
+        pattern: /^Cemu.*?\[TitleId:[^\]]+\]\s*(.+?)(?:\s*\[|$)/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^Cemu.*?\\s*${escapeRegexCharacters(n)}.*`
+    },
+    {
+        name: 'Dolphin',
+        // Pattern: Dolphin 5.0 | JIT | ... | Game Name (GAMEID)
+        // Anchors to the Game ID in parens at the very end
+        pattern: /^Dolphin.*?\|\s*([^|]+?)\s*\([A-Z0-9]{6}\)$/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^Dolphin.*?\\|\\s*${escapeRegexCharacters(n)}\\s*\\([A-Z0-9]{6}\\)$`
+    },
+    {
+        name: 'PPSSPP',
+        // Pattern: PPSSPP v1.19.3 - ULJS00186 : Game Name
+        pattern: /^PPSSPP.*?-[A-Z0-9\s]+:\s*(.+)$/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^PPSSPP.*?:\\s*${escapeRegexCharacters(n)}$`
+    },
+    {
+        name: 'Simple Pipe-Separated (Citra/DeSmuME)',
+        // Pattern: Azahar ... | Game Name 
+        // Pattern: DeSmuME ... | Game Name
+        // Covers: Citra, Azahar, Lime3DS, Mandarine, DeSmuME
+        pattern: /^(?:Azahar|Citra|Lime3DS|Mandarine|DeSmuME).*?\|\s*(.+?)$/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^(?:Azahar|Citra|Lime3DS|Mandarine|DeSmuME).*?\\|\\s*${escapeRegexCharacters(n)}$`
+    },
+    {
+        name: 'Prefix Dash-Separated (mGBA/Flycast/Mesen)',
+        // Pattern: mGBA - Game Name (Japan)
+        // Pattern: Flycast - Game Name (USA)
+        // Pattern: Mesen - Game Name [!]
+        // Captures name, stopping before (Region) or [Flags]
+        pattern: /^(?:mGBA|Flycast|Mesen)\s*-\s*(.+?)(?:\s*[\(\[].*|$)/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^(?:mGBA|Flycast|Mesen)\\s*-\\s*${escapeRegexCharacters(n)}.*`
+    },
+    {
+        name: 'Suffix Dash-Separated (VBA-M/PJ64/Snes9x/RMG)',
+        // Pattern: Game Name (U) [!] - Emulator Name ...
+        // Covers: VisualBoyAdvance-M, Project64, Snes9x, Rosalie's Mupen GUI
+        pattern: /^(.+?)(?:\s*[\(\[].*?)?\s*-\s*(?:VisualBoyAdvance|Project64|Snes9x|Rosalie's Mupen)/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n)}.*\\s*-\\s*(?:VisualBoyAdvance|Project64|Snes9x|Rosalie's Mupen).*`
+    },
+    {
+        name: 'Generic Version Suffix',
+        // Pattern: Game Name - Ver1.0.0 OR Game Name ver1.00
+        // Kept at the bottom as a catch-all
+        pattern: /^(.+?)\s*(?:-|)\s*ver\d/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n)}.*`
+    },
+    // {
+    //     name: 'MPV',
+    //     // Pattern: .* - mpv
+    //     pattern: /^(.+?)\s*-\s*mpv$/i,
+    //     getName: (m) => m[1].trim(),
+    //     getSwitcherPattern: (n) => `^${escapeRegexCharacters(n)}\\s*-\\s*mpv$`
+    // },
+    // {
+    //     name: 'VLC',
+    //     // Pattern: MyAnimeTitle - VLC.*
+    //     pattern: /^(.+?)\s*-\s*VLC.*$/i,
+    //     getName: (m) => m[1].trim(),
+    //     getSwitcherPattern: (n) => `^${escapeRegexCharacters(n)}\\s*-\\s*VLC.*$`
+    // },
+    // {
+    //     name: 'Memento',
+    //     // Pattern: MyAnimeTitle - Memento
+    //     pattern: /^(.+?)\s*-\s*Memento$/i,
+    //     getName: (m) => m[1].trim(),
+    //     getSwitcherPattern: (n) => `^${escapeRegexCharacters(n)}\\s*-\\s*Memento$`
+    // }
+];
+
+// Helper to determine Scene Name and Switcher Pattern from a raw Window Title
+function getGameInfoFromWindow(rawTitle: string): { sceneName: string; switcherRegex: string } {
+    for (const matcher of TITLE_MATCHERS) {
+        const match = rawTitle.match(matcher.pattern);
+        if (match) {
+            try {
+                const cleanName = matcher.getName(match);
+                if (cleanName) {
+                    console.log(`[OBS] Title Match Found (${matcher.name}): "${cleanName}"`);
+                    return {
+                        sceneName: cleanName,
+                        switcherRegex: matcher.getSwitcherPattern(cleanName)
+                    };
+                }
+            } catch (e) {
+                console.error(`[OBS] Error processing matcher ${matcher.name}:`, e);
+            }
+        }
+    }
+
+    // Fallback: Use the whole title, escaped
+    console.log(`[OBS] No matcher found for: "${rawTitle}". Using full title.`);
+    return {
+        sceneName: rawTitle,
+        switcherRegex: `^${escapeRegexCharacters(rawTitle)}$`
+    };
+}
+
+// -------------------------------------------------------------------------
+
 export let pythonConfig: Store | null = null;
 try {
     pythonConfig = new Store();
@@ -41,7 +194,8 @@ const OBS_CONFIG_PATH = path.join(BASE_DIR, 'obs-studio');
 const SCENE_CONFIG_PATH = path.join(OBS_CONFIG_PATH, 'config', 'obs-studio', 'basic', 'scenes');
 let obs = new OBSWebSocket();
 let obsConnected = false;
-const HELPER_SCENE = 'GSM Helper';
+const OLD_HELPER_SCENE = "GSM Helper";
+const HELPER_SCENE = 'GSM Helper - DONT TOUCH';
 const WINDOW_GETTER_INPUT = 'window_getter';
 const GAME_WINDOW_INPUT = 'game_window_getter';
 let sceneSwitcherRegistered = false;
@@ -65,8 +219,11 @@ function generateFallbackWindowName(): string {
 async function createSceneWithCapture(window: any, captureType: 'window' | 'game'): Promise<void> {
     await getOBSConnection();
 
-    const windowTitle = window.title;
-    const sceneName = `${window.sceneName}`;
+    const rawWindowTitle = window.title;
+    
+    // Process the window title to get the clean Name and the Regex for the switcher
+    const { sceneName, switcherRegex } = getGameInfoFromWindow(rawWindowTitle);
+
     let sceneExisted = false;
     try {
         // Try to create the scene
@@ -105,7 +262,8 @@ async function createSceneWithCapture(window: any, captureType: 'window' | 'game
     // Configure input settings based on capture type
     let request: any = {
         sceneName,
-        inputName: `${windowTitle} - ${captureType === 'window' ? 'Capture' : 'Game Capture'}`,
+        // Use the clean sceneName for the input name as well to keep it tidy
+        inputName: `${sceneName} - ${captureType === 'window' ? 'Capture' : 'Game Capture'}`,
         inputKind: captureType === 'window' ? 'window_capture' : 'game_capture',
         inputSettings: {
             window: window.value,
@@ -128,19 +286,19 @@ async function createSceneWithCapture(window: any, captureType: 'window' | 'game
     // Always create the input now (scene is fresh)
     await obs.call('CreateInput', request);
 
-    // Configure auto scene switcher with escaped window title
-    await modifyAutoSceneSwitcherInJSON(sceneName, windowTitle);
+    // Configure auto scene switcher with the generated REGEX pattern
+    await modifyAutoSceneSwitcherInJSON(sceneName, switcherRegex);
 
-    console.log(`Scene and ${captureType} capture setup for window: ${windowTitle}`);
+    console.log(`Scene and ${captureType} capture setup for window: "${rawWindowTitle}" -> Scene: "${sceneName}"`);
 }
 
 async function modifyAutoSceneSwitcherInJSON(
     sceneName: string,
-    windowTitle: string
+    windowTitleRegex: string
 ): Promise<void> {
     try {
         await getOBSConnection();
-        sendQuitOBS();
+        
         const currentSceneCollection = await obs.call('GetSceneCollectionList');
         const sceneCollectionName = currentSceneCollection.currentSceneCollectionName;
 
@@ -149,8 +307,24 @@ async function modifyAutoSceneSwitcherInJSON(
             `${sceneCollectionName}.json`.replace(' ', '_')
         );
 
+        // Verify the file exists before proceeding
+        if (!fs.existsSync(sceneCollectionPath)) {
+            console.error(`Scene collection file not found: ${sceneCollectionPath}`);
+            throw new Error('Scene collection file not found. Please ensure OBS is properly configured.');
+        }
+
+        sendQuitOBS();
+        
+        // Wait a bit for OBS to close gracefully
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
         const fileContent = await fs.promises.readFile(sceneCollectionPath, 'utf-8');
         const sceneCollection = JSON.parse(fileContent);
+
+        // Initialize modules object if it doesn't exist
+        if (!sceneCollection['modules']) {
+            sceneCollection['modules'] = {};
+        }
 
         let autoSceneSwitcher = sceneCollection['modules']['auto-scene-switcher'];
 
@@ -165,63 +339,81 @@ async function modifyAutoSceneSwitcherInJSON(
             autoSceneSwitcher = sceneCollection['modules']['auto-scene-switcher'];
         }
 
-        // Escape regex special characters in the window title
-        const escapedWindowTitle = escapeRegexCharacters(windowTitle);
+        // Ensure switches array exists
+        if (!Array.isArray(autoSceneSwitcher.switches)) {
+            autoSceneSwitcher.switches = [];
+        }
+
+        // NOTE: We do NOT escape characters here anymore, because `windowTitleRegex`
+        // is now passed in as a complete regex string from `getGameInfoFromWindow`.
+
+        // Check if this scene already has a switch configured
+        const existingSwitchIndex = autoSceneSwitcher.switches.findIndex(
+            (s: any) => s.scene === sceneName
+        );
 
         if (!autoSceneSwitcher.active) {
-            dialog
-                .showMessageBox(obsWindow!, {
-                    type: 'question',
-                    buttons: ['Yes', 'No'],
-                    defaultId: 0,
-                    title: 'Enable Auto Scene Switcher',
-                    message: 'Do you want to enable the auto scene switcher?',
-                })
-                .then(async (response) => {
-                    if (response.response === 0) {
-                        autoSceneSwitcher.active = true;
-                    }
-                    autoSceneSwitcher.switches.push({
-                        scene: sceneName,
-                        window_title: escapedWindowTitle,
-                    });
-
-                    sceneCollection['modules']['auto-scene-switcher'] = autoSceneSwitcher;
-
-                    const updatedContent = JSON.stringify(sceneCollection, null, 2);
-                    await fs.promises.writeFile(sceneCollectionPath, updatedContent, 'utf-8');
-                    await fs.promises.writeFile(
-                        path.join(BASE_DIR, 'scene_config.json'),
-                        updatedContent,
-                        'utf-8'
-                    );
-
-                    console.log(`Auto-scene-switcher settings updated for "${sceneName}" in JSON.`);
-                    sendStartOBS();
-                    await connectOBSWebSocket();
-                });
-        } else {
-            autoSceneSwitcher.switches.push({
-                scene: sceneName,
-                window_title: escapedWindowTitle,
+            const response = await dialog.showMessageBox(obsWindow!, {
+                type: 'question',
+                buttons: ['Yes', 'No'],
+                defaultId: 0,
+                title: 'Enable Auto Scene Switcher',
+                message: 'Do you want to enable the auto scene switcher?',
             });
 
-            sceneCollection['modules']['auto-scene-switcher'] = autoSceneSwitcher;
+            if (response.response === 0) {
+                autoSceneSwitcher.active = true;
+            }
+        }
 
-            const updatedContent = JSON.stringify(sceneCollection, null, 2);
-            await fs.promises.writeFile(sceneCollectionPath, updatedContent, 'utf-8');
-            await fs.promises.writeFile(
-                path.join(BASE_DIR, 'scene_config.json'),
-                updatedContent,
-                'utf-8'
-            );
+        // Add or update the switch entry
+        const switchEntry = {
+            scene: sceneName,
+            window_title: windowTitleRegex,
+        };
 
-            console.log(`Auto-scene-switcher settings updated for "${sceneName}" in JSON.`);
-            sendStartOBS();
+        if (existingSwitchIndex >= 0) {
+            autoSceneSwitcher.switches[existingSwitchIndex] = switchEntry;
+        } else {
+            autoSceneSwitcher.switches.push(switchEntry);
+        }
+
+        sceneCollection['modules']['auto-scene-switcher'] = autoSceneSwitcher;
+
+        const updatedContent = JSON.stringify(sceneCollection, null, 2);
+        
+        // Write the updated content to both files
+        await fs.promises.writeFile(sceneCollectionPath, updatedContent, 'utf-8');
+        await fs.promises.writeFile(
+            path.join(BASE_DIR, 'scene_config.json'),
+            updatedContent,
+            'utf-8'
+        );
+
+        console.log(`Auto-scene-switcher settings updated for "${sceneName}" with pattern: ${windowTitleRegex}`);
+        
+        // Restart OBS and reconnect
+        sendStartOBS();
+        
+        // Wait for OBS to start before attempting to reconnect
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        try {
             await connectOBSWebSocket();
+        } catch (reconnectError) {
+            console.warn('Initial reconnection failed, OBS may still be starting up:', reconnectError);
+            // Don't throw here - the getOBSConnection retry logic will handle it
         }
     } catch (error: any) {
         console.error(`Error modifying auto-scene-switcher settings:`, error.message);
+        
+        // Attempt to restart OBS even if there was an error
+        try {
+            sendStartOBS();
+        } catch (startError) {
+            console.error('Failed to restart OBS after error:', startError);
+        }
+        
         throw error;
     }
 }
@@ -282,18 +474,6 @@ export async function getOBSConnection(): Promise<void> {
 
     return connectionPromise;
 }
-
-// async function connectOBSWebSocket() {
-//     try {
-//         await obs.connect(`ws://${obsConfig.host}:${obsPort}`, obsPassword);
-//         console.log('Connected to OBS WebSocket');
-//     } catch (error) {
-//         console.error('Error connecting to OBS WebSocket:', error);
-//         setTimeout(connectOBSWebSocket, 5000); // Retry after 5 seconds
-//     }
-// }
-//
-// connectOBSWebSocket();
 
 export let obsWindow: BrowserWindow | null = null;
 
@@ -585,6 +765,12 @@ export async function registerOBSIPC() {
                         if (sceneError.message.includes('No source was found')) {
                             await obs.call('CreateScene', { sceneName: HELPER_SCENE });
                         }
+                        try {
+                            await obs.call('GetSceneItemList', { sceneName: OLD_HELPER_SCENE });
+                            await obs.call('RemoveScene', { sceneName: OLD_HELPER_SCENE });
+                        } catch (oldSceneError: any) {
+                            // Do nothing
+                        }
                     }
 
                     // Create the 'window_getter' input
@@ -614,7 +800,7 @@ export async function registerOBSIPC() {
         }
     }
 
-    async function getWindowList(): Promise<any[]> {
+    async function  getWindowList(): Promise<any[]> {
         try {
             const windowCaptureWindows = await getWindowsFromSource(
                 WINDOW_GETTER_INPUT,
@@ -667,7 +853,7 @@ export async function setOBSScene(sceneName: string): Promise<void> {
 export async function getOBSScenes(): Promise<ObsScene[]> {
     const { scenes } = await obs.call('GetSceneList');
     return scenes
-        .filter((scene: any) => scene.sceneName.toLowerCase() !== 'gsm helper')
+        .filter((scene: any) => scene.sceneName.toLowerCase() !== HELPER_SCENE.toLowerCase())
         .map((scene: any) => ({ name: scene.sceneName, id: scene.sceneUuid } as ObsScene));
 }
 

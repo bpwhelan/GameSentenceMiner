@@ -425,14 +425,39 @@ class OWOCRAreaSelectorWidget(QWidget):
             logger.info(f"Loading overlay rectangles from {overlay_config_path}")
             print(f"Existing overlay config: {json.dumps(config_data, indent=2)}")
             
+            # Get actual monitor dimensions (original, before scaling)
+            monitor_width = self.monitor_geometry['width'] if self.monitor_geometry else self.screenshot_img.width
+            monitor_height = self.monitor_geometry['height'] if self.monitor_geometry else self.screenshot_img.height
+            
+            # Check if using percentage-based coordinates
+            use_percentage = config_data.get("coordinate_system") == COORD_SYSTEM_PERCENTAGE
+            
             loaded_count = 0
             for rect_data in config_data.get("rects", []):
                 try:
+                    if use_percentage:
+                        # Convert from percentage to pixel coordinates
+                        x_pct = float(rect_data["x"])
+                        y_pct = float(rect_data["y"])
+                        w_pct = float(rect_data["w"])
+                        h_pct = float(rect_data["h"])
+                        
+                        x_orig = int(x_pct * monitor_width)
+                        y_orig = int(y_pct * monitor_height)
+                        w_orig = int(w_pct * monitor_width)
+                        h_orig = int(h_pct * monitor_height)
+                    else:
+                        # Legacy: absolute pixel coordinates
+                        x_orig = int(rect_data["x"])
+                        y_orig = int(rect_data["y"])
+                        w_orig = int(rect_data["w"])
+                        h_orig = int(rect_data["h"])
+                    
                     # Scale from original monitor coords to scaled widget coords
-                    x_scaled = int(rect_data["x"] / self.scale_factor_w)
-                    y_scaled = int(rect_data["y"] / self.scale_factor_h)
-                    w_scaled = int(rect_data["w"] / self.scale_factor_w)
-                    h_scaled = int(rect_data["h"] / self.scale_factor_h)
+                    x_scaled = int(x_orig / self.scale_factor_w)
+                    y_scaled = int(y_orig / self.scale_factor_h)
+                    w_scaled = int(w_orig / self.scale_factor_w)
+                    h_scaled = int(h_orig / self.scale_factor_h)
                     
                     self.rectangles.append({
                         'x': x_scaled,
@@ -978,8 +1003,10 @@ class OWOCRAreaSelectorWidget(QWidget):
         # =========================================================
         if self.select_monitor_area:
             final_rects = []
-            monitor_offset_x = self.monitor_geometry['left'] if self.monitor_geometry else 0
-            monitor_offset_y = self.monitor_geometry['top'] if self.monitor_geometry else 0
+            
+            # Get actual monitor dimensions (original, before scaling)
+            monitor_width = self.monitor_geometry['width'] if self.monitor_geometry else self.screenshot_img.width
+            monitor_height = self.monitor_geometry['height'] if self.monitor_geometry else self.screenshot_img.height
 
             for rect in self.rectangles:
                 # Convert from widget/scaled coords back to monitor pixel coords
@@ -988,18 +1015,22 @@ class OWOCRAreaSelectorWidget(QWidget):
                 w_orig = int(rect['w'] * self.scale_factor_w)
                 h_orig = int(rect['h'] * self.scale_factor_h)
                 
+                # Convert to percentage coordinates (0-1 range)
+                x_pct = x_orig / monitor_width if monitor_width > 0 else 0
+                y_pct = y_orig / monitor_height if monitor_height > 0 else 0
+                w_pct = w_orig / monitor_width if monitor_width > 0 else 0
+                h_pct = h_orig / monitor_height if monitor_height > 0 else 0
+                
                 final_rects.append({
-                    "x": x_orig,
-                    "y": y_orig,
-                    "w": w_orig,
-                    "h": h_orig,
-                    # Optional: global coords if needed later
-                    "x_global": x_orig + monitor_offset_x,
-                    "y_global": y_orig + monitor_offset_y
+                    "x": x_pct,
+                    "y": y_pct,
+                    "w": w_pct,
+                    "h": h_pct
                 })
             
             output_data = {
                 "monitor_index": self.target_monitor_index,
+                "coordinate_system": COORD_SYSTEM_PERCENTAGE,
                 "rects": final_rects
             }
 

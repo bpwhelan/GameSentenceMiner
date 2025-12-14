@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.configuration import ffmpeg_base_command_list, get_ffprobe_path, get_master_config, logger, get_config, \
     get_temporary_directory, gsm_state, is_linux, ffmpeg_base_command_list_info, KNOWN_ASPECT_RATIOS
-from GameSentenceMiner.util.gsm_utils import make_unique_file_name, get_file_modification_time
+from GameSentenceMiner.util.gsm_utils import get_unique_temp_file_for_game, make_unique_file_name, get_file_modification_time
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.text_log import initial_time
 
@@ -154,14 +154,15 @@ def video_to_anim(
 
 def video_to_animation_with_start_end(video_path: str | Path, start: float, end: float, **kwargs) -> Path:
     """Convert video to animation using start and end time strings."""
-    from datetime import datetime, timedelta
-
     if end < start:
         raise ValueError("end time must be after start time")
     duration = end - start
+    
+    output_path = get_unique_temp_file_for_game(obs.get_current_game(sanitize=True), get_config().screenshot.animated_settings.extension)
 
     return video_to_anim(
         input_path=video_path,
+        output_path=output_path,
         start=start,
         duration=duration,
         **kwargs

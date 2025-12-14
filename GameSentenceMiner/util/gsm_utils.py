@@ -30,6 +30,13 @@ def run_new_thread(func):
     thread.start()
     return thread
 
+def get_unique_temp_file_for_game(game_title, suffix):
+    sanitized_title = sanitize_filename(game_title)
+    current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
+    temp_dir = get_temporary_directory()
+    os.makedirs(temp_dir, exist_ok=True)
+    return str(Path(temp_dir) / f"{sanitized_title}_{current_time}.{suffix}")
+
 def make_unique_temp_file(path):
     path = Path(path)
     current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]

@@ -347,7 +347,8 @@ class ConfigWindow(QWidget):
                 open_config_on_startup=self.open_config_on_startup_check.isChecked(),
                 open_multimine_on_startup=self.open_multimine_on_startup_check.isChecked(),
                 texthooker_port=int(self.texthooker_port_edit.text() or 0),
-                native_language=CommonLanguages.from_name(self.native_language_combo.currentText()).value if self.native_language_combo.currentText() else CommonLanguages.ENGLISH.value
+                native_language=CommonLanguages.from_name(self.native_language_combo.currentText()).value if self.native_language_combo.currentText() else CommonLanguages.ENGLISH.value,
+                target_language=CommonLanguages.from_name(self.target_language_combo.currentText()).value if self.target_language_combo.currentText() else CommonLanguages.JAPANESE.value
             ),
             paths=Paths(
                 folder_to_watch=self.folder_to_watch_edit.text(),
@@ -370,13 +371,13 @@ class ConfigWindow(QWidget):
                 previous_image_field=self.previous_image_field_edit.text(),
                 game_name_field=self.game_name_field_edit.text(),
                 video_field=self.video_field_edit.text(),
+                sentence_furigana_field=self.sentence_furigana_field_edit.text(),
                 custom_tags=[tag.strip() for tag in self.custom_tags_edit.text().split(',') if tag.strip()],
                 tags_to_check=[tag.strip().lower() for tag in self.tags_to_check_edit.text().split(',') if tag.strip()],
                 add_game_tag=self.add_game_tag_check.isChecked(),
                 polling_rate=int(self.polling_rate_edit.text() or 0),
                 overwrite_audio=self.overwrite_audio_check.isChecked(),
                 overwrite_picture=self.overwrite_picture_check.isChecked(),
-                multi_overwrites_sentence=self.multi_overwrites_sentence_check.isChecked(),
                 parent_tag=self.parent_tag_edit.text()
             ),
             features=Features(
@@ -444,7 +445,6 @@ class ConfigWindow(QWidget):
                 add_audio_on_no_results=self.add_audio_on_no_results_check.isChecked(),
                 use_tts_as_fallback=self.use_tts_as_fallback_check.isChecked(),
                 tts_url=self.tts_url_edit.text(),
-                language=self.language_combo.currentText(),
                 cut_and_splice_segments=self.cut_and_splice_segments_check.isChecked(),
                 splice_padding=float(self.splice_padding_edit.text() or 0.0),
                 use_cpu_for_inference=self.use_cpu_for_inference_check.isChecked(),
@@ -481,7 +481,8 @@ class ConfigWindow(QWidget):
             overlay=Overlay(
                 websocket_port=int(self.overlay_websocket_port_edit.text() or 0),
                 monitor_to_capture=self.overlay_monitor_combo.currentIndex(),
-                engine=OverlayEngine(self.overlay_engine_combo.currentText()).value,
+                engine=OverlayEngine(self.overlay_engine_combo.currentText()).value,  # Keep for backwards compatibility
+                engine_v2=OverlayEngine(self.overlay_engine_combo.currentText()).value,  # New v2 config
                 scan_delay=float(self.scan_delay_edit.text() or 0.0),
                 periodic=self.periodic_check.isChecked(),
                 periodic_ratio=periodic_ratio,
@@ -611,6 +612,7 @@ class ConfigWindow(QWidget):
         self.open_multimine_on_startup_check = QCheckBox()
         self.texthooker_port_edit = QLineEdit()
         self.native_language_combo = QComboBox()
+        self.target_language_combo = QComboBox()
         self.locale_combo = QComboBox()
         self.notify_on_update_check = QCheckBox()
         
@@ -636,13 +638,13 @@ class ConfigWindow(QWidget):
         self.previous_image_field_edit = QLineEdit()
         self.game_name_field_edit = QLineEdit()
         self.video_field_edit = QLineEdit()
+        self.sentence_furigana_field_edit = QLineEdit()
         self.custom_tags_edit = QLineEdit()
         self.tags_to_check_edit = QLineEdit()
         self.add_game_tag_check = QCheckBox()
         self.parent_tag_edit = QLineEdit()
         self.overwrite_audio_check = QCheckBox()
         self.overwrite_picture_check = QCheckBox()
-        self.multi_overwrites_sentence_check = QCheckBox()
         
         # Features
         self.full_auto_check = QCheckBox() # Note: This setting seems unused in the original save logic.
@@ -705,7 +707,6 @@ class ConfigWindow(QWidget):
         
         # VAD
         self.do_vad_postprocessing_check = QCheckBox()
-        self.language_combo = QComboBox()
         self.whisper_model_combo = QComboBox()
         self.selected_vad_model_combo = QComboBox()
         self.backup_vad_model_combo = QComboBox()
@@ -805,6 +806,8 @@ class ConfigWindow(QWidget):
         self.req_clipboard_enabled_check = QCheckBox()
         self.req_websocket_uri_edit = QLineEdit()
         self.req_folder_to_watch_edit = QLineEdit()
+        self.req_native_language_combo = QComboBox()
+        self.req_target_language_combo = QComboBox()
         self.req_sentence_field_edit = QLineEdit()
         self.req_sentence_audio_field_edit = QLineEdit()
         self.req_picture_field_edit = QLineEdit()
@@ -901,6 +904,8 @@ class ConfigWindow(QWidget):
         self._sync_widget_bidirectional(self.external_tool_edit, self.req_external_tool_edit)
         self._sync_widget_bidirectional(self.open_anki_edit_check, self.req_open_anki_edit_check)
         self._sync_widget_bidirectional(self.open_anki_browser_check, self.req_open_anki_browser_check)
+        self._sync_widget_bidirectional(self.native_language_combo, self.req_native_language_combo)
+        self._sync_widget_bidirectional(self.target_language_combo, self.req_target_language_combo)
         
         # Connect signals for animated settings visibility
         self.animated_screenshot_check.stateChanged.connect(self._update_animated_settings_visibility)
@@ -920,6 +925,9 @@ class ConfigWindow(QWidget):
         elif isinstance(main_widget, QCheckBox):
             main_widget.stateChanged.connect(lambda state: req_widget.setChecked(main_widget.isChecked()) if req_widget.isChecked() != main_widget.isChecked() else None)
             req_widget.stateChanged.connect(lambda state: main_widget.setChecked(req_widget.isChecked()) if main_widget.isChecked() != req_widget.isChecked() else None)
+        elif isinstance(main_widget, QComboBox):
+            main_widget.currentTextChanged.connect(lambda text: req_widget.setCurrentText(text) if req_widget.currentText() != text else None)
+            req_widget.currentTextChanged.connect(lambda text: main_widget.setCurrentText(text) if main_widget.currentText() != text else None)
     
     def _update_animated_settings_visibility(self):
         """Shows/hides animated screenshot settings based on animated checkbox or video field."""
@@ -951,6 +959,8 @@ class ConfigWindow(QWidget):
         # Other key settings
         layout.addRow(self._create_labeled_widget(i18n, 'general', 'websocket_uri'), self.req_websocket_uri_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'general', 'locale'), self.locale_combo)
+        layout.addRow(self._create_labeled_widget(i18n, 'general', 'native_language'), self.req_native_language_combo)
+        layout.addRow(self._create_labeled_widget(i18n, 'general', 'target_language', color=LabelColor.IMPORTANT, bold=True), self.req_target_language_combo)
         layout.addRow(self._create_labeled_widget(i18n, 'paths', 'folder_to_watch'), self._create_browse_widget(self.req_folder_to_watch_edit, QFileDialog.FileMode.Directory))
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'sentence_field'), self.req_sentence_field_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'anki', 'sentence_audio_field'), self.req_sentence_audio_field_edit)
@@ -1179,6 +1189,7 @@ class ConfigWindow(QWidget):
         fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'previous_sentence_field'), self.previous_sentence_field_edit)
         fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'previous_image_field'), self.previous_image_field_edit)
         fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'video_field', color=LabelColor.ADVANCED), self.video_field_edit)
+        fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'sentence_furigana_field'), self.sentence_furigana_field_edit)
         fields_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'game_name_field'), self.game_name_field_edit)
         fields_group.setLayout(fields_layout)
         layout.addRow(fields_group)
@@ -1198,7 +1209,6 @@ class ConfigWindow(QWidget):
         overwrite_layout = QFormLayout()
         overwrite_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'overwrite_audio'), self.overwrite_audio_check)
         overwrite_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'overwrite_picture'), self.overwrite_picture_check)
-        overwrite_layout.addRow(self._create_labeled_widget(i18n, 'anki', 'multi_overwrites_sentence'), self.multi_overwrites_sentence_check)
         overwrite_group.setLayout(overwrite_layout)
         layout.addRow(overwrite_group)
         
@@ -1215,7 +1225,6 @@ class ConfigWindow(QWidget):
         i18n = self.i18n.get('tabs', {})
 
         layout.addRow(self._create_labeled_widget(i18n, 'vad', 'do_postprocessing'), self.do_vad_postprocessing_check)
-        layout.addRow(self._create_labeled_widget(i18n, 'vad', 'language'), self.language_combo)
         
         # Model Selection Group
         models_group = self._create_group_box("VAD Models")
@@ -1585,6 +1594,9 @@ class ConfigWindow(QWidget):
         self.native_language_combo.addItems(CommonLanguages.get_all_names_pretty())
         self.native_language_combo.setCurrentText(CommonLanguages.from_code(s.general.native_language).name.replace('_', ' ').title() if s.general.native_language else 'English')
         self.native_language_combo.blockSignals(False)
+        self.target_language_combo.clear()
+        self.target_language_combo.addItems(CommonLanguages.get_all_names_pretty())
+        self.target_language_combo.setCurrentText(CommonLanguages.from_code(s.general.target_language).name.replace('_', ' ').title() if s.general.target_language else 'Japanese')
 
         self.locale_combo.blockSignals(True)
         self.locale_combo.clear()
@@ -1636,13 +1648,13 @@ class ConfigWindow(QWidget):
         self.previous_image_field_edit.setText(s.anki.previous_image_field)
         self.game_name_field_edit.setText(s.anki.game_name_field)
         self.video_field_edit.setText(s.anki.video_field)
+        self.sentence_furigana_field_edit.setText(s.anki.sentence_furigana_field)
         self.custom_tags_edit.setText(', '.join(s.anki.custom_tags))
         self.tags_to_check_edit.setText(', '.join(s.anki.tags_to_check))
         self.add_game_tag_check.setChecked(s.anki.add_game_tag)
         self.parent_tag_edit.setText(s.anki.parent_tag)
         self.overwrite_audio_check.setChecked(s.anki.overwrite_audio)
         self.overwrite_picture_check.setChecked(s.anki.overwrite_picture)
-        self.multi_overwrites_sentence_check.setChecked(s.anki.multi_overwrites_sentence)
         
         # Features
         self.full_auto_check.setChecked(s.features.full_auto)
@@ -1695,9 +1707,6 @@ class ConfigWindow(QWidget):
         
         # VAD
         self.do_vad_postprocessing_check.setChecked(s.vad.do_vad_postprocessing)
-        self.language_combo.clear()
-        self.language_combo.addItems(AVAILABLE_LANGUAGES)
-        self.language_combo.setCurrentText(s.vad.language)
         self.whisper_model_combo.clear()
         self.whisper_model_combo.addItems([WHISPER_TINY, WHISPER_BASE, WHISPER_SMALL, WHISPER_MEDIUM, WHISPER_LARGE, WHISPER_TURBO])
         self.whisper_model_combo.setCurrentText(s.vad.whisper_model)
@@ -1759,12 +1768,12 @@ class ConfigWindow(QWidget):
         self._load_monitors()
         self.overlay_engine_combo.clear()
         self.overlay_engine_combo.addItems([e.value for e in OverlayEngine])
-        self.overlay_engine_combo.setCurrentText(s.overlay.engine)
+        self.overlay_engine_combo.setCurrentText(s.overlay.engine_v2)
         self.scan_delay_edit.setText(str(s.overlay.scan_delay))
         self.periodic_check.setChecked(s.overlay.periodic)
         self.periodic_interval_edit.setText(str(s.overlay.periodic_interval))
         self.periodic_ratio_edit.setText(str(s.overlay.periodic_ratio))
-        self.number_of_local_scans_per_event_edit.setText(str(getattr(s.overlay, 'number_of_local_scans_per_event', 1)))
+        self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
         self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
         
@@ -1797,6 +1806,12 @@ class ConfigWindow(QWidget):
         self.req_clipboard_enabled_check.setChecked(s.general.use_clipboard)
         self.req_websocket_uri_edit.setText(s.general.websocket_uri)
         self.req_folder_to_watch_edit.setText(s.paths.folder_to_watch)
+        self.req_native_language_combo.clear()
+        self.req_native_language_combo.addItems(CommonLanguages.get_all_names_pretty())
+        self.req_native_language_combo.setCurrentText(CommonLanguages.from_code(s.general.native_language).name.replace('_', ' ').title() if s.general.native_language else 'English')
+        self.req_target_language_combo.clear()
+        self.req_target_language_combo.addItems(CommonLanguages.get_all_names_pretty())
+        self.req_target_language_combo.setCurrentText(CommonLanguages.from_code(s.general.target_language).name.replace('_', ' ').title() if s.general.target_language else 'Japanese')
         self.req_sentence_field_edit.setText(s.anki.sentence_field)
         self.req_sentence_audio_field_edit.setText(s.anki.sentence_audio_field)
         self.req_picture_field_edit.setText(s.anki.picture_field)

@@ -198,7 +198,7 @@ class WhisperVADProcessor(VADProcessor):
         # Transcribe the audio using Whisper
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result: WhisperResult = self.vad_model.transcribe(temp_wav, vad=True, language=get_config().vad.language, vad_filter=get_config().vad.use_vad_filter_for_whisper,
+            result: WhisperResult = self.vad_model.transcribe(temp_wav, vad=True, language=get_config().general.target_language, vad_filter=get_config().vad.use_vad_filter_for_whisper,
                                                              temperature=0.0, chunk_length=60)
         voice_activity = []
 

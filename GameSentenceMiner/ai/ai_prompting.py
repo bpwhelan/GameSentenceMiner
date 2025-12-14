@@ -28,7 +28,7 @@ Translate ONLY the provided line of game dialogue specified below into natural-s
 
 **Output Requirements:**
 - Provide only the single, best {get_config().general.get_native_language_name()} translation.
-- Expletives are okay, only if they absolutely 100% fit the context and tone of the original Japanese line, and are commonly used in {get_config().general.get_native_language_name()} localizations of similar games.
+- Expletives are okay, only if they absolutely 100% fit the context and tone of the original line, and are commonly used in {get_config().general.get_native_language_name()} localizations of similar games.
 - Carryover all HTML tags present in the original text to HTML tags surrounding their corresponding translated words in the translation. Look for the equivalent word, not the equivalent location. DO NOT CONVERT TO MARKDOWN.
 - If there are no HTML tags present in the original text, do not add any in the translation whatsoever.
 - Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line.
@@ -39,7 +39,7 @@ Translate ONLY the provided line of game dialogue specified below into natural-s
 CONTEXT_PROMPT = textwrap.dedent(f"""
 
 **Task Directive:**
-Provide a very brief summary of the scene in {get_config().general.get_native_language_name()} based on the provided Japanese dialogue and context. Focus on the characters' actions and the immediate situation being described.
+Provide a very brief summary of the scene in {get_config().general.get_native_language_name()} based on the provided dialogue and context. Focus on the characters' actions and the immediate situation being described.
 
 Current Sentence:
 """)

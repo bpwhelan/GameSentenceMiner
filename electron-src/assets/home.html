@@ -133,7 +133,7 @@
 
         document.getElementById('sceneSelect').addEventListener('change', (event) => {
             ipcRenderer.invoke('obs.switchScene.id', event.target.value);
-            if (event.target.value === "GSM HELPER") {
+            if (event.target.value === "GSM HELPER" || event.target.value === "GSM HELPER - DONT TOUCH") {
                 removeSceneBtn.disabled = true;
             } else {
                 removeSceneBtn.disabled = false;

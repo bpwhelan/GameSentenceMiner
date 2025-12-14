@@ -116,3 +116,7 @@ oneocr_results.json
 test-updates.ps1
 run_gsm.ps1
 project_combined.txt
+/electron-src/main/overlay
+/electron-src/assets/overlay
+electron-src/assets/wizard.html
+electron-src/main/ui/wizard.ts
