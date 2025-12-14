@@ -8,4 +8,5 @@
 	branch = master
 [submodule "GameSentenceMiner/mecab"]
 	path = GameSentenceMiner/mecab
-	url = https://github.com/Ajatt-Tools/mecab_controller
+	url = https://github.com/Ajatt-Tools/mecab_controller.git
+	branch = main
