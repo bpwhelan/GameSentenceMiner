@@ -316,9 +316,9 @@ async function updateGSM(shouldRestart: boolean = false, force: boolean = false,
 }
 
 // Add this helper near the top or inside the function scope
-import { pipeline } from 'stream/promises';
-import { createWriteStream } from 'fs';
-import { checkAndRunWizard } from './ui/wizard.js';
+// import { pipeline } from 'stream/promises';
+// import { createWriteStream } from 'fs';
+// import { checkAndRunWizard } from './ui/wizard.js';
 
 /**
  * Downloads the requirements.lock from GitHub to the local assets folder (or temp).
