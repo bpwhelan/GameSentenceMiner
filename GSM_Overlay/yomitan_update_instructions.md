@@ -91,6 +91,14 @@ export function getAllPermissions() {
         }
 ```
 
+Additionally force `selectText` to false to avoid automatic selection in overlay:
+
+```javascript
+        if (typeof selectText === 'boolean') {
+            this._selectText = false;
+        }
+```
+
 ## Update `GSM_Overlay/yomitan/js/language/text-scanner.js` to force terminationCharacterMode to "newlines" to get everything
 
 ## Update Scan modifiers to include/exclude arrays to empty arrays to get everything NOT SURE IF THIS IS TOTALLY DESIRED, walked this back for now.
@@ -109,7 +117,7 @@ export function getAllPermissions() {
 ```
 
 
-## Update `GSM_Overlay/yomitan/js/app/frontend.js` to force autoHideResults to true for overlay, walked this back
+## REVERTED, DO NOT DO THIS ONE. Update `GSM_Overlay/yomitan/js/app/frontend.js` to force autoHideResults to true for overlay, walked this back
 ```javascript
     _onSearchEmpty() {
         const scanningOptions = /** @type {import('settings').ProfileOptions} */ (this._options).scanning;
