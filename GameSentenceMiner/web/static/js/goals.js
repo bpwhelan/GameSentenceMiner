@@ -304,19 +304,8 @@ const EasyDaysManager = {
         }
     },
 
-    // Save settings to database with validation
+    // Save settings to database
     async saveSettings(settings) {
-        // Validate: at least one day must be at 100%
-        const values = Object.values(settings);
-        const hasFullDay = values.some(val => val === 100);
-
-        if (!hasFullDay) {
-            return {
-                success: false,
-                error: 'At least one day must be set to 100%'
-            };
-        }
-
         try {
             await GoalsDataManager.updatePartialSettings({
                 easyDays: settings
@@ -2309,16 +2298,6 @@ document.addEventListener('DOMContentLoaded', function () {
             // Read time format setting
             const useRawHoursCheckbox = document.getElementById('useRawHours');
             const useRawHours = useRawHoursCheckbox ? useRawHoursCheckbox.checked : false;
-
-            // Validate easy days (at least one day must be 100%)
-            const values = Object.values(easyDaysSettings);
-            if (!values.some(val => val === 100)) {
-                if (settingsError) {
-                    settingsError.textContent = 'At least one day must be set to 100%';
-                    settingsError.style.display = 'block';
-                }
-                return;
-            }
 
             try {
                 // Save to database via GoalsDataManager

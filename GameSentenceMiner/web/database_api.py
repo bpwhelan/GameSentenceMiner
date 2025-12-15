@@ -1379,12 +1379,6 @@ def register_database_api_routes(app):
                 except (ValueError, TypeError):
                     return jsonify({"error": "Sunday easy days setting must be a valid integer"}), 400
 
-            # Validate that at least one day is set to 100%
-            if easy_days_settings:
-                values = list(easy_days_settings.values())
-                if values and 100 not in values:
-                    return jsonify({"error": "At least one day must be set to 100%"}), 400
-
             if not settings_to_update and not easy_days_settings:
                 return jsonify({"error": "No valid settings provided"}), 400
 

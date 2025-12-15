@@ -680,26 +680,61 @@ def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_s
     return 0
 
 
-def calculate_easy_day_multiplier(date, goals_settings):
+def calculate_balanced_easy_day_multiplier(date, goals_settings):
     """
-    Calculate the easy day multiplier for a given date based on goals settings.
+    Calculate a balanced multiplier that distributes work across the week
+    based on all easy days settings.
+    
+    This ensures that if some days are set to lower percentages (easy days),
+    the remaining days automatically pick up the slack proportionally,
+    maintaining the same weekly total workload.
+    
+    Formula:
+    - Weekly capacity = sum of all 7 day percentages
+    - Balance factor = 700 (ideal) / weekly capacity
+    - Day multiplier = (day percentage / 100) * balance factor
+    
+    Example: If Friday is 0% and other days are 100%:
+    - Weekly capacity = 600%
+    - Balance factor = 700/600 = 1.1667
+    - Mon-Thu, Sat-Sun: 100% * 1.1667 = 116.67%
+    - Friday: 0% * 1.1667 = 0%
     
     Args:
         date: date object
         goals_settings: Dictionary containing easyDays settings
         
     Returns:
-        float: Multiplier between 0.0 and 1.0 (percentage / 100)
+        float: Balanced multiplier (can be > 1.0 to compensate for easy days)
     """
     day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-    day_index = date.weekday()  # 0=Monday, 6=Sunday
-    day_name = day_names[day_index]
     
     # Get easy days settings, default to 100% if not provided
     easy_days = goals_settings.get('easyDays', {}) if goals_settings else {}
-    easy_day_percentage = easy_days.get(day_name, 100)
     
-    return easy_day_percentage / 100.0
+    # Calculate total weekly capacity (sum of all percentages)
+    total_weekly_capacity = 0
+    for day_name in day_names:
+        day_percentage = easy_days.get(day_name, 100)
+        total_weekly_capacity += day_percentage
+    
+    # Edge case: If all days are 0%, return 0 to avoid division by zero
+    if total_weekly_capacity == 0:
+        return 0.0
+    
+    # Calculate balance factor to redistribute work
+    ideal_weekly_capacity = 700  # 7 days × 100%
+    balance_factor = ideal_weekly_capacity / total_weekly_capacity
+    
+    # Get today's percentage
+    day_index = date.weekday()  # 0=Monday, 6=Sunday
+    day_name = day_names[day_index]
+    today_percentage = easy_days.get(day_name, 100)
+    
+    # Calculate balanced multiplier for today
+    balanced_multiplier = (today_percentage / 100.0) * balance_factor
+    
+    return balanced_multiplier
 
 
 def format_metric_value(value, metric_type):
@@ -893,8 +928,8 @@ def get_todays_goals(user_tz=None):
                     )
                 
                 # Calculate today's required amount
-                # Get easy day multiplier for today
-                easy_day_multiplier = calculate_easy_day_multiplier(today, goals_settings)
+                # Get balanced easy day multiplier for today
+                easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
                 
                 # Calculate total progress from start_date to yesterday
                 # Use cache to avoid repeated database queries for the same date range
@@ -1178,8 +1213,8 @@ def register_goals_api_routes(app):
                     "not_started": today < start_date
                 }), 200
             
-            # Get easy day multiplier for today
-            easy_day_multiplier = calculate_easy_day_multiplier(today, goals_settings)
+            # Get balanced easy day multiplier for today
+            easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
             easy_day_percentage = int(easy_day_multiplier * 100)
             
             # Calculate total progress from start_date to yesterday
@@ -1767,8 +1802,8 @@ def register_goals_api_routes(app):
             tomorrow = today + datetime.timedelta(days=1)
             tomorrow_str = tomorrow.strftime("%Y-%m-%d")
             
-            # Get easy day multiplier for tomorrow
-            tomorrow_multiplier = calculate_easy_day_multiplier(tomorrow, goals_settings)
+            # Get balanced easy day multiplier for tomorrow
+            tomorrow_multiplier = calculate_balanced_easy_day_multiplier(tomorrow, goals_settings)
             
             requirements = []
             
