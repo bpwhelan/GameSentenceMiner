@@ -1933,10 +1933,33 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];
     }
 
+    // Helper function to calculate simple moving average
+    function calculateMovingAverage(data, windowSize = 7) {
+        const result = [];
+        for (let i = 0; i < data.length; i++) {
+            // For the first few points, use a smaller window
+            const actualWindowSize = Math.min(windowSize, i + 1);
+            const start = Math.max(0, i - actualWindowSize + 1);
+            const window = data.slice(start, i + 1);
+            const sum = window.reduce((acc, val) => acc + val, 0);
+            result.push(sum / window.length);
+        }
+        return result;
+    }
+
+    // Track moving average visibility state and cached data
+    let speedChartMovingAverageVisible = false;
+    let cachedSpeedChartData = null;
+    let cachedSpeedChartIsAllTime = false;
+
     // Function to create daily reading speed line chart
-    function createDailySpeedChart(canvasId, chartData, isAllTime = false) {
+    function createDailySpeedChart(canvasId, chartData, isAllTime = false, showMovingAverage = speedChartMovingAverageVisible) {
         const canvas = document.getElementById(canvasId);
         if (!canvas || !chartData) return null;
+        
+        // Cache the data for re-rendering without API calls
+        cachedSpeedChartData = chartData;
+        cachedSpeedChartIsAllTime = isAllTime;
         
         const ctx = canvas.getContext('2d');
         
@@ -1962,6 +1985,9 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
         
+        // Calculate moving average (7-day window)
+        const movingAverageData = calculateMovingAverage(filteredSpeedData, 7);
+        
         // Generate point colors based on weekend - consistent with other daily charts
         const pointColors = filteredOriginalLabels.map(dateStr => {
             const date = parseLocalDate(dateStr);
@@ -1976,29 +2002,56 @@ document.addEventListener('DOMContentLoaded', function () {
             titleElement.textContent = isAllTime ? '⚡ Daily Reading Speed (All Time)' : '⚡ Daily Reading Speed (Last 4 Weeks)';
         }
         
+        // Build datasets array
+        const datasets = [{
+            label: 'Reading Speed (chars/hour)',
+            data: filteredSpeedData,
+            borderColor: 'rgba(54, 162, 235, 1)',
+            backgroundColor: 'rgba(54, 162, 235, 0.1)',
+            pointBackgroundColor: pointColors,
+            pointBorderColor: pointColors,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            borderWidth: 2,
+            tension: 0.3,
+            fill: true,
+            order: 2
+        }];
+        
+        // Add moving average dataset if enabled
+        if (showMovingAverage) {
+            datasets.push({
+                label: '7-Day Moving Average',
+                data: movingAverageData,
+                borderColor: 'rgba(255, 99, 132, 1)',
+                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                pointRadius: 0,
+                pointHoverRadius: 5,
+                borderWidth: 3,
+                tension: 0.4,
+                fill: false,
+                order: 1,
+                borderDash: [5, 5]
+            });
+        }
+        
         window.myCharts[canvasId] = new Chart(ctx, {
             type: 'line',
             data: {
                 labels: filteredLabels,
-                datasets: [{
-                    label: 'Reading Speed (chars/hour)',
-                    data: filteredSpeedData,
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
-                    pointBackgroundColor: pointColors,
-                    pointBorderColor: pointColors,
-                    pointRadius: 5,
-                    pointHoverRadius: 7,
-                    borderWidth: 2,
-                    tension: 0.3,
-                    fill: true
-                }]
+                datasets: datasets
             },
             options: {
                 responsive: true,
                 plugins: {
                     legend: {
-                        display: false
+                        display: showMovingAverage,
+                        position: 'top',
+                        labels: {
+                            color: getThemeTextColor(),
+                            usePointStyle: true,
+                            padding: 15
+                        }
                     },
                     title: {
                         display: false
@@ -2006,15 +2059,16 @@ document.addEventListener('DOMContentLoaded', function () {
                     tooltip: {
                         callbacks: {
                             title: function(context) {
-                                const index = context.dataIndex;
+                                const index = context[0].dataIndex;
                                 return filteredOriginalLabels[index];
                             },
                             label: function(context) {
                                 const speed = context.parsed.y;
-                                return `Speed: ${speed.toLocaleString()} chars/hour`;
+                                const datasetLabel = context.dataset.label;
+                                return `${datasetLabel}: ${speed.toLocaleString()} chars/hour`;
                             },
                             afterLabel: function(context) {
-                                const index = context.dataIndex;
+                                const index = context[0].dataIndex;
                                 const date = parseLocalDate(filteredOriginalLabels[index]);
                                 const dayOfWeek = date.getDay();
                                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -2783,6 +2837,28 @@ document.addEventListener('DOMContentLoaded', function () {
     setupToggleButton(toggleTimeDataBtn);
     setupToggleButton(toggleCharsDataBtn);
     setupToggleButton(toggleSpeedDataBtn);
+    
+    // Setup moving average toggle button
+    const toggleMovingAverageBtn = document.getElementById('toggleMovingAverageBtn');
+    if (toggleMovingAverageBtn) {
+        toggleMovingAverageBtn.addEventListener('click', function() {
+            speedChartMovingAverageVisible = !speedChartMovingAverageVisible;
+            
+            // Update button text and style
+            if (speedChartMovingAverageVisible) {
+                this.textContent = 'Hide Moving Average';
+                this.classList.add('active');
+            } else {
+                this.textContent = 'Show Moving Average';
+                this.classList.remove('active');
+            }
+            
+            // Re-render the chart with cached data (no API call)
+            if (cachedSpeedChartData) {
+                createDailySpeedChart('dailySpeedChart', cachedSpeedChartData, cachedSpeedChartIsAllTime, speedChartMovingAverageVisible);
+            }
+        });
+    }
 
     // ExStatic Import Functionality
     const exstaticFileInput = document.getElementById('exstaticFile');

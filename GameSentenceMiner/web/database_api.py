@@ -417,8 +417,12 @@ def register_database_api_routes(app):
 
             if page < 1:
                 page = 1
-            if page_size < 1 or page_size > 200:
+            # Allow large page_size values for "ALL" functionality
+            if page_size < 1:
                 page_size = 20
+            # Cap at reasonable maximum to prevent memory issues (100 million for "ALL")
+            if page_size > 100000000:
+                page_size = 100000000
             
             # Parse and validate date range if provided
             date_start_timestamp = None
@@ -2427,6 +2431,141 @@ def register_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error in game merge API: {e}")
             return jsonify({"error": f"Game merge failed: {str(e)}"}), 500
+
+    @app.route("/api/migrate-lines", methods=["POST"])
+    def api_migrate_lines():
+        """
+        Migrate selected game lines from their current games to a target game.
+        
+        Functionality:
+        - Updates game_name for specified line IDs to target game
+        - Preserves original game names in original_game_name field
+        - Validates line existence and target game validity
+        - Triggers stats rollup after successful migration
+        ---
+        tags:
+          - Database
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                line_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: List of line IDs to migrate
+                target_game:
+                  type: string
+                  description: Target game name to migrate lines to
+        responses:
+          200:
+            description: Lines migrated successfully
+            schema:
+              type: object
+              properties:
+                migrated_count:
+                  type: integer
+                message:
+                  type: string
+                target_game:
+                  type: string
+                failed_ids:
+                  type: array
+                  items:
+                    type: string
+          400:
+            description: Invalid request
+          500:
+            description: Migration failed
+        """
+        try:
+            data = request.get_json()
+            line_ids = data.get("line_ids", [])
+            target_game = data.get("target_game", "")
+
+            logger.info(
+                f"Migrate lines request received: {len(line_ids)} lines to '{target_game}'"
+            )
+
+            # Validation
+            if not line_ids:
+                return jsonify({"error": "No line IDs provided"}), 400
+
+            if not isinstance(line_ids, list):
+                return jsonify({"error": "line_ids must be a list"}), 400
+
+            if not target_game:
+                return jsonify({"error": "No target game specified"}), 400
+
+            # Get the target game's game_id (pick the first valid one we find)
+            # This ensures consistency with existing game entries
+            target_game_id_result = GameLinesTable._db.fetchone(
+                f"SELECT game_id FROM {GameLinesTable._table} WHERE game_name = ? AND game_id IS NOT NULL AND game_id != '' LIMIT 1",
+                (target_game,)
+            )
+            target_game_id = target_game_id_result[0] if target_game_id_result else None
+
+            # Migrate the lines
+            migrated_count = 0
+            failed_ids = []
+
+            for line_id in line_ids:
+                try:
+                    # First, get the current game_name to preserve in original_game_name
+                    current_line = GameLinesTable._db.fetchone(
+                        f"SELECT game_name FROM {GameLinesTable._table} WHERE id=?",
+                        (line_id,)
+                    )
+                    
+                    if not current_line:
+                        logger.warning(f"Line {line_id} not found, skipping")
+                        failed_ids.append(line_id)
+                        continue
+                    
+                    current_game_name = current_line[0]
+                    
+                    # Update the line: set new game_name and game_id, preserve original_game_name
+                    GameLinesTable._db.execute(
+                        f"UPDATE {GameLinesTable._table} SET game_name=?, game_id=?, original_game_name=COALESCE(original_game_name, ?) WHERE id=?",
+                        (target_game, target_game_id, current_game_name, line_id),
+                        commit=True,
+                    )
+                    migrated_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to migrate line {line_id}: {e}")
+                    failed_ids.append(line_id)
+
+            logger.info(
+                f"Migrated {migrated_count} lines out of {len(line_ids)} requested to '{target_game}'"
+            )
+
+            response_data = {
+                "migrated_count": migrated_count,
+                "message": f"Successfully migrated {migrated_count} line{'s' if migrated_count != 1 else ''} to '{target_game}'",
+                "target_game": target_game,
+            }
+
+            if failed_ids:
+                response_data["warning"] = f"{len(failed_ids)} lines failed to migrate"
+                response_data["failed_ids"] = failed_ids
+
+            # Trigger stats rollup after successful migration
+            if migrated_count > 0:
+                try:
+                    logger.info("Triggering stats rollup after line migration")
+                    cron_scheduler.force_daily_rollup()
+                except Exception as rollup_error:
+                    logger.error(f"Stats rollup failed after line migration: {rollup_error}")
+                    # Don't fail the migration operation if rollup fails
+
+            return jsonify(response_data), 200
+
+        except Exception as e:
+            logger.error(f"Error in line migration: {e}")
+            return jsonify({"error": f"Line migration failed: {str(e)}"}), 500
 
     @app.route("/api/delete-regex-in-game-lines", methods=["POST"])
     def api_delete_regex_in_game_lines():

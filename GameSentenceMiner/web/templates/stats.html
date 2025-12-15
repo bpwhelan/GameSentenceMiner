@@ -170,7 +170,10 @@
         <div class="chart-container">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <h2 style="margin: 0;" id="dailySpeedChartTitle">⚡ Daily Reading Speed (Last 4 Weeks)</h2>
-                <button id="toggleSpeedDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+                <div style="display: flex; gap: 10px;">
+                    <button id="toggleMovingAverageBtn" class="chart-toggle-btn moving-average-btn">Show Moving Average</button>
+                    <button id="toggleSpeedDataBtn" class="chart-toggle-btn" data-mode="30days">View all time data</button>
+                </div>
             </div>
             <canvas id="dailySpeedChart"></canvas>
         </div>

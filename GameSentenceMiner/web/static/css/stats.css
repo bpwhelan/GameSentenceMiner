@@ -33,6 +33,31 @@
     transform: translateY(0);
 }
 
+.moving-average-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 2px solid var(--border-color);
+}
+
+.moving-average-btn:hover {
+    background: var(--border-color);
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.moving-average-btn.active {
+    background: #22c55e;
+    color: white;
+    border-color: #22c55e;
+    box-shadow: 0 0 10px rgba(34, 197, 94, 0.3);
+}
+
+.moving-average-btn.active:hover {
+    background: #16a34a;
+    border-color: #16a34a;
+}
+
 .heatmap-year {
     margin-bottom: 30px;
 }
