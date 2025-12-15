@@ -485,6 +485,8 @@ class OverlayProcessor:
                 
                 text_str = "".join([text for text in text if self.regex.match(text)])
                 
+                logger.display(f"Local OCR found text: {text_str}")
+                
                 # RapidFuzz fuzzy match 90% to not send the same results repeatedly
                 if self.last_oneocr_result and check_against_last:
                     

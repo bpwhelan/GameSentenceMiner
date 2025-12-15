@@ -347,8 +347,8 @@ class ConfigWindow(QWidget):
                 open_config_on_startup=self.open_config_on_startup_check.isChecked(),
                 open_multimine_on_startup=self.open_multimine_on_startup_check.isChecked(),
                 texthooker_port=int(self.texthooker_port_edit.text() or 0),
-                native_language=CommonLanguages.from_name(self.native_language_combo.currentText()).value if self.native_language_combo.currentText() else CommonLanguages.ENGLISH.value,
-                target_language=CommonLanguages.from_name(self.target_language_combo.currentText()).value if self.target_language_combo.currentText() else CommonLanguages.JAPANESE.value
+                native_language=CommonLanguages.from_name(self.native_language_combo.currentText().replace(' ', '_')).value if self.native_language_combo.currentText() else CommonLanguages.ENGLISH.value,
+                target_language=CommonLanguages.from_name(self.target_language_combo.currentText().replace(' ', '_')).value if self.target_language_combo.currentText() else CommonLanguages.JAPANESE.value
             ),
             paths=Paths(
                 folder_to_watch=self.folder_to_watch_edit.text(),
