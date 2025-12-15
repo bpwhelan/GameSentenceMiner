@@ -75,7 +75,7 @@ distro==1.9.0
     # via
     #   groq
     #   openai
-evdev==1.9.2 ; 'linux' in sys_platform
+evdev==1.9.2 ; sys_platform == 'win32' and 'linux' in sys_platform
     # via pynput
 faster-whisper==1.2.1
     # via gamesentenceminer (pyproject.toml)
@@ -312,7 +312,7 @@ pydantic-core==2.41.5
     # via pydantic
 pygetwindow==0.0.9 ; sys_platform == 'win32'
     # via gamesentenceminer (pyproject.toml)
-pynput==1.8.1
+pynput==1.8.1 ; sys_platform == 'win32'
     # via gamesentenceminer (pyproject.toml)
 pyobjc==10.3.2 ; sys_platform == 'darwin'
     # via
@@ -1034,7 +1034,7 @@ python-dateutil==2.9.0.post0
     # via
     #   betterproto
     #   matplotlib
-python-xlib==0.33 ; 'linux' in sys_platform or sys_platform == 'linux'
+python-xlib==0.33 ; sys_platform == 'linux' or (sys_platform == 'win32' and 'linux' in sys_platform)
     # via
     #   pynput
     #   pystray

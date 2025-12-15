@@ -73,7 +73,7 @@ dependencies = [
   "curl-cffi~=0.13.0",
   "betterproto==2.0.0b7",
   "py7zr~=1.0.0",
-  "pynput~=1.8.1",
+  "pynput~=1.8.1 ; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

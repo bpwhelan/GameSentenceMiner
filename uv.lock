@@ -878,7 +878,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2.22.8"
+version = "2.22.11"
 source = { editable = "." }
 dependencies = [
     { name = "betterproto" },
@@ -908,7 +908,7 @@ dependencies = [
     { name = "psutil" },
     { name = "py7zr" },
     { name = "pygetwindow", marker = "sys_platform == 'win32'" },
-    { name = "pynput" },
+    { name = "pynput", marker = "sys_platform == 'win32'" },
     { name = "pyobjc", marker = "sys_platform == 'darwin'" },
     { name = "pyperclipfix" },
     { name = "pypresence" },
@@ -970,7 +970,7 @@ requires-dist = [
     { name = "psutil", specifier = "~=7.1.0" },
     { name = "py7zr", specifier = "~=1.0.0" },
     { name = "pygetwindow", marker = "sys_platform == 'win32'", specifier = "==0.0.9" },
-    { name = "pynput", specifier = "~=1.8.1" },
+    { name = "pynput", marker = "sys_platform == 'win32'", specifier = "~=1.8.1" },
     { name = "pyobjc", marker = "sys_platform == 'darwin'", specifier = "~=10.3.1" },
     { name = "pyperclipfix", specifier = ">=1.9.4" },
     { name = "pypresence", url = "https://github.com/qwertyquerty/pypresence/archive/168c0fc3c00d8b974017cfcd18a4e801b6b78dae.zip" },
