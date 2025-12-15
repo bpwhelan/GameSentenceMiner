@@ -9,7 +9,9 @@ const wanakana = require('wanakana');
 const Kuroshiro = require("kuroshiro").default;
 const KuromojiAnalyzer = require("kuroshiro-analyzer-kuromoji");
 
-let dataPath = path.join(process.env.APPDATA, "gsm_overlay")
+let dataPath = process.env.APPDATA
+  ? path.join(process.env.APPDATA, "gsm_overlay") // Windows
+  : path.join(os.homedir(), '.config', "gsm_overlay"); // macOS/Linux
 
 fs.mkdirSync(dataPath, { recursive: true });
 app.setPath('userData', dataPath);
