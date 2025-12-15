@@ -98,3 +98,13 @@ For full setup guides and configuration details, check the [Wiki](https://docs.g
 *   [Renji's Texthooker](https://github.com/Renji-XD/texthooker-ui) & [Saplling](https://github.com/Saplling/transparent-texthooker-overlay).
 *   [exSTATic](https://github.com/KamWithK/exSTATic) for the stats design inspiration.
 *   [chaiNNer](https://github.com/chaiNNer-org/chaiNNer) for the Python integration strategy.
+
+## Star History
+
+<a href="https://www.star-history.com/#bpwhelan/GameSentenceMiner&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&legend=top-left" />
+ </picture>
+</a>
