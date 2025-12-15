@@ -2068,7 +2068,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                 return `${datasetLabel}: ${speed.toLocaleString()} chars/hour`;
                             },
                             afterLabel: function(context) {
-                                const index = context[0].dataIndex;
+                                const index = Array.isArray(context) ? context[0].dataIndex : context.dataIndex;
                                 const date = parseLocalDate(filteredOriginalLabels[index]);
                                 const dayOfWeek = date.getDay();
                                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;

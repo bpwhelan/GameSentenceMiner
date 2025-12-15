@@ -337,43 +337,6 @@ def register_anki_api_endpoints(app):
           500:
             description: Failed to gather game stats
         """
-        """
-        Get game-specific Anki retention statistics
-        ---
-        tags:
-          - Anki
-        parameters:
-          - name: start_timestamp
-            in: query
-            type: integer
-            required: false
-            description: Start timestamp (milliseconds)
-          - name: end_timestamp
-            in: query
-            type: integer
-            required: false
-            description: End timestamp (milliseconds)
-        responses:
-          200:
-            description: Per-game Anki statistics
-            schema:
-              type: array
-              items:
-                type: object
-                properties:
-                  game_name:
-                    type: string
-                  avg_time_per_card:
-                    type: number
-                    description: Average review time in seconds
-                  retention_pct:
-                    type: number
-                    description: Retention percentage
-                  total_reviews:
-                    type: integer
-                  mined_lines:
-                    type: integer
-        """
         start_timestamp = (
             int(request.args.get("start_timestamp"))
             if request.args.get("start_timestamp")
