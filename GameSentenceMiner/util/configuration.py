@@ -90,6 +90,9 @@ def is_windows():
 def is_mac():
     return platform == 'darwin'
 
+def is_wayland():
+    return os.environ.get('XDG_SESSION_TYPE', '').lower() == 'wayland' or bool(os.environ.get('WAYLAND_DISPLAY'))
+
 
 class Locale(Enum):
     English = 'en_us'

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, screen, globalShortcut, dialog } = require('electron');
+const { app, BrowserWindow, session, screen, globalShortcut, dialog, Tray, Menu, nativeImage } = require('electron');
 const { ipcMain } = require("electron");
 const fs = require("fs");
 const path = require('path');
@@ -26,6 +26,7 @@ let userSettings = {
   "hideOnStartup": false,
   "magpieCompatibility": false,
   "manualMode": false,
+  "manualModeType": "hold", // "hold" or "toggle"
   "showHotkey": "Shift + Space",
   "toggleFuriganaHotkey": "Alt+F",
   "pinned": false,
@@ -33,6 +34,8 @@ let userSettings = {
   "focusOnHotkey": false,
   "afkTimer": 5, // in minutes
   "showFurigana": false,
+  "offsetX": 0,
+  "offsetY": 0,
 };
 let manualIn;
 let resizeMode = false;
@@ -44,15 +47,58 @@ let websocketStates = {
   "ws2": false
 };
 
+let lastWebsocketData = null;
+
 let yomitanSettingsWindow = null;
 let settingsWindow = null;
+let offsetHelperWindow = null;
+let tray = null;
+let platformOverride = null;
+
+ipcMain.on('set-platform-override', (event, platform) => {
+  platformOverride = platform;
+  // Re-open settings window to reflect the new platform
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.close();
+    openSettings();
+  }
+});
+
+ipcMain.handle('get-effective-platform', async (event) => {
+  return platformOverride || process.platform;
+});
+
+function isWindows() {
+  return process.platform === 'win32';
+}
+
+function isLinux() {
+  return process.platform === 'linux';
+}
+
+function isMac() {
+  return process.platform === 'darwin';
+}
+
+function isManualMode() {
+  if (!isWindows()) {
+    return true;
+  }
+  return userSettings.manualMode;
+}
 
 if (fs.existsSync(settingsPath)) {
   try {
     const data = fs.readFileSync(settingsPath, "utf-8");
     oldUserSettings = JSON.parse(data)
     userSettings = { ...userSettings, ...oldUserSettings }
-
+    if (isWindows()) {
+      userSettings.offsetX = 0;
+      userSettings.offsetY = 0;
+    } else {
+      userSettings.manualMode = true;
+      userSettings.magpieCompatibility = false;
+    }
   } catch (error) {
     console.error("Failed to load settings.json:", error)
 
@@ -103,6 +149,13 @@ function saveSettings() {
   if (fs.existsSync(settingsPath)) {
     const data = fs.readFileSync(settingsPath, "utf-8");
     oldUserSettings = JSON.parse(data);
+    if (isWindows()) {
+      userSettings.offsetX = 0;
+      userSettings.offsetY = 0;
+    } else {
+      userSettings.manualMode = true;
+      userSettings.magpieCompatibility = false;
+    }
     console.log("Old Settings:", oldUserSettings);
     console.log("New Settings:", userSettings);
   }
@@ -110,56 +163,100 @@ function saveSettings() {
 }
 
 function registerManualShowHotkey(oldHotkey) {
-  if (!userSettings.manualMode) return;
+  if (!isManualMode()) return;
   if (manualIn) globalShortcut.unregister(oldHotkey || userSettings.showHotkey);
 
   let clear = null;
+  let isActive = false;
+  let toggleState = false; // Track toggle state for toggle mode
 
-  // Manual hotkey enters mode on press, exits after timeout
   manualIn = globalShortcut.register(userSettings.showHotkey, () => {
     // console.log("Manual hotkey pressed");
-    if (!userSettings.manualMode) {
+    if (!isManualMode()) {
       globalShortcut.unregister(userSettings.showHotkey);
       return;
     }
     if (mainWindow) {
-      // Enter manual mode and reset timer
       manualHotkeyPressed = true;
       lastManualActivity = Date.now();
-      // mainWindow.show();
-      mainWindow.webContents.send('show-overlay-hotkey', true);
 
-      if (process.platform !== 'linux') {
-        mainWindow.webContents.send('show-overlay-hotkey', true);
-        mainWindow.setIgnoreMouseEvents(false, { forward: true });
-      } else {
-        mainWindow.show();
-      }
+      if (userSettings.manualModeType === "toggle") {
+        // Toggle mode: press once to show, press again to hide
+        toggleState = !toggleState;
+        
+        if (toggleState) {
+          // Show overlay
+          mainWindow.webContents.send('show-overlay-hotkey', true);
 
-      if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
-        mainWindow.show();
-        // mainWindow.blur();
-      }
-
-      // Clear existing timeout if any
-      let timeToWait = 500
-      if (clear) {
-        clearTimeout(clear);
-        timeToWait = 200; // Shorter timeout if already active
-      }
-
-      clear = setTimeout(() => {
-        manualHotkeyPressed = false;
-        mainWindow.webContents.send('show-overlay-hotkey', false);
-        if (!yomitanShown && !resizeMode) {
-          mainWindow.blur();
-          if (process.platform !== 'linux') {
-            mainWindow.setIgnoreMouseEvents(true, { forward: true });
+          if (!isLinux()) {
+            mainWindow.setIgnoreMouseEvents(false, { forward: true });
           } else {
-            mainWindow.hide();
+            mainWindow.show();
+          }
+
+          if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
+            mainWindow.show();
+          }
+        } else {
+          // Hide overlay
+          mainWindow.webContents.send('show-overlay-hotkey', false);
+          if (!yomitanShown && !resizeMode) {
+            mainWindow.blur();
+            if (!isLinux()) {
+              mainWindow.setIgnoreMouseEvents(true, { forward: true });
+            } else {
+              mainWindow.hide();
+            }
           }
         }
-      }, timeToWait);
+        
+        // Reset manualHotkeyPressed after a short delay in toggle mode
+        setTimeout(() => {
+          if (!toggleState) {
+            manualHotkeyPressed = false;
+          }
+        }, 100);
+      } else {
+        // Hold mode: hold to show, release to hide after timeout
+        // Clear existing timeout if any
+        if (clear) {
+          clearTimeout(clear);
+        }
+
+        // Only trigger show actions on first press
+        if (!isActive) {
+          isActive = true;
+          mainWindow.webContents.send('show-overlay-hotkey', true);
+
+          if (!isLinux()) {
+            mainWindow.setIgnoreMouseEvents(false, { forward: true });
+          } else {
+            mainWindow.show();
+          }
+
+          if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
+            mainWindow.show();
+          }
+        }
+
+        // Determine timeout duration
+        let timeToWait = 500;
+
+        // Always reset the timeout while holding
+        clear = setTimeout(() => {
+          isActive = false;
+          manualHotkeyPressed = false;
+          mainWindow.webContents.send('show-overlay-hotkey', false);
+          if (!yomitanShown && !resizeMode) {
+            mainWindow.blur();
+            if (!isLinux()) {
+              mainWindow.setIgnoreMouseEvents(true, { forward: true });
+            } else {
+              mainWindow.hide();
+            }
+          }
+        }, timeToWait);
+      }
     }
   });
 }
@@ -191,7 +288,7 @@ function resetActivityTimer() {
 
       // Make the overlay ignore mouse events so clicks pass through
       try {
-        if (process.platform === 'win32' || process.platform === 'darwin') {
+        if (isWindows || isMac()) {
           mainWindow.setIgnoreMouseEvents(true, { forward: true });
         }
       } catch (e) {
@@ -313,23 +410,202 @@ function openYomitanSettings() {
   }, 500);
 }
 
+function openOffsetHelper() {
+  if (offsetHelperWindow && !offsetHelperWindow.isDestroyed()) {
+    offsetHelperWindow.show();
+    offsetHelperWindow.focus();
+    return;
+  }
+  // Use the same bounds as the main window
+  const display = getCurrentOverlayMonitor();
+  offsetHelperWindow = new BrowserWindow({
+    x: display.bounds.x,
+    y: display.bounds.y,
+    width: display.bounds.width,
+    height: display.bounds.height - 1,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    resizable: false,
+    titleBarStyle: 'hidden',
+    title: "Offset Helper",
+    fullscreen: false,
+    skipTaskbar: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  console.log(display.bounds);
+  console.log(offsetHelperWindow.getBounds());
+
+  offsetHelperWindow.loadFile("offset-helper.html");
+
+  offsetHelperWindow.webContents.on('did-finish-load', () => {
+    if (lastWebsocketData) {
+      // The data from the websocket is a string, so we need to parse it
+      let parsedData = {};
+      try {
+        parsedData = JSON.parse(lastWebsocketData);
+      } catch (e) {
+        // If it's not a JSON string, we can't do much with it
+        console.error("Could not parse websocket data for offset helper:", e);
+        // Send something to at least open the window with some text
+        parsedData = { sentence: lastWebsocketData };
+      }
+      offsetHelperWindow.webContents.send('text-data', { 
+        textData: parsedData, 
+        settings: userSettings,
+        windowBounds: { width: display.bounds.width, height: display.bounds.height - 1 }
+      });
+    }
+  });
+
+  offsetHelperWindow.on("closed", () => {
+    offsetHelperWindow = null;
+  });
+}
+
+function createTray() {
+  // Use one of the yomitan icons for the tray
+  const iconPath = path.join(__dirname, 'yomitan', 'images', 'icon32.png');
+  const trayIcon = nativeImage.createFromPath(iconPath);
+
+  tray = new Tray(trayIcon);
+  tray.setToolTip('GSM Overlay');
+
+  updateTrayMenu();
+
+  tray.on('click', () => {
+    openSettings();
+  });
+
+  // Double-click to toggle main window
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      mainWindow.webContents.send('toggle-main-box');
+    }
+  });
+}
+
+function updateTrayMenu() {
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Toggle Window (Alt+Shift+H)',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.webContents.send('toggle-main-box');
+        }
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Settings',
+      click: () => openSettings()
+    },
+    {
+      label: 'Yomitan Settings',
+      click: () => openYomitanSettings()
+    },
+    { type: 'separator' },
+    {
+      label: 'Manual Mode',
+      type: 'checkbox',
+      checked: isManualMode(),
+      click: (menuItem) => {
+        userSettings.manualMode = menuItem.checked;
+        registerManualShowHotkey();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("settings-updated", { manualMode: menuItem.checked });
+        }
+        saveSettings();
+        updateTrayMenu();
+      }
+    },
+    {
+      label: 'Show Furigana',
+      type: 'checkbox',
+      checked: userSettings.showFurigana,
+      click: (menuItem) => {
+        userSettings.showFurigana = menuItem.checked;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("settings-updated", { showFurigana: menuItem.checked });
+        }
+        saveSettings();
+        updateTrayMenu();
+      }
+    },
+    {
+      label: 'Show Text Border',
+      type: 'checkbox',
+      checked: userSettings.showTextBackground,
+      click: (menuItem) => {
+        userSettings.showTextBackground = menuItem.checked;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("settings-updated", { showTextBackground: menuItem.checked });
+        }
+        saveSettings();
+        updateTrayMenu();
+      }
+    },
+    {
+      label: 'Magpie Compatibility',
+      type: 'checkbox',
+      checked: userSettings.magpieCompatibility,
+      click: (menuItem) => {
+        userSettings.magpieCompatibility = menuItem.checked;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("new-magpieCompatibility", menuItem.checked);
+        }
+        saveSettings();
+        updateTrayMenu();
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        app.quit();
+      }
+    }
+  ]);
+
+  tray.setContextMenu(contextMenu);
+}
+
+
 
 app.whenReady().then(async () => {
+
+  if (!isWindows()) {
+    userSettings.manualMode = true; // enforce manual mode on non-Windows platforms
+    // Show a warning for now saying that automatic mode is not supported, and to show the overlay manually, use the hotkey
+    // Use electron dialog to show a message box
+    dialog.showMessageBoxSync({
+      type: 'warning',
+      buttons: ['OK'],
+      defaultId: 0,
+      title: 'GSM Overlay - Manual Mode Enforced',
+      message: 'Overlay requires hotkey to show text for lookups on macOS and Linux due to platform limitations.\n\n' +
+        'Use the configured hotkey: ' + userSettings.showHotkey + ' to show/hide the overlay as needed.',
+    });
+  }
 
   // ===========================================================
   // MANIFEST SWITCHING & MIGRATION LOGIC
   // ===========================================================
-  
+
   const isDev = !app.isPackaged;
   const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(process.resourcesPath, "yomitan");
-  
+
   // 1. Define Paths
   // 'manifest.json' is what Electron reads.
   // 'manifest_static.json' is the version WITH the key (must be present in folder).
   // 'manifest_no_key.json' is implied as the default state of manifest.json in repo.
   const activeManifestPath = path.join(extDir, 'manifest.json');
   const staticManifestPath = path.join(extDir, 'manifest_static.json');
-  
+
   const markerPath = path.join(dataPath, 'migration_complete.json');
   const userSettingsExists = fs.existsSync(settingsPath);
   const isMigrated = fs.existsSync(markerPath);
@@ -348,11 +624,11 @@ app.whenReady().then(async () => {
         // Create marker so we know they are "Done"
         fs.writeFileSync(markerPath, JSON.stringify({ status: "fresh_install", date: Date.now() }));
       }
-      
+
       // SCENARIO B: Existing User, Not Migrated
       else if (userSettingsExists && !isMigrated) {
         console.log("[Init] Existing user detected. Migration required.");
-        
+
         const response = dialog.showMessageBoxSync({
           type: 'warning',
           buttons: ['Load Old (Backup Data)', 'Ready to Migrate'],
@@ -361,9 +637,9 @@ app.whenReady().then(async () => {
           title: 'Yomitan Update - Action Required',
           message: 'Internal ID Migration Required',
           detail: 'To prevent data loss in future updates, we need to standardize the Yomitan Extension ID.\n\n' +
-                  '• Load Old: Loads the old temporary ID. Choose this to Export your Settings and Dictionaries now.\n' +
-                  '• Ready to Migrate: Choose this ONLY if you have backed up your data. This will reset Yomitan to a fresh state with the permanent ID.\n\n' +
-                  'This is a one-time process.'
+            '• Load Old: Loads the old temporary ID. Choose this to Export your Settings and Dictionaries now.\n' +
+            '• Ready to Migrate: Choose this ONLY if you have backed up your data. This will reset Yomitan to a fresh state with the permanent ID.\n\n' +
+            'This is a one-time process.'
         });
 
         if (response === 0) {
@@ -378,20 +654,20 @@ app.whenReady().then(async () => {
         } else {
           // USER CHOSE: READY TO MIGRATE
           console.log("[Init] User ready to migrate. Swapping manifest.");
-          
+
           // 1. Overwrite active manifest with the Static Key version
           fs.copyFileSync(staticManifestPath, activeManifestPath);
-          
+
           // 2. Create Marker File
           fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
-          
+
           // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
           app.relaunch();
           app.exit(0);
           return; // Halt execution
         }
       }
-      
+
       // SCENARIO C: Already Migrated
       else if (isMigrated) {
         // Ensure the manifest is still the Static one. 
@@ -444,6 +720,9 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.error('Failed to load extension:', e);
   }
+
+  // Create system tray icon
+  createTray();
 
   globalShortcut.register('Alt+Shift+H', () => {
     if (mainWindow) {
@@ -558,6 +837,7 @@ app.whenReady().then(async () => {
     title: "GSM Overlay",
     fullscreen: false,
     // focusable: false,
+    skipTaskbar: true,
     webPreferences: {
       contextIsolation: false,
       nodeIntegration: true,
@@ -566,7 +846,7 @@ app.whenReady().then(async () => {
     },
     show: false,
   });
-
+  
   // Set bounds again to fix potential issue with wrong size on start
   setTimeout(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -613,18 +893,18 @@ app.whenReady().then(async () => {
   };
 
   ipcMain.on('update-window-shape', (event, shape) => {
-    if (process.platform !== 'win32') {
-      currentShape = shape;
-      // update clickable area on Linux
-      mainWindow.setShape([shape]);
-    }
+    // if (process.platform !== 'win32') {
+    //   currentShape = shape;
+    //   // update clickable area on Linux
+    //   mainWindow.setShape([shape]);
+    // }
   });
 
   ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
     // console.log("set-ignore-mouse-events", ignore, options, resizeMode, yomitanShown);
     if (!resizeMode && !yomitanShown) {
       // if ignore is false a button or element on the Overlay was clicked and we do not want to click-through
-      if (process.platform !== 'win32') {
+      if (!isWindows() && !isMac()) {
         // On Linux, forwarding mouse click-through is currently unsupported
         // https://www.electronjs.org/docs/latest/tutorial/custom-window-interactions#click-through-windows
 
@@ -662,13 +942,15 @@ app.whenReady().then(async () => {
 
     yomitanShown = state;
     if (state) {
-      if (process.platform === 'win32' || process.platform === 'darwin') {
+      if (isWindows() || isMac()) {
         mainWindow.setIgnoreMouseEvents(false, { forward: true });
       }
       // win.setAlwaysOnTop(true, 'screen-saver');
     } else {
-      if (process.platform === 'win32' || process.platform === 'darwin') {
+      if (isWindows() || isMac()) {
         mainWindow.setIgnoreMouseEvents(true, { forward: true });
+      } else {
+        mainWindow.hide();
       }
       // win.setAlwaysOnTop(true, 'screen-saver');
       if (!manualHotkeyPressed) {
@@ -677,7 +959,14 @@ app.whenReady().then(async () => {
       // Blur again after a short delay to ensure it takes effect
       setTimeout(() => {
         if (!resizeMode && !yomitanShown && !manualHotkeyPressed) {
+          if (userSettings.magpieCompatibility) {
+            mainWindow.show();
+            setTimeout(() => {
+              mainWindow.blur();
+            }, 100);
+          }
           mainWindow.blur();
+
         }
       }, 100);
     }
@@ -699,11 +988,29 @@ app.whenReady().then(async () => {
     mainWindow.setBackgroundColor('#00000000')
   })
 
+  // Update tray menu when window visibility changes
+  mainWindow.on('show', () => {
+    updateTrayMenu();
+  });
+
+  mainWindow.on('hide', () => {
+    updateTrayMenu();
+  });
+
+  mainWindow.on('minimize', () => {
+    updateTrayMenu();
+  });
+
+  mainWindow.on('restore', () => {
+    updateTrayMenu();
+  });
+
   mainWindow.loadFile('index.html');
   if (isDev) {
     mainWindow.webContents.on('context-menu', () => {
       mainWindow.webContents.openDevTools({ mode: 'detach' });
     });
+    openSettings();
   }
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -714,9 +1021,11 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send("display-info", display);
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
 
-    if (process.platform === 'win32') {
+    if (isWindows() || isMac()) {
       // Windows and macOS - use setIgnoreMouseEvents
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
+    } else {
+      mainWindow.hide();
     }
 
     // Start the activity timer
@@ -742,9 +1051,33 @@ app.whenReady().then(async () => {
     websocketStates[type] = true
   });
 
+  ipcMain.on("websocket-data", (event, data) => {
+    lastWebsocketData = data;
+  });
+
   ipcMain.on("open-settings", () => {
     openSettings();
   });
+  ipcMain.on("open-offset-helper", () => {
+    openOffsetHelper();
+  });
+
+  ipcMain.on("save-offset", (event, { offsetX, offsetY }) => {
+    userSettings.offsetX = offsetX;
+    userSettings.offsetY = offsetY;
+    saveSettings();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("settings-updated", { offsetX, offsetY });
+    }
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send("update-offset-values", { offsetX, offsetY });
+      settingsWindow.show();
+      settingsWindow.focus();
+    } else {
+      openSettings();
+    }
+  });
+
   ipcMain.on("setting-changed", (event, { key, value }) => {
     console.log(`Setting changed: ${key} = ${value}`);
     const oldValue = userSettings[key];
@@ -754,6 +1087,9 @@ app.whenReady().then(async () => {
         registerManualShowHotkey(oldValue);
         break;
       case "manualMode":
+        registerManualShowHotkey();
+        break;
+      case "manualModeType":
         registerManualShowHotkey();
         break;
       case "afkTimer":
@@ -767,6 +1103,7 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send("settings-updated", { [key]: value });
     }
     saveSettings();
+    updateTrayMenu();
   });
 
   // Legacy handlers for backward compatibility - can be removed after transition
@@ -829,6 +1166,17 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('get-system-info', (event) => {
+    const systemInfo = {
+      platform: os.platform(),
+      release: os.release(),
+      arch: os.arch(),
+      cpuCores: os.cpus().length,
+      totalMemoryMB: Math.round(os.totalmem() / (1024 * 1024)),
+    };
+    return systemInfo;
+  });
+
   // let alwaysOnTopInterval;
 
   ipcMain.on("text-recieved", (event, text) => {
@@ -845,7 +1193,7 @@ app.whenReady().then(async () => {
     }
 
     // If window is minimized, restore it
-    if (mainWindow.isMinimized()) {
+    if (mainWindow.isMinimized() && !isManualMode()) {
       mainWindow.show();
       mainWindow.blur();
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
@@ -859,7 +1207,7 @@ app.whenReady().then(async () => {
     }
 
     // console.log(`magpieCompatibility: ${userSettings.magpieCompatibility}`);
-    if (userSettings.magpieCompatibility) {
+    if (userSettings.magpieCompatibility && !isManualMode()) {
       mainWindow.show();
       mainWindow.blur();
     }
@@ -900,6 +1248,10 @@ app.whenReady().then(async () => {
     // Clear activity timer on quit
     if (activityTimer) {
       clearTimeout(activityTimer);
+    }
+    // Destroy tray icon
+    if (tray) {
+      tray.destroy();
     }
     // clearInterval(alwaysOnTopInterval);
     fs.writeFileSync(settingsPath, JSON.stringify(userSettings, null, 2))

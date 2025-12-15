@@ -13,7 +13,7 @@ from rapidfuzz import fuzz
 
 # Local application imports
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
-from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_overlay_config, get_temporary_directory, is_windows, is_beangate, logger
+from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_overlay_config, get_temporary_directory, is_wayland, is_windows, is_beangate, logger
 from GameSentenceMiner.util.electron_config import get_ocr_language
 from GameSentenceMiner.obs import get_screenshot_PIL
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
@@ -343,7 +343,7 @@ class OverlayProcessor:
     def _get_full_screenshot(self) -> Tuple[Image.Image | None, int, int]:
         """Captures a screenshot of the configured monitor."""
         # Prefer MSS (X11) when available, but fall back to OBS/other methods on Wayland
-        wayland = os.environ.get('XDG_SESSION_TYPE', '').lower() == 'wayland' or bool(os.environ.get('WAYLAND_DISPLAY'))
+        wayland = is_wayland()
 
         if mss and not wayland:
             try:
@@ -366,7 +366,11 @@ class OverlayProcessor:
                 # Try to infer monitor size from the image
                 w, h = obs_img.size
                 obs_img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
-                return obs_img.convert('RGBA'), w, h
+                if mss:
+                    monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
+                    w = monitor['width']
+                    h = monitor['height']
+                return obs_img, w, h
         except Exception as e:
             logger.debug(f"OBS fallback screenshot failed: {e}")
 

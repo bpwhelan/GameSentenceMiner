@@ -1,0 +1,36 @@
+body {
+  background-color: rgba(0, 0, 0, 0.1);
+  color: white;
+  font-family: sans-serif;
+  display: flex;
+  margin: 0;
+  padding: 0;
+}
+
+#instruction-panel {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 10px 15px;
+  border-radius: 8px;
+  z-index: 10001;
+  font-size: 14px;
+}
+
+.text-box {
+  position: absolute;
+  white-space: nowrap;
+  /* Make text visible for calibration */
+  /* background: rgba(15, 15, 15, 0.856); */
+  color: white;
+  text-align: start;
+  pointer-events: none; /* No mouse events needed in the helper */
+  user-select: none;
+  z-index: 999;
+  line-height: 1;
+  display: block;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: visible;
+}

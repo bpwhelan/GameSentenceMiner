@@ -247,6 +247,30 @@ background: rgba(202, 12, 12, 0.692);
       transform: scale(1.2);
     }
   }
+
+  /* Startup Message */
+  #startup-message {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.9);
+    color: #00ff88;
+    padding: 30px 50px;
+    border-radius: 10px;
+    font-size: 24px;
+    font-weight: bold;
+    text-align: center;
+    z-index: 10000;
+    pointer-events: none;
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+    opacity: 1;
+    transition: opacity 3s ease-out;
+  }
+
+  #startup-message.fade-out {
+    opacity: 0;
+  }
 </style>
 
 <html>
@@ -260,6 +284,11 @@ background: rgba(202, 12, 12, 0.692);
 
 
 <body style="margin:0px;">
+  <!-- Startup Message -->
+  <div id="startup-message">
+    GSM Overlay Loaded & Ready!
+  </div>
+
   <!-- Text Loading Indicator -->
   <div id="loading-indicator">
     <div class="loading-spinner"></div>
@@ -290,6 +319,21 @@ background: rgba(202, 12, 12, 0.692);
   let magpieReleaseInterval = null;
   let manualModeActivatedOnce = false;
   let hideReadyIndicator = false;
+
+  // Startup message fade-out
+  window.addEventListener('DOMContentLoaded', () => {
+    const startupMessage = document.getElementById('startup-message');
+    if (startupMessage) {
+      // Start fading after page is fully loaded
+      setTimeout(() => {
+        startupMessage.classList.add('fade-out');
+        // Remove from DOM after fade completes
+        setTimeout(() => {
+          startupMessage.remove();
+        }, 3000);
+      }, 100);
+    }
+  });
 
   // window.addEventListener('mousemove', (e) => {
   //   console.log("Mouse moved:", e.clientX, e.clientY);
@@ -358,7 +402,8 @@ background: rgba(202, 12, 12, 0.692);
   const mainBox = document.getElementById("main-box");
 
   let isDragging = false;
-  let offsetX, offsetY;
+  let offsetX = 0;
+  let offsetY = 0;
   let magpieCompatibility = false;
   let hideOnStartup = false;
   let usePercentage = false;
@@ -474,6 +519,7 @@ background: rgba(202, 12, 12, 0.692);
         ipcRenderer.send(`websocket-opened`, type)
       }
       websocket.onmessage = async (event) => {
+        ipcRenderer.send("websocket-data", event.data);
         let data = event.data;
         try {
           data = JSON.parse(event.data);
@@ -498,7 +544,6 @@ background: rgba(202, 12, 12, 0.692);
             showLoadingIndicator();
           }
 
-          usePercentage = data[0]?.bounding_rect?.x1 < 1 ?? false;
           // Handle array of {text, bounding_rect}
           let furiganaBoxes = [];
           for (const line of data) {
@@ -517,7 +562,7 @@ background: rgba(202, 12, 12, 0.692);
               document.body.appendChild(spacer);
             }
             let furiganaProcessedIndex = 0;
-// --- NEW: Pre-process logic ---
+            // --- NEW: Pre-process logic ---
             // Flatten tokens into single characters with interpolated bounding boxes
             const wordList = [];
             for (const w of line.words) {
@@ -543,179 +588,125 @@ background: rgba(202, 12, 12, 0.692);
             }
             // ------------------------------
 
-            // CHANGED: Iterate over 'wordList' instead of 'line.words'
+            // Iterate over 'wordList'
             for (const [wordIdx, word] of wordList.entries()) {
               const rect = word.bounding_rect;
-              let x1 = usePercentage ? rect.x1 * 100 : rect.x1;
-              let y1 = usePercentage ? rect.y1 * 100 : rect.y1;
-              let x3 = usePercentage ? rect.x3 * 100 : rect.x3;
-              let y3 = usePercentage ? rect.y3 * 100 : rect.y3;
-
-              // console.log(workAreaAdjustment);
-
-              // if (workAreaAdjustment > 0) {
-              //   y1 *= 1 + workAreaAdjustment;
-              //   y3 *= 1 + workAreaAdjustment;
-              // }
+              let x1 = rect.x1 * 100;
+              let y1 = rect.y1 * 100;
+              let x3 = rect.x3 * 100;
+              let y3 = rect.y3 * 100;
 
               minx = Math.min(minx, x1);
               miny = Math.min(miny, y1);
               maxx = Math.max(maxx, x3);
               maxy = Math.max(maxy, y3);
               const box = createTextBox(word.text, x1, y1, x3, y3, 0, true, true, false);
-              // Disable pointer events and set display:none by default
               document.body.appendChild(box);
               const boundBox = box.getBoundingClientRect();
               if (pinned && isTextInMainBox(boundBox, mainBoxBounds)) {
                 console.log("Text inside main box, hiding:", word.text);
                 box.style.display = 'none';
-                continue; // Skip boxes found inside main box
+                continue;
               }
-              // Estimate and apply the appropriate font size based on the box's dimensions and position
-              const fontSize = estimateFontSize(word.text, x3 - x1, y3 - y1, boundBox, usePercentage);
+              const fontSize = estimateFontSize(word.text, x3 - x1, y3 - y1, boundBox);
               box.style.fontSize = `${fontSize}px`;
 
-              // If text is japanese, add furigana above it
               if (showFurigana && /[^\u0000-\u007F]+/.test(word.text) && furiganaProcessedIndex <= wordIdx) {
                 const wanakana = window.wanakana;
                 const text = await wanakana.stripOkurigana(word.text);
-                console.log(text);
                 if (!text || await wanakana.isKanji(text) === false) {
                   furiganaProcessedIndex = wordIdx + 1;
                   continue;
                 }
 
-                // Convert kanji to hiragana reading using kuroshiro
-                  try {
-                    const kuroshiro = window.kuroshiro;
-                    if (!kuroshiro) {
-                      console.warn('Kuroshiro not initialized yet');
-                      continue;
-                    }
-                    let kanji = "";
-                    let prefixHirgana = "";
-                    let suffixHirgana = "";
-
-                    // Optionally collect the character before currentIndex if it exists and is hiragana
-                    if (wordIdx - 1 >= 0) {
-                      // CHANGED: line.words -> wordList
-                      const prevWord = wordList[wordIdx - 1];
-                      if (await wanakana.isHiragana(prevWord.text)) {
-                        prefixHirgana = prevWord.text;
-                      }
-                    }
-
-                    kanji += word.text;
-                    let currentIndex = wordIdx + 1;
-                    // Now collect all consecutive kanji starting from current word
-                    // CHANGED: line.words -> wordList
-                    while (currentIndex < wordList.length && await wanakana.isKanji(wordList[currentIndex].text)) {
-                      kanji += wordList[currentIndex].text;
-                      currentIndex++;
-                    }
-
-                    // Now collect all consecutive hiragana until we hit another kanji
-                    // CHANGED: line.words -> wordList
-                    while (currentIndex < wordList.length) {
-                      const currentWord = wordList[currentIndex];
-                      if (await wanakana.isKanji(currentWord.text)) {
-                        // Hit another kanji, stop here
-                        break;
-                      }
-                      suffixHirgana += currentWord.text;
-                      currentIndex++;
-                    }
-
-                    // Update furiganaProcessedIndex to skip all words we just consumed
-                    furiganaProcessedIndex = currentIndex;
-                    console.log(`Building text from prefix: ${prefixHirgana}, kanji: ${kanji}, suffix: ${suffixHirgana}`);
-                    let text = prefixHirgana + kanji + suffixHirgana;
-                    console.log(`Collected text for furigana: "${text}" (processed up to index ${furiganaProcessedIndex})`);
-                    
-                    // replace ーーーー as many with just 1 ー (Applied to context to help Kuroshiro, but keep original for matching if needed)
-                    text = text.replace(/ー+/g, 'ー');
-
-                    // 1. Convert the whole phrase
-                    const hiragana = await kuroshiro.convert(text, { to: 'hiragana', mode: 'normal' });
-                    
-                    // 2. Manually strip the prefix and suffix from the RESULTING hiragana
-                    let reading = hiragana;
-
-                    // Remove prefix if it matches
-                    if (prefixHirgana && reading.startsWith(prefixHirgana)) {
-                        reading = reading.slice(prefixHirgana.length);
-                    }
-
-                    // Remove suffix if it matches
-                    if (suffixHirgana && reading.endsWith(suffixHirgana)) {
-                        reading = reading.slice(0, -suffixHirgana.length);
-                    }
-
-                    console.log(`Converted "${text}" to "${hiragana}"`);
-                    console.log(`Adding furigana "${reading}" for "${text}"`);
-
-                    const furiganaBox = document.createElement('ruby');
-                    furiganaBox.className = 'furigana-box';
-                    // Wrap in <ruby> with empty <rt> to make Yomitan ignore
-                    furiganaBox.innerHTML = `${reading}`;
-                    // Allow overflow to the right, do not clip
-                    furiganaBox.style.whiteSpace = 'nowrap';
-                    furiganaBox.style.overflowX = 'visible';
-                    furiganaBox.style.overflowY = 'hidden';
-                    furiganaBox.style.textOverflow = 'unset';
-                    furiganaBox.style.minWidth = `${x3 - x1}${usePercentage ? '%' : 'px'}`;
-                    furiganaBox.style.width = 'auto';
-                    furiganaBox.style.padding = '0';
-                    furiganaBox.style.margin = '0';
-                    furiganaBox.style.lineHeight = '1';
-                    if (furiganaVisible) {
-                      furiganaBox.style.display = 'block';
-                    } else {
-                      furiganaBox.style.display = 'none';
-                    }
-                    const furiganaFontSize = fontSize * 0.35;
-                    furiganaBox.style.fontSize = `${furiganaFontSize}px`;
-                    const furiganaHeight = furiganaFontSize * 1.1; // A reasonable approximation
-                    let furiganaTop;
-                    if (usePercentage) {
-                      const boxTopPercent = y1;
-                      const furiganaHeightPercent = (furiganaHeight / window.innerHeight) * 100;
-                      furiganaTop = boxTopPercent - furiganaHeightPercent;
-                      x3 += 1; // Slightly widen furigana box for percentage mode
-                    } else {
-                      furiganaTop = y1 - furiganaHeight;
-                      x3 += 20;
-                    }
-                    furiganaBox.style.left = `${x1}${usePercentage ? '%' : 'px'}`;
-                    furiganaBox.style.top = `${furiganaTop}${usePercentage ? '%' : 'px'}`;
-                    furiganaBox.style.textAlign = 'left';
-                    furiganaBoxes.push(furiganaBox);
-                    // document.body.appendChild(furiganaBox);
-                  } catch (error) {
-                    console.error('Error converting to furigana:', error);
+                try {
+                  const kuroshiro = window.kuroshiro;
+                  if (!kuroshiro) {
+                    console.warn('Kuroshiro not initialized yet');
+                    continue;
                   }
+                  let kanji = "";
+                  let prefixHirgana = "";
+                  let suffixHirgana = "";
+
+                  if (wordIdx - 1 >= 0) {
+                    const prevWord = wordList[wordIdx - 1];
+                    if (await wanakana.isHiragana(prevWord.text)) {
+                      prefixHirgana = prevWord.text;
+                    }
+                  }
+
+                  kanji += word.text;
+                  let currentIndex = wordIdx + 1;
+                  while (currentIndex < wordList.length && await wanakana.isKanji(wordList[currentIndex].text)) {
+                    kanji += wordList[currentIndex].text;
+                    currentIndex++;
+                  }
+                  while (currentIndex < wordList.length) {
+                    const currentWord = wordList[currentIndex];
+                    if (await wanakana.isKanji(currentWord.text)) {
+                      break;
+                    }
+                    suffixHirgana += currentWord.text;
+                    currentIndex++;
+                  }
+
+                  furiganaProcessedIndex = currentIndex;
+                  let combinedText = prefixHirgana + kanji + suffixHirgana;
+                  combinedText = combinedText.replace(/ー+/g, 'ー');
+
+                  const hiragana = await kuroshiro.convert(combinedText, { to: 'hiragana', mode: 'normal' });
+                  let reading = hiragana;
+                  if (prefixHirgana && reading.startsWith(prefixHirgana)) {
+                    reading = reading.slice(prefixHirgana.length);
+                  }
+                  if (suffixHirgana && reading.endsWith(suffixHirgana)) {
+                    reading = reading.slice(0, -suffixHirgana.length);
+                  }
+
+                  const furiganaBox = document.createElement('ruby');
+                  furiganaBox.className = 'furigana-box';
+                  furiganaBox.innerHTML = `${reading}`;
+                  furiganaBox.style.whiteSpace = 'nowrap';
+                  furiganaBox.style.overflowX = 'visible';
+                  furiganaBox.style.overflowY = 'hidden';
+                  furiganaBox.style.textOverflow = 'unset';
+                  furiganaBox.style.minWidth = `${x3 - x1}%`;
+                  furiganaBox.style.width = 'auto';
+                  furiganaBox.style.padding = '0';
+                  furiganaBox.style.margin = '0';
+                  furiganaBox.style.lineHeight = '1';
+                  furiganaBox.style.display = furiganaVisible ? 'block' : 'none';
+                  
+                  const furiganaFontSize = fontSize * 0.35;
+                  furiganaBox.style.fontSize = `${furiganaFontSize}px`;
+                  const furiganaHeight = furiganaFontSize * 1.1;
+                  const furiganaHeightPercent = (furiganaHeight / window.innerHeight) * 100;
+                  let furiganaTop = y1 - furiganaHeightPercent;
+                  
+                  furiganaBox.style.left = `${x1 + offsetX}%`;
+                  furiganaBox.style.top = `${furiganaTop + offsetY}%`;
+                  furiganaBox.style.textAlign = 'left';
+                  furiganaBoxes.push(furiganaBox);
+                } catch (error) {
+                  console.error('Error converting to furigana:', error);
+                }
               }
             }
 
-            // Create aesthetic line box for background/border
             let lineBox = document.createElement("div");
             lineBox.className = "line-box";
             lineBox.style.position = "absolute";
             lineBox.style.pointerEvents = "none";
-            lineBox.style.zIndex = "998"; // Below text boxes but above background
+            lineBox.style.zIndex = "998";
 
-            // Transform coordinates for bigInteractiveArea if Magpie window info is available
             if (magpieWindowInfo) {
-              const topLeft = transformCoordinates(minx, miny, usePercentage);
-              const bottomRight = transformCoordinates(maxx, maxy, usePercentage);
-
-              // Position line box
+              const topLeft = transformCoordinates(minx, miny);
+              const bottomRight = transformCoordinates(maxx, maxy);
               lineBox.style.left = `${topLeft.x - 2}px`;
               lineBox.style.top = `${topLeft.y - 2}px`;
               lineBox.style.width = `${bottomRight.x - topLeft.x + 4}px`;
               lineBox.style.height = `${bottomRight.y - topLeft.y + 4}px`;
-
-              // Position big interactive area
               minx = topLeft.x - 25;
               miny = topLeft.y - 25;
               maxx = bottomRight.x + 25;
@@ -726,36 +717,30 @@ background: rgba(202, 12, 12, 0.692);
               bigInteractiveArea.style.width = `${maxx - minx}px`;
               bigInteractiveArea.style.height = `${maxy - miny}px`;
             } else {
-              // Position line box
-              let lineMinx = usePercentage ? minx - 0.2 : minx - 2;
-              let lineMiny = usePercentage ? miny - 0.2 : miny - 2;
-              let lineMaxx = usePercentage ? maxx + 0.2 : maxx + 2;
-              let lineMaxy = usePercentage ? maxy + 0.2 : maxy + 2;
-
-              lineBox.style.left = usePercentage ? `${lineMinx}%` : `${lineMinx}px`;
-              lineBox.style.top = usePercentage ? `${lineMiny}%` : `${lineMiny}px`;
-              lineBox.style.width = usePercentage ? `${lineMaxx - lineMinx}%` : `${lineMaxx - lineMinx}px`;
-              lineBox.style.height = usePercentage ? `${lineMaxy - lineMiny}%` : `${lineMaxy - lineMiny}px`;
-
+              let lineMinx = minx - 0.2;
+              let lineMiny = miny - 0.2;
+              let lineMaxx = maxx + 0.2;
+              let lineMaxy = maxy + 0.2;
+              lineBox.style.left = `${lineMinx}%`;
+              lineBox.style.top = `${lineMiny}%`;
+              lineBox.style.width = `${lineMaxx - lineMinx}%`;
+              lineBox.style.height = `${lineMaxy - lineMiny}%`;
               if (magpieCompatibility) {
-                minx -= usePercentage ? 5 : 100;
-                miny -= usePercentage ? 20 : 100;
-                maxx += usePercentage ? 5 : 100;
-                maxy += usePercentage ? 5 : 100;
+                minx -= 5;
+                miny -= 20;
+                maxx += 5;
+                maxy += 5;
                 bigInteractiveArea.style.position = "absolute";
-                bigInteractiveArea.style.left = usePercentage ? `${minx}%` : `${minx}px`;
-                bigInteractiveArea.style.top = usePercentage ? `${miny}%` : `${miny}px`;
-                bigInteractiveArea.style.width = usePercentage ? `${maxx - minx}%` : `${maxx - minx}px`;
-                bigInteractiveArea.style.height = usePercentage ? `${maxy - miny}%` : `${maxy - miny}px`;
+                bigInteractiveArea.style.left = `${minx}%`;
+                bigInteractiveArea.style.top = `${miny}%`;
+                bigInteractiveArea.style.width = `${maxx - minx}%`;
+                bigInteractiveArea.style.height = `${maxy - miny}%`;
               }
             }
 
-            // Apply styling based on showTextBackground setting
             lineBox.style.transition = 'border-color 2s ease-out, background-color 2s ease-out';
             if (showTextBackground) {
               lineBox.style.border = '1px solid rgba(255, 0, 0, 0.6)';
-
-              // Fade out border over 2 seconds
               setTimeout(() => {
                 lineBox.style.borderColor = 'rgba(255, 0, 0, 0)';
               }, 100);
@@ -764,7 +749,6 @@ background: rgba(202, 12, 12, 0.692);
               lineBox.style.border = 'none';
             }
 
-            // Add line box and big interactive area to DOM
             document.body.appendChild(lineBox);
             document.body.appendChild(bigInteractiveArea);
           }
@@ -773,13 +757,10 @@ background: rgba(202, 12, 12, 0.692);
             furiganaBoxes.forEach(box => document.body.appendChild(box));
           }
 
-          // Show ready indicator (checkmark) after text processing is complete
           if (!hideReadyIndicator)
             showReadyIndicator();
 
-          // document.body.appendChild(bigInteractiveArea);
         } else {
-          // Legacy format - single sentence
           let line = data?.sentence || data;
           document.getElementById("text").textContent = line[0] == '\n' ? line.slice(1) : line;
         }
@@ -791,7 +772,6 @@ background: rgba(202, 12, 12, 0.692);
         if (!manualModeActivatedOnce) {
           setMouseEventHandlers();
         }
-        // setMouseEventHandlers();
       }
       window[type] = websocket;
     } catch (e) {
@@ -800,36 +780,26 @@ background: rgba(202, 12, 12, 0.692);
     }
   }
 
-  // Function to create individual text boxes at specified coordinates
   function createTextBox(sentence, x1, y1, x2, y2, fontSize, noBackground = false, transparentText = false, verticalText = false) {
-    console.log(`Creating box for "${sentence}" at (${x1}, ${y1}) to (${x2}, ${y2}) with font size ${fontSize}`);
     const textBox = document.createElement('span');
     textBox.className = 'text-box interactive';
     textBox.textContent = sentence[0] == '\n' ? sentence.slice(1) : sentence;
-
-    // Set position and dimensions
-    textBox.style.left = `${x1}${usePercentage ? '%' : 'px'}`;
-    textBox.style.top = `${y1}${usePercentage ? '%' : 'px'}`;
-    textBox.style.width = `${x2 - x1}${usePercentage ? '%' : 'px'}`;
-    textBox.style.height = `${y2 - y1}${usePercentage ? '%' : 'px'}`;
-    textBox.style.width = `${x2 - x1}${usePercentage ? '%' : 'px'}`;
-    textBox.style.height = `${y2 - y1}${usePercentage ? '%' : 'px'}`;
+    textBox.style.left = `${x1 + offsetX}%`;
+    textBox.style.top = `${y1 + offsetY}%`;
+    textBox.style.width = `${x2 - x1}%`;
+    textBox.style.height = `${y2 - y1}%`;
     textBox.style.display = 'block';
     textBox.style.overflow = 'visible';
     textBox.style.whiteSpace = 'nowrap';
     textBox.style.fontSize = '48px';
     textBox.style.lineHeight = 'normal';
     textBox.style.textOverflow = 'ellipsis';
-
-    // Apply background based on setting - no individual borders anymore
     textBox.style.background = 'rgba(0,0,0,0)';
     textBox.style.border = 'none';
-    // Make text transparent if requested
     if (transparentText) {
       textBox.style.color = 'rgba(255,255,255,0)';
     }
 
-    // Vertical text support also check if japanese characters are present
     if (verticalText && /[^\u0000-\u007F]+/.test(sentence)) {
       textBox.style.writingMode = 'vertical-rl';
       textBox.style.textAlign = 'center';
@@ -853,47 +823,20 @@ background: rgba(202, 12, 12, 0.692);
       setupWebSocket(window.ws2.url, false);
     }
   }
-  setInterval(checkAndReconnectWebSockets, 1000); // Check every 10 seconds
+  setInterval(checkAndReconnectWebSockets, 1000);
 
-  function getCoordinatesFromPercentage(x, y) {
-    // hardcoded 2560x1440 for now
-    const hardcodedWidth = 2560;
-    const hardcodedHeight = 1440;
-
-    return { x: x / 100 * hardcodedWidth, y: y / 100 * hardcodedHeight };
-  }
-
-  // Function to transform coordinates from source window to display coordinates
-  function transformCoordinates(x, y, isPercentage) {
+  function transformCoordinates(x, y) {
     if (!magpieWindowInfo) {
-      // If no Magpie info, use coordinates as-is
       return { x, y };
     }
-
     const sourceWidth = magpieWindowInfo.sourceWindowRightEdgePosition - magpieWindowInfo.sourceWindowLeftEdgePosition;
     const sourceHeight = magpieWindowInfo.sourceWindowBottomEdgePosition - magpieWindowInfo.sourceWindowTopEdgePosition;
-
-    let transformedX, transformedY;
-
-    if (isPercentage) {
-      // Convert percentage to pixel coordinates within source window, then add offset
-      transformedX = magpieWindowInfo.sourceWindowLeftEdgePosition + (x / 100 * sourceWidth);
-      transformedY = magpieWindowInfo.sourceWindowTopEdgePosition + (y / 100 * sourceHeight);
-    } else {
-      // Direct pixel coordinates within source window, add offset
-      transformedX = magpieWindowInfo.sourceWindowLeftEdgePosition + x;
-      transformedY = magpieWindowInfo.sourceWindowTopEdgePosition + y;
-    }
-
+    let transformedX = magpieWindowInfo.sourceWindowLeftEdgePosition + (x / 100 * sourceWidth);
+    let transformedY = magpieWindowInfo.sourceWindowTopEdgePosition + (y / 100 * sourceHeight);
     return { x: transformedX, y: transformedY };
   }
 
-  // Function to estimate font size based on word dimensions
-  function estimateFontSize(word, width, height, rect, usePercentage) {
-    let pixelWidth, pixelHeight;
-
-    console.log(`Container rect: ${rect.left}, ${rect.top}, ${rect.right}, ${rect.bottom}`);
-
+  function estimateFontSize(word, width, height, rect) {
     return Math.max(8, Math.min(100, Math.round(rect.height)));
   }
 
@@ -1038,6 +981,8 @@ background: rgba(202, 12, 12, 0.692);
     showTextBackground = newsettings.showTextBackground || false;
     hideReadyIndicator = newsettings.hideReadyIndicator;
     showFurigana = newsettings.showFurigana;
+    offsetX = newsettings.offsetX || 0;
+    offsetY = newsettings.offsetY || 0;
 
     if (pinned) {
       document.body.classList.add("force-visible");
@@ -1060,7 +1005,7 @@ background: rgba(202, 12, 12, 0.692);
     if (magpieCompatibility) {
       // every 500ms, set-ignore-mouse-events to true
       magpieReleaseInterval = setInterval(() => {
-        if (!pinned && !yomitanShowing && !manualHotkeyPressed) {
+        if (!yomitanShowing && !manualHotkeyPressed) {
           ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
         }
       }, 1000);
@@ -1120,6 +1065,12 @@ background: rgba(202, 12, 12, 0.692);
         case "showFurigana":
           showFurigana = value;
           break;
+        case "offsetX":
+          offsetX = value;
+          break;
+        case "offsetY":
+          offsetY = value;
+          break;
       }
     });
   });
@@ -1135,7 +1086,7 @@ background: rgba(202, 12, 12, 0.692);
 
     if (magpieCompatibility) {
       magpieReleaseInterval = setInterval(() => {
-        if (!pinned && !yomitanShowing && !manualHotkeyPressed) {
+        if (!yomitanShowing && !manualHotkeyPressed) {
           ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
         }
       }, 1000);
@@ -1249,7 +1200,7 @@ background: rgba(202, 12, 12, 0.692);
 
     if (magpieCompatibility) {
       magpieReleaseInterval = setInterval(() => {
-        if (!pinned && !yomitanShowing && !manualHotkeyPressed) {
+        if (!yomitanShowing && !manualHotkeyPressed) {
           ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
         }
       }, 1000);
