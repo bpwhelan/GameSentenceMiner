@@ -27,7 +27,7 @@ User Plugins - Runs every 5 minutes
 Edit this file to customize GSM behavior. See USER_PLUGINS_README.md for full documentation.
 https://github.com/YOUR_REPO/blob/main/GameSentenceMiner/util/cron/USER_PLUGINS_README.md
 
-Your code runs automatically every 5 minutess when enabled.
+Your code runs automatically every 5 minutes when enabled.
 """
 
 def main():
