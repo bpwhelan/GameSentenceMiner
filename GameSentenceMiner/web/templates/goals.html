@@ -226,6 +226,34 @@
                             </small>
                         </div>
 
+                        <!-- Time-based goals: Hours and Minutes inputs -->
+                        <div id="goalTimeValueContainer" class="goal-form-field" style="display: none; margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Target Time
+                            </label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                <div>
+                                    <label for="goalTargetHours" style="display: block; font-weight: 500; margin-bottom: 4px; color: var(--text-secondary); font-size: 13px;">
+                                        Hours
+                                    </label>
+                                    <input type="number" id="goalTargetHours" name="goalTargetHours" min="0"
+                                        style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                        placeholder="e.g., 100">
+                                </div>
+                                <div>
+                                    <label for="goalTargetMinutes" style="display: block; font-weight: 500; margin-bottom: 4px; color: var(--text-secondary); font-size: 13px;">
+                                        Minutes
+                                    </label>
+                                    <input type="number" id="goalTargetMinutes" name="goalTargetMinutes" min="0" max="59"
+                                        style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                        placeholder="e.g., 30">
+                                </div>
+                            </div>
+                            <small id="goalTimeHelp" style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                The target time you want to achieve
+                            </small>
+                        </div>
+
                         <div id="goalDatesContainer" class="goal-form-field" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
                             <div id="goalStartDateContainer">
                                 <label for="goalStartDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">

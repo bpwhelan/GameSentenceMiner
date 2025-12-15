@@ -1428,12 +1428,15 @@ document.addEventListener('DOMContentLoaded', function () {
     function updateFormFieldsVisibility() {
         const metricType = document.getElementById('goalMetricType').value;
         const targetValueContainer = document.getElementById('goalTargetValueContainer');
+        const timeValueContainer = document.getElementById('goalTimeValueContainer');
         const datesContainer = document.getElementById('goalDatesContainer');
         const startDateContainer = document.getElementById('goalStartDateContainer');
         const customHelpText = document.getElementById('customGoalHelpText');
         const staticHelpText = document.getElementById('staticGoalHelpText');
         const ankiBacklogHelpText = document.getElementById('ankiBacklogHelpText');
         const targetValueInput = document.getElementById('goalTargetValue');
+        const targetHoursInput = document.getElementById('goalTargetHours');
+        const targetMinutesInput = document.getElementById('goalTargetMinutes');
         const startDateInput = document.getElementById('goalStartDate');
         const endDateInput = document.getElementById('goalEndDate');
         const endDateLabel = document.getElementById('goalEndDateLabel');
@@ -1445,10 +1448,12 @@ document.addEventListener('DOMContentLoaded', function () {
         goalIconSelector.value = CustomGoalsManager.getDefaultIcon(metricType);
 
         const isStatic = ['hours_static', 'characters_static', 'cards_static'].includes(metricType);
+        const isTimeBased = metricType === 'hours' || metricType === 'hours_static';
 
         if (metricType === 'custom') {
             // Hide fields for custom goals - use display none for complete removal
             targetValueContainer.style.display = 'none';
+            timeValueContainer.style.display = 'none';
             datesContainer.style.display = 'none';
             customHelpText.style.display = 'block';
             if (staticHelpText) staticHelpText.style.display = 'none';
@@ -1456,22 +1461,39 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // Remove required attributes
             targetValueInput.removeAttribute('required');
+            targetHoursInput.removeAttribute('required');
+            targetMinutesInput.removeAttribute('required');
             startDateInput.removeAttribute('required');
             endDateInput.removeAttribute('required');
 
             // Clear values to prevent validation issues
             targetValueInput.value = '';
+            targetHoursInput.value = '';
+            targetMinutesInput.value = '';
             startDateInput.value = '';
             endDateInput.value = '';
         } else if (isStatic) {
             // Show target, hide dates for static goals
-            targetValueContainer.style.display = 'block';
+            if (isTimeBased) {
+                // For hours_static, show time inputs
+                targetValueContainer.style.display = 'none';
+                timeValueContainer.style.display = 'block';
+                targetValueInput.removeAttribute('required');
+                targetHoursInput.setAttribute('required', 'required');
+            } else {
+                // For other static goals, show regular target input
+                targetValueContainer.style.display = 'block';
+                timeValueContainer.style.display = 'none';
+                targetValueInput.setAttribute('required', 'required');
+                targetHoursInput.removeAttribute('required');
+                targetMinutesInput.removeAttribute('required');
+            }
+            
             datesContainer.style.display = 'none';
             customHelpText.style.display = 'none';
             if (staticHelpText) staticHelpText.style.display = 'block';
             if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
 
-            targetValueInput.setAttribute('required', 'required');
             startDateInput.removeAttribute('required');
             endDateInput.removeAttribute('required');
 
@@ -1503,7 +1525,21 @@ document.addEventListener('DOMContentLoaded', function () {
         } */
         else if (metricType) {
             // Show fields for regular goals
-            targetValueContainer.style.display = 'block';
+            if (isTimeBased) {
+                // For hours, show time inputs
+                targetValueContainer.style.display = 'none';
+                timeValueContainer.style.display = 'block';
+                targetValueInput.removeAttribute('required');
+                targetHoursInput.setAttribute('required', 'required');
+            } else {
+                // For other goals, show regular target input
+                targetValueContainer.style.display = 'block';
+                timeValueContainer.style.display = 'none';
+                targetValueInput.setAttribute('required', 'required');
+                targetHoursInput.removeAttribute('required');
+                targetMinutesInput.removeAttribute('required');
+            }
+            
             datesContainer.style.display = 'grid';
             if (startDateContainer) startDateContainer.style.display = 'block';
             customHelpText.style.display = 'none';
@@ -1512,7 +1548,6 @@ document.addEventListener('DOMContentLoaded', function () {
             if (endDateLabel) endDateLabel.textContent = 'End Date';
 
             // Add required attributes back
-            targetValueInput.setAttribute('required', 'required');
             startDateInput.setAttribute('required', 'required');
             endDateInput.setAttribute('required', 'required');
 
@@ -1550,21 +1585,39 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     goalValueHelp.innerHTML = suggestion;
                 } else if (metricType === 'hours') {
+                    const goalTimeHelp = document.getElementById('goalTimeHelp');
                     if (window.averagePaceForPredictions && typeof window.averagePaceForPredictions.average_hours_per_day === 'number' && days && days > 0) {
-                        const recommended = (window.averagePaceForPredictions.average_hours_per_day * days).toFixed(2);
+                        const recommended = window.averagePaceForPredictions.average_hours_per_day * days;
+                        const recommendedHours = Math.floor(recommended);
+                        const recommendedMinutes = Math.round((recommended - recommendedHours) * 60);
+                        
+                        const recPlus5 = recommended * 1.05;
+                        const recPlus5Hours = Math.floor(recPlus5);
+                        const recPlus5Minutes = Math.round((recPlus5 - recPlus5Hours) * 60);
+                        
+                        const recPlus10 = recommended * 1.1;
+                        const recPlus10Hours = Math.floor(recPlus10);
+                        const recPlus10Minutes = Math.round((recPlus10 - recPlus10Hours) * 60);
+                        
+                        const recPlus15 = recommended * 1.15;
+                        const recPlus15Hours = Math.floor(recPlus15);
+                        const recPlus15Minutes = Math.round((recPlus15 - recPlus15Hours) * 60);
+                        
                         suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_hours_per_day.toFixed(2)}</b> hours/day.<br>For this date range (<b>${days}</b> days), some recommended targets are:
                         <ul>
-                        <li>Maintain: <b>${recommended}</b> hours<br></li>
-                        <li>+5%: <b>${(recommended * 1.05).toFixed(2)}</b> hours<br></li>
-                        <li>+10%: <b>${(recommended * 1.1).toFixed(2)}</b> hours<br></li>
-                        <li>+15%: <b>${(recommended * 1.15).toFixed(2)}</b> hours</li>
+                        <li>Maintain: <b>${recommendedHours}h ${recommendedMinutes}m</b></li>
+                        <li>+5%: <b>${recPlus5Hours}h ${recPlus5Minutes}m</b></li>
+                        <li>+10%: <b>${recPlus10Hours}h ${recPlus10Minutes}m</b></li>
+                        <li>+15%: <b>${recPlus15Hours}h ${recPlus15Minutes}m</b></li>
                         </ul>`;
                     } else if (window.averagePaceForPredictions && typeof window.averagePaceForPredictions.average_hours_per_day === 'number') {
                         suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_hours_per_day.toFixed(2)}</b> hours per day.`;
                     } else {
-                        suggestion = 'Enter the total number of hours you want to reach.';
+                        suggestion = 'Enter the target time you want to reach.';
                     }
-                    goalValueHelp.innerHTML = suggestion;
+                    if (goalTimeHelp) {
+                        goalTimeHelp.innerHTML = suggestion;
+                    }
                 } else {
                     goalValueHelp.innerText = 'Enter the target value for your goal.';
                 }
@@ -1575,6 +1628,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (staticHelpText) staticHelpText.style.display = 'none';
             if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
             targetValueContainer.style.display = 'block';
+            timeValueContainer.style.display = 'none';
             datesContainer.style.display = 'grid';
             if (startDateContainer) startDateContainer.style.display = 'block';
             if (endDateLabel) endDateLabel.textContent = 'End Date';
@@ -1674,10 +1728,25 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const metricType = document.getElementById('goalMetricType').value;
             const icon = document.getElementById('customGoalIcon').value.trim() || document.getElementById('goalIconSelector').value.trim();
+            
+            // Determine target value based on metric type
+            let targetValue;
+            const isTimeBased = metricType === 'hours' || metricType === 'hours_static';
+            
+            if (isTimeBased) {
+                // For time-based goals, convert hours and minutes to total hours
+                const hours = parseInt(document.getElementById('goalTargetHours').value) || 0;
+                const minutes = parseInt(document.getElementById('goalTargetMinutes').value) || 0;
+                targetValue = hours + (minutes / 60);
+            } else {
+                // For other goals, use the regular target value
+                targetValue = parseInt(document.getElementById('goalTargetValue').value);
+            }
+            
             const goalData = {
                 name: document.getElementById('goalName').value.trim(),
                 metricType: metricType,
-                targetValue: parseInt(document.getElementById('goalTargetValue').value),
+                targetValue: targetValue,
                 startDate: document.getElementById('goalStartDate').value,
                 endDate: document.getElementById('goalEndDate').value,
                 icon: icon,
@@ -1737,7 +1806,22 @@ document.addEventListener('DOMContentLoaded', function () {
 
         document.getElementById('goalName').value = goal.name;
         document.getElementById('goalMetricType').value = goal.metricType;
-        document.getElementById('goalTargetValue').value = goal.targetValue || '';
+        
+        // For time-based goals, split target value into hours and minutes
+        const isTimeBased = goal.metricType === 'hours' || goal.metricType === 'hours_static';
+        if (isTimeBased && goal.targetValue) {
+            const totalHours = goal.targetValue;
+            const hours = Math.floor(totalHours);
+            const minutes = Math.round((totalHours - hours) * 60);
+            document.getElementById('goalTargetHours').value = hours;
+            document.getElementById('goalTargetMinutes').value = minutes;
+            document.getElementById('goalTargetValue').value = '';
+        } else {
+            document.getElementById('goalTargetValue').value = goal.targetValue || '';
+            document.getElementById('goalTargetHours').value = '';
+            document.getElementById('goalTargetMinutes').value = '';
+        }
+        
         document.getElementById('goalStartDate').value = goal.startDate || '';
         document.getElementById('goalEndDate').value = goal.endDate || '';
         document.getElementById('goalIconSelector').value = goal.icon;
