@@ -271,45 +271,6 @@ def register_jiten_database_api_routes(app):
           500:
             description: Search failed
         """
-        """
-        Search jiten.moe database by title
-        ---
-        tags:
-          - Jiten
-        parameters:
-          - name: title
-            in: query
-            type: string
-            required: true
-            description: Game title to search for
-        responses:
-          200:
-            description: Search results from jiten.moe
-            schema:
-              type: object
-              properties:
-                results:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      deck_id:
-                        type: string
-                      title_original:
-                        type: string
-                      title_romaji:
-                        type: string
-                      difficulty:
-                        type: integer
-                      character_count:
-                        type: integer
-                total_items:
-                  type: integer
-          400:
-            description: Missing title parameter
-          500:
-            description: Search failed
-        """
         try:
             title_filter = request.args.get("title", "").strip()
             if not title_filter:
