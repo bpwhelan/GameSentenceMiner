@@ -96,7 +96,7 @@ try:
             "version": "1.0.0",
             "contact": {
                 "name": "GameSentenceMiner",
-                "url": "https://github.com/yourusername/GameSentenceMiner"
+                "url": "https://github.com/bpwhelan/GameSentenceMiner"
             }
         },
         "host": f"localhost:{port}",

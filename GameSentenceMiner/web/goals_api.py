@@ -699,6 +699,8 @@ def calculate_balanced_easy_day_multiplier(date, goals_settings):
     - Balance factor = 700/600 = 1.1667
     - Mon-Thu, Sat-Sun: 100% * 1.1667 = 116.67%
     - Friday: 0% * 1.1667 = 0%
+
+    If Monday-Thursday, Saturday-Sunday are 100% and Friday is 50%, then balance_factor = 700/650 = 1.077
     
     Args:
         date: date object
