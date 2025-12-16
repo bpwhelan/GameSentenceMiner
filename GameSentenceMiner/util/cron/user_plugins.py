@@ -22,17 +22,17 @@ def ensure_plugins_file_exists() -> str:
     
     if not os.path.exists(plugin_path):
         template = '''"""
-User Plugins - Runs every 5 minutes
+User Plugins - Runs every 15 minutes
 
 Edit this file to customize GSM behavior. See USER_PLUGINS_README.md for full documentation.
 https://github.com/YOUR_REPO/blob/main/GameSentenceMiner/util/cron/USER_PLUGINS_README.md
 
-Your code runs automatically every 5 minutes when enabled.
+Your code runs automatically every 15 minutes when enabled.
 """
 
 def main():
     """
-    Main entry point - called every 5 minutes by GSM cron system.
+    Main entry point - called every 15 minutes by GSM cron system.
     Add your custom code here.
     """
     pass  # Replace with your code

@@ -749,7 +749,10 @@ def format_metric_value(value, metric_type):
     Returns:
         float or int: Formatted value
     """
-    if metric_type == "hours":
+    # Strip _static suffix to get base type for formatting
+    base_metric_type = metric_type.replace('_static', '') if metric_type.endswith('_static') else metric_type
+    
+    if base_metric_type == "hours":
         return round(value, 2)
     else:
         return int(value)
@@ -766,14 +769,17 @@ def format_requirement_display(value, metric_type):
     Returns:
         str: Formatted display string (e.g., "1h 30m", "1.5K", "5")
     """
-    if metric_type == "hours":
+    # Strip _static suffix to get base type for formatting
+    base_metric_type = metric_type.replace('_static', '') if metric_type.endswith('_static') else metric_type
+    
+    if base_metric_type == "hours":
         hours = int(value)
         minutes = int(round((value - hours) * 60))
         if hours > 0:
             return f"{hours}h" + (f" {minutes}m" if minutes > 0 else "")
         else:
             return f"{minutes}m"
-    elif metric_type == "characters":
+    elif base_metric_type == "characters":
         int_value = int(value)
         if int_value >= 1000000:
             return f"{int_value / 1000000:.1f}M"
@@ -898,19 +904,18 @@ def get_todays_goals(user_tz=None):
                 logger.info("Skipping custom goal")
                 continue
             
-            # Validate required fields
-            if not all([metric_type, target_value, start_date_str, end_date_str]):
-                continue
+            # Check if this is a static goal
+            is_static = metric_type.endswith('_static') if metric_type else False
             
-            # Parse dates
-            try:
-                start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
-            except ValueError:
-                continue
-            
-            # Check if goal is active today
-            if today < start_date or today > end_date:
-                continue
+            # Validate required fields (static goals don't need dates)
+            if is_static:
+                if not all([metric_type, target_value]):
+                    logger.warning(f"Static goal missing required fields: {goal_name}")
+                    continue
+            else:
+                if not all([metric_type, target_value, start_date_str, end_date_str]):
+                    logger.warning(f"Regular goal missing required fields: {goal_name}")
+                    continue
             
             # Get today's progress for this goal
             try:
@@ -918,14 +923,43 @@ def get_todays_goals(user_tz=None):
                 today_progress = 0
                 if live_stats:
                     today_stats_only = combine_rollup_and_live_stats(None, live_stats)
+                    # For static goals, map to base metric type
+                    progress_metric_type = metric_type.replace('_static', '') if is_static else metric_type
                     today_progress = extract_metric_value(
-                        today_stats_only, metric_type,
+                        today_stats_only, progress_metric_type,
                         today_lines=today_lines,
                         start_date=None,
                         yesterday=None,
                         goals_settings=goals_settings,
-                        for_today_only=True
+                        for_today_only=True,
+                        media_type=media_type
                     )
+                
+                # For static goals, required = target value
+                if is_static:
+                    formatted_progress = format_metric_value(today_progress, metric_type)
+                    formatted_required = format_metric_value(target_value, metric_type)
+                    
+                    today_goals.append({
+                        "goal_name": goal_name,
+                        "progress_today": formatted_progress,
+                        "progress_needed": formatted_required,
+                        "metric_type": metric_type,
+                        "goal_icon": goal_icon
+                    })
+                    continue
+                
+                # For regular goals, parse dates and check if active
+                try:
+                    start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+                except ValueError:
+                    logger.warning(f"Invalid dates for goal '{goal_name}'")
+                    continue
+                
+                # Check if goal is active today
+                if today < start_date or today > end_date:
+                    logger.info(f"Goal '{goal_name}' not active today")
+                    continue
                 
                 # Calculate today's required amount
                 # Get balanced easy day multiplier for today

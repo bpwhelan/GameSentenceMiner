@@ -673,6 +673,19 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Helper function to format hours
     function formatHours(hours, useRawHours = false) {
+        // Handle invalid values
+        if (hours === null || hours === undefined || isNaN(hours)) {
+            console.warn('formatHours received invalid value:', hours);
+            return '0m';
+        }
+        
+        // Ensure hours is a number
+        hours = Number(hours);
+        if (isNaN(hours)) {
+            console.warn('formatHours could not convert to number:', hours);
+            return '0m';
+        }
+        
         if (useRawHours) {
             // Raw hours format: just show the number with "hours"
             return `${Math.round(hours)} hours`;
@@ -768,11 +781,21 @@ document.addEventListener('DOMContentLoaded', function () {
         // Handle static goals - show cumulative progress only, no target
         const isStatic = ['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType);
         if (isStatic) {
-            const formattedCurrent = goal.metricType === 'hours_static' ? Math.floor(currentProgress).toLocaleString() + 'h' :
+            const formattedCurrent = goal.metricType === 'hours_static' ? formatHours(currentProgress, globalUseRawHours) :
                 goal.metricType === 'characters_static' ? formatGoalNumber(currentProgress) :
                     currentProgress.toLocaleString();
             
             const metricName = goal.metricType.replace('_static', '');
+            
+            // Format the target value for display
+            let formattedTarget;
+            if (goal.metricType === 'hours_static') {
+                formattedTarget = formatHours(goal.targetValue, globalUseRawHours);
+            } else if (goal.metricType === 'characters_static') {
+                formattedTarget = formatGoalNumber(goal.targetValue);
+            } else {
+                formattedTarget = goal.targetValue.toLocaleString();
+            }
             
             return `
                 <div class="goal-progress-item custom-goal-item" data-goal-id="${goal.id}">
@@ -789,7 +812,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     ${mediaTypeBadge}
                     <div class="custom-goal-date-range" style="margin: 8px 0; padding: 6px 12px; background: var(--bg-tertiary); border-radius: 6px; border-left: 3px solid var(--primary-color); font-size: 0.9em;">
                         <span style="opacity: 0.8;">♾️</span>
-                        <strong style="margin-left: 4px;">Daily Target: ${goal.targetValue} ${metricName}</strong>
+                        <strong style="margin-left: 4px;">Daily Target: ${formattedTarget}</strong>
                     </div>
                     ${GoalsUtils.renderActionButtons(goal.id)}
                 </div>
@@ -848,6 +871,81 @@ document.addEventListener('DOMContentLoaded', function () {
         `;
     }
 
+    // Helper function to calculate cumulative progress for static goals
+    function calculateStaticGoalProgress(allGamesStats, goal) {
+        if (!allGamesStats) {
+            console.warn('calculateStaticGoalProgress: allGamesStats is null or undefined');
+            return 0;
+        }
+        
+        const mediaType = goal.mediaType || 'ALL';
+        const baseMetricType = goal.metricType.replace('_static', '');
+        
+        console.log('calculateStaticGoalProgress:', {
+            goal: goal.name,
+            baseMetricType,
+            mediaType,
+            allGamesStats: allGamesStats
+        });
+        
+        if (baseMetricType === 'hours') {
+            // Get total reading time - try both camelCase and snake_case
+            if (mediaType === 'ALL') {
+                const seconds = allGamesStats.totalReadingTimeSeconds ||
+                              allGamesStats.total_reading_time_seconds ||
+                              0;
+                const hours = seconds / 3600;
+                console.log(`Static hours goal "${goal.name}": ${seconds}s = ${hours}h`);
+                return hours;
+            } else {
+                // Filter by media type - try both camelCase and snake_case
+                const typeActivity = allGamesStats.typeActivityData ||
+                                   allGamesStats.type_activity_data ||
+                                   {};
+                const typeStats = typeActivity[mediaType];
+                const seconds = typeStats ? (typeStats.time || 0) : 0;
+                const hours = seconds / 3600;
+                console.log(`Static hours goal "${goal.name}" (${mediaType}): ${seconds}s = ${hours}h`);
+                return hours;
+            }
+        } else if (baseMetricType === 'characters') {
+            if (mediaType === 'ALL') {
+                const chars = allGamesStats.totalCharacters ||
+                            allGamesStats.total_characters ||
+                            0;
+                console.log(`Static characters goal "${goal.name}": ${chars} chars`);
+                return chars;
+            } else {
+                const typeActivity = allGamesStats.typeActivityData ||
+                                   allGamesStats.type_activity_data ||
+                                   {};
+                const typeStats = typeActivity[mediaType];
+                const chars = typeStats ? (typeStats.chars || 0) : 0;
+                console.log(`Static characters goal "${goal.name}" (${mediaType}): ${chars} chars`);
+                return chars;
+            }
+        } else if (baseMetricType === 'cards') {
+            if (mediaType === 'ALL') {
+                const cards = allGamesStats.totalCardsCreated ||
+                            allGamesStats.total_cards_created ||
+                            0;
+                console.log(`Static cards goal "${goal.name}": ${cards} cards`);
+                return cards;
+            } else {
+                const typeActivity = allGamesStats.typeActivityData ||
+                                   allGamesStats.type_activity_data ||
+                                   {};
+                const typeStats = typeActivity[mediaType];
+                const cards = typeStats ? (typeStats.cards || 0) : 0;
+                console.log(`Static cards goal "${goal.name}" (${mediaType}): ${cards} cards`);
+                return cards;
+            }
+        }
+        
+        console.warn(`Unknown metric type for static goal: ${baseMetricType}`);
+        return 0;
+    }
+
     // Function to load goal progress chart
     async function loadGoalProgress() {
         const goalProgressChart = document.getElementById('goalProgressChart');
@@ -893,11 +991,50 @@ document.addEventListener('DOMContentLoaded', function () {
                 for (const goal of customGoals) {
                     console.log('Processing goal:', goal);
 
-                    // For custom goals, skip API call
+                    const isStatic = ['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType);
+                    
                     if (goal.metricType === 'custom') {
+                        // For custom goals, no progress tracking
                         const cardHTML = renderCustomGoalCard(goal, 0, 0);
                         goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                    } else if (isStatic) {
+                        // For static goals, fetch today's progress from API
+                        try {
+                            const goalsSettings = await GoalsUtils.prepareGoalsSettings();
+                            
+                            const response = await fetch('/api/goals/today-progress', {
+                                method: 'POST',
+                                headers: GoalsUtils.getHeadersWithTimezone(),
+                                body: JSON.stringify({
+                                    goal_id: goal.id,
+                                    metric_type: goal.metricType,
+                                    target_value: goal.targetValue,
+                                    start_date: goal.startDate,
+                                    end_date: goal.endDate,
+                                    media_type: goal.mediaType || 'ALL',
+                                    goals_settings: goalsSettings
+                                })
+                            });
+                            
+                            if (!response.ok) {
+                                console.error(`Failed to fetch today progress for static goal ${goal.id}`);
+                                const cardHTML = renderCustomGoalCard(goal, 0, 0);
+                                goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                                continue;
+                            }
+                            
+                            const todayData = await response.json();
+                            const progress = todayData.progress || 0;
+                            console.log(`Static goal "${goal.name}" today's progress: ${progress}`);
+                            const cardHTML = renderCustomGoalCard(goal, progress, 0);
+                            goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                        } catch (error) {
+                            console.error(`Error loading today progress for static goal ${goal.id}:`, error);
+                            const cardHTML = renderCustomGoalCard(goal, 0, 0);
+                            goalProgressGrid.insertAdjacentHTML('beforeend', cardHTML);
+                        }
                     } else {
+                        // For regular goals with date ranges, use API
                         const progress = await calculateCustomGoalProgress(goal);
                         const dailyAvg = goal.metricType === 'hours' ? dailyHoursAvg :
                             goal.metricType === 'characters' ? dailyCharsAvg :
@@ -1085,15 +1222,17 @@ document.addEventListener('DOMContentLoaded', function () {
         const metricLabels = GoalsUtils.getMetricLabels();
         const metricLabel = metricLabels[goal.metricType] || 'Progress';
 
-        // Format values based on metric type
+        // Format values based on metric type (handle _static suffix)
         let formattedProgress, formattedRequired;
-        if (goal.metricType === 'hours') {
+        const baseMetricType = goal.metricType.replace('_static', '');
+        
+        if (baseMetricType === 'hours') {
             formattedProgress = formatHours(todayData.progress, globalUseRawHours);
             formattedRequired = formatHours(todayData.required, globalUseRawHours);
-        } else if (goal.metricType === 'characters') {
+        } else if (baseMetricType === 'characters') {
             formattedProgress = formatGoalNumber(todayData.progress);
             formattedRequired = formatGoalNumber(todayData.required);
-        } else if (goal.metricType === 'cards' || goal.metricType === 'mature_cards' /* || goal.metricType === 'anki_backlog' */) {
+        } else if (baseMetricType === 'cards' || goal.metricType === 'mature_cards' /* || goal.metricType === 'anki_backlog' */) {
             formattedProgress = todayData.progress.toLocaleString();
             formattedRequired = todayData.required.toLocaleString();
         } else {
@@ -1105,6 +1244,10 @@ document.addEventListener('DOMContentLoaded', function () {
         const isGoalMet = todayData.progress >= todayData.required;
         const goalMetClass = isGoalMet ? 'goal-met' : '';
 
+        // For hours-based goals, formatHours already includes the unit (e.g., "25m", "1h 30m")
+        // so we don't need to show the metric label
+        const showMetricLabel = baseMetricType !== 'hours';
+
         return `
             <div class="dashboard-stat-item goal-stat-item custom-goal-today-item tooltip ${goalMetClass}"
                  data-tooltip="Your progress toward today's ${goal.name} goal"
@@ -1114,7 +1257,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <span>${formattedProgress}</span>
                     <span class="goal-separator">/</span>
                     <span>${formattedRequired}</span>
-                    <span style="margin-left: 4px;">${metricLabel}</span>
+                    ${showMetricLabel ? `<span style="margin-left: 4px;">${metricLabel}</span>` : ''}
                 </span>
                 <span class="dashboard-stat-label">${goal.name}</span>
                 ${mediaTypeBadge}
@@ -1204,8 +1347,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
                             const todayData = await response.json();
 
-                            // Only show if has target and not expired/not started and required value is not 0
-                            if (todayData.has_target && !todayData.expired && !todayData.not_started && todayData.required !== 0) {
+                            // Only show if has target and not expired/not started and required value is greater than 0
+                            if (todayData.has_target && !todayData.expired && !todayData.not_started && todayData.required > 0) {
                                 hasAnyTarget = true;
                                 const itemHTML = renderCustomGoalTodayItem(goal, todayData);
                                 todayGoalsStats.insertAdjacentHTML('beforeend', itemHTML);
