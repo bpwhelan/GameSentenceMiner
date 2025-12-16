@@ -1,9 +1,6 @@
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
 
-from GameSentenceMiner.util.communication.electron_ipc import send_message
-
-
 def handle_error_in_initialization(e):
     """Handle errors that occur during initialization."""
     logger.exception(e, exc_info=True)
@@ -49,6 +46,8 @@ try:
     from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
     import psutil
+    
+    from GameSentenceMiner.util.communication.electron_ipc import send_message
 
     start_time = time.time()
 

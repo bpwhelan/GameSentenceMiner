@@ -1062,13 +1062,13 @@ app.whenReady().then(async () => {
     switch (state) {
       case "active":
         // Game window is active/focused - show overlay normally
-        if (mainWindow.isMinimized()) {
+        if (mainWindow.isMinimized() || !mainWindow.isVisible()) {
           mainWindow.restore();
+          mainWindow.showInactive();
+          mainWindow.webContents.send("afk-hide", false);
+          afkHidden = false;
+          mainWindow.setAlwaysOnTop(true, 'screen-saver');
         }
-        mainWindow.showInactive();
-        mainWindow.webContents.send("afk-hide", false);
-        afkHidden = false;
-        mainWindow.setAlwaysOnTop(true, 'screen-saver');
         break;
 
       case "background":
@@ -1081,6 +1081,13 @@ app.whenReady().then(async () => {
         //   mainWindow.showInactive();
         //   mainWindow.setAlwaysOnTop(true, 'floating');
         // }
+        break;
+
+      case "obscured":
+        // Game window is completely hidden by other windows - hide overlay
+        if (!yomitanShown && !mainWindow.isMinimized() && !userSettings.magpieCompatibility) {
+          mainWindow.hide();
+        }
         break;
 
       case "minimized":
@@ -1250,9 +1257,9 @@ app.whenReady().then(async () => {
 
       // blur after a short delay too
 
-      // setTimeout(() => {
-      //   mainWindow.blur();
-      // }, 200);
+      setTimeout(() => {
+        mainWindow.blur();
+      }, 200);
     }
 
     // console.log(`magpieCompatibility: ${userSettings.magpieCompatibility}`);
@@ -1260,6 +1267,10 @@ app.whenReady().then(async () => {
       mainWindow.showInactive();
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
       mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+      setTimeout(() => {
+        mainWindow.blur();
+      }, 200);
     }
     //   // Slightly adjust position to workaround Magpie stealing focus
     //   win.show();

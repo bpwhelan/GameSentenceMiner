@@ -23,7 +23,7 @@ from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_over
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
 # --- Windows API Definitions ---
-if is_windows:
+if is_windows():
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
     psapi = ctypes.windll.psapi
@@ -45,6 +45,13 @@ if is_windows:
     user32.GetClassNameW.restype = ctypes.c_int
     user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
     user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.GetWindowRect.restype = wintypes.BOOL
+    user32.GetWindow.argtypes = [wintypes.HWND, ctypes.c_uint]
+    user32.GetWindow.restype = wintypes.HWND
+    
+    # GetWindow constants
+    GW_HWNDPREV = 3  # Get window above in Z-order
 
     # Kernel32 types
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -195,6 +202,79 @@ class WindowStateMonitor:
         user32.GetClassNameW(hwnd, buff, 256)
         return buff.value
 
+    def _get_window_title(self, hwnd) -> str:
+        """Helper to get window title."""
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length == 0:
+            return ""
+        buff = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buff, length + 1)
+        return buff.value
+
+    def _is_overlay_window(self, hwnd) -> bool:
+        """Check if a window is the GSM overlay or other transparent overlay."""
+        try:
+            title = self._get_window_title(hwnd)
+            window_class = self._get_window_class(hwnd)
+            
+            # Check for GSM Overlay by title or class
+            if "GSM Overlay" in title or "gsm_overlay" in title.lower():
+                return True
+            
+            # Electron windows typically have "Chrome" class
+            if "Chrome" in window_class and "overlay" in title.lower():
+                return True
+            
+            return False
+        except Exception:
+            return False
+
+    def _is_window_obscured(self, hwnd) -> bool:
+        """Check if the window is completely obscured by other windows."""
+        try:
+            # Get target window rect
+            target_rect = wintypes.RECT()
+            if not user32.GetWindowRect(hwnd, ctypes.byref(target_rect)):
+                return False
+            
+            # Calculate target window area
+            target_width = target_rect.right - target_rect.left
+            target_height = target_rect.bottom - target_rect.top
+            
+            # If window has no area, consider it obscured
+            if target_width <= 0 or target_height <= 0:
+                return True
+            
+            # Check windows above in Z-order
+            current_hwnd = user32.GetWindow(hwnd, GW_HWNDPREV)
+            
+            while current_hwnd:
+                # Skip overlay windows (GSM overlay and similar transparent overlays)
+                if self._is_overlay_window(current_hwnd):
+                    current_hwnd = user32.GetWindow(current_hwnd, GW_HWNDPREV)
+                    continue
+                
+                # Only check visible windows
+                if user32.IsWindowVisible(current_hwnd):
+                    overlapping_rect = wintypes.RECT()
+                    if user32.GetWindowRect(current_hwnd, ctypes.byref(overlapping_rect)):
+                        # Check if this window completely covers the target
+                        if (overlapping_rect.left <= target_rect.left and
+                            overlapping_rect.top <= target_rect.top and
+                            overlapping_rect.right >= target_rect.right and
+                            overlapping_rect.bottom >= target_rect.bottom):
+                            # Window is completely covered
+                            logger.debug(f"Target window is completely obscured by another window")
+                            return True
+                
+                # Move to next window above in Z-order
+                current_hwnd = user32.GetWindow(current_hwnd, GW_HWNDPREV)
+            
+            return False
+        except Exception as e:
+            logger.debug(f"Error checking window occlusion: {e}")
+            return False
+
     def _find_window_callback(self, hwnd, extra):
         """Callback for EnumWindows. Matches against source info or title."""
         if not user32.IsWindowVisible(hwnd):
@@ -286,6 +366,8 @@ class WindowStateMonitor:
             foreground_hwnd = user32.GetForegroundWindow()
             if foreground_hwnd == self.target_hwnd:
                 current_state = "active"
+            elif self._is_window_obscured(self.target_hwnd):
+                current_state = "obscured"
             else:
                 current_state = "background"
 
@@ -302,6 +384,13 @@ class WindowStateMonitor:
             
             if websocket_manager.has_clients(ID_OVERLAY):
                 await websocket_manager.send(ID_OVERLAY,json.dumps(payload))
+            
+            # Trigger aggressive scan when window becomes active
+            if current_state == "active" and self.last_state != "background":
+                logger.display("Window activated - triggering new scan")
+                asyncio.create_task(
+                    overlay_processor.find_box_and_send_to_overlay('', check_against_last=True, custom_threshold=0.95)
+                )
 
 class OverlayThread(threading.Thread):
     """
@@ -457,10 +546,15 @@ class OverlayProcessor:
         # Update current engine config
         self.current_engine_config = effective_engine
             
-    async def find_box_and_send_to_overlay(self, sentence_to_check: str = None, check_against_last: bool = False):
+    async def find_box_and_send_to_overlay(self, sentence_to_check: str = None, check_against_last: bool = False, custom_threshold: float = None):
         """
         Sends the detected text boxes to the overlay via WebSocket.
         Cancels any running OCR task before starting a new one.
+        
+        Args:
+            sentence_to_check: Ground truth sentence for correction
+            check_against_last: Whether to compare against last result
+            custom_threshold: Custom fuzzy match threshold (0-1). If None, uses config value.
         """
         # Cancel any existing task
         if self.current_task and not self.current_task.done():
@@ -486,13 +580,13 @@ class OverlayProcessor:
                 self.meikiocr = MeikiOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
         
         # Start new task
-        self.current_task = self.processing_loop.create_task(self.find_box_for_sentence(sentence_to_check, check_against_last))
+        self.current_task = self.processing_loop.create_task(self.find_box_for_sentence(sentence_to_check, check_against_last, custom_threshold))
         try:
             await self.current_task
         except asyncio.CancelledError:
             logger.info("OCR task was cancelled")
 
-    async def find_box_for_sentence(self, sentence_to_check: str = None, check_against_last: bool = False) -> List[Dict[str, Any]]:
+    async def find_box_for_sentence(self, sentence_to_check: str = None, check_against_last: bool = False, custom_threshold: float = None) -> List[Dict[str, Any]]:
         """
         Public method to perform OCR and find text boxes for a given sentence.
         
@@ -500,7 +594,7 @@ class OverlayProcessor:
         error handling.
         """
         try:
-            return await self._do_work(sentence_to_check, check_against_last=check_against_last)
+            return await self._do_work(sentence_to_check, check_against_last=check_against_last, custom_threshold=custom_threshold)
         except Exception as e:
             logger.error(f"Error during OCR processing: {e}", exc_info=True)
             return []
@@ -604,7 +698,7 @@ class OverlayProcessor:
         
         return composite_img
 
-    async def _do_work(self, sentence_to_check: str = None, check_against_last: bool = False) -> Tuple[List[Dict[str, Any]], int]:
+    async def _do_work(self, sentence_to_check: str = None, check_against_last: bool = False, custom_threshold: float = None) -> Tuple[List[Dict[str, Any]], int]:
         """The main OCR workflow with cancellation support."""
         effective_engine = self._get_effective_engine()
         
@@ -676,12 +770,19 @@ class OverlayProcessor:
                 
                 logger.display(f"Local OCR found text: {text_str}")
                 
-                # RapidFuzz fuzzy match 90% to not send the same results repeatedly
+                # RapidFuzz fuzzy match to not send the same results repeatedly
                 if self.last_oneocr_result and check_against_last:
-                    
-                    score = fuzz.ratio(text_str, self.last_oneocr_result)
-                    if score >= get_config().overlay.periodic_ratio * 100:
-                        return
+                    # Use custom threshold if provided (for activation scans), otherwise use config
+                    if custom_threshold is not None:
+                        score = fuzz.ratio(text_str, self.last_oneocr_result)
+                        threshold = custom_threshold * 100
+                        if score >= threshold:
+                            logger.display(f"Skipping update: ratio {score}% >= {threshold}%")
+                            return
+                    else:
+                        score = fuzz.ratio(text_str, self.last_oneocr_result)
+                        if score >= get_config().overlay.periodic_ratio * 100:
+                            return
                 self.last_oneocr_result = text_str
                 
                 # Convert results
@@ -746,12 +847,20 @@ class OverlayProcessor:
         
         text_str = "".join([text for text in text_list if self.regex.match(text)])
         
-        # RapidFuzz fuzzy match 90% to not send the same results repeatedly
+        # RapidFuzz fuzzy match to not send the same results repeatedly
         if self.last_lens_result and check_against_last:
-            score = fuzz.ratio(text_str, self.last_lens_result)
-            if score >= get_config().overlay.periodic_ratio * 100:
-                logger.info("Google Lens results are similar to the last results (score: %d). Skipping overlay update.", score)
-                return
+            # Use custom threshold if provided (for activation scans), otherwise use config
+            if custom_threshold is not None:
+                score = fuzz.partial_ratio(text_str, self.last_lens_result)
+                threshold = custom_threshold * 100
+                if score >= threshold:
+                    logger.debug(f"Skipping Lens update: partial_ratio {score}% >= {threshold}%")
+                    return
+            else:
+                score = fuzz.ratio(text_str, self.last_lens_result)
+                if score >= get_config().overlay.periodic_ratio * 100:
+                    logger.info("Google Lens results are similar to the last results (score: %d). Skipping overlay update.", score)
+                    return
         self.last_lens_result = text_str
 
         if not success or not coords:
