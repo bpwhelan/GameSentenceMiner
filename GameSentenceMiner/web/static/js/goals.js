@@ -4,7 +4,18 @@
 // ================================
 // Constants
 // ================================
-const ALLOWED_METRIC_TYPES = ['hours', 'characters', 'games', 'cards', 'mature_cards', 'hours_static', 'characters_static', 'cards_static', /* 'anki_backlog', */ 'custom'];
+const ALLOWED_METRIC_TYPES = [
+    'hours',
+    'characters',
+    'games',
+    'cards',
+    'mature_cards',
+    'hours_static',
+    'characters_static',
+    'cards_static',
+    /* 'anki_backlog', */
+    'custom'
+];
 
 const MEDIA_TYPES = [
     { value: 'ALL', label: 'All Media Types' },
