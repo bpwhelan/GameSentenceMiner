@@ -531,6 +531,16 @@ background: rgba(202, 12, 12, 0.692);
           ipcRenderer.send("config-received", data.config);
         }
 
+        // Handle window state events
+        if (data.type === "window_state") {
+          console.log("Window state event received:", data.data, "for game:", data.game);
+          ipcRenderer.send("window-state-changed", {
+            state: data.data,
+            game: data.game
+          });
+          return; // Don't process as text display
+        }
+
         // Clear existing text boxes
         const mainBoxBounds = mainBox.getBoundingClientRect();
         clearTextBoxes();
@@ -919,6 +929,8 @@ background: rgba(202, 12, 12, 0.692);
     bigAreas.forEach(area => area.style.display = 'none');
     const lineBoxes = document.querySelectorAll('.line-box');
     lineBoxes.forEach(lineBox => lineBox.style.display = 'none');
+    const furiganaBoxes = document.querySelectorAll('.furigana-box');
+    furiganaBoxes.forEach(furiganaBox => furiganaBox.style.display = 'none');
   }
 
   function showTextBoxes() {
@@ -928,6 +940,8 @@ background: rgba(202, 12, 12, 0.692);
     bigAreas.forEach(area => area.style.display = 'block');
     const lineBoxes = document.querySelectorAll('.line-box');
     lineBoxes.forEach(lineBox => lineBox.style.display = 'block');
+    const furiganaBoxes = document.querySelectorAll('.furigana-box');
+    furiganaBoxes.forEach(furiganaBox => furiganaBox.style.display = 'block');
   }
 
   let resizeMode = false;

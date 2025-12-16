@@ -7,17 +7,55 @@ import os
 import threading
 import time
 import difflib
+import ctypes
+from ctypes import wintypes
 from PIL import Image
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 from rapidfuzz import fuzz
 
 # Local application imports
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
 from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_overlay_config, get_temporary_directory, is_wayland, is_windows, is_beangate, logger
 from GameSentenceMiner.util.electron_config import get_ocr_language
-from GameSentenceMiner.obs import get_screenshot_PIL
+# Updated imports to include window info helpers
+from GameSentenceMiner.obs import get_screenshot_PIL, get_window_info_from_source, get_current_scene, get_current_game
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
+
+# --- Windows API Definitions ---
+if is_windows:
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    psapi = ctypes.windll.psapi
+    
+    # Process Access Rights
+    PROCESS_QUERY_INFORMATION = 0x0400
+    PROCESS_VM_READ = 0x0010
+    
+    # User32 types
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.IsIconic.restype = wintypes.BOOL
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.EnumWindows.argtypes = [ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, ctypes.c_void_p), ctypes.c_void_p]
+    user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetClassNameW.restype = ctypes.c_int
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+
+    # Kernel32 types
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    # PSAPI types
+    psapi.GetModuleFileNameExW.argtypes = [wintypes.HANDLE, wintypes.HMODULE, wintypes.LPWSTR, wintypes.DWORD]
+    psapi.GetModuleFileNameExW.restype = wintypes.DWORD
+
 
 def load_overlay_config_for_scene(scene_name: str = None) -> Dict[str, Any]:
     """
@@ -29,7 +67,6 @@ def load_overlay_config_for_scene(scene_name: str = None) -> Dict[str, Any]:
         from GameSentenceMiner.util.gsm_utils import sanitize_filename
         
         if not scene_name:
-            from GameSentenceMiner.util.electron_config import get_current_game
             scene_name = get_current_game()
         
         scene = sanitize_filename(scene_name or "Default")
@@ -50,16 +87,6 @@ def apply_overlay_config_to_image(img: Image.Image, overlay_config: Dict[str, An
     """
     Apply overlay config rectangles to an image by creating a transparent canvas
     and pasting only the specified regions.
-    
-    Args:
-        img: PIL Image to process
-        overlay_config: Dict with 'rects' key containing list of rectangles
-                       Each rect has 'x', 'y', 'w', 'h' in either:
-                       - Percentage coordinates (0-1 range) if coordinate_system is 'percentage'
-                       - Pixel coordinates (legacy support)
-    
-    Returns:
-        Composite image with only the specified regions on transparent background
     """
     if not overlay_config or 'rects' not in overlay_config:
         return img
@@ -130,7 +157,152 @@ try:
     import mss
 except ImportError:
     mss = None
-    
+
+# --- Window State Monitor Class ---
+class WindowStateMonitor:
+    """
+    Monitors the state of the target game window (Minimized, Active, Background)
+    using OBS source info for robust matching.
+    """
+    def __init__(self):
+        self.target_hwnd: Optional[int] = None
+        self.last_state: str = "unknown"
+        self.last_game_name: str = ""
+        self.last_target_info: Dict[str, str] = {}
+        self.retry_find_count = 0
+        self.found_hwnds: List[int] = []
+
+    def _get_window_exe_name(self, hwnd) -> str:
+        """Helper to get the .exe name from an HWND."""
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        
+        h_process = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+        if not h_process:
+            return ""
+            
+        try:
+            buff = ctypes.create_unicode_buffer(1024)
+            if psapi.GetModuleFileNameExW(h_process, None, buff, 1024):
+                return os.path.basename(buff.value)
+        finally:
+            kernel32.CloseHandle(h_process)
+        return ""
+
+    def _get_window_class(self, hwnd) -> str:
+        """Helper to get Window Class name."""
+        buff = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, buff, 256)
+        return buff.value
+
+    def _find_window_callback(self, hwnd, extra):
+        """Callback for EnumWindows. Matches against source info or title."""
+        if not user32.IsWindowVisible(hwnd):
+            return True
+
+        length = user32.GetWindowTextLengthW(hwnd)
+        title = ""
+        if length > 0:
+            buff = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buff, length + 1)
+            title = buff.value
+
+        # Match Strategy 1: Specific info from OBS Source
+        if self.last_target_info:
+            tgt_exe = self.last_target_info.get('exe')
+            tgt_class = self.last_target_info.get('window_class')
+            tgt_title = self.last_target_info.get('title')
+
+            # Class check (Fast)
+            if tgt_class:
+                curr_class = self._get_window_class(hwnd)
+                if curr_class != tgt_class:
+                    return True 
+
+            # Exe check (Slow/Accurate)
+            if tgt_exe:
+                curr_exe = self._get_window_exe_name(hwnd)
+                if curr_exe.lower() == tgt_exe.lower():
+                    self.found_hwnds.append(hwnd)
+                    return True
+            # Fallback if only class/title available
+            elif tgt_class:
+                self.found_hwnds.append(hwnd)
+
+        # Match Strategy 2: Legacy fuzzy title match
+        elif self.last_game_name:
+            if self.last_game_name.lower() in title.lower():
+                self.found_hwnds.append(hwnd)
+
+        return True
+
+    def find_target_hwnd(self) -> Optional[int]:
+        """Attempts to find the HWND for the current game."""
+        try:
+            window_info = get_window_info_from_source(scene_name=get_current_scene())
+        except Exception:
+            window_info = None
+
+        current_game = get_current_game()
+        
+        if not window_info and not current_game:
+            return None
+            
+        self.last_target_info = window_info if window_info else {}
+        self.last_game_name = current_game if current_game else ""
+        self.found_hwnds = []
+        
+        cmp_func = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, ctypes.c_void_p)
+        user32.EnumWindows(cmp_func(self._find_window_callback), 0)
+        
+        if self.found_hwnds:
+            fg = user32.GetForegroundWindow()
+            if fg in self.found_hwnds:
+                return fg
+            return self.found_hwnds[0]
+        return None
+
+    async def check_and_send(self):
+        """Checks window state and broadcasts if changed."""
+        if not is_windows:
+            return
+
+        if not self.target_hwnd or self.retry_find_count > 10:
+            self.target_hwnd = self.find_target_hwnd()
+            self.retry_find_count = 0
+        
+        if not self.target_hwnd:
+            self.retry_find_count += 1
+            return
+
+        current_state = "unknown"
+        
+        if not user32.IsWindowVisible(self.target_hwnd):
+            self.target_hwnd = None
+            current_state = "closed"
+        elif user32.IsIconic(self.target_hwnd):
+            current_state = "minimized"
+        else:
+            foreground_hwnd = user32.GetForegroundWindow()
+            if foreground_hwnd == self.target_hwnd:
+                current_state = "active"
+            else:
+                current_state = "background"
+
+        game_name_ref = self.last_target_info.get('title', self.last_game_name)
+
+        if current_state != self.last_state:
+            self.last_state = current_state
+            
+            payload = {
+                "type": "window_state",
+                "data": current_state,
+                "game": game_name_ref
+            }
+            
+            if websocket_manager.has_clients(ID_OVERLAY):
+                await websocket_manager.send(ID_OVERLAY,json.dumps(payload))
+
 class OverlayThread(threading.Thread):
     """
     A thread to run the overlay processing loop.
@@ -143,13 +315,26 @@ class OverlayThread(threading.Thread):
         self.daemon = True
         self.first_time_run = True
         
+        self.window_monitor = WindowStateMonitor()
         overlay_processor.processing_loop = self.loop
 
     def run(self):
         """Runs the overlay processing loop."""
         asyncio.set_event_loop(self.loop)
+        self.loop.create_task(self.window_monitor_loop())
         self.loop.create_task(self.overlay_loop())
         self.loop.run_forever()
+
+    async def window_monitor_loop(self):
+        """Secondary loop to monitor window state (High Frequency)."""
+        while True:
+            try:
+                if websocket_manager.has_clients(ID_OVERLAY):
+                    await self.window_monitor.check_and_send()
+                await asyncio.sleep(0.5) 
+            except Exception as e:
+                logger.debug(f"Window monitor error: {e}")
+                await asyncio.sleep(1)
 
     async def overlay_loop(self):
         """Main loop to periodically process and send overlay data."""
@@ -654,9 +839,18 @@ class OverlayProcessor:
         """
         Matches the OCR results against a ground truth sentence and corrects 
         characters in the OCR results where they align 1-to-1.
+        Also handles:
+        - Flipped kanji pairs (e.g., 冗談 misread as 談冗)
+        - Missing characters after opening quotes (「)
         """
         if not sentence or not ocr_results:
             return ocr_results
+
+        # Known flippable kanji pairs (Meiki OCR issue)
+        FLIPPABLE_PAIRS = [
+            ('冗', '談'),  # 冗談
+            ('痙', '攣'),  # 痙攣
+        ]
 
         # 1. Flatten OCR content into a list of characters with mapping to their structure
         flat_ocr_chars = []
@@ -691,12 +885,44 @@ class OverlayProcessor:
         
         flat_ocr_str = "".join(flat_ocr_chars)
         
+        # PRE-PROCESSING: Fix flipped kanji pairs
+        for char1, char2 in FLIPPABLE_PAIRS:
+            # Check for flipped version (char2 + char1)
+            flipped = char2 + char1
+            correct = char1 + char2
+            
+            if flipped in flat_ocr_str and correct in sentence:
+                # Find all occurrences
+                idx = 0
+                while idx < len(flat_ocr_str) - 1:
+                    if flat_ocr_str[idx] == char2 and flat_ocr_str[idx + 1] == char1:
+                        # Swap characters in the buffers
+                        if idx in char_map and (idx + 1) in char_map:
+                            l1, w1, c1 = char_map[idx]
+                            l2, w2, c2 = char_map[idx + 1]
+                            
+                            # Swap in buffers
+                            word_buffers[(l1, w1)][c1], word_buffers[(l2, w2)][c2] = \
+                                word_buffers[(l2, w2)][c2], word_buffers[(l1, w1)][c1]
+                            
+                            # Update flat_ocr_chars for subsequent matching
+                            flat_ocr_chars[idx], flat_ocr_chars[idx + 1] = \
+                                flat_ocr_chars[idx + 1], flat_ocr_chars[idx]
+                            
+                            logger.display(f"OCR flipped kanji fix: '{flipped}' -> '{correct}'")
+                    idx += 1
+        
+        # Rebuild flat_ocr_str after flipping
+        flat_ocr_str = "".join(flat_ocr_chars)
+        
         # 2. Match OCR string against the ground truth sentence
         matcher = difflib.SequenceMatcher(None, flat_ocr_str, sentence)
         
         # 3. Apply corrections
         # We only apply 1-to-1 replacements to preserve coordinate validity
         corrections_made = 0
+        insertions_made = 0
+        
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if tag == 'replace':
                 ocr_segment_len = i2 - i1
@@ -719,6 +945,29 @@ class OverlayProcessor:
                     
                     if ocr_segment != correct_segment:
                         logger.display(f"OCR correction: '{ocr_segment}' -> '{correct_segment}'")
+            
+            elif tag == 'delete':
+                # OCR has extra characters - handle separately if needed
+                pass
+            
+            elif tag == 'insert':
+                # Sentence has characters that OCR is missing
+                missing_segment = sentence[j1:j2]
+                
+                # Check if this is right after an opening quote 「
+                # We need to look at what comes before position i1 in the OCR
+                if i1 > 0 and flat_ocr_str[i1 - 1] == '「':
+                    # Verify that in the sentence, these missing chars also come after 「
+                    if j1 > 0 and sentence[j1 - 1] == '「':
+                        # Insert the missing character(s) after the 「
+                        # We need to insert into the buffer at position i1
+                        if i1 in char_map:
+                            l, w, c = char_map[i1]
+                            # Insert at the beginning of this word/line
+                            for insert_char in reversed(missing_segment):  # Reverse to maintain order
+                                word_buffers[(l, w)].insert(c, insert_char)
+                            insertions_made += len(missing_segment)
+                            logger.display(f"OCR missing chars after 「: inserted '{missing_segment}'")
 
         # 4. Reconstruct OCR results from the modified buffers
         for (l, w), char_list in word_buffers.items():
@@ -735,6 +984,9 @@ class OverlayProcessor:
         
         if corrections_made > 0:
             logger.display(f"Made {corrections_made} character correction(s) in OCR results")
+        
+        if insertions_made > 0:
+            logger.display(f"Inserted {insertions_made} missing character(s) in OCR results")
                 
         return ocr_results
 

@@ -1073,6 +1073,67 @@ def get_current_source_input_settings():
         return input_settings_response.input_settings if input_settings_response else None
 
 
+def get_window_info_from_source(scene_name: str = None):
+    """
+    Get window information from an OBS scene's capture source.
+    
+    Returns a dict with 'title', 'window_class', and 'exe' keys, or None if not found.
+    The OBS window format is "title:class:exe".
+    
+    Args:
+        obs_scene_id: UUID of the scene (optional)
+        scene_name: Name of the scene (optional, used if obs_scene_id not provided)
+    
+    Returns:
+        dict: {'title': str, 'window_class': str, 'exe': str} or None
+    """
+    try:
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            
+            # Get scene items
+            if scene_name:
+                scene_items_response = client.get_scene_item_list(name=scene_name)
+            else:
+                logger.error("Either obs_scene_id or scene_name must be provided")
+                return None
+            
+            if not scene_items_response or not scene_items_response.scene_items:
+                logger.warning(f"No scene items found in scene")
+                return None
+            
+            # Find the first input source with a window property
+            for item in scene_items_response.scene_items:
+                source_name = item.get('sourceName')
+                if not source_name:
+                    continue
+                
+                try:
+                    input_settings_response = client.get_input_settings(name=source_name)
+                    if input_settings_response and input_settings_response.input_settings:
+                        window_value = input_settings_response.input_settings.get('window')
+                        
+                        if window_value:
+                            parts = window_value.split(':')
+                            
+                            if len(parts) >= 3:
+                                return {
+                                    'title': parts[0].strip(),
+                                    'window_class': parts[1].strip(),
+                                    'exe': parts[2].strip()
+                                }
+                except Exception as e:
+                    logger.debug(f"Error getting input settings for source {source_name}: {e}")
+                    continue
+            
+            logger.warning(f"No window input found in scene")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error getting window info from source: {e}")
+        return None
+
+
 def get_input_audio_tracks(input_name: str = None, input_uuid: str = None):
     """Retrieve the enable state of all audio tracks for a given input.
 
@@ -1247,9 +1308,8 @@ if __name__ == '__main__':
     connect_to_obs_sync()
     try:
         with connection_pool.get_client() as client:
-            client: obs.ReqClient
-            resp = get_input_audio_tracks()
-            pretty_print_response(resp)
+            pass
+        resp = get_window_info_from_source(scene_name=get_current_scene())
             # resp = client.get_scene_item_list(get_current_scene())
             # print(resp.scene_items)
     except Exception as e:

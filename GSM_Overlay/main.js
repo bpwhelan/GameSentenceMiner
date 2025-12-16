@@ -185,7 +185,7 @@ function registerManualShowHotkey(oldHotkey) {
       if (userSettings.manualModeType === "toggle") {
         // Toggle mode: press once to show, press again to hide
         toggleState = !toggleState;
-        
+
         if (toggleState) {
           // Show overlay
           mainWindow.webContents.send('show-overlay-hotkey', true);
@@ -203,7 +203,7 @@ function registerManualShowHotkey(oldHotkey) {
           // Hide overlay
           mainWindow.webContents.send('show-overlay-hotkey', false);
           if (!yomitanShown && !resizeMode) {
-            mainWindow.blur();
+            mainWindow.showInactive();
             if (!isLinux()) {
               mainWindow.setIgnoreMouseEvents(true, { forward: true });
             } else {
@@ -211,7 +211,7 @@ function registerManualShowHotkey(oldHotkey) {
             }
           }
         }
-        
+
         // Reset manualHotkeyPressed after a short delay in toggle mode
         setTimeout(() => {
           if (!toggleState) {
@@ -250,7 +250,7 @@ function registerManualShowHotkey(oldHotkey) {
           manualHotkeyPressed = false;
           mainWindow.webContents.send('show-overlay-hotkey', false);
           if (!yomitanShown && !resizeMode) {
-            mainWindow.blur();
+            mainWindow.showInactive();
             if (!isLinux()) {
               mainWindow.setIgnoreMouseEvents(true, { forward: true });
             } else {
@@ -456,8 +456,8 @@ function openOffsetHelper() {
         // Send something to at least open the window with some text
         parsedData = { sentence: lastWebsocketData };
       }
-      offsetHelperWindow.webContents.send('text-data', { 
-        textData: parsedData, 
+      offsetHelperWindow.webContents.send('text-data', {
+        textData: parsedData,
         settings: userSettings,
         windowBounds: { width: display.bounds.width, height: display.bounds.height - 1 }
       });
@@ -744,8 +744,7 @@ app.whenReady().then(async () => {
         afkHidden = false;
       }
       else if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-        mainWindow.blur();
+        mainWindow.showInactive();
       }
       else mainWindow.minimize();
     }
@@ -848,7 +847,7 @@ app.whenReady().then(async () => {
     },
     show: false,
   });
-  
+
   // Set bounds again to fix potential issue with wrong size on start
   setTimeout(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -962,13 +961,11 @@ app.whenReady().then(async () => {
       setTimeout(() => {
         if (!resizeMode && !yomitanShown && !manualHotkeyPressed) {
           if (userSettings.magpieCompatibility) {
-            mainWindow.show();
-            setTimeout(() => {
-              mainWindow.blur();
-            }, 100);
+            mainWindow.showInactive();
+            mainWindow.setAlwaysOnTop(true, 'screen-saver');
+            mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
           }
           mainWindow.blur();
-
         }
       }, 100);
     }
@@ -1055,6 +1052,57 @@ app.whenReady().then(async () => {
 
   ipcMain.on("websocket-data", (event, data) => {
     lastWebsocketData = data;
+  });
+
+  ipcMain.on("window-state-changed", (event, { state, game }) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    console.log(`Window state changed to: ${state} for game: ${game}`);
+
+    switch (state) {
+      case "active":
+        // Game window is active/focused - show overlay normally
+        if (mainWindow.isMinimized()) {
+          mainWindow.restore();
+        }
+        mainWindow.showInactive();
+        mainWindow.webContents.send("afk-hide", false);
+        afkHidden = false;
+        mainWindow.setAlwaysOnTop(true, 'screen-saver');
+        break;
+
+      case "background":
+        // Disabled for now, idk what I want to do here
+        // if (!yomitanShown) {
+        //   // Game window exists but is not focused - show overlay but less prominent
+        //   if (mainWindow.isMinimized()) {
+        //     mainWindow.restore();
+        //   }
+        //   mainWindow.showInactive();
+        //   mainWindow.setAlwaysOnTop(true, 'floating');
+        // }
+        break;
+
+      case "minimized":
+        // Game window is minimized - minimize overlay too
+        if (!mainWindow.isMinimized()) {
+          mainWindow.minimize();
+        }
+        break;
+
+      case "closed":
+        // Game window is closed - hide overlay
+        mainWindow.hide();
+        break;
+
+      case "unknown":
+        // Unknown state - don't change anything
+        console.log("Unknown window state, no action taken");
+        break;
+
+      default:
+        console.warn(`Unhandled window state: ${state}`);
+    }
   });
 
   ipcMain.on("open-settings", () => {
@@ -1196,22 +1244,22 @@ app.whenReady().then(async () => {
 
     // If window is minimized, restore it
     if (mainWindow.isMinimized() && !isManualMode()) {
-      mainWindow.show();
-      mainWindow.blur();
+      mainWindow.showInactive();
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
-      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
 
       // blur after a short delay too
 
-      setTimeout(() => {
-        mainWindow.blur();
-      }, 200);
+      // setTimeout(() => {
+      //   mainWindow.blur();
+      // }, 200);
     }
 
     // console.log(`magpieCompatibility: ${userSettings.magpieCompatibility}`);
     if (userSettings.magpieCompatibility && !isManualMode()) {
-      mainWindow.show();
-      mainWindow.blur();
+      mainWindow.showInactive();
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
+      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     }
     //   // Slightly adjust position to workaround Magpie stealing focus
     //   win.show();
