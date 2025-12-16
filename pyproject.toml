@@ -75,6 +75,7 @@ dependencies = [
   "py7zr~=1.0.0",
   "pynput~=1.8.1",
   "waitress==3.0.2",
+  "flasgger~=0.9.7",
 ]
 
 
