@@ -170,7 +170,7 @@ marshmallow==3.26.1
     # via dataclasses-json
 matplotlib==3.10.7
     # via gamesentenceminer (pyproject.toml)
-meikiocr==0.1.3
+meikiocr==0.1.4
     # via gamesentenceminer (pyproject.toml)
 more-itertools==10.8.0
     # via openai-whisper
