@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import json
 import os
+import textwrap
 import threading
 
 import flask
@@ -325,7 +326,7 @@ def translate_line():
     if get_config().ai.custom_texthooker_prompt:
         prompt = get_config().ai.custom_texthooker_prompt.strip()
     else:
-        prompt = f"""
+        prompt = textwrap.dedent(f"""
         **Professional Game Localization Task**
 
         **Task Directive:**
@@ -337,7 +338,7 @@ def translate_line():
         - Do not include notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated line.
 
         **Line to Translate:**
-        """
+        """)
 
     if not get_config().ai.is_configured():
         return jsonify(
@@ -380,7 +381,7 @@ def translate_multiple():
     
     language = get_config().general.get_native_language_name() if get_config().general.native_language else "English"
     
-    translate_multiple_lines_prompt = f"""
+    translate_multiple_lines_prompt = textwrap.dedent(f"""
     **Professional Game Localization Task**
     Translate the following lines of game dialogue into natural-sounding, context-aware {language}:
 
@@ -392,7 +393,7 @@ def translate_multiple():
     - Do not include any notes, alternatives, explanations, or any other surrounding text. Absolutely nothing but the translated lines.
 
     **Lines to Translate:**
-    """
+    """)
 
     translation = get_ai_prompt_result(
         get_all_lines(),
