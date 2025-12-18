@@ -1352,8 +1352,6 @@ def register_goals_api_routes(app):
             end_date_str = data.get("end_date")
             media_type = data.get("media_type", "ALL")
             
-            logger.info(start_date_str)
-            
             # Validate required fields
             if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
                 return jsonify({"error": "Missing required fields"}), 400
