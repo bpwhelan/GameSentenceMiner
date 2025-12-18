@@ -1,0 +1,94 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "owocr_gsm"
+version = "1.13.12"
+description = "Japanese OCR - With GSM Specific Edits"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Beangate", email = "bpwhelan95@gmail.com"}
+]
+license = "Apache-2.0"
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "jaconv",
+    "loguru",
+    "numpy",
+    "Pillow>=10.0.0",
+    "pyperclipfix",
+    "pynput<=1.7.8",
+    "websockets>=14.0",
+    "desktop-notifier>=6.1.0",
+    "mss",
+    "pysbd",
+    "langid",
+    "psutil",
+    "requests",
+    "pywin32;platform_system=='Windows'",
+    "pyobjc;platform_system=='Darwin'"
+]
+
+[project.optional-dependencies]
+faster-png = [
+    "fpng-py"
+]
+
+accurate-filtering = [
+    "transformers",
+    "sentencepiece"
+]
+
+easyocr = [
+    "easyocr"
+]
+
+rapidocr = [
+    "rapidocr",
+    "onnxruntime",
+    "rapidocr_onnxruntime"
+]
+
+mangaocr = [
+    "manga-ocr"
+]
+
+winocr = [
+    "winocr"
+]
+
+oneocr = [
+    "oneocr"
+]
+
+lens = [
+    "betterproto==2.0.0b7"
+]
+
+lensweb = [
+    "pyjson5"
+]
+
+gvision = [
+    "google-cloud-vision"
+]
+
+azure = [
+    "azure-ai-vision-imageanalysis"
+]
+
+[project.urls]
+Homepage = "https://github.com/bpwhelan/owocr"
+
+[project.scripts]
+owocr = "owocr.__main__:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["owocr", "owocr.*"]
