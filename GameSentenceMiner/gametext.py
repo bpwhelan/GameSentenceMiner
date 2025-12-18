@@ -181,17 +181,20 @@ async def listen_websockets():
                             logger.debug(message)
                         
                         line_time = None
+                        dict_from_ocr = None
                         try:
                             data = json.loads(message)
                             current_clipboard = data.get("sentence", message)
                             if "time" in data:
                                 line_time = datetime.fromisoformat(data["time"])
+                            if "dict_from_ocr" in data:
+                                dict_from_ocr = data["dict_from_ocr"]
                         except (json.JSONDecodeError, TypeError):
                             current_clipboard = message
                             
                         try:
                             if current_clipboard != current_line:
-                                await handle_new_text_event(current_clipboard, line_time if line_time else message_received_time)
+                                await handle_new_text_event(current_clipboard, line_time if line_time else message_received_time, dict_from_ocr=dict_from_ocr)
                         except Exception as e:
                             logger.error(f"Error handling new text event: {e}", exc_info=True)
                             
@@ -239,7 +242,7 @@ def schedule_merge(wait, coro, args):
     return task
 
 
-async def handle_new_text_event(current_clipboard, line_time=None):
+async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr=None):
     global current_line, current_line_time, current_line_after_regex, timer, current_sequence_start_time, last_raw_clipboard
     obs.update_current_game()
     discord_rpc_manager.update(obs.get_current_game(sanitize=False, update=False))
@@ -269,10 +272,10 @@ async def handle_new_text_event(current_clipboard, line_time=None):
                 last_raw_clipboard = current_line
                 timer = schedule_merge(2, merge_sequential_lines, [current_line[:], current_sequence_start_time])
     else:
-        await add_line_to_text_log(current_line, line_time)
+        await add_line_to_text_log(current_line, line_time, dict_from_ocr=dict_from_ocr)
 
                 
-async def add_line_to_text_log(line, line_time=None):
+async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None):
     if get_config().general.texthook_replacement_regex:
         current_line_after_regex = re.sub(get_config().general.texthook_replacement_regex, '', line)
     else:
@@ -287,8 +290,14 @@ async def add_line_to_text_log(line, line_time=None):
         await add_event_to_texthooker(get_text_log()[-1])
     if get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY):
         if get_overlay_processor().ready:
+            # Increment sequence to mark this as the latest request
+            get_overlay_processor()._current_sequence += 1
             asyncio.run_coroutine_threadsafe(
-                get_overlay_processor().find_box_and_send_to_overlay(current_line_after_regex), 
+                get_overlay_processor().find_box_and_send_to_overlay(
+                    current_line_after_regex, 
+                    dict_from_ocr=dict_from_ocr,
+                    sequence=get_overlay_processor()._current_sequence
+                ), 
                 get_overlay_processor().processing_loop
             )
     add_srt_line(line_time, new_line)

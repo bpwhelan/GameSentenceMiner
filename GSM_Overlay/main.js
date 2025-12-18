@@ -1,4 +1,6 @@
 const { app, BrowserWindow, session, screen, globalShortcut, dialog, Tray, Menu, nativeImage } = require('electron');
+// === AUTO TRANSLATE FLAG ===
+const AUTO_TRANSLATE = false; // Set to true to auto-translate after text is received
 const { ipcMain } = require("electron");
 const fs = require("fs");
 const path = require('path');
@@ -8,6 +10,7 @@ const bg = require('./background');
 const wanakana = require('wanakana');
 const Kuroshiro = require("kuroshiro").default;
 const KuromojiAnalyzer = require("kuroshiro-analyzer-kuromoji");
+const BackendConnector = require('./backend_connector');
 
 let dataPath = process.env.APPDATA
   ? path.join(process.env.APPDATA, "gsm_overlay") // Windows
@@ -26,7 +29,6 @@ let userSettings = {
   "weburl1": "ws://localhost:55002",
   "weburl2": "ws://localhost:55499",
   "hideOnStartup": false,
-  "magpieCompatibility": false,
   "manualMode": false,
   "manualModeType": "hold", // "hold" or "toggle"
   "showHotkey": "Shift + Space",
@@ -50,12 +52,15 @@ let websocketStates = {
 };
 
 let lastWebsocketData = null;
+let currentMagpieActive = false; // Track magpie state from websocket
+let translationRequested = false; // Track if translation has been requested for current text
 
 let yomitanSettingsWindow = null;
 let settingsWindow = null;
 let offsetHelperWindow = null;
 let tray = null;
 let platformOverride = null;
+let backend = null;
 
 ipcMain.on('set-platform-override', (event, platform) => {
   platformOverride = platform;
@@ -196,7 +201,8 @@ function registerManualShowHotkey(oldHotkey) {
             mainWindow.show();
           }
 
-          if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
+          // Use currentMagpieActive from websocket instead of userSettings.magpieCompatibility
+          if (currentMagpieActive || userSettings.focusOnHotkey) {
             mainWindow.show();
           }
         } else {
@@ -236,7 +242,8 @@ function registerManualShowHotkey(oldHotkey) {
             mainWindow.show();
           }
 
-          if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
+          // Use currentMagpieActive from websocket instead of userSettings.magpieCompatibility
+          if (currentMagpieActive || userSettings.focusOnHotkey) {
             mainWindow.show();
           }
         }
@@ -551,19 +558,6 @@ function updateTrayMenu() {
         updateTrayMenu();
       }
     },
-    {
-      label: 'Magpie Compatibility',
-      type: 'checkbox',
-      checked: userSettings.magpieCompatibility,
-      click: (menuItem) => {
-        userSettings.magpieCompatibility = menuItem.checked;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("new-magpieCompatibility", menuItem.checked);
-        }
-        saveSettings();
-        updateTrayMenu();
-      }
-    },
     { type: 'separator' },
     {
       label: 'Quit',
@@ -691,19 +685,20 @@ app.whenReady().then(async () => {
   // Start background manager and register periodic tasks
   bg.start();
 
-  // magpie polling task
-  bg.registerTask(async () => {
-    try {
-      const start = Date.now();
-      const magpieInfo = await magpie.magpieGetInfo();
-      const end = Date.now();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('magpie-window-info', magpieInfo);
-      }
-    } catch (e) {
-      console.error('magpie poll failed', e);
-    }
-  }, 3000);
+  // magpie polling task - DEPRECATED: Now receiving magpie info via websocket
+  // Commenting out since magpie info is now sent from Python via websocket
+  // bg.registerTask(async () => {
+  //   try {
+  //     const start = Date.now();
+  //     const magpieInfo = await magpie.magpieGetInfo();
+  //     const end = Date.now();
+  //     if (mainWindow && !mainWindow.isDestroyed()) {
+  //       mainWindow.webContents.send('magpie-window-info', magpieInfo);
+  //     }
+  //   } catch (e) {
+  //     console.error('magpie poll failed', e);
+  //   }
+  // }, 3000);
 
   try {
     ext = await session.defaultSession.loadExtension(extDir, { allowFileAccess: true });
@@ -758,11 +753,25 @@ app.whenReady().then(async () => {
     openSettings();
   });
 
-  globalShortcut.register("Alt+Shift+M", () => {
-    userSettings.magpieCompatibility = !userSettings.magpieCompatibility;
-    saveSettings();
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("new-magpieCompatibility", userSettings.magpieCompatibility);
+  globalShortcut.register('Alt+T', () => {
+    console.log("Translate hotkey pressed");
+    
+    // If translation has been requested, just toggle visibility
+    if (translationRequested) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('toggle-translation-visibility');
+      }
+    } else {
+      // First press - request translation from backend
+      if (backend && backend.connected) {
+        backend.send({ type: "translate-request" });
+        translationRequested = true;
+      } else {
+        console.error("Backend not connected. Cannot translate.");
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('translation-error', 'Backend not connected');
+        }
+      }
     }
   });
 
@@ -787,6 +796,10 @@ app.whenReady().then(async () => {
   }).catch(err => {
     console.error("Kuroshiro initialization failed:", err);
   });
+
+  // Initialize backend connector
+  backend = new BackendConnector(ipcMain, () => mainWindow);
+  backend.connect(userSettings.weburl2);
 
   // IPC handlers for wanakana and kuroshiro
   ipcMain.handle('wanakana-stripOkurigana', (event, text, options) => {
@@ -960,7 +973,8 @@ app.whenReady().then(async () => {
       // Blur again after a short delay to ensure it takes effect
       setTimeout(() => {
         if (!resizeMode && !yomitanShown && !manualHotkeyPressed) {
-          if (userSettings.magpieCompatibility) {
+          // Use currentMagpieActive from websocket instead of userSettings.magpieCompatibility
+          if (currentMagpieActive) {
             mainWindow.showInactive();
             mainWindow.setAlwaysOnTop(true, 'screen-saver');
             mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -1043,6 +1057,30 @@ app.whenReady().then(async () => {
     openYomitanSettings();
   });
 
+  // Action panel button handlers
+  ipcMain.on("action-scan", () => {
+    console.log("Action: Scan requested from overlay");
+    // TODO: Implement scan functionality
+  });
+
+  ipcMain.on("action-translate", () => {
+    console.log("Action: Translate requested from overlay");
+    if (backend && backend.connected) {
+      translationRequested = true;
+      backend.send({ type: "translate-request" });
+    } else {
+      console.error("Backend not connected. Cannot translate.");
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('translation-error', 'Backend not connected');
+      }
+    }
+  });
+
+  ipcMain.on("action-tts", () => {
+    console.log("Action: TTS requested from overlay");
+    // TODO: Implement TTS functionality
+  });
+
   ipcMain.on("websocket-closed", (event, type) => {
     websocketStates[type] = false
   });
@@ -1054,10 +1092,16 @@ app.whenReady().then(async () => {
     lastWebsocketData = data;
   });
 
-  ipcMain.on("window-state-changed", (event, { state, game }) => {
+  ipcMain.on("window-state-changed", (event, { state, game, magpieActive }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
-    console.log(`Window state changed to: ${state} for game: ${game}`);
+    // Update the tracked magpie state
+    currentMagpieActive = magpieActive || false;
+
+    console.log(`Window state changed to: ${state} for game: ${game}, magpie active: ${currentMagpieActive}`);
+
+    // Send game state to renderer to control action panel visibility
+    mainWindow.webContents.send("game-state", state);
 
     switch (state) {
       case "active":
@@ -1067,6 +1111,9 @@ app.whenReady().then(async () => {
           mainWindow.showInactive();
           mainWindow.webContents.send("afk-hide", false);
           afkHidden = false;
+          mainWindow.setAlwaysOnTop(true, 'screen-saver');
+        } else if (magpieActive) {
+          mainWindow.showInactive();
           mainWindow.setAlwaysOnTop(true, 'screen-saver');
         }
         break;
@@ -1085,7 +1132,8 @@ app.whenReady().then(async () => {
 
       case "obscured":
         // Game window is completely hidden by other windows - hide overlay
-        if (!yomitanShown && !mainWindow.isMinimized() && !userSettings.magpieCompatibility) {
+        // Use currentMagpieActive from websocket instead of userSettings.magpieCompatibility
+        if (!yomitanShown && !mainWindow.isMinimized()) {
           mainWindow.hide();
         }
         break;
@@ -1155,6 +1203,9 @@ app.whenReady().then(async () => {
       case "toggleFuriganaHotkey":
         registerToggleFuriganaHotkey(oldValue);
         break;
+      case "weburl2":
+        if (backend) backend.connect(value);
+        break;
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("settings-updated", { [key]: value });
@@ -1178,15 +1229,11 @@ app.whenReady().then(async () => {
     userSettings.weburl2 = newurl;
     mainWindow.webContents.send("settings-updated", { weburl2: newurl });
     saveSettings();
+    if (backend) backend.connect(newurl);
   })
   ipcMain.on("hideonstartup-changed", (event, newValue) => {
     userSettings.hideOnStartup = newValue;
     mainWindow.webContents.send("settings-updated", { hideOnStartup: newValue });
-    saveSettings();
-  })
-  ipcMain.on("magpieCompatibility-changed", (event, newValue) => {
-    userSettings.magpieCompatibility = newValue;
-    mainWindow.webContents.send("settings-updated", { magpieCompatibility: newValue });
     saveSettings();
   })
   ipcMain.on("manualmode-changed", (event, newValue) => {
@@ -1239,6 +1286,8 @@ app.whenReady().then(async () => {
   ipcMain.on("text-recieved", (event, text) => {
     // Reset the activity timer on text received
     resetActivityTimer();
+    // Reset translation state on new text
+    translationRequested = false;
     // If AFK previously hid the overlay, restore it now
     if (afkHidden) {
       try {
@@ -1247,6 +1296,23 @@ app.whenReady().then(async () => {
         console.warn('Failed to send afk-hide (restore) to renderer:', e);
       }
       afkHidden = false;
+    }
+
+    // === AUTO TRANSLATE (only for JSON-parsable array data) ===
+    if (AUTO_TRANSLATE && backend && backend.connected) {
+      let shouldTranslate = false;
+      try {
+        let parsed = typeof text === 'string' ? JSON.parse(text) : text;
+        if (Array.isArray(parsed) && parsed.every(item => item.text && item.bounding_rect)) {
+          shouldTranslate = true;
+        }
+      } catch (e) {
+        // Not JSON, do not auto-translate
+      }
+      if (shouldTranslate) {
+        translationRequested = true;
+        backend.send({ type: "translate-request" });
+      }
     }
 
     // If window is minimized, restore it
@@ -1263,7 +1329,8 @@ app.whenReady().then(async () => {
     }
 
     // console.log(`magpieCompatibility: ${userSettings.magpieCompatibility}`);
-    if (userSettings.magpieCompatibility && !isManualMode()) {
+    // Use currentMagpieActive from websocket instead of userSettings.magpieCompatibility
+    if (currentMagpieActive && !isManualMode()) {
       mainWindow.showInactive();
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
       mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });

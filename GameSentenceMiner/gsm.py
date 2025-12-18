@@ -1,6 +1,9 @@
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
 
+from GameSentenceMiner.util import db
+
+
 def handle_error_in_initialization(e):
     """Handle errors that occur during initialization."""
     logger.exception(e, exc_info=True)
@@ -121,7 +124,7 @@ try:
         f"[Import] obs.check_obs_folder_is_correct: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.text_log import get_mined_line, get_all_lines
+    from GameSentenceMiner.util.text_log import get_mined_line, get_all_lines, game_log
     logger.debug(
         f"[Import] util.text_log (GameLine, get_text_event, get_mined_line, get_all_lines, game_log): {time.time() - start_time:.3f}s")
 
@@ -911,6 +914,18 @@ def initialize_text_monitor():
     asyncio.run(gametext.start_text_monitor())
 
 
+async def get_previous_lines_for_game():
+    previous_lines = set()
+    try:
+        all_lines = db.GameLinesTable.get_all_lines_for_scene(obs.get_current_scene())
+        for line in all_lines:
+            previous_lines.add(line.line_text)
+        game_log.previous_lines = previous_lines
+        logger.info(f"Loaded {len(previous_lines)} previous lines for game '{obs.get_current_game()}'")
+        # logger.info(f"Approximate memory used for previous lines: {sys.getsizeof(previous_lines) / 1024:.2f} KB")
+    except Exception as e:
+        logger.error(f"Error getting previous lines for game: {e}")
+
 def async_loop():
     async def loop():
         logger.info("Post-Initialization started.")
@@ -923,6 +938,7 @@ def async_loop():
         await init_overlay_processor()
         
         vad_processor.init()
+        await get_previous_lines_for_game()
 
     asyncio.run(loop())
 
@@ -955,6 +971,7 @@ async def register_scene_switcher_callback():
             get_master_config().current_profile = switch_to
             switch_profile_and_save(switch_to)
             settings_window.reload_settings()
+        get_previous_lines_for_game()
 
     await obs.register_scene_change_callback(scene_switcher_callback)
 

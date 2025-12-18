@@ -50,6 +50,7 @@ class GameLine:
 class GameText:
     values: list[GameLine]
     values_dict: dict[str, GameLine]
+    previous_lines: set()
     game_line_index = 0
 
     def __init__(self):
@@ -94,6 +95,8 @@ class GameText:
         if self.values:
             self.values[-1].next = new_line
         self.values.append(new_line)
+        if new_line.prev:
+            self.previous_lines.add(new_line.prev.text)
         return new_line
         # self.remove_old_events(datetime.now() - timedelta(minutes=10))
 

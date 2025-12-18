@@ -345,10 +345,6 @@
         <span class="label-text">Hide Main Box on Startup</span>
         <input type="checkbox" id="hideOnStartup" />
       </label>
-      <label id="magpie-compatibility-label">
-        <span class="label-text">Enable Magpie Compatibility</span>
-        <input type="checkbox" id="magpieCompatibility" />
-      </label>
       <label>
         <span class="label-text">Show Fading Border Around Detected Text</span>
         <input type="checkbox" id="showTextBackground" />
@@ -538,11 +534,8 @@
         // ignore
       }
 
-      // If this setting is configured to be disabled on Linux, ignore attempts to change it
-      if (platform === 'linux' && ['magpieCompatibility'].includes(settingKey)) {
-          return;
-      }
-
+      // Linux-specific setting restrictions can be added here if needed
+      
       console.log(`Setting changed: ${settingKey} = ${value}`);
       ipcRenderer.send("setting-changed", { key: settingKey, value: value });
     }
@@ -581,10 +574,6 @@
 
     document.getElementById("hideOnStartup").addEventListener("change", (event) => {
       handleSettingChange("hideOnStartup", event.target.checked);
-    });
-
-    document.getElementById("magpieCompatibility").addEventListener("change", (event) => {
-      handleSettingChange("magpieCompatibility", event.target.checked, event.target);
     });
 
     document.getElementById("manualMode").addEventListener("change", (event) => {
@@ -873,7 +862,7 @@
 
     // Handle settings preload
     ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
-      const { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, manualMode, manualModeType, showHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer, showFurigana, offsetX, offsetY } = userSettings;
+      const { fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType, showHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer, showFurigana, offsetX, offsetY } = userSettings;
       document.getElementById("fontSize").value = fontSize;
       document.getElementById("offsetX").value = offsetX;
       document.getElementById("offsetY").value = offsetY;
@@ -885,7 +874,6 @@
       updateWebSocketStatus("ws1", websocketStates.ws1);
       updateWebSocketStatus("ws2", websocketStates.ws2);
       document.getElementById("hideOnStartup").checked = hideOnStartup;
-      document.getElementById("magpieCompatibility").checked = magpieCompatibility;
       document.getElementById("showTextBackground").checked = showTextBackground;
       document.getElementById("focusOnHotkey").checked = focusOnHotkey;
       document.getElementById("afkTimer").value = afkTimer;

@@ -157,10 +157,13 @@ class WebsocketServerThread(threading.Thread):
         finally:
             self.clients.remove(websocket)
 
-    async def send_text(self, text, line_time: datetime):
+    async def send_text(self, text, line_time: datetime, response_dict=None):
         if text:
+            data = {"sentence": text, "time": line_time.isoformat(), "process_path": obs.get_current_game()}
+            if response_dict:
+                data["dict_from_ocr"] = response_dict
             return asyncio.run_coroutine_threadsafe(
-                self.send_text_coroutine(json.dumps({"sentence": text, "time": line_time.isoformat(), "process_path": obs.get_current_game()})), self.loop)
+                self.send_text_coroutine(json.dumps(data)), self.loop)
 
     def stop_server(self):
         self.loop.call_soon_threadsafe(self._stop_event.set)
@@ -200,7 +203,7 @@ class OCRProcessor():
         self.filtering = TextFiltering(lang=get_ocr_language())
         pass
 
-    def do_second_ocr(self, ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False):
+    def do_second_ocr(self, ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False, response_dict=None):
         global twopassocr, ocr2, last_ocr2_result, last_sent_result
         try:
             orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, self.filtering, None,
@@ -213,7 +216,7 @@ class OCRProcessor():
             save_result_image(img, pre_crop_image=pre_crop_image)
             last_ocr2_result = orig_text
             last_sent_result = text
-            asyncio.run(send_result(text, time))
+            asyncio.run(send_result(text, time, response_dict=response_dict))
         except json.JSONDecodeError:
             print("Invalid JSON received.")
         except Exception as e:
@@ -230,7 +233,7 @@ def save_result_image(img, pre_crop_image=None):
     run.set_last_image(pre_crop_image if pre_crop_image else img)
 
 
-async def send_result(text, time):
+async def send_result(text, time, response_dict=None):
     if text:
         if get_ocr_send_to_clipboard():
             import pyperclipfix
@@ -239,7 +242,7 @@ async def send_result(text, time):
             # send_to_clipboard(text)
             pyperclipfix.copy(text)
         try:
-            await websocket_server_thread.send_text(text, time)
+            await websocket_server_thread.send_text(text, time, response_dict=response_dict)
         except Exception as e:
             logger.debug(f"Error sending text to websocket: {e}")
 
@@ -348,7 +351,7 @@ last_meiki_crop_time = None
 last_meiki_success = None
 
 
-def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None, meiki_boxes=None):
+def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None, meiki_boxes=None, response_dict=None):
     global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, previous_text_list, last_sent_result, last_meiki_crop_coords, last_meiki_success, last_meiki_crop_time
     orig_text_string = ''.join([item for item in orig_text if item is not None]) if orig_text else ""
     if came_from_ss:
@@ -393,7 +396,7 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
                     ocr2_image = get_ocr2_image(crop_coords, og_image=previous_img_local, ocr2_engine=get_ocr_ocr2(), extra_padding=10)
                     # Use the earlier timestamp for when the stable crop started if available
                     # ocr2_image.show()
-                    second_ocr_queue.put((text, stable_time, ocr2_image, filtering, pre_crop_image))
+                    second_ocr_queue.put((text, stable_time, ocr2_image, filtering, pre_crop_image, response_dict))
                     run.set_last_image(img)
                     last_meiki_success = crop_coords
                 except Exception as e:
@@ -456,7 +459,7 @@ def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering
             #         previous_img_local = previous_img_local.crop((x1, y1, x2, y2))
             #     except ValueError:
             #         logger.warning("Error cropping image, using original image")
-            second_ocr_queue.put((previous_text, stable_time, ocr2_image, filtering, pre_crop_image))
+            second_ocr_queue.put((previous_text, stable_time, ocr2_image, filtering, pre_crop_image, response_dict))
             # threading.Thread(target=do_second_ocr, args=(previous_text, stable_time, previous_img_local, filtering), daemon=True).start()
             previous_img = None
             previous_text = None
@@ -610,11 +613,12 @@ def process_task_queue():
                 break
             ignore_furigana_filter = False
             ignore_previous_result = False
-            if len(task) == 7:
-                ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result = task
+            response_dict = None
+            if len(task) == 8:
+                ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict = task
             else:
-                ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image = task
-            second_ocr_processor.do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result)
+                ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result = task
+            second_ocr_processor.do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict)
         except Exception as e:
             logger.exception(f"Error processing task: {e}")
         finally:
@@ -642,7 +646,7 @@ def run_oneocr(ocr_config: OCRConfig, rectangles, config_check_thread):
                 # screen_capture_monitor=monitor_config['index'],
                 screen_capture_window=ocr_config.window if ocr_config and ocr_config.window else None,
                 screen_capture_delay_secs=get_ocr_scan_rate(), engine=ocr1,
-                text_callback=text_callback,
+                text_callback=ocr_result_callback,
                 screen_capture_exclusions=exclusions,
                 monitor_index=None,
                 ocr1=ocr1,
