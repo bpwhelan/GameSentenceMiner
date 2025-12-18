@@ -106,7 +106,7 @@ interface StoreConfig {
     steam: SteamConfig;
     agentPath: string;
     OCR: OCRConfig;
-    animeGirlIcon?: boolean;
+    hasCompletedSetup: boolean;
 }
 
 export const store = new Store<StoreConfig>({
@@ -115,7 +115,6 @@ export const store = new Store<StoreConfig>({
             agentEnabled: false,
             ocrEnabled: false,
         },
-        animeGirlIcon: false,
         yuzu: {
             emuPath: "C:\\Emulation\\Emulators\\yuzu-windows-msvc\\yuzu.exe",
             romsPath: `C:\\Emulation\\Yuzu\\Games`,
@@ -167,6 +166,7 @@ export const store = new Store<StoreConfig>({
         runManualOCROnStartup: false,
         visibleTabs: ['launcher', 'stats', 'python', 'console'], // Default all tabs visible
         statsEndpoint: 'overview', // Default stats endpoint
+        hasCompletedSetup: false,
     },
     cwd: "electron"
 });
@@ -288,6 +288,14 @@ export function getIconStyle(): string {
 
 export function setIconStyle(style: string): void {
     store.set("iconStyle", style);
+}
+
+export function getHasCompletedSetup(): boolean {
+    return store.get("hasCompletedSetup");
+}
+
+export function setHasCompletedSetup(completed: boolean): void {
+    store.set("hasCompletedSetup", completed);
 }
 
 //OCR

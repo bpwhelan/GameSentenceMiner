@@ -90,6 +90,9 @@ def is_windows():
 def is_mac():
     return platform == 'darwin'
 
+def is_wayland():
+    return os.environ.get('XDG_SESSION_TYPE', '').lower() == 'wayland' or bool(os.environ.get('WAYLAND_DISPLAY'))
+
 
 class Locale(Enum):
     English = 'en_us'
@@ -426,10 +429,17 @@ class General:
     texthook_replacement_regex: str = ""
     texthooker_port: int = 55000
     native_language: str = CommonLanguages.ENGLISH.value
+    target_language: str = CommonLanguages.JAPANESE.value
 
     def get_native_language_name(self) -> str:
         try:
             return CommonLanguages.name_from_code(self.native_language)
+        except ValueError:
+            return "Unknown"
+    
+    def get_target_language_name(self) -> str:
+        try:
+            return CommonLanguages.name_from_code(self.target_language)
         except ValueError:
             return "Unknown"
 
@@ -468,6 +478,7 @@ class Anki:
     previous_sentence_field: str = ''
     previous_image_field: str = ''
     video_field: str = ''
+    sentence_furigana_field: str = 'SentenceFurigana'
     # Initialize to None and set it in __post_init__
     custom_tags: List[str] = None
     tags_to_check: List[str] = None
@@ -476,7 +487,6 @@ class Anki:
     polling_rate: int = 200
     overwrite_audio: bool = False
     overwrite_picture: bool = True
-    multi_overwrites_sentence: bool = True
     parent_tag: str = "Game"
 
     def __post_init__(self):
@@ -624,7 +634,6 @@ class Hotkeys:
 class VAD:
     whisper_model: str = WHISPER_BASE
     do_vad_postprocessing: bool = True
-    language: str = 'ja'
     # vosk_url: str = VOSK_BASE
     selected_vad_model: str = WHISPER
     backup_vad_model: str = OFF
@@ -729,12 +738,14 @@ class Ai:
 class OverlayEngine(str, Enum):
     LENS = 'lens'
     ONEOCR = 'oneocr'
+    MEIKIOCR = 'meikiocr'
 
 @dataclass_json
 @dataclass
 class Overlay:
     websocket_port: int = 55499
     engine: str = OverlayEngine.LENS.value
+    engine_v2: str = OverlayEngine.ONEOCR.value  # New v2 config - defaults everyone to ONEOCR
     monitor_to_capture: int = 0
     periodic: bool = False
     periodic_interval: float = 1.0
@@ -1079,8 +1090,6 @@ class Config:
             self.sync_shared_field(
                 config.anki, profile.anki, "overwrite_picture")
             self.sync_shared_field(
-                config.anki, profile.anki, "multi_overwrites_sentence")
-            self.sync_shared_field(
                 config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(
                 config.general, profile.general, "open_multimine_on_startup")
@@ -1088,6 +1097,8 @@ class Config:
                 config.general, profile.general, "websocket_uri")
             self.sync_shared_field(
                 config.general, profile.general, "texthooker_port")
+            self.sync_shared_field(
+                config.general, profile.general, "target_language")
             self.sync_shared_field(
                 config.audio, profile.audio, "external_tool")
             self.sync_shared_field(

@@ -17,7 +17,8 @@ import numpy as np
 
 from GameSentenceMiner.util import configuration
 from GameSentenceMiner.util.configuration import get_app_directory, get_config, get_master_config, is_windows, save_full_config, reload_config, logger, gsm_status, gsm_state
-from GameSentenceMiner.util.gsm_utils import sanitize_filename, make_unique_file_name, make_unique_temp_file
+from GameSentenceMiner.util.gsm_utils import add_srt_line, sanitize_filename, make_unique_file_name, make_unique_temp_file, wait_for_stable_file
+from GameSentenceMiner.util.text_log import get_all_lines
 # from GameSentenceMiner.discord_rpc import discord_rpc_manager
 
 
@@ -547,7 +548,7 @@ def stop_replay_buffer():
             client.stop_replay_buffer()
             # discord_rpc_manager.stop()
             if get_config().features.generate_longplay:
-                stop_recording()
+                finalize_longplay_recording()
             logger.info("Replay buffer stopped.")
     except Exception as e:
         logger.warning(f"Error stopping replay buffer: {e}")
@@ -579,10 +580,21 @@ def stop_recording():
     try:
         with connection_pool.get_client() as client:
             client: obs.ReqClient
-            client.stop_record()
+            resp = client.stop_record()
             logger.info("Recording stopped.")
+            return resp.output_path if resp else None
     except Exception as e:
         logger.error(f"Error stopping recording: {e}")
+        
+def finalize_longplay_recording():
+    if gsm_state.current_srt and len(get_all_lines()) > 0:
+        add_srt_line(datetime.datetime.now(), get_all_lines()[-1])
+        longplay_path = stop_recording()
+        # move srt to output folder with same name as video
+        video_name = os.path.splitext(os.path.basename(longplay_path))[0]
+        srt_ext = os.path.splitext(gsm_state.current_srt)[1]
+        final_srt_path = os.path.join(get_config().paths.folder_to_watch, f"{video_name}{srt_ext}")
+        shutil.move(gsm_state.current_srt, final_srt_path)
         
 def get_last_recording_filename():
     try:
@@ -712,13 +724,22 @@ def get_replay_buffer_output():
     return None
 
 def get_obs_scenes():
+    if not connection_pool:
+        logger.error("OBS connection pool is not initialized.")
+        return None
     try:
         with connection_pool.get_client() as client:
-            client: obs.ReqClient
+            if client is None:
+                logger.error("OBS client is None. Skipping get_scene_list.")
+                return None
             response = client.get_scene_list()
         return response.scenes if response else None
     except Exception as e:
-        logger.error(f"Error getting scenes: {e}")
+        # Only log this error once every 10 seconds to avoid log spam and lag
+        now = time.time()
+        if not hasattr(get_obs_scenes, "_last_error_time") or now - getattr(get_obs_scenes, "_last_error_time", 0) > 10:
+            logger.error(f"Error getting scenes: {e}")
+            get_obs_scenes._last_error_time = now
         return None
 
 async def register_scene_change_callback(callback):
@@ -1029,6 +1050,10 @@ def set_fit_to_screen_for_scene_items(scene_name: str):
         logger.error(f"An OBS error occurred: {e}")
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")    
+        
+
+
+
 
 def get_current_source_input_settings():
     with connection_pool.get_client() as client:
@@ -1046,6 +1071,178 @@ def get_current_source_input_settings():
             return None
         input_settings_response = client.get_input_settings(name=source_name)
         return input_settings_response.input_settings if input_settings_response else None
+
+
+def get_window_info_from_source(scene_name: str = None):
+    """
+    Get window information from an OBS scene's capture source.
+    
+    Returns a dict with 'title', 'window_class', and 'exe' keys, or None if not found.
+    The OBS window format is "title:class:exe".
+    
+    Args:
+        obs_scene_id: UUID of the scene (optional)
+        scene_name: Name of the scene (optional, used if obs_scene_id not provided)
+    
+    Returns:
+        dict: {'title': str, 'window_class': str, 'exe': str} or None
+    """
+    try:
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            
+            # Get scene items
+            if scene_name:
+                scene_items_response = client.get_scene_item_list(name=scene_name)
+            else:
+                logger.error("Either obs_scene_id or scene_name must be provided")
+                return None
+            
+            if not scene_items_response or not scene_items_response.scene_items:
+                logger.warning(f"No scene items found in scene")
+                return None
+            
+            # Find the first input source with a window property
+            for item in scene_items_response.scene_items:
+                source_name = item.get('sourceName')
+                if not source_name:
+                    continue
+                
+                try:
+                    input_settings_response = client.get_input_settings(name=source_name)
+                    if input_settings_response and input_settings_response.input_settings:
+                        window_value = input_settings_response.input_settings.get('window')
+                        
+                        if window_value:
+                            parts = window_value.split(':')
+                            
+                            if len(parts) >= 3:
+                                return {
+                                    'title': parts[0].strip(),
+                                    'window_class': parts[1].strip(),
+                                    'exe': parts[2].strip()
+                                }
+                except Exception as e:
+                    logger.debug(f"Error getting input settings for source {source_name}: {e}")
+                    continue
+            
+            logger.warning(f"No window input found in scene")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error getting window info from source: {e}")
+        return None
+
+
+def get_input_audio_tracks(input_name: str = None, input_uuid: str = None):
+    """Retrieve the enable state of all audio tracks for a given input.
+
+    Accepts either `input_name` or `input_uuid`. Returns a dict mapping
+    track numbers to booleans, or None on failure.
+    """
+    try:
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            kwargs = {}
+            if input_name:
+                kwargs['inputName'] = input_name
+            if input_uuid:
+                kwargs['inputUuid'] = input_uuid
+            response = client.get_input_audio_tracks(name="YouTube - Youtube - Capture")
+        return response.input_audio_tracks if response else None
+    except AttributeError:
+        logger.error("OBS client does not support 'get_input_audio_tracks' (older websocket/version).")
+        return None
+    except Exception as e:
+        logger.error(f"Error calling GetInputAudioTracks: {e}")
+        return None
+
+
+def set_input_audio_tracks(input_name: str = None, input_uuid: str = None, input_audio_tracks: dict = None):
+    """Set the enable state of audio tracks for a given input.
+
+    `input_audio_tracks` should be a dict describing desired track settings.
+    Accepts either `input_name` or `input_uuid`.
+    Returns True on success, False otherwise.
+    """
+    if input_audio_tracks is None:
+        logger.error("No `input_audio_tracks` provided to set_input_audio_tracks.")
+        return False
+    try:
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            kwargs = {'inputAudioTracks': input_audio_tracks}
+            if input_name:
+                kwargs['inputName'] = input_name
+            if input_uuid:
+                kwargs['inputUuid'] = input_uuid
+            response = client.set_input_audio_tracks(**kwargs)
+        if response and getattr(response, 'ok', False):
+            return True
+        return False
+    except AttributeError:
+        logger.error("OBS client does not support 'set_input_audio_tracks' (older websocket/version).")
+        return False
+    except Exception as e:
+        logger.error(f"Error calling SetInputAudioTracks: {e}")
+        return False
+
+
+def disable_desktop_audio():
+    """Disable all audio tracks for the desktop audio input.
+
+    Attempts to find a desktop audio input and sets all its audio tracks to False.
+    Returns True on success, False otherwise.
+    """
+    try:
+        candidate_names = ['Desktop Audio', 'Desktop Audio 2', 'Desktop Audio Device', 'Desktop']
+
+        with connection_pool.get_client() as client:
+            client: obs.ReqClient
+            try:
+                inputs_resp = client.get_input_list()
+                inputs = inputs_resp.inputs if inputs_resp else []
+            except Exception:
+                inputs = []
+
+        desktop_input = None
+        for inp in inputs:
+            name = inp.get('inputName') or inp.get('name')
+            kind = inp.get('inputKind') or inp.get('kind')
+            if name in candidate_names or (isinstance(kind, str) and 'audio' in kind.lower()) or (name and 'desktop' in name.lower()):
+                desktop_input = inp
+                break
+
+        if not desktop_input:
+            for inp in inputs:
+                kind = inp.get('inputKind') or inp.get('kind')
+                if kind in ('monitor_capture', 'wasapi_output_capture', 'pulse_audio_output_capture') or (kind and 'audio' in kind.lower()):
+                    desktop_input = inp
+                    break
+
+        if not desktop_input:
+            logger.error('Desktop audio input not found in OBS inputs.')
+            return False
+
+        input_name = desktop_input.get('inputName') or desktop_input.get('name')
+        input_uuid = desktop_input.get('inputId') or desktop_input.get('id')
+
+        current_tracks = get_input_audio_tracks(input_name=input_name, input_uuid=input_uuid)
+        if not current_tracks:
+            tracks_payload = {str(i): False for i in range(1, 7)}
+        else:
+            tracks_payload = {k: False for k in current_tracks.keys()}
+
+        success = set_input_audio_tracks(input_name=input_name, input_uuid=input_uuid, input_audio_tracks=tracks_payload)
+        if success:
+            logger.info(f"Disabled desktop audio for input '{input_name}'")
+            return True
+        else:
+            logger.error('Failed to disable desktop audio via SetInputAudioTracks')
+            return False
+    except Exception as e:
+        logger.error(f"Error disabling desktop audio: {e}")
+        return False
 
 
 def main():
@@ -1102,15 +1299,19 @@ def create_scene():
         # Remove sceneName from request_dict if needed for create_input
         request_dict.pop('sceneName', None)
         response = client.create_input(inputName=input_name, inputKind=input_kind, sceneName=scene_name, inputSettings=input_settings, sceneItemEnabled=True)
+        
+def pretty_print_response(resp):
+    print(json.dumps(resp, indent=4))
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     connect_to_obs_sync()
     try:
         with connection_pool.get_client() as client:
-            client: obs.ReqClient
-            resp = client.get_scene_item_list(get_current_scene())
-            print(resp.scene_items)
+            pass
+        resp = get_window_info_from_source(scene_name=get_current_scene())
+            # resp = client.get_scene_item_list(get_current_scene())
+            # print(resp.scene_items)
     except Exception as e:
         print(f"Error: {e}")
     

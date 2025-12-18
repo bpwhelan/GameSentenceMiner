@@ -176,8 +176,10 @@ class WhisperVADProcessor(VADProcessor):
         import stable_whisper as whisper
         import torch
         if not self.vad_model:
-            self.device = "cpu" if get_config().vad.use_cpu_for_inference else "cuda" if torch.cuda.is_available() else "cpu"
-            compute_type = "float32" if torch.cuda.is_available() else "int8"
+            # self.device = "cpu" if get_config().vad.use_cpu_for_inference else "cuda" if torch.cuda.is_available() else "cpu"
+            # compute_type = "float32" if torch.cuda.is_available() else "int8"
+            self.device = "cpu"
+            compute_type = "int8"
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 logger.info(f"Loading Whisper model '{get_config().vad.whisper_model}' on device '{self.device}'...")
@@ -196,7 +198,7 @@ class WhisperVADProcessor(VADProcessor):
         # Transcribe the audio using Whisper
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result: WhisperResult = self.vad_model.transcribe(temp_wav, vad=True, language=get_config().vad.language, vad_filter=get_config().vad.use_vad_filter_for_whisper,
+            result: WhisperResult = self.vad_model.transcribe(temp_wav, vad=True, language=get_config().general.target_language, vad_filter=get_config().vad.use_vad_filter_for_whisper,
                                                              temperature=0.0, chunk_length=60)
         voice_activity = []
 

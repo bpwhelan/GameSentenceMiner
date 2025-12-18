@@ -58,11 +58,55 @@ def copy_obs_settings(src, dest):
     return False
 
 
+def download_scene_switcher_plugin(obs_path):
+    """Download and install Advanced Scene Switcher plugin for OBS."""
+    download_dir = os.path.join(get_app_directory(), "downloads")
+    os.makedirs(download_dir, exist_ok=True)
+    
+    # Check if plugin is already installed
+    plugin_dll_path = os.path.join(obs_path, 'obs-plugins', '64bit', 'advanced-scene-switcher.dll')
+    if os.path.exists(plugin_dll_path):
+        logger.debug("Advanced Scene Switcher plugin already installed.")
+        return
+    
+    logger.info("Downloading Advanced Scene Switcher plugin...")
+    scene_switcher_url = "https://api.github.com/repos/WarmUpTill/SceneSwitcher/releases/latest"
+    
+    try:
+        with urllib.request.urlopen(scene_switcher_url) as response:
+            scene_switcher_release = json.load(response)
+            
+            # Find the Windows x64 asset
+            plugin_url = None
+            for asset in scene_switcher_release['assets']:
+                if 'windows-x64.zip' in asset['name']:
+                    plugin_url = asset['browser_download_url']
+                    break
+            
+            if plugin_url:
+                scene_switcher_zip = os.path.join(download_dir, "advanced-scene-switcher.zip")
+                logger.info(f"Downloading Advanced Scene Switcher from {plugin_url}...")
+                urllib.request.urlretrieve(plugin_url, scene_switcher_zip)
+                
+                logger.info(f"Extracting Advanced Scene Switcher to {obs_path}...")
+                with zipfile.ZipFile(scene_switcher_zip, 'r') as zip_ref:
+                    zip_ref.extractall(obs_path)
+                
+                os.unlink(scene_switcher_zip)
+                logger.info("Advanced Scene Switcher plugin installed successfully.")
+            else:
+                logger.warning("Could not find Windows x64 version of Advanced Scene Switcher.")
+    except Exception as e:
+        logger.error(f"Failed to download Advanced Scene Switcher plugin: {e}")
+
+
 def download_obs_if_needed():
     obs_path = os.path.join(get_app_directory(), 'obs-studio')
     obs_exe_path = get_obs_path()
     if os.path.exists(obs_path) and os.path.exists(obs_exe_path):
         logger.debug(f"OBS already installed at {obs_path}.")
+        # Check and install plugin even if OBS is already installed
+        download_scene_switcher_plugin(obs_path)
         return
 
     if os.path.exists(obs_path) and not os.path.exists(obs_exe_path):
@@ -116,6 +160,9 @@ def download_obs_if_needed():
         
         # remove zip
         os.unlink(obs_installer)
+        
+        # Download and install Advanced Scene Switcher plugin
+        download_scene_switcher_plugin(obs_path)
     else:
         logger.error(f"Please install OBS manually from {obs_installer}")
         
@@ -162,10 +209,49 @@ def write_replay_buffer_configs(obs_path):
             "RecAudioEncoder=opus\n"
             "RecRBPrefix=GSM\n"
         )
+        
+    basic_ini_path = os.path.join(obs_path, 'config', 'obs-studio', 'basic', 'profiles', 'Untitled')
+    if os.path.exists(os.path.join(basic_ini_path, 'basic.ini')):
+        return
+    os.makedirs(basic_ini_path, exist_ok=True)
+    with open(os.path.join(basic_ini_path, 'basic.ini'), 'w') as basic_ini_file:
+        basic_ini_file.write(
+            "[SimpleOutput]\n"
+            f"FilePath={os.path.expanduser('~')}/Videos/GSM\n"
+            "RecRB=true\n"
+            "RecRBTime=300\n"
+            "RecRBSize=512\n"
+            "RecAudioEncoder=opus\n"
+            "RecRBPrefix=GSM\n"
+        )
+
+def write_default_scene_configs(obs_path):
+    """Write default scene configurations for common scene collection names."""
+    scene_json_path = os.path.join(obs_path, 'config', 'obs-studio', 'basic', 'scenes')
+    os.makedirs(scene_json_path, exist_ok=True)
+    
+    # List of common default scene collection names
+    default_scene_names = [
+        'Untitled.json',  # English default
+        # '無題.json',       # Japanese default (Mudai - Untitled)
+        # 'Sin título.json', # Spanish default
+        # '未命名.json',     # Chinese default (Weimingming - Unnamed)
+        # 'Sem título.json', # Portuguese default
+        # 'Sans titre.json', # French default
+        # 'Без названия.json', # Russian default
+    ]
+    
+    for scene_name in default_scene_names:
+        scene_file_path = os.path.join(scene_json_path, scene_name)
+        if not os.path.exists(scene_file_path):
+            with open(scene_file_path, 'w', encoding='utf-8') as scene_file:
+                scene_file.write(scenes)
+            logger.debug(f"Created default scene config: {scene_name}")
 
 def write_obs_configs(obs_path):
     write_websocket_configs(obs_path)
     write_replay_buffer_configs(obs_path)
+    write_default_scene_configs(obs_path)
 
 def download_ffmpeg_if_needed():
     ffmpeg_dir = os.path.join(get_app_directory(), 'ffmpeg')
@@ -194,7 +280,7 @@ def download_ffmpeg_if_needed():
             ffmpeg_url = "https://gsm.beangate.us/ffmpeg-8.0-essentials-shared-win-arm64.zip"
             compressed_format = "zip"
         else:
-            ffmpeg_url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+            ffmpeg_url = "https://github.com/GyanD/codexffmpeg/releases/download/8.0.1/ffmpeg-8.0.1-essentials_build.zip"
             compressed_format = "zip"
     # elif system == "Linux":
     #     ffmpeg_url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"

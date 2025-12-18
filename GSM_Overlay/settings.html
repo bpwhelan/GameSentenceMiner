@@ -6,6 +6,38 @@
   <style>
     * {
       box-sizing: border-box;
+      scrollbar-width: thin;
+      scrollbar-color: #5a5a5a #2c2c2c;
+    }
+
+    /* WebKit browsers (Chrome, Safari, Edge) */
+    *::-webkit-scrollbar {
+      width: 12px;
+      height: 12px;
+    }
+
+    *::-webkit-scrollbar-track {
+      background: #2c2c2c;
+      border-radius: 10px;
+    }
+
+    *::-webkit-scrollbar-thumb {
+      background: #5a5a5a;
+      border-radius: 10px;
+      border: 2px solid #2c2c2c;
+      transition: background 0.2s ease;
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+      background: #6a6a6a;
+    }
+
+    *::-webkit-scrollbar-thumb:active {
+      background: #7a7a7a;
+    }
+
+    *::-webkit-scrollbar-corner {
+      background: #2c2c2c;
     }
 
     body {
@@ -93,7 +125,8 @@
     }
 
     input[type="text"],
-    input[type="number"] {
+    input[type="number"],
+    select {
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.2);
       border-radius: 4px;
@@ -104,8 +137,19 @@
       transition: all 0.2s ease;
     }
 
+    select {
+      cursor: pointer;
+    }
+
+    select option {
+      background: #2c2c2c;
+      color: #ffffff;
+      padding: 6px 10px;
+    }
+
     input[type="text"]:focus,
-    input[type="number"]:focus {
+    input[type="number"]:focus,
+    select:focus {
       outline: none;
       border-color: #4CAF50;
       background: rgba(255, 255, 255, 0.12);
@@ -249,6 +293,34 @@
       </label>
     </div>
 
+    <div class="setting-group" id="text-offset-group">
+      <h4>Text Offset</h4>
+      <label>
+        <span class="label-text">
+          X Offset
+          <div class="hotkey-info">Not typically needed on Windows</div>
+        </span>
+        <input type="number" id="offsetX" value="0" step="0.1" /><span style="margin-left: 5px;">%</span>
+      </label>
+      <label>
+        <span class="label-text">
+          Y Offset
+          <div class="hotkey-info">Not typically needed on Windows</div>
+        </span>
+        <input type="number" id="offsetY" value="0" step="0.1" /><span style="margin-left: 5px;">%</span>
+      </label>
+      <label>
+        <span class="label-text">
+          Calibrate/Reset Offset
+          <div class="hotkey-info">Opens a tool to help you find the correct offset for your setup, or resets current offsets to 0.</div>
+        </span>
+        <div class="input-container">
+          <button type="button" id="openOffsetHelper" class="guide-button">Calibrate</button>
+          <button type="button" id="resetOffset" class="guide-button">Reset</button>
+        </div>
+      </label>
+    </div>
+
     <div class="setting-group">
       <h4>WebSocket Connections</h4>
       <label>
@@ -273,7 +345,7 @@
         <span class="label-text">Hide Main Box on Startup</span>
         <input type="checkbox" id="hideOnStartup" />
       </label>
-      <label>
+      <label id="magpie-compatibility-label">
         <span class="label-text">Enable Magpie Compatibility</span>
         <input type="checkbox" id="magpieCompatibility" />
       </label>
@@ -282,7 +354,7 @@
         <input type="checkbox" id="showTextBackground" />
       </label>
       <label>
-        <span class="label-text">Auto-Minimize After Inactivity (minutes, 0 disables)</span>
+        <span class="label-text">Auto-Minimize After Inactivity (minutes, 0 = disabled)</span>
         <input type="number" id="afkTimer" value="5" min="0" max="60" />
       </label>
       <label>
@@ -302,16 +374,19 @@
         <input type="checkbox" id="manualMode" />
       </label>
       <label>
+        <span class="label-text">Manual Mode Type</span>
+        <select id="manualModeType">
+          <option value="hold">Hold (press and hold to show)</option>
+          <option value="toggle">Toggle (press once to show, press again to hide)</option>
+        </select>
+      </label>
+      <label>
         <span class="label-text">Focus Overlay in Manual Mode</span>
         <input type="checkbox" id="focusOnHotkey" />
       </label>
-    </div>
-
-    <div class="setting-group">
-      <h4>Hotkeys</h4>
       <label>
         <span class="label-text">
-          Show Overlay Hotkey
+          Hotkey
           <div class="hotkey-info">Press to temporarily show overlay in manual mode</div>
           <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key
             (modifiers optional)</div>
@@ -327,6 +402,10 @@
           </button>
         </div>
       </label>
+    </div>
+
+    <div class="setting-group">
+      <h4>Hotkeys</h4>
       <label>
         <span class="label-text">
           Toggle Furigana Hotkey
@@ -372,17 +451,35 @@
         <input type="text" id="minimizeHotkey" value="Alt + Shift + J" disabled />
       </label>
     </div>
+
+    <div class="setting-group">
+      <h4>Developer</h4>
+      <label>
+        <span class="label-text">
+          Mimic Platform
+          <div class="hotkey-info">Reloads settings window to apply UI changes for the selected OS.</div>
+        </span>
+        <select id="platform-override">
+          <option value="null">Default</option>
+          <option value="win32">Windows</option>
+          <option value="linux">Linux</option>
+          <option value="darwin">macOS</option>
+        </select>
+      </label>
+    </div>
   </div>
 
   <script>
     const { ipcRenderer } = require("electron");
 
-    // Settings that are not supported on Linux
-    const disabledOnLinuxSettings = ['magpieCompatibility'];
+    async function applyPlatformSpecifics() {
+      const platform = await ipcRenderer.invoke('get-effective-platform');
 
-    // Immediately disable listed settings when running on Linux so UI is non-interactive
-    try {
-      if (typeof process !== 'undefined' && process.platform === 'linux') {
+      // Settings that are not supported on Linux
+      const disabledOnLinuxSettings = [];
+
+      // Immediately disable listed settings when running on Linux so UI is non-interactive
+      if (platform === 'linux') {
         disabledOnLinuxSettings.forEach((settingId) => {
           const el = document.getElementById(settingId);
           if (el) {
@@ -391,13 +488,49 @@
           }
         });
       }
-    } catch (e) {
-      // ignore if process is not available
+
+      // Hide Text Offset group on Windows
+      if (platform === 'win32') {
+        const textOffsetGroup = document.getElementById('text-offset-group');
+        if (textOffsetGroup) {
+          textOffsetGroup.style.display = 'none';
+        }
+      }
+
+      // Hide Magpie compatibility settings on non-Windows
+      if (platform !== 'win32') {
+        const magpieLabel = document.getElementById('magpie-compatibility-label');
+        if (magpieLabel) {
+          magpieLabel.style.display = 'none';
+        }
+
+        // Enforce manual mode on non-windows
+        const manualModeCheckbox = document.getElementById('manualMode');
+        if (manualModeCheckbox) {
+          manualModeCheckbox.checked = true;
+          manualModeCheckbox.disabled = true;
+          const manualModeLabel = manualModeCheckbox.closest('label');
+          if (manualModeLabel) {
+            manualModeLabel.title = 'Manual mode is required on Linux and macOS.';
+          }
+        }
+        const focusOnHotkeyCheckbox = document.getElementById('focusOnHotkey');
+        if (focusOnHotkeyCheckbox) {
+          focusOnHotkeyCheckbox.disabled = true;
+          const focusOnHotkeyLabel = focusOnHotkeyCheckbox.closest('label');
+          if (focusOnHotkeyLabel) {
+            focusOnHotkeyLabel.title = 'This setting is not applicable as manual mode is enforced.';
+          }
+        }
+      }
     }
+
+    applyPlatformSpecifics();
 
     // Unified settings change handler
     // element is optional - if provided we'll check element.disabled there
-    function handleSettingChange(settingKey, value, element) {
+    async function handleSettingChange(settingKey, value, element) {
+      const platform = await ipcRenderer.invoke('get-effective-platform');
       // If the control element is disabled, ignore the change
       try {
         if (element && element.disabled) return;
@@ -406,12 +539,8 @@
       }
 
       // If this setting is configured to be disabled on Linux, ignore attempts to change it
-      try {
-        if (typeof process !== 'undefined' && process.platform === 'linux' && disabledOnLinuxSettings.includes(settingKey)) {
+      if (platform === 'linux' && ['magpieCompatibility'].includes(settingKey)) {
           return;
-        }
-      } catch (e) {
-        // In case process is not available, silently continue
       }
 
       console.log(`Setting changed: ${settingKey} = ${value}`);
@@ -421,6 +550,25 @@
     // Attach event listeners to all setting controls
     document.getElementById("fontSize").addEventListener("input", (event) => {
       handleSettingChange("fontSize", parseInt(event.target.value));
+    });
+
+    document.getElementById("offsetX").addEventListener("input", (event) => {
+      handleSettingChange("offsetX", parseInt(event.target.value));
+    });
+
+    document.getElementById("offsetY").addEventListener("input", (event) => {
+      handleSettingChange("offsetY", parseInt(event.target.value));
+    });
+
+    document.getElementById("openOffsetHelper").addEventListener("click", () => {
+      ipcRenderer.send("open-offset-helper");
+    });
+
+    document.getElementById("resetOffset").addEventListener("click", () => {
+      document.getElementById("offsetX").value = 0;
+      document.getElementById("offsetY").value = 0;
+      handleSettingChange("offsetX", 0);
+      handleSettingChange("offsetY", 0);
     });
 
     document.getElementById("wsUrl1").addEventListener("blur", (event) => {
@@ -441,6 +589,10 @@
 
     document.getElementById("manualMode").addEventListener("change", (event) => {
       handleSettingChange("manualMode", event.target.checked);
+    });
+
+    document.getElementById("manualModeType").addEventListener("change", (event) => {
+      handleSettingChange("manualModeType", event.target.value);
     });
 
     document.getElementById("showTextBackground").addEventListener("change", (event) => {
@@ -473,6 +625,11 @@
       if (value > 60) value = 60; // Max 60 minutes
       event.target.value = value; // Clamp value in input
       handleSettingChange("afkTimer", value);
+    });
+
+    document.getElementById('platform-override').addEventListener('change', (event) => {
+      const platform = event.target.value === 'null' ? null : event.target.value;
+      ipcRenderer.send('set-platform-override', platform);
     });
 
 
@@ -657,49 +814,12 @@
     }
 
 
-    // Initialize settings preload handler with Ctrl warning support
-    function initializeSettingsPreload(hotkeySettings = []) {
-      ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
-        const { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, manualMode, showHotkey, toggleFuriganaHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer, showFurigana } = userSettings;
-        document.getElementById("fontSize").value = fontSize;
-        document.getElementById("wsUrl1").value = weburl1;
-        document.getElementById("manualMode").checked = manualMode;
-        document.getElementById("showHotkey").value = showHotkey;
-        document.getElementById("toggleFuriganaHotkey").value = toggleFuriganaHotkey || "Alt+F";
-        document.getElementById("wsUrl2").value = weburl2;
-        updateWebSocketStatus("ws1", websocketStates.ws1);
-        updateWebSocketStatus("ws2", websocketStates.ws2);
-        document.getElementById("hideOnStartup").checked = hideOnStartup;
-        document.getElementById("magpieCompatibility").checked = magpieCompatibility;
-        document.getElementById("showTextBackground").checked = showTextBackground;
-        document.getElementById("focusOnHotkey").checked = focusOnHotkey;
-        document.getElementById("afkTimer").value = afkTimer;
-        document.getElementById("hideReadyIndicator").checked = userSettings.hideReadyIndicator;
-        document.getElementById("showFurigana").checked = showFurigana;
-
-        // Handle Ctrl warnings for configured hotkey settings
-        hotkeySettings.forEach(({ inputId, warningElementId, settingKey }) => {
-          const hotkeyValue = userSettings[settingKey];
-          if (hotkeyValue && warningElementId) {
-            updateCtrlWarning(hotkeyValue, warningElementId);
-          }
-        });
-      });
-    }
-
-    // Initialize with current hotkey settings configuration
-    initializeSettingsPreload([
-      {
-        inputId: "showHotkey",
-        warningElementId: "ctrl-warning",
-        settingKey: "showHotkey"
-      },
-      {
-        inputId: "toggleFuriganaHotkey",
-        warningElementId: "furigana-ctrl-warning",
-        settingKey: "toggleFuriganaHotkey"
+    // Set manualModeType when settings are preloaded
+    ipcRenderer.on("preload-settings", (event, { userSettings }) => {
+      if (userSettings.manualModeType) {
+        document.getElementById("manualModeType").value = userSettings.manualModeType;
       }
-    ]);
+    });
 
     function validateHotkey(hotkey) {
       if (!hotkey || hotkey.trim() === "" || hotkey === "Press keys..." || hotkey === "Add a modifier key (Ctrl, Alt, Shift)") {
@@ -753,10 +873,13 @@
 
     // Handle settings preload
     ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
-      const { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, manualMode, showHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer, showFurigana } = userSettings;
+      const { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, manualMode, manualModeType, showHotkey, pinned, showTextBackground, focusOnHotkey, afkTimer, showFurigana, offsetX, offsetY } = userSettings;
       document.getElementById("fontSize").value = fontSize;
+      document.getElementById("offsetX").value = offsetX;
+      document.getElementById("offsetY").value = offsetY;
       document.getElementById("wsUrl1").value = weburl1;
       document.getElementById("manualMode").checked = manualMode;
+      document.getElementById("manualModeType").value = manualModeType || "hold";
       document.getElementById("showHotkey").value = showHotkey;
       document.getElementById("wsUrl2").value = weburl2;
       updateWebSocketStatus("ws1", websocketStates.ws1);
@@ -790,6 +913,11 @@
 
     ipcRenderer.on("websocket-opened", (event, type) => {
       updateWebSocketStatus(type, true);
+    });
+
+    ipcRenderer.on("update-offset-values", (event, { offsetX, offsetY }) => {
+      document.getElementById("offsetX").value = offsetX;
+      document.getElementById("offsetY").value = offsetY;
     });
   </script>
 </body>

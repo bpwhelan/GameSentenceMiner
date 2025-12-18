@@ -6,3 +6,7 @@
 	path = GameSentenceMiner/owocr
 	url = https://github.com/bpwhelan/owocr.git
 	branch = master
+[submodule "GameSentenceMiner/mecab"]
+	path = GameSentenceMiner/mecab
+	url = https://github.com/bpwhelan/mecab_controller.git
+	branch = main

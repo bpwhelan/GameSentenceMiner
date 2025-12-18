@@ -131,12 +131,13 @@ let pythonPath: string;
 let pythonUpdating: boolean = false;
 const originalLog = console.log;
 const originalError = console.error;
+let cleanupComplete = false;
 
 // TODO FLIP THIS TO false BEFORE RELEASE
 export const preReleaseVersion = false;
 
 // Turn off auto updates in dev for testing
-export const alwaysUpdateInDev = true;
+export const alwaysUpdateInDev = false;
 
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
@@ -315,8 +316,9 @@ async function updateGSM(shouldRestart: boolean = false, force: boolean = false,
 }
 
 // Add this helper near the top or inside the function scope
-import { pipeline } from 'stream/promises';
-import { createWriteStream } from 'fs';
+// import { pipeline } from 'stream/promises';
+// import { createWriteStream } from 'fs';
+// import { checkAndRunWizard } from './ui/wizard.js';
 
 /**
  * Downloads the requirements.lock from GitHub to the local assets folder (or temp).
@@ -608,6 +610,9 @@ function runGSM(command: string, args: string[]): Promise<void> {
                 } catch (e) {
                     console.error('Failed to route notification from Python:', e);
                 }
+            } if (msg.function === 'cleanup_complete') {
+                console.log('Received cleanup_complete message from Python.');
+                cleanupComplete = true;
             }
             // mainWindow?.webContents.send('gsm-message', msg);
         });
@@ -878,6 +883,9 @@ export async function checkAndInstallPython311(pythonPath: string): Promise<void
  * Ensures GameSentenceMiner is installed before running it.
  */
 async function ensureAndRunGSM(pythonPath: string, retry = 1): Promise<void> {
+    // Kill any leftover GSM processes before starting
+    // await killAllGSMProcesses();
+    
     const isInstalled = await isPackageInstalled(pythonPath, APP_NAME);
 
     await checkAndInstallUV(pythonPath);
@@ -1014,7 +1022,7 @@ async function processArgsAndStartSettings() {
     }
 
     if (getRunManualOCROnStartup()) {
-        startManualOCR();
+        setTimeout(() => startManualOCR(), 10000);
     }
 }
 
@@ -1041,6 +1049,9 @@ if (!app.requestSingleInstanceLock()) {
         }
         createWindow().then(async () => {
             createTray();
+            // setTimeout(async () => {
+            //     await checkAndRunWizard(true);
+            // }, 1000);
             const pyPath = await getOrInstallPython();
             pythonPath = pyPath;
             setPythonPath(pythonPath);
@@ -1137,8 +1148,65 @@ export async function runPipInstall(packageName: string): Promise<void> {
     await ensureAndRunGSM(pythonPath);
 }
 
-async function closeAllPythonProcesses(): Promise<void> {
-    await closeGSM();
+/**
+ * Finds and kills all lingering GameSentenceMiner Python processes on the system.
+ * This is more aggressive than closeAllPythonProcesses and searches for any
+ * python.exe processes running GameSentenceMiner modules.
+ */
+async function killAllGSMProcesses(): Promise<void> {
+    try {
+        if (isWindows()) {
+            // Use tasklist to find python processes
+            const { stdout } = await execFileAsync('tasklist', ['/FI', 'IMAGENAME eq python.exe', '/FO', 'CSV', '/NH']);
+            const lines = stdout.trim().split('\n');
+            
+            for (const line of lines) {
+                // Parse CSV output: "python.exe","PID","Session Name","Session#","Mem Usage"
+                const match = line.match(/"([^"]+)","(\d+)"/);
+                if (match) {
+                    const pid = match[2];
+                    try {
+                        // Check if this process is running GameSentenceMiner
+                        const { stdout: cmdline } = await execFileAsync('wmic', [
+                            'process', 'where', `ProcessId=${pid}`, 'get', 'CommandLine', '/FORMAT:LIST'
+                        ]);
+                        
+                        if (cmdline.includes('GameSentenceMiner') || cmdline.includes('gsm.py')) {
+                            console.log(`Found leftover GSM process (PID: ${pid}), killing...`);
+                            await execFileAsync('taskkill', ['/PID', pid, '/F']);
+                            console.log(`Killed process ${pid}`);
+                        }
+                    } catch (err) {
+                        // Process might have already exited or we don't have permission
+                        console.warn(`Could not check/kill process ${pid}:`, err);
+                    }
+                }
+            }
+        } else {
+            // Unix-like systems (macOS, Linux)
+            const { stdout } = await execFileAsync('pgrep', ['-f', 'GameSentenceMiner']);
+            const pids = stdout.trim().split('\n').filter(pid => pid);
+            
+            for (const pid of pids) {
+                try {
+                    console.log(`Found leftover GSM process (PID: ${pid}), killing...`);
+                    await execFileAsync('kill', ['-9', pid]);
+                    console.log(`Killed process ${pid}`);
+                } catch (err) {
+                    console.warn(`Could not kill process ${pid}:`, err);
+                }
+            }
+        }
+        console.log('Finished checking for leftover GSM processes.');
+    } catch (err) {
+        console.error('Error while checking for leftover processes:', err);
+    }
+}
+
+async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<void> {
+    if (closeGSMFlag) {
+        await closeGSM();
+    }
     await stopOCR();
     await stopWindowTransparencyTool();
 }
@@ -1150,13 +1218,21 @@ async function closeGSM(): Promise<void> {
     // Prefer graceful quit via IPC command; fall back to kill.
     if (gsmStdoutManager) {
         gsmStdoutManager.sendQuitMessage();
+        cleanupComplete = false;
         console.log('Sent quit command to GSM via stdout IPC.');
-        setTimeout(() => {
-            if (pyProc && !pyProc.killed) {
-                pyProc.kill();
-                console.log('Force killed GSM after timeout.');
+        gsmStdoutManager.once('message', (msg) => {
+            if (msg.function === 'cleanup_complete') {
+                cleanupComplete = true;
+                console.log('Received cleanup_complete message from Python.');
+                app.quit();
             }
-        }, 3000);
+        });
+        // Wait 5 seconds for cleanup_complete, then force kill if needed (blocking)
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        if (pyProc && !pyProc.killed && !cleanupComplete) {
+            pyProc.kill();
+            console.log('Force killed GSM after timeout.');
+        }
     } else {
         console.log('No IPC manager, killing process directly.');
         pyProc?.kill();
@@ -1168,8 +1244,13 @@ async function restartGSM(): Promise<void> {
     if (gsmStdoutManager) {
         gsmStdoutManager.sendQuitMessage();
     }
-    ensureAndRunGSM(pythonPath).then(() => {
-        console.log('GSM Successfully Restarted!');
+    gsmStdoutManager?.once('message', (msg) => {
+        if (msg.function === 'cleanup_complete') {
+            console.log('Received cleanup_complete message from Python, restarting GSM...');
+            ensureAndRunGSM(pythonPath).then(() => {
+                console.log('GSM Successfully Restarted!');
+            });
+        }
     });
 }
 
@@ -1297,7 +1378,7 @@ async function zipLogs(): Promise<void> {
 async function quit(): Promise<void> {
     await stopScripts();
     if (pyProc != null) {
-        await closeGSM();
+        await closeAllPythonProcesses();
         app.quit();
     } else {
         app.quit();
