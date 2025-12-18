@@ -1493,12 +1493,15 @@ def register_goals_api_routes(app):
                     
                     avg_daily = total_value / 30
             
-            # Get current total (all-time)
-            first_rollup_date = StatsRollupTable.get_first_date()
-            if not first_rollup_date:
+            # Get current total (from goal start_date, or all-time for future goals)
+            # For active/past goals, only count progress from start_date
+            effective_start_date = start_date if today >= start_date else None
+            
+            if not effective_start_date:
                 current_total = 0
             else:
-                all_rollups = StatsRollupTable.get_date_range(first_rollup_date, yesterday_str)
+                effective_start_str = effective_start_date.strftime("%Y-%m-%d")
+                all_rollups = StatsRollupTable.get_date_range(effective_start_str, yesterday_str)
                 rollup_stats_all = aggregate_rollup_data(all_rollups) if all_rollups else None
                 combined_stats_all = combine_rollup_and_live_stats(rollup_stats_all, live_stats_today)
                 
@@ -1529,7 +1532,7 @@ def register_goals_api_routes(app):
                     current_total = extract_metric_value(
                         combined_stats_all, metric_type,
                         today_lines=today_lines,
-                        start_date=datetime.datetime.strptime(first_rollup_date, "%Y-%m-%d").date(),
+                        start_date=effective_start_date,
                         yesterday=yesterday,
                         goals_settings=data.get("goals_settings", {}),
                         media_type=media_type
