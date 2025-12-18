@@ -101,7 +101,7 @@ For full setup guides and configuration details, check the [Wiki](https://docs.g
 
 ### Integrated Components
 
-This project includes modified versions of the following libraries, I got tired of submodule hell so I've included them directly here for easier management:
+This project includes modified versions of the following libraries, I got tired of submodule hell so I've included them directly here for easier management all credits go to the original authors:
 
 *   **Texthooker UI**
     - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/texthooker
