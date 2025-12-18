@@ -138,16 +138,40 @@
                             <select id="goalMetricType" name="goalMetricType" required
                                 style="width: 95%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
                                 <option value="">Select metric type...</option>
-                                <option value="hours">Reading Hours</option>
-                                <option value="characters">Characters Read</option>
+                                <option value="hours">Reading Time (with date range)</option>
+                                <option value="characters">Characters Read (with date range)</option>
                                 <option value="games">Games Completed</option>
-                                <option value="cards">Cards Mined</option>
+                                <option value="cards">Cards Mined (with date range)</option>
                                 <!--<option value="mature_cards">Mature Anki Cards</option>-->
                                 <!---Not only counts cards that matured today, but also mature cards that stayed mature so its not a good metric. Will need a new AnkiConnect endpoint or to loop through all cards and see their history and work out if they were matured today or not-->
                                 <!-- <option value="anki_backlog">Clear Anki Backlog</option> -->
                                 <!-- Requires keeping track of how many new cards a day are done, otherwise we can only calculate from today to the end date. Because of this, we cannot create nice dailies or progress bars that makes this no different from doing it by hand. Commenting out and might revisit later -->
+                                <option value="hours_static">Reading Times (daily, no end date)</option>
+                                <option value="characters_static">Characters Read (daily, no end date)</option>
+                                <option value="cards_static">Cards Mined (daily, no end date)</option>
                                 <option value="custom">Custom (Daily Checkbox)</option>
                             </select>
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label for="goalMediaType" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Media Type
+                                <span style="color: var(--text-tertiary); font-weight: 400; font-size: 0.9em;">(filter progress by media type)</span>
+                            </label>
+                            <select id="goalMediaType" name="goalMediaType"
+                                style="width: 95%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <option value="ALL">All Media Types</option>
+                                <option value="Anime">📺 Anime</option>
+                                <option value="Manga">📖 Manga</option>
+                                <option value="Light Novel">📚 Light Novel</option>
+                                <option value="Web Novel">🌐 Web Novel</option>
+                                <option value="Book">📕 Book</option>
+                                <option value="Game">🎮 Game</option>
+                                <option value="Visual Novel">🎭 Visual Novel</option>
+                            </select>
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Select "All Media Types" to track progress across all content, or choose a specific type to only count progress from that media type.
+                            </small>
                         </div>
 
                         <!-- Help text for Custom goals -->
@@ -158,6 +182,19 @@
                                     <strong style="color: var(--text-primary); display: block; margin-bottom: 4px;">Daily Habit Tracker</strong>
                                     <p style="color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;">
                                         Custom goals are for tracking daily habits with a simple checkbox. No targets or dates needed - just mark it complete each day to build your streak!
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Help text for Static goals -->
+                        <div id="staticGoalHelpText" class="static-goal-help-text" style="display: none; margin-bottom: 20px; padding: 12px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(79, 70, 229, 0.05) 100%); border-left: 4px solid #6366f1; border-radius: 6px;">
+                            <div style="display: flex; align-items: start; gap: 10px;">
+                                <span style="font-size: 20px;">♾️</span>
+                                <div>
+                                    <strong style="color: var(--text-primary); display: block; margin-bottom: 4px;">Daily Target Goal</strong>
+                                    <p style="color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;">
+                                        Static goals set a fixed daily target that never changes. Each day you'll see the same target in your dailies (e.g., "Read 100 characters"). Your cumulative progress is tracked in the Goals section.
                                     </p>
                                 </div>
                             </div>
@@ -186,6 +223,34 @@
                                 placeholder="e.g., 1000000">
                             <small id="goalValueHelp" style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
                                 The target amount you want to achieve
+                            </small>
+                        </div>
+
+                        <!-- Time-based goals: Hours and Minutes inputs -->
+                        <div id="goalTimeValueContainer" class="goal-form-field" style="display: none; margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                                Target Time
+                            </label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                <div>
+                                    <label for="goalTargetHours" style="display: block; font-weight: 500; margin-bottom: 4px; color: var(--text-secondary); font-size: 13px;">
+                                        Hours
+                                    </label>
+                                    <input type="number" id="goalTargetHours" name="goalTargetHours" min="0"
+                                        style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                        placeholder="e.g., 100">
+                                </div>
+                                <div>
+                                    <label for="goalTargetMinutes" style="display: block; font-weight: 500; margin-bottom: 4px; color: var(--text-secondary); font-size: 13px;">
+                                        Minutes
+                                    </label>
+                                    <input type="number" id="goalTargetMinutes" name="goalTargetMinutes" min="0" max="59"
+                                        style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;"
+                                        placeholder="e.g., 30">
+                                </div>
+                            </div>
+                            <small id="goalTimeHelp" style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                The target time you want to achieve
                             </small>
                         </div>
 
@@ -337,6 +402,26 @@
                             </div>
                         </div>
                         -->
+                        
+                        <!-- Display Settings Section -->
+                        <div style="margin-bottom: 30px;">
+                            <h4 style="color: var(--text-primary); margin-bottom: 15px; font-size: 16px; font-weight: 600;">
+                                🎨 Display Settings
+                            </h4>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                    <input type="checkbox" id="useRawHours" name="useRawHours"
+                                        style="width: 18px; height: 18px; cursor: pointer;">
+                                    <span style="color: var(--text-primary); font-weight: 500;">
+                                        Use raw hours instead of human-readable times
+                                    </span>
+                                </label>
+                                <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block; margin-left: 28px;">
+                                    Show "73 hours" instead of "3 days 1 hour"
+                                </small>
+                            </div>
+                        </div>
                         
                         <!-- Easy Days Section -->
                         <div style="margin-bottom: 30px;">

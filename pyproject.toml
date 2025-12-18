@@ -73,8 +73,11 @@ dependencies = [
   "curl-cffi~=0.13.0",
   "betterproto==2.0.0b7",
   "py7zr~=1.0.0",
+  "waitress==3.0.2",
+  "flasgger~=0.9.7",
   "pynput~=1.8.1 ; sys_platform == 'win32'",
 ]
+
 
 [project.optional-dependencies]
 lens = [

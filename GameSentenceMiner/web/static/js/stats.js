@@ -531,6 +531,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function createHourlyActivityChart(canvasId, hourlyData) {
         if (!hourlyData || !Array.isArray(hourlyData)) return null;
         
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
+        
         // Create hour labels (0-23)
         const hourLabels = [];
         for (let i = 0; i < 24; i++) {
@@ -869,6 +875,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function createAvgHoursByDayChart(canvasId, dayOfWeekData) {
         if (!dayOfWeekData) return null;
         
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
+        
         const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
         const hoursData = dayOfWeekData.avg_hours || [0, 0, 0, 0, 0, 0, 0];
         
@@ -1028,6 +1040,12 @@ document.addEventListener('DOMContentLoaded', function () {
         
         if (!canvas) return null;
         
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
+        
         if (!gameTypeData || !gameTypeData.labels || gameTypeData.labels.length === 0) {
             canvas.style.display = 'none';
             if (noDataEl) {
@@ -1069,6 +1087,12 @@ document.addEventListener('DOMContentLoaded', function () {
         
         if (!canvas) return null;
         
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
+        
         if (!genreSpeedData || !genreSpeedData.labels || genreSpeedData.labels.length === 0) {
             canvas.style.display = 'none';
             if (noDataEl) {
@@ -1107,6 +1131,12 @@ document.addEventListener('DOMContentLoaded', function () {
         const noDataEl = document.getElementById('genreCharsNoData');
         
         if (!canvas) return null;
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
         
         if (!genreCharsData || !genreCharsData.labels || genreCharsData.labels.length === 0) {
             canvas.style.display = 'none';
@@ -1147,6 +1177,12 @@ document.addEventListener('DOMContentLoaded', function () {
         
         if (!canvas) return null;
         
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
+        
         if (!tagSpeedData || !tagSpeedData.labels || tagSpeedData.labels.length === 0) {
             canvas.style.display = 'none';
             if (noDataEl) {
@@ -1185,6 +1221,12 @@ document.addEventListener('DOMContentLoaded', function () {
         const noDataEl = document.getElementById('tagCharsNoData');
         
         if (!canvas) return null;
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
         
         if (!tagCharsData || !tagCharsData.labels || tagCharsData.labels.length === 0) {
             canvas.style.display = 'none';
@@ -1387,6 +1429,12 @@ document.addEventListener('DOMContentLoaded', function () {
     // Function to create top 5 character count days horizontal bar chart
     function createTopCharacterDaysChart(canvasId, heatmapData) {
         if (!heatmapData) return null;
+        
+        // Destroy existing chart if it exists
+        if (window.myCharts && window.myCharts[canvasId]) {
+            window.myCharts[canvasId].destroy();
+            delete window.myCharts[canvasId];
+        }
         
         // Extract all dates and character counts from heatmap data
         const allDays = [];
@@ -1885,10 +1933,33 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.myCharts[canvasId];
     }
 
+    // Helper function to calculate simple moving average
+    function calculateMovingAverage(data, windowSize = 7) {
+        const result = [];
+        for (let i = 0; i < data.length; i++) {
+            // For the first few points, use a smaller window
+            const actualWindowSize = Math.min(windowSize, i + 1);
+            const start = Math.max(0, i - actualWindowSize + 1);
+            const window = data.slice(start, i + 1);
+            const sum = window.reduce((acc, val) => acc + val, 0);
+            result.push(sum / window.length);
+        }
+        return result;
+    }
+
+    // Track moving average visibility state and cached data
+    let speedChartMovingAverageVisible = false;
+    let cachedSpeedChartData = null;
+    let cachedSpeedChartIsAllTime = false;
+
     // Function to create daily reading speed line chart
-    function createDailySpeedChart(canvasId, chartData, isAllTime = false) {
+    function createDailySpeedChart(canvasId, chartData, isAllTime = false, showMovingAverage = speedChartMovingAverageVisible) {
         const canvas = document.getElementById(canvasId);
         if (!canvas || !chartData) return null;
+        
+        // Cache the data for re-rendering without API calls
+        cachedSpeedChartData = chartData;
+        cachedSpeedChartIsAllTime = isAllTime;
         
         const ctx = canvas.getContext('2d');
         
@@ -1914,6 +1985,9 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
         
+        // Calculate moving average (7-day window)
+        const movingAverageData = calculateMovingAverage(filteredSpeedData, 7);
+        
         // Generate point colors based on weekend - consistent with other daily charts
         const pointColors = filteredOriginalLabels.map(dateStr => {
             const date = parseLocalDate(dateStr);
@@ -1928,29 +2002,56 @@ document.addEventListener('DOMContentLoaded', function () {
             titleElement.textContent = isAllTime ? '⚡ Daily Reading Speed (All Time)' : '⚡ Daily Reading Speed (Last 4 Weeks)';
         }
         
+        // Build datasets array
+        const datasets = [{
+            label: 'Reading Speed (chars/hour)',
+            data: filteredSpeedData,
+            borderColor: 'rgba(54, 162, 235, 1)',
+            backgroundColor: 'rgba(54, 162, 235, 0.1)',
+            pointBackgroundColor: pointColors,
+            pointBorderColor: pointColors,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            borderWidth: 2,
+            tension: 0.3,
+            fill: true,
+            order: 2
+        }];
+        
+        // Add moving average dataset if enabled
+        if (showMovingAverage) {
+            datasets.push({
+                label: '7-Day Moving Average',
+                data: movingAverageData,
+                borderColor: 'rgba(255, 99, 132, 1)',
+                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                pointRadius: 0,
+                pointHoverRadius: 5,
+                borderWidth: 3,
+                tension: 0.4,
+                fill: false,
+                order: 1,
+                borderDash: [5, 5]
+            });
+        }
+        
         window.myCharts[canvasId] = new Chart(ctx, {
             type: 'line',
             data: {
                 labels: filteredLabels,
-                datasets: [{
-                    label: 'Reading Speed (chars/hour)',
-                    data: filteredSpeedData,
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
-                    pointBackgroundColor: pointColors,
-                    pointBorderColor: pointColors,
-                    pointRadius: 5,
-                    pointHoverRadius: 7,
-                    borderWidth: 2,
-                    tension: 0.3,
-                    fill: true
-                }]
+                datasets: datasets
             },
             options: {
                 responsive: true,
                 plugins: {
                     legend: {
-                        display: false
+                        display: showMovingAverage,
+                        position: 'top',
+                        labels: {
+                            color: getThemeTextColor(),
+                            usePointStyle: true,
+                            padding: 15
+                        }
                     },
                     title: {
                         display: false
@@ -1958,15 +2059,16 @@ document.addEventListener('DOMContentLoaded', function () {
                     tooltip: {
                         callbacks: {
                             title: function(context) {
-                                const index = context.dataIndex;
+                                const index = context[0].dataIndex;
                                 return filteredOriginalLabels[index];
                             },
                             label: function(context) {
                                 const speed = context.parsed.y;
-                                return `Speed: ${speed.toLocaleString()} chars/hour`;
+                                const datasetLabel = context.dataset.label;
+                                return `${datasetLabel}: ${speed.toLocaleString()} chars/hour`;
                             },
                             afterLabel: function(context) {
-                                const index = context.dataIndex;
+                                const index = Array.isArray(context) ? context[0].dataIndex : context.dataIndex;
                                 const date = parseLocalDate(filteredOriginalLabels[index]);
                                 const dayOfWeek = date.getDay();
                                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -2225,6 +2327,73 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // Function to update average statistics for time period display
+    function updateTimePeriodAverages(timePeriodAverages) {
+        // Helper function to format large numbers
+        function formatLargeNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            } else {
+                return num.toString();
+            }
+        }
+
+        // Helper function to format time in human-readable format
+        function formatTimeHuman(hours) {
+            if (hours < 1) {
+                const minutes = Math.round(hours * 60);
+                return minutes + 'm';
+            } else if (hours < 24) {
+                const wholeHours = Math.floor(hours);
+                const minutes = Math.round((hours - wholeHours) * 60);
+                if (minutes > 0) {
+                    return wholeHours + 'h ' + minutes + 'm';
+                } else {
+                    return wholeHours + 'h';
+                }
+            } else {
+                const days = Math.floor(hours / 24);
+                const remainingHours = Math.floor(hours % 24);
+                if (remainingHours > 0) {
+                    return days + 'd ' + remainingHours + 'h';
+                } else {
+                    return days + 'd';
+                }
+            }
+        }
+
+        // Update the average display elements
+        const avgHoursEl = document.getElementById('avgHoursPerDay');
+        const avgCharsEl = document.getElementById('avgCharsPerDay');
+        const avgSpeedEl = document.getElementById('avgSpeedPerDay');
+
+        if (avgHoursEl) {
+            avgHoursEl.textContent = formatTimeHuman(timePeriodAverages.avgHoursPerDay || 0);
+        }
+
+        if (avgCharsEl) {
+            avgCharsEl.textContent = formatLargeNumber(timePeriodAverages.avgCharsPerDay || 0);
+        }
+
+        if (avgSpeedEl) {
+            avgSpeedEl.textContent = formatLargeNumber(timePeriodAverages.avgSpeedPerDay || 0);
+        }
+
+        // Update the totals display elements
+        const totalHoursEl = document.getElementById('totalHoursForPeriod');
+        const totalCharsEl = document.getElementById('totalCharsForPeriod');
+
+        if (totalHoursEl) {
+            totalHoursEl.textContent = formatTimeHuman(timePeriodAverages.totalHours || 0);
+        }
+
+        if (totalCharsEl) {
+            totalCharsEl.textContent = formatLargeNumber(timePeriodAverages.totalChars || 0);
+        }
+    }
+
     function showNoDataPopup() {
         const popup = document.getElementById("noDataPopup");
         if (popup) popup.classList.remove("hidden");
@@ -2480,6 +2649,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     updateGameMilestones(data.gameMilestones);
                 }
 
+                // Update time period averages if data exists
+                if (data.timePeriodAverages) {
+                    updateTimePeriodAverages(data.timePeriodAverages);
+                }
+
                 return data;
             })
             .catch(error => {
@@ -2663,6 +2837,28 @@ document.addEventListener('DOMContentLoaded', function () {
     setupToggleButton(toggleTimeDataBtn);
     setupToggleButton(toggleCharsDataBtn);
     setupToggleButton(toggleSpeedDataBtn);
+    
+    // Setup moving average toggle button
+    const toggleMovingAverageBtn = document.getElementById('toggleMovingAverageBtn');
+    if (toggleMovingAverageBtn) {
+        toggleMovingAverageBtn.addEventListener('click', function() {
+            speedChartMovingAverageVisible = !speedChartMovingAverageVisible;
+            
+            // Update button text and style
+            if (speedChartMovingAverageVisible) {
+                this.textContent = 'Hide Moving Average';
+                this.classList.add('active');
+            } else {
+                this.textContent = 'Show Moving Average';
+                this.classList.remove('active');
+            }
+            
+            // Re-render the chart with cached data (no API call)
+            if (cachedSpeedChartData) {
+                createDailySpeedChart('dailySpeedChart', cachedSpeedChartData, cachedSpeedChartIsAllTime, speedChartMovingAverageVisible);
+            }
+        });
+    }
 
     // ExStatic Import Functionality
     const exstaticFileInput = document.getElementById('exstaticFile');

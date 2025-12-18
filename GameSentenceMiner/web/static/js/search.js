@@ -29,6 +29,7 @@ class SentenceSearchApp {
         this.duplicateTimeWindowGroup = document.getElementById('duplicateTimeWindowGroup');
         
         this.deleteLinesBtn = document.getElementById('deleteLinesBtn');
+        this.changeGameBtn = document.getElementById('changeGameBtn');
         this.selectAllBtn = document.getElementById('selectAllBtn');
         this.pageSizeFilter = document.getElementById('pageSizeFilter');
         this.toggleAdvancedBtn = document.getElementById('toggleAdvancedSearch');
@@ -123,6 +124,12 @@ class SentenceSearchApp {
         if (this.deleteLinesBtn) {
             this.deleteLinesBtn.addEventListener('click', () => {
                 this.showDeleteConfirmation();
+            });
+        }
+
+        if (this.changeGameBtn) {
+            this.changeGameBtn.addEventListener('click', () => {
+                this.showChangeGameModal();
             });
         }
 
@@ -386,7 +393,8 @@ class SentenceSearchApp {
         
         const totalPages = Math.ceil(data.total / this.pageSize);
         
-        if (totalPages <= 1) {
+        // Hide pagination if ALL is selected or only one page
+        if (this.pageSize >= 100000000 || totalPages <= 1) {
             pagination.style.display = 'none';
             return;
         }
@@ -446,6 +454,13 @@ class SentenceSearchApp {
             this.deleteLinesBtn.textContent = selectedCount > 0
                 ? `Delete Selected (${selectedCount})`
                 : 'Delete Selected';
+        }
+
+        if (this.changeGameBtn) {
+            this.changeGameBtn.disabled = selectedCount === 0;
+            this.changeGameBtn.textContent = selectedCount > 0
+                ? `Change Game (${selectedCount})`
+                : 'Change Game';
         }
 
         if (this.selectAllBtn) {
@@ -638,6 +653,103 @@ class SentenceSearchApp {
         document.getElementById('messageModalText').textContent = message;
         openModal('messageModal');
     }
+
+    async showChangeGameModal() {
+        const count = this.getSelectedCount();
+        if (count === 0) return;
+        
+        // Update line count in modal
+        document.getElementById('changeGameLineCount').textContent = count;
+        
+        // Populate target game select
+        const targetGameSelect = document.getElementById('targetGameSelect');
+        targetGameSelect.innerHTML = '<option value="">-- Select a game --</option>';
+        
+        try {
+            const response = await fetch('/api/games-list');
+            const data = await response.json();
+            
+            if (response.ok && data.games) {
+                data.games.forEach(game => {
+                    const option = document.createElement('option');
+                    option.value = game.name;
+                    option.textContent = `${game.name} (${game.sentence_count.toLocaleString()} sentences)`;
+                    targetGameSelect.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Failed to load games list:', error);
+        }
+        
+        // Reset state
+        document.getElementById('changeGameError').style.display = 'none';
+        document.getElementById('changeGameLoading').style.display = 'none';
+        
+        openModal('changeGameModal');
+    }
+
+    async migrateSelectedLines() {
+        const lineIds = this.getSelectedLineIds();
+        const targetGame = document.getElementById('targetGameSelect').value;
+        
+        if (lineIds.length === 0) {
+            return;
+        }
+        
+        if (!targetGame) {
+            const errorDiv = document.getElementById('changeGameError');
+            errorDiv.textContent = 'Please select a target game';
+            errorDiv.style.display = 'block';
+            return;
+        }
+        
+        try {
+            // Show loading
+            document.getElementById('changeGameLoading').style.display = 'flex';
+            document.getElementById('changeGameError').style.display = 'none';
+            
+            const response = await fetch('/api/migrate-lines', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    line_ids: lineIds,
+                    target_game: targetGame
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to migrate lines');
+            }
+
+            // Hide loading
+            document.getElementById('changeGameLoading').style.display = 'none';
+            
+            // Close modal
+            closeModal('changeGameModal');
+            
+            // Clear selections
+            document.querySelectorAll('.line-checkbox:checked').forEach(cb => cb.checked = false);
+            this.updateDeleteButtonState();
+
+            // Refresh search results
+            await this.performSearch();
+
+            // Show success message
+            this.showMessage('Success',
+                `Successfully migrated ${data.migrated_count} line${data.migrated_count > 1 ? 's' : ''} to "${targetGame}"`);
+
+        } catch (error) {
+            document.getElementById('changeGameLoading').style.display = 'none';
+            const errorDiv = document.getElementById('changeGameError');
+            errorDiv.textContent = `Failed to migrate lines: ${error.message}`;
+            errorDiv.style.display = 'block';
+            console.error('Migration error:', error);
+        }
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -656,6 +768,13 @@ document.addEventListener('DOMContentLoaded', () => {
         confirmDeleteBtn.addEventListener('click', () => {
             closeModal('deleteConfirmationModal');
             app.deleteSelectedLines();
+        });
+    }
+    
+    const confirmChangeGameBtn = document.getElementById('confirmChangeGameBtn');
+    if (confirmChangeGameBtn) {
+        confirmChangeGameBtn.addEventListener('click', () => {
+            app.migrateSelectedLines();
         });
     }
 });

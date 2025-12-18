@@ -684,9 +684,9 @@ class GoalsTable(SQLiteDBTable):
 
     @classmethod
     def get_latest(cls) -> Optional['GoalsTable']:
-        """Get the most recent goals entry."""
+        """Get the most recent goals entry (excludes 'current' entry)."""
         row = cls._db.fetchone(
-            f"SELECT * FROM {cls._table} ORDER BY date DESC LIMIT 1")
+            f"SELECT * FROM {cls._table} WHERE date != 'current' ORDER BY date DESC LIMIT 1")
         return cls.from_row(row) if row else None
 
     @classmethod
@@ -721,30 +721,55 @@ class GoalsTable(SQLiteDBTable):
             today_str: Date string in YYYY-MM-DD format (should be in user's local timezone)
             timezone_str: IANA timezone string (e.g., 'Asia/Tokyo', 'UTC') - used for logging only
         """
+        try:
+            today_date = datetime.strptime(today_str, '%Y-%m-%d').date()
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Invalid date format for today_str: {today_str}: {e}")
+            return (1, 1)
+        
+        # Get the latest historical entry (excludes "current")
         latest = cls.get_latest()
         
         if not latest:
-            # First entry ever - start both streaks at 1
+            # No historical entries yet, this will be the first
+            return (1, 1)
+        
+        # Parse the latest entry's date
+        try:
+            latest_date = datetime.strptime(latest.date, '%Y-%m-%d').date()
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Invalid date in latest entry: {latest.date}: {e}")
             return (1, 1)
         
         # Calculate current streak
-        current_streak = 1
-        try:
-            from datetime import datetime, timedelta
-            latest_date = datetime.strptime(latest.date, '%Y-%m-%d').date()
-            today_date = datetime.strptime(today_str, '%Y-%m-%d').date()
-            yesterday = today_date - timedelta(days=1)
+        current_streak = 0
+        yesterday = today_date - timedelta(days=1)
+        
+        # Check if streak is still active (latest entry is today or yesterday)
+        if latest_date == today_date or latest_date == yesterday:
+            # Get all historical entries to count consecutive days backwards
+            # Fetch entries in descending order (most recent first)
+            query = f"SELECT * FROM {cls._table} WHERE date != 'current' ORDER BY date DESC"
+            rows = cls._db.fetchall(query)
             
-            # Check if latest entry is from yesterday (consecutive)
-            if latest_date == yesterday:
-                current_streak = latest.streak + 1
-            else:
-                # Streak is broken, start fresh
+            if rows:
                 current_streak = 1
+                prev_date = datetime.strptime(rows[0][1], '%Y-%m-%d').date()  # rows[0][1] is the date column
                 
-        except (ValueError, AttributeError) as e:
-            logger.error(f"Error calculating current streak: {e}")
-            current_streak = 1
+                # Count consecutive days backwards from the most recent entry
+                for i in range(1, len(rows)):
+                    entry_date = datetime.strptime(rows[i][1], '%Y-%m-%d').date()
+                    expected_prev_date = prev_date - timedelta(days=1)
+                    
+                    if entry_date == expected_prev_date:
+                        current_streak += 1
+                        prev_date = entry_date
+                    else:
+                        # Streak is broken
+                        break
+        else:
+            # Streak is broken (latest entry is older than yesterday)
+            current_streak = 0
         
         # Get longest streak from goals_settings JSON
         previous_longest = 0
@@ -779,7 +804,7 @@ def get_db_directory(test=False, delete_test=False) -> str:
 # Backup and compress the database on load, with today's date, up to 5 days ago (clean up old backups)
 def backup_db(db_path: str):
     
-    # Create a backup of the backups on migration
+    # Create a of the backups on migration
     pre_jiten_merge_backup = os.path.join(os.path.dirname(db_path), "backup", "database", "pre_jiten")
     if not os.path.exists(pre_jiten_merge_backup):
         os.makedirs(pre_jiten_merge_backup, exist_ok=True)
@@ -1031,6 +1056,27 @@ def check_and_run_migrations():
         else:
             logger.debug("populate_games cron job already exists, skipping creation.")
     
+    def migrate_user_plugins_cron_job():
+        """
+        Create the user_plugins cron job if it doesn't exist.
+        """
+        existing_cron = CronTable.get_by_name('user_plugins')
+        if not existing_cron:
+            logger.info("Creating user_plugins cron job...")
+            # Schedule to run immediately (2 minutes ago)
+            now = datetime.now()
+            two_minutes_ago = now - timedelta(minutes=2)
+            
+            CronTable.create_cron_entry(
+                name='user_plugins',
+                description='Custom user plugins',
+                next_run=two_minutes_ago.timestamp(),
+                schedule='minutely'  # by default gsm checks crons every 5 mins, so this actually runs every 15 mins
+            )
+            logger.info(f"✅ Created user_plugins cron job - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})")
+        else:
+            logger.debug("user_plugins cron job already exists, skipping creation.")
+    
     def migrate_genres_and_tags():
         """
         Add genres and tags columns to games table.
@@ -1079,6 +1125,7 @@ def check_and_run_migrations():
     migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
     migrate_genres_and_tags()  # Add genres and tags columns
+    migrate_user_plugins_cron_job()
         
 check_and_run_migrations()
     

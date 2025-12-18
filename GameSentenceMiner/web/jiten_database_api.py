@@ -63,8 +63,50 @@ def register_jiten_database_api_routes(app):
     @app.route("/api/games-management", methods=["GET"])
     def api_games_management():
         """
-        Get all games with their jiten.moe linking status and statistics.
-        Automatically creates game records for orphaned game_lines.
+        Get all games with their jiten.moe linking status
+        ---
+        tags:
+          - Jiten
+        responses:
+          200:
+            description: List of games with metadata and linking status
+            schema:
+              type: object
+              properties:
+                games:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      title_original:
+                        type: string
+                      title_romaji:
+                        type: string
+                      title_english:
+                        type: string
+                      type:
+                        type: string
+                      deck_id:
+                        type: string
+                      is_linked:
+                        type: boolean
+                      line_count:
+                        type: integer
+                      mined_character_count:
+                        type: integer
+                summary:
+                  type: object
+                  properties:
+                    total_games:
+                      type: integer
+                    linked_games:
+                      type: integer
+                    unlinked_games:
+                      type: integer
+          500:
+            description: Failed to fetch games data
         """
         try:
             from GameSentenceMiner.util.games_table import GamesTable
@@ -180,7 +222,54 @@ def register_jiten_database_api_routes(app):
     @app.route("/api/jiten-search", methods=["GET"])
     def api_jiten_search():
         """
-        Search jiten.moe media decks by title.
+        Search Jiten.moe dictionary entries
+        ---
+        tags:
+          - Jiten
+        parameters:
+          - name: query
+            in: query
+            type: string
+            required: true
+            description: Search term
+          - name: page
+            in: query
+            type: integer
+            default: 1
+            description: Page number
+          - name: page_size
+            in: query
+            type: integer
+            default: 20
+            description: Results per page (max 100)
+        responses:
+          200:
+            description: Search results
+            schema:
+              type: object
+              properties:
+                results:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      word:
+                        type: string
+                      reading:
+                        type: string
+                      meanings:
+                        type: array
+                        items: string
+                total:
+                  type: integer
+                page:
+                  type: integer
+                page_size:
+                  type: integer
+          400:
+            description: Invalid search parameters
+          500:
+            description: Search failed
         """
         try:
             title_filter = request.args.get("title", "").strip()
@@ -211,7 +300,37 @@ def register_jiten_database_api_routes(app):
     @app.route("/api/games/<game_id>/link-jiten", methods=["POST"])
     def api_link_game_to_jiten(game_id):
         """
-        Link a game to jiten.moe data, respecting manual overrides.
+        Link a game to jiten.moe data
+        ---
+        tags:
+          - Jiten
+        parameters:
+          - name: game_id
+            in: path
+            type: string
+            required: true
+            description: Game ID
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                deck_id:
+                  type: string
+                  description: Jiten.moe deck ID
+                jiten_data:
+                  type: object
+                  description: Full jiten.moe data object
+        responses:
+          200:
+            description: Game linked successfully
+          400:
+            description: Invalid request
+          404:
+            description: Game not found
+          500:
+            description: Failed to link game
         """
         try:
             from GameSentenceMiner.util.games_table import GamesTable

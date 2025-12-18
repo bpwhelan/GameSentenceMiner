@@ -26,3 +26,4 @@ dataclasses-json~=0.6.7
 win10toast~=0.9
 google-generativeai
 flask-compress~=1.15
+flasgger~=0.9.7

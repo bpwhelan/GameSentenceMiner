@@ -82,7 +82,7 @@ def validate_metric_type(metric_type, allowed_types=None):
     
     Args:
         metric_type: The metric type to validate
-        allowed_types: List of allowed types (defaults to standard 6 metrics)
+        allowed_types: List of allowed types (defaults to standard metrics + static)
         
     Returns:
         bool: True if valid
@@ -91,7 +91,11 @@ def validate_metric_type(metric_type, allowed_types=None):
         ValueError: If metric_type is not in allowed_types
     """
     if allowed_types is None:
-        allowed_types = ["hours", "characters", "games", "cards", "mature_cards", "anki_backlog"]
+        allowed_types = [
+            "hours", "characters", "games", "cards", "mature_cards",
+            "hours_static", "characters_static", "cards_static",
+            "anki_backlog"
+        ]
     
     if metric_type not in allowed_types:
         raise ValueError(f"Invalid metric_type. Must be one of: {', '.join(allowed_types)}")
@@ -99,18 +103,26 @@ def validate_metric_type(metric_type, allowed_types=None):
     return True
 
 
-def get_todays_live_data(today):
+def get_todays_live_data(today, user_tz=None):
     """
     Fetch today's game lines and calculate live statistics.
     
     Args:
         today: date object for today
+        user_tz: Optional pytz timezone object. If provided, timestamps will be created
+                 in this timezone. If None, uses naive datetime (system timezone).
         
     Returns:
         tuple: (today_lines, live_stats) where live_stats may be None
     """
-    today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
-    today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
+    if user_tz:
+        # Create timezone-aware datetimes to get correct timestamps
+        today_start = user_tz.localize(datetime.datetime.combine(today, datetime.time.min)).timestamp()
+        today_end = user_tz.localize(datetime.datetime.combine(today, datetime.time.max)).timestamp()
+    else:
+        # Fallback to naive datetime (for backward compatibility)
+        today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
+        today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
     today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
         start=today_start, end=today_end, for_stats=True
     )
@@ -142,6 +154,96 @@ def count_cards_from_lines(lines):
             count += 1
     
     return count
+
+
+def filter_stats_by_media_type(combined_stats, media_type):
+    """
+    Filter combined stats by media type.
+    
+    Args:
+        combined_stats: Combined rollup and live stats dictionary
+        media_type: Media type string ("Anime", "Visual Novel", "ALL", etc.)
+        
+    Returns:
+        dict: Filtered stats containing only data for specified media type
+    """
+    if not media_type or media_type == "ALL":
+        # Return all stats unchanged
+        return combined_stats
+    
+    # Get type_activity_data from combined_stats
+    type_activity = combined_stats.get("type_activity_data", {})
+    
+    if media_type not in type_activity:
+        # Media type not found, return zero stats
+        return {
+            "total_characters": 0,
+            "total_reading_time_seconds": 0,
+            "total_lines": 0,
+            "unique_games_played": 0
+        }
+    
+    # Return stats for specific media type
+    type_stats = type_activity[media_type]
+    return {
+        "total_characters": type_stats.get("chars", 0),
+        "total_reading_time_seconds": type_stats.get("time", 0),
+        "total_lines": type_stats.get("lines", 0),
+        "unique_games_played": 0  # Not tracked per type
+    }
+
+
+def count_cards_from_lines_by_type(lines, media_type):
+    """
+    Count cards from lines, filtered by media type.
+    Requires joining with GamesTable to get type information.
+    """
+    if not lines or not media_type or media_type == "ALL":
+        return count_cards_from_lines(lines)
+    
+    card_count = 0
+    for line in lines:
+        # Check if line has card
+        if not ((line.audio_in_anki or '').strip() or (line.screenshot_in_anki or '').strip()):
+            continue
+        
+        # Get game metadata to check type
+        game = GamesTable.get_by_game_line(line)
+        if game and game.type == media_type:
+            card_count += 1
+    
+    return card_count
+
+
+def sum_rollup_cards_by_type(start_date, end_date, media_type):
+    """
+    Sum cards from rollup data, filtered by media type.
+    Uses type_activity_data from rollups.
+    """
+    if not media_type or media_type == "ALL":
+        rollups = StatsRollupTable.get_date_range(
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d")
+        )
+        return sum(rollup.anki_cards_created or 0 for rollup in rollups)
+    
+    # Get rollups and extract type-specific card counts
+    rollups = StatsRollupTable.get_date_range(
+        start_date.strftime("%Y-%m-%d"),
+        end_date.strftime("%Y-%m-%d")
+    )
+    
+    total_cards = 0
+    for rollup in rollups:
+        if rollup.type_activity_data:
+            try:
+                type_data = json.loads(rollup.type_activity_data) if isinstance(rollup.type_activity_data, str) else rollup.type_activity_data
+                if media_type in type_data:
+                    total_cards += type_data[media_type].get('cards', 0)
+            except (json.JSONDecodeError, TypeError):
+                continue
+    
+    return total_cards
 
 
 def query_anki_connect_mature_cards(deck_name=None, start_date=None, for_today=False):
@@ -478,50 +580,74 @@ def get_rollup_stats_for_range(start_date, end_date):
     return None
 
 
-def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_stats=None, start_date=None, yesterday=None, goals_settings=None, for_today_only=False):
+def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_stats=None, start_date=None, yesterday=None, goals_settings=None, for_today_only=False, media_type=None):
     """
     Extract progress value from combined stats based on metric type.
+    Static types (hours_static, characters_static, cards_static) behave like their non-static counterparts.
     For 'cards' metric, requires additional parameters to calculate from rollups and lines.
     For 'mature_cards' metric, queries AnkiConnect directly.
+    Filters by media_type if specified.
     
     Args:
         combined_stats: Combined rollup and live stats dictionary
-        metric_type: Type of metric ("hours", "characters", "games", "cards", "mature_cards")
+        metric_type: Type of metric ("hours", "characters", "games", "cards", "mature_cards", or static variants)
         today_lines: Today's game lines (required for cards)
         rollup_stats: Rollup stats (used to check if we need to query for cards)
         start_date: Start date for card calculation
         yesterday: Yesterday's date for card calculation
         goals_settings: Goals settings dict (required for mature_cards to get deck name)
         for_today_only: If True, for mature_cards returns cards that matured today
+        media_type: Optional media type filter ("Anime", "Visual Novel", "ALL", etc.)
         
     Returns:
         float or int: The metric value
     """
-    if metric_type == "hours":
-        return combined_stats.get("total_reading_time_seconds", 0) / 3600
-    elif metric_type == "characters":
-        return combined_stats.get("total_characters", 0)
-    elif metric_type == "games":
+    # Filter stats by media type before processing
+    if media_type and media_type != "ALL":
+        filtered_stats = filter_stats_by_media_type(combined_stats, media_type)
+    else:
+        filtered_stats = combined_stats
+    
+    # Map static types to their base types for calculation
+    base_metric_type = metric_type.replace('_static', '') if metric_type.endswith('_static') else metric_type
+    
+    if base_metric_type == "hours":
+        return filtered_stats.get("total_reading_time_seconds", 0) / 3600
+    elif base_metric_type == "characters":
+        return filtered_stats.get("total_characters", 0)
+    elif base_metric_type == "games":
+        # Games metric doesn't support type filtering (can't filter unique games by type easily)
         return combined_stats.get("unique_games_played", 0)
-    elif metric_type == "cards":
+    elif base_metric_type == "cards":
         # Cards require special handling - sum from rollups + today's lines
-        total_cards = 0
-        
-        # Sum from rollups if we have the date range
-        if start_date and yesterday:
-            rollups = StatsRollupTable.get_date_range(
-                start_date.strftime("%Y-%m-%d"),
-                yesterday.strftime("%Y-%m-%d")
-            )
-            for rollup in rollups:
-                total_cards += rollup.anki_cards_created or 0
-        
-        # Add today's cards
-        if today_lines:
-            total_cards += count_cards_from_lines(today_lines)
-        
-        return total_cards
-    elif metric_type == "mature_cards":
+        # For cards, need special handling with type filtering
+        if media_type and media_type != "ALL":
+            # Filter today's lines by media type
+            filtered_cards = count_cards_from_lines_by_type(today_lines, media_type) if today_lines else 0
+            
+            # Filter rollup cards by type
+            rollup_cards = sum_rollup_cards_by_type(start_date, yesterday, media_type) if start_date and yesterday else 0
+            
+            return rollup_cards + filtered_cards
+        else:
+            # Existing logic for ALL types
+            total_cards = 0
+            
+            # Sum from rollups if we have the date range
+            if start_date and yesterday:
+                rollups = StatsRollupTable.get_date_range(
+                    start_date.strftime("%Y-%m-%d"),
+                    yesterday.strftime("%Y-%m-%d")
+                )
+                for rollup in rollups:
+                    total_cards += rollup.anki_cards_created or 0
+            
+            # Add today's cards
+            if today_lines:
+                total_cards += count_cards_from_lines(today_lines)
+            
+            return total_cards
+    elif base_metric_type == "mature_cards":
         # Query AnkiConnect for mature cards
         deck_name = None
         if goals_settings:
@@ -538,7 +664,7 @@ def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_s
         if error:
             logger.warning(f"Mature cards query failed: {error}")
         return card_count
-    elif metric_type == "anki_backlog":
+    elif base_metric_type == "anki_backlog":
         # Query AnkiConnect for new cards (backlog)
         deck_name = None
         if goals_settings:
@@ -554,26 +680,63 @@ def extract_metric_value(combined_stats, metric_type, today_lines=None, rollup_s
     return 0
 
 
-def calculate_easy_day_multiplier(date, goals_settings):
+def calculate_balanced_easy_day_multiplier(date, goals_settings):
     """
-    Calculate the easy day multiplier for a given date based on goals settings.
+    Calculate a balanced multiplier that distributes work across the week
+    based on all easy days settings.
+    
+    This ensures that if some days are set to lower percentages (easy days),
+    the remaining days automatically pick up the slack proportionally,
+    maintaining the same weekly total workload.
+    
+    Formula:
+    - Weekly capacity = sum of all 7 day percentages
+    - Balance factor = 700 (ideal) / weekly capacity
+    - Day multiplier = (day percentage / 100) * balance factor
+    
+    Example: If Friday is 0% and other days are 100%:
+    - Weekly capacity = 600%
+    - Balance factor = 700/600 = 1.1667
+    - Mon-Thu, Sat-Sun: 100% * 1.1667 = 116.67%
+    - Friday: 0% * 1.1667 = 0%
+
+    If Monday-Thursday, Saturday-Sunday are 100% and Friday is 50%, then balance_factor = 700/650 = 1.077
     
     Args:
         date: date object
         goals_settings: Dictionary containing easyDays settings
         
     Returns:
-        float: Multiplier between 0.0 and 1.0 (percentage / 100)
+        float: Balanced multiplier (can be > 1.0 to compensate for easy days)
     """
     day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-    day_index = date.weekday()  # 0=Monday, 6=Sunday
-    day_name = day_names[day_index]
     
     # Get easy days settings, default to 100% if not provided
     easy_days = goals_settings.get('easyDays', {}) if goals_settings else {}
-    easy_day_percentage = easy_days.get(day_name, 100)
     
-    return easy_day_percentage / 100.0
+    # Calculate total weekly capacity (sum of all percentages)
+    total_weekly_capacity = 0
+    for day_name in day_names:
+        day_percentage = easy_days.get(day_name, 100)
+        total_weekly_capacity += day_percentage
+    
+    # Edge case: If all days are 0%, return 0 to avoid division by zero
+    if total_weekly_capacity == 0:
+        return 0.0
+    
+    # Calculate balance factor to redistribute work
+    ideal_weekly_capacity = 700  # 7 days × 100%
+    balance_factor = ideal_weekly_capacity / total_weekly_capacity
+    
+    # Get today's percentage
+    day_index = date.weekday()  # 0=Monday, 6=Sunday
+    day_name = day_names[day_index]
+    today_percentage = easy_days.get(day_name, 100)
+    
+    # Calculate balanced multiplier for today
+    balanced_multiplier = (today_percentage / 100.0) * balance_factor
+    
+    return balanced_multiplier
 
 
 def format_metric_value(value, metric_type):
@@ -588,7 +751,10 @@ def format_metric_value(value, metric_type):
     Returns:
         float or int: Formatted value
     """
-    if metric_type == "hours":
+    # Strip _static suffix to get base type for formatting
+    base_metric_type = metric_type.replace('_static', '') if metric_type.endswith('_static') else metric_type
+    
+    if base_metric_type == "hours":
         return round(value, 2)
     else:
         return int(value)
@@ -605,14 +771,17 @@ def format_requirement_display(value, metric_type):
     Returns:
         str: Formatted display string (e.g., "1h 30m", "1.5K", "5")
     """
-    if metric_type == "hours":
+    # Strip _static suffix to get base type for formatting
+    base_metric_type = metric_type.replace('_static', '') if metric_type.endswith('_static') else metric_type
+    
+    if base_metric_type == "hours":
         hours = int(value)
         minutes = int(round((value - hours) * 60))
         if hours > 0:
             return f"{hours}h" + (f" {minutes}m" if minutes > 0 else "")
         else:
             return f"{minutes}m"
-    elif metric_type == "characters":
+    elif base_metric_type == "characters":
         int_value = int(value)
         if int_value >= 1000000:
             return f"{int_value / 1000000:.1f}M"
@@ -622,6 +791,239 @@ def format_requirement_display(value, metric_type):
             return str(int_value)
     else:
         return str(int(value))
+
+
+def get_todays_goals(user_tz=None):
+    """
+    Get all goals for today with their current progress and required amounts.
+    Returns a consolidated list of all active goals for today.
+    
+    This is a standalone function that can be called directly without Flask context.
+    
+    Args:
+        user_tz: Optional pytz timezone object. If None, uses UTC.
+        
+    Returns:
+        dict: {
+            "date": "2025-01-14",
+            "goals": [
+                {
+                    "goal_name": "Read for 6 hours in October",
+                    "progress_today": 2.5,
+                    "progress_needed": 1.8,
+                    "metric_type": "hours",
+                    "goal_icon": "⏱️"
+                },
+                ...
+            ]
+        }
+    
+    Example:
+        from GameSentenceMiner.web.goals_api import get_todays_goals
+        import pytz
+        
+        # Get today's goals
+        data = get_todays_goals()
+        
+        # Or with specific timezone
+        data = get_todays_goals(user_tz=pytz.timezone('Asia/Tokyo'))
+        
+        for g in data.get("goals", []):
+            name = g.get("goal_name")
+            today = g.get("progress_today")
+            needed = g.get("progress_needed")
+            icon = g.get("goal_icon", "🎯")
+            print(f"{icon} {name}: {today}/{needed}")
+    """
+    logger.info("Getting today's goals")
+    try:
+        # Get user's timezone and today's date
+        if user_tz is None:
+            user_tz = pytz.UTC
+        today = get_today_in_timezone(user_tz)
+        today_str = today.strftime("%Y-%m-%d")
+        logger.info(f"Today is {today_str}")
+        
+        # Get current goals and settings
+        logger.info("Fetching current goals from database")
+        current_entry = GoalsTable.get_by_date('current')
+        
+        if not current_entry:
+            logger.info("No current goals found, returning empty list")
+            return {
+                "date": today_str,
+                "goals": []
+            }
+        
+        # Parse current goals
+        logger.info("Parsing current goals")
+        if isinstance(current_entry.current_goals, str):
+            try:
+                current_goals = json.loads(current_entry.current_goals)
+            except json.JSONDecodeError:
+                current_goals = []
+        else:
+            current_goals = current_entry.current_goals if current_entry.current_goals else []
+        
+        logger.info(f"Found {len(current_goals)} goals to process")
+        
+        # Parse goals settings
+        if isinstance(current_entry.goals_settings, str):
+            try:
+                goals_settings = json.loads(current_entry.goals_settings) if current_entry.goals_settings else {}
+            except json.JSONDecodeError:
+                goals_settings = {}
+        else:
+            goals_settings = current_entry.goals_settings if current_entry.goals_settings else {}
+        
+        today_goals = []
+        
+        # Fetch today's live data once for all goals (optimization)
+        logger.info("Fetching today's live data")
+        today_lines, live_stats = get_todays_live_data(today, user_tz)
+        logger.info(f"Found {len(today_lines) if today_lines else 0} lines for today")
+        
+        yesterday = today - datetime.timedelta(days=1)
+        
+        # Cache for rollup stats to avoid repeated database queries
+        rollup_cache = {}
+        
+        # Process each goal
+        for i, goal in enumerate(current_goals):
+            logger.info(f"Processing goal {i+1}/{len(current_goals)}")
+            goal_name = goal.get('name', 'Unknown Goal')
+            metric_type = goal.get('metricType')
+            target_value = goal.get('targetValue')
+            start_date_str = goal.get('startDate')
+            end_date_str = goal.get('endDate')
+            goal_icon = goal.get('icon', '🎯')
+            media_type = goal.get('mediaType', 'ALL')  # Extract media type from goal
+            
+            logger.info(f"Goal: {goal_name}, metric: {metric_type}, media_type: {media_type}")
+            
+            # Skip custom goals (they don't have numeric progress)
+            if metric_type == 'custom':
+                logger.info("Skipping custom goal")
+                continue
+            
+            # Check if this is a static goal
+            is_static = metric_type.endswith('_static') if metric_type else False
+            
+            # Validate required fields (static goals don't need dates)
+            if is_static:
+                if not all([metric_type, target_value]):
+                    logger.warning(f"Static goal missing required fields: {goal_name}")
+                    continue
+            else:
+                if not all([metric_type, target_value, start_date_str, end_date_str]):
+                    logger.warning(f"Regular goal missing required fields: {goal_name}")
+                    continue
+            
+            # Get today's progress for this goal
+            try:
+                # Calculate today's progress
+                today_progress = 0
+                if live_stats:
+                    today_stats_only = combine_rollup_and_live_stats(None, live_stats)
+                    # For static goals, map to base metric type
+                    progress_metric_type = metric_type.replace('_static', '') if is_static else metric_type
+                    today_progress = extract_metric_value(
+                        today_stats_only, progress_metric_type,
+                        today_lines=today_lines,
+                        start_date=None,
+                        yesterday=None,
+                        goals_settings=goals_settings,
+                        for_today_only=True,
+                        media_type=media_type
+                    )
+                
+                # For static goals, required = target value
+                if is_static:
+                    formatted_progress = format_metric_value(today_progress, metric_type)
+                    formatted_required = format_metric_value(target_value, metric_type)
+                    
+                    today_goals.append({
+                        "goal_name": goal_name,
+                        "progress_today": formatted_progress,
+                        "progress_needed": formatted_required,
+                        "metric_type": metric_type,
+                        "goal_icon": goal_icon
+                    })
+                    continue
+                
+                # For regular goals, parse dates and check if active
+                try:
+                    start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+                except ValueError:
+                    logger.warning(f"Invalid dates for goal '{goal_name}'")
+                    continue
+                
+                # Check if goal is active today
+                if today < start_date or today > end_date:
+                    logger.info(f"Goal '{goal_name}' not active today")
+                    continue
+                
+                # Calculate today's required amount
+                # Get balanced easy day multiplier for today
+                easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
+                
+                # Calculate total progress from start_date to yesterday
+                # Use cache to avoid repeated database queries for the same date range
+                rollup_stats = None
+                if start_date <= yesterday:
+                    cache_key = (start_date.strftime("%Y-%m-%d"), yesterday.strftime("%Y-%m-%d"))
+                    if cache_key not in rollup_cache:
+                        rollup_cache[cache_key] = get_rollup_stats_for_range(start_date, yesterday)
+                    rollup_stats = rollup_cache[cache_key]
+                
+                # Combine stats for total progress
+                combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
+                
+                # Extract total progress
+                total_progress = extract_metric_value(
+                    combined_stats, metric_type,
+                    today_lines=today_lines,
+                    start_date=start_date if start_date <= yesterday else None,
+                    yesterday=yesterday if start_date <= yesterday else None,
+                    goals_settings=goals_settings,
+                    media_type=media_type
+                )
+                
+                # Calculate days remaining (including today)
+                days_remaining = (end_date - today).days + 1
+                
+                # Calculate daily requirement
+                remaining_work = max(0, target_value - total_progress)
+                daily_required = remaining_work / days_remaining if days_remaining > 0 else 0
+                
+                # Apply easy day multiplier to reduce today's requirement
+                daily_required_adjusted = daily_required * easy_day_multiplier
+                
+                # Format values
+                formatted_progress = format_metric_value(today_progress, metric_type)
+                formatted_required = format_metric_value(daily_required_adjusted, metric_type)
+                
+                today_goals.append({
+                    "goal_name": goal_name,
+                    "progress_today": formatted_progress,
+                    "progress_needed": formatted_required,
+                    "metric_type": metric_type,
+                    "goal_icon": goal_icon
+                })
+                
+            except Exception as e:
+                logger.warning(f"Error calculating progress for goal '{goal_name}': {e}")
+                continue
+        
+        logger.info(f"Successfully processed {len(today_goals)} active goals for today")
+        return {
+            "date": today_str,
+            "goals": today_goals
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting today's goals: {e}", exc_info=True)
+        raise
 
 
 def register_goals_api_routes(app):
@@ -657,6 +1059,7 @@ def register_goals_api_routes(app):
             start_date_str = data.get("start_date")
             end_date_str = data.get("end_date")
             goals_settings = data.get("goals_settings", {})
+            media_type = data.get("media_type", "ALL")
             
             # Validate required fields
             if not metric_type or not start_date_str or not end_date_str:
@@ -708,7 +1111,7 @@ def register_goals_api_routes(app):
             today_lines = None
             live_stats = None
             if include_today:
-                today_lines, live_stats = get_todays_live_data(today)
+                today_lines, live_stats = get_todays_live_data(today, user_tz)
             
             # Combine rollup and live stats
             combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
@@ -719,7 +1122,8 @@ def register_goals_api_routes(app):
                 today_lines=today_lines if include_today else None,
                 start_date=start_date if start_date <= rollup_end_date else None,
                 yesterday=rollup_end_date if start_date <= rollup_end_date else None,
-                goals_settings=goals_settings
+                goals_settings=goals_settings,
+                media_type=media_type
             )
             
             # Calculate days in range
@@ -742,13 +1146,14 @@ def register_goals_api_routes(app):
     def api_goals_today_progress():
         """
         Calculate today's required progress for a custom goal.
+        For static goals, always returns the target value as required.
         Shows what needs to be accomplished today to stay on track.
         Applies easy days percentage reduction based on current day of week.
         
         Request body:
         {
             "goal_id": "goal_xxx",
-            "metric_type": "hours" | "characters" | "games",
+            "metric_type": "hours" | "characters" | "games" | "hours_static" | "characters_static" | "cards_static",
             "target_value": <number>,
             "start_date": "YYYY-MM-DD",
             "end_date": "YYYY-MM-DD",
@@ -776,9 +1181,15 @@ def register_goals_api_routes(app):
             start_date_str = data.get("start_date")
             end_date_str = data.get("end_date")
             goals_settings = data.get("goals_settings", {})
+            media_type = data.get("media_type", "ALL")
             
-            # Validate required fields
-            if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
+            # Check if this is a static goal
+            is_static = metric_type.endswith('_static')
+            
+            # Validate required fields (static goals don't need dates)
+            if not is_static and not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
+                return jsonify({"error": "Missing required fields"}), 400
+            elif is_static and not all([goal_id, metric_type, target_value]):
                 return jsonify({"error": "Missing required fields"}), 400
             
             # Validate metric type
@@ -787,11 +1198,44 @@ def register_goals_api_routes(app):
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
             
-            # Parse dates
+            # Get user timezone and today
+            user_tz = get_user_timezone()
+            today = get_today_in_timezone(user_tz)
+            
+            # Handle static goals separately
+            if is_static:
+                # For static goals: required = target_value (fixed daily), progress = today only
+                # Get today's live data
+                today_lines, live_stats = get_todays_live_data(today, user_tz)
+                
+                # Extract today's progress (map static type to base type)
+                base_metric_type = metric_type.replace('_static', '')
+                today_progress = 0
+                if live_stats:
+                    today_stats_only = combine_rollup_and_live_stats(None, live_stats)
+                    today_progress = extract_metric_value(
+                        today_stats_only, base_metric_type,
+                        today_lines=today_lines,
+                        start_date=None,
+                        yesterday=None,
+                        goals_settings=goals_settings,
+                        for_today_only=True,
+                        media_type=media_type
+                    )
+                
+                return jsonify({
+                    "required": format_metric_value(target_value, metric_type),
+                    "progress": format_metric_value(today_progress, metric_type),
+                    "has_target": True,
+                    "days_remaining": None,  # Static goals have no end date
+                    "total_progress": None,  # Not relevant for daily view
+                    "easy_day_percentage": 100,  # Static goals don't use easy days
+                    "is_static": True
+                }), 200
+            
+            # Parse dates for regular goals
             try:
                 start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
-                user_tz = get_user_timezone()
-                today = get_today_in_timezone(user_tz)
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
             
@@ -805,8 +1249,8 @@ def register_goals_api_routes(app):
                     "not_started": today < start_date
                 }), 200
             
-            # Get easy day multiplier for today
-            easy_day_multiplier = calculate_easy_day_multiplier(today, goals_settings)
+            # Get balanced easy day multiplier for today
+            easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
             easy_day_percentage = int(easy_day_multiplier * 100)
             
             # Calculate total progress from start_date to yesterday
@@ -817,7 +1261,7 @@ def register_goals_api_routes(app):
                 rollup_stats = get_rollup_stats_for_range(start_date, yesterday)
             
             # Get today's live data
-            today_lines, live_stats = get_todays_live_data(today)
+            today_lines, live_stats = get_todays_live_data(today, user_tz)
             
             # Combine stats for total progress
             combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
@@ -828,7 +1272,8 @@ def register_goals_api_routes(app):
                 today_lines=today_lines,
                 start_date=start_date if start_date <= yesterday else None,
                 yesterday=yesterday if start_date <= yesterday else None,
-                goals_settings=goals_settings
+                goals_settings=goals_settings,
+                media_type=media_type
             )
             
             # Extract today's progress
@@ -841,7 +1286,8 @@ def register_goals_api_routes(app):
                     start_date=None,
                     yesterday=None,
                     goals_settings=goals_settings,
-                    for_today_only=True  # For mature_cards, get cards that matured today
+                    for_today_only=True,  # For mature_cards, get cards that matured today
+                    media_type=media_type
                 )
             
             # Calculate days remaining (including today)
@@ -904,6 +1350,7 @@ def register_goals_api_routes(app):
             target_value = data.get("target_value")
             start_date_str = data.get("start_date")
             end_date_str = data.get("end_date")
+            media_type = data.get("media_type", "ALL")
             
             # Validate required fields
             if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
@@ -933,13 +1380,18 @@ def register_goals_api_routes(app):
             rollups_30d = StatsRollupTable.get_date_range(thirty_days_ago_str, yesterday_str)
             
             # Get today's live data
-            today_lines, live_stats_today = get_todays_live_data(today)
+            today_lines, live_stats_today = get_todays_live_data(today, user_tz)
             
             # Calculate 30-day average based on metric type
             if metric_type == "cards":
                 # For cards, count from rollups + today
-                total_cards = sum(r.anki_cards_created or 0 for r in rollups_30d)
-                total_cards += count_cards_from_lines(today_lines)
+                if media_type and media_type != "ALL":
+                    # Filter by media type
+                    total_cards = sum_rollup_cards_by_type(thirty_days_ago, yesterday, media_type)
+                    total_cards += count_cards_from_lines_by_type(today_lines, media_type)
+                else:
+                    total_cards = sum(r.anki_cards_created or 0 for r in rollups_30d)
+                    total_cards += count_cards_from_lines(today_lines)
                 avg_daily = total_cards / 30
             elif metric_type == "mature_cards":
                 # For mature_cards, calculate daily growth by sampling cards that matured on specific days
@@ -994,36 +1446,52 @@ def register_goals_api_routes(app):
                     avg_daily = 0
             else:
                 # For hours, characters, games - use existing rollup aggregation
-                total_value = 0
-                
-                for rollup in rollups_30d:
+                if media_type and media_type != "ALL":
+                    # Filter by media type for hours/characters
+                    rollup_stats_30d = aggregate_rollup_data(rollups_30d) if rollups_30d else None
+                    combined_stats_30d = combine_rollup_and_live_stats(rollup_stats_30d, live_stats_today)
+                    filtered_stats_30d = filter_stats_by_media_type(combined_stats_30d, media_type)
+                    
                     if metric_type == "hours":
-                        total_value += rollup.total_reading_time_seconds / 3600
+                        total_value = filtered_stats_30d.get("total_reading_time_seconds", 0) / 3600
                     elif metric_type == "characters":
-                        total_value += rollup.total_characters
+                        total_value = filtered_stats_30d.get("total_characters", 0)
                     elif metric_type == "games":
-                        if rollup.games_played_ids:
-                            try:
-                                games_ids = (
-                                    json.loads(rollup.games_played_ids)
-                                    if isinstance(rollup.games_played_ids, str)
-                                    else rollup.games_played_ids
-                                )
-                                # Count unique games for this day
-                                total_value += len(set(games_ids))
-                            except (json.JSONDecodeError, TypeError):
-                                pass
-                
-                # Add today's value
-                if live_stats_today:
-                    if metric_type == "hours":
-                        total_value += live_stats_today.get("total_reading_time_seconds", 0) / 3600
-                    elif metric_type == "characters":
-                        total_value += live_stats_today.get("total_characters", 0)
-                    elif metric_type == "games":
-                        total_value += len(live_stats_today.get("games_played_ids", []))
-                
-                avg_daily = total_value / 30
+                        # Games metric doesn't support type filtering
+                        total_value = combined_stats_30d.get("unique_games_played", 0)
+                    
+                    avg_daily = total_value / 30
+                else:
+                    total_value = 0
+                    
+                    for rollup in rollups_30d:
+                        if metric_type == "hours":
+                            total_value += rollup.total_reading_time_seconds / 3600
+                        elif metric_type == "characters":
+                            total_value += rollup.total_characters
+                        elif metric_type == "games":
+                            if rollup.games_played_ids:
+                                try:
+                                    games_ids = (
+                                        json.loads(rollup.games_played_ids)
+                                        if isinstance(rollup.games_played_ids, str)
+                                        else rollup.games_played_ids
+                                    )
+                                    # Count unique games for this day
+                                    total_value += len(set(games_ids))
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                    
+                    # Add today's value
+                    if live_stats_today:
+                        if metric_type == "hours":
+                            total_value += live_stats_today.get("total_reading_time_seconds", 0) / 3600
+                        elif metric_type == "characters":
+                            total_value += live_stats_today.get("total_characters", 0)
+                        elif metric_type == "games":
+                            total_value += len(live_stats_today.get("games_played_ids", []))
+                    
+                    avg_daily = total_value / 30
             
             # Get current total (all-time)
             first_rollup_date = StatsRollupTable.get_first_date()
@@ -1063,7 +1531,8 @@ def register_goals_api_routes(app):
                         today_lines=today_lines,
                         start_date=datetime.datetime.strptime(first_rollup_date, "%Y-%m-%d").date(),
                         yesterday=yesterday,
-                        goals_settings=data.get("goals_settings", {})
+                        goals_settings=data.get("goals_settings", {}),
+                        media_type=media_type
                     )
             
             # Calculate projection
@@ -1222,6 +1691,7 @@ def register_goals_api_routes(app):
         }
         """
         try:
+            # Get latest historical entry (excludes "current")
             latest_entry = GoalsTable.get_latest()
             
             if not latest_entry:
@@ -1231,21 +1701,13 @@ def register_goals_api_routes(app):
                     "last_completion_date": None
                 }), 200
             
-            # Check if streak is still valid (latest entry should be today or yesterday)
+            # Calculate current streak using the calculate_streak method
             user_tz = get_user_timezone()
             today = get_today_in_timezone(user_tz)
-            try:
-                latest_date = datetime.datetime.strptime(latest_entry.date, '%Y-%m-%d').date()
-                yesterday = today - datetime.timedelta(days=1)
-                
-                # If latest entry is older than yesterday, streak is broken
-                if latest_date < yesterday:
-                    current_streak = 0
-                else:
-                    current_streak = latest_entry.streak
-                    
-            except (ValueError, AttributeError):
-                current_streak = 0
+            today_str = today.strftime('%Y-%m-%d')
+            
+            # Use calculate_streak to get accurate streak count
+            current_streak, longest_from_calculation = GoalsTable.calculate_streak(today_str, str(user_tz))
             
             # Get longest streak from goals_settings JSON (always preserved even if current streak is broken)
             longest_streak = 0
@@ -1255,6 +1717,9 @@ def register_goals_api_routes(app):
                     longest_streak = settings.get('longestStreak', 0)
             except (json.JSONDecodeError, AttributeError):
                 longest_streak = 0
+            
+            # Use the higher of the two (from calculation or from stored settings)
+            longest_streak = max(longest_streak, longest_from_calculation)
             
             return jsonify({
                 "streak": current_streak,
@@ -1373,8 +1838,8 @@ def register_goals_api_routes(app):
             tomorrow = today + datetime.timedelta(days=1)
             tomorrow_str = tomorrow.strftime("%Y-%m-%d")
             
-            # Get easy day multiplier for tomorrow
-            tomorrow_multiplier = calculate_easy_day_multiplier(tomorrow, goals_settings)
+            # Get balanced easy day multiplier for tomorrow
+            tomorrow_multiplier = calculate_balanced_easy_day_multiplier(tomorrow, goals_settings)
             
             requirements = []
             
@@ -1390,6 +1855,19 @@ def register_goals_api_routes(app):
                 end_date_str = goal.get('endDate')
                 goal_name = goal.get('name', 'Unknown Goal')
                 goal_icon = goal.get('icon', '🎯')
+                is_static = metric_type.endswith('_static')
+                
+                # For static goals, requirement is always the target value
+                if is_static:
+                    formatted = format_requirement_display(target_value, metric_type)
+                    requirements.append({
+                        "goal_name": goal_name,
+                        "goal_icon": goal_icon,
+                        "metric_type": metric_type,
+                        "required_tomorrow": format_metric_value(target_value, metric_type),
+                        "formatted_required": formatted
+                    })
+                    continue
                 
                 # Validate required fields
                 if not all([metric_type, target_value, start_date_str, end_date_str]):
@@ -1413,18 +1891,20 @@ def register_goals_api_routes(app):
                     rollup_stats = get_rollup_stats_for_range(start_date, yesterday)
                 
                 # Get today's live data
-                today_lines, live_stats = get_todays_live_data(today)
+                today_lines, live_stats = get_todays_live_data(today, user_tz)
                 
                 # Combine stats for total progress
                 combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
                 
-                # Extract total progress
+                # Extract total progress (with media type filtering if specified)
+                media_type = goal.get('mediaType', 'ALL')
                 total_progress = extract_metric_value(
                     combined_stats, metric_type,
                     today_lines=today_lines,
                     start_date=start_date if start_date <= yesterday else None,
                     yesterday=yesterday if start_date <= yesterday else None,
-                    goals_settings=goals_settings
+                    goals_settings=goals_settings,
+                    media_type=media_type
                 )
                 
                 # Calculate days remaining from tomorrow to end date (inclusive)
@@ -1500,7 +1980,7 @@ def register_goals_api_routes(app):
                 rollup_stats = get_rollup_stats_for_range(start_date_str, yesterday_str)
             
             # 3. Get Live Data (Today)
-            today_lines, live_stats = get_todays_live_data(today)
+            today_lines, live_stats = get_todays_live_data(today, user_tz)
             
             # 4. Combine Data
             # This sums up characters and seconds from both sources
@@ -1549,6 +2029,24 @@ def register_goals_api_routes(app):
             },
             "last_updated": <timestamp>
         }
+
+        Example:
+            import requests
+
+            url = "http://localhost:5050/api/goals/current"
+
+            try:
+                response = requests.get(url)
+                response.raise_for_status()  # raise error for non-200
+
+                data = response.json()
+                print("Current goals:", data.get("current_goals"))
+                print("Settings:", data.get("goals_settings"))
+                print("Last updated:", data.get("last_updated"))
+
+            except requests.exceptions.RequestException as e:
+                print("Request failed:", e)
+
         """
         try:
             # Try to get the 'current' entry (date='current')
@@ -1716,3 +2214,65 @@ def register_goals_api_routes(app):
         except Exception as e:
             logger.error(f"Error updating current goals: {e}", exc_info=True)
             return jsonify({"error": "Failed to update goals"}), 500
+    
+    @app.route("/api/goals/today", methods=["GET"])
+    def api_get_todays_goals():
+        """
+        Get all goals for today with their current progress and required amounts.
+        Returns a consolidated list of all active goals for today.
+        
+        Returns:
+        {
+            "date": "2025-01-14",
+            "goals": [
+                {
+                    "goal_name": "Read for 6 hours in October",
+                    "progress_today": 2.5,
+                    "progress_needed": 1.8,
+                    "metric_type": "hours",
+                    "goal_icon": "⏱️"
+                },
+                ...
+            ]
+        }
+
+        Example:
+            import requests
+
+            def fetch_todays_goals():
+                try:
+                    data = requests.get("http://localhost:5050/api/goals/today").json()
+                    print(f"📅 {data.get('date')}")
+
+                    for g in data.get("goals", []):
+                        name = g.get("goal_name")
+                        today = g.get("progress_today")
+                        needed = g.get("progress_needed")
+                        icon = g.get("goal_icon", "🎯")
+
+                        print(f"{icon} {name}: {today}/{needed}")
+
+                except Exception as e:
+                    print("Error:", e)
+
+            fetch_todays_goals()
+
+        """
+        logger.info("API /api/goals/today called")
+        try:
+            # Get user's timezone from request headers
+            user_tz = get_user_timezone()
+            
+            # Call the standalone function
+            response_data = get_todays_goals(user_tz)
+            
+            # Return JSON response with headers
+            result = jsonify(response_data)
+            result.headers['Connection'] = 'keep-alive'
+            result.headers['Content-Type'] = 'application/json'
+            logger.info("Returning response with keep-alive headers")
+            return result, 200
+            
+        except Exception as e:
+            logger.error(f"Error getting today's goals: {e}", exc_info=True)
+            return jsonify({"error": "Failed to get today's goals"}), 500
