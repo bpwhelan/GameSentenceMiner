@@ -614,10 +614,8 @@ def process_task_queue():
             ignore_furigana_filter = False
             ignore_previous_result = False
             response_dict = None
-            if len(task) == 8:
-                ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict = task
-            else:
-                ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result = task
+            task = (list(task) + [None]*8)[:8]
+            ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict = task
             second_ocr_processor.do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict)
         except Exception as e:
             logger.exception(f"Error processing task: {e}")

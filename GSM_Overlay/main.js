@@ -851,7 +851,7 @@ app.whenReady().then(async () => {
     title: "GSM Overlay",
     fullscreen: false,
     // focusable: false,
-    skipTaskbar: true,
+    // skipTaskbar: true,
     webPreferences: {
       contextIsolation: false,
       nodeIntegration: true,
@@ -1303,7 +1303,7 @@ app.whenReady().then(async () => {
       let shouldTranslate = false;
       try {
         let parsed = typeof text === 'string' ? JSON.parse(text) : text;
-        if (Array.isArray(parsed) && parsed.every(item => item.text && item.bounding_rect)) {
+        if (Array.isArray(parsed.data) && parsed.data.every(item => item.text && item.bounding_rect)) {
           shouldTranslate = true;
         }
       } catch (e) {

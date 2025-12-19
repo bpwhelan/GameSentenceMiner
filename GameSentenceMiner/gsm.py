@@ -6,12 +6,18 @@ from GameSentenceMiner.util import db
 
 def handle_error_in_initialization(e):
     """Handle errors that occur during initialization."""
+    import GameSentenceMiner.util.communication.electron_ipc as electron_ipc
     logger.exception(e, exc_info=True)
     logger.info(
         "An error occurred during initialization, Maybe try updating GSM from the menu or if running manually, try installing `pip install --update GameSentenceMiner`")
     try:
-        while True:
-            time.sleep(1)
+        for raw in sys.stdin:
+            line = raw.strip()
+            if "quit" in line.lower():
+                logger.info("Exiting due to quit command.")
+                # cleanup_complete
+                electron_ipc.send_message("cleanup_complete")
+                sys.exit(1)
     except KeyboardInterrupt:
         logger.info("Exiting due to initialization error.")
         sys.exit(1)
@@ -875,6 +881,7 @@ def background_tasks():
     """Initialize and run background async tasks like cron scheduler."""
     async def run():
         from GameSentenceMiner.util.cron import cron_scheduler
+        get_previous_lines_for_game()
         await cron_scheduler.start()
         
         # Keep running indefinitely
@@ -919,7 +926,7 @@ def initialize_text_monitor():
     asyncio.run(gametext.start_text_monitor())
 
 
-async def get_previous_lines_for_game():
+def get_previous_lines_for_game():
     previous_lines = set()
     try:
         all_lines = db.GameLinesTable.get_all_lines_for_scene(obs.get_current_scene())
@@ -943,7 +950,6 @@ def async_loop():
         await init_overlay_processor()
         
         vad_processor.init()
-        await get_previous_lines_for_game()
 
     asyncio.run(loop())
 
@@ -959,6 +965,7 @@ async def register_scene_switcher_callback():
         matching_configs = [name.strip() for name, config in get_master_config().configs.items(
         ) if scene.strip() in config.scenes]
         switch_to = None
+        get_previous_lines_for_game()
 
         if len(matching_configs) > 1:
             selected_scene = launch_scene_selection(matching_configs)
@@ -976,7 +983,6 @@ async def register_scene_switcher_callback():
             get_master_config().current_profile = switch_to
             switch_profile_and_save(switch_to)
             settings_window.reload_settings()
-        get_previous_lines_for_game()
 
     await obs.register_scene_change_callback(scene_switcher_callback)
 

@@ -459,6 +459,7 @@ background: rgba(202, 12, 12, 0.692);
   let currentMagpieInfo = null; // Store magpie info from websocket
   let isMagpieActive = false; // Track if magpie scaling is active
   let actionPanelStartupHintShown = false; // Track if startup hint was shown
+  let actionPanelShowing = false; // Track if action panel is currently showing
   
   // Track multiple Yomitan popups for nested lookups
   let yomitanPopupCount = 0;
@@ -495,7 +496,7 @@ background: rgba(202, 12, 12, 0.692);
       setTimeout(() => {
         actionPanel.classList.remove('startup-hint');
         console.log('Action panel startup hint hidden');
-      }, 15000);
+      }, 5000);
     }
   }
 
@@ -520,16 +521,19 @@ background: rgba(202, 12, 12, 0.692);
   actionPanelTrigger.addEventListener('mouseenter', () => {
     console.log('Mouse entered trigger area');
     ipcRenderer.send('set-ignore-mouse-events', false);
+    actionPanelShowing = true;
     showActionPanel();
   });
 
   actionPanelTrigger.addEventListener('mouseleave', () => {
     console.log('Mouse left trigger area');
+    actionPanelShowing = false;
     // Don't hide if mouse moved to the panel itself
     setTimeout(() => {
       const panelHovered = actionPanel.matches(':hover');
       if (!panelHovered) {
         hideActionPanel();
+        actionPanelShowing = false;
         ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
       }
     }, 100);
@@ -537,11 +541,13 @@ background: rgba(202, 12, 12, 0.692);
 
   actionPanel.addEventListener('mouseenter', () => {
     ipcRenderer.send('set-ignore-mouse-events', false);
+    actionPanelShowing = true;
   });
 
   actionPanel.addEventListener('mouseleave', () => {
     hideActionPanel();
     ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+    actionPanelShowing = false;
   });
 
   // Create big interactive area for action panel trigger when magpie is active
@@ -948,7 +954,7 @@ background: rgba(202, 12, 12, 0.692);
 
         console.log(data);
 
-        const isSentenceRecycled = data.is_sentence_recycled === true;
+        const isSentenceRecycled = data.is_sentence_recycled;
 
         // Check if data has words array (new word-level coordinate format)
         if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
@@ -1273,15 +1279,37 @@ background: rgba(202, 12, 12, 0.692);
   }
   setInterval(checkAndReconnectWebSockets, 1000);
 
-  function transformCoordinates(x, y) {
+function transformCoordinates(x, y) {
     if (!currentMagpieInfo) {
       return { x, y };
     }
-    const sourceWidth = currentMagpieInfo.sourceWindowRightEdgePosition - currentMagpieInfo.sourceWindowLeftEdgePosition;
-    const sourceHeight = currentMagpieInfo.sourceWindowBottomEdgePosition - currentMagpieInfo.sourceWindowTopEdgePosition;
-    let transformedX = currentMagpieInfo.sourceWindowLeftEdgePosition + (x / 100 * sourceWidth);
-    let transformedY = currentMagpieInfo.sourceWindowTopEdgePosition + (y / 100 * sourceHeight);
-    return { x: transformedX, y: transformedY };
+
+    // Calculate dimensions of the Magpie window
+    const magpieWidth = currentMagpieInfo.magpieWindowRightEdgePosition - currentMagpieInfo.magpieWindowLeftEdgePosition;
+    const magpieHeight = currentMagpieInfo.magpieWindowBottomEdgePosition - currentMagpieInfo.magpieWindowTopEdgePosition;
+
+    // Check if Magpie window is essentially Fullscreen (within 5% of monitor size)
+    // Uses global 'width' and 'height' variables
+    const isFullscreen = (magpieWidth >= width * 0.95) && (magpieHeight >= height * 0.95);
+
+    if (isFullscreen) {
+      // --- YOUR LOGIC (For Fullscreen) ---
+      // Uses Source Window coordinates
+      const sourceWidth = currentMagpieInfo.sourceWindowRightEdgePosition - currentMagpieInfo.sourceWindowLeftEdgePosition;
+      const sourceHeight = currentMagpieInfo.sourceWindowBottomEdgePosition - currentMagpieInfo.sourceWindowTopEdgePosition;
+      
+      let transformedX = currentMagpieInfo.sourceWindowLeftEdgePosition + (x / 100 * sourceWidth);
+      let transformedY = currentMagpieInfo.sourceWindowTopEdgePosition + (y / 100 * sourceHeight);
+      
+      return { x: transformedX, y: transformedY };
+    } else {
+      // --- MY LOGIC (For Windowed) ---
+      // Uses Magpie Window coordinates to scale correctly when windowed
+      let transformedX = currentMagpieInfo.magpieWindowLeftEdgePosition + (x / 100 * magpieWidth);
+      let transformedY = currentMagpieInfo.magpieWindowTopEdgePosition + (y / 100 * magpieHeight);
+      
+      return { x: transformedX, y: transformedY };
+    }
   }
 
   function estimateFontSize(word, width, height, rect) {
@@ -1424,15 +1452,41 @@ background: rgba(202, 12, 12, 0.692);
     ipcRenderer.send("open-yomitan-settings");
   });
 
-  // If anywhere but ".interactive" and ".yomitan-popup" is left clicked or right clicked, ignore mouse events, and let it go through
+  // Prevent clicks on non-interactive areas - this won't make THIS click pass through,
+  // but ensures FUTURE clicks pass through. The window must already be in ignore mode
+  // for clicks to pass through automatically.
   document.addEventListener("click", (event) => {
+    // Use composedPath to see into Shadow DOMs
+    const path = event.composedPath();
+    const isYomitanPopup = path.some(el => 
+      el instanceof HTMLElement && (el.classList.contains('yomitan-popup') || el.tagName === 'YOMITAN-POPUP-TAG-NAME')
+    );
+    
     const target = event.target;
     const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
-    const isYomitanPopup = target.classList.contains('yomitan-popup') || target.closest('.yomitan-popup');
     const isActionPanel = target.id === 'action-panel' || target.closest('#action-panel');
     const isActionTrigger = target.id === 'action-panel-trigger' || target.closest('#action-panel-trigger');
     
-    if (!isInteractive && !isYomitanPopup && !isActionPanel && !isActionTrigger && !yomitanShowing) {
+    if (!isYomitanPopup && !isActionPanel && !isActionTrigger) {
+      // Set ignore mode immediately so subsequent mouse events pass through
+      ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+    }
+  });
+
+  // Use mousedown to catch events earlier in the chain, giving better pass-through behavior
+  document.addEventListener("mousedown", (event) => {
+    const path = event.composedPath();
+    const isYomitanPopup = path.some(el => 
+      el instanceof HTMLElement && (el.classList.contains('yomitan-popup') || el.tagName === 'YOMITAN-POPUP-TAG-NAME')
+    );
+    
+    const target = event.target;
+    // const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
+    const isActionPanel = target.id === 'action-panel' || target.closest('#action-panel');
+    const isActionTrigger = target.id === 'action-panel-trigger' || target.closest('#action-panel-trigger');
+    
+    // If clicking on non-interactive area, ensure ignore mode is active
+    if (!isYomitanPopup && !isActionPanel && !isActionTrigger) {
       ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
     }
   });
@@ -1472,11 +1526,11 @@ background: rgba(202, 12, 12, 0.692);
     // Initialize magpie interval based on current websocket state (isMagpieActive)
     // This will be updated dynamically when window_state messages arrive
     if (isMagpieActive) {
-      // magpieReleaseInterval = setInterval(() => {
-      //   if (!yomitanShowing && !manualHotkeyPressed) {
-      //     ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
-      //   }
-      // }, 1000);
+      magpieReleaseInterval = setInterval(() => {
+        if (!yomitanShowing && !manualHotkeyPressed && !actionPanelShowing) {
+          ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+        }
+      }, 1000);
     }
   })
 
@@ -1551,11 +1605,11 @@ background: rgba(202, 12, 12, 0.692);
     }
 
     if (isMagpieActive) {
-      // magpieReleaseInterval = setInterval(() => {
-      //   if (!yomitanShowing && !manualHotkeyPressed) {
-      //     ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
-      //   }
-      // }, 1000);
+      magpieReleaseInterval = setInterval(() => {
+        if (!yomitanShowing && !manualHotkeyPressed && !actionPanelShowing) {
+          ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+        }
+      }, 1000);
     }
 
     // Update any UI elements or settings related to magpieCompatibility

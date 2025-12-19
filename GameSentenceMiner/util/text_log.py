@@ -50,7 +50,7 @@ class GameLine:
 class GameText:
     values: list[GameLine]
     values_dict: dict[str, GameLine]
-    previous_lines: set()
+    previous_lines = set()
     game_line_index = 0
 
     def __init__(self):

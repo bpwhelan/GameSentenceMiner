@@ -688,7 +688,7 @@ class Advanced:
 @dataclass_json
 @dataclass
 class Ai:
-    enabled: bool = False
+    enabled: bool = False # DEPRECATED, use is_configured() instead
     add_to_anki: bool = False
     anki_field: str = ''
     provider: str = AI_GEMINI

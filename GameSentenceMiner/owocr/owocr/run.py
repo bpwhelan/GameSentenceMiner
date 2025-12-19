@@ -1157,8 +1157,10 @@ def scale_down_width_height(width, height):
             return width, height
 
 
-def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=None, return_full_size=False):
-    if not rectangles:   
+def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=None, return_full_size=False, both_types=False):
+    if both_types:
+        rectangles = [r for r in ocr_config.rectangles if not r.is_excluded]
+    elif not rectangles:   
         rectangles = [r for r in ocr_config.rectangles if not r.is_excluded and r.is_secondary == is_secondary]
     
     for rectangle in ocr_config.rectangles:
@@ -1223,17 +1225,26 @@ def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=No
     if not valid_rectangles:
         return img
     
-    # Create a composite image sized to the bounding box
-    composite_width = max_right - min_left
-    composite_height = max_bottom - min_top
-    composite_img = Image.new("RGBA", (composite_width, composite_height), (0, 0, 0, 0))
+    # Create a composite image sized to the bounding box or original image size
+    if return_full_size:
+        composite_width = img.width
+        composite_height = img.height
+        composite_img = Image.new("RGBA", (composite_width, composite_height), (0, 0, 0, 0))
+        offset_x = 0
+        offset_y = 0
+    else:
+        composite_width = max_right - min_left
+        composite_height = max_bottom - min_top
+        composite_img = Image.new("RGBA", (composite_width, composite_height), (0, 0, 0, 0))
+        offset_x = min_left
+        offset_y = min_top
     
     for rectangle, left, top, right, bottom in valid_rectangles:
         try:
             cropped_image = img.crop((left, top, right, bottom))
-            # Paste the cropped image onto the canvas at its position relative to the bounding box
-            paste_x = int(left - min_left)
-            paste_y = int(top - min_top)
+            # Paste the cropped image onto the canvas at its position relative to the offset
+            paste_x = int(left - offset_x)
+            paste_y = int(top - offset_y)
             composite_img.paste(cropped_image, (paste_x, paste_y))
         except ValueError:
             logger.warning("Error cropping image region, skipping rectangle")
@@ -1432,7 +1443,7 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     
     start_time = time.time()
     result = engine_instance(img_or_path, furigana_filter_sensitivity)
-    res, text, crop_coords_list, crop_coords = (list(result) + [None]*4)[:4]
+    res, text, coords, crop_coords_list, crop_coords, response_dict = (list(result) + [None]*6)[:6]
     
     if not res and ocr_2 == engine:
         logger.opt(ansi=True).info(
@@ -1445,7 +1456,7 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
                 break
         start_time = time.time()
         result = engine_instance(img_or_path, furigana_filter_sensitivity)
-        res, text, crop_coords_list, crop_coords = (list(result) + [None]*4)[:4]
+        res, text, coords, crop_coords_list, crop_coords, response_dict = (list(result) + [None]*6)[:6]
 
     end_time = time.time()
 
@@ -1459,6 +1470,7 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     # print(engine_index)
 
     if res:
+        # Meiki Text Detection
         if 'provider' in text:
             if write_to == 'callback':
                 logger.opt(ansi=True).info(f"{len(text['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using Meiki:")
@@ -1492,7 +1504,7 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
             pyperclipfix.copy(text)
         elif write_to == "callback":
             txt_callback(text, orig_text, ocr_start_time,
-                         img_or_path, is_second_ocr, filtering, crop_coords)
+                         img_or_path, is_second_ocr, filtering, crop_coords, response_dict=coords)
         elif write_to:
             with Path(write_to).open('a', encoding='utf-8') as f:
                 f.write(text + '\n')
@@ -1515,7 +1527,7 @@ def check_text_is_all_menu(text: str, crop_coords: tuple, crop_coords_list: list
 
     :param text: The recognized text from OCR.
     :param crop_coords: Tuple containing (x, y, x2, y2) of the detected text area in original image coordinates.
-    :param crop_coords_list: List of tuples, each containing (x, y, x2, y2) of detected text areas.
+    :param crop_coords_list: List of tuples, each containing (x, y, x2, y2, text) of detected text areas.
     :return: True if ALL text areas are within menu rectangles, False otherwise.
     """
     if not text:
@@ -1525,7 +1537,7 @@ def check_text_is_all_menu(text: str, crop_coords: tuple, crop_coords_list: list
     if crop_coords_list:
         coords_to_check = crop_coords_list
     elif crop_coords:
-        coords_to_check = [crop_coords]
+        coords_to_check = [crop_coords + ('',)]  # Add empty text field for consistency
     else:
         return False
 
@@ -1547,7 +1559,7 @@ def check_text_is_all_menu(text: str, crop_coords: tuple, crop_coords_list: list
 
     # Check if ALL crop coordinates fall entirely within menu rectangles
     for crop_x, crop_y, crop_x2, crop_y2, text in coords_to_check:
-        # remove 5 pixel padding that was added during OCR cropping
+    # remove 5 pixel padding that was added during OCR cropping
         crop_x += 5
         crop_y += 5
         crop_x2 -= 5

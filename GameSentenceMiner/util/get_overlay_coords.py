@@ -144,6 +144,17 @@ class WindowStateMonitor:
         self.base_poll_interval = 0.5  # Normal polling rate
         self.fast_poll_interval = 0.1  # Fast polling when moving
         self.backoff_steps = [0.1, 0.2, 0.3, 0.4, 0.5]  # Gradual backoff intervals
+        self.last_obs_check_time = 0 # Timer for periodic OBS source checks
+
+        # Known browser window classes to completely exclude
+        self.BROWSER_CLASSES = {
+            "Chrome_WidgetWin_1",   # Chrome, Edge (Chromium), Brave, Opera, Vivaldi, etc.
+            "Chrome_WidgetWin_0",   # Older Chrome
+            "Chrome_WidgetWin_2",   # Some Chromium popups/menus
+            "MozillaWindowClass",   # Firefox
+            "OpWindow",             # Pre-Chromium Opera
+            "ApplicationFrameWindow",  # Some UWP apps can look like browsers, but rare
+        }
 
     def _get_window_exe_name(self, hwnd) -> str:
         """Helper to get the .exe name from an HWND."""
@@ -199,6 +210,15 @@ class WindowStateMonitor:
         except Exception:
             return False
 
+    def _is_browser_window(self, hwnd) -> bool:
+        """Check if the given HWND belongs to a web browser."""
+        # return False # For Testing Purposes
+        try:
+            class_name = self._get_window_class(hwnd)
+            return class_name in self.BROWSER_CLASSES
+        except Exception:
+            return False
+
     def _is_window_obscured(self, hwnd) -> bool:
         """Check if the window is completely obscured by other windows."""
         try:
@@ -246,10 +266,16 @@ class WindowStateMonitor:
             return False
 
     def _find_window_callback(self, hwnd, extra):
-        """Callback for EnumWindows. Matches against source info or title."""
+        """Callback for EnumWindows. Matches against title only, excluding browsers."""
+        # Skip invisible windows
         if not user32.IsWindowVisible(hwnd):
             return True
 
+        # Completely exclude known browser windows
+        if self._is_browser_window(hwnd):
+            return True  # Continue enumeration
+
+        # Get window title
         length = user32.GetWindowTextLengthW(hwnd)
         title = ""
         if length > 0:
@@ -257,30 +283,15 @@ class WindowStateMonitor:
             user32.GetWindowTextW(hwnd, buff, length + 1)
             title = buff.value
 
-        # Match Strategy 1: Specific info from OBS Source
+        # Match Strategy 1: Exact title from OBS Source (highest priority)
         if self.last_target_info:
-            tgt_exe = self.last_target_info.get('exe')
-            tgt_class = self.last_target_info.get('window_class')
             tgt_title = self.last_target_info.get('title')
-
-            # Class check (Fast)
-            if tgt_class:
-                curr_class = self._get_window_class(hwnd)
-                if curr_class != tgt_class:
-                    return True 
-
-            # Exe check (Slow/Accurate)
-            if tgt_exe:
-                curr_exe = self._get_window_exe_name(hwnd)
-                if curr_exe.lower() == tgt_exe.lower():
-                    self.found_hwnds.append(hwnd)
-                    return True
-            # Fallback if only class/title available
-            elif tgt_class:
+            if tgt_title and tgt_title.lower() == title.lower():
                 self.found_hwnds.append(hwnd)
+                return True
 
-        # Match Strategy 2: Legacy fuzzy title match
-        elif self.last_game_name:
+        # Match Strategy 2: Fuzzy match on game name
+        if self.last_game_name:
             if self.last_game_name.lower() in title.lower():
                 self.found_hwnds.append(hwnd)
 
@@ -298,7 +309,7 @@ class WindowStateMonitor:
             self.magpie_info = None
     
     def find_target_hwnd(self) -> Optional[int]:
-        """Attempts to find the HWND for the current game."""
+        """Attempts to find the HWND for the current game, robustly excluding browsers."""
         try:
             window_info = get_window_info_from_source(scene_name=get_current_scene())
         except Exception as e:
@@ -307,7 +318,13 @@ class WindowStateMonitor:
             
         current_game = get_current_game()
         
+        # Early exit: no info at all
         if not window_info and not current_game:
+            return None
+
+        # Early exit: OBS source is clearly a browser window
+        if window_info and "chrome" in window_info.get('class', '').lower():
+            logger.info("OBS source appears to be a browser window - skipping target search")
             return None
             
         self.last_target_info = window_info if window_info else {}
@@ -317,19 +334,36 @@ class WindowStateMonitor:
         cmp_func = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, ctypes.c_void_p)
         user32.EnumWindows(cmp_func(self._find_window_callback), 0)
         
-        # logger.info("Found HWNDs matching criteria:", self.found_hwnds)
-        
         if self.found_hwnds:
             fg = user32.GetForegroundWindow()
             if fg in self.found_hwnds:
                 return fg
             return self.found_hwnds[0]
+        
         return None
 
     async def check_and_send(self):
         """Checks window state and broadcasts if changed."""
-        if not is_windows:
+        if not is_windows():
             return
+
+        # Periodic check for OBS source changes (e.g. if user switched games)
+        # We do this periodically because we don't get events from OBS for this
+        now = time.time()
+        if now - self.last_obs_check_time > 2.0:  # Check every 2 seconds
+            self.last_obs_check_time = now
+            try:
+                new_info = get_window_info_from_source(scene_name=get_current_scene())
+                
+                # If info has fundamentally changed (different title or class), force a re-find
+                if new_info and self.last_target_info:
+                    if (new_info.get('title') != self.last_target_info.get('title') or 
+                        new_info.get('class') != self.last_target_info.get('class')):
+                        logger.info(f"OBS Source changed from '{self.last_target_info.get('title')}' to '{new_info.get('title')}' - Resetting target.")
+                        self.target_hwnd = None
+                        self.retry_find_count = 0
+            except Exception:
+                pass
 
         if not self.target_hwnd or self.retry_find_count > 10:
             self.target_hwnd = self.find_target_hwnd()
@@ -397,15 +431,7 @@ class WindowStateMonitor:
             }
             
             if websocket_manager.has_clients(ID_OVERLAY):
-                await websocket_manager.send(ID_OVERLAY,json.dumps(payload))
-            
-            # Logic for Triggering Scans or Updates
-            if current_state == "active" and self.last_state not in ["background", "active"] and not magpie_changed:
-                # Standard activation: scan
-                logger.display("Window activated - triggering new scan")
-                asyncio.create_task(
-                    overlay_processor.find_box_and_send_to_overlay('', check_against_last=True, custom_threshold=0.95)
-                )
+                await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
         
         # Smart Update: If (Magpie Changed OR Window Moved) AND window has settled for 2 checks
         if (magpie_changed or window_moved_or_resized):
@@ -414,6 +440,9 @@ class WindowStateMonitor:
                 asyncio.create_task(
                     overlay_processor.reprocess_and_send_last_results()
                 )
+            self.poll_interval = self.base_poll_interval
+        else:
+            self.poll_interval = max(2.0, self.poll_interval + 0.05)
 
         # Update last known rect
         self.last_window_rect = current_rect
@@ -438,7 +467,8 @@ class OverlayThread(threading.Thread):
     def run(self):
         """Runs the overlay processing loop."""
         asyncio.set_event_loop(self.loop)
-        self.loop.create_task(self.window_monitor_loop())
+        if is_windows():
+            self.loop.create_task(self.window_monitor_loop())
         self.loop.create_task(self.overlay_loop())
         self.loop.run_forever()
 
@@ -478,6 +508,11 @@ class OverlayProcessor:
     regions, performing OCR, and processing the results into a structured format
     with pixel coordinates.
     """
+    
+    # Screenshot scaling factor for performance optimization
+    # Images are scaled down by this factor before OCR, then coordinates are scaled back up
+    # Lower values = faster OCR but potentially less accurate (e.g., 0.67 = 1.5x speedup)
+    SCREENSHOT_SCALE_FACTOR = 0.5  # 1.0 = no scaling
     
     def __init__(self):
         self.config = get_config()
@@ -725,7 +760,6 @@ class OverlayProcessor:
                         logger.debug(f"Captured OBS window. Offset: ({final_off_x}, {final_off_y})")
                         self.ss_width = obs_img.width
                         self.ss_height = obs_img.height
-                        
                         return obs_img, final_off_x, final_off_y, monitor_w, monitor_h
                 except Exception as e:
                     logger.debug(f"OBS Window capture failed, falling back to MSS: {e}")
@@ -733,7 +767,8 @@ class OverlayProcessor:
         # Strategy 2: Full Screen (MSS / Fallback)
         # Prefer MSS (X11) when available, but fall back to OBS/other methods on Wayland
         wayland = is_wayland()
-
+        
+        logger.info("Taking full screen screenshot via MSS")
         if mss and not wayland:
             try:
                 with mss.mss() as sct:
@@ -809,6 +844,7 @@ class OverlayProcessor:
     def get_image_to_ocr(self) -> Image.Image | None:
         full_screenshot, off_x, off_y, monitor_width, monitor_height = self._get_screenshot_and_offset()
         
+        
         if not full_screenshot:
             logger.warning("Failed to get a screenshot.")
             return None
@@ -820,8 +856,27 @@ class OverlayProcessor:
         overlay_config = get_ocr_config()
         overlay_config.scale_to_custom_size(self.ss_width, self.ss_height)
         if overlay_config:
-            full_screenshot = apply_ocr_config_to_image(full_screenshot, overlay_config, both_types=True, keep_aspect_ratio=True)
+            full_screenshot = apply_ocr_config_to_image(full_screenshot, overlay_config, both_types=True, return_full_size=True)
+            
+            # Update offset if apply_ocr_config_to_image performed a crop.
+            # If we took a full screenshot (MSS) but applied a crop (e.g. bottom 20%), 
+            # the resulting image is small, and its (0,0) is actually (cut_x, cut_y) on the screen.
+            # We must add this to the global offset so OCR coordinates map back to screen correctly.
+            if hasattr(overlay_config, 'cut_area') and overlay_config.cut_area:
+                off_x += overlay_config.cut_area[0]
+                off_y += overlay_config.cut_area[1]
+
             full_screenshot.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_with_config.png"))
+        
+        # Apply screenshot scaling for performance optimization
+        if self.SCREENSHOT_SCALE_FACTOR != 1.0:
+            original_width, original_height = full_screenshot.size
+            scaled_width = int(original_width * self.SCREENSHOT_SCALE_FACTOR)
+            scaled_height = int(original_height * self.SCREENSHOT_SCALE_FACTOR)
+            full_screenshot = full_screenshot.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
+            logger.info(f"Scaled screenshot from {original_width}x{original_height} to {scaled_width}x{scaled_height}")
+            full_screenshot.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_scaled.png"))
+            
         return full_screenshot, off_x, off_y, monitor_width, monitor_height
 
     async def _do_work(self, sentence_to_check: str = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None) -> Tuple[List[Dict[str, Any]], int]:
@@ -900,6 +955,9 @@ class OverlayProcessor:
                 if not crop_coords_list:
                     return        
                 
+                if sentence_to_check:
+                    oneocr_results = self._correct_ocr_with_backlog(oneocr_results, sentence_to_check)
+                
                 if asyncio.current_task().cancelled():
                     raise asyncio.CancelledError()
                 
@@ -940,9 +998,6 @@ class OverlayProcessor:
                     off_x, off_y
                 )
 
-                if sentence_to_check:
-                    oneocr_final = self._correct_ocr_with_backlog(oneocr_final, sentence_to_check)
-                    
                 data = {
                     "type": "word_coordinates",
                     "data": oneocr_final,
@@ -1413,9 +1468,13 @@ class OverlayProcessor:
         """
         Simplified conversion: scales normalized bbox to pixel coordinates within
         the cropped region, then offsets by the crop position.
+        Accounts for screenshot scaling if applied.
         """
         cx, cy = bbox_data['center_x'], bbox_data['center_y']
         w, h = bbox_data['width'], bbox_data['height']
+        
+        # Calculate inverse scale factor for coordinate adjustment
+        inverse_scale = 1.0 / self.SCREENSHOT_SCALE_FACTOR if self.SCREENSHOT_SCALE_FACTOR != 0 else 1.0
 
         if use_percentage:
             # This branch is generally used only if we aren't doing the screen mapping manually
@@ -1424,13 +1483,17 @@ class OverlayProcessor:
             center_x = cx
             center_y = cy
         else:
+            # Scale the crop dimensions back to original if screenshot was scaled
+            effective_crop_width = crop_width * inverse_scale
+            effective_crop_height = crop_height * inverse_scale
+            
             # Scale normalized coordinates to pixel coordinates relative to the crop area
-            box_width = w * crop_width
-            box_height = h * crop_height
+            box_width = w * effective_crop_width
+            box_height = h * effective_crop_height
 
             # Calculate center within the cropped area and then add the crop offset
-            center_x = (cx * crop_width) + crop_x
-            center_y = (cy * crop_height) + crop_y
+            center_x = (cx * effective_crop_width) + crop_x
+            center_y = (cy * effective_crop_height) + crop_y
 
         # Calculate corners (unrotated)
         half_w, half_h = box_width / 2, box_height / 2
@@ -1453,11 +1516,15 @@ class OverlayProcessor:
         Converts OneOCR results with pixel coordinates to percentages relative to the monitor size.
         Adds the window offset to the coordinates before converting.
         Applies Magpie scaling adjustments if active.
+        Scales coordinates back up if screenshot was scaled down for OCR.
         """
         # Get Magpie info from window monitor if available
         magpie_info = None
         if hasattr(self, 'window_monitor') and self.window_monitor:
             magpie_info = self.window_monitor.magpie_info
+        
+        # Calculate inverse scale factor for coordinate adjustment
+        inverse_scale = 1.0 / self.SCREENSHOT_SCALE_FACTOR if self.SCREENSHOT_SCALE_FACTOR != 0 else 1.0
         
         converted_results = []
         for item in oneocr_results:
@@ -1470,15 +1537,19 @@ class OverlayProcessor:
                 new_box = {}
                 for key, value in box.items():
                     if "x" in key:
+                        # Scale coordinate back to original size
+                        scaled_coord = value * inverse_scale
                         # Add offset to get absolute screen coordinate
-                        abs_coord = value + offset_x
+                        abs_coord = scaled_coord + offset_x
                         # Apply Magpie adjustment
                         abs_coord, _ = self._adjust_coords_for_magpie(abs_coord, 0, magpie_info)
                         # Convert to percentage
                         new_box[key] = abs_coord / monitor_width
                     else:  # "y" in key
+                        # Scale coordinate back to original size
+                        scaled_coord = value * inverse_scale
                         # Add offset to get absolute screen coordinate
-                        abs_coord = value + offset_y
+                        abs_coord = scaled_coord + offset_y
                         # Apply Magpie adjustment
                         _, abs_coord = self._adjust_coords_for_magpie(0, abs_coord, magpie_info)
                         # Convert to percentage

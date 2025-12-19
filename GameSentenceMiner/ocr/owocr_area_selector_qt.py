@@ -2,7 +2,8 @@ import argparse
 import json
 import sys
 import os
-from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMenu
+import time
+from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMenu, QProgressDialog, QMessageBox
 from PyQt6.QtCore import Qt, QRect, QTimer
 from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage, QBrush, QAction
 from PIL import Image
@@ -177,7 +178,9 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.long_press_active = False
         
         self._initialize()
-        self.init_ui()
+        # Only initialize UI if screenshot was successful
+        if self.pixmap:
+            self.init_ui()
     
     def _initialize(self):
         """Initialize appropriate capture method."""
@@ -214,7 +217,9 @@ class OWOCRAreaSelectorWidget(QWidget):
             
         except Exception as e:
             logger.error(f"Failed to initialize: {e}")
-            raise
+            # Display error in a box and exit gracefully
+            QMessageBox.critical(None, "Initialization Error", str(e))
+            sys.exit(0)
 
     def _init_monitor_capture(self):
         """Initialize by capturing the configured monitor via MSS."""
@@ -285,9 +290,60 @@ class OWOCRAreaSelectorWidget(QWidget):
         if len(sources) > 1:
             logger.warning(f"Multiple active video sources found. Using '{best_source.get('sourceName')}'")
         
-        self.screenshot_img = obs.get_screenshot_PIL(compression=100, img_format='jpg')
+        # Attempt to get screenshot with retry logic
+        self.screenshot_img = None
+        retry_count = 10
+        retry_delay = 3
+        
+        # Create a progress dialog to warn the user and allow quitting
+        progress = QProgressDialog("Connecting to OBS...", "Quit", 0, retry_count)
+        progress.setWindowTitle("Waiting for Game Source")
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.setCancelButtonText("Quit")
+        
+        # Center the dialog on the primary screen
+        screen = QApplication.primaryScreen()
+        if screen:
+            geo = screen.geometry()
+            progress.move(geo.center() - progress.rect().center())
+        
+        for i in range(retry_count):
+            try:
+                # Update dialog text
+                remaining = retry_count - i
+                progress.setLabelText(
+                    "OBS Source appears blank or invalid.\n"
+                    "Please open your game.\n"
+                    f"Retrying... ({remaining} attempts left)"
+                )
+                progress.setValue(i)
+                
+                # Check for cancellation/quit
+                if progress.wasCanceled():
+                    logger.info("User quit during screenshot retry.")
+                    sys.exit(0)
+                
+                # Attempt capture - get fresh scene data implicitly via the obs call or connection check
+                self.screenshot_img = obs.get_screenshot_PIL(compression=100, img_format='jpg')
+                
+                # If we got a valid image, break the loop
+                if self.screenshot_img:
+                    break
+                
+            except Exception as e:
+                logger.debug(f"Attempt {i+1} failed: {e}")
+            
+            # Wait with event processing to keep UI responsive
+            t_end = time.time() + retry_delay
+            while time.time() < t_end:
+                QApplication.processEvents()
+                time.sleep(0.01)
+        
+        progress.close()
+
         if not self.screenshot_img:
-            raise RuntimeError("Failed to get OBS screenshot, is OBS running with a valid video source?")
+            raise RuntimeError("Failed to get OBS screenshot after multiple retries. Is the game running and visible in OBS?")
         
         # Scale down for performance
         self.screenshot_img = self.screenshot_img.resize(
