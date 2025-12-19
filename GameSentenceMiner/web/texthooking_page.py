@@ -298,7 +298,7 @@ def get_ids():
     asyncio.run(check_for_lines_outside_replay_buffer())
     return jsonify(
         {
-            "ids": list(event_manager.get_ids()),
+            "ids": event_manager.get_ordered_ids(),
             "timed_out_ids": list(event_manager.timed_out_ids),
         }
     )

@@ -351,8 +351,8 @@ class WindowStateMonitor:
             foreground_hwnd = user32.GetForegroundWindow()
             if foreground_hwnd == self.target_hwnd:
                 current_state = "active"
-            elif self._is_window_obscured(self.target_hwnd):
-                current_state = "obscured"
+            # elif self._is_window_obscured(self.target_hwnd):
+            #     current_state = "obscured"
             else:
                 current_state = "background"
 
