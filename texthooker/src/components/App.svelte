@@ -149,6 +149,11 @@
 			const text = transformLine(lineContent, type !== LineType.TL);
 			const id = newLine.at(2) || generateRandomUUID();
 
+			if ($lineData$?.some(line => line.id === id)) {
+				console.warn(`Skipping new line with duplicate ID: '${id}'`);
+				return;
+			}
+
 			if (type !== LineType.TL) {
 				$lineIDs$ = [...$lineIDs$, id];
 			}
