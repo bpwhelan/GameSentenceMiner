@@ -60,9 +60,56 @@ def register_stats_api_routes(app):
     @app.route("/api/stats")
     def api_stats():
         """
-        Provides aggregated, cumulative stats for charting.
-        Accepts optional 'year' parameter to filter heatmap data.
-        Uses hybrid rollup + live approach for performance.
+        Get aggregated statistics for charts and analytics
+        ---
+        tags:
+          - Statistics
+        parameters:
+          - name: year
+            in: query
+            type: string
+            required: false
+            description: Filter heatmap data by year
+          - name: start
+            in: query
+            type: number
+            required: false
+            description: Start timestamp (Unix timestamp)
+          - name: end
+            in: query
+            type: number
+            required: false
+            description: End timestamp (Unix timestamp)
+        responses:
+          200:
+            description: Statistics data for charts
+            schema:
+              type: object
+              properties:
+                labels:
+                  type: array
+                  items:
+                    type: string
+                  description: Date labels for chart
+                datasets:
+                  type: array
+                  items:
+                    type: object
+                  description: Chart.js compatible datasets
+                kanjiGridData:
+                  type: object
+                  description: Kanji frequency data
+                heatmapData:
+                  type: object
+                  description: Activity heatmap data
+                currentGameStats:
+                  type: object
+                  description: Current game statistics
+                allGamesStats:
+                  type: object
+                  description: Overall statistics
+          500:
+            description: Failed to generate statistics
         """
         try:
             # Performance timing
@@ -1055,6 +1102,178 @@ def register_stats_api_routes(app):
                     }
                 }
 
+            # 16. Extract and calculate genre and type statistics from combined stats
+            try:
+                # Get genre activity data from combined stats
+                genre_activity_data = combined_stats.get("genre_activity_data", {})
+                genre_stats = {
+                    "labels": [],
+                    "chars_data": [],
+                    "time_data": [],
+                    "speed_data": [],
+                    "cards_data": []
+                }
+                
+                for genre in sorted(genre_activity_data.keys()):
+                    stats = genre_activity_data[genre]
+                    chars = stats.get('chars', 0)
+                    time_sec = stats.get('time', 0)
+                    cards = stats.get('cards', 0)
+                    
+                    genre_stats["labels"].append(genre)
+                    genre_stats["chars_data"].append(chars)
+                    genre_stats["time_data"].append(round(time_sec / 3600, 2))  # Convert to hours
+                    genre_stats["cards_data"].append(cards)
+                    
+                    # Calculate chars/hour
+                    if time_sec > 0 and chars > 0:
+                        speed = int(chars / (time_sec / 3600))
+                        genre_stats["speed_data"].append(speed)
+                    else:
+                        genre_stats["speed_data"].append(0)
+                
+                # Get type activity data from combined stats
+                type_activity_data = combined_stats.get("type_activity_data", {})
+                type_stats = {
+                    "labels": [],
+                    "chars_data": [],
+                    "time_data": [],
+                    "speed_data": [],
+                    "cards_data": []
+                }
+                
+                for media_type in sorted(type_activity_data.keys()):
+                    stats = type_activity_data[media_type]
+                    chars = stats.get('chars', 0)
+                    time_sec = stats.get('time', 0)
+                    cards = stats.get('cards', 0)
+                    
+                    type_stats["labels"].append(media_type)
+                    type_stats["chars_data"].append(chars)
+                    type_stats["time_data"].append(round(time_sec / 3600, 2))
+                    type_stats["cards_data"].append(cards)
+                    
+                    if time_sec > 0 and chars > 0:
+                        speed = int(chars / (time_sec / 3600))
+                        type_stats["speed_data"].append(speed)
+                    else:
+                        type_stats["speed_data"].append(0)
+                        
+            except Exception as e:
+                logger.error(f"Error calculating genre/type statistics: {e}")
+                genre_stats = {
+                    "labels": [],
+                    "chars_data": [],
+                    "time_data": [],
+                    "speed_data": [],
+                    "cards_data": []
+                }
+                type_stats = {
+                    "labels": [],
+                    "chars_data": [],
+                    "time_data": [],
+                    "speed_data": [],
+                    "cards_data": []
+                }
+
+            # 17. Calculate average stats and totals for the time period
+            try:
+                avg_hours_per_day = 0.0
+                avg_chars_per_day = 0.0
+                avg_speed_per_day = 0.0
+                total_hours_period = 0.0
+                total_chars_period = 0
+                
+                # Calculate averages and totals from rollup data
+                if start_date_str:
+                    yesterday = today - datetime.timedelta(days=1)
+                    yesterday_str = yesterday.strftime("%Y-%m-%d")
+                    
+                    if start_date_str <= yesterday_str:
+                        rollup_end = (
+                            min(end_date_str, yesterday_str)
+                            if end_date_str
+                            else yesterday_str
+                        )
+                        rollups_for_avg = StatsRollupTable.get_date_range(
+                            start_date_str, rollup_end
+                        )
+                        
+                        if rollups_for_avg:
+                            # Calculate totals
+                            total_hours = 0.0
+                            total_chars = 0
+                            total_speed_sum = 0.0
+                            speed_count = 0
+                            
+                            for rollup in rollups_for_avg:
+                                # Sum hours
+                                total_hours += rollup.total_reading_time_seconds / 3600
+                                
+                                # Sum characters
+                                total_chars += rollup.total_characters
+                                
+                                # Calculate speed for days with data
+                                if rollup.total_reading_time_seconds > 0 and rollup.total_characters > 0:
+                                    day_hours = rollup.total_reading_time_seconds / 3600
+                                    day_speed = rollup.total_characters / day_hours
+                                    total_speed_sum += day_speed
+                                    speed_count += 1
+                            
+                            # Add today's data if in range
+                            if today_in_range and live_stats:
+                                total_hours += live_stats.get("total_reading_time_seconds", 0) / 3600
+                                total_chars += live_stats.get("total_characters", 0)
+                                
+                                today_hours = live_stats.get("total_reading_time_seconds", 0) / 3600
+                                today_chars = live_stats.get("total_characters", 0)
+                                if today_hours > 0 and today_chars > 0:
+                                    today_speed = today_chars / today_hours
+                                    total_speed_sum += today_speed
+                                    speed_count += 1
+                            
+                            # Store totals for the period
+                            total_hours_period = total_hours
+                            total_chars_period = total_chars
+                            
+                            # Calculate number of days in range
+                            start_date_obj = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+                            end_date_obj = datetime.datetime.strptime(end_date_str if end_date_str else today_str, "%Y-%m-%d").date()
+                            num_days = (end_date_obj - start_date_obj).days + 1
+                            
+                            # Calculate averages
+                            if num_days > 0:
+                                avg_hours_per_day = total_hours / num_days
+                                avg_chars_per_day = total_chars / num_days
+                            
+                            if speed_count > 0:
+                                avg_speed_per_day = total_speed_sum / speed_count
+                    elif today_in_range and live_stats:
+                        # Only today's data
+                        total_hours_period = live_stats.get("total_reading_time_seconds", 0) / 3600
+                        total_chars_period = live_stats.get("total_characters", 0)
+                        avg_hours_per_day = total_hours_period
+                        avg_chars_per_day = total_chars_period
+                        
+                        if avg_hours_per_day > 0 and avg_chars_per_day > 0:
+                            avg_speed_per_day = avg_chars_per_day / avg_hours_per_day
+                
+                time_period_averages = {
+                    "avgHoursPerDay": round(avg_hours_per_day, 2),
+                    "avgCharsPerDay": int(avg_chars_per_day),
+                    "avgSpeedPerDay": int(avg_speed_per_day),
+                    "totalHours": round(total_hours_period, 2),
+                    "totalChars": int(total_chars_period)
+                }
+                
+            except Exception as e:
+                logger.error(f"Error calculating time period averages: {e}")
+                time_period_averages = {
+                    "avgHoursPerDay": 0.0,
+                    "avgCharsPerDay": 0,
+                    "avgSpeedPerDay": 0
+                }
+
             # Log total request time
             total_time = time.time() - request_start_time
 
@@ -1082,6 +1301,9 @@ def register_stats_api_routes(app):
                     "difficultySpeedData": difficulty_speed_data,
                     "gameTypeData": game_type_data,
                     "genreTagData": genre_tag_data,
+                    "genreStats": genre_stats,
+                    "typeStats": type_stats,
+                    "timePeriodAverages": time_period_averages,
                 }
             )
 
@@ -1093,8 +1315,34 @@ def register_stats_api_routes(app):
     def api_mining_heatmap():
         """
         Provides mining heatmap data showing daily mining activity.
-        Counts lines where screenshot_in_anki OR audio_in_anki is not empty.
-        Accepts optional 'start' and 'end' timestamp parameters for filtering.
+        ---
+        tags:
+          - Mining
+        parameters:
+          - name: start
+            in: query
+            type: number
+            required: false
+            description: Start timestamp (Unix epoch) for filtering data
+          - name: end
+            in: query
+            type: number
+            required: false
+            description: End timestamp (Unix epoch) for filtering data
+        responses:
+          200:
+            description: Mining heatmap data with daily counts
+            schema:
+              type: object
+              properties:
+                year:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    additionalProperties:
+                      type: integer
+          500:
+            description: Failed to generate heatmap data
         """
         try:
             # Get optional timestamp filter parameters
@@ -1126,221 +1374,7 @@ def register_stats_api_routes(app):
             logger.error(f"Unexpected error in api_mining_heatmap: {e}", exc_info=True)
             return jsonify({"error": "Failed to generate mining heatmap"}), 500
 
-    @app.route("/api/goals-today", methods=["GET"])
-    def api_goals_today():
-        """
-        Calculate daily requirements and current progress for today based on goal target dates.
-        Returns what needs to be accomplished today to stay on track.
-        Uses hybrid rollup + live approach for performance.
-        """
-        try:
-            config = get_stats_config()
-            today = datetime.date.today()
-            today_str = today.strftime("%Y-%m-%d")
-
-            # === HYBRID ROLLUP + LIVE APPROACH ===
-            # Get rollup data up to yesterday
-            yesterday = today - datetime.timedelta(days=1)
-            yesterday_str = yesterday.strftime("%Y-%m-%d")
-
-            # Get first date from rollup table
-            first_rollup_date = StatsRollupTable.get_first_date()
-            if not first_rollup_date:
-                # No rollup data, return empty response
-                return jsonify(
-                    {
-                        "hours": {"required": 0, "progress": 0, "has_target": False},
-                        "characters": {
-                            "required": 0,
-                            "progress": 0,
-                            "has_target": False,
-                        },
-                        "games": {"required": 0, "progress": 0, "has_target": False},
-                    }
-                ), 200
-
-            # Query rollup data for all historical dates
-            rollups = StatsRollupTable.get_date_range(first_rollup_date, yesterday_str)
-            rollup_stats = aggregate_rollup_data(rollups) if rollups else None
-
-            # Get today's lines for live calculation
-            today_start = datetime.datetime.combine(
-                today, datetime.time.min
-            ).timestamp()
-            today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
-            today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
-                start=today_start, end=today_end, for_stats=True
-            )
-
-            # Calculate today's live stats
-            live_stats = None
-            if today_lines:
-                live_stats = calculate_live_stats_for_today(today_lines)
-
-            # Combine rollup and live stats for total progress
-            combined_stats = combine_rollup_and_live_stats(rollup_stats, live_stats)
-
-            # Extract totals from combined stats
-            total_hours = combined_stats.get("total_reading_time_seconds", 0) / 3600
-            total_characters = combined_stats.get("total_characters", 0)
-            total_games = combined_stats.get("unique_games_played", 0)
-
-            # Calculate today's progress from live stats
-            if live_stats:
-                today_time_seconds = live_stats.get("total_reading_time_seconds", 0)
-                today_hours = today_time_seconds / 3600
-                today_characters = live_stats.get("total_characters", 0)
-            else:
-                today_hours = 0
-                today_characters = 0
-
-            # Calculate today's cards mined (lines with audio_in_anki OR screenshot_in_anki)
-            today_cards_mined = 0
-            if today_lines:
-                for line in today_lines:
-                    # Count if either audio_in_anki or screenshot_in_anki is not empty
-                    if (line.audio_in_anki and line.audio_in_anki.strip()) or \
-                       (line.screenshot_in_anki and line.screenshot_in_anki.strip()):
-                        today_cards_mined += 1
-
-            result = {}
-
-            # Calculate hours requirement
-            if config.reading_hours_target_date:
-                try:
-                    target_date = datetime.datetime.strptime(
-                        config.reading_hours_target_date, "%Y-%m-%d"
-                    ).date()
-                    days_remaining = (
-                        target_date - today
-                    ).days + 1  # +1 to include today
-                    if days_remaining > 0:
-                        hours_needed = max(0, config.reading_hours_target - total_hours)
-                        daily_hours_required = hours_needed / days_remaining
-                        result["hours"] = {
-                            "required": round(daily_hours_required, 2),
-                            "progress": round(today_hours, 2),
-                            "has_target": True,
-                            "target_date": config.reading_hours_target_date,
-                            "days_remaining": days_remaining,
-                        }
-                    else:
-                        result["hours"] = {
-                            "required": 0,
-                            "progress": round(today_hours, 2),
-                            "has_target": True,
-                            "expired": True,
-                        }
-                except ValueError:
-                    result["hours"] = {
-                        "required": 0,
-                        "progress": round(today_hours, 2),
-                        "has_target": False,
-                    }
-            else:
-                result["hours"] = {
-                    "required": 0,
-                    "progress": round(today_hours, 2),
-                    "has_target": False,
-                }
-
-            # Calculate characters requirement
-            if config.character_count_target_date:
-                try:
-                    target_date = datetime.datetime.strptime(
-                        config.character_count_target_date, "%Y-%m-%d"
-                    ).date()
-                    days_remaining = (target_date - today).days + 1
-                    if days_remaining > 0:
-                        chars_needed = max(
-                            0, config.character_count_target - total_characters
-                        )
-                        daily_chars_required = int(chars_needed / days_remaining)
-                        result["characters"] = {
-                            "required": daily_chars_required,
-                            "progress": today_characters,
-                            "has_target": True,
-                            "target_date": config.character_count_target_date,
-                            "days_remaining": days_remaining,
-                        }
-                    else:
-                        result["characters"] = {
-                            "required": 0,
-                            "progress": today_characters,
-                            "has_target": True,
-                            "expired": True,
-                        }
-                except ValueError:
-                    result["characters"] = {
-                        "required": 0,
-                        "progress": today_characters,
-                        "has_target": False,
-                    }
-            else:
-                result["characters"] = {
-                    "required": 0,
-                    "progress": today_characters,
-                    "has_target": False,
-                }
-
-            # Calculate games requirement
-            if config.games_target_date:
-                try:
-                    target_date = datetime.datetime.strptime(
-                        config.games_target_date, "%Y-%m-%d"
-                    ).date()
-                    days_remaining = (target_date - today).days + 1
-                    if days_remaining > 0:
-                        games_needed = max(0, config.games_target - total_games)
-                        daily_games_required = games_needed / days_remaining
-                        result["games"] = {
-                            "required": round(daily_games_required, 2),
-                            "progress": total_games,
-                            "has_target": True,
-                            "target_date": config.games_target_date,
-                            "days_remaining": days_remaining,
-                        }
-                    else:
-                        result["games"] = {
-                            "required": 0,
-                            "progress": total_games,
-                            "has_target": True,
-                            "expired": True,
-                        }
-                except ValueError:
-                    result["games"] = {
-                        "required": 0,
-                        "progress": total_games,
-                        "has_target": False,
-                    }
-            else:
-                result["games"] = {
-                    "required": 0,
-                    "progress": total_games,
-                    "has_target": False,
-                }
-
-            # Calculate cards mined requirement (daily goal)
-            cards_daily_target = getattr(config, 'cards_mined_daily_target', 10)
-            if cards_daily_target > 0:
-                result["cards"] = {
-                    "required": cards_daily_target,
-                    "progress": today_cards_mined,
-                    "has_target": True,
-                }
-            else:
-                result["cards"] = {
-                    "required": 0,
-                    "progress": today_cards_mined,
-                    "has_target": False,
-                }
-
-            return jsonify(result), 200
-
-        except Exception as e:
-            logger.error(f"Error calculating goals today: {e}")
-            return jsonify({"error": "Failed to calculate daily goals"}), 500
-
+   
     @app.route("/api/goals-projection", methods=["GET"])
     def api_goals_projection():
         """
@@ -1575,7 +1609,33 @@ def register_stats_api_routes(app):
     def api_import_exstatic():
         """
         Import ExStatic CSV data into GSM database.
-        Expected CSV format: uuid,given_identifier,name,line,time
+        ---
+        tags:
+          - Import/Export
+        consumes:
+          - multipart/form-data
+        parameters:
+          - name: file
+            in: formData
+            type: file
+            required: true
+            description: CSV file with ExStatic data (uuid,given_identifier,name,line,time)
+        responses:
+          200:
+            description: Import results with statistics
+            schema:
+              type: object
+              properties:
+                message: {type: string}
+                imported_count: {type: integer}
+                games_count: {type: integer}
+                games: {type: array, items: {type: string}}
+                warnings: {type: array, items: {type: string}}
+                warning_count: {type: integer}
+          400:
+            description: Invalid file format or missing file
+          500:
+            description: Import failed due to server error
         """
         try:
             # Check if file is provided
@@ -1776,7 +1836,28 @@ def register_stats_api_routes(app):
     def api_kanji_sorting_configs():
         """
         List available kanji sorting configuration JSON files.
-        Returns metadata for each available sorting option.
+        ---
+        tags:
+          - Kanji
+        responses:
+          200:
+            description: List of available sorting configurations
+            schema:
+              type: object
+              properties:
+                configs:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      filename: {type: string}
+                      name: {type: string}
+                      version: {type: integer}
+                      lang: {type: string}
+                      source: {type: string}
+                      group_count: {type: integer}
+          500:
+            description: Failed to fetch configurations
         """
         try:
             # Get the kanji_grid directory path
@@ -1827,7 +1908,24 @@ def register_stats_api_routes(app):
     def api_kanji_sorting_config(filename):
         """
         Get a specific kanji sorting configuration file.
-        Returns the full JSON configuration.
+        ---
+        tags:
+          - Kanji
+        parameters:
+          - name: filename
+            in: path
+            type: string
+            required: true
+            description: Name of the configuration JSON file
+        responses:
+          200:
+            description: Kanji sorting configuration data
+          400:
+            description: Invalid filename format
+          404:
+            description: Configuration file not found
+          500:
+            description: Failed to load configuration
         """
         try:
             # Sanitize filename to prevent path traversal
@@ -1862,12 +1960,45 @@ def register_stats_api_routes(app):
     @app.route("/api/daily-activity", methods=["GET"])
     def api_daily_activity():
         """
-        Get daily activity data (time and characters) for the last 4 weeks or all time.
-        Returns data from the rollup table ONLY (no live data).
-        Uses historical data up to today (inclusive).
-        
-        Query Parameters:
-        - all_time: If 'true', returns all available data from first rollup date to today
+        Get daily activity data
+        ---
+        tags:
+          - Statistics
+        parameters:
+          - name: all_time
+            in: query
+            type: boolean
+            required: false
+            description: If true, returns all available data instead of last 4 weeks
+            default: false
+        responses:
+          200:
+            description: Daily activity statistics
+            schema:
+              type: object
+              properties:
+                labels:
+                  type: array
+                  items:
+                    type: string
+                  description: Date labels
+                timeData:
+                  type: array
+                  items:
+                    type: number
+                  description: Reading time in hours per day
+                charsData:
+                  type: array
+                  items:
+                    type: integer
+                  description: Characters read per day
+                speedData:
+                  type: array
+                  items:
+                    type: integer
+                  description: Reading speed (chars/hour) per day
+          500:
+            description: Failed to fetch daily activity
         """
         try:
             # Check if all-time data is requested
@@ -1948,7 +2079,34 @@ def register_stats_api_routes(app):
     def api_today_stats():
         """
         Calculate and return today's statistics including sessions.
-        Returns total characters, chars/hour for today, and all sessions with their stats.
+        ---
+        tags:
+          - Statistics
+        responses:
+          200:
+            description: Today's reading statistics with session details
+            schema:
+              type: object
+              properties:
+                todayTotalChars: {type: integer}
+                todayCharsPerHour: {type: integer}
+                todayTotalHours: {type: number}
+                todaySessions: {type: integer}
+                sessions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      startTime: {type: number}
+                      endTime: {type: number}
+                      gameName: {type: string}
+                      totalChars: {type: integer}
+                      totalSeconds: {type: number}
+                      charsPerHour: {type: integer}
+                      gameMetadata: {type: object}
+                      lines: {type: array, items: {type: string}}
+          500:
+            description: Failed to calculate statistics
         """
         try:
             # Get configuration
@@ -2125,3 +2283,61 @@ def register_stats_api_routes(app):
         except Exception as e:
             logger.error(f"Error calculating today's stats: {e}", exc_info=True)
             return jsonify({"error": "Failed to calculate today's statistics"}), 500
+
+    @app.route("/api/kanji-frequency")
+    def api_kanji_frequency():
+        """
+        Get total occurrences of a kanji character from rolled up stats.
+        ---
+        tags:
+          - Kanji
+        parameters:
+          - name: kanji
+            in: query
+            type: string
+            required: true
+            description: Single kanji character to look up
+        responses:
+          200:
+            description: Kanji occurrence count
+            schema:
+              type: object
+              properties:
+                kanji:
+                  type: string
+                  description: The kanji character queried
+                count:
+                  type: integer
+                  description: Total number of occurrences
+          400:
+            description: Invalid kanji parameter
+          500:
+            description: Failed to calculate kanji frequency
+        """
+        try:
+            kanji = request.args.get("kanji")
+            if not kanji or len(kanji) != 1:
+                return jsonify({"error": "Invalid kanji parameter"}), 400
+
+            total = 0
+            first_date = StatsRollupTable.get_first_date()
+            
+            if first_date:
+                rollups = StatsRollupTable.get_date_range(
+                    first_date,
+                    datetime.date.today().strftime("%Y-%m-%d")
+                )
+                for rollup in rollups:
+                    kanji_data = rollup.kanji_frequency_data
+                    if isinstance(kanji_data, str):
+                        try:
+                            kanji_data = json.loads(kanji_data)
+                        except json.JSONDecodeError:
+                            continue
+                    total += kanji_data.get(kanji, 0) if kanji_data else 0
+
+            return jsonify({"kanji": kanji, "count": total})
+
+        except Exception as e:
+            logger.error(f"Error in api_kanji_frequency: {e}", exc_info=True)
+            return jsonify({"error": "Failed to calculate kanji frequency"}), 500

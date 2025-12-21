@@ -32,6 +32,8 @@ class StatsRollupTable(SQLiteDBTable):
         "hourly_reading_speed_data",
         "game_activity_data",
         "games_played_ids",
+        "genre_activity_data",
+        "type_activity_data",
         "max_chars_in_session",
         "max_time_in_session_seconds",
         "created_at",
@@ -63,6 +65,8 @@ class StatsRollupTable(SQLiteDBTable):
         str,
         str,  # JSON data fields: hourly_activity_data, hourly_reading_speed_data, game_activity_data
         str,  # games_played_ids (JSON)
+        str,  # genre_activity_data (JSON)
+        str,  # type_activity_data (JSON)
         int,
         float,  # peak performance: max_chars_in_session, max_time_in_session_seconds
         float,
@@ -98,6 +102,8 @@ class StatsRollupTable(SQLiteDBTable):
         hourly_reading_speed_data: Optional[str] = None,
         game_activity_data: Optional[str] = None,
         games_played_ids: Optional[str] = None,
+        genre_activity_data: Optional[str] = None,
+        type_activity_data: Optional[str] = None,
         max_chars_in_session: int = 0,
         max_time_in_session_seconds: float = 0.0,
         created_at: Optional[float] = None,
@@ -137,6 +143,12 @@ class StatsRollupTable(SQLiteDBTable):
         )
         self.games_played_ids = (
             games_played_ids if games_played_ids is not None else "[]"
+        )
+        self.genre_activity_data = (
+            genre_activity_data if genre_activity_data is not None else "{}"
+        )
+        self.type_activity_data = (
+            type_activity_data if type_activity_data is not None else "{}"
         )
         self.max_chars_in_session = max_chars_in_session
         self.max_time_in_session_seconds = max_time_in_session_seconds

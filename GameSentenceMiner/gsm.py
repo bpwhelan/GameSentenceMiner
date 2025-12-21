@@ -129,6 +129,11 @@ try:
     from GameSentenceMiner.web import texthooking_page
     logger.debug(
         f"[Import] web.texthooking_page: {time.time() - start_time:.3f}s")
+    
+    start_time = time.time()
+    from GameSentenceMiner import web  # This will register all the API routes
+    logger.debug(
+        f"[Import] web (route registration): {time.time() - start_time:.3f}s")
 
     start_time = time.time()
     from GameSentenceMiner.web.service import handle_texthooker_button, set_get_audio_from_video_callback

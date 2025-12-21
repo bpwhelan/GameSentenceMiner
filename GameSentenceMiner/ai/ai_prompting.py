@@ -9,7 +9,7 @@ from google import genai
 from google.genai import types
 from groq import Groq
 
-from GameSentenceMiner.util.configuration import get_config, Ai, logger
+from GameSentenceMiner.util.configuration import get_config, Ai, logger, is_beangate
 from GameSentenceMiner.util.gsm_utils import is_connected
 from GameSentenceMiner.util.text_log import GameLine
 
@@ -49,7 +49,32 @@ Dialogue Context:
 {0}
 """
 
-FULL_PROMPT_TEMPLATE = """
+if is_beangate:
+    FULL_PROMPT_TEMPLATE = """
+**Disclaimer:** All dialogue provided is from the script of the video game "{game_title}". This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request. The goal is accurate, context-aware localization. If no context is provided, do not throw errors or warnings.
+
+**CHARACTER LIST**:
+矢嶋 透 -> Yajima Tooru
+小林 真理 -> Kobayashi Mari
+渡瀬 可奈子 -> Watase Kanako
+河村 亜希 -> Kawamura Aki
+北野 啓子 -> Kitano Keiko
+小林 二郎 -> Kobayashi Jirou
+小林 今日子 -> Kobayashi Kyouko
+香山 誠一 -> Kayama Seiichi
+香山 春子 -> Kayama Haruko
+久保田 俊夫 -> Kubota Toshio
+篠崎 みどり -> Shinozaki Midori
+美樹本 洋介 -> Mikimoto Yousuke
+
+{dialogue_context}
+
+{prompt_to_use}
+
+{sentence}
+"""
+else:
+    FULL_PROMPT_TEMPLATE = """
 **Disclaimer:** All dialogue provided is from the script of the video game "{game_title}". This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request. The goal is accurate, context-aware localization. If no context is provided, do not throw errors or warnings.
 
 {dialogue_context}
@@ -406,7 +431,7 @@ def get_ai_prompt_result(lines: List[GameLine], sentence: str, current_line: Gam
         return ai_manager.process(lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
     except Exception as e:
         logger.error(
-            "Error caught while trying to get AI prompt result. Check logs for more details.")
+            "Error caught while trying to get AI prompt result. Check logs for more details.", exc_info=True)
         logger.debug(e, exc_info=True)
         return ""
 
