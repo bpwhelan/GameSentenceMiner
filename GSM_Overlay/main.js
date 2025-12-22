@@ -910,8 +910,6 @@ app.whenReady().then(async () => {
         // https://www.electronjs.org/docs/latest/tutorial/custom-window-interactions#click-through-windows
 
         if (ignore) return; // do nothing (click-through window)
-
-        mainWindow.setShape([currentShape]); // set clickable area
       } else {
         mainWindow.setIgnoreMouseEvents(ignore, options);
       }
