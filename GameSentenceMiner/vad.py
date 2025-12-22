@@ -8,6 +8,8 @@ import warnings
 import re
 from abc import abstractmethod, ABC
 
+from GameSentenceMiner import mecab
+from GameSentenceMiner.mecab import mecab_controller
 from GameSentenceMiner.util import configuration, ffmpeg
 from GameSentenceMiner.util.configuration import get_config, get_temporary_directory, logger, SILERO, WHISPER
 from GameSentenceMiner.util.ffmpeg import get_audio_length
@@ -207,10 +209,13 @@ class WhisperVADProcessor(VADProcessor):
         text = result.text.strip()
         text_similarity = 0
         
+        text_hiragana = mecab.to_hiragana(text) if text else ""
+        text_mined_hiragana = mecab.to_hiragana(text_mined) if text_mined else ""
+        
         # If both mined text and Whisper transcription are available, compare their similarity
         if text_mined and text:
             from rapidfuzz import fuzz
-            similarity = fuzz.ratio(text_mined, text)
+            similarity = fuzz.ratio(text_mined_hiragana, text_hiragana)
             logger.info(f"Whisper transcription: '{text}' | Mined text: '{text_mined}' | Full similarity: {similarity:.1f}")
             text_similarity = similarity
             if similarity < 20:
