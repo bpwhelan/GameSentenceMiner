@@ -137,7 +137,7 @@ let cleanupComplete = false;
 export const preReleaseVersion = false;
 
 // Turn off auto updates in dev for testing
-export const alwaysUpdateInDev = false;
+export const alwaysUpdateInDev = true;
 
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
@@ -1224,14 +1224,21 @@ async function closeGSM(): Promise<void> {
             if (msg.function === 'cleanup_complete') {
                 cleanupComplete = true;
                 console.log('Received cleanup_complete message from Python.');
-                app.quit();
             }
         });
-        // Wait 5 seconds for cleanup_complete, then force kill if needed (blocking)
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+        // Wait up to 5 seconds for cleanup_complete, checking every 100ms, then force kill if needed
+        const timeoutMs = 5000;
+        const intervalMs = 100;
+        let waited = 0;
+        while (!cleanupComplete && waited < timeoutMs) {
+            await new Promise((resolve) => setTimeout(resolve, intervalMs));
+            waited += intervalMs;
+        }
         if (pyProc && !pyProc.killed && !cleanupComplete) {
             pyProc.kill();
             console.log('Force killed GSM after timeout.');
+        } else {
+            console.log('GSM closed gracefully.');
         }
     } else {
         console.log('No IPC manager, killing process directly.');
@@ -1377,7 +1384,7 @@ async function zipLogs(): Promise<void> {
 
 async function quit(): Promise<void> {
     await stopScripts();
-    if (pyProc != null) {
+    if (pyProc != null && !pyProc.killed) {
         await closeAllPythonProcesses();
         app.quit();
     } else {
