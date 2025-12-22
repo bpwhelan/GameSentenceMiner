@@ -18,7 +18,7 @@ from rapidfuzz import fuzz
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness
 from GameSentenceMiner.ocr.owocr_helper import get_ocr_config
 from GameSentenceMiner.owocr.owocr.run import apply_ocr_config_to_image
-from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_overlay_config, get_temporary_directory, is_wayland, is_windows, is_beangate, logger
+from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_overlay_config, get_master_config, get_temporary_directory, is_wayland, is_windows, is_beangate, logger
 from GameSentenceMiner.util.electron_config import get_ocr_language
 # Updated imports to include window info helpers
 from GameSentenceMiner.obs import get_screenshot_PIL, get_window_info_from_source, get_current_scene, get_current_game
@@ -140,10 +140,11 @@ class WindowStateMonitor:
         self.last_magpie_info: Optional[Dict[str, Any]] = None
         self.last_window_rect: Optional[Tuple[int, int, int, int]] = None
         self.window_stable_count = 0
-        self.poll_interval = 0.5  # Current polling interval (starts at base rate)
-        self.base_poll_interval = 0.5  # Normal polling rate
+        self.poll_interval = 0.3  # Current polling interval (starts at base rate)
+        self.base_poll_interval = 0.3  # Normal polling rate
         self.fast_poll_interval = 0.1  # Fast polling when moving
         self.backoff_steps = [0.1, 0.2, 0.3, 0.4, 0.5]  # Gradual backoff intervals
+        self.max_poll_interval = 1.0  # Max polling interval
         self.last_obs_check_time = 0 # Timer for periodic OBS source checks
 
         # Known browser window classes to completely exclude
@@ -342,6 +343,49 @@ class WindowStateMonitor:
         
         return None
 
+    def _detect_current_monitor(self, rect: Tuple[int, int, int, int]) -> int:
+        """
+        Determines which monitor index (0-based) contains the largest portion of the window.
+        Returns -1 if undetermined.
+        """
+        if not mss:
+            return -1
+        
+        try:
+            with mss.mss() as sct:
+                monitors = sct.monitors[1:] # Skip the "all in one" monitor 0
+                
+                max_area = 0
+                best_monitor_idx = -1
+                
+                wx1, wy1, wx2, wy2 = rect
+                window_area = (wx2 - wx1) * (wy2 - wy1)
+                if window_area <= 0:
+                    return -1
+                
+                for i, monitor in enumerate(monitors):
+                    mx1 = monitor['left']
+                    my1 = monitor['top']
+                    mx2 = mx1 + monitor['width']
+                    my2 = my1 + monitor['height']
+                    
+                    # Calculate intersection
+                    ix1 = max(wx1, mx1)
+                    iy1 = max(wy1, my1)
+                    ix2 = min(wx2, mx2)
+                    iy2 = min(wy2, my2)
+                    
+                    if ix1 < ix2 and iy1 < iy2:
+                        intersection_area = (ix2 - ix1) * (iy2 - iy1)
+                        if intersection_area > max_area:
+                            max_area = intersection_area
+                            best_monitor_idx = i
+                
+                return best_monitor_idx
+        except Exception as e:
+            logger.debug(f"Error detecting monitor: {e}")
+            return -1
+
     async def check_and_send(self):
         """Checks window state and broadcasts if changed."""
         if not is_windows():
@@ -411,6 +455,18 @@ class WindowStateMonitor:
                 self.poll_interval = self.backoff_steps[self.window_stable_count - 1]
             elif self.window_stable_count > len(self.backoff_steps):
                 self.poll_interval = self.base_poll_interval
+            
+            # Check for monitor change if window has been stable for a moment
+            if current_rect and is_windows():
+                best_monitor = self._detect_current_monitor(current_rect)
+                overlay_cfg = get_overlay_config()
+                if best_monitor != -1 and overlay_cfg.monitor_to_capture != best_monitor:
+                    logger.info(f"Window moved to Monitor {best_monitor + 1}. Updating config (was Monitor {overlay_cfg.monitor_to_capture + 1}).")
+                    overlay_cfg.monitor_to_capture = best_monitor
+                    get_master_config().save()
+                    asyncio.create_task(
+                    overlay_processor.reprocess_and_send_last_results()
+                )
 
         # Update Magpie info
         self.update_magpie_info()
@@ -442,7 +498,7 @@ class WindowStateMonitor:
                 )
             self.poll_interval = self.base_poll_interval
         else:
-            self.poll_interval = max(2.0, self.poll_interval + 0.05)
+            self.poll_interval = min(self.max_poll_interval, self.poll_interval + 0.05)
 
         # Update last known rect
         self.last_window_rect = current_rect
@@ -512,7 +568,7 @@ class OverlayProcessor:
     # Screenshot scaling factor for performance optimization
     # Images are scaled down by this factor before OCR, then coordinates are scaled back up
     # Lower values = faster OCR but potentially less accurate (e.g., 0.67 = 1.5x speedup)
-    SCREENSHOT_SCALE_FACTOR = 0.5  # 1.0 = no scaling
+    SCREENSHOT_SCALE_FACTOR = 1.0  # 1.0 = no scaling
     
     def __init__(self):
         self.config = get_config()
