@@ -2115,12 +2115,26 @@ def register_stats_api_routes(app):
             session_gap_seconds = config.session_gap_seconds
             minimum_session_length = 0  # 5 minutes
 
-            # Get today's date range
+            # Get today's date range (with cheeky 4AM logic)
+            now = datetime.datetime.now()
             today = datetime.date.today()
-            today_start = datetime.datetime.combine(
-                today, datetime.time.min
-            ).timestamp()
-            today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
+            
+            if now.hour < 4:
+                # If before 4AM, we want to show "Yesterday + Today's early hours"
+                # So we fetch from Yesterday 00:00 to Today 04:00
+                yesterday = today - datetime.timedelta(days=1)
+                today_start = datetime.datetime.combine(
+                    yesterday, datetime.time.min
+                ).timestamp()
+                today_end = datetime.datetime.combine(
+                    today, datetime.time(4, 0)
+                ).timestamp()
+            else:
+                # Normal behavior: Today 00:00 to Today 23:59:59
+                today_start = datetime.datetime.combine(
+                    today, datetime.time.min
+                ).timestamp()
+                today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
     
             # Query all game lines for today
             today_lines = GameLinesTable.get_lines_filtered_by_timestamp(
