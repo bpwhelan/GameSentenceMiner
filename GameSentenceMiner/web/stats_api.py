@@ -2121,18 +2121,18 @@ def register_stats_api_routes(app):
             
             if now.hour < 4:
                 # If before 4AM, we want to show "Yesterday + Today's early hours"
-                # So we fetch from Yesterday 00:00 to Today 04:00
-                yesterday = today - datetime.timedelta(days=1)
+                # So we fetch from Yesterday 04:00 to Today 04:00
+                yesterday = today - datetime.timedelta(days=1, hours=4)
                 today_start = datetime.datetime.combine(
-                    yesterday, datetime.time.min
+                    yesterday, datetime.time(4, 0)
                 ).timestamp()
                 today_end = datetime.datetime.combine(
                     today, datetime.time(4, 0)
                 ).timestamp()
             else:
-                # Normal behavior: Today 00:00 to Today 23:59:59
+                # Normal behavior: Today 04:00 to Today 23:59:59
                 today_start = datetime.datetime.combine(
-                    today, datetime.time.min
+                    today, datetime.time(4, 0)
                 ).timestamp()
                 today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
     
