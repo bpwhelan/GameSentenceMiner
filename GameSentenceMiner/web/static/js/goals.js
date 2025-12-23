@@ -2045,8 +2045,8 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        // Calculate particle count: linear scaling from 50 to 200, capped at 100 days
-        const effectiveStreak = Math.min(streak, 100);
+        // Calculate particle count: linear scaling from 50 to 200, capped at 7 days
+        const effectiveStreak = Math.min(streak, 7);
         const particleCount = Math.floor(50 + (effectiveStreak * 1.5));
 
         // Fire confetti from multiple angles for a nice effect
