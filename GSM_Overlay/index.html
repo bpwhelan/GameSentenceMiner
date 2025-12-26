@@ -402,6 +402,8 @@ background: rgba(202, 12, 12, 0.692);
   const mainBox = document.getElementById("main-box");
 
   let isDragging = false;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
   let offsetX = 0;
   let offsetY = 0;
   let magpieCompatibility = false;
@@ -478,8 +480,8 @@ background: rgba(202, 12, 12, 0.692);
 
   dragBar.addEventListener("mousedown", (e) => {
     const rect = mainBox.getBoundingClientRect();
-    offsetX = e.clientX - rect.left;
-    offsetY = e.clientY - rect.top;
+    dragOffsetX = e.clientX - rect.left;
+    dragOffsetY = e.clientY - rect.top;
     isDragging = true;
     document.addEventListener("mousemove", onDrag);
     document.addEventListener("mouseup", stopDrag, { once: true });
@@ -487,8 +489,8 @@ background: rgba(202, 12, 12, 0.692);
 
   function onDrag(e) {
     if (!isDragging) return;
-    const newX = Math.max(0, Math.min(window.innerWidth - mainBox.offsetWidth, e.clientX - offsetX));
-    const newY = Math.max(0, Math.min(window.innerHeight - mainBox.offsetHeight, e.clientY - offsetY));
+    const newX = Math.max(0, Math.min(window.innerWidth - mainBox.offsetWidth, e.clientX - dragOffsetX));
+    const newY = Math.max(0, Math.min(window.innerHeight - mainBox.offsetHeight, e.clientY - dragOffsetY));
     mainBox.style.left = `${newX}px`;
     mainBox.style.top = `${newY}px`;
   }
