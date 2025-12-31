@@ -280,6 +280,7 @@ class GoogleVision:
     def _preprocess(self, img):
         return pil_image_to_bytes(img)
 
+
 class GoogleLens:
     name = 'glens'
     readable_name = 'Google Lens'
@@ -468,10 +469,11 @@ class GoogleLens:
         #                     continue
         #             res += '\n'
         
-        if return_coords:
-            x = (True, res, filtered_response_dict)
-        else:
-            x = (True, res)
+        x = (True, res, 
+            None,
+            None,
+            None,
+            filtered_response_dict)
 
         if skipped:
             logger.info(f"Skipped {len(skipped)} chars due to furigana filter sensitivity: {furigana_filter_sensitivity}")
@@ -966,15 +968,13 @@ class OneOCR:
                 return (False, 'Unknown error!')
 
             res = res.json()['text']
-
-        x = [True, res]
-        if return_coords:
-            x.append(filtered_lines)
-        x.append(crop_coords_list)
-        if return_one_box:
-            x.append(crop_coords)
-        if return_dict:
-            x.append(return_resp)
+        
+        x = (True, res, 
+            filtered_lines,
+            crop_coords_list,
+            crop_coords,
+            return_resp)
+        
         if is_path:
             img.close()
         return x
@@ -1121,14 +1121,12 @@ class MeikiOCR:
         except Exception as e:
             return (False, f'MeikiOCR error: {str(e)}')
 
-        x = [True, res]
-        if return_coords:
-            x.append(filtered_lines)
-        x.append(crop_coords_list)
-        if return_one_box:
-            x.append(crop_coords)
-        if return_dict:
-            x.append(return_resp)
+        x = (True, res, 
+            filtered_lines if return_coords else None,
+            crop_coords_list,
+            crop_coords if return_one_box else None,
+            return_resp if return_dict else None)
+        
         if is_path:
             img.close()
         return x

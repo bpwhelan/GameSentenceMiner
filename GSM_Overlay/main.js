@@ -8,6 +8,7 @@ const bg = require('./background');
 const wanakana = require('wanakana');
 const Kuroshiro = require("kuroshiro").default;
 const KuromojiAnalyzer = require("kuroshiro-analyzer-kuromoji");
+const BackendConnector = require('./backend_connector');
 
 let dataPath = process.env.APPDATA
   ? path.join(process.env.APPDATA, "gsm_overlay") // Windows
@@ -18,26 +19,35 @@ app.setPath('userData', dataPath);
 
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
 let manualHotkeyPressed = false;
+let manualModeToggleState = false;
 let lastManualActivity = Date.now();
 let activityTimer = null;
+let isDev = false;
 let ext;
 let userSettings = {
   "fontSize": 42,
   "weburl1": "ws://localhost:55002",
   "weburl2": "ws://localhost:55499",
   "hideOnStartup": false,
-  "magpieCompatibility": false,
   "manualMode": false,
   "manualModeType": "hold", // "hold" or "toggle"
   "showHotkey": "Shift + Space",
   "toggleFuriganaHotkey": "Alt+F",
+  "toggleWindowHotkey": "Alt+Shift+H",
+  "minimizeHotkey": "Alt+Shift+J",
+  "yomitanSettingsHotkey": "Alt+Shift+Y",
+  "overlaySettingsHotkey": "Alt+Shift+S",
+  "translateHotkey": "Alt+T",
+  "autoRequestTranslation": false,
+  "showRecycledIndicator": false,
   "pinned": false,
+  "showReadyIndicator": true,
   "showTextBackground": false,
-  "focusOnHotkey": false,
   "afkTimer": 5, // in minutes
   "showFurigana": false,
   "offsetX": 0,
   "offsetY": 0,
+  "dismissedFullscreenRecommendations": [], // Games for which fullscreen recommendation was dismissed
 };
 let manualIn;
 let resizeMode = false;
@@ -50,12 +60,15 @@ let websocketStates = {
 };
 
 let lastWebsocketData = null;
+let currentMagpieActive = false; // Track magpie state from websocket
+let translationRequested = false; // Track if translation has been requested for current text
 
 let yomitanSettingsWindow = null;
 let settingsWindow = null;
 let offsetHelperWindow = null;
 let tray = null;
 let platformOverride = null;
+let backend = null;
 
 ipcMain.on('set-platform-override', (event, platform) => {
   platformOverride = platform;
@@ -87,6 +100,46 @@ function isManualMode() {
     return true;
   }
   return userSettings.manualMode;
+}
+
+function blurAndRestoreFocus() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.blur();
+    // Send message to Python backend to restore focus to target window
+    if (backend && backend.connected) {
+      console.log("Requesting focus restore from backend - blur");
+      backend.send({
+        type: 'restore-focus-request'
+      });
+    }
+  }
+}
+
+function hideAndRestoreFocus() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+    // Send message to Python backend to restore focus to target window
+    if (backend && backend.connected) {
+      console.log("Requesting focus restore from backend - hide");
+      backend.send({
+        type: 'restore-focus-request',
+        delay: 500,
+      });
+    }
+  }
+}
+
+function showInactiveAndRestoreFocus() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.showInactive();
+    // Send message to Python backend to restore focus to target window
+    if (backend && backend.connected) {
+      console.log("Requesting focus restore from backend - showInactive");
+      backend.send({
+        type: 'restore-focus-request'
+      });
+    }
+  }
 }
 
 if (fs.existsSync(settingsPath)) {
@@ -164,100 +217,140 @@ function saveSettings() {
   fs.writeFileSync(settingsPath, JSON.stringify(userSettings, null, 2))
 }
 
-function registerManualShowHotkey(oldHotkey) {
-  if (!isManualMode()) return;
-  if (manualIn) globalShortcut.unregister(oldHotkey || userSettings.showHotkey);
+let holdHeartbeat = null; // Store the interval ID
+let lastKeyActivity = 0;  // Timestamp of last key press
+let isOverlayVisible = false; // Internal tracking to prevent redundant calls
 
-  let clear = null;
-  let isActive = false;
-  let toggleState = false; // Track toggle state for toggle mode
+function registerManualShowHotkey(oldHotkey) {
+  if (!isManualMode()) {
+    console.log("[ManualHotkey] Not in manual mode, skipping registration.");
+    return;
+  }
+
+  // clean up old shortcut
+  if (manualIn) {
+    console.log(`[ManualHotkey] Unregistering old hotkey: ${oldHotkey || userSettings.showHotkey}`);
+    globalShortcut.unregister(oldHotkey || userSettings.showHotkey);
+  }
+
+  console.log(`[ManualHotkey] Registering hotkey: ${userSettings.showHotkey} | Mode: ${userSettings.manualModeType}`);
+
+  // Helper: Consolidated Show Logic
+  const showOverlay = (triggerSource) => {
+    console.log(`[ManualHotkey] Attempting SHOW (${triggerSource})... Current State: ${isOverlayVisible ? "Visible" : "Hidden"}`);
+
+    if (isOverlayVisible) {
+      console.log("[ManualHotkey] Blocked: Overlay is already visible.");
+      return;
+    }
+
+    isOverlayVisible = true;
+    console.log("[ManualHotkey] ACTION: Sending 'show-overlay-hotkey' true");
+    mainWindow.webContents.send('show-overlay-hotkey', true);
+
+    if (!isLinux()) {
+      console.log("[ManualHotkey] ACTION: setIgnoreMouseEvents(false)");
+      mainWindow.setIgnoreMouseEvents(false, { forward: true });
+    } else {
+      console.log("[ManualHotkey] ACTION: mainWindow.show() (Linux)");
+      mainWindow.show();
+    }
+
+    // Only force focus if strictly necessary
+    if (currentMagpieActive || isManualMode()) {
+      console.log("[ManualHotkey] ACTION: Forcing Focus (Magpie active or Manual Mode)");
+      mainWindow.show();
+    }
+  };
+
+  // Helper: Consolidated Hide Logic
+  const hideOverlay = (triggerSource) => {
+    console.log(`[ManualHotkey] Attempting HIDE (${triggerSource})... Current State: ${isOverlayVisible ? "Visible" : "Hidden"}`);
+
+    if (!isOverlayVisible) {
+      console.log("[ManualHotkey] Blocked: Overlay is already hidden.");
+      return;
+    }
+
+    isOverlayVisible = false;
+    console.log("[ManualHotkey] ACTION: Sending 'show-overlay-hotkey' false");
+    mainWindow.webContents.send('show-overlay-hotkey', false);
+
+    if (!yomitanShown && !resizeMode) {
+      if (!isLinux()) {
+        console.log("[ManualHotkey] ACTION: setIgnoreMouseEvents(true)");
+        mainWindow.setIgnoreMouseEvents(true, { forward: true });
+      }
+      console.log("[ManualHotkey] ACTION: calling hideAndRestoreFocus()");
+      hideAndRestoreFocus();
+    } else {
+      console.log(`[ManualHotkey] Skipping Focus Restore. Yomitan: ${yomitanShown}, Resize: ${resizeMode}`);
+    }
+  };
 
   manualIn = globalShortcut.register(userSettings.showHotkey, () => {
-    // console.log("Manual hotkey pressed");
+    const now = Date.now();
+    // console.log(`[ManualHotkey] RAW TRIGGER at ${now}`); // Uncomment if you want to see raw OS repeat rate
+
+    // 1. Safety Checks
     if (!isManualMode()) {
+      console.log("[ManualHotkey] Detected non-manual mode inside callback, unregistering.");
       globalShortcut.unregister(userSettings.showHotkey);
       return;
     }
-    if (mainWindow) {
-      manualHotkeyPressed = true;
-      lastManualActivity = Date.now();
+    if (!mainWindow) return;
 
-      if (userSettings.manualModeType === "toggle") {
-        // Toggle mode: press once to show, press again to hide
-        toggleState = !toggleState;
+    manualHotkeyPressed = true;
+    lastManualActivity = now;
+    lastKeyActivity = now;
 
-        if (toggleState) {
-          // Show overlay
-          mainWindow.webContents.send('show-overlay-hotkey', true);
-
-          if (!isLinux()) {
-            mainWindow.setIgnoreMouseEvents(false, { forward: true });
-          } else {
-            mainWindow.show();
-          }
-
-          if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
-            mainWindow.show();
-          }
-        } else {
-          // Hide overlay
-          mainWindow.webContents.send('show-overlay-hotkey', false);
-          if (!yomitanShown && !resizeMode) {
-            mainWindow.showInactive();
-            if (!isLinux()) {
-              mainWindow.setIgnoreMouseEvents(true, { forward: true });
-            } else {
-              mainWindow.hide();
-            }
-          }
-        }
-
-        // Reset manualHotkeyPressed after a short delay in toggle mode
-        setTimeout(() => {
-          if (!toggleState) {
-            manualHotkeyPressed = false;
-          }
-        }, 100);
+    // 2. TOGGLE MODE
+    if (userSettings.manualModeType === "toggle") {
+      // For toggle, we usually rely on key-up logic or a debounce, 
+      // but since globalShortcut is KeyDown only, we throttle simplisticly.
+      // This part might need a 'canToggle' flag if it bounces, but let's log it first.
+      console.log("[ManualHotkey] Toggle Logic Triggered");
+      manualModeToggleState = !manualModeToggleState;
+      if (isOverlayVisible) {
+        hideOverlay("Toggle Press");
       } else {
-        // Hold mode: hold to show, release to hide after timeout
-        // Clear existing timeout if any
-        if (clear) {
-          clearTimeout(clear);
+        showOverlay("Toggle Press");
+      }
+
+      setTimeout(() => manualHotkeyPressed = false, 100);
+    }
+
+    // 3. HOLD MODE (Heartbeat Strategy)
+    else {
+      // If the overlay isn't up yet, show it immediately
+      if (!isOverlayVisible) {
+        showOverlay("Hold Start");
+
+        // Start a heartbeat to check if the user stopped pressing
+        if (holdHeartbeat) {
+          console.log("[ManualHotkey] Clearing existing heartbeat interval");
+          clearInterval(holdHeartbeat);
         }
 
-        // Only trigger show actions on first press
-        if (!isActive) {
-          isActive = true;
-          mainWindow.webContents.send('show-overlay-hotkey', true);
+        console.log("[ManualHotkey] Starting Heartbeat Interval");
+        holdHeartbeat = setInterval(() => {
+          const checkTime = Date.now();
+          const timeSincePress = checkTime - lastKeyActivity;
 
-          if (!isLinux()) {
-            mainWindow.setIgnoreMouseEvents(false, { forward: true });
-          } else {
-            mainWindow.show();
+          // console.log(`[ManualHotkey] Heartbeat Tick: ${timeSincePress}ms since last signal`);
+
+          // Threshold: 450ms
+          if (timeSincePress > 600) {
+            console.log(`[ManualHotkey] RELEASE DETECTED. Time since press: ${timeSincePress}ms`);
+            hideOverlay("Hold Release");
+            manualHotkeyPressed = false;
+            clearInterval(holdHeartbeat);
+            holdHeartbeat = null;
           }
-
-          if (userSettings.magpieCompatibility || userSettings.focusOnHotkey) {
-            mainWindow.show();
-          }
-        }
-
-        // Determine timeout duration
-        let timeToWait = 500;
-
-        // Always reset the timeout while holding
-        clear = setTimeout(() => {
-          isActive = false;
-          manualHotkeyPressed = false;
-          mainWindow.webContents.send('show-overlay-hotkey', false);
-          if (!yomitanShown && !resizeMode) {
-            mainWindow.showInactive();
-            if (!isLinux()) {
-              mainWindow.setIgnoreMouseEvents(true, { forward: true });
-            } else {
-              mainWindow.hide();
-            }
-          }
-        }, timeToWait);
+        }, 100); // Check every 100ms
+      } else {
+        // If visible, we just updated lastKeyActivity, effectively "feeding the watchdog"
+        // console.log("[ManualHotkey] Key Held - Refreshed activity timestamp");
       }
     }
   });
@@ -299,7 +392,7 @@ function resetActivityTimer() {
 
       // Blur window so it doesn't steal focus
       try {
-        mainWindow.blur();
+        blurAndRestoreFocus();
       } catch (e) {
         // ignore
       }
@@ -329,6 +422,13 @@ function openSettings() {
         contextIsolation: false
       },
     });
+
+    settingsWindow.webContents.on('context-menu', () => {
+      if (isDev) {
+        settingsWindow.webContents.openDevTools({ mode: 'detach' });
+      }
+    });
+    // settingsWindow.webContents.openDevTools({ mode: 'detach' });
 
     settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
       const child = new BrowserWindow({
@@ -551,19 +651,6 @@ function updateTrayMenu() {
         updateTrayMenu();
       }
     },
-    {
-      label: 'Magpie Compatibility',
-      type: 'checkbox',
-      checked: userSettings.magpieCompatibility,
-      click: (menuItem) => {
-        userSettings.magpieCompatibility = menuItem.checked;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("new-magpieCompatibility", menuItem.checked);
-        }
-        saveSettings();
-        updateTrayMenu();
-      }
-    },
     { type: 'separator' },
     {
       label: 'Quit',
@@ -598,7 +685,7 @@ app.whenReady().then(async () => {
   // MANIFEST SWITCHING & MIGRATION LOGIC
   // ===========================================================
 
-  const isDev = !app.isPackaged;
+  isDev = !app.isPackaged;
   const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(process.resourcesPath, "yomitan");
 
   // 1. Define Paths
@@ -691,19 +778,20 @@ app.whenReady().then(async () => {
   // Start background manager and register periodic tasks
   bg.start();
 
-  // magpie polling task
-  bg.registerTask(async () => {
-    try {
-      const start = Date.now();
-      const magpieInfo = await magpie.magpieGetInfo();
-      const end = Date.now();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('magpie-window-info', magpieInfo);
-      }
-    } catch (e) {
-      console.error('magpie poll failed', e);
-    }
-  }, 3000);
+  // magpie polling task - DEPRECATED: Now receiving magpie info via websocket
+  // Commenting out since magpie info is now sent from Python via websocket
+  // bg.registerTask(async () => {
+  //   try {
+  //     const start = Date.now();
+  //     const magpieInfo = await magpie.magpieGetInfo();
+  //     const end = Date.now();
+  //     if (mainWindow && !mainWindow.isDestroyed()) {
+  //       mainWindow.webContents.send('magpie-window-info', magpieInfo);
+  //     }
+  //   } catch (e) {
+  //     console.error('magpie poll failed', e);
+  //   }
+  // }, 3000);
 
   try {
     ext = await session.defaultSession.loadExtension(extDir, { allowFileAccess: true });
@@ -726,45 +814,89 @@ app.whenReady().then(async () => {
   // Create system tray icon
   createTray();
 
-  globalShortcut.register('Alt+Shift+H', () => {
-    if (mainWindow) {
-      mainWindow.webContents.send('toggle-main-box');
-    }
-  });
+  // Register toggle window hotkey
+  function registerToggleWindowHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.toggleWindowHotkey);
+    globalShortcut.register(userSettings.toggleWindowHotkey || "Alt+Shift+H", () => {
+      if (mainWindow) {
+        mainWindow.webContents.send('toggle-main-box');
+      }
+    });
+  }
+  registerToggleWindowHotkey();
 
-  globalShortcut.register('Alt+Shift+J', () => {
-    if (mainWindow) {
-      resetActivityTimer();
-      if (afkHidden) {
-        try {
-          mainWindow.webContents.send('afk-hide', false);
-        } catch (e) {
-          console.warn('Failed to send afk-hide (restore) to renderer:', e);
+  // Register minimize hotkey
+  function registerMinimizeHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.minimizeHotkey);
+    globalShortcut.register(userSettings.minimizeHotkey || "Alt+Shift+J", () => {
+      if (mainWindow) {
+        resetActivityTimer();
+        if (afkHidden) {
+          try {
+            mainWindow.webContents.send('afk-hide', false);
+          } catch (e) {
+            console.warn('Failed to send afk-hide (restore) to renderer:', e);
+          }
+          afkHidden = false;
         }
-        afkHidden = false;
+        else if (mainWindow.isMinimized()) {
+          mainWindow.showInactive();
+        }
+        else mainWindow.minimize();
       }
-      else if (mainWindow.isMinimized()) {
-        mainWindow.showInactive();
+    });
+  }
+  registerMinimizeHotkey();
+
+  // Register yomitan settings hotkey
+  function registerYomitanSettingsHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.yomitanSettingsHotkey);
+    globalShortcut.register(userSettings.yomitanSettingsHotkey || "Alt+Shift+Y", () => {
+      openYomitanSettings();
+    });
+  }
+  registerYomitanSettingsHotkey();
+
+  // Register overlay settings hotkey
+  function registerOverlaySettingsHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.overlaySettingsHotkey);
+    globalShortcut.register(userSettings.overlaySettingsHotkey || "Alt+Shift+S", () => {
+      openSettings();
+    });
+  }
+  registerOverlaySettingsHotkey();
+
+  // Register translate hotkey
+  function registerTranslateHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.translateHotkey);
+    globalShortcut.register(userSettings.translateHotkey || "Alt+T", () => {
+      console.log("Translate hotkey pressed");
+
+      // If translation has been requested, just toggle visibility
+      if (translationRequested) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('toggle-translation-visibility');
+        }
+      } else {
+        // First press - request translation from backend
+        if (backend && backend.connected) {
+          backend.send({ type: "translate-request" });
+          translationRequested = true;
+        } else {
+          console.error("Backend not connected. Cannot translate.");
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('translation-error', 'Backend not connected');
+          }
+        }
       }
-      else mainWindow.minimize();
-    }
-  });
-
-  globalShortcut.register('Alt+Shift+Y', () => {
-    openYomitanSettings();
-  });
-
-  globalShortcut.register('Alt+Shift+S', () => {
-    openSettings();
-  });
-
-  globalShortcut.register("Alt+Shift+M", () => {
-    userSettings.magpieCompatibility = !userSettings.magpieCompatibility;
-    saveSettings();
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("new-magpieCompatibility", userSettings.magpieCompatibility);
-    }
-  });
+    });
+  }
+  registerTranslateHotkey();
 
   // Register toggle furigana hotkey
   function registerToggleFuriganaHotkey(oldHotkey) {
@@ -787,6 +919,10 @@ app.whenReady().then(async () => {
   }).catch(err => {
     console.error("Kuroshiro initialization failed:", err);
   });
+
+  // Initialize backend connector
+  backend = new BackendConnector(ipcMain, () => mainWindow);
+  backend.connect(userSettings.weburl2);
 
   // IPC handlers for wanakana and kuroshiro
   ipcMain.handle('wanakana-stripOkurigana', (event, text, options) => {
@@ -838,14 +974,14 @@ app.whenReady().then(async () => {
     title: "GSM Overlay",
     fullscreen: false,
     // focusable: false,
-    skipTaskbar: true,
+    // skipTaskbar: true,
     webPreferences: {
       contextIsolation: false,
       nodeIntegration: true,
       preload: path.join(__dirname, 'preload.js'),
       webSecurity: false
     },
-    show: false,
+    // show: false,
   });
 
   // Set bounds again to fix potential issue with wrong size on start
@@ -946,31 +1082,35 @@ app.whenReady().then(async () => {
       }
       // win.setAlwaysOnTop(true, 'screen-saver');
     } else {
+      if (manualHotkeyPressed && manualModeToggleState) {
+        return;
+      }
       if (isWindows() || isMac()) {
         mainWindow.setIgnoreMouseEvents(true, { forward: true });
       } else {
-        mainWindow.hide();
+        hideAndRestoreFocus();
       }
       // win.setAlwaysOnTop(true, 'screen-saver');
-      if (!manualHotkeyPressed) {
-        mainWindow.blur();
+      if (!manualHotkeyPressed && !manualModeToggleState && !resizeMode) {
+        blurAndRestoreFocus();
       }
       // Blur again after a short delay to ensure it takes effect
       setTimeout(() => {
-        if (!resizeMode && !yomitanShown && !manualHotkeyPressed) {
-          if (userSettings.magpieCompatibility) {
-            mainWindow.showInactive();
+        if (!resizeMode && !yomitanShown && !manualHotkeyPressed && !manualModeToggleState) {
+          // Use currentMagpieActive from websocket instead of userSettings.magpieCompatibility
+          if (currentMagpieActive) {
+            showInactiveAndRestoreFocus();
             mainWindow.setAlwaysOnTop(true, 'screen-saver');
             mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
           }
-          mainWindow.blur();
+          blurAndRestoreFocus();
         }
       }, 100);
     }
   })
 
   ipcMain.on('release-mouse', () => {
-    mainWindow.blur();
+    blurAndRestoreFocus();
     setTimeout(() => mainWindow.focus(), 50);
   });
 
@@ -1022,7 +1162,7 @@ app.whenReady().then(async () => {
       // Windows and macOS - use setIgnoreMouseEvents
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
     } else {
-      mainWindow.hide();
+      hideAndRestoreFocus();
     }
 
     // Start the activity timer
@@ -1041,6 +1181,30 @@ app.whenReady().then(async () => {
     openYomitanSettings();
   });
 
+  // Action panel button handlers
+  ipcMain.on("action-scan", () => {
+    console.log("Action: Scan requested from overlay");
+    // TODO: Implement scan functionality
+  });
+
+  ipcMain.on("action-translate", () => {
+    console.log("Action: Translate requested from overlay");
+    if (backend && backend.connected) {
+      translationRequested = true;
+      backend.send({ type: "translate-request" });
+    } else {
+      console.error("Backend not connected. Cannot translate.");
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('translation-error', 'Backend not connected');
+      }
+    }
+  });
+
+  ipcMain.on("action-tts", () => {
+    console.log("Action: TTS requested from overlay");
+    // TODO: Implement TTS functionality
+  });
+
   ipcMain.on("websocket-closed", (event, type) => {
     websocketStates[type] = false
   });
@@ -1052,19 +1216,36 @@ app.whenReady().then(async () => {
     lastWebsocketData = data;
   });
 
-  ipcMain.on("window-state-changed", (event, { state, game }) => {
+  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, isFullscreen, recommendManualMode }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
-    console.log(`Window state changed to: ${state} for game: ${game}`);
+    // Update the tracked magpie state
+    currentMagpieActive = magpieActive || false;
+
+    console.log(`Window state changed to: ${state} for game: ${game}, magpie active: ${currentMagpieActive}, fullscreen: ${isFullscreen}`);
+
+    // Send game state to renderer to control action panel visibility
+    mainWindow.webContents.send("game-state", state);
+
+    // Forward fullscreen recommendation to renderer if applicable
+    // if (recommendManualMode && !isManualMode()) {
+    //   console.log("Fullscreen detected - recommending manual mode");
+    //   mainWindow.webContents.send("recommend-manual-mode", { game });
+    // }
 
     switch (state) {
       case "active":
+        if (isManualMode()) {
+          return; // Do nothing in manual mode
+        }
         // Game window is active/focused - show overlay normally
         if (mainWindow.isMinimized() || !mainWindow.isVisible()) {
           mainWindow.restore();
-          mainWindow.showInactive();
-          mainWindow.webContents.send("afk-hide", false);
+          blurAndRestoreFocus();
+          // mainWindow.webContents.send("afk-hide", false);
           afkHidden = false;
+        } else if (magpieActive) {
+          showInactiveAndRestoreFocus();
           mainWindow.setAlwaysOnTop(true, 'screen-saver');
         }
         break;
@@ -1083,7 +1264,8 @@ app.whenReady().then(async () => {
 
       case "obscured":
         // Game window is completely hidden by other windows - hide overlay
-        if (!yomitanShown && !mainWindow.isMinimized() && !userSettings.magpieCompatibility) {
+        // Use currentMagpieActive from websocket instead of userSettings.magpieCompatibility
+        if (!yomitanShown && !mainWindow.isMinimized()) {
           mainWindow.hide();
         }
         break;
@@ -1153,6 +1335,24 @@ app.whenReady().then(async () => {
       case "toggleFuriganaHotkey":
         registerToggleFuriganaHotkey(oldValue);
         break;
+      case "toggleWindowHotkey":
+        registerToggleWindowHotkey(oldValue);
+        break;
+      case "minimizeHotkey":
+        registerMinimizeHotkey(oldValue);
+        break;
+      case "yomitanSettingsHotkey":
+        registerYomitanSettingsHotkey(oldValue);
+        break;
+      case "overlaySettingsHotkey":
+        registerOverlaySettingsHotkey(oldValue);
+        break;
+      case "translateHotkey":
+        registerTranslateHotkey(oldValue);
+        break;
+      case "weburl2":
+        if (backend) backend.connect(value);
+        break;
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("settings-updated", { [key]: value });
@@ -1176,20 +1376,27 @@ app.whenReady().then(async () => {
     userSettings.weburl2 = newurl;
     mainWindow.webContents.send("settings-updated", { weburl2: newurl });
     saveSettings();
+    if (backend) backend.connect(newurl);
   })
   ipcMain.on("hideonstartup-changed", (event, newValue) => {
     userSettings.hideOnStartup = newValue;
     mainWindow.webContents.send("settings-updated", { hideOnStartup: newValue });
     saveSettings();
   })
-  ipcMain.on("magpieCompatibility-changed", (event, newValue) => {
-    userSettings.magpieCompatibility = newValue;
-    mainWindow.webContents.send("settings-updated", { magpieCompatibility: newValue });
-    saveSettings();
-  })
   ipcMain.on("manualmode-changed", (event, newValue) => {
     userSettings.manualMode = newValue;
     console.log("manualmode-changed", newValue);
+
+    // Safety: Clear heartbeat interval and reset state when toggling manual mode
+    // to prevent overlay from getting locked in an inconsistent state
+    if (holdHeartbeat) {
+      console.log("[ManualMode] Clearing holdHeartbeat interval");
+      clearInterval(holdHeartbeat);
+      holdHeartbeat = null;
+    }
+    isOverlayVisible = false;
+    manualHotkeyPressed = false;
+
     mainWindow.webContents.send("settings-updated", { manualMode: newValue });
     saveSettings();
     registerManualShowHotkey();
@@ -1234,9 +1441,11 @@ app.whenReady().then(async () => {
 
   // let alwaysOnTopInterval;
 
-  ipcMain.on("text-recieved", (event, text) => {
+  ipcMain.on("text-received", (event, text) => {
     // Reset the activity timer on text received
     resetActivityTimer();
+    // Reset translation state on new text
+    translationRequested = false;
     // If AFK previously hid the overlay, restore it now
     if (afkHidden) {
       try {
@@ -1247,27 +1456,45 @@ app.whenReady().then(async () => {
       afkHidden = false;
     }
 
+    // === AUTO TRANSLATE (only for JSON-parsable array data) ===
+    if (userSettings.autoRequestTranslation && backend && backend.connected) {
+      let shouldTranslate = false;
+      try {
+        let parsed = typeof text === 'string' ? JSON.parse(text) : text;
+        if (Array.isArray(parsed.data) && parsed.data.every(item => item.text && item.bounding_rect)) {
+          shouldTranslate = true;
+        }
+      } catch (e) {
+        // Not JSON, do not auto-translate
+      }
+      if (shouldTranslate) {
+        translationRequested = true;
+        backend.send({ type: "translate-request" });
+      }
+    }
+
     // If window is minimized, restore it
     if (mainWindow.isMinimized() && !isManualMode()) {
-      mainWindow.showInactive();
+      showInactiveAndRestoreFocus();
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
 
 
       // blur after a short delay too
 
       setTimeout(() => {
-        mainWindow.blur();
+        blurAndRestoreFocus();
       }, 200);
     }
 
     // console.log(`magpieCompatibility: ${userSettings.magpieCompatibility}`);
-    if (userSettings.magpieCompatibility && !isManualMode()) {
-      mainWindow.showInactive();
+    // Use currentMagpieActive from websocket instead of userSettings.magpieCompatibility
+    if (currentMagpieActive && !isManualMode()) {
+      showInactiveAndRestoreFocus();
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
       mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
       setTimeout(() => {
-        mainWindow.blur();
+        blurAndRestoreFocus();
       }, 200);
     }
     //   // Slightly adjust position to workaround Magpie stealing focus

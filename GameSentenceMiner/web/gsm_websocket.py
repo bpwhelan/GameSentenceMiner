@@ -18,13 +18,15 @@ class WebsocketServerThread(threading.Thread):
                  read_mode: bool, 
                  get_port_func: Callable[[], int], 
                  msg_queue: queue.Queue,
-                 is_paused_func: Callable[[], bool]):
+                 is_paused_func: Callable[[], bool],
+                 message_callback: Optional[Callable[[str], None]] = None):
         super().__init__(daemon=True, name=f"WS-Thread-{name}")
         self.server_name = name
         self.read_mode = read_mode
         self.get_port_func = get_port_func
         self.msg_queue = msg_queue
         self.is_paused_func = is_paused_func
+        self.message_callback = message_callback
         self.max_backup_messages = 100
         
         self._loop = None
@@ -64,7 +66,15 @@ class WebsocketServerThread(threading.Thread):
                 self.backedup_text.clear()
 
             async for message in websocket:
-                if self.read_mode and not self.is_paused_func():
+                # If there's a callback, use it instead of the queue
+                if self.message_callback:
+                    try:
+                        asyncio.create_task(self.message_callback(message))
+                        await websocket.send('True')
+                    except Exception as e:
+                        logger.error(f"[{self.server_name}] Error in message callback: {e}")
+                        await websocket.send('False')
+                elif self.read_mode and not self.is_paused_func():
                     self.msg_queue.put(message)
                     await websocket.send('True')
                 else:
@@ -166,9 +176,15 @@ class WebsocketManager:
         self._paused = value
         logger.info(f"Websocket Manager paused state set to: {self._paused}")
 
-    def start_server(self, server_id: str, read: bool, port_getter: Callable[[], int]):
+    def start_server(self, server_id: str, read: bool, port_getter: Callable[[], int], message_callback: Optional[Callable[[str], None]] = None):
         """
         Starts a new websocket server thread.
+        
+        Args:
+            server_id: Unique identifier for this server
+            read: Whether to read messages from clients (vs write-only)
+            port_getter: Function that returns the port number
+            message_callback: Optional callback function for handling messages directly
         """
         if server_id in self._servers:
             logger.warning(f"Server '{server_id}' is already running.")
@@ -179,7 +195,8 @@ class WebsocketManager:
             read_mode=read,
             get_port_func=port_getter,
             msg_queue=self._queue,
-            is_paused_func=lambda: self._paused
+            is_paused_func=lambda: self._paused,
+            message_callback=message_callback
         )
         thread.start()
         self._servers[server_id] = thread
@@ -233,11 +250,17 @@ websocket_manager.start_server(
     port_getter=lambda: get_config().get_field_value('advanced', 'texthooker_communication_websocket_port')
 )
 
-# Start the 'Overlay' Server
+# Start the 'Overlay' Server with message callback
+async def _overlay_message_handler(message: str):
+    """Handler for overlay websocket messages."""
+    from GameSentenceMiner.web.overlay_handler import overlay_handler
+    await overlay_handler.handle_message(message)
+
 websocket_manager.start_server(
     server_id=ID_OVERLAY,
-    read=False,
-    port_getter=lambda: get_config().get_field_value('overlay', 'websocket_port')
+    read=True,
+    port_getter=lambda: get_config().get_field_value('overlay', 'websocket_port'),
+    message_callback=_overlay_message_handler
 )
 
 # Start the 'Plaintext' Server (if configured)

@@ -157,10 +157,13 @@ class WebsocketServerThread(threading.Thread):
         finally:
             self.clients.remove(websocket)
 
-    async def send_text(self, text, line_time: datetime):
+    async def send_text(self, text, line_time: datetime, response_dict=None):
         if text:
+            data = {"sentence": text, "time": line_time.isoformat(), "process_path": obs.get_current_game(), "source": "ocr"}
+            if response_dict:
+                data["dict_from_ocr"] = response_dict
             return asyncio.run_coroutine_threadsafe(
-                self.send_text_coroutine(json.dumps({"sentence": text, "time": line_time.isoformat(), "process_path": obs.get_current_game()})), self.loop)
+                self.send_text_coroutine(json.dumps(data)), self.loop)
 
     def stop_server(self):
         self.loop.call_soon_threadsafe(self._stop_event.set)
@@ -200,7 +203,7 @@ class OCRProcessor():
         self.filtering = TextFiltering(lang=get_ocr_language())
         pass
 
-    def do_second_ocr(self, ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False):
+    def do_second_ocr(self, ocr1_text, time, img, filtering, pre_crop_image=None, ignore_furigana_filter=False, ignore_previous_result=False, response_dict=None):
         global twopassocr, ocr2, last_ocr2_result, last_sent_result
         try:
             orig_text, text = run.process_and_write_results(img, None, last_ocr2_result if not ignore_previous_result else None, self.filtering, None,
@@ -213,7 +216,7 @@ class OCRProcessor():
             save_result_image(img, pre_crop_image=pre_crop_image)
             last_ocr2_result = orig_text
             last_sent_result = text
-            asyncio.run(send_result(text, time))
+            asyncio.run(send_result(text, time, response_dict=response_dict))
         except json.JSONDecodeError:
             print("Invalid JSON received.")
         except Exception as e:
@@ -230,7 +233,7 @@ def save_result_image(img, pre_crop_image=None):
     run.set_last_image(pre_crop_image if pre_crop_image else img)
 
 
-async def send_result(text, time):
+async def send_result(text, time, response_dict=None):
     if text:
         if get_ocr_send_to_clipboard():
             import pyperclipfix
@@ -239,7 +242,7 @@ async def send_result(text, time):
             # send_to_clipboard(text)
             pyperclipfix.copy(text)
         try:
-            await websocket_server_thread.send_text(text, time)
+            await websocket_server_thread.send_text(text, time, response_dict=response_dict)
         except Exception as e:
             logger.debug(f"Error sending text to websocket: {e}")
 
@@ -347,134 +350,165 @@ last_meiki_crop_coords = None
 last_meiki_crop_time = None
 last_meiki_success = None
 
+pending_text_state = None
 
-def text_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None, meiki_boxes=None):
-    global twopassocr, ocr2, previous_text, last_oneocr_time, text_stable_start_time, previous_orig_text, previous_img, force_stable, previous_ocr1_result, previous_text_list, last_sent_result, last_meiki_crop_coords, last_meiki_success, last_meiki_crop_time
+def ocr_result_callback(text, orig_text, time, img=None, came_from_ss=False, filtering=None, crop_coords=None, meiki_boxes=None, response_dict=None):
+    global pending_text_state, last_sent_result, force_stable, second_ocr_queue
+    global last_meiki_crop_coords, last_meiki_success, last_meiki_crop_time, previous_img
+
+    # Use this raw string for "diff" comparisons
     orig_text_string = ''.join([item for item in orig_text if item is not None]) if orig_text else ""
+    current_time = time if time else datetime.now()
+
     if came_from_ss:
         save_result_image(img)
-        asyncio.run(send_result(text, time))
+        asyncio.run(send_result(text, current_time))
+        pending_text_state = None
         return
-        
+
     if meiki_boxes:
-        # If we don't have a previous meiki crop coords, store this one and wait for the next run
-        try:
-            if last_meiki_crop_coords is None:
-                last_meiki_crop_coords = crop_coords
-                last_meiki_crop_time = time
-                previous_img = img
-                return
+        if handle_meiki_stability(text, crop_coords, time, img, filtering, response_dict):
+            return
 
-            # Ensure both coords exist
-            if not crop_coords or not last_meiki_crop_coords:
-                last_meiki_crop_coords = crop_coords
-                last_meiki_crop_time = time
-                return
-
-            # Compare coordinates within tolerance (pixels)
-            tol = 5
-            try:
-                close = all(abs(int(crop_coords[i]) - int(last_meiki_crop_coords[i])) <= tol for i in range(4))
-            except Exception:
-                # Fallback: if values not int-convertible, set not close
-                close = False
-                
-            if close:
-                if all(last_meiki_success and abs(int(crop_coords[i]) - int(last_meiki_success[i])) <= tol for i in range(4)):
-                    # Reset last_meiki_crop_coords and time so we require another matching pair for a future queue
-                    last_meiki_crop_coords = None
-                    last_meiki_crop_time = None
-                    return
-                # Stable crop: queue second OCR immediately
-                try:
-                    stable_time = last_meiki_crop_time
-                    previous_img_local = previous_img
-                    pre_crop_image = previous_img_local
-                    ocr2_image = get_ocr2_image(crop_coords, og_image=previous_img_local, ocr2_engine=get_ocr_ocr2(), extra_padding=10)
-                    # Use the earlier timestamp for when the stable crop started if available
-                    # ocr2_image.show()
-                    second_ocr_queue.put((text, stable_time, ocr2_image, filtering, pre_crop_image))
-                    run.set_last_image(img)
-                    last_meiki_success = crop_coords
-                except Exception as e:
-                    logger.info(f"Failed to queue second OCR task: {e}", exc_info=True)
-                # Reset last_meiki_crop_coords and time so we require another matching pair for a future queue
-                last_meiki_crop_coords = None
-                last_meiki_crop_time = None
-                return
-            else:
-                # Not stable: replace last and wait for the next run
-                last_meiki_crop_coords = crop_coords
-                last_meiki_success = None
-                previous_img = img
-                return
-        except Exception as e:
-            logger.debug(f"Error handling meiki crop coords stability check: {e}")
-            last_meiki_crop_coords = crop_coords
-            
     if not text:
         run.set_last_image(img)
 
-    line_start_time = time if time else datetime.now()
-
     if manual or not get_ocr_two_pass_ocr():
         if compare_ocr_results(last_sent_result, text, 80):
-            if text:
-                logger.info("Seems like Text we already sent, not doing anything.")
             return
         save_result_image(img)
-        asyncio.run(send_result(text, line_start_time))
+        asyncio.run(send_result(text, current_time))
         last_sent_result = text
-        previous_orig_text = orig_text_string
-        previous_text = None
-        previous_img = None
-        text_stable_start_time = None
-        last_oneocr_time = None
-        return
-    if not text or force_stable:
-        force_stable = False
-        if previous_text and text_stable_start_time:
-            stable_time = text_stable_start_time
-            previous_img_local = previous_img
-            pre_crop_image = previous_img_local
-            if compare_ocr_results(previous_orig_text, orig_text_string):
-                if text:
-                    logger.info("Seems like Text we already sent, not doing anything.")
-                previous_text = None
-                return
-            previous_orig_text = orig_text_string
-            previous_ocr1_result = previous_text
-            ocr2_image = get_ocr2_image(crop_coords, og_image=previous_img_local, ocr2_engine=get_ocr_ocr2())
-            # if crop_coords and get_ocr_optimize_second_scan():
-            #     x1, y1, x2, y2 = crop_coords
-            #     x1 = max(0, min(x1, img.width))
-            #     y1 = max(0, min(y1, img.height))
-            #     x2 = max(x1, min(x2, img.width))
-            #     y2 = max(y1, min(y2, img.height))
-            #     previous_img_local.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
-            #     try:
-            #         previous_img_local = previous_img_local.crop((x1, y1, x2, y2))
-            #     except ValueError:
-            #         logger.warning("Error cropping image, using original image")
-            second_ocr_queue.put((previous_text, stable_time, ocr2_image, filtering, pre_crop_image))
-            # threading.Thread(target=do_second_ocr, args=(previous_text, stable_time, previous_img_local, filtering), daemon=True).start()
-            previous_img = None
-            previous_text = None
-            text_stable_start_time = None
-            last_oneocr_time = None
-        previous_text = None
+        pending_text_state = None
         return
 
-    # Make sure it's an actual new line before starting the timer
-    if text and compare_ocr_results(orig_text_string, previous_orig_text):
-        return
+    should_process_pending = False
     
-    if not text_stable_start_time:
-        text_stable_start_time = line_start_time
-    previous_text = text
-    previous_text_list = orig_text
-    last_oneocr_time = line_start_time
-    previous_img = img
+    if pending_text_state:
+        # We compare against the RAW text from the previous state
+        p_orig_text = pending_text_state['orig_text']
+        
+        if not text:
+            # Case 1: Text Disappeared -> Process
+            should_process_pending = True
+        elif force_stable:
+            # Case 2: Forced -> Process
+            should_process_pending = True
+        else:
+            # Case 3: Text Changed Significantly
+            # We compare the RAW text (p_orig_text vs orig_text_string)
+            # Requirement: < 20% similarity AND Starts differently AND Ends differently
+            
+            is_low_similarity = not compare_ocr_results(p_orig_text, orig_text_string, 20)
+            
+            # Check Start/End characters on the RAW strings
+            starts_diff = (p_orig_text and orig_text_string and p_orig_text[0] != orig_text_string[0])
+            ends_diff = (p_orig_text and orig_text_string and p_orig_text[-1] != orig_text_string[-1])
+            
+            if is_low_similarity and starts_diff and ends_diff:
+                should_process_pending = True
+
+    if should_process_pending:
+        # Queue the pending text (we use the 'text' field for the actual queue, as that's what we want to send)
+        if not compare_ocr_results(last_sent_result, pending_text_state['text'], 80):
+            try:
+                ocr2_image = get_ocr2_image(
+                    pending_text_state['crop_coords'], 
+                    og_image=pending_text_state['img'], 
+                    ocr2_engine=get_ocr_ocr2()
+                )
+                second_ocr_queue.put((
+                    pending_text_state['text'], 
+                    pending_text_state['start_time'], 
+                    ocr2_image, 
+                    filtering, 
+                    pending_text_state['img'], 
+                    response_dict
+                ))
+            except Exception as e:
+                logger.error(f"Error queueing second OCR: {e}", exc_info=True)
+        
+        pending_text_state = None
+        if force_stable: 
+            force_stable = False
+
+    if text:
+        # Determine if we should merge with pending state or start new
+        is_same_or_evolving = False
+        
+        if pending_text_state:
+            # Compare using RAW text to decide if it's the same line evolving
+            # If the RAW text is at least 20% similar, we assume it's the same line/box
+            if compare_ocr_results(pending_text_state['orig_text'], orig_text_string, 20):
+                is_same_or_evolving = True
+
+        if is_same_or_evolving:
+            # Text is evolving or stable; update image/coords/text to latest, but KEEP start_time
+            pending_text_state['img'] = img.copy()
+            pending_text_state['crop_coords'] = crop_coords
+            pending_text_state['text'] = text
+            pending_text_state['orig_text'] = orig_text_string
+        else:
+            # Completely new text state (either we flushed above, or this is first run)
+            pending_text_state = {
+                'text': text,
+                'orig_text': orig_text_string,
+                'start_time': current_time,
+                'img': img.copy(),
+                'crop_coords': crop_coords
+            }
+            run.set_last_image(img)
+
+def handle_meiki_stability(text, crop_coords, time, img, filtering, response_dict):
+    global last_meiki_crop_coords, last_meiki_success, last_meiki_crop_time, previous_img, second_ocr_queue
+
+    try:
+        if last_meiki_crop_coords is None:
+            last_meiki_crop_coords = crop_coords
+            last_meiki_crop_time = time
+            previous_img = img.copy()
+            return True
+
+        if not crop_coords or not last_meiki_crop_coords:
+            last_meiki_crop_coords = crop_coords
+            last_meiki_crop_time = time
+            return True
+
+        tol = 5
+        try:
+            close = all(abs(int(crop_coords[i]) - int(last_meiki_crop_coords[i])) <= tol for i in range(4))
+        except Exception:
+            close = False
+            
+        if close:
+            if all(last_meiki_success and abs(int(crop_coords[i]) - int(last_meiki_success[i])) <= tol for i in range(4)):
+                last_meiki_crop_coords = None
+                last_meiki_crop_time = None
+                return True
+            
+            try:
+                stable_time = last_meiki_crop_time
+                pre_crop_image = previous_img
+                ocr2_image = get_ocr2_image(crop_coords, og_image=pre_crop_image, ocr2_engine=get_ocr_ocr2(), extra_padding=10)
+                second_ocr_queue.put((text, stable_time, ocr2_image, filtering, pre_crop_image, response_dict))
+                run.set_last_image(img)
+                last_meiki_success = crop_coords
+            except Exception as e:
+                logger.info(f"Failed to queue second OCR task: {e}", exc_info=True)
+            
+            last_meiki_crop_coords = None
+            last_meiki_crop_time = None
+            return True
+        else:
+            last_meiki_crop_coords = crop_coords
+            last_meiki_success = None
+            previous_img = img.copy()
+            return True
+            
+    except Exception as e:
+        logger.debug(f"Error handling meiki crop coords stability check: {e}")
+        last_meiki_crop_coords = crop_coords
+        return False
 
 done = False
 
@@ -610,11 +644,10 @@ def process_task_queue():
                 break
             ignore_furigana_filter = False
             ignore_previous_result = False
-            if len(task) == 7:
-                ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result = task
-            else:
-                ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image = task
-            second_ocr_processor.do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result)
+            response_dict = None
+            task = (list(task) + [None]*8)[:8]
+            ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict = task
+            second_ocr_processor.do_second_ocr(ocr1_text, stable_time, previous_img_local, filtering, pre_crop_image, ignore_furigana_filter, ignore_previous_result, response_dict)
         except Exception as e:
             logger.exception(f"Error processing task: {e}")
         finally:
@@ -642,7 +675,7 @@ def run_oneocr(ocr_config: OCRConfig, rectangles, config_check_thread):
                 # screen_capture_monitor=monitor_config['index'],
                 screen_capture_window=ocr_config.window if ocr_config and ocr_config.window else None,
                 screen_capture_delay_secs=get_ocr_scan_rate(), engine=ocr1,
-                text_callback=text_callback,
+                text_callback=ocr_result_callback,
                 screen_capture_exclusions=exclusions,
                 monitor_index=None,
                 ocr1=ocr1,
@@ -837,7 +870,7 @@ if __name__ == "__main__":
                 # Run Qt event loop instead of sleep loop - this allows Qt dialogs to work
                 import GameSentenceMiner.ui.qt_main as qt_main
                 settings_window = qt_main.get_config_window()
-                qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
+                qt_main.start_qt_app(show_config_immediately=False)
             except KeyboardInterrupt:
                 pass
         else:

@@ -327,12 +327,12 @@ class ConfigWindow(QWidget):
             periodic_ratio = 0.9
 
         # Validate local scans
-        try:
-            local_scans = int(float(self.number_of_local_scans_per_event_edit.text()))
-            local_scans = max(1, local_scans)
-            self.number_of_local_scans_per_event_edit.setText(str(local_scans))
-        except ValueError:
-            local_scans = 1
+        # try:
+        #     local_scans = int(float(self.number_of_local_scans_per_event_edit.text()))
+        #     local_scans = max(1, local_scans)
+        #     self.number_of_local_scans_per_event_edit.setText(str(local_scans))
+        # except ValueError:
+        #     local_scans = 1
 
         # Collect data from UI widgets to build a new config object
         config = ProfileConfig(
@@ -483,12 +483,11 @@ class ConfigWindow(QWidget):
                 monitor_to_capture=self.overlay_monitor_combo.currentIndex(),
                 engine=OverlayEngine(self.overlay_engine_combo.currentText()).value,  # Keep for backwards compatibility
                 engine_v2=OverlayEngine(self.overlay_engine_combo.currentText()).value,  # New v2 config
-                scan_delay=float(self.scan_delay_edit.text() or 0.0),
                 periodic=self.periodic_check.isChecked(),
                 periodic_ratio=periodic_ratio,
                 periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
-                number_of_local_scans_per_event=local_scans,
-                minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0)
+                minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
+                use_ocr_area_config=self.use_ocr_area_config_check.isChecked()
             )
         )
 
@@ -759,6 +758,7 @@ class ConfigWindow(QWidget):
         self.number_of_local_scans_per_event_edit = QLineEdit()
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
+        self.use_ocr_area_config_check = QCheckBox()
         
         # Advanced
         self.audio_player_path_edit = QLineEdit()
@@ -1470,7 +1470,7 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'websocket_port'), self.overlay_websocket_port_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'overlay_monitor'), self.overlay_monitor_combo)
         layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'overlay_engine'), self.overlay_engine_combo)
-        layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'scan_delay'), self.scan_delay_edit)
+        # layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'scan_delay'), self.scan_delay_edit)
         layout.addRow(self._create_labeled_widget(i18n, "overlay", 'manual_overlay_scan_hotkey',), self.manual_overlay_scan_hotkey_edit)
         
         # Periodic Scanning Group
@@ -1479,7 +1479,7 @@ class ConfigWindow(QWidget):
         periodic_layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic'), self.periodic_check)
         periodic_layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic_interval'), self.periodic_interval_edit)
         periodic_layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic_ratio'), self.periodic_ratio_edit)
-        periodic_layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'number_of_local_scans_per_event'), self.number_of_local_scans_per_event_edit)
+        # periodic_layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'number_of_local_scans_per_event'), self.number_of_local_scans_per_event_edit)
         periodic_group.setLayout(periodic_layout)
         layout.addRow(periodic_group)
 
@@ -1492,10 +1492,12 @@ class ConfigWindow(QWidget):
         min_char_layout.addWidget(find_size_button)
         layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'minimum_character_size'), min_char_widget)
         
+        layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'use_ocr_area_config'), self.use_ocr_area_config_check)
+        
         # Area Selection Button
-        select_area_button = QPushButton(i18n.get('overlay', {}).get('select_area_button', 'Select Area for Current Scene'))
-        select_area_button.clicked.connect(self.open_monitor_area_selector)
-        layout.addRow(select_area_button)
+        # select_area_button = QPushButton(i18n.get('overlay', {}).get('select_area_button', 'Select Area for Current Scene'))
+        # select_area_button.clicked.connect(self.open_monitor_area_selector)
+        # layout.addRow(select_area_button)
         
         reset_widget = self._create_reset_button("overlay", self._create_overlay_tab)
         layout.addRow(reset_widget)
@@ -1769,13 +1771,14 @@ class ConfigWindow(QWidget):
         self.overlay_engine_combo.clear()
         self.overlay_engine_combo.addItems([e.value for e in OverlayEngine])
         self.overlay_engine_combo.setCurrentText(s.overlay.engine_v2)
-        self.scan_delay_edit.setText(str(s.overlay.scan_delay))
+        # self.scan_delay_edit.setText(str(s.overlay.scan_delay))
         self.periodic_check.setChecked(s.overlay.periodic)
         self.periodic_interval_edit.setText(str(s.overlay.periodic_interval))
         self.periodic_ratio_edit.setText(str(s.overlay.periodic_ratio))
-        self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
+        # self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
         self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
+        self.use_ocr_area_config_check.setChecked(s.overlay.use_ocr_area_config)
         
         # Advanced
         self.audio_player_path_edit.setText(s.advanced.audio_player_path)

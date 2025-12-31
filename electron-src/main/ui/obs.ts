@@ -24,6 +24,60 @@ export interface ObsScene {
 }
 
 // -------------------------------------------------------------------------
+// WINDOW FILTER CONFIGURATION
+// -------------------------------------------------------------------------
+
+interface WindowFilter {
+    exeName?: string; // Executable name (e.g., "Code.exe", "cmd.exe")
+    windowClass?: string; // Window class (e.g., "ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS")
+    titlePattern?: string | RegExp; // Title pattern (exact match or regex)
+    // If multiple properties are specified, ALL must match (AND logic)
+}
+
+/**
+ * List of windows to filter out from the window list.
+ * Can filter by exe name, window class, or window title.
+ * If multiple properties are specified in a single filter, ALL must match (AND logic).
+ */
+const WINDOW_FILTERS: WindowFilter[] = [
+    // Developer tools and IDEs
+    { exeName: 'Code.exe' }, // Visual Studio Code
+    // System tools
+    { exeName: 'cmd.exe' },
+    { windowClass: 'ConsoleWindowClass' },
+    { windowClass: 'CASCADIA_HOSTING_WINDOW_CLASS' },
+    // Audio editors
+    { exeName: 'ocenaudio.exe' },
+    // Specific applications
+    { exeName: 'SKIF.exe' }, // Special K
+    { exeName: 'EpicGamesLauncher.exe' }, // Epic Games Launcher
+    { titlePattern: 'Epic Games Launcher' }, // Epic Games Launcher by title
+    { exeName: 'LunaTranslator.exe' }, // LunaTranslator
+    { titlePattern: 'LunaTranslator' }, // LunaTranslator by title
+    // Windows Search
+    { exeName: 'SearchHost.exe' }, // Windows Search Host
+    { titlePattern: 'Search' }, // Windows Search by title
+    // ShareX
+    { exeName: 'ShareX.exe' }, // ShareX
+    { titlePattern: 'ShareX' }, // ShareX by title
+    // Flydigi Space Station (must match both exe and title)
+    { exeName: 'Flydigi Space Station.exe' }, // Flydigi only
+    // Anki (must match both pythonw.exe AND have Anki in title)
+    { exeName: 'pythonw.exe', titlePattern: '- Anki' }, // Anki only
+    { exeName: 'pythonw.exe', titlePattern: 'Browse (' }, // Anki only
+    { exeName: 'pythonw.exe', titlePattern: /^Edit$/ }, // Anki only
+    { exeName: 'pythonw.exe', titlePattern: 'Preview' }, // Anki only
+    // Exact title match
+    { titlePattern: 'GameSentenceMiner' },
+    { titlePattern: 'GSM Overlay' },
+    { titlePattern: 'GitHub Desktop' },
+    { titlePattern: 'OBS Studio' },
+    { titlePattern: 'iCUE' },
+    { titlePattern: 'Magpie' }
+
+];
+
+// -------------------------------------------------------------------------
 // GAME TITLE PARSING CONFIGURATION
 // -------------------------------------------------------------------------
 
@@ -34,6 +88,7 @@ interface TitleMatcher {
     getName: (match: RegExpMatchArray) => string;
     // Logic to create the OBS Auto Switcher Regex based on the extracted name
     getSwitcherPattern: (cleanName: string) => string;
+    priority?: number; // Lower numbers = higher priority. Default: 50. Use 100+ for fallback matchers.
 }
 
 /**
@@ -121,8 +176,18 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         // Kept at the bottom as a catch-all
         pattern: /^(.+?)\s*(?:-|)\s*ver\d/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n)}.*`
+        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n)}.*`,
+        priority: 90
     },
+    {
+        name: "Generic Suffix",
+        // Pattern: Game Name followed by various separators and text (e.g., "Kanon プロローグ" -> "Kanon")
+        // Covers: patterns with space followed by Japanese/descriptive text, or other common suffixes
+        pattern: /^(.+?)\s+(?:プロローグ|エピローグ|体験版|デモ版|demo)/i,
+        getName: (m) => m[1].trim(),
+        getSwitcherPattern: (n) => `^${escapeRegexCharacters(n)}\\s+.*`,
+        priority: 100
+    }
     // {
     //     name: 'MPV',
     //     // Pattern: .* - mpv
@@ -148,7 +213,14 @@ const TITLE_MATCHERS: TitleMatcher[] = [
 
 // Helper to determine Scene Name and Switcher Pattern from a raw Window Title
 function getGameInfoFromWindow(rawTitle: string): { sceneName: string; switcherRegex: string } {
-    for (const matcher of TITLE_MATCHERS) {
+    // Sort matchers by priority (lower number = higher priority)
+    const sortedMatchers = [...TITLE_MATCHERS].sort((a, b) => {
+        const priorityA = a.priority ?? 50;
+        const priorityB = b.priority ?? 50;
+        return priorityA - priorityB;
+    });
+
+    for (const matcher of sortedMatchers) {
         const match = rawTitle.match(matcher.pattern);
         if (match) {
             try {
@@ -206,6 +278,58 @@ let connectionPromise: Promise<void> | null = null;
 function escapeRegexCharacters(str: string): string {
     // Escape all regex special characters that could break the auto scene switcher
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Check if a window item should be filtered out
+function shouldFilterWindow(item: any): boolean {
+    const windowValue = item.itemValue || '';
+    const itemName = item.itemName || '';
+    
+    // Parse window value format: "Title:ClassName:ExeName.exe"
+    const parts = windowValue.split(':');
+    const exeName = parts[parts.length - 1]?.trim() || '';
+    const windowClass = parts[parts.length - 2]?.trim() || '';
+    const title = itemName.split(':').slice(1).join(':').trim();
+
+    for (const filter of WINDOW_FILTERS) {
+        let matches = true; // Assume match unless proven otherwise
+
+        // Check exe name filter (if specified)
+        if (filter.exeName) {
+            if (exeName.toLowerCase() !== filter.exeName.toLowerCase()) {
+                matches = false;
+            }
+        }
+
+        // Check window class filter (if specified)
+        if (filter.windowClass && matches) {
+            if (windowClass !== filter.windowClass) {
+                matches = false;
+            }
+        }
+
+        // Check title pattern filter (if specified)
+        if (filter.titlePattern && matches) {
+            if (typeof filter.titlePattern === 'string') {
+                // Substring match for string patterns
+                if (!title.includes(filter.titlePattern)) {
+                    matches = false;
+                }
+            } else if (filter.titlePattern instanceof RegExp) {
+                // Regex match for RegExp patterns
+                if (!filter.titlePattern.test(title)) {
+                    matches = false;
+                }
+            }
+        }
+
+        // If all specified conditions match, filter this window
+        if (matches) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 // Generate a random fallback window name
@@ -810,7 +934,7 @@ export async function registerOBSIPC() {
                 GAME_WINDOW_INPUT,
                 'game_capture'
             );
-            return [
+            const allWindows = [
                 ...windowCaptureWindows.filter(
                     (windowCapture) =>
                         !gameCaptureWindows.some(
@@ -818,7 +942,11 @@ export async function registerOBSIPC() {
                         )
                 ),
                 ...gameCaptureWindows,
-            ].sort((a, b) => a.itemName.localeCompare(b.itemName));
+            ]
+                .filter((item) => !shouldFilterWindow(item)) // Apply filters
+                .sort((a, b) => a.itemName.localeCompare(b.itemName));
+            // console.log(allWindows);
+            return allWindows;
         } catch (error) {
             console.error('Error getting window list:', error);
             return []; // Return an empty array in case of an error
