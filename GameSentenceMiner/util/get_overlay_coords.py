@@ -887,7 +887,30 @@ class OverlayProcessor:
         monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
         monitor_w, monitor_h = monitor['width'], monitor['height']
 
-        if is_windows() and self.window_monitor:
+        # If configured to use full-screen MSS instead of OBS, prefer that method.
+        try:
+            overlay_cfg = get_overlay_config()
+            use_mss_override = bool(getattr(overlay_cfg, 'ocr_full_screen_instead_of_obs', False))
+        except Exception:
+            use_mss_override = False
+
+        if use_mss_override:
+            logger.info("Overlay configured to use full-screen MSS for OCR (debug). Taking MSS screenshot.")
+            wayland = is_wayland()
+            if mss and not wayland:
+                try:
+                    with mss.mss() as sct:
+                        sct_img = sct.grab(monitor)
+                        img = Image.frombytes('RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+                        if SAVE_DEBUG_IMAGES:
+                            img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_mss_override.png"))
+                        self.ss_width = img.width
+                        self.ss_height = img.height
+                        return img, 0, 0, monitor_w, monitor_h
+                except Exception as e:
+                    logger.debug(f"MSS screenshot (override) failed: {e}")
+
+        if is_windows() and self.window_monitor and not use_mss_override:
             hwnd = self.window_monitor.target_hwnd
             if not hwnd:
                 hwnd = self.window_monitor.find_target_hwnd()

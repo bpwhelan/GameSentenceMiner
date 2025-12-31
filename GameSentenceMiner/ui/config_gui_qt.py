@@ -487,7 +487,8 @@ class ConfigWindow(QWidget):
                 periodic_ratio=periodic_ratio,
                 periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
                 minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
-                use_ocr_area_config=self.use_ocr_area_config_check.isChecked()
+                use_ocr_area_config=self.use_ocr_area_config_check.isChecked(),
+                ocr_full_screen_instead_of_obs=bool(getattr(self, 'ocr_full_screen_instead_of_obs_checkbox', None) and self.ocr_full_screen_instead_of_obs_checkbox.isChecked())
             )
         )
 
@@ -1501,6 +1502,17 @@ class ConfigWindow(QWidget):
         
         reset_widget = self._create_reset_button("overlay", self._create_overlay_tab)
         layout.addRow(reset_widget)
+        # Debug checkbox: Use full-screen mss for OCR instead of OBS
+        try:
+            self.ocr_full_screen_instead_of_obs_checkbox = QCheckBox(self.i18n.get('overlay', {}).get('ocr_full_screen_instead_of_obs', 'Use old overlay capture method (debug)'))
+        except Exception:
+            self.ocr_full_screen_instead_of_obs_checkbox = QCheckBox('Use old overlay capture method (debug)')
+        self.ocr_full_screen_instead_of_obs_checkbox.setStyleSheet('color: #FF0000;')
+        try:
+            self.ocr_full_screen_instead_of_obs_checkbox.setToolTip(self.i18n.get('overlay', {}).get('ocr_full_screen_instead_of_obs_tooltip', 'Use old overlay capture method instead of OBS. Debug only.'))
+        except Exception:
+            pass
+        layout.addRow(self.ocr_full_screen_instead_of_obs_checkbox)
         return widget
 
     def _create_advanced_tab(self):
@@ -1779,6 +1791,12 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
         self.use_ocr_area_config_check.setChecked(s.overlay.use_ocr_area_config)
+        # Load debug option for using full-screen mss instead of OBS
+        try:
+            if hasattr(self, 'ocr_full_screen_instead_of_obs_checkbox'):
+                self.ocr_full_screen_instead_of_obs_checkbox.setChecked(bool(s.overlay.ocr_full_screen_instead_of_obs))
+        except Exception:
+            pass
         
         # Advanced
         self.audio_player_path_edit.setText(s.advanced.audio_player_path)
