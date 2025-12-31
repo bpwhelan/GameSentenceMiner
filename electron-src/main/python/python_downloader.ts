@@ -476,6 +476,28 @@ async function _performInstallation(): Promise<void> {
         throw error;
     }
 
+    // Ensure pip is installed in the venv
+    console.log('Ensuring pip is installed in the virtual environment...');
+    try {
+        const venvPython = getPythonExecutablePath();
+        await execFileAsync(venvPython, ['-m', 'ensurepip', '--upgrade']);
+        console.log('pip ensured successfully');
+    } catch (error: any) {
+        console.error(`Failed to ensure pip: ${error.message || error}`);
+        throw error;
+    }
+
+    // Upgrade pip to latest version
+    console.log('Upgrading pip to latest version...');
+    try {
+        const venvPython = getPythonExecutablePath();
+        await execFileAsync(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip']);
+        console.log('pip upgraded successfully');
+    } catch (error: any) {
+        console.error(`Failed to upgrade pip: ${error.message || error}`);
+        throw error;
+    }
+
     // Should be unnecessary now that we use uv to create the venv
     // 
     // Install uv into the venv so it's available for package management

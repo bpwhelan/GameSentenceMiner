@@ -33,6 +33,8 @@ class OverlayRequestHandler:
             
             if message_type == 'translate-request':
                 await self.handle_translation_request()
+            elif message_type == 'restore-focus-request':
+                await self.handle_restore_focus_request()
             else:
                 logger.warning(f"Unknown overlay message type: {message_type}")
                 
@@ -47,7 +49,7 @@ class OverlayRequestHandler:
         Translates the last flattened OCR result from the overlay processor.
         """
         if self.processing:
-            logger.info("Translation already in progress, skipping request")
+            logger.display("Translation already in progress, skipping request")
             return
         
         try:
@@ -72,7 +74,7 @@ class OverlayRequestHandler:
                 await self.send_error("No OCR text available to translate")
                 return
             
-            logger.info(f"Translating last OCR result: {sentence}")
+            logger.display(f"Translating: {sentence}")
             
             # Get current game for context
             game_title = get_current_game(sanitize=False, update=False) or "Unknown Game"
@@ -103,7 +105,7 @@ class OverlayRequestHandler:
             translation = remove_html_and_cloze_tags(translation)
             
             if translation and translation.strip():
-                logger.info(f"Translation result: {translation}")
+                logger.display(f"Translation: {translation}")
                 await self.send_translation(translation)
             else:
                 await self.send_error("Translation returned empty result")
@@ -113,6 +115,23 @@ class OverlayRequestHandler:
             await self.send_error(f"Translation failed: {str(e)}")
         finally:
             self.processing = False
+    
+    async def handle_restore_focus_request(self):
+        """
+        Handle a focus restoration request from the overlay.
+        Attempts to restore focus to the target game window.
+        """
+        try:
+            overlay_processor = get_overlay_processor()
+            
+            # Check if we have a window monitor with a target window
+            if overlay_processor.window_monitor and overlay_processor.window_monitor.target_hwnd:
+                await overlay_processor.window_monitor.activate_target_window()
+            else:
+                logger.debug("No target window to restore focus to")
+                
+        except Exception as e:
+            logger.error(f"Failed to restore focus to target window: {e}", exc_info=True)
     
     async def send_translation(self, translation: str):
         """Send translation result back to overlay."""

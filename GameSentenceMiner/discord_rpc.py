@@ -66,15 +66,11 @@ class DiscordRPCManager:
                         large_text="GameSentenceMiner",
                     )
                 time.sleep(15)  # Discord RPC updates are limited to every 15 seconds
-            except PyPresenceException as e:
-                logger.warning(f"Discord RPC connection error: {e}. Retrying in 20s.")
+            except PyPresenceException:
+                # logger.warning(f"Discord RPC connection error: {e}. Retrying in 20s.")
                 self.stop_rpc_instance()
                 time.sleep(20)
-            except Exception as e:
-                logger.error(
-                    f"An unexpected error occurred in Discord RPC thread: {e}",
-                    exc_info=True,
-                )
+            except Exception:
                 self.running = False
 
     @disabled_guard
@@ -86,7 +82,7 @@ class DiscordRPCManager:
             self.start_time = int(time.time())
             self.rpc_thread = threading.Thread(target=self._run, daemon=True)
             self.rpc_thread.start()
-            logger.info("Discord RPC thread started.")
+            # logger.info("Discord RPC thread started.")
 
     @disabled_guard
     def update(self, game_name):
@@ -101,13 +97,13 @@ class DiscordRPCManager:
         self.stop_timer.start()
 
         if game_name and game_name != self.last_game_name:
-            logger.info(f"Updating Discord RPC for game: {game_name}")
+            # logger.info(f"Updating Discord RPC for game: {game_name}")
             self.last_game_name = game_name
             # The running thread will pick up the new game name
 
     @disabled_guard
     def _stop_rpc_due_to_inactivity(self):
-        logger.info("Stopping Discord RPC due to 2 minutes of inactivity.")
+        # logger.info("Stopping Discord RPC due to 2 minutes of inactivity.")
         self.stop()
 
     @disabled_guard
@@ -116,7 +112,7 @@ class DiscordRPCManager:
             if self.stop_timer:
                 self.stop_timer.cancel()
                 self.stop_timer = None
-            logger.info("Stopping Discord RPC.")
+            # logger.info("Stopping Discord RPC.")
             self.running = False
             self.stop_rpc_instance()
             if self.rpc_thread and self.rpc_thread.is_alive():
@@ -131,8 +127,8 @@ class DiscordRPCManager:
         if self.rpc:
             try:
                 self.rpc.close()
-            except Exception as e:
-                logger.warning(f"Error closing Discord RPC: {e}")
+            except Exception:
+                pass
             finally:
                 self.rpc = None
 

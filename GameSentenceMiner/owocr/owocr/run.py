@@ -1157,7 +1157,7 @@ def scale_down_width_height(width, height):
             return width, height
 
 
-def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=None, return_full_size=False, both_types=False):
+def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=None, return_full_size=True, both_types=False):
     if both_types:
         rectangles = [r for r in ocr_config.rectangles if not r.is_excluded]
     elif not rectangles:   
@@ -1534,11 +1534,12 @@ def check_text_is_all_menu(text: str, crop_coords: tuple, crop_coords_list: list
         return False
     
     # Build the list of coordinates to check
+    coords_to_check = []
     if crop_coords_list:
         coords_to_check = crop_coords_list
-    elif crop_coords:
+    if crop_coords:
         coords_to_check = [crop_coords + ('',)]  # Add empty text field for consistency
-    else:
+    if not coords_to_check:
         return False
 
     original_width = obs_screenshot_thread.width
@@ -1552,8 +1553,8 @@ def check_text_is_all_menu(text: str, crop_coords: tuple, crop_coords_list: list
 
     ocr_config.scale_to_custom_size(original_width, original_height)
     
-    menu_rectangles = [rect for rect in ocr_config.rectangles if rect.is_secondary and not rect.is_excluded]
-
+    menu_rectangles = [rect for rect in ocr_config.rectangles if rect.is_secondary]
+    
     if not menu_rectangles:
         return False
 
@@ -1566,7 +1567,7 @@ def check_text_is_all_menu(text: str, crop_coords: tuple, crop_coords_list: list
         crop_y2 -= 5
         # Validate that crop coordinates are within bounds
         if crop_x < 0 or crop_y < 0 or crop_x2 > original_width or crop_y2 > original_height:
-            logger.info(f"Crop coordinates ({crop_x}, {crop_y}, {crop_x2}, {crop_y2}) are out of bounds.")
+            # logger.info(f"Crop coordinates ({crop_x}, {crop_y}, {crop_x2}, {crop_y2}) are out of bounds.")
             return False
         
         # Check if this specific crop area falls within ANY menu rectangle
@@ -1584,8 +1585,9 @@ def check_text_is_all_menu(text: str, crop_coords: tuple, crop_coords_list: list
         
         # If ANY crop coordinate is NOT in a menu rectangle, we have game text - return False
         if not found_in_menu:
+            # logger.info(f"Crop coordinates ({crop_x}, {crop_y}, {crop_x2}, {crop_y2}) are NOT within any menu rectangles.")
             return False
-    
+        
     # All crop coordinates are within menu rectangles
     return True
 
@@ -1926,8 +1928,8 @@ def run(read_from=None,
             except queue.Empty:
                 pass
             
-        if get_ocr_scan_rate() < .5:
-            adjusted_scan_rate = min(get_ocr_scan_rate() + sleep_time_to_add, .5)
+        if get_ocr_scan_rate() < 1:
+            adjusted_scan_rate = min(get_ocr_scan_rate() + sleep_time_to_add, 1)
         else:
             adjusted_scan_rate = get_ocr_scan_rate()
             

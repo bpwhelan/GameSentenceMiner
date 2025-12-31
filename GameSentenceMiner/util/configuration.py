@@ -750,9 +750,8 @@ class Overlay:
     periodic: bool = False
     periodic_interval: float = 1.0
     periodic_ratio: float = 0.9
-    scan_delay: float = 0.25
     minimum_character_size: int = 0
-    number_of_local_scans_per_event: int = 1
+    use_ocr_area_config: bool = False
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:

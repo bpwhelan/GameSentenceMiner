@@ -37,7 +37,7 @@ class BackendConnector {
       this.ws.on('message', (data) => {
         try {
           const dataStr = data.toString();
-          console.log('BackendConnector: Message received:', dataStr);
+          // console.log('BackendConnector: Message received:', dataStr);
           
           // Ignore simple acknowledgment responses from Python websocket
           if (dataStr === 'True' || dataStr === 'False') {
@@ -96,7 +96,11 @@ class BackendConnector {
     }, 5000);
   }
 
-  send(data) {
+  send(data, delay = 0) {
+    if (delay > 0) {
+      setTimeout(() => this.send(data), delay);
+      return;
+    }
     if (this.connected && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
     } else {

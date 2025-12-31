@@ -725,12 +725,20 @@ def cleanup():
             try:
                 logger.info(f"Terminating process {proc.args[0]}")
                 proc.terminate()
-                proc.wait()
-                logger.info(f"Process {proc.args[0]} terminated.")
+                try:
+                    proc.wait(timeout=3)  # Wait max 3 seconds
+                    logger.info(f"Process {proc.args[0]} terminated.")
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Process {proc.args[0]} didn't terminate in time, killing...")
+                    proc.kill()
+                    proc.wait(timeout=1)  # Give it 1 more second after kill
             except psutil.NoSuchProcess:
                 logger.info("PID already closed.")
             except Exception as e:
-                proc.kill()
+                try:
+                    proc.kill()
+                except:
+                    pass
                 logger.error(f"Error terminating process {proc}: {e}")
 
         if gsm_tray:
@@ -742,7 +750,9 @@ def cleanup():
         if file_watcher_observer:
             try:
                 file_watcher_observer.stop()
-                file_watcher_observer.join()
+                file_watcher_observer.join(timeout=2)  # Wait max 2 seconds
+                if file_watcher_observer.is_alive():
+                    logger.warning("File watcher observer didn't stop in time")
             except Exception as e:
                 logger.error(f"Error stopping file watcher observer: {e}")
 
