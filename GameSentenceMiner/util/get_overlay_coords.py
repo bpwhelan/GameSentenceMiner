@@ -1094,7 +1094,7 @@ class OverlayProcessor:
         local_ocr_engine = self.oneocr or self.meikiocr
         if local_ocr_engine:
             # Assume Text from Source is already Stable
-            tries = min(1, 1 if line and line.source == TextSource.OCR else local_ocr_retry)
+            tries = max(1, 1 if line and line.source == TextSource.OCR else local_ocr_retry)
             last_result_flattened = ""
             for i in range(tries):
                 if i > 0:
