@@ -99,6 +99,22 @@ For full setup guides and configuration details, check the [Wiki](https://docs.g
 *   [exSTATic](https://github.com/KamWithK/exSTATic) for the stats design inspiration.
 *   [chaiNNer](https://github.com/chaiNNer-org/chaiNNer) for the Python integration strategy.
 
+### Integrated Components
+
+This project includes modified versions of the following libraries, I got tired of submodule hell so I've included them directly here for easier management all credits go to the original authors:
+
+*   **Texthooker UI**
+    - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/texthooker
+    - Original: [Renji-XD/texthooker-ui](https://github.com/Renji-XD/texthooker-ui)  
+
+*   **OwOCR** 
+    - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/GameSentenceMiner/owocr
+    - Original: [AuroraWright/owocr](https://github.com/AuroraWright/owocr)  
+
+*   **MeCab Controller**
+    - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/GameSentenceMiner/mecab
+    - Original: [Ajatt-Tools/mecab_controller](https://github.com/Ajatt-Tools/mecab_controller)  
+
 ## Star History
 
 <a href="https://www.star-history.com/#bpwhelan/GameSentenceMiner&type=date&legend=top-left">

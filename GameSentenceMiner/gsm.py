@@ -1,14 +1,23 @@
 # There should be no imports here, as any error will crash the program.
 # All imports should be done in the try/except block below.
 
+from GameSentenceMiner.util import db
+
+
 def handle_error_in_initialization(e):
     """Handle errors that occur during initialization."""
+    import GameSentenceMiner.util.communication.electron_ipc as electron_ipc
     logger.exception(e, exc_info=True)
     logger.info(
         "An error occurred during initialization, Maybe try updating GSM from the menu or if running manually, try installing `pip install --update GameSentenceMiner`")
     try:
-        while True:
-            time.sleep(1)
+        for raw in sys.stdin:
+            line = raw.strip()
+            if "quit" in line.lower():
+                logger.info("Exiting due to quit command.")
+                # cleanup_complete
+                electron_ipc.send_message("cleanup_complete")
+                sys.exit(1)
     except KeyboardInterrupt:
         logger.info("Exiting due to initialization error.")
         sys.exit(1)
@@ -121,7 +130,7 @@ try:
         f"[Import] obs.check_obs_folder_is_correct: {time.time() - start_time:.3f}s")
 
     start_time = time.time()
-    from GameSentenceMiner.util.text_log import get_mined_line, get_all_lines
+    from GameSentenceMiner.util.text_log import get_mined_line, get_all_lines, game_log
     logger.debug(
         f"[Import] util.text_log (GameLine, get_text_event, get_mined_line, get_all_lines, game_log): {time.time() - start_time:.3f}s")
 
@@ -716,12 +725,20 @@ def cleanup():
             try:
                 logger.info(f"Terminating process {proc.args[0]}")
                 proc.terminate()
-                proc.wait()
-                logger.info(f"Process {proc.args[0]} terminated.")
+                try:
+                    proc.wait(timeout=3)  # Wait max 3 seconds
+                    logger.info(f"Process {proc.args[0]} terminated.")
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Process {proc.args[0]} didn't terminate in time, killing...")
+                    proc.kill()
+                    proc.wait(timeout=1)  # Give it 1 more second after kill
             except psutil.NoSuchProcess:
                 logger.info("PID already closed.")
             except Exception as e:
-                proc.kill()
+                try:
+                    proc.kill()
+                except:
+                    pass
                 logger.error(f"Error terminating process {proc}: {e}")
 
         if gsm_tray:
@@ -733,7 +750,9 @@ def cleanup():
         if file_watcher_observer:
             try:
                 file_watcher_observer.stop()
-                file_watcher_observer.join()
+                file_watcher_observer.join(timeout=2)  # Wait max 2 seconds
+                if file_watcher_observer.is_alive():
+                    logger.warning("File watcher observer didn't stop in time")
             except Exception as e:
                 logger.error(f"Error stopping file watcher observer: {e}")
 
@@ -872,6 +891,7 @@ def background_tasks():
     """Initialize and run background async tasks like cron scheduler."""
     async def run():
         from GameSentenceMiner.util.cron import cron_scheduler
+        get_previous_lines_for_game()
         await cron_scheduler.start()
         
         # Keep running indefinitely
@@ -916,6 +936,18 @@ def initialize_text_monitor():
     asyncio.run(gametext.start_text_monitor())
 
 
+def get_previous_lines_for_game():
+    previous_lines = set()
+    try:
+        all_lines = db.GameLinesTable.get_all_lines_for_scene(obs.get_current_scene())
+        for line in all_lines:
+            previous_lines.add(line.line_text)
+        game_log.previous_lines = previous_lines
+        logger.info(f"Loaded {len(previous_lines)} previous lines for game '{obs.get_current_game()}'")
+        # logger.info(f"Approximate memory used for previous lines: {sys.getsizeof(previous_lines) / 1024:.2f} KB")
+    except Exception as e:
+        logger.error(f"Error getting previous lines for game: {e}")
+
 def async_loop():
     async def loop():
         logger.info("Post-Initialization started.")
@@ -943,6 +975,7 @@ async def register_scene_switcher_callback():
         matching_configs = [name.strip() for name, config in get_master_config().configs.items(
         ) if scene.strip() in config.scenes]
         switch_to = None
+        get_previous_lines_for_game()
 
         if len(matching_configs) > 1:
             selected_scene = launch_scene_selection(matching_configs)

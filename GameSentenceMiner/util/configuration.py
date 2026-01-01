@@ -688,7 +688,7 @@ class Advanced:
 @dataclass_json
 @dataclass
 class Ai:
-    enabled: bool = False
+    enabled: bool = False # DEPRECATED, use is_configured() instead
     add_to_anki: bool = False
     anki_field: str = ''
     provider: str = AI_GEMINI
@@ -750,9 +750,9 @@ class Overlay:
     periodic: bool = False
     periodic_interval: float = 1.0
     periodic_ratio: float = 0.9
-    scan_delay: float = 0.25
     minimum_character_size: int = 0
-    number_of_local_scans_per_event: int = 1
+    use_ocr_area_config: bool = False
+    ocr_full_screen_instead_of_obs: bool = False
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:
@@ -909,7 +909,8 @@ class ProfileConfig:
 @dataclass_json
 @dataclass
 class StatsConfig:
-    afk_timer_seconds: int = 120
+    afk_timer_seconds: int = 60  # Used when minimum_chars_per_hour is 0 (fallback mode)
+    minimum_chars_per_hour: int = 5000  # Minimum reading speed (CPH). Set to 0 to use afk_timer_seconds instead (not recommended)
     session_gap_seconds: int = 3600
     streak_requirement_hours: float = 0.01 # 1 second required per day to keep your streak by default
     reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data

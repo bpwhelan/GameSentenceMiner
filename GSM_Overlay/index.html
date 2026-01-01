@@ -62,13 +62,22 @@ background: rgba(202, 12, 12, 0.692);
     position: absolute;
     text-align: center;
     color: white;
-    background: rgba(15, 15, 15, 0.856);
+    /* background: rgba(15, 15, 15, 0.856);*/
     z-index: 1000;
     /* Make sure it's on top */
     pointer-events: none;
     /* Prevent interaction */
     user-select: none;
     /* Prevent text selection */
+    text-shadow:
+      -2px -2px 0 #222,
+      2px -2px 0 #222,
+      -2px 2px 0 #222,
+      2px 2px 0 #222,
+      -2px 0 0 #222,
+      2px 0 0 #222,
+      0 -2px 0 #222,
+      0 2px 0 #222;
   }
 
   .text-box-container {
@@ -177,8 +186,8 @@ background: rgba(202, 12, 12, 0.692);
     position: fixed;
     top: 15px;
     left: 15px;
-    width: 20px;
-    height: 20px;
+    width: 40px;
+    height: 40px;
     z-index: 10000;
     pointer-events: none;
     opacity: 0;
@@ -191,7 +200,7 @@ background: rgba(202, 12, 12, 0.692);
 
   #loading-indicator.fade-out {
     opacity: 0;
-    transition: opacity 5s ease-out;
+    transition: opacity 1.5s ease-out;
   }
 
   .loading-spinner {
@@ -248,6 +257,216 @@ background: rgba(202, 12, 12, 0.692);
     }
   }
 
+  /* Manual Mode Recommendation Banner */
+  #manual-mode-recommendation {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 144, 255, 0.95);
+    color: white;
+    padding: 15px 25px;
+    border-radius: 10px;
+    border: 2px solid rgba(65, 165, 255, 0.8);
+    box-shadow: 0 4px 20px rgba(30, 144, 255, 0.4);
+    z-index: 10002;
+    display: none;
+    align-items: center;
+    gap: 15px;
+    font-size: 16px;
+    font-weight: 500;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    pointer-events: auto;
+    animation: slideDown 0.3s ease-out;
+  }
+
+  #manual-mode-recommendation.visible {
+    display: flex;
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
+  .recommendation-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+  }
+
+  .recommendation-text {
+    flex: 1;
+    line-height: 1.4;
+  }
+
+  .recommendation-buttons {
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .recommendation-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-shadow: none;
+  }
+
+  .recommendation-btn-primary {
+    background: white;
+    color: #1e90ff;
+  }
+
+  .recommendation-btn-primary:hover {
+    background: #f0f0f0;
+    transform: scale(1.05);
+  }
+
+  .recommendation-btn-secondary {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+  }
+
+  .recommendation-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.05);
+  }
+
+  /* Action Panel Trigger Area */
+  /*
+  #action-panel-trigger {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 80px;
+    height: 80px;
+    z-index: 9998;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  */
+
+  /* Action Panel Trigger Icon */
+  /*
+  #action-panel-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(0, 255, 136, 0.15);
+    border: 2px solid rgba(0, 255, 136, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: rgba(0, 255, 136, 0.5);
+    transition: all 0.3s ease;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(0, 255, 136, 0.1);
+    pointer-events: none;
+  }
+
+  #action-panel-trigger:hover #action-panel-icon {
+    background: rgba(0, 255, 136, 0.3);
+    border-color: rgba(0, 255, 136, 0.6);
+    color: rgba(0, 255, 136, 0.9);
+    box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
+    transform: scale(1.1);
+  }
+  */
+
+  /* Action Panel Styles */
+  /*
+  #action-panel {
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    background: rgba(0, 0, 0, 0.9);
+    border: 2px solid rgba(0, 255, 136, 0.5);
+    border-radius: 10px;
+    padding: 15px;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    transform: translateX(-10px);
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+  }
+
+  #action-panel.visible {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+  */
+
+  /* Startup hint animation */
+  /*
+  #action-panel.startup-hint {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+    animation: pulse-hint 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-hint {
+    0%, 100% {
+      box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 30px rgba(0, 255, 136, 0.6);
+    }
+  }
+
+  #action-panel-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .action-btn {
+    background: linear-gradient(135deg, rgba(0, 255, 136, 0.2), rgba(0, 200, 100, 0.2));
+    border: 1px solid rgba(0, 255, 136, 0.6);
+    color: #00ff88;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    user-select: none;
+    box-shadow: 0 2px 8px rgba(0, 255, 136, 0.2);
+  }
+
+  .action-btn:hover {
+    background: linear-gradient(135deg, rgba(0, 255, 136, 0.4), rgba(0, 200, 100, 0.4));
+    border-color: #00ff88;
+    box-shadow: 0 4px 12px rgba(0, 255, 136, 0.4);
+    transform: translateY(-2px);
+  }
+
+  .action-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(0, 255, 136, 0.3);
+  }
+
+  .action-btn-icon {
+    margin-right: 8px;
+    font-size: 16px;
+  }
+  */
+
   /* Startup Message */
   #startup-message {
     position: fixed;
@@ -284,6 +503,22 @@ background: rgba(202, 12, 12, 0.692);
 
 
 <body style="margin:0px;">
+  <!-- Manual Mode Recommendation Banner -->
+  <div id="manual-mode-recommendation">
+    <span class="recommendation-icon">💡</span>
+    <div class="recommendation-text">
+      <strong>Fullscreen Game Detected:</strong> If you're using exclusive fullscreen mode, manual mode may provide better overlay stability.
+    </div>
+    <div class="recommendation-buttons">
+      <button class="recommendation-btn recommendation-btn-primary" id="btn-enable-manual">
+        Enable Manual Mode
+      </button>
+      <button class="recommendation-btn recommendation-btn-secondary" id="btn-dismiss-recommendation">
+        Got it
+      </button>
+    </div>
+  </div>
+
   <!-- Startup Message -->
   <div id="startup-message">
     GSM Overlay Loaded & Ready!
@@ -294,9 +529,34 @@ background: rgba(202, 12, 12, 0.692);
     <div class="loading-spinner"></div>
   </div>
 
+  <!-- Action Panel Trigger Area -->
+  <!--
+  <div id="action-panel-trigger" class="interactive">
+    <div id="action-panel-icon">⚡</div>
+  </div>
+  -->
+
+  <!-- Action Panel -->
+  <!--
+  <div id="action-panel">
+    <div id="action-panel-buttons">
+      <button class="action-btn" id="btn-scan">
+        <span class="action-btn-icon">🔍</span>Run Scan
+      </button>
+      <button class="action-btn" id="btn-translate">
+        <span class="action-btn-icon">🌐</span>Translate
+      </button>
+      <button class="action-btn" id="btn-tts">
+        <span class="action-btn-icon">🔊</span>TTS
+      </button>
+    </div>
+  </div>
+  -->
+
   <div id="main-box">
     <div draggable="false" id="draggable" class="interactive">
       <button class="control-btn" id="btn-pin">⬤</button>
+      <button class="control-btn" id="btn-translate-toolbar">🌐</button>
       <button class="control-btn" id="btn-settings">⚙</button>
       <button class="control-btn" id="btn-yomitan"><img src="yomitan-icon.svg"></button>
       <button class="control-btn" id="btn-minimize">➖</button>
@@ -318,7 +578,20 @@ background: rgba(202, 12, 12, 0.692);
   // let currentY = 0;
   let magpieReleaseInterval = null;
   let manualModeActivatedOnce = false;
-  let hideReadyIndicator = false;
+  let shouldShowReadyIndicator = true;
+  let currentMagpieInfo = null; // Store magpie info from websocket
+  let isMagpieActive = false; // Track if magpie scaling is active
+  
+  // let actionPanelStartupHintShown = false; // Track if startup hint was shown
+  // let actionPanelShowing = false; // Track if action panel is currently showing
+  
+  // Track multiple Yomitan popups for nested lookups
+  let yomitanPopupCount = 0;
+  let yomitanPopupIds = new Set(); // Track unique popup IDs to prevent double-counting
+
+  // Manual mode recommendation state
+  let dismissedRecommendationGames = []; // Permanently dismissed games
+  let currentGameForRecommendation = null;
 
   // Startup message fade-out
   window.addEventListener('DOMContentLoaded', () => {
@@ -333,7 +606,218 @@ background: rgba(202, 12, 12, 0.692);
         }, 3000);
       }, 100);
     }
+
+    // Show action panel on startup as a hint
+    /*
+    if (!actionPanelStartupHintShown) {
+      showActionPanelStartupHint();
+    }
+    */
   });
+
+  /*
+  function showActionPanelStartupHint() {
+    const actionPanel = document.getElementById('action-panel');
+    if (actionPanel) {
+      console.log('Showing action panel startup hint for 15 seconds');
+      actionPanel.classList.add('startup-hint');
+      actionPanelStartupHintShown = true;
+      
+      // Hide after 15 seconds
+      setTimeout(() => {
+        actionPanel.classList.remove('startup-hint');
+        console.log('Action panel startup hint hidden');
+      }, 5000);
+    }
+  }
+  */
+
+  // Show action panel on hover (no Shift required)
+  // const actionPanel = document.getElementById('action-panel');
+  // const actionPanelTrigger = document.getElementById('action-panel-trigger');
+  const loadingIndicator = document.getElementById('loading-indicator');
+
+  /*
+  function showActionPanel() {
+    // Don't show if startup hint is still active
+    if (!actionPanel.classList.contains('startup-hint')) {
+      actionPanel.classList.add('visible');
+      console.log('Showing action panel on hover');
+    }
+  }
+
+  function hideActionPanel() {
+    actionPanel.classList.remove('visible');
+  }
+  */
+
+  // Set up mouse event handlers for action panel trigger immediately
+  /*
+  actionPanelTrigger.addEventListener('mouseenter', () => {
+    console.log('Mouse entered trigger area');
+    ipcRenderer.send('set-ignore-mouse-events', false);
+    actionPanelShowing = true;
+    showActionPanel();
+  });
+
+  actionPanelTrigger.addEventListener('mouseleave', () => {
+    console.log('Mouse left trigger area');
+    actionPanelShowing = false;
+    // Don't hide if mouse moved to the panel itself
+    setTimeout(() => {
+      const panelHovered = actionPanel.matches(':hover');
+      if (!panelHovered) {
+        hideActionPanel();
+        actionPanelShowing = false;
+        ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      }
+    }, 100);
+  });
+
+  actionPanel.addEventListener('mouseenter', () => {
+    ipcRenderer.send('set-ignore-mouse-events', false);
+    actionPanelShowing = true;
+  });
+
+  actionPanel.addEventListener('mouseleave', () => {
+    hideActionPanel();
+    ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+    actionPanelShowing = false;
+  });
+  */
+
+  // Create big interactive area for action panel trigger when magpie is active
+  // let actionPanelBigArea = null;
+
+  /*
+  function updateActionPanelMagpieArea() {
+    // Remove existing big area if it exists
+    if (actionPanelBigArea && actionPanelBigArea.parentNode) {
+      actionPanelBigArea.remove();
+    }
+
+    if (isMagpieActive && currentMagpieInfo) {
+      // Create a big interactive area around the action panel trigger
+      actionPanelBigArea = document.createElement('div');
+      actionPanelBigArea.className = 'interactive half-interactive action-panel-big-area';
+      actionPanelBigArea.id = 'action-panel-big-area';
+      actionPanelBigArea.style.position = 'absolute';
+      actionPanelBigArea.style.pointerEvents = 'auto';
+      actionPanelBigArea.style.zIndex = '9997'; // Below trigger but above other content
+      
+      // Get the trigger's bounds in percentage (same as text boxes)
+      // Trigger is at 0,0 with 80x80px size, which is approximately 0-3.125% x and 0-5.56% y on 2560x1440
+      const triggerWidthPercent = (80 / window.innerWidth) * 100;
+      const triggerHeightPercent = (80 / window.innerHeight) * 100;
+      
+      // Transform coordinates using the same method as text boxes
+      const topLeft = transformCoordinates(0, 0);
+      const bottomRight = transformCoordinates(triggerWidthPercent, triggerHeightPercent);
+      
+      // Add padding around the trigger (same 25px as text boxes)
+      const minx = topLeft.x - 25;
+      const miny = topLeft.y - 25;
+      const maxx = bottomRight.x + 25;
+      const maxy = bottomRight.y + 25;
+      
+      actionPanelBigArea.style.left = `${minx}px`;
+      actionPanelBigArea.style.top = `${miny}px`;
+      actionPanelBigArea.style.width = `${maxx - minx}px`;
+      actionPanelBigArea.style.height = `${maxy - miny}px`;
+      
+      document.body.appendChild(actionPanelBigArea);
+
+      // Set up event handlers for the big area
+      actionPanelBigArea.addEventListener('mouseenter', () => {
+        console.log('Mouse entered action panel big area');
+        ipcRenderer.send('set-ignore-mouse-events', false);
+        showActionPanel();
+      });
+
+      actionPanelBigArea.addEventListener('mouseleave', () => {
+        console.log('Mouse left action panel big area');
+        setTimeout(() => {
+          const triggerHovered = actionPanelTrigger.matches(':hover');
+          const panelHovered = actionPanel.matches(':hover');
+          if (!triggerHovered && !panelHovered) {
+            hideActionPanel();
+            ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+          }
+        }, 100);
+      });
+
+      console.log('Created big interactive area for action panel (magpie mode):', { minx, miny, maxx, maxy });
+    } else {
+      actionPanelBigArea = null;
+    }
+  }
+  */
+
+  // Action button handlers
+  /*
+  document.getElementById('btn-scan').addEventListener('click', () => {
+    console.log('Scan button clicked');
+    ipcRenderer.send('action-scan');
+  });
+
+  document.getElementById('btn-translate').addEventListener('click', () => {
+    console.log('Translate button clicked');
+    ipcRenderer.send('action-translate');
+  });
+
+  document.getElementById('btn-tts').addEventListener('click', () => {
+    console.log('TTS button clicked');
+    ipcRenderer.send('action-tts');
+  });
+  */
+
+  document.getElementById('btn-translate-toolbar').addEventListener('click', () => {
+    console.log('Translate button clicked');
+    ipcRenderer.send('action-translate');
+  });
+
+
+  // Safety check: detect stale popup state
+  // Since Yomitan popups are in shadow roots, we can't query the DOM directly.
+  // Instead, we'll detect if the count seems stuck and hasn't changed in a while.
+  let lastPopupChangeTime = Date.now();
+  let lastPopupCount = 0;
+  const STALE_TIMEOUT = 30000; // 30 seconds
+  
+  setInterval(() => {
+    // Track when count last changed
+    if (yomitanPopupCount !== lastPopupCount) {
+      lastPopupChangeTime = Date.now();
+      lastPopupCount = yomitanPopupCount;
+    }
+    
+    // If we think popups are showing but it's been a while with no changes,
+    // and user isn't actively interacting, reset the state
+    const timeSinceChange = Date.now() - lastPopupChangeTime;
+    if (yomitanPopupCount > 0 && timeSinceChange > STALE_TIMEOUT) {
+      console.warn(`Yomitan popup count appears stale (${yomitanPopupCount} popups for ${timeSinceChange}ms). Resetting...`);
+      
+      // Reset state
+      yomitanPopupCount = 0;
+      yomitanPopupIds.clear();
+      yomitanShowing = false;
+      lastPopupCount = 0;
+      lastPopupChangeTime = Date.now();
+      
+      // Trigger cleanup
+      console.log('Resetting stale Yomitan state - triggering cleanup');
+      ipcRenderer.send('yomitan-event', false);
+      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      
+      if (hideOnYomitanClose) {
+        hideOnYomitanClose = false;
+        if (!pinned) {
+          document.body.classList.remove('force-visible');
+        }
+        hideTextBoxes();
+      }
+    }
+  }, 5000); // Check every 5 seconds
 
   // window.addEventListener('mousemove', (e) => {
   //   console.log("Mouse moved:", e.clientX, e.clientY);
@@ -344,21 +828,66 @@ background: rgba(202, 12, 12, 0.692);
   window.addEventListener('yomitan-popup-shown', (event) => {
     console.log('Yomitan popup shown:', event);
     console.log(event.detail); // This will log the value of 'this' passed above
-    ipcRenderer.send('yomitan-event', true);
-    yomitanShowing = true;
+    
+    // Extract popup ID if available, otherwise use timestamp as unique identifier
+    const popupId = event.detail?.popupId || `popup-${Date.now()}-${Math.random()}`;
+    
+    // Only increment if this is a new popup
+    if (!yomitanPopupIds.has(popupId)) {
+      yomitanPopupIds.add(popupId);
+      yomitanPopupCount++;
+      console.log(`Yomitan popup opened. Active popups: ${yomitanPopupCount}`, Array.from(yomitanPopupIds));
+    }
+    
+    // Update state based on popup count
+    if (yomitanPopupCount > 0) {
+      yomitanShowing = true;
+      ipcRenderer.send('yomitan-event', true);
+    }
   });
 
   // When popup is hidden, tell main process to ignore mouse events again
   window.addEventListener('yomitan-popup-hidden', (event) => {
-    ipcRenderer.send('yomitan-event', false);
-    ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
-    yomitanShowing = false;
-    if (hideOnYomitanClose) {
-      hideOnYomitanClose = false;
-      if (!pinned) {
-        document.body.classList.remove('force-visible');
+    console.log('Yomitan popup hidden:', event);
+    
+    // Extract popup ID if available
+    const popupId = event.detail?.popupId || null;
+    
+    // Decrement count, ensuring we don't go below 0
+    if (popupId && yomitanPopupIds.has(popupId)) {
+      yomitanPopupIds.delete(popupId);
+      yomitanPopupCount--;
+    } else if (!popupId && yomitanPopupCount > 0) {
+      // Fallback: decrement by 1 if no ID provided
+      yomitanPopupCount--;
+      // Clear the oldest entry if we have IDs tracked
+      if (yomitanPopupIds.size > 0) {
+        const firstId = yomitanPopupIds.values().next().value;
+        yomitanPopupIds.delete(firstId);
       }
-      hideTextBoxes();
+    }
+    
+    // Ensure count never goes negative
+    yomitanPopupCount = Math.max(0, yomitanPopupCount);
+    
+    console.log(`Yomitan popup closed. Remaining popups: ${yomitanPopupCount}`, Array.from(yomitanPopupIds));
+    
+    // Only trigger cleanup when ALL popups are closed
+    if (yomitanPopupCount === 0) {
+      console.log('All Yomitan popups closed, triggering cleanup');
+      yomitanShowing = false;
+      yomitanPopupIds.clear(); // Clear the set to prevent memory leaks
+      
+      ipcRenderer.send('yomitan-event', false);
+      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      
+      if (hideOnYomitanClose) {
+        hideOnYomitanClose = false;
+        if (!pinned) {
+          document.body.classList.remove('force-visible');
+        }
+        hideTextBoxes();
+      }
     }
   });
 
@@ -406,16 +935,15 @@ background: rgba(202, 12, 12, 0.692);
   let dragOffsetY = 0;
   let offsetX = 0;
   let offsetY = 0;
-  let magpieCompatibility = false;
   let hideOnStartup = false;
   let usePercentage = false;
   let unHoverTimer = null;
-  let magpieWindowInfo = null;
   let manualMode = false;
   let showHotkey = "Shift + Space";
   let manualHotkeyPressed = false;
   let showTextBackground = false;
   let showFurigana = false;
+  let showRecycledIndicator = true;
   let width = 2560;
   let height = 1440;
   let workArea = { x: 0, y: 0, width: 2560, height: 1440 };
@@ -426,56 +954,16 @@ background: rgba(202, 12, 12, 0.692);
   // Loading indicator functions
   let loadingStartTime = null;
 
-  function showLoadingIndicator() {
-    const indicator = document.getElementById('loading-indicator');
-    if (indicator) {
-      // Reset any previous states
-      indicator.classList.remove('fade-out');
-      indicator.innerHTML = '<div class="loading-spinner"></div>';
-      indicator.classList.add('show');
-      loadingStartTime = Date.now(); // Record when loading started
-    }
-  }
-
   function showReadyIndicator() {
     const indicator = document.getElementById('loading-indicator');
-    if (indicator && loadingStartTime) {
-      const elapsedTime = Date.now() - loadingStartTime;
-      const minDisplayTime = 500; // Minimum 500ms spinner display
 
-      const remainingTime = Math.max(0, minDisplayTime - elapsedTime);
-
-      setTimeout(() => {
-        // Replace spinner with checkmark
-        indicator.innerHTML = '<div class="checkmark">✓</div>';
-
-        // Start fade out after a brief moment
-        setTimeout(() => {
-          indicator.classList.add('fade-out');
-
-          // Clean up after fade completes
-          setTimeout(() => {
-            indicator.classList.remove('show', 'fade-out');
-            loadingStartTime = null; // Reset timing
-          }, 5000);
-        }, 200);
-      }, remainingTime);
-    }
-  }
-
-  function hideLoadingIndicator() {
-    const indicator = document.getElementById('loading-indicator');
-    if (indicator) {
+    indicator.innerHTML = '<div class="checkmark">✓</div>';
+    indicator.classList.add('fade-out');
+    
+    setTimeout(() => {
       indicator.classList.remove('show', 'fade-out');
       loadingStartTime = null;
-    }
-  }
-
-  // Auto-hide loading indicator after a delay
-  function hideLoadingIndicatorWithDelay(delay = 1500) {
-    setTimeout(() => {
-      hideLoadingIndicator();
-    }, delay);
+    }, 1500);
   }
 
   dragBar.addEventListener("mousedown", (e) => {
@@ -536,10 +1024,37 @@ background: rgba(202, 12, 12, 0.692);
         // Handle window state events
         if (data.type === "window_state") {
           console.log("Window state event received:", data.data, "for game:", data.game);
+          
+          // Process magpie_info from websocket
+          if (data.magpie_info !== undefined) {
+            const oldMagpieActive = isMagpieActive;
+            currentMagpieInfo = data.magpie_info;
+            isMagpieActive = currentMagpieInfo !== null && currentMagpieInfo !== undefined;
+            
+            console.log("Magpie info updated from websocket:", currentMagpieInfo);
+            console.log("Magpie active state:", isMagpieActive);
+            
+            // If magpie state changed, update the behavior
+            if (oldMagpieActive !== isMagpieActive) {
+              console.log("Magpie state changed from", oldMagpieActive, "to", isMagpieActive);
+              updateMagpieCompatibility(isMagpieActive);
+              // updateActionPanelMagpieArea();
+            }
+          }
+          
           ipcRenderer.send("window-state-changed", {
             state: data.data,
-            game: data.game
+            game: data.game,
+            magpieActive: isMagpieActive,
+            isFullscreen: data.is_fullscreen || false,
+            recommendManualMode: data.recommend_manual_mode || false
           });
+          return; // Don't process as text display
+        }
+
+        // Ignore translation-related messages (handled via IPC)
+        if (data.type === "translation-result" || data.type === "translation-error") {
+          console.log("Translation message received via websocket (ignoring):", data.type);
           return; // Don't process as text display
         }
 
@@ -549,17 +1064,120 @@ background: rgba(202, 12, 12, 0.692);
 
         console.log(data);
 
-        // Check if data has words array (new word-level coordinate format)
-        if (Array.isArray(data) && data.every(item => item.text && item.bounding_rect)) {
-          // Show loading indicator when text processing starts
-          if (!hideReadyIndicator) {
-            showLoadingIndicator();
-          }
+        const isSentenceRecycled = data.is_sentence_recycled;
 
+        // Check if data has words array (new word-level coordinate format)
+        if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
           // Handle array of {text, bounding_rect}
+          ipcRenderer.send("text-received", data);
+          
+          // FIRST PASS: Detect blocks of text (lines with similar x1 and close y proximity)
+          const X_THRESHOLD = 2; // Lines within 2% x1 difference are considered aligned
+          const Y_THRESHOLD = 5; // Lines within 5% y distance are considered part of same block
+          
+          // Assign block IDs to each line
+          const lineBlocks = new Map(); // Map from line index to block ID
+          let currentBlockId = 0;
+          
+          for (let i = 0; i < data.data.length; i++) {
+            const currentLine = data.data[i];
+            const currentRect = currentLine.bounding_rect;
+            const currentX1 = currentRect.x1 * 100;
+            const currentY = (currentRect.y1 + currentRect.y3) / 2 * 100; // Use center Y
+            
+            let assignedToBlock = false;
+            
+            // Check if this line belongs to an existing block
+            for (let j = 0; j < i; j++) {
+              if (!lineBlocks.has(j)) continue;
+              
+              const prevLine = data.data[j];
+              const prevRect = prevLine.bounding_rect;
+              const prevX1 = prevRect.x1 * 100;
+              const prevY = (prevRect.y1 + prevRect.y3) / 2 * 100;
+              
+              const xDiff = Math.abs(currentX1 - prevX1);
+              const yDiff = Math.abs(currentY - prevY);
+              
+              // If x-aligned and vertically close, assign to same block
+              if (xDiff <= X_THRESHOLD && yDiff <= Y_THRESHOLD) {
+                lineBlocks.set(i, lineBlocks.get(j));
+                assignedToBlock = true;
+                break;
+              }
+            }
+            
+            // If not assigned to any existing block, create new block
+            if (!assignedToBlock) {
+              lineBlocks.set(i, currentBlockId);
+              currentBlockId++;
+            }
+          }
+          
+          // Identify start and end of each block
+          const blockBoundaries = new Map(); // Map from block ID to {start: index, end: index}
+          for (let i = 0; i < data.data.length; i++) {
+            const blockId = lineBlocks.get(i);
+            if (!blockBoundaries.has(blockId)) {
+              blockBoundaries.set(blockId, { start: i, end: i });
+            } else {
+              blockBoundaries.get(blockId).end = i;
+            }
+          }
+          
+          console.log("Detected text blocks:", blockBoundaries);
+          
+          // Log the complete text of each block
+          blockBoundaries.forEach((boundaries, blockId) => {
+            let blockText = '';
+            for (let i = boundaries.start; i <= boundaries.end; i++) {
+              blockText += data.data[i].text;
+            }
+            console.log(`Block ${blockId} text:`, blockText);
+          });
+          
+          // SECOND PASS: Process lines with block awareness
           let furiganaBoxes = [];
-          for (const line of data) {
+          const blockContainers = new Map(); // Map from block ID to container div
+          
+          for (let lineIdx = 0; lineIdx < data.data.length; lineIdx++) {
+            const line = data.data[lineIdx];
             console.log("Processing line:", line);
+            
+            // Check if this is the start or end of a block
+            const blockId = lineBlocks.get(lineIdx);
+            const boundaries = blockBoundaries.get(blockId);
+            const isBlockStart = lineIdx === boundaries.start;
+            const isBlockEnd = lineIdx === boundaries.end;
+            
+            // Create a container paragraph for this block if it's the start
+            if (isBlockStart) {
+              const blockContainer = document.createElement('p');
+              blockContainer.className = 'text-block-container';
+              blockContainer.setAttribute('data-block-id', blockId);
+              blockContainer.style.position = 'absolute';
+              blockContainer.style.pointerEvents = 'none';
+              blockContainer.style.left = '0';
+              blockContainer.style.top = '0';
+              blockContainer.style.width = '100%';
+              blockContainer.style.height = '100%';
+              blockContainer.style.margin = '0';
+              blockContainer.style.padding = '0';
+              document.body.appendChild(blockContainer);
+              blockContainers.set(blockId, blockContainer);
+            }
+            
+            // Add line break after block ends (create a text node with newline for Yomitan)
+            if (isBlockEnd && blockId < currentBlockId - 1) {
+              const lineBreak = document.createTextNode('\n');
+              const breakSpan = document.createElement('span');
+              breakSpan.className = 'block-separator';
+              breakSpan.style.position = 'absolute';
+              breakSpan.style.pointerEvents = 'none';
+              breakSpan.appendChild(lineBreak);
+              document.body.appendChild(breakSpan);
+            }
+            
             const rect = line.bounding_rect;
             let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
             let bigInteractiveArea = document.createElement("div");
@@ -577,6 +1195,20 @@ background: rgba(202, 12, 12, 0.692);
             // --- NEW: Pre-process logic ---
             // Flatten tokens into single characters with interpolated bounding boxes
             const wordList = [];
+            
+            // Add line break at start of block
+            if (isBlockStart && blockId > 0) {
+              wordList.push({
+                text: '\n',
+                bounding_rect: {
+                  x1: line.words[0].bounding_rect.x1,
+                  y1: line.words[0].bounding_rect.y1,
+                  x3: line.words[0].bounding_rect.x1,
+                  y3: line.words[0].bounding_rect.y3
+                }
+              });
+            }
+            
             for (const w of line.words) {
               const len = w.text.length;
               // If it's already 1 char, just add it
@@ -598,6 +1230,20 @@ background: rgba(202, 12, 12, 0.692);
                 });
               }
             }
+            
+            // Add line break at end of block
+            if (isBlockEnd) {
+              const lastWord = line.words[line.words.length - 1];
+              wordList.push({
+                text: '\n',
+                bounding_rect: {
+                  x1: lastWord.bounding_rect.x3,
+                  y1: lastWord.bounding_rect.y1,
+                  x3: lastWord.bounding_rect.x3,
+                  y3: lastWord.bounding_rect.y3
+                }
+              });
+            }
             // ------------------------------
 
             // Iterate over 'wordList'
@@ -613,7 +1259,15 @@ background: rgba(202, 12, 12, 0.692);
               maxx = Math.max(maxx, x3);
               maxy = Math.max(maxy, y3);
               const box = createTextBox(word.text, x1, y1, x3, y3, 0, true, true, false);
-              document.body.appendChild(box);
+              
+              // Append to the block container instead of body
+              const blockContainer = blockContainers.get(blockId);
+              if (blockContainer) {
+                blockContainer.appendChild(box);
+              } else {
+                document.body.appendChild(box);
+              }
+              
               const boundBox = box.getBoundingClientRect();
               if (pinned && isTextInMainBox(boundBox, mainBoxBounds)) {
                 console.log("Text inside main box, hiding:", word.text);
@@ -678,7 +1332,14 @@ background: rgba(202, 12, 12, 0.692);
 
                   const furiganaBox = document.createElement('ruby');
                   furiganaBox.className = 'furigana-box';
-                  furiganaBox.innerHTML = `${reading}`;
+                  
+                  // Create rt (ruby text) element for the reading
+                  const rtElement = document.createElement('rt');
+                  rtElement.textContent = reading;
+                  furiganaBox.appendChild(rtElement);
+                  
+                  // Override ruby default styling to use absolute positioning
+                  furiganaBox.style.position = 'absolute';
                   furiganaBox.style.whiteSpace = 'nowrap';
                   furiganaBox.style.overflowX = 'visible';
                   furiganaBox.style.overflowY = 'hidden';
@@ -692,6 +1353,7 @@ background: rgba(202, 12, 12, 0.692);
                   
                   const furiganaFontSize = fontSize * 0.35;
                   furiganaBox.style.fontSize = `${furiganaFontSize}px`;
+                  rtElement.style.fontSize = `${furiganaFontSize}px`;
                   const furiganaHeight = furiganaFontSize * 1.1;
                   const furiganaHeightPercent = (furiganaHeight / window.innerHeight) * 100;
                   let furiganaTop = y1 - furiganaHeightPercent;
@@ -712,7 +1374,8 @@ background: rgba(202, 12, 12, 0.692);
             lineBox.style.pointerEvents = "none";
             lineBox.style.zIndex = "998";
 
-            if (magpieWindowInfo) {
+            // Use currentMagpieInfo from websocket instead of deprecated magpieWindowInfo
+            if (currentMagpieInfo) {
               const topLeft = transformCoordinates(minx, miny);
               const bottomRight = transformCoordinates(maxx, maxy);
               lineBox.style.left = `${topLeft.x - 2}px`;
@@ -737,7 +1400,8 @@ background: rgba(202, 12, 12, 0.692);
               lineBox.style.top = `${lineMiny}%`;
               lineBox.style.width = `${lineMaxx - lineMinx}%`;
               lineBox.style.height = `${lineMaxy - lineMiny}%`;
-              if (magpieCompatibility) {
+              // Use isMagpieActive from websocket instead of magpieCompatibility setting
+              if (isMagpieActive) {
                 minx -= 5;
                 miny -= 20;
                 maxx += 5;
@@ -765,11 +1429,44 @@ background: rgba(202, 12, 12, 0.692);
             document.body.appendChild(bigInteractiveArea);
           }
 
+          // Add recycled sentence indicator if applicable
+          if (showRecycledIndicator && isSentenceRecycled && data.data && data.data.length > 0) {
+            const firstLine = data.data[0];
+            const firstWord = firstLine.words && firstLine.words[0];
+            
+            if (firstWord && firstWord.bounding_rect) {
+              const rect = firstWord.bounding_rect;
+              const indicator = document.createElement('div');
+              indicator.className = 'recycled-indicator';
+              indicator.innerHTML = '&#x21BB;'; // Unicode clockwise open circle arrow (recycling symbol)
+              indicator.style.position = 'absolute';
+              indicator.style.pointerEvents = 'none';
+              indicator.style.zIndex = '999';
+              indicator.style.color = '#FFA500'; // Orange color
+              indicator.style.fontSize = '32px';
+              indicator.style.fontWeight = 'bold';
+              indicator.style.textShadow = '0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 165, 0, 0.6)';
+              indicator.style.opacity = '0.85';
+              indicator.style.userSelect = 'none';
+              
+              // Position to the left of the first character
+              const indicatorOffsetX = -2; // Shift slightly to the left
+              const indicatorOffsetY = 1; // Align with text baseline
+              
+              indicator.style.left = `${(rect.x1 * 100) + indicatorOffsetX}%`;
+              indicator.style.top = `${(rect.y1 * 100) + indicatorOffsetY}%`;
+              
+              document.body.appendChild(indicator);
+            }
+          }
+          
           if (furiganaBoxes.length > 0) {
-            furiganaBoxes.forEach(box => document.body.appendChild(box));
+            const fragment = document.createDocumentFragment();
+            furiganaBoxes.forEach(box => fragment.appendChild(box));
+            document.body.appendChild(fragment);
           }
 
-          if (!hideReadyIndicator)
+          if (shouldShowReadyIndicator)
             showReadyIndicator();
 
         } else {
@@ -780,7 +1477,7 @@ background: rgba(202, 12, 12, 0.692);
           hideTextBoxes();
         }
 
-        ipcRenderer.send("text-recieved", data);
+        ipcRenderer.send("text-received", data);
         if (!manualModeActivatedOnce) {
           setMouseEventHandlers();
         }
@@ -837,15 +1534,37 @@ background: rgba(202, 12, 12, 0.692);
   }
   setInterval(checkAndReconnectWebSockets, 1000);
 
-  function transformCoordinates(x, y) {
-    if (!magpieWindowInfo) {
+function transformCoordinates(x, y) {
+    if (!currentMagpieInfo) {
       return { x, y };
     }
-    const sourceWidth = magpieWindowInfo.sourceWindowRightEdgePosition - magpieWindowInfo.sourceWindowLeftEdgePosition;
-    const sourceHeight = magpieWindowInfo.sourceWindowBottomEdgePosition - magpieWindowInfo.sourceWindowTopEdgePosition;
-    let transformedX = magpieWindowInfo.sourceWindowLeftEdgePosition + (x / 100 * sourceWidth);
-    let transformedY = magpieWindowInfo.sourceWindowTopEdgePosition + (y / 100 * sourceHeight);
-    return { x: transformedX, y: transformedY };
+
+    // Calculate dimensions of the Magpie window
+    const magpieWidth = currentMagpieInfo.magpieWindowRightEdgePosition - currentMagpieInfo.magpieWindowLeftEdgePosition;
+    const magpieHeight = currentMagpieInfo.magpieWindowBottomEdgePosition - currentMagpieInfo.magpieWindowTopEdgePosition;
+
+    // Check if Magpie window is essentially Fullscreen (within 5% of monitor size)
+    // Uses global 'width' and 'height' variables
+    const isFullscreen = (magpieWidth >= width * 0.95) && (magpieHeight >= height * 0.95);
+
+    if (isFullscreen) {
+      // --- YOUR LOGIC (For Fullscreen) ---
+      // Uses Source Window coordinates
+      const sourceWidth = currentMagpieInfo.sourceWindowRightEdgePosition - currentMagpieInfo.sourceWindowLeftEdgePosition;
+      const sourceHeight = currentMagpieInfo.sourceWindowBottomEdgePosition - currentMagpieInfo.sourceWindowTopEdgePosition;
+      
+      let transformedX = currentMagpieInfo.sourceWindowLeftEdgePosition + (x / 100 * sourceWidth);
+      let transformedY = currentMagpieInfo.sourceWindowTopEdgePosition + (y / 100 * sourceHeight);
+      
+      return { x: transformedX, y: transformedY };
+    } else {
+      // --- MY LOGIC (For Windowed) ---
+      // Uses Magpie Window coordinates to scale correctly when windowed
+      let transformedX = currentMagpieInfo.magpieWindowLeftEdgePosition + (x / 100 * magpieWidth);
+      let transformedY = currentMagpieInfo.magpieWindowTopEdgePosition + (y / 100 * magpieHeight);
+      
+      return { x: transformedX, y: transformedY };
+    }
   }
 
   function estimateFontSize(word, width, height, rect) {
@@ -870,8 +1589,6 @@ background: rgba(202, 12, 12, 0.692);
     const textBoxElements = document.querySelectorAll('.text-box');
     const bigInteractiveAreas = document.querySelectorAll('.big-interactive-area');
     let isMouseOverInteractiveElement = false;
-
-    console.log("Setting mouse event handlers for interactive elements:", interactiveElements);
 
     interactiveElements.forEach((element) => {
       element.addEventListener('mouseenter', (event) => {
@@ -909,41 +1626,55 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   // Function to clear all existing text boxes
-  function clearTextBoxes() {
-    const existingBoxes = document.querySelectorAll('.text-box');
-    const existingLineBreaks = document.querySelectorAll('br');
-    const bigAreas = document.querySelectorAll('.big-interactive-area');
-    const spacers = document.querySelectorAll('.spacer');
-    const lineBoxes = document.querySelectorAll('.line-box');
-    const furiganaBoxes = document.querySelectorAll('.furigana-box');
-    existingLineBreaks.forEach(br => br.remove());
-    existingBoxes.forEach(box => box.remove());
-    bigAreas.forEach(area => area.remove());
-    spacers.forEach(spacer => spacer.remove());
-    lineBoxes.forEach(lineBox => lineBox.remove());
-    furiganaBoxes.forEach(furiganaBox => furiganaBox.remove());
-  }
+function clearTextBoxes() {
+    // Fast way to clear DOM without leaving residue
+    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.furigana-box', '.recycled-indicator', '.text-block-container'];
+    selectors.forEach(sel => {
+        const elements = document.querySelectorAll(sel);
+        for (let i = 0; i < elements.length; i++) {
+            elements[i].remove();
+        }
+    });
+    
+    // Don't remove translation-display here if you want it to persist, 
+    // but DO remove it if you're getting new text.
+    const trans = document.getElementById('translation-display');
+    if (trans) trans.remove();
+}
 
   function hideTextBoxes() {
-    const existingBoxes = document.querySelectorAll('.text-box');
-    existingBoxes.forEach(box => box.style.display = 'none');
-    const bigAreas = document.querySelectorAll('.big-interactive-area');
-    bigAreas.forEach(area => area.style.display = 'none');
-    const lineBoxes = document.querySelectorAll('.line-box');
-    lineBoxes.forEach(lineBox => lineBox.style.display = 'none');
-    const furiganaBoxes = document.querySelectorAll('.furigana-box');
-    furiganaBoxes.forEach(furiganaBox => furiganaBox.style.display = 'none');
+    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.furigana-box', '.recycled-indicator', '.text-block-container'];
+    selectors.forEach(sel => {
+        const elements = document.querySelectorAll(sel);
+        for (let i = 0; i < elements.length; i++) {
+            elements[i].style.display = 'none';
+        }
+    });
+    
+    // Don't remove translation-display here if you want it to persist, 
+    // but DO remove it if you're getting new text.
+    const trans = document.getElementById('translation-display');
+    if (trans) trans.style.display = 'none';
   }
 
   function showTextBoxes() {
-    const existingBoxes = document.querySelectorAll('.text-box');
-    existingBoxes.forEach(box => box.style.display = 'block');
-    const bigAreas = document.querySelectorAll('.big-interactive-area');
-    bigAreas.forEach(area => area.style.display = 'block');
-    const lineBoxes = document.querySelectorAll('.line-box');
-    lineBoxes.forEach(lineBox => lineBox.style.display = 'block');
+    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.recycled-indicator', '.text-block-container'];
+    selectors.forEach(sel => {
+        const elements = document.querySelectorAll(sel);
+        for (let i = 0; i < elements.length; i++) {
+            elements[i].style.display = 'block';
+        }
+    });
+
     const furiganaBoxes = document.querySelectorAll('.furigana-box');
-    furiganaBoxes.forEach(furiganaBox => furiganaBox.style.display = 'block');
+    for (let i = 0; i < furiganaBoxes.length; i++) {
+      furiganaBoxes[i].style.display = furiganaVisible ? 'block' : 'none';
+    }
+    
+    // Don't remove translation-display here if you want it to persist, 
+    // but DO remove it if you're getting new text.
+    const trans = document.getElementById('translation-display');
+    if (trans) trans.style.display = 'block';
   }
 
   let resizeMode = false;
@@ -978,9 +1709,41 @@ background: rgba(202, 12, 12, 0.692);
     ipcRenderer.send("open-yomitan-settings");
   });
 
-  // If anywhere but ".interactive" and ".yomitan-popup" is left clicked or right clicked, ignore mouse events, and let it go through
+  // Prevent clicks on non-interactive areas - this won't make THIS click pass through,
+  // but ensures FUTURE clicks pass through. The window must already be in ignore mode
+  // for clicks to pass through automatically.
   document.addEventListener("click", (event) => {
-    if (!event.target.closest(".interactive") && !event.target.closest(".yomitan-popup") && !yomitanShowing) {
+    // Use composedPath to see into Shadow DOMs
+    const path = event.composedPath();
+    const isYomitanPopup = path.some(el => 
+      el instanceof HTMLElement && (el.classList.contains('yomitan-popup') || el.tagName === 'YOMITAN-POPUP-TAG-NAME')
+    );
+    
+    const target = event.target;
+    const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
+    const isActionPanel = false; // target.id === 'action-panel' || target.closest('#action-panel');
+    const isActionTrigger = false; // target.id === 'action-panel-trigger' || target.closest('#action-panel-trigger');
+    
+    if (!isYomitanPopup && !isActionPanel && !isActionTrigger) {
+      // Set ignore mode immediately so subsequent mouse events pass through
+      ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+    }
+  });
+
+  // Use mousedown to catch events earlier in the chain, giving better pass-through behavior
+  document.addEventListener("mousedown", (event) => {
+    const path = event.composedPath();
+    const isYomitanPopup = path.some(el => 
+      el instanceof HTMLElement && (el.classList.contains('yomitan-popup') || el.tagName === 'YOMITAN-POPUP-TAG-NAME')
+    );
+    
+    const target = event.target;
+    // const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
+    const isActionPanel = false; // target.id === 'action-panel' || target.closest('#action-panel');
+    const isActionTrigger = false; // target.id === 'action-panel-trigger' || target.closest('#action-panel-trigger');
+    
+    // If clicking on non-interactive area, ensure ignore mode is active
+    if (!isYomitanPopup && !isActionPanel && !isActionTrigger) {
       ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
     }
   });
@@ -990,15 +1753,17 @@ background: rgba(202, 12, 12, 0.692);
     setupWebSocket(newsettings.weburl1, true)
     setupWebSocket(newsettings.weburl2, false)
     hideOnStartup = newsettings.hideOnStartup;
-    magpieCompatibility = newsettings.magpieCompatibility;
     manualMode = newsettings.manualMode;
     showHotkey = newsettings.showHotkey;
     pinned = newsettings.pinned;
     showTextBackground = newsettings.showTextBackground || false;
-    hideReadyIndicator = newsettings.hideReadyIndicator;
+    shouldShowReadyIndicator = newsettings.showReadyIndicator;
     showFurigana = newsettings.showFurigana;
+    showRecycledIndicator = newsettings.showRecycledIndicator !== false;
     offsetX = newsettings.offsetX || 0;
     offsetY = newsettings.offsetY || 0;
+    dismissedRecommendationGames = newsettings.dismissedFullscreenRecommendations || [];
+    console.log("Loaded dismissed games:", dismissedRecommendationGames);
 
     if (pinned) {
       document.body.classList.add("force-visible");
@@ -1018,9 +1783,11 @@ background: rgba(202, 12, 12, 0.692);
       clearInterval(magpieReleaseInterval);
     }
 
-    if (magpieCompatibility) {
-      // every 500ms, set-ignore-mouse-events to true
+    // Initialize magpie interval based on current websocket state (isMagpieActive)
+    // This will be updated dynamically when window_state messages arrive
+    if (isMagpieActive) {
       magpieReleaseInterval = setInterval(() => {
+        // && !actionPanelShowing
         if (!yomitanShowing && !manualHotkeyPressed) {
           ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
         }
@@ -1060,9 +1827,6 @@ background: rgba(202, 12, 12, 0.692);
         case "hideOnStartup":
           hideOnStartup = value;
           break;
-        case "magpieCompatibility":
-          updateMagpieCompatibility(value);
-          break;
         case "manualMode":
           updateManualMode(value);
           break;
@@ -1075,11 +1839,14 @@ background: rgba(202, 12, 12, 0.692);
         case "showTextBackground":
           updateTextBackground(value);
           break;
-        case "hideReadyIndicator":
-          hideReadyIndicator = value;
+        case "showReadyIndicator":
+          showReadyIndicator = value;
           break;
         case "showFurigana":
           showFurigana = value;
+          break;
+        case "showRecycledIndicator":
+          showRecycledIndicator = value;
           break;
         case "offsetX":
           offsetX = value;
@@ -1092,16 +1859,18 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   function updateMagpieCompatibility(newValue) {
-    magpieCompatibility = newValue;
-    console.log("Magpie compatibility changed to:", magpieCompatibility);
+    // newValue now represents whether magpie is currently active (from websocket)
+    // We use the global isMagpieActive state rather than the old magpieCompatibility setting
+    console.log("Magpie compatibility behavior update - Active:", isMagpieActive);
 
     if (magpieReleaseInterval) {
       clearInterval(magpieReleaseInterval);
       magpieReleaseInterval = null;
     }
 
-    if (magpieCompatibility) {
+    if (isMagpieActive) {
       magpieReleaseInterval = setInterval(() => {
+        // && !actionPanelShowing
         if (!yomitanShowing && !manualHotkeyPressed) {
           ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
         }
@@ -1117,7 +1886,7 @@ background: rgba(202, 12, 12, 0.692);
       const height = parseFloat(area.style.height) || 0;
 
       if (usePercentage) {
-        if (magpieCompatibility) {
+        if (isMagpieActive) {
           area.style.left = (left - 5) + '%';
           area.style.top = (top - 5) + '%';
           area.style.width = (width + 10) + '%';
@@ -1129,7 +1898,7 @@ background: rgba(202, 12, 12, 0.692);
           area.style.height = height + '%';
         }
       }
-      else if (magpieCompatibility) {
+      else if (isMagpieActive) {
         area.style.left = (left - 100) + 'px';
         area.style.top = (top - 100) + 'px';
         area.style.width = (width + 200) + 'px';
@@ -1148,12 +1917,17 @@ background: rgba(202, 12, 12, 0.692);
     if (manualMode) {
       manualModeActivatedOnce = false;
       manualHotkeyPressed = false;
+      hideOnYomitanClose = false; // Clear this flag to prevent weird state
       if (!pinned) {
         document.body.classList.remove('force-visible');
       }
       hideTextBoxes();
       ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
     } else {
+      // Switching to non-manual mode (automatic mode)
+      // Clear any manual mode flags to prevent lockout
+      manualHotkeyPressed = false;
+      hideOnYomitanClose = false;
       document.body.classList.add('force-visible');
       showTextBoxes();
       ipcRenderer.send('set-ignore-mouse-events', false);
@@ -1205,61 +1979,6 @@ background: rgba(202, 12, 12, 0.692);
   ipcRenderer.on("new-hideonstartup", (event, newValue) => {
     hideOnStartup = newValue;
   })
-  ipcRenderer.on("new-magpieCompatibility", (event, newValue) => {
-    magpieCompatibility = newValue;
-    console.log("Magpie compatibility changed to:", magpieCompatibility);
-
-    if (magpieReleaseInterval) {
-      clearInterval(magpieReleaseInterval);
-      magpieReleaseInterval = null;
-    }
-
-    if (magpieCompatibility) {
-      magpieReleaseInterval = setInterval(() => {
-        if (!yomitanShowing && !manualHotkeyPressed) {
-          ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
-        }
-      }, 1000);
-    }
-
-    // Update any UI elements or settings related to magpieCompatibility
-    const bigInteractiveAreas = document.querySelectorAll('.big-interactive-area');
-    bigInteractiveAreas.forEach(area => {
-      const left = parseFloat(area.style.left) || 0;
-      const top = parseFloat(area.style.top) || 0;
-      const width = parseFloat(area.style.width) || 0;
-      const height = parseFloat(area.style.height) || 0;
-
-      if (usePercentage) {
-        if (magpieCompatibility) {
-          // When using percentage units and Magpie compatibility is enabled,
-          // adjust the styles accordingly.
-          area.style.left = (left - 5) + '%';
-          area.style.top = (top - 5) + '%';
-          area.style.width = (width + 10) + '%';
-          area.style.height = (height + 10) + '%';
-        } else {
-          // When using percentage units and Magpie compatibility is disabled,
-          // reset to original styles or apply default adjustments.
-          area.style.left = left + '%';
-          area.style.top = top + '%';
-          area.style.width = width + '%';
-          area.style.height = height + '%';
-        }
-      }
-      else if (magpieCompatibility) {
-        area.style.left = (left - 100) + 'px';
-        area.style.top = (top - 100) + 'px';
-        area.style.width = (width + 200) + 'px';
-        area.style.height = (height + 200) + 'px';
-      } else {
-        area.style.left = (left + 100 - 10) + 'px';
-        area.style.top = (top + 100 - 10) + 'px';
-        area.style.width = (width - 200 + 20) + 'px';
-        area.style.height = (height - 200 + 20) + 'px';
-      }
-    });
-  });
 
   ipcRenderer.on('show-overlay-hotkey', (event, isActive) => {
     manualHotkeyPressed = isActive;
@@ -1269,8 +1988,14 @@ background: rgba(202, 12, 12, 0.692);
       showTextBoxes();
       ipcRenderer.send('set-ignore-mouse-events', false);
     } else {
+      // Always set manualHotkeyPressed to false even if Yomitan is showing
+      // to maintain consistent state
       if (yomitanShowing) {
         hideOnYomitanClose = true;
+        // Don't return early - still need to remove force-visible if not pinned
+        if (!pinned) {
+          document.body.classList.remove('force-visible');
+        }
         return;
       }
       if (!pinned) {
@@ -1296,7 +2021,6 @@ background: rgba(202, 12, 12, 0.692);
       // show overlay again
       document.body.classList.add('force-visible');
       showTextBoxes();
-      ipcRenderer.send('set-ignore-mouse-events', false);
     }
   });
 
@@ -1320,11 +2044,20 @@ background: rgba(202, 12, 12, 0.692);
     });
   });
 
+  // Toggle translation visibility on hotkey
+  ipcRenderer.on("toggle-translation-visibility", () => {
+    const translationDiv = document.getElementById('translation-display');
+    if (translationDiv) {
+      const isVisible = translationDiv.style.display !== 'none';
+      translationDiv.style.display = isVisible ? 'none' : 'block';
+    }
+  });
+
   ipcRenderer.on("request-current-settings", () => {
     const fontSize = parseInt(textEl.style.fontSize, 10);
     const weburl1 = window.ws1 ? window.ws1.url : null;
     const weburl2 = window.ws2 ? window.ws2.url : null;
-    ipcRenderer.send("reply-current-settings", { fontSize, weburl1, weburl2, hideOnStartup, magpieCompatibility, showHotkey, manualMode, showTextBackground });
+    ipcRenderer.send("reply-current-settings", { fontSize, weburl1, weburl2, hideOnStartup, showHotkey, manualMode, showTextBackground });
   })
 
   ipcRenderer.on('toggle-main-box', () => {
@@ -1337,13 +2070,184 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   ipcRenderer.on('magpie-window-info', (event, info) => {
-    magpieWindowInfo = info;
-    console.log('Received Magpie window info:', info);
+    // DEPRECATED: Now receiving magpie info via websocket in window_state messages
+    // Keeping this handler for backwards compatibility but not using it
+    console.log('Received Magpie window info via IPC (deprecated):', info);
   });
 
   ipcRenderer.on('new-manualmode', (event, newValue) => {
     updateManualMode(newValue);
   });
+
+  // Listen for game state changes to control action panel visibility
+  ipcRenderer.on('game-state', (event, state) => {
+    /*
+    const actionPanelTrigger = document.getElementById('action-panel-trigger');
+    const actionPanel = document.getElementById('action-panel');
+    
+    if (state === 'active') {
+      // Game is active - show action panel trigger
+      if (actionPanelTrigger) actionPanelTrigger.style.display = 'flex';
+      console.log('Game active - showing action panel trigger');
+    } else {
+      // Game is background, obscured, minimized, or closed - hide action panel
+      if (actionPanelTrigger) actionPanelTrigger.style.display = 'none';
+      if (actionPanel) actionPanel.classList.remove('visible', 'startup-hint');
+      console.log(`Game ${state} - hiding action panel`);
+    }
+    */
+  });
+
+  // Handle translation results
+  ipcRenderer.on('translation-received', (event, translation) => {
+    console.log('Translation received:', translation);
+    showTranslation(translation);
+  });
+
+  ipcRenderer.on('translation-error', (event, error) => {
+    console.error('Translation error:', error);
+    showTranslation('Translation failed: ' + error);
+  });
+
+  // Handle manual mode recommendation
+  ipcRenderer.on('recommend-manual-mode', (event, { game }) => {
+    if (dismissedRecommendationGames.includes(game)) {
+      // User already dismissed for this game permanently
+      return;
+    }
+    
+    currentGameForRecommendation = game;
+    const banner = document.getElementById('manual-mode-recommendation');
+    if (banner) {
+      banner.classList.add('visible');
+    }
+  });
+
+  // Handle enabling manual mode from recommendation
+  document.addEventListener('DOMContentLoaded', () => {
+    const enableBtn = document.getElementById('btn-enable-manual');
+    const dismissBtn = document.getElementById('btn-dismiss-recommendation');
+    const banner = document.getElementById('manual-mode-recommendation');
+
+    if (enableBtn) {
+      enableBtn.addEventListener('click', () => {
+        // Enable manual mode
+        ipcRenderer.send('setting-changed', { key: 'manualMode', value: true });
+        // Hide banner
+        if (banner) banner.classList.remove('visible');
+        // Save dismissed game permanently
+        if (currentGameForRecommendation && !dismissedRecommendationGames.includes(currentGameForRecommendation)) {
+          dismissedRecommendationGames.push(currentGameForRecommendation);
+          ipcRenderer.send('setting-changed', { key: 'dismissedFullscreenRecommendations', value: dismissedRecommendationGames });
+        }
+      });
+    }
+
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', () => {
+        // Permanently dismiss for this game
+        if (banner) banner.classList.remove('visible');
+        if (currentGameForRecommendation && !dismissedRecommendationGames.includes(currentGameForRecommendation)) {
+          dismissedRecommendationGames.push(currentGameForRecommendation);
+          ipcRenderer.send('setting-changed', { key: 'dismissedFullscreenRecommendations', value: dismissedRecommendationGames });
+        }
+      });
+    }
+  });
+
+  // Function to display translation over text boxes
+  function showTranslation(translationText) {
+    // Remove any existing translation
+    const existingTranslation = document.getElementById('translation-display');
+    if (existingTranslation) {
+      existingTranslation.remove();
+    }
+
+    if (!translationText) return;
+
+    // Get all text boxes to calculate their bounding area
+    const textBoxes = document.querySelectorAll('.text-box');
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    
+    textBoxes.forEach(box => {
+      if (box.style.display !== 'none') {
+        const rect = box.getBoundingClientRect();
+        minX = Math.min(minX, rect.left);
+        minY = Math.min(minY, rect.top);
+        maxX = Math.max(maxX, rect.right);
+        maxY = Math.max(maxY, rect.bottom);
+      }
+    });
+
+    // Create translation display element
+    const translationDiv = document.createElement('div');
+    translationDiv.id = 'translation-display';
+    translationDiv.style.position = 'absolute';
+    
+    // Position over the text boxes if they exist, otherwise use a default position
+    if (textBoxes.length > 0 && minX !== Infinity) {
+      translationDiv.style.left = `${minX}px`;
+      translationDiv.style.top = `${minY}px`;
+      translationDiv.style.width = `${maxX - minX}px`;
+      translationDiv.style.height = `${maxY - minY}px`;
+    } else {
+      // Fallback to center area if no text boxes
+      translationDiv.style.left = '50%';
+      translationDiv.style.top = '50%';
+      translationDiv.style.transform = 'translate(-50%, -50%)';
+    }
+    
+    translationDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.97)';
+    translationDiv.style.color = 'white';
+    translationDiv.style.padding = '20px 30px';
+    translationDiv.style.borderRadius = '10px';
+    translationDiv.style.border = '2px solid rgba(0, 255, 136, 0.5)';
+    translationDiv.style.boxShadow = '0 0 20px rgba(0, 255, 136, 0.3)';
+    // Set font size based on .text-box font size, or fallback to 24px
+    let sampleBox = document.querySelector('.text-box');
+    let fontSize = 32;
+    if (sampleBox) {
+      const computed = window.getComputedStyle(sampleBox);
+      fontSize = parseInt(computed.fontSize) - Math.floor(parseInt(computed.fontSize) * 0.2) || 32;
+    }
+    translationDiv.style.fontSize = fontSize + 'px';
+    translationDiv.style.maxWidth = '80%';
+    translationDiv.style.textAlign = 'center';
+    translationDiv.style.zIndex = '10001';
+    translationDiv.style.pointerEvents = 'none';
+    translationDiv.style.userSelect = 'none';
+    translationDiv.style.whiteSpace = 'pre-wrap';
+    translationDiv.style.wordBreak = 'break-word';
+    translationDiv.textContent = translationText;
+    translationDiv.style.transition = 'opacity 0.3s ease';
+
+    document.body.appendChild(translationDiv);
+
+    // Hide on hover to see text underneath
+    const hideOnHover = () => {
+      if (translationDiv && translationDiv.parentNode) {
+        translationDiv.style.opacity = '0';
+      }
+    };
+
+    const showOnHoverEnd = () => {
+      if (translationDiv && translationDiv.parentNode) {
+        translationDiv.style.opacity = '1';
+      }
+    };
+
+    document.body.addEventListener('mouseenter', hideOnHover);
+    document.body.addEventListener('mouseleave', showOnHoverEnd);
+
+    // Auto-remove after 30 seconds
+    // setTimeout(() => {
+    //   if (translationDiv && translationDiv.parentNode) {
+    //     document.body.removeEventListener('mouseenter', hideOnHover);
+    //     document.body.removeEventListener('mouseleave', showOnHoverEnd);
+    //     translationDiv.remove();
+    //   }
+    // }, 30000);
+  }
 
 </script>
 

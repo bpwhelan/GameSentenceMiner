@@ -2,7 +2,8 @@ import argparse
 import json
 import sys
 import os
-from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMenu
+import time
+from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMenu, QProgressDialog, QMessageBox
 from PyQt6.QtCore import Qt, QRect, QTimer
 from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage, QBrush, QAction
 from PIL import Image
@@ -99,6 +100,12 @@ class ControlPanelWidget(QWidget):
         redo_btn.clicked.connect(self.parent_selector.redo)
         layout.addWidget(redo_btn)
         
+        # Add refresh button only if using OBS screenshot
+        if self.parent_selector.use_obs_screenshot:
+            refresh_btn = QPushButton("Refresh Screenshot (R)")
+            refresh_btn.clicked.connect(self.parent_selector.refresh_screenshot)
+            layout.addWidget(refresh_btn)
+        
         toggle_instructions_btn = QPushButton("Toggle Instructions (I)")
         toggle_instructions_btn.clicked.connect(self.toggle_instructions)
         layout.addWidget(toggle_instructions_btn)
@@ -177,7 +184,9 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.long_press_active = False
         
         self._initialize()
-        self.init_ui()
+        # Only initialize UI if screenshot was successful
+        if self.pixmap:
+            self.init_ui()
     
     def _initialize(self):
         """Initialize appropriate capture method."""
@@ -214,7 +223,9 @@ class OWOCRAreaSelectorWidget(QWidget):
             
         except Exception as e:
             logger.error(f"Failed to initialize: {e}")
-            raise
+            # Display error in a box and exit gracefully
+            QMessageBox.critical(None, "Initialization Error", str(e))
+            sys.exit(0)
 
     def _init_monitor_capture(self):
         """Initialize by capturing the configured monitor via MSS."""
@@ -285,9 +296,60 @@ class OWOCRAreaSelectorWidget(QWidget):
         if len(sources) > 1:
             logger.warning(f"Multiple active video sources found. Using '{best_source.get('sourceName')}'")
         
-        self.screenshot_img = obs.get_screenshot_PIL(compression=100, img_format='jpg')
+        # Attempt to get screenshot with retry logic
+        self.screenshot_img = None
+        retry_count = 10
+        retry_delay = 3
+        
+        # Create a progress dialog to warn the user and allow quitting
+        progress = QProgressDialog("Connecting to OBS...", "Quit", 0, retry_count)
+        progress.setWindowTitle("Waiting for Game Source")
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.setCancelButtonText("Quit")
+        
+        # Center the dialog on the primary screen
+        screen = QApplication.primaryScreen()
+        if screen:
+            geo = screen.geometry()
+            progress.move(geo.center() - progress.rect().center())
+        
+        for i in range(retry_count):
+            try:
+                # Update dialog text
+                remaining = retry_count - i
+                progress.setLabelText(
+                    "OBS Source appears blank or invalid.\n"
+                    "Please open your game.\n"
+                    f"Retrying... ({remaining} attempts left)"
+                )
+                progress.setValue(i)
+                
+                # Check for cancellation/quit
+                if progress.wasCanceled():
+                    logger.info("User quit during screenshot retry.")
+                    sys.exit(0)
+                
+                # Attempt capture - get fresh scene data implicitly via the obs call or connection check
+                self.screenshot_img = obs.get_screenshot_PIL(compression=100, img_format='jpg')
+                
+                # If we got a valid image, break the loop
+                if self.screenshot_img:
+                    break
+                
+            except Exception as e:
+                logger.debug(f"Attempt {i+1} failed: {e}")
+            
+            # Wait with event processing to keep UI responsive
+            t_end = time.time() + retry_delay
+            while time.time() < t_end:
+                QApplication.processEvents()
+                time.sleep(0.01)
+        
+        progress.close()
+
         if not self.screenshot_img:
-            raise RuntimeError("Failed to get OBS screenshot, is OBS running with a valid video source?")
+            raise RuntimeError("Failed to get OBS screenshot after multiple retries. Is the game running and visible in OBS?")
         
         # Scale down for performance
         self.screenshot_img = self.screenshot_img.resize(
@@ -479,8 +541,7 @@ class OWOCRAreaSelectorWidget(QWidget):
     
     def init_ui(self):
         # Set window properties
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
-                           Qt.WindowType.WindowStaysOnTopHint |
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint |
                            Qt.WindowType.Tool |
                            Qt.WindowType.BypassWindowManagerHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
@@ -619,7 +680,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         
         # Title - always use full green, not affected by dimming
         painter.setPen(QColor(76, 175, 80))
-        painter.drawText(panel_x + 10, panel_y + 25, "OWOCR Area Selector")
+        painter.drawText(panel_x + 10, panel_y + 25, "OCR Area Selector")
         
         # Instructions
         painter.setPen(QColor(255, 255, 255, text_alpha))
@@ -904,6 +965,8 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.undo()
         elif event.key() == Qt.Key.Key_Y and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             self.redo()
+        elif event.key() == Qt.Key.Key_R:
+            self.refresh_screenshot()
         elif event.key() == Qt.Key.Key_I:
             self.instructions_visible = not self.instructions_visible
             self.update()
@@ -993,6 +1056,58 @@ class OWOCRAreaSelectorWidget(QWidget):
         
         logger.info(f"Created fullscreen rectangle: {new_rect}")
         self.update()
+    
+    def refresh_screenshot(self):
+        """Refresh the screenshot from OBS without blocking the UI."""
+        if not self.use_obs_screenshot:
+            logger.info("Refresh is only available in OBS screenshot mode")
+            return
+        
+        logger.info("Refreshing OBS screenshot...")
+        
+        # Use QTimer.singleShot to run the capture asynchronously
+        def do_refresh():
+            try:
+                # Capture new screenshot
+                new_screenshot = obs.get_screenshot_PIL(compression=100, img_format='jpg')
+                
+                if not new_screenshot:
+                    logger.warning("Failed to capture new screenshot")
+                    return
+                
+                # Scale down for performance
+                new_screenshot = new_screenshot.resize(
+                    scale_down_width_height(new_screenshot.width, new_screenshot.height),
+                    Image.LANCZOS
+                )
+                
+                # Convert PIL Image to QPixmap
+                img_to_convert = new_screenshot
+                if img_to_convert.mode in ('RGBA', 'LA', 'P'):
+                    if img_to_convert.mode == 'P':
+                        img_to_convert = img_to_convert.convert('RGBA')
+                    rgb_img = Image.new('RGB', img_to_convert.size, (255, 255, 255))
+                    rgb_img.paste(img_to_convert, mask=img_to_convert.split()[-1] if img_to_convert.mode == 'RGBA' else None)
+                    img_to_convert = rgb_img
+                
+                img_data = img_to_convert.tobytes('raw', 'RGB')
+                qimage = QImage(img_data, img_to_convert.width, img_to_convert.height,
+                              img_to_convert.width * 3, QImage.Format.Format_RGB888)
+                
+                # Update the screenshot and pixmap
+                self.screenshot_img = new_screenshot
+                self.pixmap = QPixmap.fromImage(qimage)
+                
+                # Trigger repaint
+                self.update()
+                
+                logger.info("Screenshot refreshed successfully")
+                
+            except Exception as e:
+                logger.error(f"Failed to refresh screenshot: {e}")
+        
+        # Execute refresh after a short delay to avoid blocking
+        QTimer.singleShot(0, do_refresh)
     
     def save_and_quit(self):
         """Save rectangles and quit."""

@@ -341,9 +341,9 @@ async def add_event_to_texthooker(line):
     await check_for_lines_outside_replay_buffer()
 
 
-async def send_word_coordinates_to_overlay(boxes):
-    if boxes and len(boxes) > 0 and websocket_manager.has_clients(ID_OVERLAY):
-        await websocket_manager.send(ID_OVERLAY, boxes)
+async def send_word_coordinates_to_overlay(data):
+    if data['data'] and len(data['data']) > 0 and websocket_manager.has_clients(ID_OVERLAY):
+        await websocket_manager.send(ID_OVERLAY, data)
 
 
 @app.route("/update_checkbox", methods=["POST"])

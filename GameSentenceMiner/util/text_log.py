@@ -1,3 +1,4 @@
+import enum
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -13,7 +14,11 @@ import re
 
 initial_time = datetime.now()
 
-
+class TextSource:
+    OCR = "OCR"
+    HOOKER = "HOOKER"
+    MANUAL = "MANUAL"
+    
 @dataclass
 class GameLine:
     id: str
@@ -25,6 +30,7 @@ class GameLine:
     scene: str = ""
     TL: str = ""
     mined_time: datetime = datetime.min
+    source: str = None
 
     def get_previous_time(self):
         if self.prev:
@@ -50,6 +56,7 @@ class GameLine:
 class GameText:
     values: list[GameLine]
     values_dict: dict[str, GameLine]
+    previous_lines = set()
     game_line_index = 0
 
     def __init__(self):
@@ -76,7 +83,7 @@ class GameText:
             return matches[occurrence]
         return None
 
-    def add_line(self, line_text, line_time=None):
+    def add_line(self, line_text, line_time=None, source: str = None):
         if not line_text:
             return
         line_id = str(uuid.uuid1())
@@ -87,13 +94,16 @@ class GameText:
             prev=self.values[-1] if self.values else None,
             next=None,
             index=self.game_line_index,
-            scene=gsm_state.current_game or ""
+            scene=gsm_state.current_game or "",
+            source=source
         )
         self.values_dict[line_id] = new_line
         self.game_line_index += 1
         if self.values:
             self.values[-1].next = new_line
         self.values.append(new_line)
+        if new_line.prev:
+            self.previous_lines.add(new_line.prev.text)
         return new_line
         # self.remove_old_events(datetime.now() - timedelta(minutes=10))
 
@@ -201,8 +211,8 @@ def get_text_log() -> GameText:
     return game_log
 
 
-def add_line(current_line_after_regex, line_time):
-    return game_log.add_line(current_line_after_regex, line_time)
+def add_line(current_line_after_regex, line_time, source: str) -> GameLine:
+    return game_log.add_line(current_line_after_regex, line_time, source=source)
 
 
 def get_line_by_id(line_id: str) -> Optional[GameLine]:
