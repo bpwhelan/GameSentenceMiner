@@ -209,6 +209,27 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
             logger.debug(
                 f"Updated game {game.id} ({game.title_original}): {len(update_fields)} fields"
             )
+            
+            # Check if it's a Visual Novel and fetch VNDB character data
+            if jiten_data.get("media_type_string") == "Visual Novel":
+                try:
+                    from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
+                    import json
+                    
+                    links = jiten_data.get("links", [])
+                    vndb_id = JitenApiClient.extract_vndb_id(links)
+                    
+                    if vndb_id:
+                        logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
+                        vndb_data = VNDBApiClient.process_vn_characters(vndb_id)
+                        
+                        if vndb_data:
+                            game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
+                            game.save()
+                            logger.info(f"Updated VNDB data for {game.title_original}")
+                except Exception as e:
+                    logger.error(f"Failed to fetch VNDB data: {e}")
+            
             return {
                 "success": True,
                 "updated_fields": list(update_fields.keys()),

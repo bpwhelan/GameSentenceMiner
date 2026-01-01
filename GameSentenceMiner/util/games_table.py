@@ -26,6 +26,8 @@ class GamesTable(SQLiteDBTable):
         "obs_scene_name",
         "genres",
         "tags",
+        "vndb_character_data",
+        "character_summary",
     ]
     _types = [
         str,  # id (primary key)
@@ -45,6 +47,8 @@ class GamesTable(SQLiteDBTable):
         str,  # obs_scene_name (immutable OBS scene name)
         list,  # genres (stored as JSON array of genre names)
         list,  # tags (stored as JSON array of tag names)
+        str,  # vndb_character_data (stored as JSON string)
+        str,  # character_summary (AI-generated summary text)
     ]
     _pk = "id"
     _auto_increment = False  # UUID-based primary key
@@ -68,6 +72,8 @@ class GamesTable(SQLiteDBTable):
         obs_scene_name: Optional[str] = None,
         genres: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
+        vndb_character_data: Optional[str] = None,
+        character_summary: Optional[str] = None,
     ):
         self.id = id if id else str(uuid.uuid4())
         self.deck_id = deck_id
@@ -86,6 +92,8 @@ class GamesTable(SQLiteDBTable):
         self.obs_scene_name = obs_scene_name if obs_scene_name else ""
         self.genres = genres if genres else []
         self.tags = tags if tags else []
+        self.vndb_character_data = vndb_character_data
+        self.character_summary = character_summary
 
     @classmethod
     def get_by_deck_id(cls, deck_id: int) -> Optional["GamesTable"]:
@@ -360,6 +368,8 @@ class GamesTable(SQLiteDBTable):
         release_date: Optional[str] = None,
         genres: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
+        vndb_character_data: Optional[str] = None,
+        character_summary: Optional[str] = None,
     ):
         """
         Update all fields of the game at once. Only provided fields will be updated.
@@ -380,6 +390,8 @@ class GamesTable(SQLiteDBTable):
             release_date: Release date (ISO format string)
             genres: List of genre names
             tags: List of tag names
+            vndb_character_data: Raw character data from VNDB API (JSON string)
+            character_summary: AI-generated character summary text
         """
         if deck_id is not None:
             self.deck_id = deck_id
@@ -423,6 +435,12 @@ class GamesTable(SQLiteDBTable):
         if tags is not None:
             self.tags = tags
             self.mark_field_manual("tags")
+        if vndb_character_data is not None:
+            self.vndb_character_data = vndb_character_data
+            self.mark_field_manual("vndb_character_data")
+        if character_summary is not None:
+            self.character_summary = character_summary
+            self.mark_field_manual("character_summary")
 
         self.save()
         logger.debug(f"Updated game {self.id} ({self.title_original})")
@@ -443,9 +461,12 @@ class GamesTable(SQLiteDBTable):
         release_date: Optional[str] = None,
         genres: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
+        vndb_character_data: Optional[str] = None,
+        character_summary: Optional[str] = None,
     ):
         """
         Update all fields of the game at once. Only provided fields will be updated.
+        Note: vndb_character_data and character_summary are preserved if not explicitly provided.
 
         Args:
             deck_id: jiten.moe deck ID
@@ -462,6 +483,8 @@ class GamesTable(SQLiteDBTable):
             release_date: Release date (ISO format string)
             genres: List of genre names
             tags: List of tag names
+            vndb_character_data: Raw character data from VNDB API (JSON string)
+            character_summary: AI-generated character summary text
         """
         if deck_id is not None:
             self.deck_id = deck_id
@@ -498,6 +521,11 @@ class GamesTable(SQLiteDBTable):
             self.genres = genres
         if tags is not None:
             self.tags = tags
+        # VNDB character data fields - preserved if not explicitly provided
+        if vndb_character_data is not None:
+            self.vndb_character_data = vndb_character_data
+        if character_summary is not None:
+            self.character_summary = character_summary
         self.save()
         logger.debug(
             f"Updated game {self.id} ({self.title_original}) - final release_date: '{self.release_date}'"

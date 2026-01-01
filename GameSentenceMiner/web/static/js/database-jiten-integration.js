@@ -387,6 +387,7 @@ function openEditGameModal(game) {
     document.getElementById('editDeckId').value = game.deck_id || '';
     document.getElementById('editCharacterCount').value = game.jiten_character_count || '';
     document.getElementById('editCompleted').checked = !!game.completed;
+    document.getElementById('editCharacterSummary').value = game.character_summary || '';
     
     // Handle release date - convert ISO format to date input format (YYYY-MM-DD)
     if (game.release_date) {
@@ -534,13 +535,15 @@ async function saveGameEdits() {
     
     try {
         // Prepare update data
+        const characterSummary = document.getElementById('editCharacterSummary').value.trim();
         const updateData = {
             title_original: titleOriginal,
             title_romaji: document.getElementById('editTitleRomaji').value.trim(),
             title_english: document.getElementById('editTitleEnglish').value.trim(),
             type: document.getElementById('editType').value,
             description: document.getElementById('editDescription').value.trim(),
-            completed: document.getElementById('editCompleted').checked
+            completed: document.getElementById('editCompleted').checked,
+            character_summary: characterSummary || null
         };
         
         // Add release date if provided

@@ -1,0 +1,402 @@
+"""
+VNDB API Client
+
+Fetch character information from VNDB for use in AI translation context.
+Extracts names, personality traits, roles, and other relevant attributes.
+"""
+
+from typing import Optional, Dict, List, Tuple
+import requests
+
+from GameSentenceMiner.util.configuration import logger
+
+
+class VNDBApiClient:
+    """
+    Client for VNDB API interactions.
+
+    Provides methods for:
+    - Fetching all characters for a VN with automatic pagination
+    - Categorizing traits by group with spoiler filtering
+    - Determining character role for target VN
+    - Formatting character data for translation context
+    - Creating compact text summaries for AI prompts
+    """
+
+    API_URL = "https://api.vndb.org/kana/character"
+    TIMEOUT = 10
+    DEFAULT_RESULTS_PER_PAGE = 100
+
+    @staticmethod
+    def normalize_vndb_id(vn_id: str) -> str:
+        """
+        Normalize VN ID to format 'v12345'.
+
+        Args:
+            vn_id: VNDB visual novel ID (e.g., "v56650" or "56650")
+
+        Returns:
+            Normalized VN ID with 'v' prefix
+        """
+        vn_id = str(vn_id).strip().lower()
+        if vn_id.startswith("v"):
+            return vn_id
+        return f"v{vn_id}"
+
+    @classmethod
+    def fetch_characters(
+        cls,
+        vn_id: str,
+        results_per_page: int = None
+    ) -> Optional[List[Dict]]:
+        """
+        Fetch all characters for a given VN from VNDB API.
+        Handles pagination automatically.
+
+        Args:
+            vn_id: VNDB visual novel ID (e.g., "v56650" or "56650")
+            results_per_page: Number of results per API request (default: 100)
+
+        Returns:
+            List of character dictionaries, or None if request fails
+        """
+        if results_per_page is None:
+            results_per_page = cls.DEFAULT_RESULTS_PER_PAGE
+
+        vn_id = cls.normalize_vndb_id(vn_id)
+        all_characters = []
+        page = 1
+
+        logger.debug(f"Fetching characters for VN {vn_id} from VNDB")
+
+        while True:
+            try:
+                payload = {
+                    "filters": ["vn", "=", ["id", "=", vn_id]],
+                    "fields": ",".join([
+                        "id",
+                        "name",
+                        "original",
+                        "aliases",
+                        "description",
+                        "blood_type",
+                        "height",
+                        "weight",
+                        "age",
+                        "birthday",
+                        "sex",
+                        "gender",
+                        "vns.role",
+                        "vns.spoiler",
+                        "vns.id",
+                        "traits.id",
+                        "traits.name",
+                        "traits.group_name",
+                        "traits.spoiler",
+                    ]),
+                    "results": results_per_page,
+                    "page": page,
+                }
+
+                response = requests.post(
+                    cls.API_URL,
+                    headers={"Content-Type": "application/json"},
+                    json=payload,
+                    timeout=cls.TIMEOUT
+                )
+
+                if response.status_code != 200:
+                    logger.warning(
+                        f"VNDB API returned status {response.status_code} for VN {vn_id}"
+                    )
+                    return None
+
+                data = response.json()
+                all_characters.extend(data.get("results", []))
+
+                logger.debug(
+                    f"Fetched page {page} for VN {vn_id}: "
+                    f"{len(data.get('results', []))} characters"
+                )
+
+                if not data.get("more", False):
+                    break
+                page += 1
+
+            except requests.RequestException as e:
+                logger.warning(f"VNDB API request failed for VN {vn_id}: {e}")
+                return None
+            except Exception as e:
+                logger.warning(f"Unexpected error fetching VNDB characters: {e}")
+                return None
+
+        logger.info(f"Fetched {len(all_characters)} characters for VN {vn_id}")
+        return all_characters
+
+    @staticmethod
+    def categorize_traits(
+        traits: List[Dict],
+        max_spoiler: int = 0
+    ) -> Dict[str, List[str]]:
+        """
+        Organize traits by their group (Personality, Role, etc.).
+        Filters by spoiler level.
+
+        Args:
+            traits: List of trait dictionaries from VNDB
+            max_spoiler: Maximum spoiler level (0=none, 1=minor, 2=major)
+
+        Returns:
+            Dictionary mapping group names to lists of trait names
+        """
+        categorized = {}
+
+        for trait in traits:
+            if trait.get("spoiler", 0) > max_spoiler:
+                continue
+
+            group = trait.get("group_name", "Other")
+            name = trait.get("name", "")
+
+            if group not in categorized:
+                categorized[group] = []
+            if name and name not in categorized[group]:
+                categorized[group].append(name)
+
+        return categorized
+
+    @classmethod
+    def get_character_role(
+        cls,
+        vns: List[Dict],
+        target_vn_id: str
+    ) -> Tuple[str, int]:
+        """
+        Get the character's role and spoiler level for the target VN.
+
+        Args:
+            vns: List of VN associations for the character
+            target_vn_id: VNDB visual novel ID to match
+
+        Returns:
+            Tuple of (role, spoiler_level) where role is one of:
+            main, primary, side, appears, unknown
+        """
+        target_vn_id = cls.normalize_vndb_id(target_vn_id)
+
+        for vn in vns:
+            if vn.get("id") == target_vn_id:
+                return vn.get("role", "unknown"), vn.get("spoiler", 0)
+
+        # Fallback to first entry
+        if vns:
+            return vns[0].get("role", "unknown"), vns[0].get("spoiler", 0)
+        return "unknown", 0
+
+    @classmethod
+    def format_character_for_translation(
+        cls,
+        char: Dict,
+        target_vn_id: str,
+        max_spoiler: int = 0
+    ) -> Optional[Dict]:
+        """
+        Format a character's data for use in translation context.
+
+        Args:
+            char: Character dictionary from VNDB API
+            target_vn_id: VNDB visual novel ID
+            max_spoiler: Maximum spoiler level (0=none, 1=minor, 2=major)
+
+        Returns:
+            Formatted character dictionary, or None if character is a spoiler
+        """
+        role, char_spoiler = cls.get_character_role(
+            char.get("vns", []), target_vn_id
+        )
+
+        # Skip characters that are spoilers themselves
+        if char_spoiler > max_spoiler:
+            return None
+
+        # Get sex/gender info
+        sex_info = char.get("sex")
+        sex = None
+        if sex_info and isinstance(sex_info, list) and len(sex_info) >= 1:
+            sex = sex_info[0]  # Non-spoiler sex
+
+        gender_info = char.get("gender")
+        gender = None
+        if gender_info and isinstance(gender_info, list) and len(gender_info) >= 1:
+            gender = gender_info[0]  # Non-spoiler gender
+
+        # Categorize traits
+        traits = cls.categorize_traits(char.get("traits", []), max_spoiler)
+
+        # Build the result
+        result = {
+            "id": char.get("id"),
+            "name": char.get("name"),
+            "name_original": char.get("original"),
+            "aliases": char.get("aliases", []),
+            "role": role,  # main, primary, side, appears
+        }
+
+        # Add optional fields only if they have values
+        sex_map = {"m": "male", "f": "female", "b": "both", "n": "sexless"}
+        if sex:
+            result["sex"] = sex_map.get(sex, sex)
+
+        gender_map = {"m": "male", "f": "female", "o": "non-binary", "a": "ambiguous"}
+        if gender:
+            result["gender"] = gender_map.get(gender, gender)
+
+        if char.get("age"):
+            result["age"] = char.get("age")
+
+        # Add personality traits (most useful for translation)
+        if "Personality" in traits:
+            result["personality"] = traits["Personality"]
+
+        # Add role/occupation traits
+        if "Role" in traits:
+            result["roles"] = traits["Role"]
+
+        # Add other potentially useful trait categories
+        for category in ["Engages in", "Subject of"]:
+            if category in traits:
+                key = category.lower().replace(" ", "_")
+                result[key] = traits[category]
+
+        return result
+
+    @classmethod
+    def process_vn_characters(
+        cls,
+        vn_id: str,
+        max_spoiler: int = 0,
+        include_minor: bool = False
+    ) -> Optional[Dict]:
+        """
+        Fetch and process all characters for a VN.
+
+        This is the main entry point for fetching character data.
+
+        Args:
+            vn_id: VNDB visual novel ID (e.g., "v56650" or "56650")
+            max_spoiler: Maximum spoiler level (0=none, 1=minor, 2=major)
+            include_minor: Whether to include minor/appears characters
+
+        Returns:
+            Dictionary with VN info and categorized characters, or None on failure:
+            {
+                "vn_id": "v56650",
+                "character_count": 15,
+                "characters": {
+                    "main": [...],
+                    "primary": [...],
+                    "side": [...]
+                }
+            }
+        """
+        vn_id = cls.normalize_vndb_id(vn_id)
+
+        logger.debug(f"Processing characters for VN {vn_id}")
+        characters = cls.fetch_characters(vn_id)
+
+        if characters is None:
+            logger.warning(f"Failed to fetch characters for VN {vn_id}")
+            return None
+
+        logger.debug(f"Found {len(characters)} characters for VN {vn_id}")
+
+        # Process and categorize characters
+        processed: Dict[str, List[Dict]] = {
+            "main": [],      # Protagonist
+            "primary": [],   # Main characters
+            "side": [],      # Side characters
+            "appears": [],   # Minor appearances
+        }
+
+        for char in characters:
+            formatted = cls.format_character_for_translation(
+                char, vn_id, max_spoiler
+            )
+            if formatted is None:
+                continue
+
+            role = formatted.get("role", "side")
+            if role in processed:
+                processed[role].append(formatted)
+            else:
+                processed["side"].append(formatted)
+
+        # Filter out minor characters if requested
+        if not include_minor:
+            processed.pop("appears", None)
+
+        # Remove empty categories
+        processed = {k: v for k, v in processed.items() if v}
+
+        result = {
+            "vn_id": vn_id,
+            "character_count": sum(len(v) for v in processed.values()),
+            "characters": processed,
+        }
+
+        logger.info(
+            f"Processed {result['character_count']} characters for VN {vn_id}"
+        )
+        return result
+
+    @staticmethod
+    def create_translation_context(data: Dict) -> str:
+        """
+        Create a compact text summary for use in translation prompts.
+
+        Args:
+            data: Dictionary from process_vn_characters()
+
+        Returns:
+            Markdown-formatted string with character information
+        """
+        lines = [f"# Character Reference for {data['vn_id']}\n"]
+
+        role_labels = {
+            "main": "Protagonist",
+            "primary": "Main Characters",
+            "side": "Side Characters",
+            "appears": "Minor Characters",
+        }
+
+        for role, label in role_labels.items():
+            chars = data.get("characters", {}).get(role, [])
+            if not chars:
+                continue
+
+            lines.append(f"\n## {label}")
+            for char in chars:
+                name = char.get("name", "Unknown")
+                orig = char.get("name_original")
+                name_str = f"{name} ({orig})" if orig else name
+
+                parts = [name_str]
+
+                if char.get("sex"):
+                    parts.append(char["sex"])
+
+                if char.get("age"):
+                    parts.append(f"age {char['age']}")
+
+                if char.get("personality"):
+                    parts.append(f"personality: {', '.join(char['personality'])}")
+
+                if char.get("roles"):
+                    parts.append(f"role: {', '.join(char['roles'])}")
+
+                if len(parts) > 1:
+                    lines.append(f"- {parts[0]}: " + "; ".join(parts[1:]))
+                else:
+                    lines.append(f"- {parts[0]}")
+
+        return "\n".join(lines)

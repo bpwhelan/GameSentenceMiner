@@ -5,6 +5,7 @@ Centralized client for interacting with the jiten.moe API.
 Provides both search and detail endpoints with consistent error handling and logging.
 """
 
+import re
 import time
 import base64
 from typing import Optional, Dict, List
@@ -218,3 +219,23 @@ class JitenApiClient:
         except Exception as e:
             logger.debug(f"Failed to download cover image: {e}")
             return None
+
+    @classmethod
+    def extract_vndb_id(cls, links: List[Dict]) -> Optional[str]:
+        """
+        Extract VNDB VN ID from jiten.moe links array.
+        
+        Args:
+            links: List of link dictionaries from jiten.moe data
+            
+        Returns:
+            VN ID string (e.g., "1234") or None if not found
+        """
+        for link in links:
+            url = link.get("url", "")
+            if "vndb.org/v" in url:
+                # Extract VN ID from URL like https://vndb.org/v1234
+                match = re.search(r"vndb\.org/v(\d+)", url)
+                if match:
+                    return match.group(1)
+        return None

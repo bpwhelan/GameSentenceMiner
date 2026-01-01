@@ -455,6 +455,31 @@ def register_jiten_database_api_routes(app):
                 # Save the game again to persist the Jiten link
                 game.save()
 
+            # Check if it's a Visual Novel and fetch VNDB character data
+            if jiten_data.get("media_type_string") == "Visual Novel":
+                try:
+                    from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
+                    
+                    links = jiten_data.get("links", [])
+                    vndb_id = JitenApiClient.extract_vndb_id(links)
+                    
+                    if vndb_id:
+                        logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
+                        vndb_data = VNDBApiClient.process_vn_characters(vndb_id)
+                        
+                        if vndb_data:
+                            # Store as JSON string in the database
+                            game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
+                            game.save()
+                            logger.info(f"Stored {vndb_data.get('character_count', 0)} characters for {game.title_original}")
+                        else:
+                            logger.debug(f"No VNDB character data returned for VN ID: {vndb_id}")
+                    else:
+                        logger.debug(f"No VNDB ID found in links for Visual Novel: {game.title_original}")
+                except Exception as vndb_error:
+                    # VNDB fetch should NOT block the linking process
+                    logger.error(f"Failed to fetch VNDB character data: {vndb_error}")
+
             # Update ALL game_lines with the OBS scene name to point to this game_id
             # This creates the explicit mapping: OBS scene name -> game_id
             # When a user links a game to jiten.moe, they're saying "this OBS scene name maps to this jiten game"
@@ -794,6 +819,25 @@ def register_jiten_database_api_routes(app):
                     add_jiten_link_to_game(game, game.deck_id)
                     # Save the game again to persist the Jiten link
                     game.save()
+
+                # Check if it's a Visual Novel and fetch VNDB character data
+                if jiten_data.get("media_type_string") == "Visual Novel":
+                    try:
+                        from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
+                        
+                        links = jiten_data.get("links", [])
+                        vndb_id = JitenApiClient.extract_vndb_id(links)
+                        
+                        if vndb_id:
+                            logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
+                            vndb_data = VNDBApiClient.process_vn_characters(vndb_id)
+                            
+                            if vndb_data:
+                                game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
+                                game.save()
+                                logger.info(f"Updated VNDB data for {game.title_original}")
+                    except Exception as e:
+                        logger.error(f"Failed to fetch VNDB data: {e}")
 
                 return jsonify(
                     {
