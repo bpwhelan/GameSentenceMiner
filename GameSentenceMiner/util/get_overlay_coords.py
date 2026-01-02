@@ -9,6 +9,7 @@ import time
 import difflib
 import ctypes
 import copy
+from datetime import datetime
 from ctypes import wintypes
 from PIL import Image
 from typing import Dict, Any, List, Tuple, Optional
@@ -825,7 +826,7 @@ class OverlayProcessor:
         self.lens = None
         self.current_engine_config = effective_engine
             
-    async def find_box_and_send_to_overlay(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, sequence: int = None, local_ocr_retry = 5):
+    async def find_box_and_send_to_overlay(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, sequence: int = None, local_ocr_retry = 5, source: str = None):
         """Sends the detected text boxes to the overlay via WebSocket."""
         if sequence is not None and sequence != self._current_sequence:
             logger.debug(f"Skipping outdated overlay request (sequence {sequence}, current {self._current_sequence})")
@@ -852,20 +853,20 @@ class OverlayProcessor:
                 self.meikiocr = MeikiOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
         
         self.current_task = self.processing_loop.create_task(
-            self.find_box_for_sentence(line, check_against_last, custom_threshold, dict_from_ocr=dict_from_ocr, sequence=sequence, local_ocr_retry=local_ocr_retry)
+            self.find_box_for_sentence(line, check_against_last, custom_threshold, dict_from_ocr=dict_from_ocr, sequence=sequence, local_ocr_retry=local_ocr_retry, source=source)
         )
         try:
             await self.current_task
         except asyncio.CancelledError:
             logger.debug("OCR task was cancelled")
 
-    async def find_box_for_sentence(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, sequence: int = None, local_ocr_retry = 5) -> List[Dict[str, Any]]:
+    async def find_box_for_sentence(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, sequence: int = None, local_ocr_retry = 5, source: str = None) -> List[Dict[str, Any]]:
         if sequence is not None and sequence != self._current_sequence:
             logger.debug(f"Skipping outdated OCR work (sequence {sequence}, current {self._current_sequence})")
             return []
         
         try:
-            return await self._do_work(line, check_against_last=check_against_last, custom_threshold=custom_threshold, dict_from_ocr=dict_from_ocr, local_ocr_retry=local_ocr_retry)
+            return await self._do_work(line, check_against_last=check_against_last, custom_threshold=custom_threshold, dict_from_ocr=dict_from_ocr, local_ocr_retry=local_ocr_retry, source=source)
         except Exception as e:
             logger.error(f"Error during OCR processing: {e}", exc_info=True)
             return []
@@ -969,7 +970,8 @@ class OverlayProcessor:
         full_screenshot: Image.Image,
         crop_coords_list: List[Tuple[int, int, int, int]],
         monitor_width: int,
-        monitor_height: int
+        monitor_height: int,
+        source: str = None
     ) -> Image.Image:
         """Creates a new image by pasting cropped text regions onto a transparent background."""
         if not crop_coords_list:
@@ -1070,8 +1072,9 @@ class OverlayProcessor:
             
         return full_screenshot, off_x, off_y, monitor_width, monitor_height
 
-    async def _do_work(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, local_ocr_retry = 5) -> Tuple[List[Dict[str, Any]], int]:
+    async def _do_work(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, local_ocr_retry = 5, source: str = None) -> Tuple[List[Dict[str, Any]], int]:
         """The main OCR workflow with cancellation support."""
+        start_time = datetime.now()
         effective_engine = self._get_effective_engine()
         
         self.sentence_is_recycled = self._is_sentence_recycled(line.text) if line else False
@@ -1094,7 +1097,8 @@ class OverlayProcessor:
         local_ocr_engine = self.oneocr or self.meikiocr
         if local_ocr_engine:
             # Assume Text from Source is already Stable
-            tries = max(1, 1 if line and line.source == TextSource.OCR else local_ocr_retry)
+            tries = max(1, 1 if line and any(s in [TextSource.OCR, TextSource.HOTKEY] for s in [line.source, source]) else local_ocr_retry)
+            logger.info(f"Using local OCR engine '{effective_engine}' with {tries} tries for overlay. TextSource: {line.source if line else 'N/A'}")
             last_result_flattened = ""
             for i in range(tries):
                 if i > 0:
@@ -1191,6 +1195,9 @@ class OverlayProcessor:
 
                 if asyncio.current_task().cancelled():
                     raise asyncio.CancelledError()
+                
+                if stabilized:
+                    break
 
                 composite_image = self._create_composite_image(
                     full_screenshot, 
@@ -1199,10 +1206,12 @@ class OverlayProcessor:
                     monitor_height
                 )
                 
-                if stabilized:
-                    break
                 
             if effective_engine in [OverlayEngine.ONEOCR.value, OverlayEngine.MEIKIOCR.value] and local_ocr_engine:
+                if source and source == TextSource.HOTKEY and get_overlay_config().send_hotkey_text_to_texthooker:
+                    from GameSentenceMiner.gametext import add_line_to_text_log
+                    logger.info("Sending overlay text to texthooker due to hotkey trigger.")
+                    await add_line_to_text_log(text_str, line_time=datetime.now(), source=source)
                 return
                 
         else:
@@ -1274,6 +1283,11 @@ class OverlayProcessor:
 
         await send_word_coordinates_to_overlay(data)
         logger.info("Sent %d text boxes to overlay.", len(extracted_data))
+        if source and source == TextSource.HOTKEY and get_overlay_config().send_hotkey_text_to_texthooker:
+            # Send overlay text to texthooker when triggered by hotkey
+            logger.info("Sending overlay text to texthooker due to hotkey trigger.")
+            from GameSentenceMiner.gametext import add_line_to_text_log
+            await add_line_to_text_log(text_str, line_time=start_time, source=source)
 
     async def reprocess_and_send_last_results(self):
         """Reprocesses the last known raw OCR results with updated window coordinates."""

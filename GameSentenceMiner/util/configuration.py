@@ -750,6 +750,7 @@ class Overlay:
     periodic: bool = False
     periodic_interval: float = 1.0
     periodic_ratio: float = 0.9
+    send_hotkey_text_to_texthooker: bool = False
     minimum_character_size: int = 0
     use_ocr_area_config: bool = False
     ocr_full_screen_instead_of_obs: bool = False
@@ -1286,10 +1287,11 @@ def get_config():
 
 
 def get_overlay_config():
-    global config_instance
-    if config_instance is None:
-        config_instance = load_config()
-    return config_instance.overlay
+    return get_config().overlay
+    # global config_instance
+    # if config_instance is None:
+    #     config_instance = load_config()
+    # return config_instance.overlay
 
 
 def reload_config():

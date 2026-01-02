@@ -15,9 +15,11 @@ import re
 initial_time = datetime.now()
 
 class TextSource:
-    OCR = "OCR"
-    HOOKER = "HOOKER"
-    MANUAL = "MANUAL"
+    OCR = "ocr"
+    OCR_MANUAL = "ocr_manual"
+    HOOKER = "hooker"
+    MANUAL = "manual"
+    HOTKEY = "hotkey"
     
 @dataclass
 class GameLine:

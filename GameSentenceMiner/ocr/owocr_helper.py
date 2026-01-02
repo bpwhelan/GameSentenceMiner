@@ -26,6 +26,7 @@ from GameSentenceMiner.util.electron_config import get_ocr_ocr2, get_ocr_send_to
     has_ocr_config_changed, reload_electron_config, get_ocr_two_pass_ocr, get_ocr_optimize_second_scan, \
     get_ocr_language, get_ocr_manual_ocr_hotkey
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
+from GameSentenceMiner.util.text_log import TextSource
 
 CONFIG_FILE = Path("ocr_config.json")
 DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHANGE THIS
@@ -159,7 +160,7 @@ class WebsocketServerThread(threading.Thread):
 
     async def send_text(self, text, line_time: datetime, response_dict=None):
         if text:
-            data = {"sentence": text, "time": line_time.isoformat(), "process_path": obs.get_current_game(), "source": "ocr"}
+            data = {"sentence": text, "time": line_time.isoformat(), "process_path": obs.get_current_game(), "source": TextSource.OCR}
             if response_dict:
                 data["dict_from_ocr"] = response_dict
             return asyncio.run_coroutine_threadsafe(

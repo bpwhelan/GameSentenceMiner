@@ -2,6 +2,8 @@
 # All imports should be done in the try/except block below.
 
 from GameSentenceMiner.util import db
+from GameSentenceMiner.util.get_overlay_coords import get_overlay_processor
+from GameSentenceMiner.util.text_log import TextSource
 
 
 def handle_error_in_initialization(e):
@@ -417,15 +419,15 @@ def register_hotkeys():
 
     def call_overlay_processor():
         # Check if the background loop is actually running
-        loop = overlay_processor.processing_loop
+        loop = get_overlay_processor().processing_loop
         if loop and loop.is_running():
             logger.info("Manually triggering overlay scan via hotkey.")
             asyncio.run_coroutine_threadsafe(
-                overlay_processor.find_box_and_send_to_overlay(), 
+                get_overlay_processor().find_box_and_send_to_overlay(source=TextSource.HOTKEY), 
                 loop
             )
         else:
-            print("Overlay loop not ready yet.")
+            logger.warning("Overlay loop not ready yet.")
     
     hotkey_manager.register(
         config.hotkeys.reset_line, 

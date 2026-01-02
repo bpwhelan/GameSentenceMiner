@@ -486,6 +486,7 @@ class ConfigWindow(QWidget):
                 periodic=self.periodic_check.isChecked(),
                 periodic_ratio=periodic_ratio,
                 periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
+                send_hotkey_text_to_texthooker=self.add_overlay_to_texthooker_check.isChecked(),
                 minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
                 use_ocr_area_config=self.use_ocr_area_config_check.isChecked(),
                 ocr_full_screen_instead_of_obs=bool(getattr(self, 'ocr_full_screen_instead_of_obs_checkbox', None) and self.ocr_full_screen_instead_of_obs_checkbox.isChecked())
@@ -760,6 +761,7 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
         self.use_ocr_area_config_check = QCheckBox()
+        self.add_overlay_to_texthooker_check = QCheckBox()
         
         # Advanced
         self.audio_player_path_edit = QLineEdit()
@@ -1474,7 +1476,17 @@ class ConfigWindow(QWidget):
         # layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'scan_delay'), self.scan_delay_edit)
         layout.addRow(self._create_labeled_widget(i18n, "overlay", 'manual_overlay_scan_hotkey',), self.manual_overlay_scan_hotkey_edit)
         
-        # Periodic Scanning Group
+        # Send overlay to texthooker on hotkey warning section
+        texthooker_widget = QWidget()
+        texthooker_layout = QHBoxLayout(texthooker_widget)
+        texthooker_layout.setContentsMargins(0, 0, 0, 0)
+        texthooker_layout.addWidget(self.add_overlay_to_texthooker_check)
+        texthooker_label = QLabel("Send Overlay Lines to Texthooker on Hotkey")
+        texthooker_label.setStyleSheet("color: #FF0000; font-weight: bold;")
+        texthooker_label.setToolTip("⚠️ WARNING: When you use the manual overlay scan hotkey, any new lines found will be sent to the texthooker stream. Only enable if you understand the implications.")
+        texthooker_layout.addWidget(texthooker_label)
+        texthooker_layout.addStretch()
+        layout.addRow(texthooker_widget)
         periodic_group = self._create_group_box("Periodic Scanning")
         periodic_layout = QFormLayout()
         periodic_layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic'), self.periodic_check)
@@ -1787,6 +1799,7 @@ class ConfigWindow(QWidget):
         self.periodic_check.setChecked(s.overlay.periodic)
         self.periodic_interval_edit.setText(str(s.overlay.periodic_interval))
         self.periodic_ratio_edit.setText(str(s.overlay.periodic_ratio))
+        self.add_overlay_to_texthooker_check.setChecked(s.overlay.send_hotkey_text_to_texthooker)
         # self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
         self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
