@@ -274,6 +274,7 @@ class ConfigWindow(QWidget):
             self.settings = current_config
             self.load_settings_to_ui()
             self._update_window_title()
+            self.refresh_obs_scenes(force_reload=True)
 
     def add_save_hook(self, func):
         if func not in on_save:
@@ -334,9 +335,12 @@ class ConfigWindow(QWidget):
         # except ValueError:
         #     local_scans = 1
 
+        # Get selected scenes from profile OBS scene list
+        selected_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
+
         # Collect data from UI widgets to build a new config object
         config = ProfileConfig(
-            scenes=self.settings.scenes, # This is handled separately in profile tab logic
+            scenes=selected_scenes,
             general=General(
                 use_websocket=self.websocket_enabled_check.isChecked(),
                 use_clipboard=self.clipboard_enabled_check.isChecked(),
@@ -563,7 +567,8 @@ class ConfigWindow(QWidget):
         self.save_settings(profile_change=True)
         self.load_settings_to_ui()
         self.reload_settings(force_refresh=True)
-        self.refresh_obs_scenes()
+        self.refresh_obs_scenes(force_reload=True)
+        self._update_window_title()
         is_default = self.profile_combo.currentText() == DEFAULT_CONFIG
         self.delete_profile_button.setHidden(is_default)
 
@@ -2055,7 +2060,19 @@ class ConfigWindow(QWidget):
             save_full_config(self.master_config)
             self.reload_settings(force_refresh=True)
 
-    def refresh_obs_scenes(self):
+    def refresh_obs_scenes(self, force_reload=False):
+        # Save current selections before clearing
+        current_profile_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
+        current_discord_scenes = [item.text() for item in self.discord_blacklisted_scenes_list.selectedItems()]
+        
+        # Use current UI selection if available (and not forcing reload), otherwise use saved config
+        if force_reload:
+            profile_scenes_to_select = self.settings.scenes
+            discord_scenes_to_select = self.master_config.discord.blacklisted_scenes
+        else:
+            profile_scenes_to_select = current_profile_scenes if current_profile_scenes else self.settings.scenes
+            discord_scenes_to_select = current_discord_scenes if current_discord_scenes else self.master_config.discord.blacklisted_scenes
+        
         self.obs_scene_list.clear()
         self.discord_blacklisted_scenes_list.clear()
         try:
@@ -2066,14 +2083,14 @@ class ConfigWindow(QWidget):
             self.obs_scene_list.addItems(scene_names)
             for i in range(self.obs_scene_list.count()):
                 item = self.obs_scene_list.item(i)
-                if item.text() in self.settings.scenes:
+                if item.text() in profile_scenes_to_select:
                     item.setSelected(True)
             
             # Update Discord blacklisted scenes list
             self.discord_blacklisted_scenes_list.addItems(scene_names)
             for i in range(self.discord_blacklisted_scenes_list.count()):
                 item = self.discord_blacklisted_scenes_list.item(i)
-                if item.text() in self.master_config.discord.blacklisted_scenes:
+                if item.text() in discord_scenes_to_select:
                     item.setSelected(True)
         except Exception as e:
             logger.error(f"Failed to refresh OBS scenes: {e}")
