@@ -14,17 +14,19 @@ class YomitanDictBuilder:
     
     DICT_TITLE = "GSM (Do not delete)"
     
-    def __init__(self, revision: str = None, download_url: str = None):
+    def __init__(self, revision: str = None, download_url: str = None, game_count: int = 3):
         """
         Initialize the dictionary builder.
         
         Args:
             revision: Version string (defaults to current date YYYY.MM.DD)
             download_url: URL for Yomitan auto-update feature
+            game_count: Number of games requested (for description, default: 3)
         """
         self.title = self.DICT_TITLE
         self.revision = revision or datetime.now().strftime("%Y.%m.%d")
         self.download_url = download_url  # For auto-update support
+        self.game_count = game_count  # Track requested game count for description
         self.entries = []  # Term bank entries
         self.images = {}   # char_id -> (filename, bytes)
         self.tags = set()  # Role tags used
@@ -191,17 +193,7 @@ class YomitanDictBuilder:
                 "content": " • ".join(stats_parts)
             })
         
-        # Personality traits as bullet list (if available)
-        personality = char.get("personality")
-        if personality and isinstance(personality, list) and len(personality) > 0:
-            trait_items = [{"tag": "li", "content": trait} for trait in personality]
-            content.append({
-                "tag": "ul",
-                "style": {"marginTop": "8px", "paddingLeft": "20px"},
-                "content": trait_items
-            })
-        
-        # Collapsible description (if available)
+        # Collapsible description (if available) - placed above personality traits
         description = char.get("description")
         if description and description.strip():
             content.append({
@@ -212,6 +204,22 @@ class YomitanDictBuilder:
                         "tag": "div",
                         "style": {"fontSize": "0.9em", "marginTop": "4px"},
                         "content": description
+                    }
+                ]
+            })
+        
+        # Collapsible personality traits (if available)
+        personality = char.get("personality")
+        if personality and isinstance(personality, list) and len(personality) > 0:
+            trait_items = [{"tag": "li", "content": trait} for trait in personality]
+            content.append({
+                "tag": "details",
+                "content": [
+                    {"tag": "summary", "content": "Personality Traits"},
+                    {
+                        "tag": "ul",
+                        "style": {"marginTop": "4px", "paddingLeft": "20px"},
+                        "content": trait_items
                     }
                 ]
             })
@@ -239,9 +247,82 @@ class YomitanDictBuilder:
         }
         return ROLE_SCORES.get(role, 0)
 
+    def _split_japanese_name(self, name_original: str) -> dict:
+        """
+        Split a Japanese name containing a space into components.
+        
+        Japanese names from VNDB are typically stored as "FamilyName GivenName"
+        with a space separator. This method creates multiple searchable variants.
+        
+        Args:
+            name_original: Full Japanese name like "須々木 心一"
+            
+        Returns:
+            Dictionary with keys:
+            - family: Family name (須々木)
+            - given: Given name (心一)
+            - combined: No space (須々木心一)
+            - original: With space (須々木 心一)
+            - has_space: Boolean indicating if name contains space
+        """
+        if not name_original or ' ' not in name_original:
+            return {
+                'has_space': False,
+                'original': name_original or '',
+                'combined': name_original or '',
+                'family': None,
+                'given': None
+            }
+        
+        # Split on first space only (handles names with multiple spaces)
+        parts = name_original.split(' ', 1)
+        family = parts[0]
+        given = parts[1] if len(parts) > 1 else ''
+        combined = family + given
+        
+        return {
+            'has_space': True,
+            'original': name_original,
+            'combined': combined,
+            'family': family,
+            'given': given
+        }
+
+    def _create_entry(self, term: str, reading: str, role: str, score: int,
+                      structured_content: dict) -> list:
+        """
+        Create a single Yomitan term entry.
+        
+        Args:
+            term: The term/word to look up
+            reading: Reading/pronunciation (romaji)
+            role: Character role for tags
+            score: Priority score
+            structured_content: The structured content dictionary
+            
+        Returns:
+            List representing a Yomitan term entry
+        """
+        return [
+            term,                      # term
+            reading,                   # reading
+            f"name {role}" if role else "name",  # definitionTags
+            "",                        # rules - empty for names
+            score,                     # score
+            [structured_content],      # definitions
+            0,                         # sequence
+            ""                         # termTags
+        ]
+
     def add_character(self, char: dict, game_title: str) -> None:
         """
         Process a single character and create term entries.
+        
+        For names containing spaces (e.g., "須々木 心一"), creates 4 entries:
+        1. Family name only (須々木)
+        2. Given name only (心一)
+        3. Combined without space (須々木心一)
+        4. Original with space (須々木 心一)
         
         Args:
             char: Character data dictionary with fields like id, name, name_original,
@@ -249,12 +330,12 @@ class YomitanDictBuilder:
             game_title: Name of the VN this character is from
         """
         # Extract the primary term (Japanese name)
-        term = char.get("name_original", "")
-        if not term:
+        name_original = char.get("name_original", "")
+        if not name_original:
             # Fallback to romanized name if no Japanese name
-            term = char.get("name", "")
+            name_original = char.get("name", "")
         
-        if not term:
+        if not name_original:
             # Skip characters with no name
             return
         
@@ -275,39 +356,62 @@ class YomitanDictBuilder:
         # Build the structured content
         structured_content = self._build_structured_content(char, image_path, game_title)
         
-        # Create the term entry in Yomitan format
-        entry = [
-            term,                      # term - Japanese name (kanji)
-            reading,                   # reading - romaji/kana
-            f"name {role}" if role else "name",  # definitionTags - role tags
-            "",                        # rules - empty for names
-            score,                     # score - from _get_score
-            [structured_content],      # definitions
-            0,                         # sequence
-            ""                         # termTags
-        ]
-        self.entries.append(entry)
-        
         # Add role to tags set
         if role:
             self.tags.add(role)
+        
+        # Split the name to create multiple searchable entries
+        name_parts = self._split_japanese_name(name_original)
+        
+        # Track terms we've added to avoid duplicates
+        added_terms = set()
+        
+        if name_parts['has_space']:
+            # Create 4 entries for names with spaces
+            
+            # 1. Original with space (須々木 心一)
+            if name_parts['original'] and name_parts['original'] not in added_terms:
+                self.entries.append(self._create_entry(
+                    name_parts['original'], reading, role, score, structured_content
+                ))
+                added_terms.add(name_parts['original'])
+            
+            # 2. Combined without space (須々木心一)
+            if name_parts['combined'] and name_parts['combined'] not in added_terms:
+                self.entries.append(self._create_entry(
+                    name_parts['combined'], reading, role, score, structured_content
+                ))
+                added_terms.add(name_parts['combined'])
+            
+            # 3. Family name only (須々木)
+            if name_parts['family'] and name_parts['family'] not in added_terms:
+                self.entries.append(self._create_entry(
+                    name_parts['family'], reading, role, score, structured_content
+                ))
+                added_terms.add(name_parts['family'])
+            
+            # 4. Given name only (心一)
+            if name_parts['given'] and name_parts['given'] not in added_terms:
+                self.entries.append(self._create_entry(
+                    name_parts['given'], reading, role, score, structured_content
+                ))
+                added_terms.add(name_parts['given'])
+        else:
+            # Single entry for names without spaces
+            self.entries.append(self._create_entry(
+                name_original, reading, role, score, structured_content
+            ))
+            added_terms.add(name_original)
         
         # Create additional entries for aliases
         aliases = char.get("aliases", [])
         if aliases and isinstance(aliases, list):
             for alias in aliases:
-                if alias and alias != term:  # Skip empty or duplicate aliases
-                    alias_entry = [
-                        alias,                     # term - alias
-                        reading,                   # reading - same as main entry
-                        f"name {role}" if role else "name",  # definitionTags
-                        "",                        # rules
-                        score,                     # score - same priority
-                        [structured_content],      # definitions - same content
-                        0,                         # sequence
-                        ""                         # termTags
-                    ]
-                    self.entries.append(alias_entry)
+                if alias and alias not in added_terms:  # Skip empty or duplicate aliases
+                    self.entries.append(self._create_entry(
+                        alias, reading, role, score, structured_content
+                    ))
+                    added_terms.add(alias)
 
     def add_game_characters(self, game: 'GamesTable') -> int:
         """
@@ -341,13 +445,18 @@ class YomitanDictBuilder:
             self.game_titles.append(game_title)
         
         # Character categories in the data structure
+        # VNDB data structure: {"characters": {"main": [...], "primary": [...]}}
+        characters_obj = char_data.get("characters", {})
+        if not isinstance(characters_obj, dict):
+            return 0
+        
         categories = ["main", "primary", "side", "appears"]
         
         character_count = 0
         
         # Loop through all categories and add characters
         for category in categories:
-            characters = char_data.get(category, [])
+            characters = characters_obj.get(category, [])
             if isinstance(characters, list):
                 for char in characters:
                     if isinstance(char, dict):
@@ -366,18 +475,25 @@ class YomitanDictBuilder:
             - revision: Current date (YYYY.MM.DD)
             - format: 3 (Yomitan dictionary format version)
             - author: "GameSentenceMiner"
-            - description: Lists included game titles
+            - description: Shows game count and lists included game titles
             - downloadUrl: For auto-update support (if set)
         """
-        # Build description from included game titles
-        games_desc = ", ".join(self.game_titles) if self.game_titles else "No games"
+        # Build description with game count and titles
+        actual_count = len(self.game_titles)
+        game_word = "game" if self.game_count == 1 else "games"
+        
+        if self.game_titles:
+            games_list = ", ".join(self.game_titles)
+            description = f"Character names from your {self.game_count} most recently played {game_word}: {games_list}"
+        else:
+            description = f"Character names from your {self.game_count} most recently played {game_word}"
         
         index = {
             "title": self.title,  # "GSM (Do not delete)"
             "revision": self.revision,  # Current date: "2026.01.01"
             "format": 3,  # Yomitan dictionary format version
             "author": "GameSentenceMiner",
-            "description": f"Character names from: {games_desc}"
+            "description": description
         }
         
         # Add downloadUrl for auto-update support

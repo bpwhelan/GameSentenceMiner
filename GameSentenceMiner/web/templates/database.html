@@ -87,13 +87,48 @@
                 <h2 class="card-title">Download Special GSM Yomitan Dictionary</h2>
             </div>
             <p class="card-description">
-                A character name dictionary that auto-updates based on your 3 most recently played games.
+                A character name dictionary that auto-updates based on your most recently played games.
                 Once installed in Yomitan, you don't need to download it again - it will update automatically!
             </p>
+            <p class="card-description" style="margin-top: 8px; font-size: 0.9em; color: var(--text-secondary);">
+                <strong>Example:</strong> If set to 1 game, playing Mario then switching to Runescape will replace Mario character names with Runescape names automatically. You may want to do this to keep your dictionaries clean and not confuse names across games.
+            </p>
+            
+            <div class="form-group" style="margin: 15px 0;">
+                <label class="form-label" for="yomitanGameCount">Number of games to include:</label>
+                <input type="number" id="yomitanGameCount" class="form-input"
+                       min="1" max="999" value="3"
+                       style="width: 100px; margin-top: 5px;">
+                <small style="color: var(--text-tertiary); font-size: 12px; display: block; margin-top: 4px;">
+                    Include characters from 1-999 of your most recently played games (default: 3)
+                </small>
+            </div>
+            
+            <details style="margin: 15px 0; background: var(--bg-tertiary); padding: 10px; border-radius: 5px;">
+                <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary);">
+                    📝 How to update the dictionary in Yomitan/JL
+                </summary>
+                <div style="margin-top: 10px; font-size: 0.9em; color: var(--text-secondary);">
+                    <p style="margin-bottom: 10px;"><strong>For Yomitan:</strong></p>
+                    <ol style="margin-left: 20px; margin-bottom: 15px;">
+                        <li>Open Yomitan settings</li>
+                        <li>Navigate to the "Dictionaries" tab</li>
+                        <li>Click the "Update" button next to "GSM (Do not delete)"</li>
+                        <li>Dictionary will refresh with current game selection</li>
+                    </ol>
+                    <p style="margin-bottom: 10px;"><strong>For JL:</strong></p>
+                    <ol style="margin-left: 20px;">
+                        <li>Set the dictionary to auto-update frequently in JL settings</li>
+                        <li>Dictionary refreshes automatically based on your configured interval</li>
+                        <li>No manual action needed after initial setup</li>
+                    </ol>
+                </div>
+            </details>
+            
             <div class="card-actions">
-                <a href="/api/yomitan-dict" download="gsm_characters.zip" class="action-btn primary">
+                <button class="action-btn primary" data-action="downloadYomitanDict">
                     Download Dictionary
-                </a>
+                </button>
             </div>
         </div>
     </div>
