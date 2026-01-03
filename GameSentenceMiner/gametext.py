@@ -288,9 +288,12 @@ async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=
     current_line_time = line_time if line_time else datetime.now()
     live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")
-    new_line = add_line(current_line_after_regex, line_time if line_time else datetime.now(), source=source)
-    if len(get_text_log().values) > 0:
-        await add_event_to_texthooker(get_text_log()[-1])
+    
+    new_line = add_line(current_line_after_regex, current_line_time, source=source)
+    if not new_line:
+        return
+    
+    await add_event_to_texthooker(new_line)
     if get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY):
         if get_overlay_processor().ready:
             # Increment sequence to mark this as the latest request
@@ -303,19 +306,18 @@ async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=
                 ), 
                 get_overlay_processor().processing_loop
             )
-    add_srt_line(line_time, new_line)
+    add_srt_line(current_line_time, new_line)
     
-    # Link the game_line to the games table, but skip if 'nostatspls' in scene
-    game_line = get_text_log()[-1]
-    if 'nostatspls' not in game_line.scene.lower():
-        if game_line.scene:
+    # Link the new_line to the games table, but skip if 'nostatspls' in scene
+    if 'nostatspls' not in new_line.scene.lower():
+        if new_line.scene:
             # Get or create the game record
-            game = GamesTable.get_or_create_by_name(game_line.scene)
+            game = GamesTable.get_or_create_by_name(new_line.scene)
             # Add the line with the game_id
-            GameLinesTable.add_line(game_line, game_id=game.id)
+            GameLinesTable.add_line(new_line, game_id=game.id)
         else:
             # Fallback if no scene is set
-            GameLinesTable.add_line(game_line)
+            GameLinesTable.add_line(new_line)
 
 def reset_line_hotkey_pressed():
     global current_line_time
