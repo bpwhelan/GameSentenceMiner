@@ -1,0 +1,547 @@
+"""
+AniList API Client
+
+Fetch character information from AniList for Anime and Manga media types.
+Mirrors the vndb_api_client.py pattern for consistency.
+"""
+
+import base64
+import io
+import re
+from typing import Optional, Dict, List, Tuple
+
+import requests
+from PIL import Image
+
+from GameSentenceMiner.util.configuration import logger
+
+
+class AniListApiClient:
+    """
+    Client for AniList GraphQL API interactions.
+
+    Provides methods for:
+    - Fetching all characters for an Anime/Manga with automatic pagination
+    - Formatting character data for translation context
+    - Creating compact text summaries for AI prompts
+    
+    Role mappings:
+    - AniList MAIN → "main" (protagonist)
+    - AniList SUPPORTING → "primary" (main characters)
+    - AniList BACKGROUND → "side" (side characters)
+    """
+
+    API_URL = "https://graphql.anilist.co"
+    TIMEOUT = 15
+    DEFAULT_PER_PAGE = 25  # AniList default page size for characters
+
+    # Thumbnail size for character images (same as VNDB)
+    THUMBNAIL_SIZE = (80, 100)
+
+    # Role mapping from AniList to VNDB-compatible format
+    ROLE_MAP = {
+        "MAIN": "main",        # Protagonist
+        "SUPPORTING": "primary",  # Main characters
+        "BACKGROUND": "side",     # Side characters
+    }
+
+    # GraphQL query for fetching characters
+    CHARACTERS_QUERY = """
+    query ($id: Int!, $type: MediaType, $page: Int, $perPage: Int) {
+        Media(id: $id, type: $type) {
+            id
+            title {
+                romaji
+                english
+                native
+            }
+            characters(page: $page, perPage: $perPage, sort: [ROLE, RELEVANCE, ID]) {
+                pageInfo {
+                    total
+                    currentPage
+                    lastPage
+                    hasNextPage
+                    perPage
+                }
+                edges {
+                    role
+                    node {
+                        id
+                        name {
+                            first
+                            last
+                            full
+                            native
+                            alternative
+                        }
+                        image {
+                            large
+                            medium
+                        }
+                        description
+                        gender
+                        age
+                    }
+                }
+            }
+        }
+    }
+    """
+
+    @staticmethod
+    def extract_media_id(url: str) -> Optional[int]:
+        """
+        Parse media ID from AniList URL.
+
+        Args:
+            url: AniList URL (e.g., "https://anilist.co/manga/149544")
+
+        Returns:
+            Media ID as integer, or None if not found
+        """
+        if not url:
+            return None
+        
+        match = re.search(r"anilist\.co/(?:anime|manga)/(\d+)", url)
+        if match:
+            return int(match.group(1))
+        return None
+
+    @staticmethod
+    def get_media_type(url: str) -> Optional[str]:
+        """
+        Extract media type (ANIME or MANGA) from AniList URL.
+
+        Args:
+            url: AniList URL (e.g., "https://anilist.co/manga/149544")
+
+        Returns:
+            "ANIME" or "MANGA", or None if not found
+        """
+        if not url:
+            return None
+        
+        match = re.search(r"anilist\.co/(anime|manga)/\d+", url)
+        if match:
+            return match.group(1).upper()
+        return None
+
+    @classmethod
+    def fetch_characters(
+        cls,
+        media_id: int,
+        media_type: str,
+        per_page: int = None
+    ) -> Optional[List[Dict]]:
+        """
+        Fetch all characters for a given Anime/Manga from AniList API.
+        Handles pagination automatically.
+
+        Args:
+            media_id: AniList media ID
+            media_type: "ANIME" or "MANGA"
+            per_page: Number of results per page (default: 25)
+
+        Returns:
+            List of character edge dictionaries (containing role and node), 
+            or None if request fails
+        """
+        if per_page is None:
+            per_page = cls.DEFAULT_PER_PAGE
+
+        all_characters = []
+        page = 1
+
+        logger.debug(f"Fetching characters for AniList {media_type} ID {media_id}")
+
+        while True:
+            try:
+                variables = {
+                    "id": media_id,
+                    "type": media_type,
+                    "page": page,
+                    "perPage": per_page
+                }
+
+                response = requests.post(
+                    cls.API_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                    json={
+                        "query": cls.CHARACTERS_QUERY,
+                        "variables": variables
+                    },
+                    timeout=cls.TIMEOUT
+                )
+
+                if response.status_code != 200:
+                    logger.warning(
+                        f"AniList API returned status {response.status_code} for {media_type} {media_id}"
+                    )
+                    return None
+
+                data = response.json()
+                
+                # Check for GraphQL errors
+                if "errors" in data:
+                    logger.warning(f"AniList API returned errors: {data['errors']}")
+                    return None
+
+                media_data = data.get("data", {}).get("Media")
+                if not media_data:
+                    logger.warning(f"No media data returned for {media_type} {media_id}")
+                    return None
+
+                characters_data = media_data.get("characters", {})
+                edges = characters_data.get("edges", [])
+                page_info = characters_data.get("pageInfo", {})
+
+                all_characters.extend(edges)
+
+                logger.debug(
+                    f"Fetched page {page} for {media_type} {media_id}: "
+                    f"{len(edges)} characters"
+                )
+
+                if not page_info.get("hasNextPage", False):
+                    break
+                page += 1
+
+            except requests.RequestException as e:
+                logger.warning(f"AniList API request failed for {media_type} {media_id}: {e}")
+                return None
+            except Exception as e:
+                logger.warning(f"Unexpected error fetching AniList characters: {e}")
+                return None
+
+        logger.info(f"Fetched {len(all_characters)} characters for {media_type} {media_id}")
+        return all_characters
+
+    @classmethod
+    def fetch_image_as_base64(
+        cls,
+        image_url: str,
+        thumbnail_size: tuple = None
+    ) -> Optional[str]:
+        """
+        Download an image from URL, resize to thumbnail, and convert to base64 string.
+
+        Args:
+            image_url: URL of the image to download
+            thumbnail_size: Tuple of (width, height) for thumbnail. Defaults to (80, 100)
+
+        Returns:
+            Base64-encoded JPEG image string with data URI prefix, or None on failure
+        """
+        if not image_url:
+            return None
+
+        if thumbnail_size is None:
+            thumbnail_size = cls.THUMBNAIL_SIZE
+
+        try:
+            response = requests.get(image_url, timeout=cls.TIMEOUT)
+            if response.status_code != 200:
+                logger.debug(f"Failed to fetch image from {image_url}: status {response.status_code}")
+                return None
+
+            # Open image with PIL
+            image = Image.open(io.BytesIO(response.content))
+
+            # Convert to RGB if necessary (handles RGBA, P mode, etc.)
+            if image.mode in ('RGBA', 'P', 'LA'):
+                # Create white background for transparency
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                if image.mode == 'P':
+                    image = image.convert('RGBA')
+                if image.mode in ('RGBA', 'LA'):
+                    background.paste(image, mask=image.split()[-1])
+                else:
+                    background.paste(image)
+                image = background
+            elif image.mode != 'RGB':
+                image = image.convert('RGB')
+
+            # Resize to thumbnail using high-quality resampling
+            image.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
+
+            # Save to bytes buffer as JPEG
+            buffer = io.BytesIO()
+            image.save(buffer, format='JPEG', quality=85, optimize=True)
+            buffer.seek(0)
+
+            # Encode to base64
+            image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+            return f"data:image/jpeg;base64,{image_base64}"
+
+        except requests.RequestException as e:
+            logger.debug(f"Failed to download image from {image_url}: {e}")
+            return None
+        except Exception as e:
+            logger.debug(f"Unexpected error converting image to base64: {e}")
+            return None
+
+    @staticmethod
+    def strip_spoiler_tags(text: str) -> str:
+        """
+        Remove AniList spoiler tags from text.
+        
+        AniList uses ~!spoiler content!~ syntax for spoilers.
+        
+        Args:
+            text: Text potentially containing spoiler tags
+            
+        Returns:
+            Text with spoiler tags removed (content preserved)
+        """
+        if not text:
+            return text
+        
+        # Remove ~!...!~ spoiler markers but keep the content
+        return re.sub(r'~!(.+?)!~', r'\1', text, flags=re.DOTALL)
+
+    @staticmethod
+    def has_spoiler_tags(text: str) -> bool:
+        """
+        Check if text contains AniList spoiler tags.
+        
+        Args:
+            text: Text to check for spoiler tags
+            
+        Returns:
+            True if text contains spoiler tags, False otherwise
+        """
+        if not text:
+            return False
+        return bool(re.search(r'~!.+?!~', text, flags=re.DOTALL))
+
+    @classmethod
+    def format_character_for_translation(
+        cls,
+        edge: Dict,
+        max_spoiler: int = 0,
+        preserve_spoiler_metadata: bool = False
+    ) -> Optional[Dict]:
+        """
+        Format a character's data for use in translation context.
+
+        Args:
+            edge: Character edge dictionary from AniList API (contains role and node)
+            max_spoiler: Maximum spoiler level (0=none, 1=minor, 2=major)
+            preserve_spoiler_metadata: If True, preserves description even with spoiler tags
+
+        Returns:
+            Formatted character dictionary, or None if character should be filtered
+        """
+        role_raw = edge.get("role", "BACKGROUND")
+        char = edge.get("node", {})
+        
+        if not char:
+            return None
+
+        # Map AniList role to VNDB-compatible format
+        role = cls.ROLE_MAP.get(role_raw, "side")
+
+        # Get name information
+        name_info = char.get("name", {})
+        full_name = name_info.get("full", "")
+        native_name = name_info.get("native", "")
+        alternative_names = name_info.get("alternative", []) or []
+
+        # Build the result
+        result = {
+            "id": char.get("id"),
+            "name": full_name,
+            "name_original": native_name,
+            "aliases": alternative_names,
+            "role": role,
+        }
+
+        # Handle description with spoiler tags
+        description = char.get("description")
+        if description:
+            has_spoilers = cls.has_spoiler_tags(description)
+            
+            if preserve_spoiler_metadata:
+                # Always include description, we'll filter at display time
+                result["description"] = description
+                result["description_has_spoilers"] = has_spoilers
+            else:
+                if max_spoiler == 0 and has_spoilers:
+                    # Strip spoiler content for spoiler-free mode
+                    result["description"] = cls.strip_spoiler_tags(description)
+                else:
+                    result["description"] = description
+
+        # Map gender to sex field (for VNDB compatibility)
+        gender = char.get("gender")
+        if gender:
+            gender_map = {
+                "Male": "male",
+                "Female": "female",
+                "Non-binary": "non-binary",
+            }
+            result["sex"] = gender_map.get(gender, gender.lower())
+
+        # Add age if available
+        age = char.get("age")
+        if age:
+            result["age"] = str(age)
+
+        # Add image as base64 thumbnail
+        image_info = char.get("image", {})
+        if image_info:
+            # Prefer medium size for thumbnails, fallback to large
+            image_url = image_info.get("medium") or image_info.get("large")
+            if image_url:
+                result["image_url"] = image_url
+                # Fetch, resize to thumbnail, and convert to base64
+                image_base64 = cls.fetch_image_as_base64(image_url)
+                if image_base64:
+                    result["image_base64"] = image_base64
+
+        return result
+
+    @classmethod
+    def process_media_characters(
+        cls,
+        media_id: int,
+        media_type: str,
+        max_spoiler: int = 0,
+        include_minor: bool = False,
+        preserve_spoiler_metadata: bool = False
+    ) -> Optional[Dict]:
+        """
+        Fetch and process all characters for an Anime/Manga.
+
+        This is the main entry point for fetching character data.
+        Character images are automatically fetched and stored as 80x100 thumbnails.
+
+        Args:
+            media_id: AniList media ID
+            media_type: "ANIME" or "MANGA"
+            max_spoiler: Maximum spoiler level (0=none, 1=minor, 2=major)
+            include_minor: Whether to include background/minor characters
+            preserve_spoiler_metadata: If True, stores descriptions with spoiler level info
+
+        Returns:
+            Dictionary with media info and categorized characters, or None on failure:
+            {
+                "media_id": 149544,
+                "media_type": "MANGA",
+                "character_count": 15,
+                "characters": {
+                    "main": [...],
+                    "primary": [...],
+                    "side": [...]
+                }
+            }
+        """
+        logger.debug(f"Processing characters for AniList {media_type} ID {media_id}")
+        
+        edges = cls.fetch_characters(media_id, media_type)
+
+        if edges is None:
+            logger.warning(f"Failed to fetch characters for {media_type} {media_id}")
+            return None
+
+        logger.debug(f"Found {len(edges)} characters for {media_type} {media_id}")
+
+        # Process and categorize characters
+        processed: Dict[str, List[Dict]] = {
+            "main": [],      # Protagonist (MAIN)
+            "primary": [],   # Main characters (SUPPORTING)
+            "side": [],      # Side characters (BACKGROUND)
+        }
+
+        for edge in edges:
+            formatted = cls.format_character_for_translation(
+                edge, max_spoiler, preserve_spoiler_metadata
+            )
+            if formatted is None:
+                continue
+
+            role = formatted.get("role", "side")
+            if role in processed:
+                processed[role].append(formatted)
+            else:
+                processed["side"].append(formatted)
+
+        # Filter out minor characters if requested
+        if not include_minor:
+            # Keep side characters but they're optional - user can choose
+            pass
+
+        # Remove empty categories
+        processed = {k: v for k, v in processed.items() if v}
+
+        result = {
+            "media_id": media_id,
+            "media_type": media_type,
+            "character_count": sum(len(v) for v in processed.values()),
+            "characters": processed,
+        }
+
+        logger.info(
+            f"Processed {result['character_count']} characters for {media_type} {media_id}"
+        )
+        return result
+
+    @staticmethod
+    def create_translation_context(data: Dict) -> str:
+        """
+        Create a compact text summary for use in translation prompts.
+
+        Args:
+            data: Dictionary from process_media_characters()
+
+        Returns:
+            Markdown-formatted string with character information
+        """
+        media_type = data.get('media_type', 'Media')
+        media_id = data.get('media_id', 'Unknown')
+        lines = [f"# Character Reference for {media_type} {media_id}\n"]
+
+        role_labels = {
+            "main": "Protagonist",
+            "primary": "Main Characters",
+            "side": "Side Characters",
+        }
+
+        for role, label in role_labels.items():
+            chars = data.get("characters", {}).get(role, [])
+            if not chars:
+                continue
+
+            lines.append(f"\n## {label}")
+            for char in chars:
+                name = char.get("name", "Unknown")
+                orig = char.get("name_original")
+                name_str = f"{name} ({orig})" if orig else name
+
+                parts = [name_str]
+
+                if char.get("sex"):
+                    parts.append(char["sex"])
+
+                if char.get("age"):
+                    parts.append(f"age {char['age']}")
+
+                if len(parts) > 1:
+                    lines.append(f"- {parts[0]}: " + "; ".join(parts[1:]))
+                else:
+                    lines.append(f"- {parts[0]}")
+
+                # Add description as a separate indented line if available
+                if char.get("description"):
+                    # Truncate long descriptions for the summary
+                    desc = char["description"]
+                    # Strip spoiler tags for summary
+                    desc = AniListApiClient.strip_spoiler_tags(desc)
+                    if len(desc) > 200:
+                        desc = desc[:197] + "..."
+                    lines.append(f"  Description: {desc}")
+
+        return "\n".join(lines)

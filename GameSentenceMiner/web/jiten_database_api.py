@@ -193,6 +193,9 @@ def register_jiten_database_api_routes(app):
                         "obs_scene_name": game.obs_scene_name
                         if hasattr(game, "obs_scene_name")
                         else "",  # Add OBS scene name
+                        "character_summary": game.character_summary
+                        if hasattr(game, "character_summary")
+                        else "",  # AI-generated character summary
                     }
                 )
 
@@ -455,6 +458,60 @@ def register_jiten_database_api_routes(app):
                 # Save the game again to persist the Jiten link
                 game.save()
 
+            # Check if it's a Visual Novel and fetch VNDB character data
+            if jiten_data.get("media_type_string") == "Visual Novel":
+                try:
+                    from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
+                    
+                    links = jiten_data.get("links", [])
+                    vndb_id = JitenApiClient.extract_vndb_id(links)
+                    
+                    if vndb_id:
+                        logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
+                        vndb_data = VNDBApiClient.process_vn_characters(vndb_id, max_spoiler=2, preserve_spoiler_metadata=True)
+                        
+                        if vndb_data:
+                            # Store as JSON string in the database
+                            game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
+                            game.save()
+                            logger.info(f"Stored {vndb_data.get('character_count', 0)} characters for {game.title_original}")
+                        else:
+                            logger.debug(f"No VNDB character data returned for VN ID: {vndb_id}")
+                    else:
+                        logger.debug(f"No VNDB ID found in links for Visual Novel: {game.title_original}")
+                except Exception as vndb_error:
+                    # VNDB fetch should NOT block the linking process
+                    logger.error(f"Failed to fetch VNDB character data: {vndb_error}")
+
+            # Check if it's Anime or Manga and fetch AniList character data
+            if jiten_data.get("media_type_string") in ["Anime", "Manga"]:
+                try:
+                    from GameSentenceMiner.util.anilist_api_client import AniListApiClient
+                    
+                    links = jiten_data.get("links", [])
+                    logger.info(f"Checking AniList for {jiten_data.get('media_type_string')}, links: {links}")
+                    anilist_info = JitenApiClient.extract_anilist_id(links)
+                    
+                    if anilist_info:
+                        media_id, media_type = anilist_info
+                        logger.info(f"Fetching AniList character data for {media_type} ID: {media_id}")
+                        anilist_data = AniListApiClient.process_media_characters(
+                            media_id, media_type, max_spoiler=2, preserve_spoiler_metadata=True
+                        )
+                        
+                        if anilist_data:
+                            # Store as JSON string in the database (reuse vndb_character_data field)
+                            game.vndb_character_data = json.dumps(anilist_data, ensure_ascii=False)
+                            game.save()
+                            logger.info(f"Stored {anilist_data.get('character_count', 0)} AniList characters for {game.title_original}")
+                        else:
+                            logger.warning(f"No AniList character data returned for {media_type} ID: {media_id}")
+                    else:
+                        logger.warning(f"No AniList ID found in links: {links}")
+                except Exception as anilist_error:
+                    # AniList fetch should NOT block the linking process
+                    logger.error(f"Failed to fetch AniList character data: {anilist_error}", exc_info=True)
+
             # Update ALL game_lines with the OBS scene name to point to this game_id
             # This creates the explicit mapping: OBS scene name -> game_id
             # When a user links a game to jiten.moe, they're saying "this OBS scene name maps to this jiten game"
@@ -541,6 +598,7 @@ def register_jiten_database_api_routes(app):
                 "release_date",
                 "genres",
                 "tags",
+                "character_summary",
             ]
 
             for field in allowed_fields:
@@ -559,6 +617,7 @@ def register_jiten_database_api_routes(app):
                             "description",
                             "image",
                             "release_date",
+                            "character_summary",
                         ]
                         and value == ""
                     ):
@@ -794,6 +853,53 @@ def register_jiten_database_api_routes(app):
                     add_jiten_link_to_game(game, game.deck_id)
                     # Save the game again to persist the Jiten link
                     game.save()
+
+                # Check if it's a Visual Novel and fetch VNDB character data
+                if jiten_data.get("media_type_string") == "Visual Novel":
+                    try:
+                        from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
+                        
+                        links = jiten_data.get("links", [])
+                        vndb_id = JitenApiClient.extract_vndb_id(links)
+                        
+                        if vndb_id:
+                            logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
+                            vndb_data = VNDBApiClient.process_vn_characters(vndb_id, max_spoiler=2, preserve_spoiler_metadata=True)
+                            
+                            if vndb_data:
+                                game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
+                                game.save()
+                                logger.info(f"Updated VNDB data for {game.title_original}")
+                    except Exception as e:
+                        logger.error(f"Failed to fetch VNDB data: {e}")
+
+                # Check if it's Anime or Manga and fetch AniList character data
+                if jiten_data.get("media_type_string") in ["Anime", "Manga"]:
+                    try:
+                        from GameSentenceMiner.util.anilist_api_client import AniListApiClient
+                        
+                        links = jiten_data.get("links", [])
+                        logger.info(f"Checking AniList for {jiten_data.get('media_type_string')}, links: {links}")
+                        anilist_info = JitenApiClient.extract_anilist_id(links)
+                        
+                        if anilist_info:
+                            media_id, media_type = anilist_info
+                            logger.info(f"Fetching AniList character data for {media_type} ID: {media_id}")
+                            anilist_data = AniListApiClient.process_media_characters(
+                                media_id, media_type, max_spoiler=2, preserve_spoiler_metadata=True
+                            )
+                            
+                            if anilist_data:
+                                # Store as JSON string in the database (reuse vndb_character_data field)
+                                game.vndb_character_data = json.dumps(anilist_data, ensure_ascii=False)
+                                game.save()
+                                logger.info(f"Updated AniList data for {game.title_original}")
+                            else:
+                                logger.warning(f"No AniList data returned for {media_type} ID: {media_id}")
+                        else:
+                            logger.warning(f"No AniList ID found in links: {links}")
+                    except Exception as e:
+                        logger.error(f"Failed to fetch AniList data: {e}", exc_info=True)
 
                 return jsonify(
                     {

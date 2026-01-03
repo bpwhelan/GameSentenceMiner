@@ -468,6 +468,10 @@ h1 {
     background: linear-gradient(90deg, var(--accent-color), #64b5f6);
 }
 
+.management-card.yomitan-dict::before {
+    background: linear-gradient(90deg, #9c27b0, #ba68c8);
+}
+
 .card-header {
     display: flex;
     align-items: center;
