@@ -185,15 +185,25 @@ class AIManager(ABC):
             try:
                 from GameSentenceMiner.util.games_table import GamesTable
                 
-                game = GamesTable.get_by_title(game_title)
+                # game_title is the OBS scene name from get_current_game()
+                # Try obs_scene_name first, then fall back to title_original
+                game = GamesTable.get_by_obs_scene_name(game_title)
+                if not game:
+                    game = GamesTable.get_by_title(game_title)
+                
                 if game:
+                    logger.debug(f"Found game '{game.title_original}' (id={game.id}) for scene '{game_title}'")
                     # Check if we already have a character summary
                     if game.character_summary:
                         character_context = game.character_summary
                     # If not, check if we have VNDB data to generate one
                     elif game.vndb_character_data:
                         try:
-                            vndb_data = json.loads(game.vndb_character_data)
+                            # Handle both dict (already deserialized) and string (needs parsing)
+                            if isinstance(game.vndb_character_data, dict):
+                                vndb_data = game.vndb_character_data
+                            else:
+                                vndb_data = json.loads(game.vndb_character_data)
                             summary = generate_character_summary(vndb_data)
                             if summary:
                                 # Store the generated summary for future use

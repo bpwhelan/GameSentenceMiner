@@ -7,6 +7,7 @@ Extracts names, personality traits, roles, and other relevant attributes.
 
 import base64
 import io
+import re
 from typing import Optional, Dict, List, Tuple
 
 import requests
@@ -206,6 +207,23 @@ class VNDBApiClient:
             return None
 
     @staticmethod
+    def has_spoiler_tags(text: str) -> bool:
+        """
+        Check if text contains VNDB spoiler tags.
+        
+        VNDB uses [spoiler]...[/spoiler] tags to mark spoiler content in descriptions.
+        
+        Args:
+            text: Text to check for spoiler tags
+            
+        Returns:
+            True if text contains spoiler tags, False otherwise
+        """
+        if not text:
+            return False
+        return bool(re.search(r'\[spoiler\]', text, re.IGNORECASE))
+
+    @staticmethod
     def categorize_traits(
         traits: List[Dict],
         max_spoiler: int = 0
@@ -234,6 +252,44 @@ class VNDBApiClient:
                 categorized[group] = []
             if name and name not in categorized[group]:
                 categorized[group].append(name)
+
+        return categorized
+
+    @staticmethod
+    def categorize_traits_with_spoilers(
+        traits: List[Dict]
+    ) -> Dict[str, List[Dict]]:
+        """
+        Organize traits by their group, preserving spoiler level metadata.
+        Does NOT filter by spoiler level - stores all traits with their metadata.
+
+        Args:
+            traits: List of trait dictionaries from VNDB
+
+        Returns:
+            Dictionary mapping group names to lists of trait objects with:
+            - name: trait name
+            - spoiler: spoiler level (0=none, 1=minor, 2=major)
+        """
+        categorized = {}
+
+        for trait in traits:
+            group = trait.get("group_name", "Other")
+            name = trait.get("name", "")
+            spoiler_level = trait.get("spoiler", 0)
+
+            if group not in categorized:
+                categorized[group] = []
+            
+            # Store trait with spoiler metadata
+            trait_obj = {
+                "name": name,
+                "spoiler": spoiler_level
+            }
+            
+            # Avoid duplicates
+            if name and not any(t["name"] == name for t in categorized[group]):
+                categorized[group].append(trait_obj)
 
         return categorized
 
@@ -270,7 +326,8 @@ class VNDBApiClient:
         cls,
         char: Dict,
         target_vn_id: str,
-        max_spoiler: int = 0
+        max_spoiler: int = 0,
+        preserve_spoiler_metadata: bool = False
     ) -> Optional[Dict]:
         """
         Format a character's data for use in translation context.
@@ -279,6 +336,7 @@ class VNDBApiClient:
             char: Character dictionary from VNDB API
             target_vn_id: VNDB visual novel ID
             max_spoiler: Maximum spoiler level (0=none, 1=minor, 2=major)
+            preserve_spoiler_metadata: If True, stores traits with spoiler levels instead of filtering
 
         Returns:
             Formatted character dictionary, or None if character is a spoiler
@@ -302,8 +360,11 @@ class VNDBApiClient:
         if gender_info and isinstance(gender_info, list) and len(gender_info) >= 1:
             gender = gender_info[0]  # Non-spoiler gender
 
-        # Categorize traits
-        traits = cls.categorize_traits(char.get("traits", []), max_spoiler)
+        # Categorize traits - use metadata-preserving version if requested
+        if preserve_spoiler_metadata:
+            traits = cls.categorize_traits_with_spoilers(char.get("traits", []))
+        else:
+            traits = cls.categorize_traits(char.get("traits", []), max_spoiler)
 
         # Build the result
         result = {
@@ -314,9 +375,18 @@ class VNDBApiClient:
             "role": role,  # main, primary, side, appears
         }
 
-        # Add description if available
-        if char.get("description"):
-            result["description"] = char.get("description")
+        # Add description - include even if it has spoiler tags when preserving metadata
+        description = char.get("description")
+        if description:
+            if preserve_spoiler_metadata:
+                # Always include description, we'll filter at display time
+                result["description"] = description
+            else:
+                # Skip descriptions with spoiler tags when spoiler-free mode is enabled
+                if max_spoiler == 0 and cls.has_spoiler_tags(description):
+                    pass  # Don't include description with spoiler content
+                else:
+                    result["description"] = description
 
         # Add optional fields only if they have values
         sex_map = {"m": "male", "f": "female", "b": "both", "n": "sexless"}
@@ -376,7 +446,8 @@ class VNDBApiClient:
         cls,
         vn_id: str,
         max_spoiler: int = 0,
-        include_minor: bool = False
+        include_minor: bool = False,
+        preserve_spoiler_metadata: bool = False
     ) -> Optional[Dict]:
         """
         Fetch and process all characters for a VN.
@@ -388,6 +459,7 @@ class VNDBApiClient:
             vn_id: VNDB visual novel ID (e.g., "v56650" or "56650")
             max_spoiler: Maximum spoiler level (0=none, 1=minor, 2=major)
             include_minor: Whether to include minor/appears characters
+            preserve_spoiler_metadata: If True, stores traits with spoiler levels for runtime filtering
 
         Returns:
             Dictionary with VN info and categorized characters, or None on failure:
@@ -422,7 +494,7 @@ class VNDBApiClient:
 
         for char in characters:
             formatted = cls.format_character_for_translation(
-                char, vn_id, max_spoiler
+                char, vn_id, max_spoiler, preserve_spoiler_metadata
             )
             if formatted is None:
                 continue

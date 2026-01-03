@@ -230,6 +230,35 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
                 except Exception as e:
                     logger.error(f"Failed to fetch VNDB data: {e}")
             
+            # Check if it's Anime or Manga and fetch AniList character data
+            if jiten_data.get("media_type_string") in ["Anime", "Manga"]:
+                try:
+                    from GameSentenceMiner.util.anilist_api_client import AniListApiClient
+                    import json
+                    
+                    links = jiten_data.get("links", [])
+                    logger.info(f"Checking AniList for {jiten_data.get('media_type_string')}, links: {links}")
+                    anilist_info = JitenApiClient.extract_anilist_id(links)
+                    
+                    if anilist_info:
+                        media_id, media_type = anilist_info
+                        logger.info(f"Fetching AniList character data for {media_type} ID: {media_id}")
+                        anilist_data = AniListApiClient.process_media_characters(
+                            media_id, media_type, max_spoiler=2, preserve_spoiler_metadata=True
+                        )
+                        
+                        if anilist_data:
+                            # Store as JSON string in the database (reuse vndb_character_data field)
+                            game.vndb_character_data = json.dumps(anilist_data, ensure_ascii=False)
+                            game.save()
+                            logger.info(f"Updated AniList data for {game.title_original}")
+                        else:
+                            logger.warning(f"No AniList data returned for {media_type} ID: {media_id}")
+                    else:
+                        logger.warning(f"No AniList ID found in links: {links}")
+                except Exception as e:
+                    logger.error(f"Failed to fetch AniList data: {e}", exc_info=True)
+            
             return {
                 "success": True,
                 "updated_fields": list(update_fields.keys()),

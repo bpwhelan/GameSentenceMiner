@@ -124,15 +124,19 @@ class JitenApiClient:
             Normalized deck data with snake_case keys
         """
         # Map media type integer to human-readable string
+        # Based on jiten.moe MediaType enum:
+        # Anime=1, Drama=2, Movie=3, Novel=4, NonFiction=5, VideoGame=6, VisualNovel=7, WebNovel=8, Manga=9
         media_type_raw = deck_data.get("mediaType")
         media_type_map = {
             1: "Anime",
-            2: "Manga",
-            3: "Light Novel",
-            4: "Web Novel",
-            5: "Book",
-            6: "Game",
-            7: "Visual Novel"
+            2: "Drama",
+            3: "Movie",
+            4: "Novel",
+            5: "NonFiction",
+            6: "VideoGame",
+            7: "Visual Novel",
+            8: "WebNovel",
+            9: "Manga",
         }
         media_type_string = media_type_map.get(media_type_raw, f"Type {media_type_raw}" if media_type_raw else "")
         
@@ -221,21 +225,43 @@ class JitenApiClient:
             return None
 
     @classmethod
-    def extract_vndb_id(cls, links: List[Dict]) -> Optional[str]:
+    def extract_vndb_id(cls, links: List) -> Optional[str]:
         """
         Extract VNDB VN ID from jiten.moe links array.
         
         Args:
-            links: List of link dictionaries from jiten.moe data
+            links: List of link strings or dictionaries from jiten.moe data
             
         Returns:
             VN ID string (e.g., "1234") or None if not found
         """
         for link in links:
-            url = link.get("url", "")
+            # Handle both string and dict formats for backward compatibility
+            url = link if isinstance(link, str) else (link.get("url", "") if isinstance(link, dict) else "")
             if "vndb.org/v" in url:
                 # Extract VN ID from URL like https://vndb.org/v1234
                 match = re.search(r"vndb\.org/v(\d+)", url)
                 if match:
                     return match.group(1)
+        return None
+
+    @classmethod
+    def extract_anilist_id(cls, links: List) -> Optional[tuple]:
+        """
+        Extract AniList media ID and type from jiten.moe links array.
+        
+        Args:
+            links: List of link strings or dictionaries from jiten.moe data
+            
+        Returns:
+            Tuple of (media_id, media_type) or None if not found
+            media_type is "ANIME" or "MANGA"
+        """
+        for link in links:
+            # Handle both string and dict formats for backward compatibility
+            url = link if isinstance(link, str) else (link.get("url", "") if isinstance(link, dict) else "")
+            if "anilist.co/" in url:
+                match = re.search(r"anilist\.co/(anime|manga)/(\d+)", url)
+                if match:
+                    return int(match.group(2)), match.group(1).upper()
         return None

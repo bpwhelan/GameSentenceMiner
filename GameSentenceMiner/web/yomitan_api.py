@@ -135,6 +135,7 @@ def register_yomitan_api_routes(app):
         
         Query Parameters:
         - game_count: Number of games to include (1-999, default: 3)
+        - spoiler_level: Maximum spoiler level to include (0=None, 1=Minor, 2=Major, default: 0)
         
         The dictionary includes:
         - Character names (Japanese + romaji)
@@ -153,6 +154,13 @@ def register_yomitan_api_routes(app):
             minimum: 1
             maximum: 999
             description: Number of recent games to include in dictionary
+          - name: spoiler_level
+            in: query
+            type: integer
+            default: 0
+            minimum: 0
+            maximum: 2
+            description: Maximum spoiler level to include (0=None, 1=Minor, 2=Major)
         responses:
           200:
             description: ZIP file containing Yomitan dictionary
@@ -162,7 +170,7 @@ def register_yomitan_api_routes(app):
                   type: string
                   format: binary
           400:
-            description: Invalid game_count parameter
+            description: Invalid game_count or spoiler_level parameter
           404:
             description: No games with VNDB character data found
         """
@@ -177,6 +185,17 @@ def register_yomitan_api_routes(app):
                 "action": "Please use a value between 1 and 999"
             }), 400
         
+        # Get spoiler_level from query parameter (default: 0)
+        spoiler_level = request.args.get('spoiler_level', 0, type=int)
+        
+        # Validate spoiler_level range (0-2)
+        if spoiler_level < 0 or spoiler_level > 2:
+            return jsonify({
+                "error": "Invalid spoiler_level parameter",
+                "message": f"spoiler_level must be between 0 and 2, got: {spoiler_level}",
+                "action": "Please use a value between 0 (None), 1 (Minor), or 2 (Major)"
+            }), 400
+        
         # 1. Get most recently played games with valid character data
         recent_games = get_recent_games(desired_count=game_count, max_search=50)
         
@@ -189,8 +208,8 @@ def register_yomitan_api_routes(app):
         
         # 2. Build dictionary combining all games
         port = get_config().general.texthooker_port
-        download_url = f"http://127.0.0.1:{port}/api/yomitan-dict"
-        builder = YomitanDictBuilder(download_url=download_url, game_count=game_count)
+        download_url = f"http://127.0.0.1:{port}/api/yomitan-dict?spoiler_level={spoiler_level}"
+        builder = YomitanDictBuilder(download_url=download_url, game_count=game_count, spoiler_level=spoiler_level)
         
         total_characters = 0
         for game in recent_games:

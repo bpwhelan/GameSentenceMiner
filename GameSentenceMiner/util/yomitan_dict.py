@@ -5,6 +5,8 @@ import zipfile
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
+import jaconv
+
 if TYPE_CHECKING:
     from GameSentenceMiner.util.games_table import GamesTable
 
@@ -14,7 +16,7 @@ class YomitanDictBuilder:
     
     DICT_TITLE = "GSM (Do not delete)"
     
-    def __init__(self, revision: str = None, download_url: str = None, game_count: int = 3):
+    def __init__(self, revision: str = None, download_url: str = None, game_count: int = 3, spoiler_level: int = 0):
         """
         Initialize the dictionary builder.
         
@@ -22,11 +24,13 @@ class YomitanDictBuilder:
             revision: Version string (defaults to current date YYYY.MM.DD)
             download_url: URL for Yomitan auto-update feature
             game_count: Number of games requested (for description, default: 3)
+            spoiler_level: Maximum spoiler level to include (0=None, 1=Minor, 2=Major, default: 0)
         """
         self.title = self.DICT_TITLE
         self.revision = revision or datetime.now().strftime("%Y.%m.%d")
         self.download_url = download_url  # For auto-update support
         self.game_count = game_count  # Track requested game count for description
+        self.spoiler_level = spoiler_level  # Maximum spoiler level to include
         self.entries = []  # Term bank entries
         self.images = {}   # char_id -> (filename, bytes)
         self.tags = set()  # Role tags used
@@ -167,59 +171,80 @@ class YomitanDictBuilder:
                 "content": role_label
             })
         
-        # Stats line (sex, age, height, blood type) - combine on one line
-        stats_parts = []
+        # Collapsible description (if available) - placed above character information
+        # Filter descriptions with spoiler tags based on spoiler_level
+        description = char.get("description")
+        if description and description.strip():
+            # Check for VNDB spoiler tags [spoiler]...[/spoiler]
+            import re
+            has_spoiler_tags = bool(re.search(r'\[spoiler\]', description, re.IGNORECASE))
+            
+            # Only show description if:
+            # - It doesn't have spoiler tags, OR
+            # - We allow spoilers (spoiler_level > 0)
+            if not has_spoiler_tags or self.spoiler_level > 0:
+                # If spoiler_level is 0 and somehow got here, strip spoiler content just in case
+                display_description = description
+                if self.spoiler_level == 0 and has_spoiler_tags:
+                    # Remove spoiler content entirely
+                    display_description = re.sub(r'\[spoiler\].*?\[/spoiler\]', '', description, flags=re.IGNORECASE | re.DOTALL).strip()
+                
+                if display_description:  # Only add if there's content left after filtering
+                    content.append({
+                        "tag": "details",
+                        "content": [
+                            {"tag": "summary", "content": "Description"},
+                            {
+                                "tag": "div",
+                                "style": {"fontSize": "0.9em", "marginTop": "4px"},
+                                "content": display_description
+                            }
+                        ]
+                    })
+        
+        # Collapsible character information (sex, age, height, blood type, personality traits)
+        char_info_items = []
         
         sex = char.get("sex")
         if sex and sex in SEX_DISPLAY:
-            stats_parts.append(SEX_DISPLAY[sex])
+            char_info_items.append({"tag": "li", "content": SEX_DISPLAY[sex]})
         
         age = char.get("age")
         if age:
-            stats_parts.append(f"{age} years old")
+            char_info_items.append({"tag": "li", "content": f"{age} years old"})
         
         height = char.get("height")
         if height:
-            stats_parts.append(f"{height}cm")
+            char_info_items.append({"tag": "li", "content": f"Height: {height}cm"})
         
         blood_type = char.get("blood_type")
         if blood_type:
-            stats_parts.append(f"Blood: {blood_type}")
+            char_info_items.append({"tag": "li", "content": f"Blood Type: {blood_type}"})
         
-        if stats_parts:
-            content.append({
-                "tag": "div",
-                "style": {"marginTop": "8px", "fontSize": "0.9em"},
-                "content": " • ".join(stats_parts)
-            })
-        
-        # Collapsible description (if available) - placed above personality traits
-        description = char.get("description")
-        if description and description.strip():
-            content.append({
-                "tag": "details",
-                "content": [
-                    {"tag": "summary", "content": "Description"},
-                    {
-                        "tag": "div",
-                        "style": {"fontSize": "0.9em", "marginTop": "4px"},
-                        "content": description
-                    }
-                ]
-            })
-        
-        # Collapsible personality traits (if available)
         personality = char.get("personality")
         if personality and isinstance(personality, list) and len(personality) > 0:
-            trait_items = [{"tag": "li", "content": trait} for trait in personality]
+            for trait in personality:
+                # Handle both old format (string) and new format (dict with "name" and "spoiler")
+                if isinstance(trait, dict):
+                    # New format with spoiler metadata
+                    trait_name = trait.get("name", "")
+                    trait_spoiler = trait.get("spoiler", 0)
+                    # Only include trait if its spoiler level is within our allowed range
+                    if trait_name and trait_spoiler <= self.spoiler_level:
+                        char_info_items.append({"tag": "li", "content": trait_name})
+                elif isinstance(trait, str) and trait:
+                    # Old format (plain string) - always include
+                    char_info_items.append({"tag": "li", "content": trait})
+        
+        if char_info_items:
             content.append({
                 "tag": "details",
                 "content": [
-                    {"tag": "summary", "content": "Personality Traits"},
+                    {"tag": "summary", "content": "Character Information"},
                     {
                         "tag": "ul",
                         "style": {"marginTop": "4px", "paddingLeft": "20px"},
-                        "content": trait_items
+                        "content": char_info_items
                     }
                 ]
             })
@@ -288,6 +313,62 @@ class YomitanDictBuilder:
             'given': given
         }
 
+    def _split_romanized_name_to_hiragana(self, romanized_name: str) -> dict:
+        """
+        Split a romanized name and convert each part to hiragana for furigana.
+        
+        Romanized names from VNDB are typically "FamilyName GivenName" format.
+        This method splits the name and converts each part to hiragana using jaconv.
+        
+        Args:
+            romanized_name: Full romanized name like "Suzuki Shinichi"
+            
+        Returns:
+            Dictionary with keys:
+            - family: Family name in hiragana (すずき)
+            - given: Given name in hiragana (しんいち)
+            - full: Full name in hiragana without space (すずきしんいち)
+            - original: Original romanized name (Suzuki Shinichi)
+            - has_space: Boolean indicating if name contains space
+        """
+        if not romanized_name:
+            return {
+                'has_space': False,
+                'original': '',
+                'full': '',
+                'family': '',
+                'given': ''
+            }
+        
+        # Convert full name to lowercase for jaconv (it works better with lowercase)
+        full_hiragana = jaconv.alphabet2kana(romanized_name.lower().replace(' ', ''))
+        
+        if ' ' not in romanized_name:
+            return {
+                'has_space': False,
+                'original': romanized_name,
+                'full': full_hiragana,
+                'family': full_hiragana,
+                'given': full_hiragana
+            }
+        
+        # Split on first space only
+        parts = romanized_name.split(' ', 1)
+        family_romaji = parts[0]
+        given_romaji = parts[1] if len(parts) > 1 else ''
+        
+        # Convert each part to hiragana
+        family_hiragana = jaconv.alphabet2kana(family_romaji.lower())
+        given_hiragana = jaconv.alphabet2kana(given_romaji.lower()) if given_romaji else ''
+        
+        return {
+            'has_space': True,
+            'original': romanized_name,
+            'full': full_hiragana,
+            'family': family_hiragana,
+            'given': given_hiragana
+        }
+
     def _create_entry(self, term: str, reading: str, role: str, score: int,
                       structured_content: dict) -> list:
         """
@@ -295,7 +376,7 @@ class YomitanDictBuilder:
         
         Args:
             term: The term/word to look up
-            reading: Reading/pronunciation (romaji)
+            reading: Reading/pronunciation (hiragana, converted from romaji)
             role: Character role for tags
             score: Priority score
             structured_content: The structured content dictionary
@@ -319,10 +400,10 @@ class YomitanDictBuilder:
         Process a single character and create term entries.
         
         For names containing spaces (e.g., "須々木 心一"), creates 4 entries:
-        1. Family name only (須々木)
-        2. Given name only (心一)
-        3. Combined without space (須々木心一)
-        4. Original with space (須々木 心一)
+        1. Family name only (須々木) with family name hiragana reading
+        2. Given name only (心一) with given name hiragana reading
+        3. Combined without space (須々木心一) with full hiragana reading
+        4. Original with space (須々木 心一) with full hiragana reading
         
         Args:
             char: Character data dictionary with fields like id, name, name_original,
@@ -339,8 +420,9 @@ class YomitanDictBuilder:
             # Skip characters with no name
             return
         
-        # Use romanized name as the reading
-        reading = char.get("name", "")
+        # Get romanized name and convert to hiragana readings
+        romanized_name = char.get("name", "")
+        hiragana_readings = self._split_romanized_name_to_hiragana(romanized_name)
         
         # Get role and score
         role = char.get("role", "")
@@ -369,47 +451,47 @@ class YomitanDictBuilder:
         if name_parts['has_space']:
             # Create 4 entries for names with spaces
             
-            # 1. Original with space (須々木 心一)
+            # 1. Original with space (須々木 心一) - use full hiragana reading
             if name_parts['original'] and name_parts['original'] not in added_terms:
                 self.entries.append(self._create_entry(
-                    name_parts['original'], reading, role, score, structured_content
+                    name_parts['original'], hiragana_readings['full'], role, score, structured_content
                 ))
                 added_terms.add(name_parts['original'])
             
-            # 2. Combined without space (須々木心一)
+            # 2. Combined without space (須々木心一) - use full hiragana reading
             if name_parts['combined'] and name_parts['combined'] not in added_terms:
                 self.entries.append(self._create_entry(
-                    name_parts['combined'], reading, role, score, structured_content
+                    name_parts['combined'], hiragana_readings['full'], role, score, structured_content
                 ))
                 added_terms.add(name_parts['combined'])
             
-            # 3. Family name only (須々木)
+            # 3. Family name only (須々木) - use family hiragana reading
             if name_parts['family'] and name_parts['family'] not in added_terms:
                 self.entries.append(self._create_entry(
-                    name_parts['family'], reading, role, score, structured_content
+                    name_parts['family'], hiragana_readings['family'], role, score, structured_content
                 ))
                 added_terms.add(name_parts['family'])
             
-            # 4. Given name only (心一)
+            # 4. Given name only (心一) - use given hiragana reading
             if name_parts['given'] and name_parts['given'] not in added_terms:
                 self.entries.append(self._create_entry(
-                    name_parts['given'], reading, role, score, structured_content
+                    name_parts['given'], hiragana_readings['given'], role, score, structured_content
                 ))
                 added_terms.add(name_parts['given'])
         else:
-            # Single entry for names without spaces
+            # Single entry for names without spaces - use full hiragana reading
             self.entries.append(self._create_entry(
-                name_original, reading, role, score, structured_content
+                name_original, hiragana_readings['full'], role, score, structured_content
             ))
             added_terms.add(name_original)
         
-        # Create additional entries for aliases
+        # Create additional entries for aliases - use full hiragana reading
         aliases = char.get("aliases", [])
         if aliases and isinstance(aliases, list):
             for alias in aliases:
                 if alias and alias not in added_terms:  # Skip empty or duplicate aliases
                     self.entries.append(self._create_entry(
-                        alias, reading, role, score, structured_content
+                        alias, hiragana_readings['full'], role, score, structured_content
                     ))
                     added_terms.add(alias)
 
