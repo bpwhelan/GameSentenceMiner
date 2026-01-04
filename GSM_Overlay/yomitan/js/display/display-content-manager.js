@@ -47,10 +47,10 @@ export class DisplayContentManager {
      * Queues loading media file from a given dictionary.
      * @param {string} path
      * @param {string} dictionary
-     * @param {OffscreenCanvas} canvas
+     * @param {HTMLImageElement|HTMLCanvasElement} element
      */
-    loadMedia(path, dictionary, canvas) {
-        this._loadMediaRequests.push({path, dictionary, canvas});
+    loadMedia(path, dictionary, element) {
+        this._loadMediaRequests.push({path, dictionary, element});
     }
 
     /**
@@ -83,7 +83,85 @@ export class DisplayContentManager {
      * Execute media requests
      */
     async executeMediaRequests() {
-        this._display.application.api.drawMedia(this._loadMediaRequests, this._loadMediaRequests.map(({canvas}) => canvas));
+        // Radical fix: Load images directly as blob URLs instead of using canvas
+        console.log(`[DisplayContentManager] Executing ${this._loadMediaRequests.length} media requests`);
+        
+        for (const {path, dictionary, element} of this._loadMediaRequests) {
+            try {
+                console.log(`[DisplayContentManager] Loading media: path=${path}, dictionary=${dictionary}`);
+                const data = await this._display.application.api.getMedia([{path, dictionary}]);
+                
+                if (data && data.length > 0 && data[0].content) {
+                    console.log(`[DisplayContentManager] Media data received, type=${data[0].mediaType}`);
+                    const buffer = base64ToArrayBuffer(data[0].content);
+                    const blob = new Blob([buffer], {type: data[0].mediaType});
+                    const blobUrl = URL.createObjectURL(blob);
+                    console.log(`[DisplayContentManager] Created blob URL: ${blobUrl}`);
+                    
+                    if (element instanceof HTMLImageElement) {
+                        // Force display immediately
+                        element.style.display = 'inline-block';
+                        element.style.visibility = 'visible';
+                        element.style.opacity = '1';
+                        
+                        element.onload = () => {
+                            console.log(`[DisplayContentManager] Image loaded successfully: ${path}`);
+                            const link = element.closest('.gloss-image-link');
+                            if (link) {
+                                link.dataset.imageLoadState = 'loaded';
+                                link.dataset.hasImage = 'true';
+                            }
+                        };
+                        element.onerror = (e) => {
+                            console.error(`[DisplayContentManager] Image load error:`, e, path);
+                            const link = element.closest('.gloss-image-link');
+                            if (link) {
+                                link.dataset.imageLoadState = 'load-error';
+                            }
+                        };
+                        
+                        // Set src last to trigger load
+                        element.src = blobUrl;
+                        
+                    } else if (element instanceof HTMLCanvasElement) {
+                        // Fallback for canvas elements
+                        const img = new Image();
+                        img.onload = () => {
+                            console.log(`[DisplayContentManager] Canvas image loaded: ${path}`);
+                            const ctx = element.getContext('2d');
+                            if (ctx) {
+                                element.width = img.naturalWidth || element.width;
+                                element.height = img.naturalHeight || element.height;
+                                ctx.drawImage(img, 0, 0, element.width, element.height);
+                                const link = element.closest('.gloss-image-link');
+                                if (link) {
+                                    link.dataset.imageLoadState = 'loaded';
+                                    link.dataset.hasImage = 'true';
+                                }
+                            }
+                            URL.revokeObjectURL(blobUrl);
+                        };
+                        img.onerror = (e) => {
+                            console.error(`[DisplayContentManager] Canvas image error:`, e, path);
+                            const link = element.closest('.gloss-image-link');
+                            if (link) {
+                                link.dataset.imageLoadState = 'load-error';
+                            }
+                            URL.revokeObjectURL(blobUrl);
+                        };
+                        img.src = blobUrl;
+                    }
+                } else {
+                    console.error(`[DisplayContentManager] No media data received for ${path}`);
+                }
+            } catch (error) {
+                console.error('[DisplayContentManager] Failed to load media:', error, path, dictionary);
+                const link = element.closest('.gloss-image-link');
+                if (link) {
+                    link.dataset.imageLoadState = 'load-error';
+                }
+            }
+        }
         this._loadMediaRequests = [];
     }
 

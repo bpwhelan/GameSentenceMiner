@@ -782,7 +782,7 @@ background: rgba(202, 12, 12, 0.692);
   // Instead, we'll detect if the count seems stuck and hasn't changed in a while.
   let lastPopupChangeTime = Date.now();
   let lastPopupCount = 0;
-  const STALE_TIMEOUT = 30000; // 30 seconds
+  const STALE_TIMEOUT = 300000; // 300 seconds, this causes issues, so make it super long, idk.
   
   setInterval(() => {
     // Track when count last changed
@@ -1060,7 +1060,6 @@ background: rgba(202, 12, 12, 0.692);
 
         // Clear existing text boxes
         const mainBoxBounds = mainBox.getBoundingClientRect();
-        clearTextBoxes();
 
         console.log(data);
 
@@ -1073,7 +1072,9 @@ background: rgba(202, 12, 12, 0.692);
           
           // FIRST PASS: Detect blocks of text (lines with similar x1 and close y proximity)
           const X_THRESHOLD = 2; // Lines within 2% x1 difference are considered aligned
-          const Y_THRESHOLD = 5; // Lines within 5% y distance are considered part of same block
+          const Y_THRESHOLD = 8; // Lines within 8% y distance are considered part of same block
+          const Y_SAME_LINE_THRESHOLD = 1; // Lines within 1% y distance are on the same physical line
+          const CHAR_SHIFT_THRESHOLD = 3; // Allow up to 3 characters of shift difference
           
           // Assign block IDs to each line
           const lineBlocks = new Map(); // Map from line index to block ID
@@ -1084,6 +1085,8 @@ background: rgba(202, 12, 12, 0.692);
             const currentRect = currentLine.bounding_rect;
             const currentX1 = currentRect.x1 * 100;
             const currentY = (currentRect.y1 + currentRect.y3) / 2 * 100; // Use center Y
+            const currentWidth = (currentRect.x3 - currentRect.x1) * 100;
+            const currentCharWidth = currentWidth / currentLine.text.length;
             
             let assignedToBlock = false;
             
@@ -1091,17 +1094,89 @@ background: rgba(202, 12, 12, 0.692);
             for (let j = 0; j < i; j++) {
               if (!lineBlocks.has(j)) continue;
               
-              const prevLine = data.data[j];
-              const prevRect = prevLine.bounding_rect;
-              const prevX1 = prevRect.x1 * 100;
-              const prevY = (prevRect.y1 + prevRect.y3) / 2 * 100;
+              // Get the candidate block ID
+              const candidateBlockId = lineBlocks.get(j);
               
-              const xDiff = Math.abs(currentX1 - prevX1);
-              const yDiff = Math.abs(currentY - prevY);
+              // Collect all X positions in this block to find the min/max range
+              const blockXPositions = [];
+              for (let k = 0; k < i; k++) {
+                if (lineBlocks.get(k) === candidateBlockId) {
+                  const blockLine = data.data[k];
+                  const blockRect = blockLine.bounding_rect;
+                  blockXPositions.push(blockRect.x1 * 100);
+                }
+              }
               
-              // If x-aligned and vertically close, assign to same block
-              if (xDiff <= X_THRESHOLD && yDiff <= Y_THRESHOLD) {
-                lineBlocks.set(i, lineBlocks.get(j));
+              // Find min and max X in the block
+              const minBlockX = Math.min(...blockXPositions);
+              const maxBlockX = Math.max(...blockXPositions);
+              
+              // Calculate the X range (how much shift exists in this block)
+              const blockXRange = maxBlockX - minBlockX;
+              
+              // Calculate average character width for the block
+              let totalCharWidth = 0;
+              let charCount = 0;
+              for (let k = 0; k < i; k++) {
+                if (lineBlocks.get(k) === candidateBlockId) {
+                  const blockLine = data.data[k];
+                  const blockRect = blockLine.bounding_rect;
+                  const blockWidth = (blockRect.x3 - blockRect.x1) * 100;
+                  totalCharWidth += blockWidth / blockLine.text.length;
+                  charCount++;
+                }
+              }
+              const avgBlockCharWidth = totalCharWidth / charCount;
+              
+              // Check if current line matches this block
+              let matchesBlock = false;
+              
+              for (let k = 0; k < i; k++) {
+                if (lineBlocks.get(k) !== candidateBlockId) continue;
+                
+                const blockLine = data.data[k];
+                const blockRect = blockLine.bounding_rect;
+                const blockX1 = blockRect.x1 * 100;
+                const blockY = (blockRect.y1 + blockRect.y3) / 2 * 100;
+                
+                const xDiff = Math.abs(currentX1 - blockX1);
+                const yDiff = Math.abs(currentY - blockY);
+                
+                // If on the same physical line (very close Y), group together regardless of X
+                const isSamePhysicalLine = yDiff <= Y_SAME_LINE_THRESHOLD;
+                
+                if (isSamePhysicalLine) {
+                  matchesBlock = true;
+                  break;
+                }
+                
+                // For vertical proximity checks
+                if (yDiff <= Y_THRESHOLD) {
+                  // Check if lines are x-aligned
+                  const isXAligned = xDiff <= X_THRESHOLD;
+                  
+                  if (isXAligned) {
+                    matchesBlock = true;
+                    break;
+                  }
+                  
+                  // Check if current line's X falls within the block's X range + threshold
+                  const currentXInRange = currentX1 >= (minBlockX - avgBlockCharWidth * CHAR_SHIFT_THRESHOLD) &&
+                                         currentX1 <= (maxBlockX + avgBlockCharWidth * CHAR_SHIFT_THRESHOLD);
+                  
+                  // Also check character shift from this specific line
+                  const avgCharWidth = (currentCharWidth + (blockRect.x3 - blockRect.x1) * 100 / blockLine.text.length) / 2;
+                  const charShift = xDiff / avgCharWidth;
+                  
+                  if (currentXInRange || charShift <= CHAR_SHIFT_THRESHOLD) {
+                    matchesBlock = true;
+                    break;
+                  }
+                }
+              }
+              
+              if (matchesBlock) {
+                lineBlocks.set(i, candidateBlockId);
                 assignedToBlock = true;
                 break;
               }

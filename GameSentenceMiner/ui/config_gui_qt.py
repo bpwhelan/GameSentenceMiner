@@ -462,7 +462,8 @@ class ConfigWindow(QWidget):
                 ocr_websocket_port=int(self.ocr_websocket_port_edit.text() or 0),
                 texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port_edit.text() or 0),
                 plaintext_websocket_port=int(self.plaintext_websocket_export_port_edit.text() or 0),
-                localhost_bind_address=self.localhost_bind_address_edit.text()
+                localhost_bind_address=self.localhost_bind_address_edit.text(),
+                dont_collect_stats=self.dont_collect_stats_check.isChecked()
             ),
             ai=Ai(
                 add_to_anki=self.ai_enabled_check.isChecked(),
@@ -780,6 +781,7 @@ class ConfigWindow(QWidget):
         self.reset_line_hotkey_edit = QKeySequenceEdit()
         self.polling_rate_edit = QLineEdit()
         self.localhost_bind_address_edit = QLineEdit()
+        self.dont_collect_stats_check = QCheckBox()
         self.current_version_label = QLabel()
         self.latest_version_label = QLabel()
 
@@ -1551,6 +1553,17 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'reset_line_hotkey'), self.reset_line_hotkey_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'polling_rate'), self.polling_rate_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'localhost_bind_address'), self.localhost_bind_address_edit)
+        
+        # Disable local stats option with warning
+        dont_collect_stats_label = self._create_labeled_widget(i18n, 'advanced', 'dont_collect_stats', color=LabelColor.ADVANCED)
+        dont_collect_stats_container = QHBoxLayout()
+        dont_collect_stats_container.addWidget(self.dont_collect_stats_check)
+        dont_collect_stats_warning = QLabel("⚠️ Stats are ONLY local no matter what. Disabling may break features!")
+        dont_collect_stats_warning.setStyleSheet("color: #FF6B6B; font-size: 10px;")
+        dont_collect_stats_container.addWidget(dont_collect_stats_warning)
+        dont_collect_stats_container.addStretch()
+        layout.addRow(dont_collect_stats_label, dont_collect_stats_container)
+        
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'current_version'), self.current_version_label)
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'latest_version'), self.latest_version_label)
 
@@ -1828,6 +1841,7 @@ class ConfigWindow(QWidget):
         self.reset_line_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.reset_line or ""))
         self.polling_rate_edit.setText(str(s.anki.polling_rate))
         self.localhost_bind_address_edit.setText(s.advanced.localhost_bind_address)
+        self.dont_collect_stats_check.setChecked(s.advanced.dont_collect_stats)
         self.current_version_label.setText(get_current_version())
         self.latest_version_label.setText(get_latest_version())
         

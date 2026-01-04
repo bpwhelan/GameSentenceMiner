@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, screen, globalShortcut, dialog, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, session, screen, globalShortcut, dialog, Tray, Menu, nativeImage, protocol } = require('electron');
 const { ipcMain } = require("electron");
 const fs = require("fs");
 const path = require('path');
@@ -9,6 +9,20 @@ const wanakana = require('wanakana');
 const Kuroshiro = require("kuroshiro").default;
 const KuromojiAnalyzer = require("kuroshiro-analyzer-kuromoji");
 const BackendConnector = require('./backend_connector');
+
+// FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
+protocol.registerSchemesAsPrivileged([
+  { 
+    scheme: 'chrome-extension', 
+    privileges: { 
+      standard: true, 
+      secure: true, 
+      supportFetchAPI: true, 
+      corsEnabled: true, 
+      bypassCSP: true 
+    } 
+  }
+]);
 
 let dataPath = process.env.APPDATA
   ? path.join(process.env.APPDATA, "gsm_overlay") // Windows
@@ -979,9 +993,31 @@ app.whenReady().then(async () => {
       contextIsolation: false,
       nodeIntegration: true,
       preload: path.join(__dirname, 'preload.js'),
-      webSecurity: false
+      webSecurity: false,
+      allowRunningInsecureContent: true,
+      allowFileAccess: true,
+      allowFileAccessFromFileURLs: true,
     },
     // show: false,
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const child = new BrowserWindow({
+      parent: mainWindow ? mainWindow : undefined,
+      show: true,
+      width: 1200,
+      height: 980,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+        devTools: true,
+        nodeIntegrationInSubFrames: true,
+        backgroundThrottling: false,
+      },
+    });
+    child.setMenu(null);
+    child.loadURL(url);
+    return { action: 'deny' };
   });
 
   // Set bounds again to fix potential issue with wrong size on start

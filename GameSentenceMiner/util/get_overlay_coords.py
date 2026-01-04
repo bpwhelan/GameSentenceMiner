@@ -18,7 +18,7 @@ import regex
 
 # Local application imports
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, set_dpi_awareness
-from GameSentenceMiner.ocr.owocr_helper import get_ocr_config
+from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
 from GameSentenceMiner.owocr.owocr.run import apply_ocr_config_to_image
 from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_overlay_config, get_master_config, get_temporary_directory, is_wayland, is_windows, is_beangate, logger
 from GameSentenceMiner.util.electron_config import get_ocr_language
@@ -559,7 +559,6 @@ class WindowStateMonitor:
         if current_state != self.last_state or magpie_changed or fullscreen_changed:
             self.last_state = current_state
             self.last_is_fullscreen = is_fullscreen
-            self.last_magpie_info = copy.deepcopy(self.magpie_info) if self.magpie_info else None
             
             # Determine if we should recommend manual mode
             # Recommend when: fullscreen detected AND overlay config shows manual mode is OFF
@@ -577,6 +576,9 @@ class WindowStateMonitor:
             
             if websocket_manager.has_clients(ID_OVERLAY):
                 await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
+        
+        # Always update last_magpie_info after checking for changes to prevent stale state
+        self.last_magpie_info = copy.deepcopy(self.magpie_info) if self.magpie_info else None
         
         # Smart Update
         if (magpie_changed or window_moved_or_resized):
@@ -826,7 +828,7 @@ class OverlayProcessor:
         self.lens = None
         self.current_engine_config = effective_engine
             
-    async def find_box_and_send_to_overlay(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, sequence: int = None, local_ocr_retry = 5, source: str = None):
+    async def find_box_and_send_to_overlay(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, sequence: int = None, local_ocr_retry = 5, source: TextSource = None):
         """Sends the detected text boxes to the overlay via WebSocket."""
         if sequence is not None and sequence != self._current_sequence:
             logger.debug(f"Skipping outdated overlay request (sequence {sequence}, current {self._current_sequence})")
@@ -860,7 +862,7 @@ class OverlayProcessor:
         except asyncio.CancelledError:
             logger.debug("OCR task was cancelled")
 
-    async def find_box_for_sentence(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, sequence: int = None, local_ocr_retry = 5, source: str = None) -> List[Dict[str, Any]]:
+    async def find_box_for_sentence(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, sequence: int = None, local_ocr_retry = 5, source: TextSource = None) -> List[Dict[str, Any]]:
         if sequence is not None and sequence != self._current_sequence:
             logger.debug(f"Skipping outdated OCR work (sequence {sequence}, current {self._current_sequence})")
             return []
@@ -1072,7 +1074,7 @@ class OverlayProcessor:
             
         return full_screenshot, off_x, off_y, monitor_width, monitor_height
 
-    async def _do_work(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, local_ocr_retry = 5, source: str = None) -> Tuple[List[Dict[str, Any]], int]:
+    async def _do_work(self, line: 'GameLine' = None, check_against_last: bool = False, custom_threshold: float = None, dict_from_ocr = None, local_ocr_retry = 5, source: TextSource = None) -> Tuple[List[Dict[str, Any]], int]:
         """The main OCR workflow with cancellation support."""
         start_time = datetime.now()
         effective_engine = self._get_effective_engine()
@@ -1097,8 +1099,9 @@ class OverlayProcessor:
         local_ocr_engine = self.oneocr or self.meikiocr
         if local_ocr_engine:
             # Assume Text from Source is already Stable
-            tries = max(1, 1 if line and any(s in [TextSource.OCR, TextSource.HOTKEY] for s in [line.source, source]) else local_ocr_retry)
-            logger.info(f"Using local OCR engine '{effective_engine}' with {tries} tries for overlay. TextSource: {line.source if line else 'N/A'}")
+            source = line.source if line and line.source else source
+            tries = max(1, 1 if source in [TextSource.OCR, TextSource.HOTKEY] else local_ocr_retry)
+            logger.info(f"Using local OCR engine '{effective_engine}' with {tries} tries for overlay. TextSource: {line.source if line else source or 'N/A'}")
             last_result_flattened = ""
             for i in range(tries):
                 if i > 0:
