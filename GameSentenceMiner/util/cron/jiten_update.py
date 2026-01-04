@@ -221,7 +221,7 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
                     
                     if vndb_id:
                         logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
-                        vndb_data = VNDBApiClient.process_vn_characters(vndb_id)
+                        vndb_data = VNDBApiClient.process_vn_characters(vndb_id, max_spoiler=2, preserve_spoiler_metadata=True)
                         
                         if vndb_data:
                             game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)

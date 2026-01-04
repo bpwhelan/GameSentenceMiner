@@ -401,11 +401,11 @@ class VNDBApiClient:
                 if max_spoiler == 0 and cls.has_spoiler_tags(description):
                     # Level 0 (No spoilers): Skip descriptions with spoiler tags
                     pass  # Don't include description with spoiler content
-                elif max_spoiler >= 1 and cls.has_spoiler_tags(description):
-                    # Level 1+ (Minor/Major spoilers): Include description but strip spoiler content
+                elif max_spoiler == 1 and cls.has_spoiler_tags(description):
+                    # Level 1 only (Minor spoilers): Include description but strip spoiler content
                     result["description"] = cls.strip_spoiler_content(description)
                 else:
-                    # No spoiler tags: Include description as-is
+                    # Level 2 (Major spoilers) or no spoiler tags: Include description as-is
                     result["description"] = description
 
         # Add optional fields only if they have values
