@@ -83,6 +83,93 @@ def fetch_jiten_data_for_game(game: GamesTable) -> Optional[Dict]:
         return None
 
 
+def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
+    """
+    Fetch and update character data from VNDB/AniList for a game based on its vndb_id or anilist_id.
+    
+    Args:
+        game: GamesTable object to update
+        
+    Returns:
+        Dictionary with update summary:
+        {
+            'success': bool,
+            'vndb_updated': bool,
+            'anilist_updated': bool,
+            'error': Optional[str]
+        }
+    """
+    try:
+        vndb_updated = False
+        anilist_updated = False
+        
+        # Check if it's a Visual Novel and has VNDB ID
+        if game.vndb_id:
+            try:
+                from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
+                import json
+                
+                vndb_id = game.vndb_id
+                logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
+                vndb_data = VNDBApiClient.process_vn_characters(vndb_id, max_spoiler=2, preserve_spoiler_metadata=True)
+                
+                if vndb_data:
+                    game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
+                    game.save()
+                    logger.info(f"Updated VNDB data for {game.title_original}")
+                    vndb_updated = True
+                else:
+                    logger.debug(f"No VNDB character data returned for VN ID: {vndb_id}")
+                    game.save()
+            except Exception as e:
+                logger.error(f"Failed to fetch VNDB data for game {game.id}: {e}")
+        
+        # Check if it has AniList ID (Anime or Manga)
+        if game.anilist_id:
+            try:
+                from GameSentenceMiner.util.anilist_api_client import AniListApiClient
+                import json
+                
+                media_id = game.anilist_id
+                logger.info(f"Fetching AniList character data for ID: {media_id}")
+                
+                # Try to determine media type from game type, or default to ANIME
+                media_type = "ANIME"
+                if game.type == "Manga":
+                    media_type = "MANGA"
+                
+                anilist_data = AniListApiClient.process_media_characters(
+                    media_id, media_type, max_spoiler=2, preserve_spoiler_metadata=True
+                )
+                
+                if anilist_data:
+                    game.vndb_character_data = json.dumps(anilist_data, ensure_ascii=False)
+                    game.save()
+                    logger.info(f"Updated AniList data for {game.title_original}")
+                    anilist_updated = True
+                else:
+                    logger.warning(f"No AniList character data returned for ID: {media_id}")
+                    game.save()
+            except Exception as e:
+                logger.error(f"Failed to fetch AniList data for game {game.id}: {e}", exc_info=True)
+        
+        return {
+            "success": True,
+            "vndb_updated": vndb_updated,
+            "anilist_updated": anilist_updated,
+            "error": None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error updating character data for game {game.id}: {e}", exc_info=True)
+        return {
+            "success": False,
+            "vndb_updated": False,
+            "anilist_updated": False,
+            "error": str(e)
+        }
+
+
 def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
     """
     Update a single game's fields from jiten.moe data, respecting manual overrides.
@@ -209,55 +296,6 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
             logger.debug(
                 f"Updated game {game.id} ({game.title_original}): {len(update_fields)} fields"
             )
-            
-            # Check if it's a Visual Novel and fetch VNDB character data
-            if jiten_data.get("media_type_string") == "Visual Novel":
-                try:
-                    from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
-                    import json
-                    
-                    links = jiten_data.get("links", [])
-                    vndb_id = JitenApiClient.extract_vndb_id(links)
-                    
-                    if vndb_id:
-                        logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
-                        vndb_data = VNDBApiClient.process_vn_characters(vndb_id, max_spoiler=2, preserve_spoiler_metadata=True)
-                        
-                        if vndb_data:
-                            game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
-                            game.save()
-                            logger.info(f"Updated VNDB data for {game.title_original}")
-                except Exception as e:
-                    logger.error(f"Failed to fetch VNDB data: {e}")
-            
-            # Check if it's Anime or Manga and fetch AniList character data
-            if jiten_data.get("media_type_string") in ["Anime", "Manga"]:
-                try:
-                    from GameSentenceMiner.util.anilist_api_client import AniListApiClient
-                    import json
-                    
-                    links = jiten_data.get("links", [])
-                    logger.info(f"Checking AniList for {jiten_data.get('media_type_string')}, links: {links}")
-                    anilist_info = JitenApiClient.extract_anilist_id(links)
-                    
-                    if anilist_info:
-                        media_id, media_type = anilist_info
-                        logger.info(f"Fetching AniList character data for {media_type} ID: {media_id}")
-                        anilist_data = AniListApiClient.process_media_characters(
-                            media_id, media_type, max_spoiler=2, preserve_spoiler_metadata=True
-                        )
-                        
-                        if anilist_data:
-                            # Store as JSON string in the database (reuse vndb_character_data field)
-                            game.vndb_character_data = json.dumps(anilist_data, ensure_ascii=False)
-                            game.save()
-                            logger.info(f"Updated AniList data for {game.title_original}")
-                        else:
-                            logger.warning(f"No AniList data returned for {media_type} ID: {media_id}")
-                    else:
-                        logger.warning(f"No AniList ID found in links: {links}")
-                except Exception as e:
-                    logger.error(f"Failed to fetch AniList data: {e}", exc_info=True)
             
             return {
                 "success": True,
@@ -397,6 +435,24 @@ def update_all_jiten_games() -> Dict:
         if i < linked_count:
             logger.debug(f"Waiting 1 second before next game...")
             time.sleep(1)
+
+    # Now process character data from VNDB/AniList for ALL games (not just linked ones)
+    logger.debug("Processing VNDB/AniList character data for all games...")
+    for i, game in enumerate(all_games, 1):
+        if game.vndb_id or game.anilist_id:
+            logger.debug(
+                f"Processing character data {i}/{total_games}: {game.title_original} (vndb_id: {game.vndb_id}, anilist_id: {game.anilist_id})"
+            )
+            try:
+                update_character_data_from_vndb_anilist(game)
+            except Exception as e:
+                logger.error(
+                    f"💥 Error updating character data for game {game.id}: {e}", exc_info=True
+                )
+        
+        # Add delay between API calls
+        if i < total_games:
+            time.sleep(0.5)
 
     elapsed_time = time.time() - start_time
 

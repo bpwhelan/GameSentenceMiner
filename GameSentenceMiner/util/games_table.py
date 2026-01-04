@@ -28,6 +28,8 @@ class GamesTable(SQLiteDBTable):
         "tags",
         "vndb_character_data",
         "character_summary",
+        "vndb_id",
+        "anilist_id",
     ]
     _types = [
         str,  # id (primary key)
@@ -49,6 +51,8 @@ class GamesTable(SQLiteDBTable):
         list,  # tags (stored as JSON array of tag names)
         str,  # vndb_character_data (stored as JSON string)
         str,  # character_summary (AI-generated summary text)
+        str,  # vndb_id
+        str,  # anilist_id
     ]
     _pk = "id"
     _auto_increment = False  # UUID-based primary key
@@ -74,6 +78,8 @@ class GamesTable(SQLiteDBTable):
         tags: Optional[List[str]] = None,
         vndb_character_data: Optional[str] = None,
         character_summary: Optional[str] = None,
+        vndb_id: Optional[str] = None,
+        anilist_id: Optional[str] = None,
     ):
         self.id = id if id else str(uuid.uuid4())
         self.deck_id = deck_id
@@ -94,6 +100,8 @@ class GamesTable(SQLiteDBTable):
         self.tags = tags if tags else []
         self.vndb_character_data = vndb_character_data
         self.character_summary = character_summary
+        self.vndb_id = vndb_id if vndb_id else ""
+        self.anilist_id = anilist_id if anilist_id else ""
 
     @classmethod
     def get_by_deck_id(cls, deck_id: int) -> Optional["GamesTable"]:
@@ -370,6 +378,8 @@ class GamesTable(SQLiteDBTable):
         tags: Optional[List[str]] = None,
         vndb_character_data: Optional[str] = None,
         character_summary: Optional[str] = None,
+        vndb_id: Optional[str] = None,
+        anilist_id: Optional[str] = None,
     ):
         """
         Update all fields of the game at once. Only provided fields will be updated.
@@ -441,6 +451,12 @@ class GamesTable(SQLiteDBTable):
         if character_summary is not None:
             self.character_summary = character_summary
             self.mark_field_manual("character_summary")
+        if vndb_id is not None:
+            self.vndb_id = vndb_id
+            self.mark_field_manual("vndb_id")
+        if anilist_id is not None:
+            self.anilist_id = anilist_id
+            self.mark_field_manual("anilist_id")
 
         self.save()
         logger.debug(f"Updated game {self.id} ({self.title_original})")
@@ -463,6 +479,8 @@ class GamesTable(SQLiteDBTable):
         tags: Optional[List[str]] = None,
         vndb_character_data: Optional[str] = None,
         character_summary: Optional[str] = None,
+        vndb_id: Optional[str] = None,
+        anilist_id: Optional[str] = None,
     ):
         """
         Update all fields of the game at once. Only provided fields will be updated.
@@ -526,6 +544,10 @@ class GamesTable(SQLiteDBTable):
             self.vndb_character_data = vndb_character_data
         if character_summary is not None:
             self.character_summary = character_summary
+        if vndb_id is not None:
+            self.vndb_id = vndb_id
+        if anilist_id is not None:
+            self.anilist_id = anilist_id
         self.save()
         logger.debug(
             f"Updated game {self.id} ({self.title_original}) - final release_date: '{self.release_date}'"

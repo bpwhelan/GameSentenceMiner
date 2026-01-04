@@ -62,9 +62,8 @@ class CronScheduler:
         Thread-safe: Can be called from UI threads.
         """
         self._ensure_init()
-        # Put the task in the queue to wake up the scheduler immediately
         if self.loop.is_running():
-            self.loop.call_soon_threadsafe(self._queue.put_nowait, task)
+            self.loop.create_task(self._queue.put(task))
         else:
             logger.warning("CronScheduler loop is not running, task queued but won't run until start()")
             self._queue.put_nowait(task)
@@ -163,7 +162,7 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
         due_crons = [fake_cron]
     else:
         due_crons = CronTable.get_due_crons()
-    
+        
     if not due_crons:
         return {
             'total_checked': 0,

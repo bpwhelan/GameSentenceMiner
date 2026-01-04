@@ -233,7 +233,7 @@ class JitenApiClient:
             links: List of link strings or dictionaries from jiten.moe data
             
         Returns:
-            VN ID string (e.g., "1234") or None if not found
+            VN ID string with 'v' prefix (e.g., "v1234") or None if not found
         """
         for link in links:
             # Handle both string and dict formats for backward compatibility
@@ -242,7 +242,7 @@ class JitenApiClient:
                 # Extract VN ID from URL like https://vndb.org/v1234
                 match = re.search(r"vndb\.org/v(\d+)", url)
                 if match:
-                    return match.group(1)
+                    return f"v{match.group(1)}"
         return None
 
     @classmethod

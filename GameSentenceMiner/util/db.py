@@ -19,7 +19,7 @@ from datetime import timedelta
 import regex
 
 from GameSentenceMiner.util.text_log import GameLine
-from GameSentenceMiner.util.configuration import get_stats_config, logger, is_dev
+from GameSentenceMiner.util.configuration import get_config, get_stats_config, logger, is_dev
 import gzip
 
 # Matches any Unicode punctuation (\p{P}), symbol (\p{S}), or separator (\p{Z}); \p{Z} includes whitespace/separator chars
@@ -64,7 +64,8 @@ class SQLiteDB:
             raise RuntimeError("Cannot commit changes in read-only mode.")
         with self._lock, self._get_connection() as conn:
             if is_dev:
-                logger.debug(f"Executed query: {query} with params: {params}")
+                truncated_params = tuple(str(p)[:50] if p is not None else None for p in params)
+                logger.debug(f"Executed query: {query} with params: {truncated_params}")
             cur = conn.cursor()
             cur.execute(query, params)
             if commit:
@@ -75,6 +76,9 @@ class SQLiteDB:
         if self.read_only and commit:
             raise RuntimeError("Cannot commit changes in read-only mode.")
         with self._lock, self._get_connection() as conn:
+            if is_dev:
+                truncated_params = [tuple(str(p)[:50] if p is not None else None for p in params) for params in seq_of_params]
+                logger.debug(f"Executed query: {query} with params: {truncated_params}")
             cur = conn.cursor()
             cur.executemany(query, seq_of_params)
             if commit:
@@ -593,6 +597,8 @@ class GameLinesTable(SQLiteDBTable):
 
     @classmethod
     def add_line(cls, gameline: GameLine, game_id: Optional[str] = None):
+        if get_config().advanced.dont_collect_stats:
+            return None
         new_line = cls(id=gameline.id, game_name=gameline.scene,
                        line_text=gameline.text, timestamp=gameline.time.timestamp(),
                        game_id=game_id if game_id else '')
@@ -1006,6 +1012,9 @@ def check_and_run_migrations():
             )
             logger.info(f"✅ Created jiten_sync cron job - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}")
         else:
+            if existing_cron.schedule == 'daily':
+                logger.debug("jiten_sync cron job already set to daily schedule, skipping update.")
+                return
             # Update existing cron to daily schedule and set next_run to yesterday to run ASAP
             now = datetime.now()
             yesterday = now - timedelta(days=1)

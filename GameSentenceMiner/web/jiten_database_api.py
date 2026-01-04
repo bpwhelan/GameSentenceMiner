@@ -467,6 +467,8 @@ def register_jiten_database_api_routes(app):
                     vndb_id = JitenApiClient.extract_vndb_id(links)
                     
                     if vndb_id:
+                        # Store the VNDB ID in the game record
+                        game.vndb_id = vndb_id
                         logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
                         vndb_data = VNDBApiClient.process_vn_characters(vndb_id, max_spoiler=2, preserve_spoiler_metadata=True)
                         
@@ -477,6 +479,8 @@ def register_jiten_database_api_routes(app):
                             logger.info(f"Stored {vndb_data.get('character_count', 0)} characters for {game.title_original}")
                         else:
                             logger.debug(f"No VNDB character data returned for VN ID: {vndb_id}")
+                            # Still save the vndb_id even if character data fetch fails
+                            game.save()
                     else:
                         logger.debug(f"No VNDB ID found in links for Visual Novel: {game.title_original}")
                 except Exception as vndb_error:
@@ -494,6 +498,8 @@ def register_jiten_database_api_routes(app):
                     
                     if anilist_info:
                         media_id, media_type = anilist_info
+                        # Store the AniList ID in the game record
+                        game.anilist_id = str(media_id)
                         logger.info(f"Fetching AniList character data for {media_type} ID: {media_id}")
                         anilist_data = AniListApiClient.process_media_characters(
                             media_id, media_type, max_spoiler=2, preserve_spoiler_metadata=True
@@ -506,6 +512,8 @@ def register_jiten_database_api_routes(app):
                             logger.info(f"Stored {anilist_data.get('character_count', 0)} AniList characters for {game.title_original}")
                         else:
                             logger.warning(f"No AniList character data returned for {media_type} ID: {media_id}")
+                            # Still save the anilist_id even if character data fetch fails
+                            game.save()
                     else:
                         logger.warning(f"No AniList ID found in links: {links}")
                 except Exception as anilist_error:
@@ -592,6 +600,8 @@ def register_jiten_database_api_routes(app):
                 "difficulty",
                 "completed",
                 "deck_id",
+                "vndb_id",
+                "anilist_id",
                 "character_count",
                 "image",
                 "links",
@@ -618,6 +628,8 @@ def register_jiten_database_api_routes(app):
                             "image",
                             "release_date",
                             "character_summary",
+                            "vndb_id",
+                            "anilist_id",
                         ]
                         and value == ""
                     ):
@@ -631,6 +643,13 @@ def register_jiten_database_api_routes(app):
                     # Handle boolean
                     elif field == "completed":
                         update_fields[field_key] = bool(value)
+                    # Handle VNDB ID - ensure it has 'v' prefix
+                    elif field == "vndb_id" and value:
+                        # Strip any existing 'v' prefix and add it back to normalize format
+                        vndb_value = str(value).strip()
+                        if vndb_value and not vndb_value.startswith('v'):
+                            vndb_value = f"v{vndb_value}"
+                        update_fields[field_key] = vndb_value
                     # Handle lists
                     elif field == "links":
                         if isinstance(value, list):

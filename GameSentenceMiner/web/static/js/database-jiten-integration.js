@@ -385,6 +385,8 @@ function openEditGameModal(game) {
     document.getElementById('editDescription').value = game.description || '';
     document.getElementById('editDifficulty').value = game.difficulty || '';
     document.getElementById('editDeckId').value = game.deck_id || '';
+    document.getElementById('editVndbId').value = game.vndb_id || '';
+    document.getElementById('editAnilistId').value = game.anilist_id || '';
     document.getElementById('editCharacterCount').value = game.jiten_character_count || '';
     document.getElementById('editCompleted').checked = !!game.completed;
     document.getElementById('editCharacterSummary').value = game.character_summary || '';
@@ -557,6 +559,16 @@ async function saveGameEdits() {
         const deckId = document.getElementById('editDeckId').value;
         if (deckId) {
             updateData.deck_id = parseInt(deckId);
+        }
+        
+        const vndbId = document.getElementById('editVndbId').value.trim();
+        if (vndbId) {
+            updateData.vndb_id = vndbId;
+        }
+        
+        const anilistId = document.getElementById('editAnilistId').value.trim();
+        if (anilistId) {
+            updateData.anilist_id = anilistId;
         }
         
         if (difficulty) {
