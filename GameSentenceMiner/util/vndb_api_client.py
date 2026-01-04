@@ -120,11 +120,6 @@ class VNDBApiClient:
                 data = response.json()
                 all_characters.extend(data.get("results", []))
 
-                logger.debug(
-                    f"Fetched page {page} for VN {vn_id}: "
-                    f"{len(data.get('results', []))} characters"
-                )
-
                 if not data.get("more", False):
                     break
                 page += 1

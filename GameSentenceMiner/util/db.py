@@ -988,28 +988,31 @@ def check_and_run_migrations():
     
     def migrate_jiten_cron_job():
         """
-        Create the monthly jiten.moe update cron job if it doesn't exist.
+        Create the daily jiten.moe update cron job if it doesn't exist.
         This ensures the cron job is automatically registered on database initialization.
         """
         existing_cron = CronTable.get_by_name('jiten_sync')
         if not existing_cron:
-            logger.info("Creating monthly jiten.moe update cron job...")
-            # Calculate next run: first day of next month at midnight
+            logger.info("Creating daily jiten.moe update cron job...")
+            # Calculate next run: yesterday to ensure it runs ASAP on first startup
             now = datetime.now()
-            if now.month == 12:
-                next_month = datetime(now.year + 1, 1, 1, 0, 0, 0)
-            else:
-                next_month = datetime(now.year, now.month + 1, 1, 0, 0, 0)
+            yesterday = now - timedelta(days=1)
             
             CronTable.create_cron_entry(
                 name='jiten_sync',
                 description='Automatically update all linked games from jiten.moe database (respects manual overrides)',
-                next_run=next_month.timestamp(),
-                schedule='monthly'
+                next_run=yesterday.timestamp(),
+                schedule='daily'
             )
-            logger.info(f"✅ Created jiten_sync cron job - next run: {next_month.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"✅ Created jiten_sync cron job - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}")
         else:
-            logger.debug("jiten_sync cron job already exists, skipping creation.")
+            # Update existing cron to daily schedule and set next_run to yesterday to run ASAP
+            now = datetime.now()
+            yesterday = now - timedelta(days=1)
+            existing_cron.schedule = 'daily'
+            existing_cron.next_run = yesterday.timestamp()
+            existing_cron.save()
+            logger.info(f"✅ Updated jiten_sync cron job to daily schedule - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}")
     
     def migrate_daily_rollup_cron_job():
         """
