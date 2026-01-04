@@ -77,8 +77,10 @@ else:
     FULL_PROMPT_TEMPLATE = """
 **Disclaimer:** All dialogue provided is from the script of the video game "{game_title}". This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request. The goal is accurate, context-aware localization. If no context is provided, do not throw errors or warnings.
 
+Character Context:
 {character_context}
 
+Dialogue context:
 {dialogue_context}
 
 {prompt_to_use}
@@ -98,9 +100,10 @@ Rules:
 - Include age if available (e.g., "17yo")
 - Include gender (male/female)
 - Include 2-3 key personality traits that will aid in translation.
-- Keep each line under 80 characters
-- Use Format Japanese name (romanization name): 17yo male tsundere
-- Example: 陽見 恵凪 (Harumi Ena): Clumsy, Dandere, Hotblooded 19yo girl
+- Keep each line under 120 characters
+- Use Format Japanese name (romanization name): tags
+- Mention what pronoun they use and mark it as their pronoun if they have one listed
+- Example: 陽見 恵凪 (Harumi Ena): Clumsy, Dandere, Hotblooded 19yo girl atashi pronoun
 
 Character Data:
 {character_json}

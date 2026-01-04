@@ -56,27 +56,36 @@ def _has_character_data(game: GamesTable) -> bool:
 
 def get_recent_games(desired_count: int = 3, max_search: int = 50) -> List[GamesTable]:
     """
-    Query ALL games for those with valid character data.
+    Query the most recently played games with valid character data.
     
-    This function searches through all games in the database and validates that they
-    actually contain character entries (not just empty JSON structures). It returns
-    games that have valid, populated character data.
+    This function searches through games ordered by their most recent play time
+    (based on game_lines timestamps) and validates that they actually contain
+    character entries (not just empty JSON structures). It returns games that
+    have valid, populated character data.
     
     Args:
         desired_count: Number of valid games to return (default 3)
         max_search: Maximum number of games to check (default 50)
         
     Returns:
-        List of GamesTable objects with validated vndb_character_data
+        List of GamesTable objects with validated vndb_character_data,
+        ordered by most recently played first
     """
-    # Query ALL games that have character data field set (not just recently played)
-    # This helps us verify the validation logic works correctly
+    # Query games with character data, ordered by most recent play time
+    # Join with game_lines to get the MAX(timestamp) for each game
     query = '''
-        SELECT id
-        FROM games
-        WHERE vndb_character_data IS NOT NULL
-          AND vndb_character_data != ''
-          AND vndb_character_data != '{}'
+        SELECT g.id
+        FROM games g
+        LEFT JOIN (
+            SELECT game_id, MAX(timestamp) as last_played
+            FROM game_lines
+            WHERE game_id IS NOT NULL AND game_id != ''
+            GROUP BY game_id
+        ) gl ON g.id = gl.game_id
+        WHERE g.vndb_character_data IS NOT NULL
+          AND g.vndb_character_data != ''
+          AND g.vndb_character_data != '{}'
+        ORDER BY gl.last_played DESC NULLS LAST
         LIMIT ?
     '''
     rows = GamesTable._db.fetchall(query, (max_search,))
@@ -208,7 +217,7 @@ def register_yomitan_api_routes(app):
         
         # 2. Build dictionary combining all games
         port = get_config().general.texthooker_port
-        download_url = f"http://127.0.0.1:{port}/api/yomitan-dict?spoiler_level={spoiler_level}"
+        download_url = f"http://127.0.0.1:{port}/api/yomitan-dict?game_count={game_count}&spoiler_level={spoiler_level}"
         builder = YomitanDictBuilder(download_url=download_url, game_count=game_count, spoiler_level=spoiler_level)
         
         total_characters = 0
@@ -232,5 +241,100 @@ def register_yomitan_api_routes(app):
         response = make_response(zip_bytes)
         response.headers["Content-Type"] = "application/zip"
         response.headers["Content-Disposition"] = "attachment; filename=gsm_characters.zip"
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
+    
+    @app.route("/api/yomitan-index")
+    def get_yomitan_index():
+        """
+        Return dictionary metadata for Yomitan update checking.
+        
+        This endpoint returns a lightweight JSON response containing just the
+        index.json metadata that Yomitan uses to check if an update is available.
+        Yomitan compares the revision from this endpoint against the installed
+        dictionary's revision to determine if an update is needed.
+        
+        Query Parameters:
+        - game_count: Number of games to include (1-999, default: 3)
+        - spoiler_level: Maximum spoiler level to include (0=None, 1=Minor, 2=Major, default: 0)
+        
+        ---
+        tags:
+          - Yomitan
+        parameters:
+          - name: game_count
+            in: query
+            type: integer
+            default: 3
+            minimum: 1
+            maximum: 999
+            description: Number of recent games to include in dictionary
+          - name: spoiler_level
+            in: query
+            type: integer
+            default: 0
+            minimum: 0
+            maximum: 2
+            description: Maximum spoiler level to include (0=None, 1=Minor, 2=Major)
+        responses:
+          200:
+            description: JSON containing dictionary index metadata
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                    revision:
+                      type: string
+                    format:
+                      type: integer
+                    author:
+                      type: string
+                    description:
+                      type: string
+                    downloadUrl:
+                      type: string
+                    indexUrl:
+                      type: string
+        """
+        # Get game_count from query parameter (default: 3)
+        game_count = request.args.get('game_count', 3, type=int)
+        
+        # Validate game_count range (1-999)
+        if game_count < 1 or game_count > 999:
+            game_count = 3  # Default to 3 for invalid values
+        
+        # Get spoiler_level from query parameter (default: 0)
+        spoiler_level = request.args.get('spoiler_level', 0, type=int)
+        
+        # Validate spoiler_level range (0-2)
+        if spoiler_level < 0 or spoiler_level > 2:
+            spoiler_level = 0  # Default to 0 for invalid values
+        
+        # Build the index metadata (same as what goes in the ZIP)
+        port = get_config().general.texthooker_port
+        download_url = f"http://127.0.0.1:{port}/api/yomitan-dict?game_count={game_count}&spoiler_level={spoiler_level}"
+        index_url = f"http://127.0.0.1:{port}/api/yomitan-index?game_count={game_count}&spoiler_level={spoiler_level}"
+        
+        # Create a builder just to get consistent metadata generation
+        builder = YomitanDictBuilder(download_url=download_url, game_count=game_count, spoiler_level=spoiler_level)
+        
+        # Get game titles for description (without processing all character data)
+        recent_games = get_recent_games(desired_count=game_count, max_search=50)
+        for game in recent_games:
+            game_title = game.title_original or game.title_romaji or game.title_english or ""
+            if game_title:
+                builder.game_titles.append(game_title)
+        
+        # Build the index using the builder's method
+        index = builder._create_index()
+        
+        # Ensure indexUrl is set (in case _create_index doesn't set it)
+        if "indexUrl" not in index:
+            index["indexUrl"] = index_url
+        
+        response = jsonify(index)
         response.headers["Access-Control-Allow-Origin"] = "*"
         return response

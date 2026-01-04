@@ -1,6 +1,8 @@
 import base64
 import io
 import json
+import random
+import re
 import zipfile
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
@@ -27,7 +29,7 @@ class YomitanDictBuilder:
             spoiler_level: Maximum spoiler level to include (0=None, 1=Minor, 2=Major, default: 0)
         """
         self.title = self.DICT_TITLE
-        self.revision = revision or datetime.now().strftime("%Y.%m.%d")
+        self.revision = revision or str(random.randint(100000000000, 999999999999)) # 12 digits
         self.download_url = download_url  # For auto-update support
         self.game_count = game_count  # Track requested game count for description
         self.spoiler_level = spoiler_level  # Maximum spoiler level to include
@@ -69,9 +71,233 @@ class YomitanDictBuilder:
         
         return filename, image_bytes
 
+    def _strip_spoiler_content(self, text: str) -> str:
+        """
+        Remove spoiler content from text. Handles both VNDB and AniList formats.
+        
+        VNDB uses: [spoiler]...[/spoiler]
+        AniList uses: ~!...!~
+        
+        Args:
+            text: Text potentially containing spoiler tags
+            
+        Returns:
+            Text with spoiler content removed
+        """
+        if not text:
+            return text
+        # VNDB: [spoiler]...[/spoiler]
+        text = re.sub(r'\[spoiler\].*?\[/spoiler\]', '', text, flags=re.IGNORECASE | re.DOTALL)
+        # AniList: ~!...!~
+        text = re.sub(r'~!.*?!~', '', text, flags=re.DOTALL)
+        return text.strip()
+
+    def _parse_vndb_markup(self, text: str) -> list:
+        """
+        Parse VNDB markup and convert to Yomitan structured content.
+        
+        Handles:
+        - [url=https://...]text[/url] -> clickable links
+        - Plain text sections
+        
+        Args:
+            text: Text potentially containing VNDB markup
+            
+        Returns:
+            List of Yomitan content items (strings and link objects)
+        """
+        if not text:
+            return []
+        
+        # Pattern to match [url=URL]text[/url]
+        url_pattern = re.compile(r'\[url=([^\]]+)\]([^\[]*)\[/url\]', re.IGNORECASE)
+        
+        result = []
+        last_end = 0
+        
+        for match in url_pattern.finditer(text):
+            # Add text before this match
+            if match.start() > last_end:
+                plain_text = text[last_end:match.start()]
+                if plain_text:
+                    result.append(plain_text)
+            
+            # Add the link as structured content
+            url = match.group(1)
+            link_text = match.group(2)
+            result.append({
+                "tag": "a",
+                "href": url,
+                "content": link_text
+            })
+            
+            last_end = match.end()
+        
+        # Add remaining text after last match
+        if last_end < len(text):
+            remaining = text[last_end:]
+            if remaining:
+                result.append(remaining)
+        
+        # If no matches found, return original text as single item
+        if not result:
+            return [text]
+        
+        return result
+
+    def _has_spoiler_tags(self, text: str) -> bool:
+        """
+        Check if text contains spoiler tags (VNDB or AniList format).
+        
+        Args:
+            text: Text to check for spoiler tags
+            
+        Returns:
+            True if text contains spoiler tags, False otherwise
+        """
+        if not text:
+            return False
+        # Check for VNDB format: [spoiler]
+        if re.search(r'\[spoiler\]', text, re.IGNORECASE):
+            return True
+        # Check for AniList format: ~!...!~
+        if re.search(r'~!.*?!~', text, flags=re.DOTALL):
+            return True
+        return False
+
+    def _format_birthday(self, birthday) -> str:
+        """
+        Format a birthday with month name.
+        
+        Args:
+            birthday: Birthday as [month, day] list or string
+            
+        Returns:
+            Formatted birthday string like "September 1" or empty string
+        """
+        MONTH_NAMES = {
+            1: "January", 2: "February", 3: "March", 4: "April",
+            5: "May", 6: "June", 7: "July", 8: "August",
+            9: "September", 10: "October", 11: "November", 12: "December"
+        }
+        
+        if isinstance(birthday, list) and len(birthday) >= 2:
+            # VNDB format: [month, day]
+            month = birthday[0]
+            day = birthday[1]
+            month_name = MONTH_NAMES.get(month, str(month))
+            return f"{month_name} {day}"
+        elif isinstance(birthday, str):
+            return birthday
+        return ""
+
+    def _build_physical_stats_line(self, char: dict) -> str:
+        """
+        Build a compact inline string for physical attributes.
+        
+        Example output: "♀ Female • 17 years • 165cm • 50kg • Blood Type A"
+        
+        Args:
+            char: Character data dictionary
+            
+        Returns:
+            Formatted string of physical stats, or empty string if no stats
+        """
+        SEX_DISPLAY = {
+            "m": "♂ Male",
+            "f": "♀ Female",
+            "male": "♂ Male",
+            "female": "♀ Female",
+        }
+        
+        parts = []
+        
+        sex = char.get("sex")
+        if sex:
+            sex_lower = sex.lower() if isinstance(sex, str) else sex
+            if sex_lower in SEX_DISPLAY:
+                parts.append(SEX_DISPLAY[sex_lower])
+        
+        age = char.get("age")
+        if age:
+            parts.append(f"{age} years")
+        
+        height = char.get("height")
+        if height:
+            parts.append(f"{height}cm")
+        
+        weight = char.get("weight")
+        if weight:
+            parts.append(f"{weight}kg")
+        
+        blood_type = char.get("blood_type")
+        if blood_type:
+            parts.append(f"Blood Type {blood_type}")
+        
+        birthday = char.get("birthday")
+        if birthday:
+            formatted_birthday = self._format_birthday(birthday)
+            if formatted_birthday:
+                parts.append(f"Birthday: {formatted_birthday}")
+        
+        return " • ".join(parts)
+
+    def _build_traits_by_category(self, char: dict) -> list:
+        """
+        Build organized trait items grouped by category.
+        
+        Args:
+            char: Character data dictionary with personality, roles, engages_in, subject_of
+            
+        Returns:
+            List of Yomitan content items for traits
+        """
+        items = []
+        
+        # Category definitions with labels
+        categories = [
+            ("personality", "Personality"),
+            ("roles", "Role"),
+            ("engages_in", "Activities"),
+            ("subject_of", "Subject of"),
+        ]
+        
+        for key, label in categories:
+            traits = char.get(key)
+            if not traits or not isinstance(traits, list):
+                continue
+            
+            # Filter traits based on spoiler level
+            filtered_traits = []
+            for trait in traits:
+                if isinstance(trait, dict):
+                    # New format with spoiler metadata
+                    trait_name = trait.get("name", "")
+                    trait_spoiler = trait.get("spoiler", 0)
+                    # Only include trait if its spoiler level is within our allowed range
+                    if trait_name and trait_spoiler <= self.spoiler_level:
+                        filtered_traits.append(trait_name)
+                elif isinstance(trait, str) and trait:
+                    # Old format (plain string) - always include
+                    filtered_traits.append(trait)
+            
+            if filtered_traits:
+                # Create a single line with category label and traits
+                items.append({
+                    "tag": "li",
+                    "content": f"{label}: {', '.join(filtered_traits)}"
+                })
+        
+        return items
+
     def _build_structured_content(self, char: dict, image_path: str | None, game_title: str) -> dict:
         """
         Build Yomitan structured content for a character card.
+        
+        Spoiler level behavior:
+        - Level 0 (No Spoilers): Name, image, game title, role badge only
+        - Level 1 (Minor Spoilers): + Description (spoiler tags stripped), + Character info
+        - Level 2 (Full Spoilers): + Full description, + All traits
         
         Args:
             char: Character data dictionary with fields like:
@@ -81,8 +307,11 @@ class YomitanDictBuilder:
                 - sex: m/f
                 - age: character age
                 - height: height in cm
+                - weight: weight in kg
                 - blood_type: A/B/O/AB
-                - personality: list of trait names
+                - birthday: birthday as list or string
+                - personality: list of trait names (with spoiler metadata)
+                - roles: list of role traits
                 - description: character bio text
                 - image_base64: base64 image (handled elsewhere)
             image_path: Path to image within ZIP (e.g., "img/c12345.jpg") or None
@@ -107,13 +336,9 @@ class YomitanDictBuilder:
             "appears": "Minor Role",
         }
         
-        # Sex display mapping
-        SEX_DISPLAY = {
-            "m": "♂ Male",
-            "f": "♀ Female",
-        }
-        
         content = []
+        
+        # ===== LEVEL 0: Always shown (Name, Image, Game, Role) =====
         
         # Header: Japanese name (large, bold)
         name_original = char.get("name_original")
@@ -166,30 +391,28 @@ class YomitanDictBuilder:
                     "color": "white",
                     "padding": "2px 6px",
                     "borderRadius": "3px",
-                    "fontSize": "0.85em"
+                    "fontSize": "0.85em",
+                    "marginTop": "4px"
                 },
                 "content": role_label
             })
         
-        # Collapsible description (if available) - placed above character information
-        # Filter descriptions with spoiler tags based on spoiler_level
-        description = char.get("description")
-        if description and description.strip():
-            # Check for VNDB spoiler tags [spoiler]...[/spoiler]
-            import re
-            has_spoiler_tags = bool(re.search(r'\[spoiler\]', description, re.IGNORECASE))
-            
-            # Only show description if:
-            # - It doesn't have spoiler tags, OR
-            # - We allow spoilers (spoiler_level > 0)
-            if not has_spoiler_tags or self.spoiler_level > 0:
-                # If spoiler_level is 0 and somehow got here, strip spoiler content just in case
-                display_description = description
-                if self.spoiler_level == 0 and has_spoiler_tags:
-                    # Remove spoiler content entirely
-                    display_description = re.sub(r'\[spoiler\].*?\[/spoiler\]', '', description, flags=re.IGNORECASE | re.DOTALL).strip()
+        # ===== LEVEL 1+: Description and Character Information =====
+        
+        if self.spoiler_level >= 1:
+            # Description section
+            description = char.get("description")
+            if description and description.strip():
+                if self.spoiler_level == 1:
+                    # Level 1: Strip spoiler content
+                    display_description = self._strip_spoiler_content(description)
+                else:
+                    # Level 2: Show full description
+                    display_description = description
                 
                 if display_description:  # Only add if there's content left after filtering
+                    # Parse VNDB markup (URLs, etc.) into structured content
+                    parsed_content = self._parse_vndb_markup(display_description)
                     content.append({
                         "tag": "details",
                         "content": [
@@ -197,57 +420,39 @@ class YomitanDictBuilder:
                             {
                                 "tag": "div",
                                 "style": {"fontSize": "0.9em", "marginTop": "4px"},
-                                "content": display_description
+                                "content": parsed_content
                             }
                         ]
                     })
-        
-        # Collapsible character information (sex, age, height, blood type, personality traits)
-        char_info_items = []
-        
-        sex = char.get("sex")
-        if sex and sex in SEX_DISPLAY:
-            char_info_items.append({"tag": "li", "content": SEX_DISPLAY[sex]})
-        
-        age = char.get("age")
-        if age:
-            char_info_items.append({"tag": "li", "content": f"{age} years old"})
-        
-        height = char.get("height")
-        if height:
-            char_info_items.append({"tag": "li", "content": f"Height: {height}cm"})
-        
-        blood_type = char.get("blood_type")
-        if blood_type:
-            char_info_items.append({"tag": "li", "content": f"Blood Type: {blood_type}"})
-        
-        personality = char.get("personality")
-        if personality and isinstance(personality, list) and len(personality) > 0:
-            for trait in personality:
-                # Handle both old format (string) and new format (dict with "name" and "spoiler")
-                if isinstance(trait, dict):
-                    # New format with spoiler metadata
-                    trait_name = trait.get("name", "")
-                    trait_spoiler = trait.get("spoiler", 0)
-                    # Only include trait if its spoiler level is within our allowed range
-                    if trait_name and trait_spoiler <= self.spoiler_level:
-                        char_info_items.append({"tag": "li", "content": trait_name})
-                elif isinstance(trait, str) and trait:
-                    # Old format (plain string) - always include
-                    char_info_items.append({"tag": "li", "content": trait})
-        
-        if char_info_items:
-            content.append({
-                "tag": "details",
-                "content": [
-                    {"tag": "summary", "content": "Character Information"},
-                    {
-                        "tag": "ul",
-                        "style": {"marginTop": "4px", "paddingLeft": "20px"},
-                        "content": char_info_items
-                    }
-                ]
-            })
+            
+            # Character Information section
+            char_info_items = []
+            
+            # Physical stats as a compact inline line
+            physical_line = self._build_physical_stats_line(char)
+            if physical_line:
+                char_info_items.append({
+                    "tag": "li",
+                    "style": {"fontWeight": "bold"},
+                    "content": physical_line
+                })
+            
+            # Traits organized by category
+            trait_items = self._build_traits_by_category(char)
+            char_info_items.extend(trait_items)
+            
+            if char_info_items:
+                content.append({
+                    "tag": "details",
+                    "content": [
+                        {"tag": "summary", "content": "Character Information"},
+                        {
+                            "tag": "ul",
+                            "style": {"marginTop": "4px", "paddingLeft": "20px"},
+                            "content": char_info_items
+                        }
+                    ]
+                })
         
         return {
             "type": "structured-content",
@@ -271,6 +476,29 @@ class YomitanDictBuilder:
             "appears": 25,    # Minor appearances
         }
         return ROLE_SCORES.get(role, 0)
+
+    def _contains_kanji(self, text: str) -> bool:
+        """
+        Check if text contains any kanji characters.
+        
+        Uses Unicode CJK Unified Ideographs range (0x4E00-0x9FFF) plus
+        CJK Extension A (0x3400-0x4DBF) for rare kanji.
+        
+        Args:
+            text: Text to check for kanji
+            
+        Returns:
+            True if text contains kanji, False if it's hiragana/katakana only
+        """
+        if not text:
+            return False
+        for char in text:
+            code = ord(char)
+            # CJK Unified Ideographs: 0x4E00-0x9FFF
+            # CJK Extension A: 0x3400-0x4DBF
+            if (0x4E00 <= code <= 0x9FFF) or (0x3400 <= code <= 0x4DBF):
+                return True
+        return False
 
     def _split_japanese_name(self, name_original: str) -> dict:
         """
@@ -317,18 +545,19 @@ class YomitanDictBuilder:
         """
         Split a romanized name and convert each part to hiragana for furigana.
         
-        Romanized names from VNDB are typically "FamilyName GivenName" format.
-        This method splits the name and converts each part to hiragana using jaconv.
+        IMPORTANT: Romanized names from VNDB are in Western order "GivenName FamilyName"
+        (e.g., "Shinichi Suzuki"), but Japanese names are "FamilyName GivenName"
+        (e.g., "須々木 心一"). This method swaps the order when splitting.
         
         Args:
-            romanized_name: Full romanized name like "Suzuki Shinichi"
+            romanized_name: Full romanized name like "Shinichi Suzuki" (Western order)
             
         Returns:
-            Dictionary with keys:
-            - family: Family name in hiragana (すずき)
-            - given: Given name in hiragana (しんいち)
-            - full: Full name in hiragana without space (すずきしんいち)
-            - original: Original romanized name (Suzuki Shinichi)
+            Dictionary with keys (in Japanese order to match _split_japanese_name):
+            - family: Family name in hiragana (すずき) - from 2nd part of romanized
+            - given: Given name in hiragana (しんいち) - from 1st part of romanized
+            - full: Full name in hiragana in Japanese order (すずきしんいち)
+            - original: Original romanized name (Shinichi Suzuki)
             - has_space: Boolean indicating if name contains space
         """
         if not romanized_name:
@@ -340,10 +569,9 @@ class YomitanDictBuilder:
                 'given': ''
             }
         
-        # Convert full name to lowercase for jaconv (it works better with lowercase)
-        full_hiragana = jaconv.alphabet2kana(romanized_name.lower().replace(' ', ''))
-        
         if ' ' not in romanized_name:
+            # Single word name - use same reading for both
+            full_hiragana = jaconv.alphabet2kana(romanized_name.lower())
             return {
                 'has_space': False,
                 'original': romanized_name,
@@ -352,21 +580,180 @@ class YomitanDictBuilder:
                 'given': full_hiragana
             }
         
-        # Split on first space only
+        # Split romanized name: "Shinichi Suzuki" -> ["Shinichi", "Suzuki"]
+        # In Western order: parts[0] = Given, parts[1] = Family
         parts = romanized_name.split(' ', 1)
-        family_romaji = parts[0]
-        given_romaji = parts[1] if len(parts) > 1 else ''
+        given_romaji = parts[0]  # First part is given name (Western order)
+        family_romaji = parts[1] if len(parts) > 1 else ''  # Second part is family name
         
         # Convert each part to hiragana
-        family_hiragana = jaconv.alphabet2kana(family_romaji.lower())
-        given_hiragana = jaconv.alphabet2kana(given_romaji.lower()) if given_romaji else ''
+        given_hiragana = jaconv.alphabet2kana(given_romaji.lower())
+        family_hiragana = jaconv.alphabet2kana(family_romaji.lower()) if family_romaji else ''
+        
+        # Full reading in Japanese order: Family + Given (to match Japanese name order)
+        full_hiragana = family_hiragana + given_hiragana
         
         return {
             'has_space': True,
             'original': romanized_name,
             'full': full_hiragana,
+            'family': family_hiragana,  # From romanized parts[1]
+            'given': given_hiragana     # From romanized parts[0]
+        }
+
+    def _generate_kana_readings(self, name_original: str) -> dict:
+        """
+        Generate readings for a kana-only name (hiragana or katakana).
+        
+        When the Japanese name contains no kanji, we use the name itself as the
+        reading (converting katakana to hiragana if needed).
+        
+        Args:
+            name_original: Japanese name in hiragana/katakana like "さくら" or "サクラ"
+            
+        Returns:
+            Dictionary with keys (same structure as _split_romanized_name_to_hiragana):
+            - family: Family name reading (in hiragana)
+            - given: Given name reading (in hiragana)
+            - full: Full name reading (in hiragana)
+            - original: Original name
+            - has_space: Boolean indicating if name contains space
+        """
+        if not name_original:
+            return {
+                'has_space': False,
+                'original': '',
+                'full': '',
+                'family': '',
+                'given': ''
+            }
+        
+        # Convert katakana to hiragana for the reading
+        full_hiragana = jaconv.kata2hira(name_original.replace(' ', ''))
+        
+        if ' ' not in name_original:
+            return {
+                'has_space': False,
+                'original': name_original,
+                'full': full_hiragana,
+                'family': full_hiragana,
+                'given': full_hiragana
+            }
+        
+        # Split name: "さくら はな" -> ["さくら", "はな"]
+        # Japanese order: parts[0] = Family, parts[1] = Given
+        parts = name_original.split(' ', 1)
+        family_kana = parts[0]
+        given_kana = parts[1] if len(parts) > 1 else ''
+        
+        # Convert katakana to hiragana
+        family_hiragana = jaconv.kata2hira(family_kana)
+        given_hiragana = jaconv.kata2hira(given_kana) if given_kana else ''
+        
+        return {
+            'has_space': True,
+            'original': name_original,
+            'full': full_hiragana,
             'family': family_hiragana,
             'given': given_hiragana
+        }
+
+    def _generate_mixed_name_readings(self, name_original: str, romanized_name: str) -> dict:
+        """
+        Generate readings for a name that may have mixed kanji/kana parts.
+        
+        This method checks EACH name part individually:
+        - If a part contains kanji: use romanized reading for that part (convert romaji with jaconv)
+        - If a part is already kana: use the kana directly (do NOT convert romaji with jaconv)
+        
+        This handles mixed names like "加藤 うみ" correctly:
+        - "加藤" contains kanji → use romanized "かとう" (converted from romaji)
+        - "うみ" is already hiragana → use "うみ" directly (no jaconv conversion)
+        
+        Also handles foreign names like "紬 ヴェンダース":
+        - "紬" contains kanji → use romanized "Tsumugi" → "つむぎ"
+        - "ヴェンダース" is katakana → use katakana directly → "ゔぇんだーす"
+        
+        Args:
+            name_original: Full Japanese name like "紬 ヴェンダース"
+            romanized_name: Full romanized name like "Tsumugi Wenders" (Western order)
+            
+        Returns:
+            Dictionary with keys:
+            - family: Family name reading in hiragana
+            - given: Given name reading in hiragana
+            - full: Full name reading in hiragana (family + given)
+            - original: Original Japanese name
+            - has_space: Boolean indicating if name contains space
+        """
+        # Handle empty names
+        if not name_original:
+            return {
+                'has_space': False,
+                'original': '',
+                'full': '',
+                'family': '',
+                'given': ''
+            }
+        
+        # Split Japanese name into parts (Family Given order)
+        jp_parts = self._split_japanese_name(name_original)
+        
+        # For single-word names (no space)
+        if not jp_parts['has_space']:
+            if self._contains_kanji(name_original):
+                # Has kanji - use romanized reading (convert with jaconv)
+                full_hiragana = jaconv.alphabet2kana(romanized_name.lower())
+                return {
+                    'has_space': False,
+                    'original': name_original,
+                    'full': full_hiragana,
+                    'family': full_hiragana,
+                    'given': full_hiragana
+                }
+            else:
+                # Pure kana - use itself as reading (no jaconv conversion from romaji)
+                return self._generate_kana_readings(name_original)
+        
+        # For two-part names, check each part individually
+        family_jp = jp_parts['family'] or ''
+        given_jp = jp_parts['given'] or ''
+        
+        # Check if each part contains kanji
+        family_has_kanji = self._contains_kanji(family_jp) if family_jp else False
+        given_has_kanji = self._contains_kanji(given_jp) if given_jp else False
+        
+        # Split romanized name (Western order: Given Family)
+        # We need to swap to match Japanese order (Family Given)
+        romanized_parts = romanized_name.split(' ', 1) if romanized_name else ['', '']
+        given_romaji = romanized_parts[0] if romanized_parts else ''  # Western given = Japanese family
+        family_romaji = romanized_parts[1] if len(romanized_parts) > 1 else ''  # Western family = Japanese given
+        
+        # Determine family name reading (Japanese family corresponds to Western given)
+        if family_has_kanji:
+            # Family name has kanji - use corresponding romanized part (Western given) via jaconv
+            family_reading = jaconv.alphabet2kana(given_romaji.lower()) if given_romaji else ''
+        else:
+            # Family name is kana - use Japanese kana directly (kata2hira only)
+            family_reading = jaconv.kata2hira(family_jp) if family_jp else ''
+        
+        # Determine given name reading (Japanese given corresponds to Western family)
+        if given_has_kanji:
+            # Given name has kanji - use corresponding romanized part (Western family) via jaconv
+            given_reading = jaconv.alphabet2kana(family_romaji.lower()) if family_romaji else ''
+        else:
+            # Given name is kana - use Japanese kana directly (kata2hira only)
+            given_reading = jaconv.kata2hira(given_jp) if given_jp else ''
+        
+        # Combine for full reading
+        full_reading = family_reading + given_reading
+        
+        return {
+            'has_space': True,
+            'original': name_original,
+            'full': full_reading,
+            'family': family_reading,
+            'given': given_reading
         }
 
     def _create_entry(self, term: str, reading: str, role: str, score: int,
@@ -405,6 +792,12 @@ class YomitanDictBuilder:
         3. Combined without space (須々木心一) with full hiragana reading
         4. Original with space (須々木 心一) with full hiragana reading
         
+        Reading generation (per-part handling for mixed kanji/kana names):
+        - For each name part (family, given) individually:
+          - If part contains kanji: Use romanized reading for that part
+          - If part is already kana: Use the kana directly (convert katakana to hiragana)
+        - Example: "加藤 うみ" → family="かとう" (from romaji), given="うみ" (direct)
+        
         Args:
             char: Character data dictionary with fields like id, name, name_original,
                   role, aliases, image_base64, etc.
@@ -420,9 +813,12 @@ class YomitanDictBuilder:
             # Skip characters with no name
             return
         
-        # Get romanized name and convert to hiragana readings
+        # Generate hiragana readings using mixed name handling
+        # This checks each name part individually:
+        # - Parts with kanji: use romanized reading (with order swap)
+        # - Parts that are kana: use the kana directly as reading
         romanized_name = char.get("name", "")
-        hiragana_readings = self._split_romanized_name_to_hiragana(romanized_name)
+        hiragana_readings = self._generate_mixed_name_readings(name_original, romanized_name)
         
         # Get role and score
         role = char.get("role", "")
@@ -581,6 +977,10 @@ class YomitanDictBuilder:
         # Add downloadUrl for auto-update support
         if self.download_url:
             index["downloadUrl"] = self.download_url
+            # Add indexUrl pointing to the metadata endpoint
+            index["indexUrl"] = self.download_url.replace("/api/yomitan-dict", "/api/yomitan-index")
+            # Mark dictionary as updatable (required for Yomitan to check for updates)
+            index["isUpdatable"] = True
         
         return index
 
