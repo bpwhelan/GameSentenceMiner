@@ -219,6 +219,26 @@ class VNDBApiClient:
         return bool(re.search(r'\[spoiler\]', text, re.IGNORECASE))
 
     @staticmethod
+    def strip_spoiler_content(text: str) -> str:
+        """
+        Remove spoiler content from text.
+        
+        VNDB uses [spoiler]...[/spoiler] tags to mark spoiler content in descriptions.
+        This method removes the spoiler tags and their content.
+        
+        Args:
+            text: Text potentially containing spoiler tags
+            
+        Returns:
+            Text with spoiler content removed
+        """
+        if not text:
+            return text
+        # Remove VNDB spoiler tags and their content: [spoiler]...[/spoiler]
+        text = re.sub(r'\[spoiler\].*?\[/spoiler\]', '', text, flags=re.IGNORECASE | re.DOTALL)
+        return text.strip()
+
+    @staticmethod
     def categorize_traits(
         traits: List[Dict],
         max_spoiler: int = 0
@@ -377,10 +397,15 @@ class VNDBApiClient:
                 # Always include description, we'll filter at display time
                 result["description"] = description
             else:
-                # Skip descriptions with spoiler tags when spoiler-free mode is enabled
+                # Handle description based on spoiler level
                 if max_spoiler == 0 and cls.has_spoiler_tags(description):
+                    # Level 0 (No spoilers): Skip descriptions with spoiler tags
                     pass  # Don't include description with spoiler content
+                elif max_spoiler >= 1 and cls.has_spoiler_tags(description):
+                    # Level 1+ (Minor/Major spoilers): Include description but strip spoiler content
+                    result["description"] = cls.strip_spoiler_content(description)
                 else:
+                    # No spoiler tags: Include description as-is
                     result["description"] = description
 
         # Add optional fields only if they have values

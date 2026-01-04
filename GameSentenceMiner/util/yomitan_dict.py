@@ -92,56 +92,32 @@ class YomitanDictBuilder:
         text = re.sub(r'~!.*?!~', '', text, flags=re.DOTALL)
         return text.strip()
 
-    def _parse_vndb_markup(self, text: str) -> list:
+    def _parse_vndb_markup(self, text: str) -> str:
         """
-        Parse VNDB markup and convert to Yomitan structured content.
+        Parse VNDB markup and convert to plain text.
         
         Handles:
-        - [url=https://...]text[/url] -> clickable links
-        - Plain text sections
+        - [url=https://...]text[/url] -> just the link text (removes URL markup)
+        - Returns plain text to avoid nested structured content issues
+        
+        Note: Previously this returned structured content with <a> tags, but
+        Yomitan's schema requires href to match pattern ^(?:https?:|\\?)[\\w\\W]*
+        and has strict rules about nesting. Converting to plain text is safer.
         
         Args:
             text: Text potentially containing VNDB markup
             
         Returns:
-            List of Yomitan content items (strings and link objects)
+            Plain text string with URL markup converted to just the link text
         """
         if not text:
-            return []
+            return ""
         
-        # Pattern to match [url=URL]text[/url]
-        url_pattern = re.compile(r'\[url=([^\]]+)\]([^\[]*)\[/url\]', re.IGNORECASE)
+        # Pattern to match [url=URL]text[/url] - extract just the link text
+        url_pattern = re.compile(r'\[url=[^\]]+\]([^\[]*)\[/url\]', re.IGNORECASE)
         
-        result = []
-        last_end = 0
-        
-        for match in url_pattern.finditer(text):
-            # Add text before this match
-            if match.start() > last_end:
-                plain_text = text[last_end:match.start()]
-                if plain_text:
-                    result.append(plain_text)
-            
-            # Add the link as structured content
-            url = match.group(1)
-            link_text = match.group(2)
-            result.append({
-                "tag": "a",
-                "href": url,
-                "content": link_text
-            })
-            
-            last_end = match.end()
-        
-        # Add remaining text after last match
-        if last_end < len(text):
-            remaining = text[last_end:]
-            if remaining:
-                result.append(remaining)
-        
-        # If no matches found, return original text as single item
-        if not result:
-            return [text]
+        # Replace [url=...]text[/url] with just the text
+        result = url_pattern.sub(r'\1', text)
         
         return result
 

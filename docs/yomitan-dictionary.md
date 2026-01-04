@@ -7,7 +7,7 @@ GameSentenceMiner can generate a Yomitan-compatible dictionary containing charac
 - **Character Names**: Japanese names (kanji) with romanized readings
 - **Character Info**: Role, sex, age, physical stats, and personality traits
 - **Character Portraits**: Images from VNDB (if available)
-- **Multi-Game Support**: Combines characters from your 3 most recently played games
+- **Configurable Game Count**: Choose how many games to include (1-999, default: 3)
 - **Auto-Updates**: Dictionary can automatically update via Yomitan's update system
 
 ## First-Time Setup
@@ -94,12 +94,47 @@ This means none of your recent games have character data from VNDB. To fix:
 - Image support requires the character to have an image on VNDB
 - Check that the image appears in GSM's database management page
 
+## Configurable Game Count
+
+You can configure how many games are included in the dictionary (1-999 games). This setting is available on the GSM Database page.
+
+### How It Works
+
+The dictionary includes characters from your N most recently played games that have VNDB character data. When you change games:
+
+- **Single game focus (game count = 1)**: If you're playing Mario and then switch to Runescape, the dictionary will automatically replace Mario character names with Runescape character names on the next update.
+- **Multiple games (game count = 3, default)**: Characters from your 3 most recently played games are always available.
+- **All games (game count = 999)**: Include characters from all games with character data - names are never removed.
+
+### Use Cases
+
+| Game Count | Use Case |
+|------------|----------|
+| **1** | Focused single-game reading - only current game's characters |
+| **3** (default) | Typical use - recent games you're actively reading |
+| **5-10** | Multiple VNs in rotation |
+| **999** | Never remove characters - keep all historical data |
+
+### Updating After Changing Game Count
+
+After changing the game count setting:
+
+**For Yomitan:**
+1. Open Yomitan settings
+2. Go to "Dictionaries" tab
+3. Click "Update" button next to "GSM (Do not delete)"
+
+**For JL (Jidoujisho Lite):**
+1. Set dictionary to auto-update frequently in JL settings
+2. Dictionary refreshes automatically based on your configured interval
+
 ## Technical Details
 
 - **Dictionary Format**: Yomitan format version 3
-- **Update URL**: `http://127.0.0.1:{port}/api/yomitan-dict`
+- **Update URL**: `http://127.0.0.1:{port}/api/yomitan-dict?game_count=N`
 - **Revision Format**: YYYY.MM.DD (e.g., "2026.01.01")
-- **Games Included**: 3 most recently played (by last line timestamp)
+- **Game Count**: Configurable 1-999 (default: 3)
+- **localStorage Key**: `yomitanDictGameCount` (for persistence)
 
 ## Why "Do not delete"?
 
