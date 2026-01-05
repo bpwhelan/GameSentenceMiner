@@ -30,7 +30,7 @@ English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md)
 
 - OCR to get get text from a game that doesn't support text hooks.
 - Look up words with Yomitan in game.
-- Create Anki cards with game audio + a gif automatically.
+- Create Anki cards with game audio + a screenshot (or gif) automatically.
 
 ---
 
