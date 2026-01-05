@@ -49,6 +49,76 @@ class VNDBApiClient:
         return f"v{vn_id}"
 
     @classmethod
+    def search_vn(
+        cls,
+        query: str,
+        limit: int = 10
+    ) -> Optional[Dict]:
+        """
+        Search VNDB for visual novels by title.
+        
+        Rate limit: 200 requests per 5 minutes.
+        
+        Args:
+            query: Search query string
+            limit: Maximum number of results (default: 10, max: 100)
+        
+        Returns:
+            Dictionary with search results from VNDB API, or None if request fails.
+            Response structure:
+            {
+                "results": [
+                    {
+                        "id": "v17",
+                        "title": "Steins;Gate",
+                        "alttitle": "シュタインズ・ゲート",
+                        "released": "2009-10-15",
+                        "rating": 87.5,
+                        "description": "...",
+                        "image": {"url": "..."},
+                        "developers": [{"name": "5pb."}]
+                    },
+                    ...
+                ],
+                "more": false
+            }
+        """
+        try:
+            payload = {
+                "filters": ["search", "=", query],
+                "fields": "id, title, alttitle, released, rating, description, image.url, developers.name",
+                "sort": "rating",
+                "reverse": True,
+                "results": min(limit, 100)  # VNDB max is 100
+            }
+            
+            logger.debug(f"Searching VNDB for: {query}")
+            
+            response = requests.post(
+                "https://api.vndb.org/kana/vn",
+                headers={"Content-Type": "application/json"},
+                json=payload,
+                timeout=cls.TIMEOUT
+            )
+            
+            if response.status_code != 200:
+                logger.debug(f"VNDB search API returned status {response.status_code}")
+                return None
+            
+            data = response.json()
+            results = data.get("results", [])
+            logger.debug(f"VNDB search returned {len(results)} results for '{query}'")
+            
+            return data
+            
+        except requests.RequestException as e:
+            logger.debug(f"VNDB search API request failed: {e}")
+            return None
+        except Exception as e:
+            logger.debug(f"Unexpected error in VNDB search: {e}")
+            return None
+
+    @classmethod
     def fetch_characters(
         cls,
         vn_id: str,
@@ -136,6 +206,175 @@ class VNDBApiClient:
 
     # Thumbnail size for character images
     THUMBNAIL_SIZE = (80, 100)
+    
+    # Cover image size (larger for game covers)
+    COVER_IMAGE_SIZE = (300, 400)
+
+    @classmethod
+    def download_cover_image(
+        cls,
+        vn_id: str
+    ) -> Optional[str]:
+        """
+        Download the cover image for a visual novel from VNDB.
+        
+        Args:
+            vn_id: VNDB visual novel ID (e.g., "v56650" or "56650")
+            
+        Returns:
+            Base64-encoded PNG image string with data URI prefix, or None on failure
+        """
+        import io
+        
+        vn_id = cls.normalize_vndb_id(vn_id)
+        
+        try:
+            # First, fetch VN info to get the cover image URL
+            payload = {
+                "filters": ["id", "=", vn_id],
+                "fields": "id, title, image.url",
+                "results": 1
+            }
+            
+            response = requests.post(
+                "https://api.vndb.org/kana/vn",
+                headers={"Content-Type": "application/json"},
+                json=payload,
+                timeout=cls.TIMEOUT
+            )
+            
+            if response.status_code != 200:
+                logger.debug(f"VNDB API returned status {response.status_code} for cover fetch")
+                return None
+            
+            data = response.json()
+            results = data.get("results", [])
+            
+            if not results:
+                logger.debug(f"No VN found for ID {vn_id}")
+                return None
+            
+            vn_data = results[0]
+            image_info = vn_data.get("image")
+            
+            if not image_info or not isinstance(image_info, dict):
+                logger.debug(f"No cover image info for VN {vn_id}")
+                return None
+            
+            image_url = image_info.get("url")
+            if not image_url:
+                logger.debug(f"No cover image URL for VN {vn_id}")
+                return None
+            
+            # Download the image
+            logger.debug(f"Downloading VNDB cover image from {image_url}")
+            img_response = requests.get(image_url, timeout=cls.TIMEOUT)
+            
+            if img_response.status_code != 200:
+                logger.debug(f"Failed to download cover image: status {img_response.status_code}")
+                return None
+            
+            # Open and process the image
+            image = Image.open(io.BytesIO(img_response.content))
+            
+            # Convert to RGB if necessary
+            if image.mode in ('RGBA', 'P', 'LA'):
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                if image.mode == 'P':
+                    image = image.convert('RGBA')
+                if image.mode in ('RGBA', 'LA'):
+                    background.paste(image, mask=image.split()[-1])
+                else:
+                    background.paste(image)
+                image = background
+            elif image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            # Resize to cover size
+            image.thumbnail(cls.COVER_IMAGE_SIZE, Image.Resampling.LANCZOS)
+            
+            # Save as PNG for better quality
+            buffer = io.BytesIO()
+            image.save(buffer, format='PNG', optimize=True)
+            buffer.seek(0)
+            
+            image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+            logger.info(f"Successfully downloaded VNDB cover image for {vn_id}")
+            return f"data:image/png;base64,{image_base64}"
+            
+        except requests.RequestException as e:
+            logger.debug(f"Failed to fetch VNDB cover image for {vn_id}: {e}")
+            return None
+        except Exception as e:
+            logger.debug(f"Unexpected error downloading VNDB cover: {e}")
+            return None
+
+    @classmethod
+    def fetch_vn_metadata(
+        cls,
+        vn_id: str
+    ) -> Optional[Dict]:
+        """
+        Fetch full metadata for a visual novel from VNDB.
+        
+        Args:
+            vn_id: VNDB visual novel ID (e.g., "v56650" or "56650")
+            
+        Returns:
+            Dictionary with VN metadata, or None on failure
+        """
+        vn_id = cls.normalize_vndb_id(vn_id)
+        
+        try:
+            payload = {
+                "filters": ["id", "=", vn_id],
+                "fields": "id, title, alttitle, released, rating, description, image.url, developers.name, length_minutes",
+                "results": 1
+            }
+            
+            response = requests.post(
+                "https://api.vndb.org/kana/vn",
+                headers={"Content-Type": "application/json"},
+                json=payload,
+                timeout=cls.TIMEOUT
+            )
+            
+            if response.status_code != 200:
+                logger.debug(f"VNDB API returned status {response.status_code} for metadata fetch")
+                return None
+            
+            data = response.json()
+            results = data.get("results", [])
+            
+            if not results:
+                logger.debug(f"No VN found for ID {vn_id}")
+                return None
+            
+            vn_data = results[0]
+            
+            # Normalize the data
+            image_info = vn_data.get("image", {})
+            developers = vn_data.get("developers", [])
+            
+            return {
+                "vndb_id": vn_id,
+                "title_romaji": vn_data.get("title", ""),
+                "title_original": vn_data.get("alttitle", ""),
+                "description": vn_data.get("description", ""),
+                "release_date": vn_data.get("released"),
+                "rating": vn_data.get("rating"),
+                "length_minutes": vn_data.get("length_minutes"),
+                "cover_url": image_info.get("url") if isinstance(image_info, dict) else None,
+                "developers": [d.get("name", "") for d in developers if d.get("name")],
+                "media_type": "Visual Novel"
+            }
+            
+        except requests.RequestException as e:
+            logger.debug(f"Failed to fetch VNDB metadata for {vn_id}: {e}")
+            return None
+        except Exception as e:
+            logger.debug(f"Unexpected error fetching VNDB metadata: {e}")
+            return None
 
     @classmethod
     def fetch_image_as_base64(

@@ -6,6 +6,7 @@ Handles game linking, searching, updating, and management operations.
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import request, jsonify
 
 from GameSentenceMiner.util.db import GameLinesTable
@@ -158,8 +159,8 @@ def register_jiten_database_api_routes(app):
                     len(line.line_text) if line.line_text else 0 for line in lines
                 )
 
-                # Determine linking status
-                is_linked = bool(game.deck_id)
+                # Determine linking status - linked if ANY of Jiten, VNDB, or AniList IDs are present
+                is_linked = bool(game.deck_id) or bool(game.vndb_id) or bool(game.anilist_id)
                 has_manual_overrides = len(game.manual_overrides) > 0
 
                 # Get start and end dates
@@ -176,6 +177,8 @@ def register_jiten_database_api_routes(app):
                         "description": game.description,
                         "image": game.image,
                         "deck_id": game.deck_id,
+                        "vndb_id": game.vndb_id,
+                        "anilist_id": game.anilist_id,
                         "difficulty": game.difficulty,
                         "completed": game.completed,
                         "is_linked": is_linked,
@@ -717,12 +720,23 @@ def register_jiten_database_api_routes(app):
     @app.route("/api/games/<game_id>/repull-jiten", methods=["POST"])
     def api_repull_game_from_jiten(game_id):
         """
-        Repull jiten.moe data for a game, respecting manual overrides.
-        Only updates fields that are not in the manually edited fields list.
+        Repull data for a game from all associated sources (Jiten, VNDB, AniList).
+        Respects manual overrides. Prioritizes Jiten data but also pulls from other sources.
+        
+        This endpoint supports games linked to:
+        - Jiten.moe (deck_id)
+        - VNDB (vndb_id)
+        - AniList (anilist_id)
+        
+        Cover images are downloaded from all available sources, with priority:
+        1. Jiten.moe (if deck_id exists)
+        2. VNDB (if vndb_id exists and no Jiten image)
+        3. AniList (if anilist_id exists and no Jiten/VNDB image)
         """
         try:
             from GameSentenceMiner.util.games_table import GamesTable
-            import requests
+            from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
+            from GameSentenceMiner.util.anilist_api_client import AniListApiClient
 
             # Get the game
             game = GamesTable.get(game_id)
@@ -730,42 +744,24 @@ def register_jiten_database_api_routes(app):
                 logger.error(f"Game not found: {game_id}")
                 return jsonify({"error": "Game not found"}), 404
 
-            # Check if game is linked to jiten.moe
-            if not game.deck_id:
-                logger.error(f"Game {game_id} is not linked to jiten.moe")
+            # Check if game is linked to any source
+            has_jiten = bool(game.deck_id)
+            has_vndb = bool(game.vndb_id)
+            has_anilist = bool(game.anilist_id)
+            
+            if not has_jiten and not has_vndb and not has_anilist:
+                logger.error(f"Game {game_id} is not linked to any data source")
                 return jsonify(
-                    {"error": "Game is not linked to jiten.moe. Please link it first."}
+                    {"error": "Game is not linked to any data source (Jiten, VNDB, or AniList). Please link it first."}
                 ), 400
 
-            # Fetch fresh data from jiten.moe API using direct deck detail endpoint
-            try:
-                # Use direct deck detail API endpoint
-                data = JitenApiClient.get_deck_detail(game.deck_id)
-
-                if not data:
-                    return jsonify(
-                        {"error": "Failed to fetch data from jiten.moe"}
-                    ), 500
-
-                # Extract main deck data from the detail response
-                main_deck = data.get("data", {}).get("mainDeck")
-                if not main_deck:
-                    return jsonify(
-                        {
-                            "error": f"Game with deck_id {game.deck_id} not found on jiten.moe"
-                        }
-                    ), 404
-
-                # Normalize the deck data
-                jiten_data = JitenApiClient.normalize_deck_data(main_deck)
-
-            except Exception as e:
-                logger.error(f"Jiten API request failed: {e}")
-                return jsonify({"error": "Failed to fetch data from jiten.moe"}), 500
-
-            # Update game with fresh jiten.moe data, respecting manual overrides
+            # Track which sources were used
+            sources_used = []
             update_fields = {}
             skipped_fields = []
+            jiten_data = None
+            vndb_metadata = None
+            anilist_metadata = None
 
             # Ensure manual_overrides is always a list
             manual_overrides = (
@@ -777,182 +773,268 @@ def register_jiten_database_api_routes(app):
                 )
                 manual_overrides = []
 
-            # Only update fields that are not manually overridden
-            if "deck_id" not in manual_overrides:
+            # === JITEN.MOE DATA (Primary source if available) ===
+            if has_jiten:
+                try:
+                    logger.info(f"Fetching Jiten.moe data for deck_id: {game.deck_id}")
+                    data = JitenApiClient.get_deck_detail(game.deck_id)
+
+                    if data:
+                        main_deck = data.get("data", {}).get("mainDeck")
+                        if main_deck:
+                            jiten_data = JitenApiClient.normalize_deck_data(main_deck)
+                            sources_used.append("jiten")
+                            logger.info(f"Successfully fetched Jiten.moe data for {game.title_original}")
+                        else:
+                            logger.warning(f"No mainDeck in Jiten response for deck_id {game.deck_id}")
+                    else:
+                        logger.warning(f"Failed to fetch Jiten data for deck_id {game.deck_id}")
+                except Exception as e:
+                    logger.error(f"Jiten API request failed: {e}")
+
+            # === VNDB DATA (Secondary source for Visual Novels) ===
+            if has_vndb:
+                try:
+                    logger.info(f"Fetching VNDB data for vndb_id: {game.vndb_id}")
+                    vndb_metadata = VNDBApiClient.fetch_vn_metadata(game.vndb_id)
+                    if vndb_metadata:
+                        sources_used.append("vndb")
+                        logger.info(f"Successfully fetched VNDB metadata for {game.vndb_id}")
+                except Exception as e:
+                    logger.error(f"VNDB API request failed: {e}")
+
+            # === ANILIST DATA (Secondary source for Anime/Manga) ===
+            if has_anilist:
+                try:
+                    # Determine media type from game type
+                    media_type = "ANIME"
+                    if game.type and game.type.lower() == "manga":
+                        media_type = "MANGA"
+                    
+                    logger.info(f"Fetching AniList data for anilist_id: {game.anilist_id}")
+                    anilist_metadata = AniListApiClient.fetch_media_metadata(
+                        int(game.anilist_id), media_type
+                    )
+                    if anilist_metadata:
+                        sources_used.append("anilist")
+                        logger.info(f"Successfully fetched AniList metadata for {game.anilist_id}")
+                except Exception as e:
+                    logger.error(f"AniList API request failed: {e}")
+
+            # === APPLY UPDATES (Prioritize Jiten > VNDB > AniList) ===
+            
+            # Deck ID
+            if "deck_id" not in manual_overrides and jiten_data and jiten_data.get("deck_id"):
                 update_fields["deck_id"] = jiten_data["deck_id"]
-            else:
+            elif "deck_id" in manual_overrides:
                 skipped_fields.append("deck_id")
 
-            if "title_original" not in manual_overrides and jiten_data.get(
-                "title_original"
-            ):
-                update_fields["title_original"] = jiten_data["title_original"]
+            # Title Original (Japanese)
+            if "title_original" not in manual_overrides:
+                if jiten_data and jiten_data.get("title_original"):
+                    update_fields["title_original"] = jiten_data["title_original"]
+                elif vndb_metadata and vndb_metadata.get("title_original"):
+                    update_fields["title_original"] = vndb_metadata["title_original"]
+                elif anilist_metadata and anilist_metadata.get("title_original"):
+                    update_fields["title_original"] = anilist_metadata["title_original"]
             elif "title_original" in manual_overrides:
                 skipped_fields.append("title_original")
 
-            if "title_romaji" not in manual_overrides and jiten_data.get(
-                "title_romaji"
-            ):
-                update_fields["title_romaji"] = jiten_data["title_romaji"]
+            # Title Romaji
+            if "title_romaji" not in manual_overrides:
+                if jiten_data and jiten_data.get("title_romaji"):
+                    update_fields["title_romaji"] = jiten_data["title_romaji"]
+                elif vndb_metadata and vndb_metadata.get("title_romaji"):
+                    update_fields["title_romaji"] = vndb_metadata["title_romaji"]
+                elif anilist_metadata and anilist_metadata.get("title_romaji"):
+                    update_fields["title_romaji"] = anilist_metadata["title_romaji"]
             elif "title_romaji" in manual_overrides:
                 skipped_fields.append("title_romaji")
 
-            if "title_english" not in manual_overrides and jiten_data.get(
-                "title_english"
-            ):
-                update_fields["title_english"] = jiten_data["title_english"]
+            # Title English
+            if "title_english" not in manual_overrides:
+                if jiten_data and jiten_data.get("title_english"):
+                    update_fields["title_english"] = jiten_data["title_english"]
+                elif anilist_metadata and anilist_metadata.get("title_english"):
+                    update_fields["title_english"] = anilist_metadata["title_english"]
             elif "title_english" in manual_overrides:
                 skipped_fields.append("title_english")
 
-            if "type" not in manual_overrides and jiten_data.get("media_type_string"):
-                # Use the pre-converted media type string from jiten_api_client
-                update_fields["game_type"] = jiten_data["media_type_string"]
+            # Type
+            if "type" not in manual_overrides:
+                if jiten_data and jiten_data.get("media_type_string"):
+                    update_fields["game_type"] = jiten_data["media_type_string"]
+                elif vndb_metadata:
+                    update_fields["game_type"] = "Visual Novel"
+                elif anilist_metadata and anilist_metadata.get("media_type"):
+                    update_fields["game_type"] = anilist_metadata["media_type"]
             elif "type" in manual_overrides:
                 skipped_fields.append("type")
 
-            if "description" not in manual_overrides and jiten_data.get("description"):
-                update_fields["description"] = jiten_data["description"]
+            # Description
+            if "description" not in manual_overrides:
+                if jiten_data and jiten_data.get("description"):
+                    update_fields["description"] = jiten_data["description"]
+                elif vndb_metadata and vndb_metadata.get("description"):
+                    update_fields["description"] = vndb_metadata["description"]
+                elif anilist_metadata and anilist_metadata.get("description"):
+                    update_fields["description"] = anilist_metadata["description"]
             elif "description" in manual_overrides:
                 skipped_fields.append("description")
 
-            if (
-                "difficulty" not in manual_overrides
-                and jiten_data.get("difficulty") is not None
-            ):
+            # Difficulty (Jiten-only)
+            if "difficulty" not in manual_overrides and jiten_data and jiten_data.get("difficulty") is not None:
                 update_fields["difficulty"] = jiten_data["difficulty"]
             elif "difficulty" in manual_overrides:
                 skipped_fields.append("difficulty")
 
-            if (
-                "character_count" not in manual_overrides
-                and jiten_data.get("character_count") is not None
-            ):
+            # Character Count (Jiten-only)
+            if "character_count" not in manual_overrides and jiten_data and jiten_data.get("character_count") is not None:
                 update_fields["character_count"] = jiten_data["character_count"]
             elif "character_count" in manual_overrides:
                 skipped_fields.append("character_count")
 
-            if "links" not in manual_overrides and jiten_data.get("links"):
+            # Links
+            if "links" not in manual_overrides and jiten_data and jiten_data.get("links"):
                 update_fields["links"] = jiten_data["links"]
             elif "links" in manual_overrides:
                 skipped_fields.append("links")
 
-            if "release_date" not in manual_overrides and jiten_data.get(
-                "release_date"
-            ):
-                update_fields["release_date"] = jiten_data["release_date"]
+            # Release Date
+            if "release_date" not in manual_overrides:
+                if jiten_data and jiten_data.get("release_date"):
+                    update_fields["release_date"] = jiten_data["release_date"]
+                elif vndb_metadata and vndb_metadata.get("release_date"):
+                    update_fields["release_date"] = vndb_metadata["release_date"]
+                elif anilist_metadata and anilist_metadata.get("release_date"):
+                    update_fields["release_date"] = anilist_metadata["release_date"]
             elif "release_date" in manual_overrides:
                 skipped_fields.append("release_date")
 
-            if "genres" not in manual_overrides and jiten_data.get("genres"):
+            # Genres (Jiten-only)
+            if "genres" not in manual_overrides and jiten_data and jiten_data.get("genres"):
                 update_fields["genres"] = jiten_data["genres"]
             elif "genres" in manual_overrides:
                 skipped_fields.append("genres")
 
-            if "tags" not in manual_overrides and jiten_data.get("tags"):
+            # Tags (Jiten-only)
+            if "tags" not in manual_overrides and jiten_data and jiten_data.get("tags"):
                 update_fields["tags"] = jiten_data["tags"]
             elif "tags" in manual_overrides:
                 skipped_fields.append("tags")
 
-            # Download and encode image if not manually overridden
-            if "image" not in manual_overrides and jiten_data.get("cover_name"):
-                image_data = JitenApiClient.download_cover_image(
-                    jiten_data["cover_name"]
-                )
+            # === COVER IMAGE (Priority: Jiten > VNDB > AniList) ===
+            if "image" not in manual_overrides:
+                image_data = None
+                image_source = None
+                
+                # Try Jiten first
+                if jiten_data and jiten_data.get("cover_name"):
+                    image_data = JitenApiClient.download_cover_image(jiten_data["cover_name"])
+                    if image_data:
+                        image_source = "jiten"
+                        logger.info(f"Downloaded cover image from Jiten.moe")
+                
+                # Try VNDB if no Jiten image
+                if not image_data and has_vndb:
+                    image_data = VNDBApiClient.download_cover_image(game.vndb_id)
+                    if image_data:
+                        image_source = "vndb"
+                        logger.info(f"Downloaded cover image from VNDB")
+                
+                # Try AniList if no Jiten/VNDB image
+                if not image_data and has_anilist:
+                    media_type = "ANIME"
+                    if game.type and game.type.lower() == "manga":
+                        media_type = "MANGA"
+                    image_data = AniListApiClient.download_cover_image(int(game.anilist_id), media_type)
+                    if image_data:
+                        image_source = "anilist"
+                        logger.info(f"Downloaded cover image from AniList")
+                
                 if image_data:
                     update_fields["image"] = image_data
+                    if image_source and image_source not in sources_used:
+                        sources_used.append(f"{image_source} (image)")
             elif "image" in manual_overrides:
                 skipped_fields.append("image")
 
-            # Update the game using the jiten update method (doesn't mark as manual)
+            # === UPDATE CHARACTER DATA ===
+            # VNDB character data for Visual Novels
+            if has_vndb:
+                try:
+                    logger.info(f"Fetching VNDB character data for VN ID: {game.vndb_id}")
+                    vndb_char_data = VNDBApiClient.process_vn_characters(
+                        game.vndb_id, max_spoiler=2, preserve_spoiler_metadata=True
+                    )
+                    if vndb_char_data:
+                        game.vndb_character_data = json.dumps(vndb_char_data, ensure_ascii=False)
+                        logger.info(f"Updated VNDB character data for {game.title_original}")
+                except Exception as e:
+                    logger.error(f"Failed to fetch VNDB character data: {e}")
+
+            # AniList character data for Anime/Manga
+            if has_anilist and not has_vndb:  # Only if not already using VNDB
+                try:
+                    media_type = "ANIME"
+                    if game.type and game.type.lower() == "manga":
+                        media_type = "MANGA"
+                    
+                    logger.info(f"Fetching AniList character data for {media_type} ID: {game.anilist_id}")
+                    anilist_char_data = AniListApiClient.process_media_characters(
+                        int(game.anilist_id), media_type, max_spoiler=2, preserve_spoiler_metadata=True
+                    )
+                    if anilist_char_data:
+                        game.vndb_character_data = json.dumps(anilist_char_data, ensure_ascii=False)
+                        logger.info(f"Updated AniList character data for {game.title_original}")
+                except Exception as e:
+                    logger.error(f"Failed to fetch AniList character data: {e}", exc_info=True)
+
+            # === SAVE UPDATES ===
             if update_fields:
                 game.update_all_fields_from_jiten(**update_fields)
 
-                # Automatically add Jiten link if links are not manually overridden
-                if "links" not in manual_overrides:
+                # Automatically add Jiten link if links are not manually overridden and we have a deck_id
+                if "links" not in manual_overrides and has_jiten:
                     add_jiten_link_to_game(game, game.deck_id)
-                    # Save the game again to persist the Jiten link
                     game.save()
-
-                # Check if it's a Visual Novel and fetch VNDB character data
-                if jiten_data.get("media_type_string") == "Visual Novel":
-                    try:
-                        from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
-                        
-                        links = jiten_data.get("links", [])
-                        vndb_id = JitenApiClient.extract_vndb_id(links)
-                        
-                        if vndb_id:
-                            logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
-                            vndb_data = VNDBApiClient.process_vn_characters(vndb_id, max_spoiler=2, preserve_spoiler_metadata=True)
-                            
-                            if vndb_data:
-                                game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
-                                game.save()
-                                logger.info(f"Updated VNDB data for {game.title_original}")
-                    except Exception as e:
-                        logger.error(f"Failed to fetch VNDB data: {e}")
-
-                # Check if it's Anime or Manga and fetch AniList character data
-                if jiten_data.get("media_type_string") in ["Anime", "Manga"]:
-                    try:
-                        from GameSentenceMiner.util.anilist_api_client import AniListApiClient
-                        
-                        links = jiten_data.get("links", [])
-                        logger.info(f"Checking AniList for {jiten_data.get('media_type_string')}, links: {links}")
-                        anilist_info = JitenApiClient.extract_anilist_id(links)
-                        
-                        if anilist_info:
-                            media_id, media_type = anilist_info
-                            logger.info(f"Fetching AniList character data for {media_type} ID: {media_id}")
-                            anilist_data = AniListApiClient.process_media_characters(
-                                media_id, media_type, max_spoiler=2, preserve_spoiler_metadata=True
-                            )
-                            
-                            if anilist_data:
-                                # Store as JSON string in the database (reuse vndb_character_data field)
-                                game.vndb_character_data = json.dumps(anilist_data, ensure_ascii=False)
-                                game.save()
-                                logger.info(f"Updated AniList data for {game.title_original}")
-                            else:
-                                logger.warning(f"No AniList data returned for {media_type} ID: {media_id}")
-                        else:
-                            logger.warning(f"No AniList ID found in links: {links}")
-                    except Exception as e:
-                        logger.error(f"Failed to fetch AniList data: {e}", exc_info=True)
 
                 return jsonify(
                     {
                         "success": True,
-                        "message": f'Successfully repulled data from jiten.moe for "{game.title_original}"',
+                        "message": f'Successfully repulled data for "{game.title_original}"',
+                        "sources_used": sources_used,
                         "updated_fields": list(update_fields.keys()),
-                        "skipped_fields": skipped_fields,  # Always return as list
+                        "skipped_fields": skipped_fields,
                         "deck_id": game.deck_id,
-                        "jiten_raw_response": jiten_data,  # Include full jiten.moe data
+                        "vndb_id": game.vndb_id,
+                        "anilist_id": game.anilist_id,
                     }
                 ), 200
             else:
-                # Even if no other fields are updated, we should still add the Jiten link if links are not manually overridden
-                if "links" not in manual_overrides:
+                # Even if no other fields are updated, save character data and Jiten link
+                if "links" not in manual_overrides and has_jiten:
                     add_jiten_link_to_game(game, game.deck_id)
-                    # Save the game to persist the Jiten link
-                    game.save()
+                game.save()
 
                 return jsonify(
                     {
                         "success": True,
                         "message": f'No fields updated - all fields are manually overridden for "{game.title_original}"',
+                        "sources_used": sources_used,
                         "updated_fields": [],
-                        "skipped_fields": skipped_fields,  # Always return as list
+                        "skipped_fields": skipped_fields,
                         "deck_id": game.deck_id,
-                        "jiten_raw_response": jiten_data,  # Include full jiten.moe data
+                        "vndb_id": game.vndb_id,
+                        "anilist_id": game.anilist_id,
                     }
                 ), 200
 
         except Exception as e:
             logger.error(
-                f"Error repulling jiten data for game {game_id}: {e}", exc_info=True
+                f"Error repulling data for game {game_id}: {e}", exc_info=True
             )
-            return jsonify({"error": f"Failed to repull jiten data: {str(e)}"}), 500
+            return jsonify({"error": f"Failed to repull data: {str(e)}"}), 500
 
     @app.route("/api/games/<game_id>", methods=["DELETE"])
     def api_delete_individual_game(game_id):
@@ -1285,3 +1367,365 @@ def register_jiten_database_api_routes(app):
         except Exception as e:
             logger.error(f"Error in debug endpoint: {e}")
             return jsonify({"error": f"Debug failed: {str(e)}"}), 500
+
+    @app.route("/api/search/unified", methods=["GET"])
+    def api_unified_search():
+        """
+        Search across Jiten, VNDB, and AniList simultaneously.
+        
+        Query Parameters:
+        - q: Search query (required)
+        - sources: Comma-separated list of sources (default: jiten,vndb,anilist)
+        
+        Returns:
+        {
+            "jiten": {"results": [...], "total": 10, "error": null},
+            "vndb": {"results": [...], "total": 5, "error": null},
+            "anilist": {"results": [...], "total": 8, "error": null}
+        }
+        """
+        from GameSentenceMiner.util.vndb_api_client import VNDBApiClient
+        from GameSentenceMiner.util.anilist_api_client import AniListApiClient
+        
+        # Constants
+        SEARCH_TIMEOUT = 15  # seconds per source
+        
+        query = request.args.get("q", "").strip()
+        if not query:
+            return jsonify({"error": "Query parameter 'q' is required"}), 400
+        
+        # Parse requested sources
+        sources_param = request.args.get("sources", "jiten,vndb,anilist")
+        requested_sources = [s.strip().lower() for s in sources_param.split(",")]
+        
+        # Initialize results structure
+        results = {}
+        
+        def search_jiten():
+            """Search Jiten.moe and normalize results"""
+            try:
+                data = JitenApiClient.search_media_decks(query)
+                if not data:
+                    return {"results": [], "total": 0, "error": "Failed to fetch from Jiten.moe"}
+                
+                normalized_results = []
+                for item in data.get("data", []):
+                    deck_data = JitenApiClient.normalize_deck_data(item)
+                    
+                    # Determine cover URL
+                    cover_url = None
+                    if deck_data.get("cover_name"):
+                        cover_url = deck_data["cover_name"]
+                    
+                    normalized_results.append({
+                        "id": str(deck_data.get("deck_id", "")),
+                        "title": deck_data.get("title_original", ""),
+                        "title_en": deck_data.get("title_english", ""),
+                        "title_jp": deck_data.get("title_original", ""),
+                        "cover_url": cover_url,
+                        "source": "jiten",
+                        "source_url": f"https://jiten.moe/decks/media/{deck_data.get('deck_id')}/detail",
+                        "description": (deck_data.get("description", "") or "")[:200],
+                        "media_type": deck_data.get("media_type_string", ""),
+                        "character_count": deck_data.get("character_count", 0),
+                        "difficulty": deck_data.get("difficulty", 0),
+                        # Original data for linking
+                        "_raw": deck_data
+                    })
+                
+                return {
+                    "results": normalized_results,
+                    "total": data.get("totalItems", len(normalized_results)),
+                    "error": None
+                }
+            except Exception as e:
+                logger.error(f"Jiten search error: {e}")
+                return {"results": [], "total": 0, "error": str(e)}
+        
+        def search_vndb():
+            """Search VNDB and normalize results"""
+            try:
+                data = VNDBApiClient.search_vn(query, limit=10)
+                if not data:
+                    return {"results": [], "total": 0, "error": "Failed to fetch from VNDB"}
+                
+                normalized_results = []
+                for item in data.get("results", []):
+                    # Extract cover URL from image object
+                    cover_url = None
+                    image_data = item.get("image")
+                    if isinstance(image_data, dict):
+                        cover_url = image_data.get("url")
+                    
+                    # Extract developer names
+                    developers = item.get("developers", [])
+                    developer_names = []
+                    if developers:
+                        developer_names = [d.get("name", "") for d in developers if d.get("name")]
+                    
+                    # Clean description
+                    description = item.get("description", "") or ""
+                    # Remove VNDB BBCode tags for display
+                    import re
+                    description = re.sub(r'\[/?[^\]]+\]', '', description)[:200]
+                    
+                    normalized_results.append({
+                        "id": item.get("id", ""),
+                        "title": item.get("title", ""),
+                        "title_en": item.get("title", ""),  # VNDB title is usually romanized
+                        "title_jp": item.get("alttitle", ""),
+                        "cover_url": cover_url,
+                        "source": "vndb",
+                        "source_url": f"https://vndb.org/{item.get('id', '')}",
+                        "description": description,
+                        "media_type": "Visual Novel",
+                        "rating": item.get("rating"),
+                        "released": item.get("released"),
+                        "developers": developer_names,
+                        # Original data for potential linking
+                        "_raw": item
+                    })
+                
+                return {
+                    "results": normalized_results,
+                    "total": len(normalized_results),
+                    "error": None
+                }
+            except Exception as e:
+                logger.error(f"VNDB search error: {e}")
+                return {"results": [], "total": 0, "error": str(e)}
+        
+        def search_anilist_anime():
+            """Search AniList for anime and normalize results"""
+            try:
+                data = AniListApiClient.search_media(query, media_type="ANIME")
+                if not data:
+                    return {"results": [], "total": 0, "error": "Failed to fetch from AniList"}
+                
+                media_list = data.get("data", {}).get("Page", {}).get("media", [])
+                
+                normalized_results = []
+                for item in media_list:
+                    title_info = item.get("title", {})
+                    cover_info = item.get("coverImage", {})
+                    
+                    # Clean description - strip HTML and AniList spoiler tags
+                    description = item.get("description", "") or ""
+                    import re
+                    description = re.sub(r'<[^>]+>', '', description)  # Remove HTML
+                    description = re.sub(r'~!.+?!~', '', description, flags=re.DOTALL)  # Remove spoilers
+                    description = description[:200]
+                    
+                    normalized_results.append({
+                        "id": str(item.get("id", "")),
+                        "title": title_info.get("romaji", "") or title_info.get("english", ""),
+                        "title_en": title_info.get("english", ""),
+                        "title_jp": title_info.get("native", ""),
+                        "cover_url": cover_info.get("large") or cover_info.get("medium"),
+                        "source": "anilist",
+                        "source_url": item.get("siteUrl", f"https://anilist.co/anime/{item.get('id')}"),
+                        "description": description,
+                        "media_type": "Anime",
+                        "format": item.get("format"),
+                        "status": item.get("status"),
+                        "score": item.get("averageScore"),
+                        "mal_id": item.get("idMal"),
+                        # Original data for potential linking
+                        "_raw": item
+                    })
+                
+                return {
+                    "results": normalized_results,
+                    "total": len(normalized_results),
+                    "error": None
+                }
+            except Exception as e:
+                logger.error(f"AniList anime search error: {e}")
+                return {"results": [], "total": 0, "error": str(e)}
+        
+        def search_anilist_manga():
+            """Search AniList for manga and normalize results"""
+            try:
+                data = AniListApiClient.search_media(query, media_type="MANGA")
+                if not data:
+                    return {"results": [], "total": 0, "error": "Failed to fetch from AniList"}
+                
+                media_list = data.get("data", {}).get("Page", {}).get("media", [])
+                
+                normalized_results = []
+                for item in media_list:
+                    title_info = item.get("title", {})
+                    cover_info = item.get("coverImage", {})
+                    
+                    # Clean description
+                    description = item.get("description", "") or ""
+                    import re
+                    description = re.sub(r'<[^>]+>', '', description)
+                    description = re.sub(r'~!.+?!~', '', description, flags=re.DOTALL)
+                    description = description[:200]
+                    
+                    normalized_results.append({
+                        "id": str(item.get("id", "")),
+                        "title": title_info.get("romaji", "") or title_info.get("english", ""),
+                        "title_en": title_info.get("english", ""),
+                        "title_jp": title_info.get("native", ""),
+                        "cover_url": cover_info.get("large") or cover_info.get("medium"),
+                        "source": "anilist",
+                        "source_url": item.get("siteUrl", f"https://anilist.co/manga/{item.get('id')}"),
+                        "description": description,
+                        "media_type": "Manga",
+                        "format": item.get("format"),
+                        "status": item.get("status"),
+                        "score": item.get("averageScore"),
+                        "mal_id": item.get("idMal"),
+                        "_raw": item
+                    })
+                
+                return {
+                    "results": normalized_results,
+                    "total": len(normalized_results),
+                    "error": None
+                }
+            except Exception as e:
+                logger.error(f"AniList manga search error: {e}")
+                return {"results": [], "total": 0, "error": str(e)}
+        
+        # Map source names to search functions
+        search_functions = {}
+        if "jiten" in requested_sources:
+            search_functions["jiten"] = search_jiten
+        if "vndb" in requested_sources:
+            search_functions["vndb"] = search_vndb
+        if "anilist" in requested_sources:
+            # AniList searches both anime and manga
+            search_functions["anilist_anime"] = search_anilist_anime
+            search_functions["anilist_manga"] = search_anilist_manga
+        
+        # Execute searches in parallel with timeout
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {
+                executor.submit(func): name
+                for name, func in search_functions.items()
+            }
+            
+            for future in as_completed(futures, timeout=SEARCH_TIMEOUT + 5):
+                source_name = futures[future]
+                try:
+                    result = future.result(timeout=SEARCH_TIMEOUT)
+                    
+                    # Combine anime and manga results for AniList
+                    if source_name == "anilist_anime":
+                        if "anilist" not in results:
+                            results["anilist"] = {"results": [], "total": 0, "error": None}
+                        results["anilist"]["results"].extend(result["results"])
+                        results["anilist"]["total"] += result["total"]
+                        if result["error"]:
+                            results["anilist"]["error"] = result["error"]
+                    elif source_name == "anilist_manga":
+                        if "anilist" not in results:
+                            results["anilist"] = {"results": [], "total": 0, "error": None}
+                        results["anilist"]["results"].extend(result["results"])
+                        results["anilist"]["total"] += result["total"]
+                        if result["error"] and not results["anilist"]["error"]:
+                            results["anilist"]["error"] = result["error"]
+                    else:
+                        results[source_name] = result
+                        
+                except TimeoutError:
+                    logger.warning(f"Search timeout for source: {source_name}")
+                    if source_name.startswith("anilist"):
+                        if "anilist" not in results:
+                            results["anilist"] = {"results": [], "total": 0, "error": "Timeout"}
+                    else:
+                        results[source_name] = {"results": [], "total": 0, "error": "Timeout"}
+                except Exception as e:
+                    logger.error(f"Search error for {source_name}: {e}")
+                    if source_name.startswith("anilist"):
+                        if "anilist" not in results:
+                            results["anilist"] = {"results": [], "total": 0, "error": str(e)}
+                    else:
+                        results[source_name] = {"results": [], "total": 0, "error": str(e)}
+        
+        # Ensure all requested sources have entries in results
+        for source in requested_sources:
+            if source not in results:
+                results[source] = {"results": [], "total": 0, "error": "No results"}
+        
+        # Combine all results into flat array for frontend compatibility
+        all_results = []
+        for source_name, source_data in results.items():
+            all_results.extend(source_data.get("results", []))
+        
+        # Structure response to match frontend expectations
+        response = {
+            "results": all_results,
+            "by_source": results,
+            "query": query,
+            "sources_searched": list(results.keys())
+        }
+        
+        return jsonify(response), 200
+
+    @app.route('/api/cron/jiten-upgrader/run', methods=['POST'])
+    def api_run_jiten_upgrader():
+        """
+        Manually trigger the Jiten Upgrader cron job.
+        
+        This endpoint checks all games with vndb_id or anilist_id (but no deck_id)
+        to see if Jiten.moe now has entries for them, and auto-links if found.
+        
+        ---
+        tags:
+          - Cron
+        responses:
+          200:
+            description: Jiten upgrader completed successfully
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [success, error]
+                result:
+                  type: object
+                  properties:
+                    total_checked:
+                      type: integer
+                    upgraded_to_jiten:
+                      type: integer
+                    already_on_jiten:
+                      type: integer
+                    not_found_on_jiten:
+                      type: integer
+                    failed:
+                      type: integer
+                    elapsed_time:
+                      type: number
+          500:
+            description: Jiten upgrader failed
+        """
+        try:
+            from GameSentenceMiner.util.cron.jiten_upgrader import upgrade_games_to_jiten
+            
+            logger.info("Manual trigger: Running Jiten Upgrader")
+            result = upgrade_games_to_jiten()
+            
+            return jsonify({
+                'status': 'success',
+                'result': {
+                    'total_checked': result.get('total_checked', 0),
+                    'upgraded_to_jiten': result.get('upgraded_to_jiten', 0),
+                    'already_on_jiten': result.get('already_on_jiten', 0),
+                    'not_found_on_jiten': result.get('not_found_on_jiten', 0),
+                    'failed': result.get('failed', 0),
+                    'elapsed_time': result.get('elapsed_time', 0),
+                    'details': result.get('details', [])
+                }
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error running Jiten Upgrader: {e}", exc_info=True)
+            return jsonify({
+                'status': 'error',
+                'error': str(e)
+            }), 500

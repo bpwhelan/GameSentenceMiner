@@ -14,6 +14,23 @@ import requests
 from GameSentenceMiner.util.configuration import logger
 
 
+class JitenLinkType:
+    """
+    Jiten.moe external link types from Jiten.Core LinkType enum.
+    
+    Used to query decks by external service IDs via the by-link-id endpoint.
+    """
+    WEB = 1          # Generic web link
+    VNDB = 2         # Visual Novel Database
+    TMDB = 3         # The Movie Database
+    ANILIST = 4      # AniList
+    MAL = 5          # MyAnimeList
+    GOOGLE_BOOKS = 6 # Google Books
+    IMDB = 7         # Internet Movie Database
+    IGDB = 8         # Internet Games Database
+    SYOSETSU = 9     # Syosetu (Japanese web novels)
+
+
 class JitenApiClient:
     """
     Centralized client for jiten.moe API interactions.
@@ -265,3 +282,70 @@ class JitenApiClient:
                 if match:
                     return int(match.group(2)), match.group(1).upper()
         return None
+
+    @classmethod
+    def get_deck_by_link_id(cls, link_type: int, external_id: str) -> List[int]:
+        """
+        Get deck IDs by external link type and ID.
+        
+        This allows looking up Jiten.moe decks using external service IDs like
+        VNDB VN IDs or AniList media IDs.
+        
+        Args:
+            link_type: Link type from JitenLinkType enum (e.g., JitenLinkType.VNDB)
+            external_id: External service ID (e.g., "v17" for Steins;Gate on VNDB,
+                        or "9253" for Steins;Gate anime on AniList)
+        
+        Returns:
+            List of deck_ids if found, empty list if not found or on error
+            
+        Example:
+            # Find Jiten deck for Steins;Gate VN
+            deck_ids = JitenApiClient.get_deck_by_link_id(JitenLinkType.VNDB, "v17")
+            
+            # Find Jiten deck for Steins;Gate anime
+            deck_ids = JitenApiClient.get_deck_by_link_id(JitenLinkType.ANILIST, "9253")
+        """
+        try:
+            # Clean the external_id - some IDs may have prefixes like 'v' for VNDB
+            # The API expects just the numeric part for most services
+            clean_id = external_id
+            if link_type == JitenLinkType.VNDB and external_id.startswith('v'):
+                clean_id = external_id[1:]  # Remove 'v' prefix
+            
+            url = f"{cls.BASE_URL}/by-link-id/{link_type}/{clean_id}"
+            
+            logger.debug(f"Looking up Jiten deck by link: type={link_type}, external_id={external_id}")
+            response = requests.get(url, timeout=cls.TIMEOUT)
+            
+            if response.status_code == 404:
+                logger.debug(f"No Jiten deck found for link type={link_type}, id={external_id}")
+                return []
+            
+            if response.status_code != 200:
+                logger.debug(
+                    f"Jiten by-link-id API returned status {response.status_code} "
+                    f"for link type={link_type}, id={external_id}"
+                )
+                return []
+            
+            data = response.json()
+            
+            # Response could be a single deck or list of decks
+            if isinstance(data, list):
+                deck_ids = [item.get("deckId") for item in data if item.get("deckId")]
+            elif isinstance(data, dict):
+                deck_id = data.get("deckId")
+                deck_ids = [deck_id] if deck_id else []
+            else:
+                deck_ids = []
+            
+            logger.debug(f"Found {len(deck_ids)} Jiten deck(s) for link type={link_type}, id={external_id}")
+            return deck_ids
+            
+        except requests.RequestException as e:
+            logger.debug(f"Jiten by-link-id API request failed: {e}")
+            return []
+        except Exception as e:
+            logger.debug(f"Unexpected error in get_deck_by_link_id: {e}")
+            return []

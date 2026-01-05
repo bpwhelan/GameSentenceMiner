@@ -37,6 +37,9 @@ class AniListApiClient:
 
     # Thumbnail size for character images (same as VNDB)
     THUMBNAIL_SIZE = (80, 100)
+    
+    # Cover image size (larger for game covers)
+    COVER_IMAGE_SIZE = (300, 400)
 
     # Role mapping from AniList to VNDB-compatible format
     ROLE_MAP = {
@@ -44,6 +47,32 @@ class AniListApiClient:
         "SUPPORTING": "primary",  # Main characters
         "BACKGROUND": "side",     # Side characters
     }
+
+    # GraphQL query for searching media
+    SEARCH_QUERY = """
+    query ($search: String!, $type: MediaType) {
+        Page(page: 1, perPage: 10) {
+            media(search: $search, type: $type) {
+                id
+                idMal
+                title {
+                    romaji
+                    english
+                    native
+                }
+                description(asHtml: false)
+                coverImage {
+                    large
+                    medium
+                }
+                format
+                status
+                averageScore
+                siteUrl
+            }
+        }
+    }
+    """
 
     # GraphQL query for fetching characters
     CHARACTERS_QUERY = """
@@ -88,6 +117,227 @@ class AniListApiClient:
     }
     """
 
+    # GraphQL query for fetching media by ID (for cover image)
+    MEDIA_BY_ID_QUERY = """
+    query ($id: Int!, $type: MediaType) {
+        Media(id: $id, type: $type) {
+            id
+            title {
+                romaji
+                english
+                native
+            }
+            description(asHtml: false)
+            coverImage {
+                extraLarge
+                large
+                medium
+            }
+            format
+            status
+            averageScore
+            siteUrl
+            startDate {
+                year
+                month
+                day
+            }
+        }
+    }
+    """
+
+    @classmethod
+    def download_cover_image(
+        cls,
+        media_id: int,
+        media_type: str = "ANIME"
+    ) -> Optional[str]:
+        """
+        Download the cover image for an anime or manga from AniList.
+        
+        Args:
+            media_id: AniList media ID
+            media_type: "ANIME" or "MANGA"
+            
+        Returns:
+            Base64-encoded PNG image string with data URI prefix, or None on failure
+        """
+        try:
+            # First, fetch media info to get the cover image URL
+            variables = {
+                "id": media_id,
+                "type": media_type.upper()
+            }
+            
+            response = requests.post(
+                cls.API_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json={
+                    "query": cls.MEDIA_BY_ID_QUERY,
+                    "variables": variables
+                },
+                timeout=cls.TIMEOUT
+            )
+            
+            if response.status_code != 200:
+                logger.debug(f"AniList API returned status {response.status_code} for cover fetch")
+                return None
+            
+            data = response.json()
+            
+            if "errors" in data:
+                logger.debug(f"AniList API returned errors: {data['errors']}")
+                return None
+            
+            media_data = data.get("data", {}).get("Media")
+            if not media_data:
+                logger.debug(f"No media data returned for {media_type} ID {media_id}")
+                return None
+            
+            cover_info = media_data.get("coverImage", {})
+            
+            # Try extraLarge first, then large, then medium
+            image_url = cover_info.get("extraLarge") or cover_info.get("large") or cover_info.get("medium")
+            
+            if not image_url:
+                logger.debug(f"No cover image URL for {media_type} {media_id}")
+                return None
+            
+            # Download the image
+            logger.debug(f"Downloading AniList cover image from {image_url}")
+            img_response = requests.get(image_url, timeout=cls.TIMEOUT)
+            
+            if img_response.status_code != 200:
+                logger.debug(f"Failed to download cover image: status {img_response.status_code}")
+                return None
+            
+            # Open and process the image
+            image = Image.open(io.BytesIO(img_response.content))
+            
+            # Convert to RGB if necessary
+            if image.mode in ('RGBA', 'P', 'LA'):
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                if image.mode == 'P':
+                    image = image.convert('RGBA')
+                if image.mode in ('RGBA', 'LA'):
+                    background.paste(image, mask=image.split()[-1])
+                else:
+                    background.paste(image)
+                image = background
+            elif image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            # Resize to cover size
+            image.thumbnail(cls.COVER_IMAGE_SIZE, Image.Resampling.LANCZOS)
+            
+            # Save as PNG for better quality
+            buffer = io.BytesIO()
+            image.save(buffer, format='PNG', optimize=True)
+            buffer.seek(0)
+            
+            image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+            logger.info(f"Successfully downloaded AniList cover image for {media_type} {media_id}")
+            return f"data:image/png;base64,{image_base64}"
+            
+        except requests.RequestException as e:
+            logger.debug(f"Failed to fetch AniList cover image for {media_type} {media_id}: {e}")
+            return None
+        except Exception as e:
+            logger.debug(f"Unexpected error downloading AniList cover: {e}")
+            return None
+
+    @classmethod
+    def fetch_media_metadata(
+        cls,
+        media_id: int,
+        media_type: str = "ANIME"
+    ) -> Optional[Dict]:
+        """
+        Fetch full metadata for an anime or manga from AniList.
+        
+        Args:
+            media_id: AniList media ID
+            media_type: "ANIME" or "MANGA"
+            
+        Returns:
+            Dictionary with media metadata, or None on failure
+        """
+        try:
+            variables = {
+                "id": media_id,
+                "type": media_type.upper()
+            }
+            
+            response = requests.post(
+                cls.API_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json={
+                    "query": cls.MEDIA_BY_ID_QUERY,
+                    "variables": variables
+                },
+                timeout=cls.TIMEOUT
+            )
+            
+            if response.status_code != 200:
+                logger.debug(f"AniList API returned status {response.status_code} for metadata fetch")
+                return None
+            
+            data = response.json()
+            
+            if "errors" in data:
+                logger.debug(f"AniList API returned errors: {data['errors']}")
+                return None
+            
+            media_data = data.get("data", {}).get("Media")
+            if not media_data:
+                logger.debug(f"No media data returned for {media_type} ID {media_id}")
+                return None
+            
+            title_info = media_data.get("title", {})
+            cover_info = media_data.get("coverImage", {})
+            start_date = media_data.get("startDate", {})
+            
+            # Format release date
+            release_date = None
+            if start_date and start_date.get("year"):
+                year = start_date.get("year")
+                month = start_date.get("month", 1) or 1
+                day = start_date.get("day", 1) or 1
+                release_date = f"{year:04d}-{month:02d}-{day:02d}"
+            
+            # Clean description
+            description = media_data.get("description", "") or ""
+            description = re.sub(r'<[^>]+>', '', description)  # Remove HTML
+            description = re.sub(r'~!.+?!~', '', description, flags=re.DOTALL)  # Remove spoilers
+            
+            return {
+                "anilist_id": media_id,
+                "title_romaji": title_info.get("romaji", ""),
+                "title_original": title_info.get("native", ""),
+                "title_english": title_info.get("english", ""),
+                "description": description,
+                "release_date": release_date,
+                "score": media_data.get("averageScore"),
+                "status": media_data.get("status"),
+                "format": media_data.get("format"),
+                "cover_url": cover_info.get("extraLarge") or cover_info.get("large") or cover_info.get("medium"),
+                "site_url": media_data.get("siteUrl"),
+                "media_type": media_type.capitalize()  # "Anime" or "Manga"
+            }
+            
+        except requests.RequestException as e:
+            logger.debug(f"Failed to fetch AniList metadata for {media_type} {media_id}: {e}")
+            return None
+        except Exception as e:
+            logger.debug(f"Unexpected error fetching AniList metadata: {e}")
+            return None
+
     @staticmethod
     def extract_media_id(url: str) -> Optional[int]:
         """
@@ -125,6 +375,89 @@ class AniListApiClient:
         if match:
             return match.group(1).upper()
         return None
+
+    @classmethod
+    def search_media(
+        cls,
+        query: str,
+        media_type: str = "ANIME"
+    ) -> Optional[Dict]:
+        """
+        Search AniList for anime or manga by title.
+        
+        Rate limit: 90 requests per minute.
+        
+        Args:
+            query: Search query string
+            media_type: "ANIME" or "MANGA" (default: "ANIME")
+        
+        Returns:
+            Dictionary with search results from AniList API, or None if request fails.
+            Response structure:
+            {
+                "data": {
+                    "Page": {
+                        "media": [
+                            {
+                                "id": 9253,
+                                "idMal": 9253,
+                                "title": {"romaji": "...", "english": "...", "native": "..."},
+                                "description": "...",
+                                "coverImage": {"large": "...", "medium": "..."},
+                                "format": "TV",
+                                "status": "FINISHED",
+                                "averageScore": 88,
+                                "siteUrl": "https://anilist.co/anime/9253"
+                            },
+                            ...
+                        ]
+                    }
+                }
+            }
+        """
+        try:
+            variables = {
+                "search": query,
+                "type": media_type.upper()
+            }
+            
+            logger.debug(f"Searching AniList for {media_type}: {query}")
+            
+            response = requests.post(
+                cls.API_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json={
+                    "query": cls.SEARCH_QUERY,
+                    "variables": variables
+                },
+                timeout=cls.TIMEOUT
+            )
+            
+            if response.status_code != 200:
+                logger.debug(f"AniList search API returned status {response.status_code}")
+                return None
+            
+            data = response.json()
+            
+            # Check for GraphQL errors
+            if "errors" in data:
+                logger.debug(f"AniList search API returned errors: {data['errors']}")
+                return None
+            
+            results = data.get("data", {}).get("Page", {}).get("media", [])
+            logger.debug(f"AniList search returned {len(results)} results for '{query}'")
+            
+            return data
+            
+        except requests.RequestException as e:
+            logger.debug(f"AniList search API request failed: {e}")
+            return None
+        except Exception as e:
+            logger.debug(f"Unexpected error in AniList search: {e}")
+            return None
 
     @classmethod
     def fetch_characters(

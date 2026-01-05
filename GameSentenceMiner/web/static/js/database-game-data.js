@@ -133,8 +133,8 @@ function renderGamesList(games, filter = 'all') {
                 </div>
                 ` : ''}
                 <div class="game-actions">
-                    ${!game.is_linked ? `<button class="action-btn primary jiten-search-btn" data-game-id="${game.id}" data-title="${escapeHtml(game.title_original)}">🔍 Search jiten.moe</button>` : ''}
-                    ${game.is_linked ? `<button class="action-btn warning repull-jiten-btn" data-game-id="${game.id}" data-title="${escapeHtml(game.title_original)}">🔄 Repull from Jiten</button>` : ''}
+                    ${!game.is_linked ? `<button class="action-btn primary jiten-search-btn" data-game-id="${game.id}" data-title="${escapeHtml(game.title_original)}">🔍 Search</button>` : ''}
+                    ${game.is_linked ? `<button class="action-btn warning repull-jiten-btn" data-game-id="${game.id}" data-title="${escapeHtml(game.title_original)}">🔄 Repull</button>` : ''}
                     <button class="action-btn edit-game-btn" data-game-id="${game.id}">📝 Edit</button>
                     ${!game.completed ? `<button class="action-btn success mark-complete-btn" data-game-id="${game.id}">🏁 Mark Complete</button>` : ''}
                 </div>
@@ -264,8 +264,8 @@ async function loadGamesForManagement() {
                     <div class="individual-game-actions">
                         ${game.is_linked ? `<button class="action-btn unlink-btn" onclick="openIndividualGameUnlinkModal('${game.id}', '${escapeHtml(game.title_original)}', ${game.line_count}, ${game.mined_character_count})">🔗 Unlink Game</button>` : ''}
                         <button class="action-btn delete-lines-btn" onclick="openIndividualGameDeleteModal('${game.id}', '${escapeHtml(game.title_original)}', ${game.line_count}, ${game.mined_character_count})">🗑️ Delete Game Lines</button>
-                        ${!game.is_linked ? `<button class="action-btn primary" onclick="openJitenSearch('${game.id}', '${escapeHtml(game.title_original)}')">🔍 Search jiten.moe</button>` : ''}
-                        ${game.is_linked ? `<button class="action-btn warning" onclick="repullJitenData('${game.id}', '${escapeHtml(game.title_original)}')">🔄 Repull from Jiten</button>` : ''}
+                        ${!game.is_linked ? `<button class="action-btn primary" onclick="openJitenSearch('${game.id}', '${escapeHtml(game.title_original)}')">🔍 Search</button>` : ''}
+                        ${game.is_linked ? `<button class="action-btn warning" onclick="repullJitenData('${game.id}', '${escapeHtml(game.title_original)}')">🔄 Repull</button>` : ''}
                         <button class="action-btn" onclick="editGame('${game.id}')">📝 Edit</button>
                         ${!game.completed ? `<button class="action-btn success" onclick="markGameCompleted('${game.id}')">🏁 Mark Complete</button>` : ''}
                     </div>
