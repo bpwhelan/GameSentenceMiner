@@ -1115,15 +1115,22 @@ class OverlayProcessor:
             tries = max(1, 1 if source in [TextSource.OCR, TextSource.HOTKEY] else local_ocr_retry)
             logger.info(f"Using local OCR engine '{effective_engine}' with {tries} tries for overlay. TextSource: {line.source if line else source or 'N/A'}")
             last_result_flattened = ""
+            last_scan_time = None
             for i in range(tries):
                 if i > 0:
                     try:
-                        await asyncio.sleep(1.0)
+                        elapsed = time.time() - last_scan_time
+                        sleep_duration = max(0, 1.0 - elapsed)
+                        
+                        if sleep_duration > 0:
+                            await asyncio.sleep(sleep_duration)
+                        
                         # Re-capture if retrying, otherwise we are OCRing the same static image
                         full_screenshot, off_x, off_y, monitor_width, monitor_height = self.get_image_to_ocr()
                     except asyncio.CancelledError:
                         raise
                 
+                last_scan_time = time.time()
                 result = local_ocr_engine(
                     full_screenshot,
                     return_coords=True,
