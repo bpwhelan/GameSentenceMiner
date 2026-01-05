@@ -582,6 +582,8 @@ class WindowStateMonitor:
         
         # Smart Update
         if (magpie_changed or window_moved_or_resized):
+            overlay_processor.obs_width = None
+            overlay_processor.obs_height = None
             if current_state not in ["minimized", "closed"]:
                 logger.display("Window geometry or Magpie state stable - reprocessing last OCR result")
                 asyncio.create_task(
@@ -760,6 +762,8 @@ class OverlayProcessor:
         self.punctuation_regex = regex.compile(r'[\p{P}\p{S}\p{Z}]')
         self.calculated_width_scale_factor = 1.0
         self.calculated_height_scale_factor = 1.0
+        self.obs_width = None
+        self.obs_height = None
         
         # State for reprocessing without re-scanning
         self.last_raw_results: Optional[List[Dict[str, Any]]] = None
@@ -920,9 +924,13 @@ class OverlayProcessor:
                 
             if hwnd and user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
                 try:
-                    obs_img = get_screenshot_PIL(compression=100, img_format='jpg', width=None, height=None)
+                    obs_img = get_screenshot_PIL(compression=100, img_format='jpg', width=self.obs_width, height=self.obs_height)
                     
                     if obs_img:
+                        if self.obs_width is None or self.obs_height is None:
+                            self.obs_width = obs_img.width
+                            self.obs_height = obs_img.height
+                        
                         off_x, off_y = get_window_client_screen_offset(hwnd)
                         final_off_x = off_x - monitor['left']
                         final_off_y = off_y - monitor['top']
@@ -1032,7 +1040,9 @@ class OverlayProcessor:
         should_scale = False
         scaled_width, scaled_height = original_width, original_height
         
-        if self.SCALE_TYPE == "fixed" and self.SCREENSHOT_SCALE_FACTOR != 1.0:
+        obs_already_scaled = self.obs_width is not None and self.obs_height is not None
+        
+        if not obs_already_scaled and self.SCALE_TYPE == "fixed" and self.SCREENSHOT_SCALE_FACTOR != 1.0:
             # Scale by fixed factor, then ensure minimums while maintaining aspect ratio
             target_width = int(original_width * self.SCREENSHOT_SCALE_FACTOR)
             target_height = int(original_height * self.SCREENSHOT_SCALE_FACTOR)
@@ -1049,7 +1059,7 @@ class OverlayProcessor:
                 scaled_width = target_width
                 scaled_height = target_height
             should_scale = True
-        elif self.SCALE_TYPE == "forced_minimum":
+        elif not obs_already_scaled and self.SCALE_TYPE == "forced_minimum":
             if original_width > self.MINIMUM_WIDTH or original_height > self.MINIMUM_HEIGHT:
                 # Calculate scale factors to fit within minimums
                 width_scale = self.MINIMUM_WIDTH / original_width
@@ -1065,6 +1075,8 @@ class OverlayProcessor:
             self.calculated_height_scale_factor = scaled_height / original_height
             # Use BILINEAR instead of LANCZOS for performance
             full_screenshot = full_screenshot.resize((scaled_width, scaled_height), Image.Resampling.BILINEAR)
+            self.obs_width = scaled_width
+            self.obs_height = scaled_height
             logger.info(f"Scaled screenshot ({self.SCALE_TYPE}) from {original_width}x{original_height} to {scaled_width}x{scaled_height} (factors: {self.calculated_width_scale_factor:.3f}, {self.calculated_height_scale_factor:.3f})")
             if SAVE_DEBUG_IMAGES:
                 full_screenshot.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot_scaled.png"))
@@ -1106,7 +1118,7 @@ class OverlayProcessor:
             for i in range(tries):
                 if i > 0:
                     try:
-                        await asyncio.sleep(0.3)
+                        await asyncio.sleep(1.0)
                         # Re-capture if retrying, otherwise we are OCRing the same static image
                         full_screenshot, off_x, off_y, monitor_width, monitor_height = self.get_image_to_ocr()
                     except asyncio.CancelledError:
