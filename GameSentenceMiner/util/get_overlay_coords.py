@@ -1118,9 +1118,10 @@ class OverlayProcessor:
             last_scan_time = None
             for i in range(tries):
                 if i > 0:
+                    # max_sleep = 1 if i > 5 else 0.6
                     try:
                         elapsed = time.time() - last_scan_time
-                        sleep_duration = max(0, 1.0 - elapsed)
+                        sleep_duration = max(0, 1 - elapsed)
                         
                         if sleep_duration > 0:
                             await asyncio.sleep(sleep_duration)
@@ -1162,12 +1163,7 @@ class OverlayProcessor:
                 stabilized = False
                 if text_str and last_result_flattened and text_str == last_result_flattened or (sentence_to_check and self.punctuation_regex.sub('', sentence_to_check) in text_str):
                     logger.info(f"Text stabilized after {i+1} tries: {text_str}")
-                    if i == 0:
-                        stabilized = True
-                    elif effective_engine in [OverlayEngine.ONEOCR.value, OverlayEngine.MEIKIOCR.value]:
-                        return
-                    else:
-                        break
+                    stabilized = True
                 last_result_flattened = text_str
                 logger.display(f"Local OCR found text: {text_str}")
                 
