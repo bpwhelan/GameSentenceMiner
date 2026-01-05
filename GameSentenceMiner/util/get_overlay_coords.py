@@ -1092,7 +1092,7 @@ class OverlayProcessor:
         effective_engine = self._get_effective_engine()
         
         self.sentence_is_recycled = self._is_sentence_recycled(line.text) if line else False
-        sentence_to_check = line.text if line else None
+        sentence_to_check = line.text.replace(" ", "").replace("\t", "").replace("\n", "").replace("\r", "") if line else None
         
         if not self.lens and not self.oneocr and not self.meikiocr:
             logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
