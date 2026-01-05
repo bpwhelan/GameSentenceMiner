@@ -117,7 +117,7 @@ class AniListApiClient:
     }
     """
 
-    # GraphQL query for fetching media by ID (for cover image)
+    # GraphQL query for fetching media by ID (for cover image and metadata)
     MEDIA_BY_ID_QUERY = """
     query ($id: Int!, $type: MediaType) {
         Media(id: $id, type: $type) {
@@ -141,6 +141,12 @@ class AniListApiClient:
                 year
                 month
                 day
+            }
+            genres
+            tags {
+                name
+                rank
+                isMediaSpoiler
             }
         }
     }
@@ -316,6 +322,17 @@ class AniListApiClient:
             description = re.sub(r'<[^>]+>', '', description)  # Remove HTML
             description = re.sub(r'~!.+?!~', '', description, flags=re.DOTALL)  # Remove spoilers
             
+            # Extract genres (already a simple array of strings)
+            genres = media_data.get("genres", []) or []
+            
+            # Extract tags, excluding spoiler tags
+            tags_data = media_data.get("tags", []) or []
+            tags = [
+                tag.get("name", "")
+                for tag in tags_data
+                if tag.get("name") and not tag.get("isMediaSpoiler", False)
+            ]
+            
             return {
                 "anilist_id": media_id,
                 "title_romaji": title_info.get("romaji", ""),
@@ -328,7 +345,9 @@ class AniListApiClient:
                 "format": media_data.get("format"),
                 "cover_url": cover_info.get("extraLarge") or cover_info.get("large") or cover_info.get("medium"),
                 "site_url": media_data.get("siteUrl"),
-                "media_type": media_type.capitalize()  # "Anime" or "Manga"
+                "media_type": media_type.capitalize(),  # "Anime" or "Manga"
+                "genres": genres,  # List of genre strings
+                "tags": tags       # List of tag names (spoilers excluded)
             }
             
         except requests.RequestException as e:

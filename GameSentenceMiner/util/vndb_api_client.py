@@ -328,7 +328,7 @@ class VNDBApiClient:
         try:
             payload = {
                 "filters": ["id", "=", vn_id],
-                "fields": "id, title, alttitle, released, rating, description, image.url, developers.name, length_minutes",
+                "fields": "id, title, alttitle, released, rating, description, image.url, developers.name, length_minutes, tags.name, tags.category, tags.rating",
                 "results": 1
             }
             
@@ -355,6 +355,12 @@ class VNDBApiClient:
             # Normalize the data
             image_info = vn_data.get("image", {})
             developers = vn_data.get("developers", [])
+            tags_data = vn_data.get("tags", [])
+            
+            # Extract tag names from tag objects
+            # VNDB doesn't have separate genres - it uses a comprehensive tag system
+            # We store all tags without filtering since Jiten data takes priority
+            tags = [tag.get("name", "") for tag in tags_data if tag.get("name")]
             
             return {
                 "vndb_id": vn_id,
@@ -366,7 +372,9 @@ class VNDBApiClient:
                 "length_minutes": vn_data.get("length_minutes"),
                 "cover_url": image_info.get("url") if isinstance(image_info, dict) else None,
                 "developers": [d.get("name", "") for d in developers if d.get("name")],
-                "media_type": "Visual Novel"
+                "media_type": "Visual Novel",
+                "tags": tags,  # List of tag names
+                "genres": []   # VNDB uses tags instead of separate genres
             }
             
         except requests.RequestException as e:

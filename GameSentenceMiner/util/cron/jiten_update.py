@@ -276,6 +276,17 @@ def update_game_from_vndb_or_anilist(game: GamesTable) -> Dict:
                     if "type" not in manual_overrides:
                         update_fields["game_type"] = "Visual Novel"
                     
+                    # Add tags and genres from VNDB
+                    if "tags" not in manual_overrides and vndb_metadata.get("tags"):
+                        update_fields["tags"] = vndb_metadata["tags"]
+                    elif "tags" in manual_overrides:
+                        skipped_fields.append("tags")
+                    
+                    if "genres" not in manual_overrides and vndb_metadata.get("genres"):
+                        update_fields["genres"] = vndb_metadata["genres"]
+                    elif "genres" in manual_overrides:
+                        skipped_fields.append("genres")
+                    
                     # Fetch cover image
                     if "image" not in manual_overrides:
                         image_data = VNDBApiClient.download_cover_image(game.vndb_id)
@@ -327,6 +338,17 @@ def update_game_from_vndb_or_anilist(game: GamesTable) -> Dict:
                     
                     if "type" not in manual_overrides and anilist_metadata.get("media_type"):
                         update_fields["game_type"] = anilist_metadata["media_type"]
+                    
+                    # Add tags and genres from AniList
+                    if "tags" not in manual_overrides and anilist_metadata.get("tags"):
+                        update_fields["tags"] = anilist_metadata["tags"]
+                    elif "tags" in manual_overrides:
+                        skipped_fields.append("tags")
+                    
+                    if "genres" not in manual_overrides and anilist_metadata.get("genres"):
+                        update_fields["genres"] = anilist_metadata["genres"]
+                    elif "genres" in manual_overrides:
+                        skipped_fields.append("genres")
                     
                     # Fetch cover image
                     if "image" not in manual_overrides:
