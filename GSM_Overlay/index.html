@@ -1069,6 +1069,8 @@ background: rgba(202, 12, 12, 0.692);
         if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
           // Handle array of {text, bounding_rect}
           ipcRenderer.send("text-received", data);
+
+          clearTextBoxes();
           
           // FIRST PASS: Detect blocks of text (lines with similar x1 and close y proximity)
           const X_THRESHOLD = 2; // Lines within 2% x1 difference are considered aligned
