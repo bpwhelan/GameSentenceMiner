@@ -126,7 +126,7 @@ class DiscordRPCManager:
                     self.stop_rpc_instance()
                 time.sleep(20)
             except Exception as e:
-                logger.error(f"An unexpected error occurred in Discord RPC thread: {e}", exc_info=True)
+                # logger.error(f"An unexpected error occurred in Discord RPC thread: {e}", exc_info=True)
                 self.running = False
 
     @disabled_guard
@@ -201,7 +201,8 @@ class DiscordRPCManager:
             try:
                 self.rpc.close()
             except Exception as e:
-                logger.warning(f"Error closing Discord RPC: {e}")
+                pass
+                # logger.warning(f"Error closing Discord RPC: {e}")
             finally:
                 self.rpc = None
 
