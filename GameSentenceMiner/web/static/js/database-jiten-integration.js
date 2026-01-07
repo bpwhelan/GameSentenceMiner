@@ -57,8 +57,8 @@ async function searchJitenMoe() {
         return;
     }
     
-    // Remove all punctuation from the search term before sending to API
-    const searchTermNoPunctuation = searchTerm.replace(/[^\p{L}\p{N}\s]/gu, '');
+    // Let the browser URL-encode the search term naturally (keeps hyphens, apostrophes, etc.)
+    // The requests library will handle URL encoding on the backend
     
     errorDiv.style.display = 'none';
     resultsDiv.style.display = 'none';
@@ -67,7 +67,7 @@ async function searchJitenMoe() {
     try {
         // Use UnifiedSearch module if available
         if (typeof UnifiedSearch !== 'undefined') {
-            const searchResult = await UnifiedSearch.search(searchTermNoPunctuation);
+            const searchResult = await UnifiedSearch.search(searchTerm);
             
             if (searchResult.error) {
                 errorDiv.textContent = searchResult.error;
@@ -82,7 +82,7 @@ async function searchJitenMoe() {
             }
         } else {
             // Fallback to legacy jiten-only search
-            const response = await fetch(`/api/jiten-search?title=${encodeURIComponent(searchTermNoPunctuation)}`);
+            const response = await fetch(`/api/jiten-search?title=${encodeURIComponent(searchTerm)}`);
             const data = await response.json();
             
             if (response.ok) {
@@ -135,7 +135,6 @@ function renderJitenResults(results) {
                     ${result.title_romaji ? `<p class="jiten-title-rom">${escapeHtml(result.title_romaji)}</p>` : ''}
                     <div class="jiten-meta">
                         <span class="jiten-type">${mediaTypeText}</span>
-                        ${result.difficulty ? `<span class="jiten-difficulty">Difficulty: ${result.difficulty}</span>` : ''}
                         <span class="jiten-chars">Total: ${result.character_count.toLocaleString()} chars</span>
                     </div>
                 </div>
@@ -281,9 +280,10 @@ function createUnifiedResultCard(result, globalIndex) {
     // Extra metadata for Jiten results
     let extraMeta = '';
     if (result.source === 'jiten' && result._raw) {
-        const mediaTypeMap = {1: 'Anime', 7: 'Visual Novel', 2: 'Manga'};
+        const mediaTypeMap = {1: 'Anime', 2: 'Drama', 3: 'Movie', 4: 'Novel', 5: 'NonFiction', 6: 'VideoGame', 7: 'Visual Novel', 8: 'WebNovel', 9: 'Manga'};
+        const mediaTypeText = mediaTypeMap[result._raw.media_type] || 'Unknown';
         extraMeta = `
-            ${result._raw.difficulty ? `<span class="game-difficulty">Difficulty: ${result._raw.difficulty}</span>` : ''}
+            <span class="jiten-type">${mediaTypeText}</span>
             ${result._raw.character_count ? `<span class="jiten-chars">${result._raw.character_count.toLocaleString()} chars</span>` : ''}
         `;
     }

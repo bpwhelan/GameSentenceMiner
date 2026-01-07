@@ -18,6 +18,29 @@ class YomitanDictBuilder:
     
     DICT_TITLE = "GSM (Do not delete)"
     
+    # Japanese honorific suffixes: (kanji/kana form, hiragana reading)
+    HONORIFIC_SUFFIXES = [
+        # Respectful/Formal
+        ("さん", "さん"),
+        ("様", "さま"),
+        ("先生", "せんせい"),
+        ("先輩", "せんぱい"),
+        ("後輩", "こうはい"),
+        ("氏", "し"),
+        # Casual/Friendly
+        ("君", "くん"),
+        ("くん", "くん"),  # Alternative hiragana form
+        ("ちゃん", "ちゃん"),
+        ("たん", "たん"),
+        ("坊", "ぼう"),
+        # Old-fashioned/Archaic
+        ("殿", "どの"),
+        ("博士", "はかせ"),
+        # Occupational/Specific
+        ("社長", "しゃちょう"),
+        ("部長", "ぶちょう"),
+    ]
+    
     def __init__(self, revision: str = None, download_url: str = None, game_count: int = 3, spoiler_level: int = 0):
         """
         Initialize the dictionary builder.
@@ -857,6 +880,37 @@ class YomitanDictBuilder:
             ))
             added_terms.add(name_original)
         
+        # Create honorific suffix variants for all name entries
+        # Store the base names that we created entries for
+        base_names_with_readings = []
+        
+        if name_parts['has_space']:
+            # For names with spaces, add honorifics to family, given, combined, and original
+            if name_parts['family']:
+                base_names_with_readings.append((name_parts['family'], hiragana_readings['family']))
+            if name_parts['given']:
+                base_names_with_readings.append((name_parts['given'], hiragana_readings['given']))
+            if name_parts['combined']:
+                base_names_with_readings.append((name_parts['combined'], hiragana_readings['full']))
+            if name_parts['original']:
+                base_names_with_readings.append((name_parts['original'], hiragana_readings['full']))
+        else:
+            # For single-word names, just add honorifics to the name itself
+            base_names_with_readings.append((name_original, hiragana_readings['full']))
+        
+        # Add honorific suffix variants
+        for base_name, base_reading in base_names_with_readings:
+            for suffix, suffix_reading in self.HONORIFIC_SUFFIXES:
+                term_with_suffix = base_name + suffix
+                reading_with_suffix = base_reading + suffix_reading
+                
+                # Only add if not already present (avoid duplicates)
+                if term_with_suffix not in added_terms:
+                    self.entries.append(self._create_entry(
+                        term_with_suffix, reading_with_suffix, role, score, structured_content
+                    ))
+                    added_terms.add(term_with_suffix)
+        
         # Create additional entries for aliases - use full hiragana reading
         aliases = char.get("aliases", [])
         if aliases and isinstance(aliases, list):
@@ -866,6 +920,17 @@ class YomitanDictBuilder:
                         alias, hiragana_readings['full'], role, score, structured_content
                     ))
                     added_terms.add(alias)
+                    
+                    # Also add honorific variants for aliases
+                    for suffix, suffix_reading in self.HONORIFIC_SUFFIXES:
+                        alias_with_suffix = alias + suffix
+                        reading_with_suffix = hiragana_readings['full'] + suffix_reading
+                        
+                        if alias_with_suffix not in added_terms:
+                            self.entries.append(self._create_entry(
+                                alias_with_suffix, reading_with_suffix, role, score, structured_content
+                            ))
+                            added_terms.add(alias_with_suffix)
 
     def add_game_characters(self, game: 'GamesTable') -> int:
         """

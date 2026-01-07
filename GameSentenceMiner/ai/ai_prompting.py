@@ -277,6 +277,8 @@ class OpenAIManager(AIManager):
                 lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
             # self.logger.debug(f"Generated prompt:\n{prompt}")
             # Try with full parameters first, fallback to basic parameters if model doesn't support them
+            text_output = ""  # Initialize text_output with a default value
+            
             if self.extra_params_allowed:
                 try:
                     response = self.client.chat.completions.create(
@@ -317,6 +319,10 @@ class OpenAIManager(AIManager):
                         text_output = json.loads(json_output)['output']
                     except Exception as e:
                         self.logger.debug(f"Failed to parse JSON from response returning response raw: {e}", exc_info=True)
+            else:
+                self.logger.warning("No content in API response")
+                text_output = "Processing failed: No content in API response"
+            
             # self.logger.debug(f"Received response:\n{text_output}")
             return text_output
         except Exception as e:

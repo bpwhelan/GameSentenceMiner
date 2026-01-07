@@ -1404,9 +1404,15 @@ def register_jiten_database_api_routes(app):
         def search_jiten():
             """Search Jiten.moe and normalize results"""
             try:
+                logger.info(f"[Unified Search] Searching Jiten.moe for: '{query}'")
                 data = JitenApiClient.search_media_decks(query)
                 if not data:
+                    logger.warning(f"[Unified Search] Jiten.moe returned no data for: '{query}'")
                     return {"results": [], "total": 0, "error": "Failed to fetch from Jiten.moe"}
+                
+                result_count = len(data.get("data", []))
+                total_items = data.get("totalItems", 0)
+                logger.info(f"[Unified Search] Jiten.moe returned {result_count} results for '{query}' (total: {total_items})")
                 
                 normalized_results = []
                 for item in data.get("data", []):
@@ -1445,9 +1451,14 @@ def register_jiten_database_api_routes(app):
         def search_vndb():
             """Search VNDB and normalize results"""
             try:
+                logger.info(f"[Unified Search] Searching VNDB for: '{query}'")
                 data = VNDBApiClient.search_vn(query, limit=10)
                 if not data:
+                    logger.warning(f"[Unified Search] VNDB returned no data for: '{query}'")
                     return {"results": [], "total": 0, "error": "Failed to fetch from VNDB"}
+                
+                result_count = len(data.get("results", []))
+                logger.info(f"[Unified Search] VNDB returned {result_count} results for '{query}'")
                 
                 normalized_results = []
                 for item in data.get("results", []):

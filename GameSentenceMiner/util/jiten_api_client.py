@@ -73,15 +73,29 @@ class JitenApiClient:
                 "offset": offset,
             }
 
-            logger.debug(f"Searching jiten.moe for title: {title_filter}")
+            logger.info(f"Searching jiten.moe for title: '{title_filter}'")
+            logger.debug(f"Jiten search URL: {url}")
+            logger.debug(f"Jiten search params: {params}")
+            
             response = requests.get(url, params=params, timeout=cls.TIMEOUT)
+            
+            logger.debug(f"Jiten search final URL: {response.url}")
+            logger.debug(f"Jiten search status code: {response.status_code}")
 
             if response.status_code != 200:
-                logger.debug(f"Jiten search API returned status {response.status_code}")
+                logger.warning(f"Jiten search API returned status {response.status_code} for query '{title_filter}'")
                 return None
 
             data = response.json()
-            logger.debug(f"Jiten search returned {len(data.get('data', []))} results")
+            result_count = len(data.get('data', []))
+            total_items = data.get('totalItems', 0)
+            logger.info(f"Jiten search for '{title_filter}' returned {result_count} results (total: {total_items})")
+            
+            if result_count > 0:
+                logger.debug(f"First result: {data['data'][0].get('originalTitle', 'N/A')}")
+            else:
+                logger.warning(f"Jiten search for '{title_filter}' returned 0 results")
+            
             return data
 
         except requests.RequestException as e:
