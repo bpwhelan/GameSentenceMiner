@@ -4,7 +4,7 @@ import io
 import json
 import random
 import zipfile
-from typing import TYPE_CHECKING, Optional, Set, List, Dict
+from typing import TYPE_CHECKING, Set, List, Dict
 
 from .name_parser import NameParser
 from .image_handler import ImageHandler
