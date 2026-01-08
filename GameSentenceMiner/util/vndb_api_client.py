@@ -5,7 +5,6 @@ Fetch character information from VNDB for use in AI translation context.
 Extracts names, personality traits, roles, and other relevant attributes.
 """
 
-import re
 from typing import Optional, Dict, List, Tuple
 
 import requests
