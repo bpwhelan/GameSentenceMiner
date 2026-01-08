@@ -6,7 +6,7 @@ Mirrors the vndb_api_client.py pattern for consistency.
 """
 
 import re
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 
 import requests
 
