@@ -68,12 +68,13 @@ const WINDOW_FILTERS: WindowFilter[] = [
     { exeName: 'pythonw.exe', titlePattern: /^Edit$/ }, // Anki only
     { exeName: 'pythonw.exe', titlePattern: 'Preview' }, // Anki only
     // Exact title match
-    { titlePattern: 'GameSentenceMiner' },
+    { exeName: 'GameSentenceMiner.exe'},
     { titlePattern: 'GSM Overlay' },
     { titlePattern: 'GitHub Desktop' },
     { titlePattern: 'OBS Studio' },
     { titlePattern: 'iCUE' },
-    { titlePattern: 'Magpie' }
+    { titlePattern: 'Magpie' },
+    { titlePattern: 'Calculator' },
 
 ];
 

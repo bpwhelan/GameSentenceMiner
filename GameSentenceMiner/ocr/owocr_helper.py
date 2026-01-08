@@ -18,14 +18,15 @@ from PIL import Image
 from rapidfuzz import fuzz
 
 from GameSentenceMiner import obs
+from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.configuration import get_config, get_app_directory, get_temporary_directory, is_windows
-from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window, get_ocr_config_path
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, has_config_changed, set_dpi_awareness, get_window
 from GameSentenceMiner.owocr.owocr import run
 from GameSentenceMiner.util.electron_config import get_ocr_ocr2, get_ocr_send_to_clipboard, get_ocr_scan_rate, \
     has_ocr_config_changed, reload_electron_config, get_ocr_two_pass_ocr, get_ocr_optimize_second_scan, \
     get_ocr_language, get_ocr_manual_ocr_hotkey
-from GameSentenceMiner.util.gsm_utils import sanitize_filename
+from GameSentenceMiner.util.text_log import TextSource
 
 CONFIG_FILE = Path("ocr_config.json")
 DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHANGE THIS
@@ -46,73 +47,6 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
-
-
-def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
-    """Loads and updates screen capture areas from the corresponding JSON file."""
-    ocr_config_dir = get_ocr_config_path()
-    obs.update_current_game()
-    if use_window_for_config and window:
-        scene = sanitize_filename(window)
-    else:
-        scene = sanitize_filename(obs.get_current_scene())
-    config_path = Path(ocr_config_dir) / f"{scene}.json"
-    if not config_path.exists():
-        ocr_config = OCRConfig(scene=scene, window=window, rectangles=[], coordinate_system="percentage")
-        with open(config_path, 'w', encoding="utf-8") as f:
-            json.dump(ocr_config.to_dict(), f, indent=4)
-        return ocr_config
-    try:
-        with open(config_path, 'r', encoding="utf-8") as f:
-            config_data = json.load(f)
-        if "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
-                isinstance(item, list) and len(item) == 4 for item in config_data["rectangles"]):
-            # Old config format, convert to new
-            new_rectangles = []
-            with mss.mss() as sct:
-                monitors = sct.monitors
-                default_monitor = monitors[1] if len(monitors) > 1 else monitors[0]
-                for rect in config_data["rectangles"]:
-                    new_rectangles.append({
-                        "monitor": {
-                            "left": default_monitor["left"],
-                            "top": default_monitor["top"],
-                            "width": default_monitor["width"],
-                            "height": default_monitor["height"],
-                            "index": 0  # Assuming single monitor for old config
-                        },
-                        "coordinates": rect,
-                        "is_excluded": False
-                    })
-                if 'excluded_rectangles' in config_data:
-                    for rect in config_data['excluded_rectangles']:
-                        new_rectangles.append({
-                            "monitor": {
-                                "left": default_monitor["left"],
-                                "top": default_monitor["top"],
-                                "width": default_monitor["width"],
-                                "height": default_monitor["height"],
-                                "index": 0  # Assuming single monitor for old config
-                            },
-                            "coordinates": rect,
-                            "is_excluded": True
-                        })
-            new_config_data = {"scene": config_data.get("scene", scene), "window": config_data.get("window", None),
-                               "rectangles": new_rectangles, "coordinate_system": "absolute"}
-            with open(config_path, 'w', encoding="utf-8") as f:
-                json.dump(new_config_data, f, indent=4)
-            return OCRConfig.from_dict(new_config_data)
-        elif "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
-                isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"]):
-            return OCRConfig.from_dict(config_data)
-        else:
-            raise Exception(f"Invalid config format in {config_path}.")
-    except json.JSONDecodeError:
-        print("Error decoding JSON. Please check your config file.")
-        return None
-    except Exception as e:
-        print(f"Error loading config: {e}")
-        return None
 
 
 websocket_server_thread = None
@@ -159,7 +93,7 @@ class WebsocketServerThread(threading.Thread):
 
     async def send_text(self, text, line_time: datetime, response_dict=None):
         if text:
-            data = {"sentence": text, "time": line_time.isoformat(), "process_path": obs.get_current_game(), "source": "ocr"}
+            data = {"sentence": text, "time": line_time.isoformat(), "process_path": obs.get_current_game(), "source": TextSource.OCR}
             if response_dict:
                 data["dict_from_ocr"] = response_dict
             return asyncio.run_coroutine_threadsafe(

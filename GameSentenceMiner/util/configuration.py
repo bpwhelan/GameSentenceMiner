@@ -675,10 +675,8 @@ class Advanced:
     multi_line_sentence_storage_field: str = ''
     ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 55001
-    afk_timer_seconds: int = 120 # LEGACY, not used anymore
-    session_gap_seconds: int = 3600 # LEGACY, not used anymore
-    streak_requirement_hours: float = 0.01 # LEGACY, not used anymore
     localhost_bind_address: str = '127.0.0.1' # Default 127.0.0.1 for security, set to 0.0.0.0 to allow external connections
+    dont_collect_stats: bool = False
 
     def __post_init__(self):
         if self.plaintext_websocket_port == -1:
@@ -750,6 +748,7 @@ class Overlay:
     periodic: bool = False
     periodic_interval: float = 1.0
     periodic_ratio: float = 0.9
+    send_hotkey_text_to_texthooker: bool = False
     minimum_character_size: int = 0
     use_ocr_area_config: bool = False
     ocr_full_screen_instead_of_obs: bool = False
@@ -978,18 +977,7 @@ class Config:
         else:
             return cls.new()
         
-    def __post_init__(self):
-        # Move Stats to global config if found in profiles for legacy support
-        default_stats = StatsConfig()
-        for profile in self.configs.values():
-            if profile.advanced:
-                if profile.advanced.afk_timer_seconds != default_stats.afk_timer_seconds:
-                    self.stats.afk_timer_seconds = profile.advanced.afk_timer_seconds
-                if profile.advanced.session_gap_seconds != default_stats.session_gap_seconds:
-                    self.stats.session_gap_seconds = profile.advanced.session_gap_seconds
-                if profile.advanced.streak_requirement_hours != default_stats.streak_requirement_hours:
-                    self.stats.streak_requirement_hours = profile.advanced.streak_requirement_hours
-        
+    def __post_init__(self):  
         self.overlay = self.get_config().overlay
         
         # Add a way to migrate certain things based on version if needed, also help with better defaults
@@ -1110,7 +1098,14 @@ class Config:
                 config.audio, profile.audio, "custom_encode_settings")
             self.sync_shared_field(
                 config.screenshot, profile.screenshot, "custom_ffmpeg_settings")
-            self.sync_shared_field(config, profile, "advanced")
+            self.sync_shared_field(config.advanced, profile.advanced, "audio_player_path")
+            self.sync_shared_field(config.advanced, profile.advanced, "video_player_path")
+            self.sync_shared_field(config.advanced, profile.advanced, "multi_line_line_break")
+            self.sync_shared_field(config.advanced, profile.advanced, "multi_line_sentence_storage_field")
+            self.sync_shared_field(config.advanced, profile.advanced, "ocr_websocket_port")
+            self.sync_shared_field(config.advanced, profile.advanced, "texthooker_communication_websocket_port")
+            self.sync_shared_field(config.advanced, profile.advanced, "plaintext_websocket_port")
+            self.sync_shared_field(config.advanced, profile.advanced, "localhost_bind_address")
             self.sync_shared_field(config, profile, "paths")
             self.sync_shared_field(config, profile, "obs")
             self.sync_shared_field(config, profile, "wip")
@@ -1286,10 +1281,11 @@ def get_config():
 
 
 def get_overlay_config():
-    global config_instance
-    if config_instance is None:
-        config_instance = load_config()
-    return config_instance.overlay
+    return get_config().overlay
+    # global config_instance
+    # if config_instance is None:
+    #     config_instance = load_config()
+    # return config_instance.overlay
 
 
 def reload_config():

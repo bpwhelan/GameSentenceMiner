@@ -19,7 +19,7 @@ from GameSentenceMiner import obs
 from GameSentenceMiner.util.discord_rpc import discord_rpc_manager
 from GameSentenceMiner.util.live_stats import live_stats_tracker
 from GameSentenceMiner.util.gsm_utils import add_srt_line
-from GameSentenceMiner.util.text_log import add_line, get_text_log
+from GameSentenceMiner.util.text_log import TextSource, add_line, get_text_log
 from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker
 from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
 

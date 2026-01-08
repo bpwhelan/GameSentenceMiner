@@ -55,6 +55,9 @@
     table-layout: fixed;
     white-space: normal;
     color: var(--text-color-light3);
+    /* Radical fix: Ensure overlay doesn't block image visibility */
+    pointer-events: none;
+    z-index: 1;
 }
 .gloss-image-link[data-has-image=true][data-image-load-state=load-error] .gloss-image-container-overlay::after {
     content: 'Image failed to load';
@@ -92,6 +95,10 @@
     object-fit: contain;
     border: none;
     outline: none;
+    /* Radical fix: Force visibility in Electron */
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
 }
 .gloss-image-link[data-has-aspect-ratio=true] .gloss-image {
     position: absolute;

@@ -84,6 +84,15 @@ def video_to_anim(
 
     # Build filter chain
     vf_parts = []
+    
+    # Add black bar detection first if configured
+    if get_config().screenshot.trim_black_bars_wip:
+        # Use the start time if provided, otherwise use beginning of video
+        timestamp_for_detection = float(start) if start else 0
+        crop_filter = find_black_bars(str(input_path), timestamp_for_detection)
+        if crop_filter:
+            vf_parts.append(crop_filter)
+    
     if fps:
         vf_parts.append(f"fps={fps}")
     if crop:

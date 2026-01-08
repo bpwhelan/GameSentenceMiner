@@ -22,7 +22,7 @@ from GameSentenceMiner.util.configuration import CommonLanguages, get_config, An
 from GameSentenceMiner.util.live_stats import live_stats_tracker
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY, ID_PLAINTEXT, ID_HOOKER
 from GameSentenceMiner.util.model import AnkiCard
-from GameSentenceMiner.util.text_log import GameLine, get_all_lines, get_text_event, get_mined_line, lines_match
+from GameSentenceMiner.util.text_log import GameLine, TextSource, get_all_lines, get_text_event, get_mined_line, lines_match
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.web import texthooking_page
 import re
@@ -157,20 +157,22 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
 
     # --- Generate new media files ---
     if config.anki.picture_field and config.screenshot.enabled:
-        logger.info("Getting Screenshot...")
         if config.screenshot.animated:
+            logger.info("Getting animated screenshot, this may take a moment...")
             animated_settings = config.screenshot.animated_settings
             assets.screenshot_path = ffmpeg.get_anki_compatible_video(
                 video_path, start_time, vad_result.start, vad_result.end, 
                 codec=animated_settings.extension, quality=animated_settings.scaled_quality, fps=animated_settings.fps, audio=False
             )
         else:
+            logger.info("Getting screenshot...")
             assets.screenshot_path = ffmpeg.get_screenshot(
                 video_path, ss_time, try_selector=config.screenshot.use_screenshot_selector
             )
         wait_for_stable_file(assets.screenshot_path)
 
     if config.anki.video_field and vad_result:
+        logger.info("Getting Video for Anki... May take a moment.")
         animated_settings = config.screenshot.animated_settings
         assets.video_path = ffmpeg.get_anki_compatible_video(
             video_path, start_time, vad_result.start, vad_result.end, 
@@ -574,7 +576,7 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
     sentences_text = ''
     
     # TODO tags_lower = [tag.lower() for tag in last_note.tags] and 'overlay' in tags_lower if we want to limit to overlay only in a better way than
-    if get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY):
+    if get_config().overlay.websocket_port and websocket_manager.has_clients(ID_OVERLAY) and game_line.source != TextSource.HOTKEY:
         sentence_in_anki = last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
         logger.info("Found matching line in Anki, Preserving HTML and fix spacing!")
 

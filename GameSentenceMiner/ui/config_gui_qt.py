@@ -274,6 +274,7 @@ class ConfigWindow(QWidget):
             self.settings = current_config
             self.load_settings_to_ui()
             self._update_window_title()
+            self.refresh_obs_scenes(force_reload=True)
 
     def add_save_hook(self, func):
         if func not in on_save:
@@ -334,9 +335,12 @@ class ConfigWindow(QWidget):
         # except ValueError:
         #     local_scans = 1
 
+        # Get selected scenes from profile OBS scene list
+        selected_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
+
         # Collect data from UI widgets to build a new config object
         config = ProfileConfig(
-            scenes=self.settings.scenes, # This is handled separately in profile tab logic
+            scenes=selected_scenes,
             general=General(
                 use_websocket=self.websocket_enabled_check.isChecked(),
                 use_clipboard=self.clipboard_enabled_check.isChecked(),
@@ -458,7 +462,8 @@ class ConfigWindow(QWidget):
                 ocr_websocket_port=int(self.ocr_websocket_port_edit.text() or 0),
                 texthooker_communication_websocket_port=int(self.texthooker_communication_websocket_port_edit.text() or 0),
                 plaintext_websocket_port=int(self.plaintext_websocket_export_port_edit.text() or 0),
-                localhost_bind_address=self.localhost_bind_address_edit.text()
+                localhost_bind_address=self.localhost_bind_address_edit.text(),
+                dont_collect_stats=self.dont_collect_stats_check.isChecked()
             ),
             ai=Ai(
                 add_to_anki=self.ai_enabled_check.isChecked(),
@@ -486,6 +491,7 @@ class ConfigWindow(QWidget):
                 periodic=self.periodic_check.isChecked(),
                 periodic_ratio=periodic_ratio,
                 periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
+                send_hotkey_text_to_texthooker=self.add_overlay_to_texthooker_check.isChecked(),
                 minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
                 use_ocr_area_config=self.use_ocr_area_config_check.isChecked(),
                 ocr_full_screen_instead_of_obs=bool(getattr(self, 'ocr_full_screen_instead_of_obs_checkbox', None) and self.ocr_full_screen_instead_of_obs_checkbox.isChecked())
@@ -562,7 +568,8 @@ class ConfigWindow(QWidget):
         self.save_settings(profile_change=True)
         self.load_settings_to_ui()
         self.reload_settings(force_refresh=True)
-        self.refresh_obs_scenes()
+        self.refresh_obs_scenes(force_reload=True)
+        self._update_window_title()
         is_default = self.profile_combo.currentText() == DEFAULT_CONFIG
         self.delete_profile_button.setHidden(is_default)
 
@@ -760,6 +767,7 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
         self.use_ocr_area_config_check = QCheckBox()
+        self.add_overlay_to_texthooker_check = QCheckBox()
         
         # Advanced
         self.audio_player_path_edit = QLineEdit()
@@ -773,6 +781,7 @@ class ConfigWindow(QWidget):
         self.reset_line_hotkey_edit = QKeySequenceEdit()
         self.polling_rate_edit = QLineEdit()
         self.localhost_bind_address_edit = QLineEdit()
+        self.dont_collect_stats_check = QCheckBox()
         self.current_version_label = QLabel()
         self.latest_version_label = QLabel()
 
@@ -1474,7 +1483,17 @@ class ConfigWindow(QWidget):
         # layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'scan_delay'), self.scan_delay_edit)
         layout.addRow(self._create_labeled_widget(i18n, "overlay", 'manual_overlay_scan_hotkey',), self.manual_overlay_scan_hotkey_edit)
         
-        # Periodic Scanning Group
+        # Send overlay to texthooker on hotkey warning section
+        texthooker_widget = QWidget()
+        texthooker_layout = QHBoxLayout(texthooker_widget)
+        texthooker_layout.setContentsMargins(0, 0, 0, 0)
+        texthooker_layout.addWidget(self.add_overlay_to_texthooker_check)
+        texthooker_label = QLabel("Send Overlay Lines to Texthooker on Hotkey")
+        texthooker_label.setStyleSheet("color: #FF0000; font-weight: bold;")
+        texthooker_label.setToolTip("⚠️ WARNING: When you use the manual overlay scan hotkey, any new lines found will be sent to the texthooker stream. Only enable if you understand the implications.")
+        texthooker_layout.addWidget(texthooker_label)
+        texthooker_layout.addStretch()
+        layout.addRow(texthooker_widget)
         periodic_group = self._create_group_box("Periodic Scanning")
         periodic_layout = QFormLayout()
         periodic_layout.addRow(self._create_labeled_widget(i18n, 'overlay', 'periodic'), self.periodic_check)
@@ -1534,6 +1553,17 @@ class ConfigWindow(QWidget):
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'reset_line_hotkey'), self.reset_line_hotkey_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'polling_rate'), self.polling_rate_edit)
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'localhost_bind_address'), self.localhost_bind_address_edit)
+        
+        # Disable local stats option with warning
+        dont_collect_stats_label = self._create_labeled_widget(i18n, 'advanced', 'dont_collect_stats', color=LabelColor.ADVANCED)
+        dont_collect_stats_container = QHBoxLayout()
+        dont_collect_stats_container.addWidget(self.dont_collect_stats_check)
+        dont_collect_stats_warning = QLabel("⚠️ Stats are ONLY local no matter what. Disabling may break features!")
+        dont_collect_stats_warning.setStyleSheet("color: #FF6B6B; font-size: 10px;")
+        dont_collect_stats_container.addWidget(dont_collect_stats_warning)
+        dont_collect_stats_container.addStretch()
+        layout.addRow(dont_collect_stats_label, dont_collect_stats_container)
+        
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'current_version'), self.current_version_label)
         layout.addRow(self._create_labeled_widget(i18n, 'advanced', 'latest_version'), self.latest_version_label)
 
@@ -1787,6 +1817,7 @@ class ConfigWindow(QWidget):
         self.periodic_check.setChecked(s.overlay.periodic)
         self.periodic_interval_edit.setText(str(s.overlay.periodic_interval))
         self.periodic_ratio_edit.setText(str(s.overlay.periodic_ratio))
+        self.add_overlay_to_texthooker_check.setChecked(s.overlay.send_hotkey_text_to_texthooker)
         # self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
         self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
@@ -1810,6 +1841,7 @@ class ConfigWindow(QWidget):
         self.reset_line_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.reset_line or ""))
         self.polling_rate_edit.setText(str(s.anki.polling_rate))
         self.localhost_bind_address_edit.setText(s.advanced.localhost_bind_address)
+        self.dont_collect_stats_check.setChecked(s.advanced.dont_collect_stats)
         self.current_version_label.setText(get_current_version())
         self.latest_version_label.setText(get_latest_version())
         
@@ -2042,7 +2074,19 @@ class ConfigWindow(QWidget):
             save_full_config(self.master_config)
             self.reload_settings(force_refresh=True)
 
-    def refresh_obs_scenes(self):
+    def refresh_obs_scenes(self, force_reload=False):
+        # Save current selections before clearing
+        current_profile_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
+        current_discord_scenes = [item.text() for item in self.discord_blacklisted_scenes_list.selectedItems()]
+        
+        # Use current UI selection if available (and not forcing reload), otherwise use saved config
+        if force_reload:
+            profile_scenes_to_select = self.settings.scenes
+            discord_scenes_to_select = self.master_config.discord.blacklisted_scenes
+        else:
+            profile_scenes_to_select = current_profile_scenes if current_profile_scenes else self.settings.scenes
+            discord_scenes_to_select = current_discord_scenes if current_discord_scenes else self.master_config.discord.blacklisted_scenes
+        
         self.obs_scene_list.clear()
         self.discord_blacklisted_scenes_list.clear()
         try:
@@ -2053,14 +2097,14 @@ class ConfigWindow(QWidget):
             self.obs_scene_list.addItems(scene_names)
             for i in range(self.obs_scene_list.count()):
                 item = self.obs_scene_list.item(i)
-                if item.text() in self.settings.scenes:
+                if item.text() in profile_scenes_to_select:
                     item.setSelected(True)
             
             # Update Discord blacklisted scenes list
             self.discord_blacklisted_scenes_list.addItems(scene_names)
             for i in range(self.discord_blacklisted_scenes_list.count()):
                 item = self.discord_blacklisted_scenes_list.item(i)
-                if item.text() in self.master_config.discord.blacklisted_scenes:
+                if item.text() in discord_scenes_to_select:
                     item.setSelected(True)
         except Exception as e:
             logger.error(f"Failed to refresh OBS scenes: {e}")
