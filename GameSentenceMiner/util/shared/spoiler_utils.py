@@ -9,7 +9,6 @@ AniList API clients. Different APIs use different spoiler tag formats:
 
 import re
 from enum import Enum
-from typing import Optional
 
 
 class SpoilerFormat(Enum):
