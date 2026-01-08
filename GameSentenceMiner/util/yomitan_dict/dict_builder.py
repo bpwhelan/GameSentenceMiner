@@ -287,7 +287,6 @@ class YomitanDictBuilder:
             - downloadUrl: For auto-update support (if set)
         """
         # Build description with game count and titles
-        actual_count = len(self.game_titles)
         game_word = "game" if self.game_count == 1 else "games"
         
         if self.game_titles:
