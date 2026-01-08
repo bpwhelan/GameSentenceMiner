@@ -5,18 +5,24 @@ Fetch character information from AniList for Anime and Manga media types.
 Mirrors the vndb_api_client.py pattern for consistency.
 """
 
-import base64
-import io
 import re
 from typing import Optional, Dict, List, Tuple
 
 import requests
-from PIL import Image
 
 from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.shared.base_api_client import BaseApiClient
+from GameSentenceMiner.util.shared.image_utils import (
+    download_cover_image as _download_cover_image,
+    fetch_image_as_base64 as _fetch_image_as_base64,
+)
+from GameSentenceMiner.util.shared.spoiler_utils import (
+    has_anilist_spoiler_tags,
+    strip_anilist_spoiler_tags,
+)
 
 
-class AniListApiClient:
+class AniListApiClient(BaseApiClient):
     """
     Client for AniList GraphQL API interactions.
 
@@ -47,6 +53,61 @@ class AniListApiClient:
         "SUPPORTING": "primary",  # Main characters
         "BACKGROUND": "side",     # Side characters
     }
+
+    # Implementation of abstract methods from BaseApiClient
+    @classmethod
+    def search_game(cls, query: str, **kwargs) -> Optional[Dict]:
+        """
+        Search for games/media by title.
+        
+        This is an implementation of the BaseApiClient abstract method.
+        Delegates to search_media() for backward compatibility.
+        
+        Args:
+            query: Search query string
+            **kwargs: Additional parameters (e.g., media_type)
+            
+        Returns:
+            Dictionary with search results, or None if request fails
+        """
+        media_type = kwargs.get('media_type', 'ANIME')
+        return cls.search_media(query, media_type)
+    
+    @classmethod
+    def get_game_details(cls, game_id: str, **kwargs) -> Optional[Dict]:
+        """
+        Fetch detailed metadata for a specific game/media.
+        
+        This is an implementation of the BaseApiClient abstract method.
+        Delegates to fetch_media_metadata() for backward compatibility.
+        
+        Args:
+            game_id: Game/media identifier (AniList ID as string)
+            **kwargs: Additional parameters (e.g., media_type)
+            
+        Returns:
+            Dictionary with game metadata, or None if request fails
+        """
+        media_type = kwargs.get('media_type', 'ANIME')
+        return cls.fetch_media_metadata(int(game_id), media_type)
+    
+    @classmethod
+    def get_characters(cls, game_id: str, **kwargs) -> Optional[List[Dict]]:
+        """
+        Fetch all characters for a specific game/media.
+        
+        This is an implementation of the BaseApiClient abstract method.
+        Delegates to fetch_characters() for backward compatibility.
+        
+        Args:
+            game_id: Game/media identifier (AniList ID as string)
+            **kwargs: Additional parameters (e.g., media_type)
+            
+        Returns:
+            List of character dictionaries, or None if request fails
+        """
+        media_type = kwargs.get('media_type', 'ANIME')
+        return cls.fetch_characters(int(game_id), media_type)
 
     # GraphQL query for searching media
     SEARCH_QUERY = """
@@ -161,6 +222,8 @@ class AniListApiClient:
         """
         Download the cover image for an anime or manga from AniList.
         
+        Uses shared image utilities for consistent image processing.
+        
         Args:
             media_id: AniList media ID
             media_type: "ANIME" or "MANGA"
@@ -212,41 +275,15 @@ class AniListApiClient:
                 logger.debug(f"No cover image URL for {media_type} {media_id}")
                 return None
             
-            # Download the image
-            logger.debug(f"Downloading AniList cover image from {image_url}")
-            img_response = requests.get(image_url, timeout=cls.TIMEOUT)
-            
-            if img_response.status_code != 200:
-                logger.debug(f"Failed to download cover image: status {img_response.status_code}")
-                return None
-            
-            # Open and process the image
-            image = Image.open(io.BytesIO(img_response.content))
-            
-            # Convert to RGB if necessary
-            if image.mode in ('RGBA', 'P', 'LA'):
-                background = Image.new('RGB', image.size, (255, 255, 255))
-                if image.mode == 'P':
-                    image = image.convert('RGBA')
-                if image.mode in ('RGBA', 'LA'):
-                    background.paste(image, mask=image.split()[-1])
-                else:
-                    background.paste(image)
-                image = background
-            elif image.mode != 'RGB':
-                image = image.convert('RGB')
-            
-            # Resize to cover size
-            image.thumbnail(cls.COVER_IMAGE_SIZE, Image.Resampling.LANCZOS)
-            
-            # Save as PNG for better quality
-            buffer = io.BytesIO()
-            image.save(buffer, format='PNG', optimize=True)
-            buffer.seek(0)
-            
-            image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-            logger.info(f"Successfully downloaded AniList cover image for {media_type} {media_id}")
-            return f"data:image/png;base64,{image_base64}"
+            # Use shared utility for image download and processing
+            result = _download_cover_image(
+                image_url=image_url,
+                cover_size=cls.COVER_IMAGE_SIZE,
+                timeout=cls.TIMEOUT
+            )
+            if result:
+                logger.info(f"Successfully downloaded AniList cover image for {media_type} {media_id}")
+            return result
             
         except requests.RequestException as e:
             logger.debug(f"Failed to fetch AniList cover image for {media_type} {media_id}: {e}")
@@ -580,6 +617,8 @@ class AniListApiClient:
         """
         Download an image from URL, resize to thumbnail, and convert to base64 string.
 
+        Uses shared image utilities for consistent image processing.
+
         Args:
             image_url: URL of the image to download
             thumbnail_size: Tuple of (width, height) for thumbnail. Defaults to (80, 100)
@@ -587,60 +626,23 @@ class AniListApiClient:
         Returns:
             Base64-encoded JPEG image string with data URI prefix, or None on failure
         """
-        if not image_url:
-            return None
-
         if thumbnail_size is None:
             thumbnail_size = cls.THUMBNAIL_SIZE
-
-        try:
-            response = requests.get(image_url, timeout=cls.TIMEOUT)
-            if response.status_code != 200:
-                logger.debug(f"Failed to fetch image from {image_url}: status {response.status_code}")
-                return None
-
-            # Open image with PIL
-            image = Image.open(io.BytesIO(response.content))
-
-            # Convert to RGB if necessary (handles RGBA, P mode, etc.)
-            if image.mode in ('RGBA', 'P', 'LA'):
-                # Create white background for transparency
-                background = Image.new('RGB', image.size, (255, 255, 255))
-                if image.mode == 'P':
-                    image = image.convert('RGBA')
-                if image.mode in ('RGBA', 'LA'):
-                    background.paste(image, mask=image.split()[-1])
-                else:
-                    background.paste(image)
-                image = background
-            elif image.mode != 'RGB':
-                image = image.convert('RGB')
-
-            # Resize to thumbnail using high-quality resampling
-            image.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
-
-            # Save to bytes buffer as JPEG
-            buffer = io.BytesIO()
-            image.save(buffer, format='JPEG', quality=85, optimize=True)
-            buffer.seek(0)
-
-            # Encode to base64
-            image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-            return f"data:image/jpeg;base64,{image_base64}"
-
-        except requests.RequestException as e:
-            logger.debug(f"Failed to download image from {image_url}: {e}")
-            return None
-        except Exception as e:
-            logger.debug(f"Unexpected error converting image to base64: {e}")
-            return None
+        
+        return _fetch_image_as_base64(
+            image_url=image_url,
+            thumbnail_size=thumbnail_size,
+            timeout=cls.TIMEOUT,
+            output_format='JPEG',
+            jpeg_quality=85
+        )
 
     @staticmethod
     def strip_spoiler_tags(text: str) -> str:
         """
         Remove AniList spoiler tags from text.
         
-        AniList uses ~!spoiler content!~ syntax for spoilers.
+        Uses shared spoiler utilities for consistent handling.
         
         Args:
             text: Text potentially containing spoiler tags
@@ -648,16 +650,14 @@ class AniListApiClient:
         Returns:
             Text with spoiler tags removed (content preserved)
         """
-        if not text:
-            return text
-        
-        # Remove ~!...!~ spoiler markers but keep the content
-        return re.sub(r'~!(.+?)!~', r'\1', text, flags=re.DOTALL)
+        return strip_anilist_spoiler_tags(text)
 
     @staticmethod
     def has_spoiler_tags(text: str) -> bool:
         """
         Check if text contains AniList spoiler tags.
+        
+        Uses shared spoiler utilities for consistent handling.
         
         Args:
             text: Text to check for spoiler tags
@@ -665,9 +665,7 @@ class AniListApiClient:
         Returns:
             True if text contains spoiler tags, False otherwise
         """
-        if not text:
-            return False
-        return bool(re.search(r'~!.+?!~', text, flags=re.DOTALL))
+        return has_anilist_spoiler_tags(text)
 
     @classmethod
     def format_character_for_translation(

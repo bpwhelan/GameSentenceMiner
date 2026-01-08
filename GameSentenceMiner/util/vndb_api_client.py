@@ -5,18 +5,24 @@ Fetch character information from VNDB for use in AI translation context.
 Extracts names, personality traits, roles, and other relevant attributes.
 """
 
-import base64
-import io
 import re
 from typing import Optional, Dict, List, Tuple
 
 import requests
-from PIL import Image
 
 from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.shared.base_api_client import BaseApiClient
+from GameSentenceMiner.util.shared.image_utils import (
+    download_cover_image,
+    fetch_image_as_base64 as _fetch_image_as_base64,
+)
+from GameSentenceMiner.util.shared.spoiler_utils import (
+    has_vndb_spoiler_tags,
+    strip_vndb_spoiler_content,
+)
 
 
-class VNDBApiClient:
+class VNDBApiClient(BaseApiClient):
     """
     Client for VNDB API interactions.
 
@@ -47,6 +53,59 @@ class VNDBApiClient:
         if vn_id.startswith("v"):
             return vn_id
         return f"v{vn_id}"
+
+    # Implementation of abstract methods from BaseApiClient
+    @classmethod
+    def search_game(cls, query: str, **kwargs) -> Optional[Dict]:
+        """
+        Search for games/media by title.
+        
+        This is an implementation of the BaseApiClient abstract method.
+        Delegates to search_vn() for backward compatibility.
+        
+        Args:
+            query: Search query string
+            **kwargs: Additional parameters (e.g., limit)
+            
+        Returns:
+            Dictionary with search results, or None if request fails
+        """
+        limit = kwargs.get('limit', 10)
+        return cls.search_vn(query, limit)
+    
+    @classmethod
+    def get_game_details(cls, game_id: str, **kwargs) -> Optional[Dict]:
+        """
+        Fetch detailed metadata for a specific game/media.
+        
+        This is an implementation of the BaseApiClient abstract method.
+        Delegates to fetch_vn_metadata() for backward compatibility.
+        
+        Args:
+            game_id: Game/media identifier (VNDB ID)
+            **kwargs: Additional parameters
+            
+        Returns:
+            Dictionary with game metadata, or None if request fails
+        """
+        return cls.fetch_vn_metadata(game_id)
+    
+    @classmethod
+    def get_characters(cls, game_id: str, **kwargs) -> Optional[List[Dict]]:
+        """
+        Fetch all characters for a specific game/media.
+        
+        This is an implementation of the BaseApiClient abstract method.
+        Delegates to fetch_characters() for backward compatibility.
+        
+        Args:
+            game_id: Game/media identifier (VNDB ID)
+            **kwargs: Additional parameters
+            
+        Returns:
+            List of character dictionaries, or None if request fails
+        """
+        return cls.fetch_characters(game_id, **kwargs)
 
     @classmethod
     def search_vn(
@@ -218,14 +277,14 @@ class VNDBApiClient:
         """
         Download the cover image for a visual novel from VNDB.
         
+        Uses shared image utilities for consistent image processing.
+        
         Args:
             vn_id: VNDB visual novel ID (e.g., "v56650" or "56650")
             
         Returns:
             Base64-encoded PNG image string with data URI prefix, or None on failure
         """
-        import io
-        
         vn_id = cls.normalize_vndb_id(vn_id)
         
         try:
@@ -266,41 +325,15 @@ class VNDBApiClient:
                 logger.debug(f"No cover image URL for VN {vn_id}")
                 return None
             
-            # Download the image
-            logger.debug(f"Downloading VNDB cover image from {image_url}")
-            img_response = requests.get(image_url, timeout=cls.TIMEOUT)
-            
-            if img_response.status_code != 200:
-                logger.debug(f"Failed to download cover image: status {img_response.status_code}")
-                return None
-            
-            # Open and process the image
-            image = Image.open(io.BytesIO(img_response.content))
-            
-            # Convert to RGB if necessary
-            if image.mode in ('RGBA', 'P', 'LA'):
-                background = Image.new('RGB', image.size, (255, 255, 255))
-                if image.mode == 'P':
-                    image = image.convert('RGBA')
-                if image.mode in ('RGBA', 'LA'):
-                    background.paste(image, mask=image.split()[-1])
-                else:
-                    background.paste(image)
-                image = background
-            elif image.mode != 'RGB':
-                image = image.convert('RGB')
-            
-            # Resize to cover size
-            image.thumbnail(cls.COVER_IMAGE_SIZE, Image.Resampling.LANCZOS)
-            
-            # Save as PNG for better quality
-            buffer = io.BytesIO()
-            image.save(buffer, format='PNG', optimize=True)
-            buffer.seek(0)
-            
-            image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-            logger.info(f"Successfully downloaded VNDB cover image for {vn_id}")
-            return f"data:image/png;base64,{image_base64}"
+            # Use shared utility for image download and processing
+            result = download_cover_image(
+                image_url=image_url,
+                cover_size=cls.COVER_IMAGE_SIZE,
+                timeout=cls.TIMEOUT
+            )
+            if result:
+                logger.info(f"Successfully downloaded VNDB cover image for {vn_id}")
+            return result
             
         except requests.RequestException as e:
             logger.debug(f"Failed to fetch VNDB cover image for {vn_id}: {e}")
@@ -393,6 +426,8 @@ class VNDBApiClient:
         """
         Download an image from URL, resize to thumbnail, and convert to base64 string.
 
+        Uses shared image utilities for consistent image processing.
+
         Args:
             image_url: URL of the image to download
             thumbnail_size: Tuple of (width, height) for thumbnail. Defaults to (80, 100)
@@ -400,60 +435,23 @@ class VNDBApiClient:
         Returns:
             Base64-encoded JPEG image string with data URI prefix, or None on failure
         """
-        if not image_url:
-            return None
-
         if thumbnail_size is None:
             thumbnail_size = cls.THUMBNAIL_SIZE
-
-        try:
-            response = requests.get(image_url, timeout=cls.TIMEOUT)
-            if response.status_code != 200:
-                logger.debug(f"Failed to fetch image from {image_url}: status {response.status_code}")
-                return None
-
-            # Open image with PIL
-            image = Image.open(io.BytesIO(response.content))
-
-            # Convert to RGB if necessary (handles RGBA, P mode, etc.)
-            if image.mode in ('RGBA', 'P', 'LA'):
-                # Create white background for transparency
-                background = Image.new('RGB', image.size, (255, 255, 255))
-                if image.mode == 'P':
-                    image = image.convert('RGBA')
-                if image.mode in ('RGBA', 'LA'):
-                    background.paste(image, mask=image.split()[-1])
-                else:
-                    background.paste(image)
-                image = background
-            elif image.mode != 'RGB':
-                image = image.convert('RGB')
-
-            # Resize to thumbnail using high-quality resampling
-            image.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
-
-            # Save to bytes buffer as JPEG
-            buffer = io.BytesIO()
-            image.save(buffer, format='JPEG', quality=85, optimize=True)
-            buffer.seek(0)
-
-            # Encode to base64
-            image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-            return f"data:image/jpeg;base64,{image_base64}"
-
-        except requests.RequestException as e:
-            logger.debug(f"Failed to download image from {image_url}: {e}")
-            return None
-        except Exception as e:
-            logger.debug(f"Unexpected error converting image to base64: {e}")
-            return None
+        
+        return _fetch_image_as_base64(
+            image_url=image_url,
+            thumbnail_size=thumbnail_size,
+            timeout=cls.TIMEOUT,
+            output_format='JPEG',
+            jpeg_quality=85
+        )
 
     @staticmethod
     def has_spoiler_tags(text: str) -> bool:
         """
         Check if text contains VNDB spoiler tags.
         
-        VNDB uses [spoiler]...[/spoiler] tags to mark spoiler content in descriptions.
+        Uses shared spoiler utilities for consistent handling.
         
         Args:
             text: Text to check for spoiler tags
@@ -461,17 +459,14 @@ class VNDBApiClient:
         Returns:
             True if text contains spoiler tags, False otherwise
         """
-        if not text:
-            return False
-        return bool(re.search(r'\[spoiler\]', text, re.IGNORECASE))
+        return has_vndb_spoiler_tags(text)
 
     @staticmethod
     def strip_spoiler_content(text: str) -> str:
         """
         Remove spoiler content from text.
         
-        VNDB uses [spoiler]...[/spoiler] tags to mark spoiler content in descriptions.
-        This method removes the spoiler tags and their content.
+        Uses shared spoiler utilities for consistent handling.
         
         Args:
             text: Text potentially containing spoiler tags
@@ -479,11 +474,7 @@ class VNDBApiClient:
         Returns:
             Text with spoiler content removed
         """
-        if not text:
-            return text
-        # Remove VNDB spoiler tags and their content: [spoiler]...[/spoiler]
-        text = re.sub(r'\[spoiler\].*?\[/spoiler\]', '', text, flags=re.IGNORECASE | re.DOTALL)
-        return text.strip()
+        return strip_vndb_spoiler_content(text)
 
     @staticmethod
     def categorize_traits(

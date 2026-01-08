@@ -22,6 +22,7 @@ from typing import Dict, Any, List, Optional
 from GameSentenceMiner.util.jiten_api_client import JitenApiClient, JitenLinkType
 from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.shared import GameUpdateService
 
 
 def upgrade_games_to_jiten() -> Dict[str, Any]:
@@ -215,7 +216,11 @@ def check_and_upgrade_game(game: GamesTable) -> Optional[Dict[str, Any]]:
         jiten_data = JitenApiClient.normalize_deck_data(main_deck)
         
         # Update game with Jiten data, respecting manual overrides
-        update_fields = build_update_fields(game, jiten_data)
+        update_fields = GameUpdateService.build_update_fields(
+            jiten_data,
+            manual_overrides=game.manual_overrides,
+            source='jiten'
+        )
         
         # Download cover image if not manually overridden
         if 'image' not in game.manual_overrides and jiten_data.get('cover_name'):
@@ -228,7 +233,7 @@ def check_and_upgrade_game(game: GamesTable) -> Optional[Dict[str, Any]]:
             game.update_all_fields_from_jiten(**update_fields)
             
             # Add Jiten link to game links
-            add_jiten_link_to_game(game, deck_id)
+            GameUpdateService.add_jiten_link_to_game(game, deck_id)
             game.save()
             
             logger.info(f"Successfully upgraded game '{game.title_original}' to Jiten deck_id={deck_id}")
@@ -244,96 +249,6 @@ def check_and_upgrade_game(game: GamesTable) -> Optional[Dict[str, Any]]:
         logger.error(f"Error checking/upgrading game {game.id}: {e}", exc_info=True)
         result['error'] = str(e)
         return result
-
-
-def build_update_fields(game: GamesTable, jiten_data: Dict) -> Dict:
-    """
-    Build update fields dictionary, respecting manual overrides.
-    
-    Args:
-        game: The game to update
-        jiten_data: Normalized Jiten data
-        
-    Returns:
-        Dictionary of fields to update
-    """
-    update_fields = {}
-    manual_overrides = game.manual_overrides if game.manual_overrides else []
-    
-    if 'deck_id' not in manual_overrides:
-        update_fields['deck_id'] = jiten_data['deck_id']
-    
-    if 'title_original' not in manual_overrides and jiten_data.get('title_original'):
-        update_fields['title_original'] = jiten_data['title_original']
-    
-    if 'title_romaji' not in manual_overrides and jiten_data.get('title_romaji'):
-        update_fields['title_romaji'] = jiten_data['title_romaji']
-    
-    if 'title_english' not in manual_overrides and jiten_data.get('title_english'):
-        update_fields['title_english'] = jiten_data['title_english']
-    
-    if 'type' not in manual_overrides and jiten_data.get('media_type_string'):
-        update_fields['game_type'] = jiten_data['media_type_string']
-    
-    if 'description' not in manual_overrides and jiten_data.get('description'):
-        update_fields['description'] = jiten_data['description']
-    
-    if 'difficulty' not in manual_overrides and jiten_data.get('difficulty') is not None:
-        update_fields['difficulty'] = jiten_data['difficulty']
-    
-    if 'character_count' not in manual_overrides and jiten_data.get('character_count') is not None:
-        update_fields['character_count'] = jiten_data['character_count']
-    
-    if 'links' not in manual_overrides and jiten_data.get('links'):
-        update_fields['links'] = jiten_data['links']
-    
-    if 'release_date' not in manual_overrides and jiten_data.get('release_date'):
-        update_fields['release_date'] = jiten_data['release_date']
-    
-    if 'genres' not in manual_overrides and jiten_data.get('genres'):
-        update_fields['genres'] = jiten_data['genres']
-    
-    if 'tags' not in manual_overrides and jiten_data.get('tags'):
-        update_fields['tags'] = jiten_data['tags']
-    
-    return update_fields
-
-
-def add_jiten_link_to_game(game: GamesTable, deck_id: int):
-    """
-    Add or update Jiten.moe link in game's links list.
-    """
-    jiten_url = f"https://jiten.moe/decks/media/{deck_id}/detail"
-    
-    # Ensure game.links is a list
-    if not isinstance(game.links, list):
-        if isinstance(game.links, str):
-            try:
-                game.links = json.loads(game.links)
-            except (json.JSONDecodeError, TypeError):
-                game.links = []
-        else:
-            game.links = []
-    
-    # Check if a Jiten link already exists
-    jiten_link_index = None
-    for i, link in enumerate(game.links):
-        link_url = link if isinstance(link, str) else (link.get('url') if isinstance(link, dict) else '')
-        if 'jiten.moe/deck' in link_url:
-            jiten_link_index = i
-            break
-    
-    # Create Jiten link object
-    jiten_link = {
-        'url': jiten_url,
-        'linkType': 99,  # Jiten.moe link type
-        'deckId': deck_id
-    }
-    
-    if jiten_link_index is not None:
-        game.links[jiten_link_index] = jiten_link
-    else:
-        game.links.append(jiten_link)
 
 
 def fetch_character_data_for_upgraded_game(game: GamesTable, jiten_data: Dict):
