@@ -17,7 +17,6 @@ Usage:
 """
 
 import sys
-import time
 from datetime import datetime, timedelta
 from GameSentenceMiner.util.cron_table import CronTable
 from GameSentenceMiner.util.cron.jiten_upgrader import upgrade_games_to_jiten
