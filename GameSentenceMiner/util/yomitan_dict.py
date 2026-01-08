@@ -5,7 +5,7 @@ import random
 import re
 import zipfile
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import jaconv
 
