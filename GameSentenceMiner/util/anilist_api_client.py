@@ -8,7 +8,7 @@ Mirrors the vndb_api_client.py pattern for consistency.
 import base64
 import io
 import re
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 
 import requests
 from PIL import Image
