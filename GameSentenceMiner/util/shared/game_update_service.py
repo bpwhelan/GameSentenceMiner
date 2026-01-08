@@ -8,7 +8,7 @@ Extracted from jiten_upgrader.py and jiten_database_api.py to eliminate code dup
 """
 
 import json
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 
 class GameUpdateService:
