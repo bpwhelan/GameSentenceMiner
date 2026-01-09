@@ -77,11 +77,38 @@ else:
     FULL_PROMPT_TEMPLATE = """
 **Disclaimer:** All dialogue provided is from the script of the video game "{game_title}". This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request. The goal is accurate, context-aware localization. If no context is provided, do not throw errors or warnings.
 
+Character Context:
+{character_context}
+
+Dialogue context:
 {dialogue_context}
 
 {prompt_to_use}
 
 {sentence}
+"""
+
+CHARACTER_SUMMARY_PROMPT = """
+You are a helpful assistant that creates concise character summaries for game localization.
+
+Given the following character data from a visual novel, create a CHARACTER LIST in this exact format:
+
+**CHARACTER LIST**:
+[Japanese Name] -> [Romanized Name] (brief one-line description)
+
+Rules:
+- Include age if available (e.g., "17yo")
+- Include gender (male/female)
+- Include 2-3 key personality traits that will aid in translation.
+- Keep each line under 120 characters
+- Use Format Japanese name (romanization name): tags
+- Mention what pronoun they use and mark it as their pronoun if they have one listed
+- Example: 陽見 恵凪 (Harumi Ena): Clumsy, Dandere, Hotblooded 19yo girl atashi pronoun
+
+Character Data:
+{character_json}
+
+Generate the CHARACTER LIST now:
 """
 
 
@@ -155,8 +182,48 @@ class AIManager(ABC):
         else:
             prompt_to_use = get_config().ai.custom_prompt
 
+        # Fetch character context from database (lazy loading)
+        character_context = ""
+        if game_title:
+            try:
+                from GameSentenceMiner.util.games_table import GamesTable
+                
+                # game_title is the OBS scene name from get_current_game()
+                # Try obs_scene_name first, then fall back to title_original
+                game = GamesTable.get_by_obs_scene_name(game_title)
+                if not game:
+                    game = GamesTable.get_by_title(game_title)
+                
+                if game:
+                    logger.debug(f"Found game '{game.title_original}' (id={game.id}) for scene '{game_title}'")
+                    # Check if we already have a character summary
+                    if game.character_summary:
+                        character_context = game.character_summary
+                    # If not, check if we have VNDB data to generate one
+                    elif game.vndb_character_data:
+                        try:
+                            # Handle both dict (already deserialized) and string (needs parsing)
+                            if isinstance(game.vndb_character_data, dict):
+                                vndb_data = game.vndb_character_data
+                            else:
+                                vndb_data = json.loads(game.vndb_character_data)
+                            summary = generate_character_summary(vndb_data)
+                            if summary:
+                                # Store the generated summary for future use
+                                game.character_summary = summary
+                                game.save()
+                                character_context = summary
+                                logger.info(f"Generated and stored character summary for {game_title}")
+                        except json.JSONDecodeError:
+                            logger.warning(f"Failed to parse VNDB data for {game_title}")
+                        except Exception as e:
+                            logger.error(f"Failed to generate character summary for {game_title}: {e}")
+            except Exception as e:
+                logger.error(f"Error fetching character context: {e}")
+
         return FULL_PROMPT_TEMPLATE.format(
-            game_title=game_title,
+            game_title=game_title or "Unknown",
+            character_context=character_context,
             dialogue_context=dialogue_context,
             prompt_to_use=prompt_to_use,
             sentence=sentence,
@@ -210,6 +277,8 @@ class OpenAIManager(AIManager):
                 lines, sentence, current_line, game_title, custom_prompt=custom_prompt)
             # self.logger.debug(f"Generated prompt:\n{prompt}")
             # Try with full parameters first, fallback to basic parameters if model doesn't support them
+            text_output = ""  # Initialize text_output with a default value
+            
             if self.extra_params_allowed:
                 try:
                     response = self.client.chat.completions.create(
@@ -250,6 +319,10 @@ class OpenAIManager(AIManager):
                         text_output = json.loads(json_output)['output']
                     except Exception as e:
                         self.logger.debug(f"Failed to parse JSON from response returning response raw: {e}", exc_info=True)
+            else:
+                self.logger.warning("No content in API response")
+                text_output = "Processing failed: No content in API response"
+            
             # self.logger.debug(f"Received response:\n{text_output}")
             return text_output
         except Exception as e:
@@ -454,6 +527,46 @@ def ai_config_changed(config, current):
     if config.use_canned_context_prompt != current.use_canned_context_prompt:
         return True
     return False
+
+
+def generate_character_summary(character_data: dict) -> Optional[str]:
+    """
+    Generate a character summary from VNDB character data using AI.
+    
+    Args:
+        character_data: Dictionary with VNDB character data from process_vn_characters()
+        
+    Returns:
+        Formatted character list string, or None if generation fails
+    """
+    if not character_data:
+        return None
+    
+    # Format character data as JSON for the prompt
+    character_json = json.dumps(character_data, ensure_ascii=False, indent=2)
+    
+    # Build the prompt
+    prompt = CHARACTER_SUMMARY_PROMPT.format(character_json=character_json)
+    
+    # Use existing AI infrastructure - create a minimal GameLine for the API
+    try:
+        # Create a dummy line to satisfy the API requirements
+        dummy_line = GameLine(index=0, text="", id=None, time=None, prev=None, next=None)
+        
+        # Call AI with custom prompt - the custom_prompt will be used directly
+        result = get_ai_prompt_result(
+            lines=[dummy_line],
+            sentence="",
+            current_line=dummy_line,
+            game_title="",
+            custom_prompt=prompt
+        )
+        if result:
+            return result.strip()
+    except Exception as e:
+        logger.error(f"Failed to generate character summary: {e}")
+    
+    return None
 
 
 if __name__ == '__main__':

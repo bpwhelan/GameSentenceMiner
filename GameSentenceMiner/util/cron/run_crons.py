@@ -21,6 +21,7 @@ class Crons(enum.Enum):
     JITEN_SYNC = 'jiten_sync'
     DAILY_STATS_ROLLUP = 'daily_stats_rollup'
     USER_PLUGINS = "user_plugins"
+    JITEN_UPGRADER = 'jiten_upgrader'
 
 @dataclass
 class MockCron:
@@ -62,9 +63,8 @@ class CronScheduler:
         Thread-safe: Can be called from UI threads.
         """
         self._ensure_init()
-        # Put the task in the queue to wake up the scheduler immediately
         if self.loop.is_running():
-            self.loop.call_soon_threadsafe(self._queue.put_nowait, task)
+            self.loop.create_task(self._queue.put(task))
         else:
             logger.warning("CronScheduler loop is not running, task queued but won't run until start()")
             self._queue.put_nowait(task)
@@ -77,6 +77,9 @@ class CronScheduler:
     
     def force_populate_games(self):
         self.add_external_task(Crons.POPULATE_GAMES)
+    
+    def force_jiten_upgrader(self):
+        self.add_external_task(Crons.JITEN_UPGRADER)
     
     async def start(self):
         """Start the cron scheduler in the background."""
@@ -163,7 +166,7 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
         due_crons = [fake_cron]
     else:
         due_crons = CronTable.get_due_crons()
-    
+        
     if not due_crons:
         return {
             'total_checked': 0,
@@ -240,6 +243,19 @@ async def run_due_crons(force_task: Optional['Crons'] = None) -> dict:
                     logger.warning(f"User plugins completed with warning: {result['error']}")
                 else:
                     logger.info(f"Successfully executed {cron.name}")
+            
+            # Execute Jiten Upgrader (weekly check for new Jiten entries)
+            elif cron.name == Crons.JITEN_UPGRADER.value:
+                from GameSentenceMiner.util.cron.jiten_upgrader import upgrade_games_to_jiten
+                result = upgrade_games_to_jiten()
+                
+                if cron.id != -1: CronTable.just_ran(cron.id)
+                executed_count += 1
+                detail['success'] = True
+                detail['result'] = result
+                
+                logger.info(f"Successfully executed {cron.name}")
+                logger.info(f"Upgraded: {result.get('upgraded_to_jiten', 0)} games, Not found: {result.get('not_found_on_jiten', 0)}")
                 
             else:
                 logger.error(f"⚠️ Unknown cron job: {cron.name}")
