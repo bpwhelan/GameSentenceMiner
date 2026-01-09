@@ -321,15 +321,12 @@ class JitenApiClient:
             deck_ids = JitenApiClient.get_deck_by_link_id(JitenLinkType.ANILIST, "9253")
         """
         try:
-            # Clean the external_id - some IDs may have prefixes like 'v' for VNDB
-            # The API expects just the numeric part for most services
-            clean_id = external_id
-            if link_type == JitenLinkType.VNDB and external_id.startswith('v'):
-                clean_id = external_id[1:]  # Remove 'v' prefix
+            # Use the external_id as-is
+            # For VNDB, the 'v' prefix must be preserved (e.g., "v2002" for Steins;Gate)
+            # The Jiten API requires the full ID format from each service
+            url = f"{cls.BASE_URL}/by-link-id/{link_type}/{external_id}"
             
-            url = f"{cls.BASE_URL}/by-link-id/{link_type}/{clean_id}"
-            
-            logger.debug(f"Looking up Jiten deck by link: type={link_type}, external_id={external_id}")
+            logger.debug(f"Looking up Jiten deck by link: type={link_type}, external_id={external_id}, url={url}")
             response = requests.get(url, timeout=cls.TIMEOUT)
             
             if response.status_code == 404:
@@ -345,9 +342,16 @@ class JitenApiClient:
             
             data = response.json()
             
-            # Response could be a single deck or list of decks
+            # Response could be a list of integers (deck IDs) or list of dicts
             if isinstance(data, list):
-                deck_ids = [item.get("deckId") for item in data if item.get("deckId")]
+                deck_ids = []
+                for item in data:
+                    if isinstance(item, int):
+                        # API returns list of integers like [283]
+                        deck_ids.append(item)
+                    elif isinstance(item, dict) and item.get("deckId"):
+                        # Fallback for dict format like [{"deckId": 283}]
+                        deck_ids.append(item.get("deckId"))
             elif isinstance(data, dict):
                 deck_id = data.get("deckId")
                 deck_ids = [deck_id] if deck_id else []

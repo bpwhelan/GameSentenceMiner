@@ -1089,6 +1089,36 @@ def check_and_run_migrations():
         else:
             logger.debug("user_plugins cron job already exists, skipping creation.")
     
+    def migrate_jiten_upgrader_cron_job():
+        """
+        Create the weekly jiten_upgrader cron job if it doesn't exist.
+        This checks if VNDB/AniList-only games now exist on Jiten.moe and auto-links them.
+        Runs weekly on Sunday at 3:00 AM local time.
+        """
+        existing_cron = CronTable.get_by_name('jiten_upgrader')
+        if not existing_cron:
+            logger.info("Creating weekly jiten_upgrader cron job...")
+            
+            # Calculate next Sunday at 3:00 AM local time
+            now = datetime.now()
+            days_until_sunday = (6 - now.weekday()) % 7
+            
+            # If today is Sunday and it's after 3 AM, schedule for next week
+            if days_until_sunday == 0 and now.hour >= 3:
+                days_until_sunday = 7
+            
+            next_sunday = now.replace(hour=3, minute=0, second=0, microsecond=0) + timedelta(days=days_until_sunday)
+            
+            CronTable.create_cron_entry(
+                name='jiten_upgrader',
+                description='Weekly check for games with VNDB/AniList IDs to auto-link to Jiten.moe',
+                next_run=next_sunday.timestamp(),
+                schedule='weekly'
+            )
+            logger.info(f"✅ Created jiten_upgrader cron job - next run: {next_sunday.strftime('%Y-%m-%d %H:%M:%S')} (Sunday 3:00 AM)")
+        else:
+            logger.debug("jiten_upgrader cron job already exists, skipping creation.")
+    
     def migrate_genres_and_tags():
         """
         Add genres and tags columns to games table.
@@ -1138,6 +1168,7 @@ def check_and_run_migrations():
     migrate_daily_rollup_cron_job()
     migrate_genres_and_tags()  # Add genres and tags columns
     migrate_user_plugins_cron_job()
+    migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
         
 check_and_run_migrations()
     
