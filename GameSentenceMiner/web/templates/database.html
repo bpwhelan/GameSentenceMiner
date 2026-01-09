@@ -14,6 +14,7 @@
     
     <!-- Include shared CSS -->
     <link rel="stylesheet" href="/static/css/shared.css">
+    <link rel="stylesheet" href="/static/css/search.css">
 </head>
 <body>
 
@@ -76,6 +77,73 @@
             <div class="card-actions">
                 <button class="action-btn success" data-action="openDeduplicationModal">
                     Manage Duplicates
+                </button>
+            </div>
+        </div>
+
+        <!-- Yomitan Dictionary Download Card -->
+        <div class="management-card yomitan-dict">
+            <div class="card-header">
+                <div class="card-icon">📖</div>
+                <h2 class="card-title">Download Special GSM Yomitan Dictionary</h2>
+            </div>
+            <p class="card-description">
+                A character name dictionary that auto updates based on your most recently played games.
+            </p>
+            
+            <div class="form-group" style="margin: 15px 0;">
+                <label class="form-label" for="yomitanGameCount">Number of games to include:</label>
+                <input type="number" id="yomitanGameCount" class="form-input"
+                       min="1" max="999" value="3"
+                       style="width: 100px; margin-top: 5px;">
+                <small style="color: var(--text-tertiary); font-size: 12px; display: block; margin-top: 4px;">
+                    Increase if you frequently switch games. Include characters from 1-999 of your most recently played games (default: 3)<br>
+                    If set to 1 game, playing Mario then switching to Runescape will replace Mario character names with Runescape names automatically.<br>
+                    You may want to do this to keep your dictionaries clean and not confuse names across games.
+                </small>
+            </div>
+            
+            <div class="form-group" style="margin: 15px 0;">
+                <label class="form-label" for="yomitanSpoilerLevel">Spoiler level:</label>
+                <select id="yomitanSpoilerLevel" class="form-input" style="width: 180px; margin-top: 5px;">
+                    <option value="0" selected>No Spoilers</option>
+                    <option value="1">Minor Spoilers</option>
+                    <option value="2">All Spoilers</option>
+                </select>
+                <small style="color: var(--text-tertiary); font-size: 12px; display: block; margin-top: 4px;">
+                    <strong>No Spoilers:</strong> Photo, Name, Game only.<br>
+                    <strong>Minor Spoilers:</strong> Description, roles, relationships, information.<br>
+                    <strong>All Spoilers:</strong> Full character descriptions + plot points that may spoil.
+                </small>
+            </div>
+            
+            <details style="margin: 15px 0; background: var(--bg-tertiary); padding: 10px; border-radius: 5px;">
+                <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary);">
+                    📝 How to update the dictionary in Yomitan/JL/Migaku
+                </summary>
+                <div style="margin-top: 10px; font-size: 0.9em; color: var(--text-secondary);">
+                    <p style="margin-bottom: 10px;"><strong>For Yomitan:</strong></p>
+                    <ol style="margin-left: 20px; margin-bottom: 15px;">
+                        <li>Open Yomitan settings</li>
+                        <li>Navigate to the "Dictionaries" tab</li>
+                        <li>Click the "Check for updates" button</li>
+                        <li>Click "Update all"</li>
+                    </ol>
+                    <p style="margin-bottom: 10px;"><strong>For JL:</strong></p>
+                    <ol style="margin-left: 20px;">
+                        <li>When importing the dictionary, tell JL to update it daily.</li>
+                        <li>If you play a new game today and want the dictionary to upate right now, go to the dictionaries tab and manually click Update on it.</li>
+                    </ol>
+                    <p style="margin-bottom: 10px;"><strong>For Migaku:</strong></p>
+                    <ol style="margin-left: 20px;">
+                        <li>Delete the dictionary in Migaku, redownload it from here and import. Migaku does not support updating dictionaries.</li>
+                    </ol>
+                </div>
+            </details>
+            
+            <div class="card-actions">
+                <button class="action-btn primary" data-action="downloadYomitanDict">
+                    Download Dictionary
                 </button>
             </div>
         </div>
@@ -316,16 +384,32 @@
     </div>
 </div>
 
-<!-- Jiten.moe Search Modal -->
+<!-- Unified Search Modal (Search across Jiten.moe, VNDB, and AniList) -->
 <div id="jitenSearchModal" class="modal">
-    <div class="modal-content" style="max-width: 800px;">
+    <div class="modal-content" style="max-width: 900px;">
         <div class="modal-header">
-            <h3>Search jiten.moe Database</h3>
+            <h3>🔍 Search Databases</h3>
             <span class="close-btn" data-action="closeModal" data-modal="jitenSearchModal">&times;</span>
         </div>
         <div class="modal-body">
             <div class="search-info" style="margin-bottom: 20px;">
                 <p><strong>Searching for:</strong> <span id="searchingForGame"></span></p>
+            </div>
+            
+            <!-- Source toggle checkboxes -->
+            <div class="source-toggles" id="sourceToggles">
+                <label class="source-toggle-label">
+                    <input type="checkbox" id="toggle-jiten" class="source-toggle-checkbox" checked>
+                    <span class="source-toggle-text">🟢 Jiten</span>
+                </label>
+                <label class="source-toggle-label">
+                    <input type="checkbox" id="toggle-vndb" class="source-toggle-checkbox" checked>
+                    <span class="source-toggle-text">🔵 VNDB</span>
+                </label>
+                <label class="source-toggle-label">
+                    <input type="checkbox" id="toggle-anilist" class="source-toggle-checkbox" checked>
+                    <span class="source-toggle-text">🟠 AniList</span>
+                </label>
             </div>
             
             <div class="form-group">
@@ -335,13 +419,13 @@
                     <button class="action-btn primary" id="jitenSearchBtn">Search</button>
                 </div>
                 <small style="color: var(--text-tertiary); font-size: 12px;">
-                    Search supports Japanese, romaji, and English titles.
+                    Search supports Japanese, romaji, and English titles across all enabled sources.
                 </small>
             </div>
             
             <div id="jitenSearchResults" style="display: none;">
                 <h4>Search Results:</h4>
-                <div id="jitenResultsList" style="max-height: 400px; overflow-y: auto; margin-top: 15px;">
+                <div id="jitenResultsList" style="max-height: 500px; overflow-y: auto; margin-top: 15px;">
                     <!-- Search results will be populated here -->
                 </div>
             </div>
@@ -349,12 +433,20 @@
             <div id="jitenSearchError" class="error-text" style="display: none;"></div>
             <div id="jitenSearchLoading" class="loading-indicator" style="display: none;">
                 <div class="spinner"></div>
-                <span>Searching jiten.moe...</span>
+                <span>Searching databases...</span>
             </div>
             
             <div style="margin-top: 20px; padding: 15px; background: var(--bg-tertiary); border-radius: 8px; border-left: 4px solid var(--accent-color);">
                 <p style="margin: 0; color: var(--text-secondary); font-size: 14px;">
-                    <strong>💡 Not found?</strong> Either contribute it to <a href="https://jiten.moe/" target="_blank" rel="noopener noreferrer" style="color: var(--accent-color); text-decoration: underline;">Jiten</a> or click Edit on the unlinked game to make a manual game.
+                    <strong>💡 Tips:</strong>
+                </p>
+                <ul style="margin: 8px 0 0 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px;">
+                    <li><strong class="jiten-badge" style="font-size: 11px;">🟢 Jiten</strong> - Primary source with full stats support (difficulty, character counts)</li>
+                    <li><strong class="vndb-badge" style="font-size: 11px;">🔵 VNDB</strong> - Visual novels only, limited stats integration</li>
+                    <li><strong class="anilist-badge" style="font-size: 11px;">🟠 AniList</strong> - Anime/Manga only, limited stats integration</li>
+                </ul>
+                <p style="margin: 10px 0 0 0; color: var(--text-secondary); font-size: 13px;">
+                    <strong>Not found?</strong> Contribute to <a href="https://jiten.moe/" target="_blank" rel="noopener noreferrer" style="color: var(--accent-color);">Jiten</a> or click Edit on the game to create a manual entry.
                 </p>
             </div>
         </div>
@@ -470,6 +562,22 @@
                 </div>
                 
                 <div class="form-group">
+                    <label class="form-label">VNDB ID</label>
+                    <input type="text" id="editVndbId" class="form-input">
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        VNDB visual novel ID (e.g., v1234)
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">AniList ID</label>
+                    <input type="text" id="editAnilistId" class="form-input">
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        AniList media ID (e.g., 5678)
+                    </small>
+                </div>
+                
+                <div class="form-group">
                     <label class="form-label">Character Count</label>
                     <input type="number" id="editCharacterCount" class="form-input" min="0">
                     <small style="color: var(--text-tertiary); font-size: 12px;">
@@ -493,6 +601,14 @@
                     <input type="date" id="editReleaseDate" class="form-input">
                     <small style="color: var(--text-tertiary); font-size: 12px;">
                         Game release date (will be marked as manual override if edited)
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Character Summary (for AI Translation)</label>
+                    <textarea id="editCharacterSummary" class="form-textarea" rows="8" placeholder="Character list for translation context..."></textarea>
+                    <small style="color: var(--text-tertiary); font-size: 12px;">
+                        One-line character summaries used for AI translation context. Format: 日本語名 -> English Name (description)
                     </small>
                 </div>
                 
@@ -799,6 +915,7 @@
 <script src="/static/js/database-game-data.js"></script>
 <script src="/static/js/database-bulk-operations.js"></script>
 <script src="/static/js/database-text-management.js"></script>
+<script src="/static/js/unified-search.js"></script>
 <script src="/static/js/database-jiten-integration.js"></script>
 <script src="/static/js/database-game-operations.js"></script>
 

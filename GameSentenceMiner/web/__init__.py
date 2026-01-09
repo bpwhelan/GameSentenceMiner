@@ -4,11 +4,13 @@ from GameSentenceMiner.web.jiten_database_api import register_jiten_database_api
 from GameSentenceMiner.web.stats_api import register_stats_api_routes
 from GameSentenceMiner.web.goals_api import register_goals_api_routes
 from GameSentenceMiner.web.anki_api_endpoints import register_anki_api_endpoints
+from GameSentenceMiner.web.yomitan_api import register_yomitan_api_routes
 
 register_database_api_routes(app)
 register_jiten_database_api_routes(app)
 register_stats_api_routes(app)
 register_goals_api_routes(app)
+register_yomitan_api_routes(app)
 
 # Register Anki API routes
 

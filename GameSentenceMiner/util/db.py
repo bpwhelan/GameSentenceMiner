@@ -19,7 +19,7 @@ from datetime import timedelta
 import regex
 
 from GameSentenceMiner.util.text_log import GameLine
-from GameSentenceMiner.util.configuration import get_stats_config, logger, is_dev
+from GameSentenceMiner.util.configuration import get_config, get_stats_config, logger, is_dev
 import gzip
 
 # Matches any Unicode punctuation (\p{P}), symbol (\p{S}), or separator (\p{Z}); \p{Z} includes whitespace/separator chars
@@ -64,7 +64,8 @@ class SQLiteDB:
             raise RuntimeError("Cannot commit changes in read-only mode.")
         with self._lock, self._get_connection() as conn:
             if is_dev:
-                logger.debug(f"Executed query: {query} with params: {params}")
+                truncated_params = tuple(str(p)[:50] if p is not None else None for p in params)
+                logger.debug(f"Executed query: {query} with params: {truncated_params}")
             cur = conn.cursor()
             cur.execute(query, params)
             if commit:
@@ -75,6 +76,9 @@ class SQLiteDB:
         if self.read_only and commit:
             raise RuntimeError("Cannot commit changes in read-only mode.")
         with self._lock, self._get_connection() as conn:
+            if is_dev:
+                truncated_params = [tuple(str(p)[:50] if p is not None else None for p in params) for params in seq_of_params]
+                logger.debug(f"Executed query: {query} with params: {truncated_params}")
             cur = conn.cursor()
             cur.executemany(query, seq_of_params)
             if commit:
@@ -593,6 +597,8 @@ class GameLinesTable(SQLiteDBTable):
 
     @classmethod
     def add_line(cls, gameline: GameLine, game_id: Optional[str] = None):
+        if get_config().advanced.dont_collect_stats:
+            return None
         new_line = cls(id=gameline.id, game_name=gameline.scene,
                        line_text=gameline.text, timestamp=gameline.time.timestamp(),
                        game_id=game_id if game_id else '')
@@ -988,28 +994,34 @@ def check_and_run_migrations():
     
     def migrate_jiten_cron_job():
         """
-        Create the monthly jiten.moe update cron job if it doesn't exist.
+        Create the daily jiten.moe update cron job if it doesn't exist.
         This ensures the cron job is automatically registered on database initialization.
         """
         existing_cron = CronTable.get_by_name('jiten_sync')
         if not existing_cron:
-            logger.info("Creating monthly jiten.moe update cron job...")
-            # Calculate next run: first day of next month at midnight
+            logger.info("Creating daily jiten.moe update cron job...")
+            # Calculate next run: yesterday to ensure it runs ASAP on first startup
             now = datetime.now()
-            if now.month == 12:
-                next_month = datetime(now.year + 1, 1, 1, 0, 0, 0)
-            else:
-                next_month = datetime(now.year, now.month + 1, 1, 0, 0, 0)
+            yesterday = now - timedelta(days=1)
             
             CronTable.create_cron_entry(
                 name='jiten_sync',
                 description='Automatically update all linked games from jiten.moe database (respects manual overrides)',
-                next_run=next_month.timestamp(),
-                schedule='monthly'
+                next_run=yesterday.timestamp(),
+                schedule='daily'
             )
-            logger.info(f"✅ Created jiten_sync cron job - next run: {next_month.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"✅ Created jiten_sync cron job - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}")
         else:
-            logger.debug("jiten_sync cron job already exists, skipping creation.")
+            if existing_cron.schedule == 'daily':
+                logger.debug("jiten_sync cron job already set to daily schedule, skipping update.")
+                return
+            # Update existing cron to daily schedule and set next_run to yesterday to run ASAP
+            now = datetime.now()
+            yesterday = now - timedelta(days=1)
+            existing_cron.schedule = 'daily'
+            existing_cron.next_run = yesterday.timestamp()
+            existing_cron.save()
+            logger.info(f"✅ Updated jiten_sync cron job to daily schedule - next run: {yesterday.strftime('%Y-%m-%d %H:%M:%S')}")
     
     def migrate_daily_rollup_cron_job():
         """
@@ -1077,6 +1089,36 @@ def check_and_run_migrations():
         else:
             logger.debug("user_plugins cron job already exists, skipping creation.")
     
+    def migrate_jiten_upgrader_cron_job():
+        """
+        Create the weekly jiten_upgrader cron job if it doesn't exist.
+        This checks if VNDB/AniList-only games now exist on Jiten.moe and auto-links them.
+        Runs weekly on Sunday at 3:00 AM local time.
+        """
+        existing_cron = CronTable.get_by_name('jiten_upgrader')
+        if not existing_cron:
+            logger.info("Creating weekly jiten_upgrader cron job...")
+            
+            # Calculate next Sunday at 3:00 AM local time
+            now = datetime.now()
+            days_until_sunday = (6 - now.weekday()) % 7
+            
+            # If today is Sunday and it's after 3 AM, schedule for next week
+            if days_until_sunday == 0 and now.hour >= 3:
+                days_until_sunday = 7
+            
+            next_sunday = now.replace(hour=3, minute=0, second=0, microsecond=0) + timedelta(days=days_until_sunday)
+            
+            CronTable.create_cron_entry(
+                name='jiten_upgrader',
+                description='Weekly check for games with VNDB/AniList IDs to auto-link to Jiten.moe',
+                next_run=next_sunday.timestamp(),
+                schedule='weekly'
+            )
+            logger.info(f"✅ Created jiten_upgrader cron job - next run: {next_sunday.strftime('%Y-%m-%d %H:%M:%S')} (Sunday 3:00 AM)")
+        else:
+            logger.debug("jiten_upgrader cron job already exists, skipping creation.")
+    
     def migrate_genres_and_tags():
         """
         Add genres and tags columns to games table.
@@ -1126,6 +1168,7 @@ def check_and_run_migrations():
     migrate_daily_rollup_cron_job()
     migrate_genres_and_tags()  # Add genres and tags columns
     migrate_user_plugins_cron_job()
+    migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
         
 check_and_run_migrations()
     
