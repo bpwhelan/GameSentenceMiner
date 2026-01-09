@@ -76,6 +76,8 @@ dependencies = [
   "waitress==3.0.2",
   "flasgger~=0.9.7",
   "pynput~=1.8.1 ; sys_platform == 'win32'",
+  "uv>=0.9.22",
+  "pip>=25.3",
 ]
 
 

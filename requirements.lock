@@ -295,6 +295,8 @@ pillow==12.0.0
     #   oneocr
     #   pystray
     #   scikit-image
+pip==25.3
+    # via gamesentenceminer (pyproject.toml)
 plyer==2.1.0
     # via gamesentenceminer (pyproject.toml)
 protobuf==6.33.2
@@ -1185,6 +1187,8 @@ typing-inspection==0.4.2
     # via pydantic
 urllib3==2.6.0
     # via requests
+uv==0.9.22
+    # via gamesentenceminer (pyproject.toml)
 waitress==3.0.2
     # via gamesentenceminer (pyproject.toml)
 watchdog==6.0.0

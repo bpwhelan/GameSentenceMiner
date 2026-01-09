@@ -1,4 +1,5 @@
 import dataclasses
+import importlib
 import json
 import logging
 import os
@@ -1150,6 +1151,72 @@ def get_default_anki_path():
 def get_default_anki_media_collection_path():
     return os.path.join(get_default_anki_path(), 'User 1', 'collection.media')
 
+def get_gpu_support_path():
+    return os.path.join(get_app_directory(), 'gpu_support')
+
+def add_gpu_dlls_to_path():
+    try:
+        if is_windows():
+            # toolkit_path = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\bin"
+            # if os.path.exists(toolkit_path):
+            #     os.environ["PATH"] = toolkit_path + os.pathsep + os.environ["PATH"]
+            #     logger.info(f"Added CUDA Toolkit DLLs to PATH from {toolkit_path}")
+            # extra_dll_path = r"C:\Program Files\NVIDIA\CUDNN\v9.17\bin\12.9"
+            # if os.path.exists(extra_dll_path):
+            #     os.environ["PATH"] = extra_dll_path + os.pathsep + os.environ["PATH"]
+            #     logger.info(f"Added extra cuDNN DLLs to PATH from {extra_dll_path}")
+            packages_added = False
+            for pkg in ["nvidia.cublas", "nvidia.cudnn"]:
+                spec = importlib.util.find_spec(pkg)
+                if spec and spec.submodule_search_locations:
+                    # Go up one level to get the nvidia parent directory
+                    nvidia_root = os.path.dirname(spec.submodule_search_locations[0])
+                    # Add all nvidia package bin directories to PATH
+                    for item in os.listdir(nvidia_root):
+                        item_path = os.path.join(nvidia_root, item)
+                        if os.path.isdir(item_path):
+                            bin_path = os.path.join(item_path, "bin")
+                            if os.path.exists(bin_path):
+                                os.environ["PATH"] = bin_path + os.pathsep + os.environ["PATH"]
+                                packages_added = True
+                    break  # Only need to find one package to get the nvidia root
+            if packages_added:
+                logger.info(f"Added NVIDIA GPU Support DLLs to PATH from {nvidia_root}")
+    except Exception as e:
+        pass
+    # gpu_path = get_gpu_support_path()
+    # if os.path.exists(gpu_path):
+    #     os.environ['PATH'] = gpu_path + os.pathsep + os.environ.get('PATH', '')
+    #     logger.info(f"Added GPU Support DLLs to PATH from {gpu_path}")
+    # else:
+    #     logger.warning(f"GPU Support path does not exist: {gpu_path}")
+    
+def is_cuda_available():
+    try:
+        if is_windows():
+            cuda_found = False
+            cudnn_found = False
+            for pkg in ["nvidia.cublas", "nvidia.cudnn"]:
+                spec = importlib.util.find_spec(pkg)
+                if spec and spec.submodule_search_locations:
+                    if pkg == "nvidia.cublas":
+                        cuda_found = True
+                    elif pkg == "nvidia.cudnn":
+                        cudnn_found = True
+            
+            if cuda_found and cudnn_found:
+                return True
+        elif is_linux():
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    logger.info("CUDA support found via PyTorch")
+                    return True
+            except ImportError:
+                pass
+    except Exception as e:
+        pass
+    return False
 
 def get_app_directory():
     if platform == 'win32':  # Windows
@@ -1521,6 +1588,7 @@ ffmpeg_base_command_list = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "err
 
 ffmpeg_base_command_list_info = [get_ffmpeg_path(), "-hide_banner", "-loglevel", "info", '-nostdin']
 
+add_gpu_dlls_to_path()
 
 # logger.debug(f"Running in development mode: {is_dev}")
 # logger.debug(f"Running on Beangate's PC: {is_beangate}")

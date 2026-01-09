@@ -51,7 +51,7 @@ export async function pipInstallWithLogging(
 
 export function registerPythonIPC() {
     // Install CUDA packages
-    ipcMain.handle('python.installCudaPackage', async (_, cudaVersion: string) => {
+    ipcMain.handle('python.installCudaPackage', async () => {
         try {
             const pythonPath = await getOrInstallPython();
             await closeAllPythonProcesses();
@@ -61,77 +61,26 @@ export function registerPythonIPC() {
             if (pyProc) {
                 pyProc.kill();
             }
-            console.log(`Installing CUDA ${cudaVersion} package...`);
-            let pipArgs: string[] = [];
-            switch (cudaVersion) {
-                case '12.6':
-                    pipArgs = [
-                        'install',
-                        '--upgrade',
-                        'torch',
-                        'torchvision',
-                        '--index-url',
-                        'https://download.pytorch.org/whl/cu126',
-                    ];
-                    break;
-                case '12.8':
-                    pipArgs = [
-                        'install',
-                        '--upgrade',
-                        'torch',
-                        'torchvision',
-                        '--index-url',
-                        'https://download.pytorch.org/whl/cu128',
-                    ];
-                    break;
-                case '12.9':
-                    pipArgs = [
-                        'install',
-                        '--upgrade',
-                        'torch',
-                        'torchvision',
-                        '--index-url',
-                        'https://download.pytorch.org/whl/cu129',
-                    ];
-                    break;
-                default:
-                    throw new Error(`Unsupported CUDA version: ${cudaVersion}`);
-            }
-            await pipInstallWithLogging(pythonPath, pipArgs, `CUDA ${cudaVersion}`);
-            // Preserve numpy 2.2.6
-            await pipInstallWithLogging(pythonPath, ['install', 'numpy==2.2.6'], 'NUMPY');
+            console.log('Installing CUDA GPU support...');
+            let pipArgs: string[] = [
+                'install',
+                '--upgrade',
+                'onnxruntime-gpu[cudnn,cuda]',
+                'numpy==2.2.6'
+            ];
+            await pipInstallWithLogging(pythonPath, pipArgs, 'CUDA GPU');
+
+            
+            
             await restartGSM();
-            return { success: true, message: `CUDA ${cudaVersion} installed successfully` };
+            return { success: true, message: 'CUDA GPU support installed successfully' };
         } catch (error: any) {
-            console.error(`Failed to install CUDA ${cudaVersion}:`, error);
+            console.error('Failed to install CUDA GPU support:', error);
             return {
                 success: false,
-                message: `Failed to install CUDA ${cudaVersion}: ${
+                message: `Failed to install CUDA GPU support: ${
                     error?.message || 'Unknown error'
                 }`,
-            };
-        }
-    });
-
-    ipcMain.handle('python.installWhisperX', async () => {
-        try {
-            const pythonPath = await getOrInstallPython();
-            await closeAllPythonProcesses();
-
-            await new Promise((resolve) => setTimeout(resolve, 3000));
-            if (pyProc) {
-                pyProc.kill();
-            }
-            console.log('Installing WhisperX package...');
-            await pipInstallWithLogging(pythonPath, ['install', 'git+https://github.com/m-bain/whisperX@0e7153bc2ed94faf99ff016e5055e052f730fca5'], 'WHISPERX');
-            // python -m pytorch_lightning.utilities.upgrade_checkpoint C:\Users\Beangate\AppData\Roaming\GameSentenceMiner\python\Lib\site-packages\whisperx\assets\pytorch_model.bin
-            await restartGSM();
-            return { success: true, message: 'WhisperX installed successfully' };
-        } catch (error: any) {
-            console.error('Failed to install WhisperX:', error);
-            return {
-                success: false,
-                message: `Failed to install WhisperX: ${error?.message || 'Unknown error'}`,
             };
         }
     });

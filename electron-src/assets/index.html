@@ -170,18 +170,10 @@
                     <div class="collapsible-content" style="display: block;">
                         <div class="form-group">
                             <div class="input-group">
-                                <label for="cuda-version-select">CUDA Version:
-                                </label>
-                                <select id="cuda-version-select">
-                                    <option value="12.6">CUDA 12.6 (Stable)</option>
-                                    <option value="12.8" selected>CUDA 12.8 (Recommended)</option>
-                                    <option value="12.9">CUDA 12.9 (Latest)</option>
-                                </select>
-                                <!-- <button id="install-cuda-btn" class="secondary" disabled aria-disabled="true" tabindex="-1" style="pointer-events: none; opacity: 0.5;">Install CUDA</button> -->
+                                <button id="install-cuda-btn" class="danger">Install CUDA GPU Support</button>
                                 <div class="tooltip">❓
-                                    <span class="tooltiptext">DISABLED FOR NOW, BREAKS GSM. Install PyTorch with CUDA support for GPU acceleration.
-                                        This enables much faster Whisper Processing, and is used for a few OCR options
-                                        (none recommended).</span>
+                                    <span class="tooltiptext">Install onnxruntime-gpu with CUDA support for GPU acceleration.
+                                        This enables much faster Whisper Processing and OCR performance.</span>
                                 </div>
                             </div>
                             <div class="input-group">
@@ -1504,6 +1496,10 @@
                 if (data.includes("ERROR: INFO:") || data.includes("DEBUG:") || data.includes("[OCR")) {
                     return; // THIS IS DEBUG THAT SOMEHOW GETS THROUGH TO STDOUT
                 }
+                if (data.startsWith("UPDATED ANKI CARD")) {
+                    term.write(`\x1b[32m${data}\x1b[0m\r\n`); // Green text for Anki updates
+                    return;
+                }
                 if (data.includes("Transcribe:")) {
                     const transcription = data.split("Transcribe:")[1].trim();
                     term.write(`\x1b[32mTranscription: ${transcription}\x1b[0m`); // Green text for transcriptions
@@ -1691,22 +1687,21 @@
             // loadPythonInfo();
 
             // CUDA Installation
-            // document.getElementById('install-cuda-btn').addEventListener('click', async () => {
-            //     const cudaVersion = document.getElementById('cuda-version-select').value;
-            //     showPythonStatus(`Installing CUDA ${cudaVersion}... This may take several minutes.`);
-            //     switchToConsoleTab(); // Switch to console to see progress
+            document.getElementById('install-cuda-btn').addEventListener('click', async () => {
+                showPythonStatus('Installing CUDA GPU support... This may take several minutes.');
+                switchToConsoleTab(); // Switch to console to see progress
 
-            //     try {
-            //         const result = await ipcRenderer.invoke('python.installCudaPackage', cudaVersion);
-            //         if (result.success) {
-            //             showPythonStatus(`✅ ${result.message}`, 'success');
-            //         } else {
-            //             showPythonStatus(`❌ ${result.message}`, 'error');
-            //         }
-            //     } catch (error) {
-            //         showPythonStatus(`❌ Error installing CUDA: ${error.message}`, 'error');
-            //     }
-            // });
+                try {
+                    const result = await ipcRenderer.invoke('python.installCudaPackage');
+                    if (result.success) {
+                        showPythonStatus(`✅ ${result.message}`, 'success');
+                    } else {
+                        showPythonStatus(`❌ ${result.message}`, 'error');
+                    }
+                } catch (error) {
+                    showPythonStatus(`❌ Error installing CUDA: ${error.message}`, 'error');
+                }
+            });
 
             // CUDA Guide
             document.getElementById('cuda-guide-btn').addEventListener('click', async () => {

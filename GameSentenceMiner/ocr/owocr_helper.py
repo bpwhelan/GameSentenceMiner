@@ -159,11 +159,16 @@ class OCRProcessor():
 
 
 def save_result_image(img, pre_crop_image=None):
-    if isinstance(img, bytes):
-        with open(os.path.join(get_temporary_directory(), "last_successful_ocr.png"), "wb") as f:
-            f.write(img)
-    else:
-        img.save(os.path.join(get_temporary_directory(), "last_successful_ocr.png"))
+    try:
+        if isinstance(img, bytes):
+            with open(os.path.join(get_temporary_directory(), "last_successful_ocr.png"), "wb") as f:
+                f.write(img)
+        else:
+            img.save(os.path.join(get_temporary_directory(), "last_successful_ocr.png"))
+            if pre_crop_image:
+                pre_crop_image.save(os.path.join(get_temporary_directory(), "last_successful_ocr_precrop.png"))
+    except Exception as e:
+        logger.debug(f"Error saving debug result image: {e}")
     run.set_last_image(pre_crop_image if pre_crop_image else img)
 
 
@@ -456,7 +461,6 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_p
     """
     def return_original_image():
         """Return a (possibly cropped) PIL.Image based on the original image and padding."""
-        logger.debug("Returning original image for OCR2 (no cropping or optimization).")
         # Convert bytes to PIL.Image if necessary
         img = og_image
         if isinstance(og_image, (bytes, bytearray)):
@@ -490,12 +494,13 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_p
         if y2 <= y1:
             y2 = min(img.height, y1 + 1)
             y1 = max(0, y2 - 1)
-
-        try:
-            img.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
-        except Exception:
-            # don't fail just because we couldn't save a debug image
-            logger.debug("Could not save pre_oneocrcrop.png for debugging")
+            
+        # Turning off debug
+        # try:
+        #     img.save(os.path.join(get_temporary_directory(), "pre_oneocrcrop.png"))
+        # except Exception:
+        #     # don't fail just because we couldn't save a debug image
+        #     logger.debug("Could not save pre_oneocrcrop.png for debugging")
         return img.crop((x1, y1, x2, y2))
     
     # TODO Get rid of this check, and just always convert to full res
