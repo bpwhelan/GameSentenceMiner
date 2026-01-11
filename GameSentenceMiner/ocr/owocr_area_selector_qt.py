@@ -142,6 +142,13 @@ class OWOCRAreaSelectorWidget(QWidget):
     def __init__(self, window_name, use_window_as_config=False, use_obs_screenshot=False, 
                  on_complete=None, select_monitor_area=False, monitor_index=None):
         super().__init__()
+        logger.info("Initializing OWOCRAreaSelectorWidget...")
+        logger.info(f"  window_name: '{window_name}'")
+        logger.info(f"  use_window_as_config: {use_window_as_config}")
+        logger.info(f"  use_obs_screenshot: {use_obs_screenshot}")
+        logger.info(f"  select_monitor_area: {select_monitor_area}")
+        logger.info(f"  monitor_index: {monitor_index}")
+        
         self.window_name = window_name
         self.use_window_as_config = use_window_as_config
         self.use_obs_screenshot = use_obs_screenshot
@@ -183,49 +190,79 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.long_press_pos = None
         self.long_press_active = False
         
+        logger.info("Calling _initialize()...")
         self._initialize()
         # Only initialize UI if screenshot was successful
         if self.pixmap:
+            logger.info("Pixmap created successfully, initializing UI...")
             self.init_ui()
+            logger.info("UI initialization complete")
+        else:
+            logger.error("Pixmap creation failed, UI will not be initialized")
+            raise RuntimeError("Failed to create pixmap during initialization")
     
     def _initialize(self):
         """Initialize appropriate capture method."""
         try:
+            logger.info("Starting initialization...")
             if self.select_monitor_area:
+                logger.info("Initializing monitor capture mode...")
                 self._init_monitor_capture()
+                logger.info("Connecting to OBS...")
                 obs.connect_to_obs_sync()
+                logger.info("Getting current scene...")
                 self.scene = obs.get_current_scene()
+                logger.info(f"Current scene: {self.scene}")
+                logger.info("Loading existing overlay rectangles...")
                 self._load_existing_overlay_rectangles()    
             else:
+                logger.info("Connecting to OBS...")
                 obs.connect_to_obs_sync()
+                logger.info("Getting current scene...")
                 self.scene = obs.get_current_scene()
+                logger.info(f"Current scene: {self.scene}")
                 
                 if self.use_obs_screenshot:
+                    logger.info("Initializing OBS screenshot mode...")
                     self._init_obs_screenshot()
                 else:
+                    logger.info("Initializing window capture mode...")
                     self._init_window_capture()
                 
+                logger.info("Loading existing rectangles...")
                 self._load_existing_rectangles()
             
             # Convert PIL Image to QPixmap
+            logger.info("Converting PIL Image to QPixmap...")
             img_to_convert = self.screenshot_img
+            logger.info(f"Image mode: {img_to_convert.mode}, size: {img_to_convert.size}")
+            
             if img_to_convert.mode in ('RGBA', 'LA', 'P'):
+                logger.info(f"Converting image mode from {img_to_convert.mode} to RGB...")
                 if img_to_convert.mode == 'P':
                     img_to_convert = img_to_convert.convert('RGBA')
                 rgb_img = Image.new('RGB', img_to_convert.size, (255, 255, 255))
                 rgb_img.paste(img_to_convert, mask=img_to_convert.split()[-1] if img_to_convert.mode == 'RGBA' else None)
                 img_to_convert = rgb_img
             
+            logger.info("Creating QImage from image data...")
             img_data = img_to_convert.tobytes('raw', 'RGB')
             qimage = QImage(img_data, img_to_convert.width, img_to_convert.height,
                           img_to_convert.width * 3, QImage.Format.Format_RGB888)
             self.pixmap = QPixmap.fromImage(qimage)
+            logger.info(f"QPixmap created successfully: {self.pixmap.width()}x{self.pixmap.height()}")
+            logger.info("Initialization completed successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize: {e}")
+            logger.error(f"Failed to initialize: {e}", exc_info=True)
+            import traceback
+            traceback.print_exc()
             # Display error in a box and exit gracefully
-            QMessageBox.critical(None, "Initialization Error", str(e))
-            sys.exit(0)
+            try:
+                QMessageBox.critical(None, "Initialization Error", str(e))
+            except:
+                logger.error("Failed to show error dialog")
+            sys.exit(1)
 
     def _init_monitor_capture(self):
         """Initialize by capturing the configured monitor via MSS."""
@@ -1278,22 +1315,40 @@ def show_area_selector(window_name, use_window_as_config=False, use_obs_screensh
     :param use_obs_screenshot: Whether to use OBS screenshot instead of window capture
     :param on_complete: Callback function that receives the selection result
     """
+    logger.info("show_area_selector called")
+    logger.info(f"  window_name: '{window_name}'")
+    logger.info(f"  use_window_as_config: {use_window_as_config}")
+    logger.info(f"  use_obs_screenshot: {use_obs_screenshot}")
+    
     # Create QApplication if it doesn't exist
     app = QApplication.instance()
     created_app = False
     if app is None:
+        logger.info("Creating new QApplication instance...")
         app = QApplication(sys.argv)
         created_app = True
+        logger.info("QApplication created successfully")
+    else:
+        logger.info("Using existing QApplication instance")
     
     # Create and show the selector widget
-    _selector = OWOCRAreaSelectorWidget(window_name, use_window_as_config, use_obs_screenshot, on_complete)
+    logger.info("Creating OWOCRAreaSelectorWidget...")
+    try:
+        _selector = OWOCRAreaSelectorWidget(window_name, use_window_as_config, use_obs_screenshot, on_complete)
+        logger.info("OWOCRAreaSelectorWidget created successfully")
+    except Exception as e:
+        logger.error(f"Failed to create OWOCRAreaSelectorWidget: {e}", exc_info=True)
+        raise
     
     # Run the application event loop only if we created it
     if created_app:
+        logger.info("Starting Qt event loop...")
         app.exec()
+        logger.info("Qt event loop exited")
         # Clean up
         app.quit()
         del app
+        logger.info("QApplication cleaned up")
     
     return _selector
 
@@ -1302,43 +1357,78 @@ def show_monitor_selector(monitor_index=0, on_complete=None):
     Displays a Qt-based area selector for a specific monitor defined in config.
     Captures via MSS, scales down, and allows basic rectangle selection.
     """
+    logger.info(f"show_monitor_selector called with monitor_index={monitor_index}")
+    
     app = QApplication.instance()
     created_app = False
     if app is None:
+        logger.info("Creating new QApplication instance...")
         app = QApplication(sys.argv)
         created_app = True
-        
-    _selector = OWOCRAreaSelectorWidget(
-        window_name="", 
-        use_window_as_config=False, 
-        use_obs_screenshot=False, 
-        on_complete=on_complete,
-        select_monitor_area=True,
-        monitor_index=monitor_index
-    )
+        logger.info("QApplication created successfully")
+    else:
+        logger.info("Using existing QApplication instance")
+    
+    logger.info("Creating OWOCRAreaSelectorWidget in monitor selection mode...")
+    try:
+        _selector = OWOCRAreaSelectorWidget(
+            window_name="", 
+            use_window_as_config=False, 
+            use_obs_screenshot=False, 
+            on_complete=on_complete,
+            select_monitor_area=True,
+            monitor_index=monitor_index
+        )
+        logger.info("OWOCRAreaSelectorWidget created successfully")
+    except Exception as e:
+        logger.error(f"Failed to create OWOCRAreaSelectorWidget: {e}", exc_info=True)
+        raise
     
     if created_app:
+        logger.info("Starting Qt event loop...")
         app.exec()
+        logger.info("Qt event loop exited")
         app.quit()
         del app
+        logger.info("QApplication cleaned up")
     
     return _selector
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="OWOCR Area Selector")
-    parser.add_argument("window_name", nargs='?', default="", help="Target window name")
-    parser.add_argument("--use-window-as-config", action="store_true", help="Use window name for config")
-    parser.add_argument("--obs", action="store_true", default=True, help="Use OBS screenshot")
-    parser.add_argument("--monitor", action="store", default=None, help="Use monitor selection mode with index (0=Primary)")
-    
-    args = parser.parse_args()
-    
-    set_dpi_awareness()
-    
-    def on_complete(rectangles):
-        logger.info(f"Completed with {len(rectangles)} rectangles")
+    try:
+        logger.info("=" * 60)
+        logger.info("OWOCR Area Selector starting...")
+        logger.info(f"Python version: {sys.version}")
+        logger.info(f"Arguments: {sys.argv}")
+        logger.info("=" * 60)
         
-    if args.monitor is not None:
-        show_monitor_selector(monitor_index=int(args.monitor), on_complete=on_complete)
-    else:
-        show_area_selector(args.window_name, args.use_window_as_config, args.obs, on_complete)
+        parser = argparse.ArgumentParser(description="OWOCR Area Selector")
+        parser.add_argument("window_name", nargs='?', default="", help="Target window name")
+        parser.add_argument("--use-window-as-config", action="store_true", help="Use window name for config")
+        parser.add_argument("--obs", action="store_true", default=True, help="Use OBS screenshot")
+        parser.add_argument("--monitor", action="store", default=None, help="Use monitor selection mode with index (0=Primary)")
+        
+        logger.info("Parsing command line arguments...")
+        args = parser.parse_args()
+        logger.info(f"Parsed arguments: window_name='{args.window_name}', use_window_as_config={args.use_window_as_config}, obs={args.obs}, monitor={args.monitor}")
+        
+        logger.info("Setting DPI awareness...")
+        set_dpi_awareness()
+        logger.info("DPI awareness set successfully")
+        
+        def on_complete(rectangles):
+            logger.info(f"Completed with {len(rectangles)} rectangles")
+        
+        if args.monitor is not None:
+            logger.info(f"Starting monitor selection mode for monitor index: {args.monitor}")
+            show_monitor_selector(monitor_index=int(args.monitor), on_complete=on_complete)
+        else:
+            logger.info(f"Starting area selector for window: '{args.window_name}', OBS mode: {args.obs}")
+            show_area_selector(args.window_name, args.use_window_as_config, args.obs, on_complete)
+        
+        logger.info("OWOCR Area Selector completed successfully")
+    except Exception as e:
+        logger.error(f"Fatal error in main: {e}", exc_info=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

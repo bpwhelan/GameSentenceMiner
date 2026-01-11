@@ -59,6 +59,7 @@ let userSettings = {
   "showTextBackground": false,
   "afkTimer": 5, // in minutes
   "showFurigana": false,
+  "hideFuriganaOnStartup": false,
   "offsetX": 0,
   "offsetY": 0,
   "dismissedFullscreenRecommendations": [], // Games for which fullscreen recommendation was dismissed
@@ -370,48 +371,49 @@ function registerManualShowHotkey(oldHotkey) {
   });
 }
 
+// DISABLED AFK TIMER FOR NOW
 function resetActivityTimer() {
-  // Clear existing timer
-  if (activityTimer) {
-    clearTimeout(activityTimer);
-  }
+  // // Clear existing timer
+  // if (activityTimer) {
+  //   clearTimeout(activityTimer);
+  // }
 
-  if (userSettings.afkTimer === 0) {
-    return;
-  }
+  // if (userSettings.afkTimer === 0) {
+  //   return;
+  // }
 
-  // Set new timer for 5 minutes
-  activityTimer = setTimeout(() => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      console.log("AFK timeout reached — hiding overlay text and releasing interactions");
-      // Use dedicated AFK IPC channel so renderer knows this is an automatic hide
-      try {
-        mainWindow.webContents.send('afk-hide', true);
-        afkHidden = true;
-      } catch (e) {
-        console.warn('Failed to send afk-hide to renderer:', e);
-      }
+  // // Set new timer for 5 minutes
+  // activityTimer = setTimeout(() => {
+  //   if (mainWindow && !mainWindow.isDestroyed()) {
+  //     console.log("AFK timeout reached — hiding overlay text and releasing interactions");
+  //     // Use dedicated AFK IPC channel so renderer knows this is an automatic hide
+  //     try {
+  //       mainWindow.webContents.send('afk-hide', true);
+  //       afkHidden = true;
+  //     } catch (e) {
+  //       console.warn('Failed to send afk-hide to renderer:', e);
+  //     }
 
-      // Ensure manual hotkey state is cleared so subsequent AFK cycles behave correctly
-      manualHotkeyPressed = false;
+  //     // Ensure manual hotkey state is cleared so subsequent AFK cycles behave correctly
+  //     manualHotkeyPressed = false;
 
-      // Make the overlay ignore mouse events so clicks pass through
-      try {
-        if (isWindows || isMac()) {
-          mainWindow.setIgnoreMouseEvents(true, { forward: true });
-        }
-      } catch (e) {
-        console.warn('Failed to setIgnoreMouseEvents on mainWindow:', e);
-      }
+  //     // Make the overlay ignore mouse events so clicks pass through
+  //     try {
+  //       if (isWindows || isMac()) {
+  //         mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  //       }
+  //     } catch (e) {
+  //       console.warn('Failed to setIgnoreMouseEvents on mainWindow:', e);
+  //     }
 
-      // Blur window so it doesn't steal focus
-      try {
-        blurAndRestoreFocus();
-      } catch (e) {
-        // ignore
-      }
-    }
-  }, userSettings.afkTimer * 60 * 1000);
+  //     // Blur window so it doesn't steal focus
+  //     try {
+  //       blurAndRestoreFocus();
+  //     } catch (e) {
+  //       // ignore
+  //     }
+  //   }
+  // }, userSettings.afkTimer * 60 * 1000);
 }
 
 function openSettings() {
@@ -631,6 +633,30 @@ function updateTrayMenu() {
       checked: isManualMode(),
       click: (menuItem) => {
         userSettings.manualMode = menuItem.checked;
+        
+        // Clear any manual mode state
+        if (holdHeartbeat) {
+          console.log("[ManualMode] Clearing holdHeartbeat interval");
+          clearInterval(holdHeartbeat);
+          holdHeartbeat = null;
+        }
+        manualHotkeyPressed = false;
+        
+        // When turning OFF manual mode, restore the overlay to visible state
+        if (!menuItem.checked) {
+          console.log("[ManualMode] Disabling manual mode via tray - restoring overlay visibility");
+          isOverlayVisible = false;
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show();
+            if (!isLinux()) {
+              mainWindow.setIgnoreMouseEvents(false, { forward: true });
+            }
+          }
+        } else {
+          // When turning ON manual mode, reset visibility flag
+          isOverlayVisible = false;
+        }
+        
         registerManualShowHotkey();
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("settings-updated", { manualMode: menuItem.checked });
@@ -1274,12 +1300,17 @@ app.whenReady().then(async () => {
         if (isManualMode()) {
           return; // Do nothing in manual mode
         }
+        console.log("[WindowState] Active - Game has focus");
         // Game window is active/focused - show overlay normally
-        if (mainWindow.isMinimized() || !mainWindow.isVisible()) {
+        if (mainWindow.isMinimized()) {
           mainWindow.restore();
           blurAndRestoreFocus();
-          // mainWindow.webContents.send("afk-hide", false);
           afkHidden = false;
+        } else if (!mainWindow.isVisible()) {
+          // Window was hidden (e.g., by obscured state) - restore it
+          mainWindow.show();
+          blurAndRestoreFocus();
+          mainWindow.setAlwaysOnTop(true, 'screen-saver');
         } else if (magpieActive) {
           showInactiveAndRestoreFocus();
           mainWindow.setAlwaysOnTop(true, 'screen-saver');
@@ -1287,26 +1318,23 @@ app.whenReady().then(async () => {
         break;
 
       case "background":
-        // Disabled for now, idk what I want to do here
-        // if (!yomitanShown) {
-        //   // Game window exists but is not focused - show overlay but less prominent
-        //   if (mainWindow.isMinimized()) {
-        //     mainWindow.restore();
-        //   }
-        //   mainWindow.showInactive();
-        //   mainWindow.setAlwaysOnTop(true, 'floating');
-        // }
+        // Do nothing - let overlay maintain current state when game loses focus
+        console.log("[WindowState] Background - Game visible but not focused (no action)");
         break;
 
       case "obscured":
+        if (isManualMode()) {
+          return; // Do nothing in manual mode
+        }
+        console.log("[WindowState] Obscured - Game completely covered by other windows");
         // Game window is completely hidden by other windows - hide overlay
-        // Use currentMagpieActive from websocket instead of userSettings.magpieCompatibility
-        if (!yomitanShown && !mainWindow.isMinimized()) {
+        if (!yomitanShown && !resizeMode && !mainWindow.isMinimized()) {
           mainWindow.hide();
         }
         break;
 
       case "minimized":
+        console.log("[WindowState] Minimized - Game window minimized");
         // Game window is minimized - minimize overlay too
         if (!mainWindow.isMinimized()) {
           mainWindow.minimize();
@@ -1430,8 +1458,23 @@ app.whenReady().then(async () => {
       clearInterval(holdHeartbeat);
       holdHeartbeat = null;
     }
-    isOverlayVisible = false;
     manualHotkeyPressed = false;
+
+    // When turning OFF manual mode, restore the overlay to visible state
+    if (!newValue) {
+      console.log("[ManualMode] Disabling manual mode - restoring overlay visibility");
+      isOverlayVisible = false; // Reset the flag since we're leaving manual mode
+      // Ensure the window is visible and mouse events are enabled
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        if (!isLinux()) {
+          mainWindow.setIgnoreMouseEvents(false, { forward: true });
+        }
+      }
+    } else {
+      // When turning ON manual mode, reset visibility flag
+      isOverlayVisible = false;
+    }
 
     mainWindow.webContents.send("settings-updated", { manualMode: newValue });
     saveSettings();

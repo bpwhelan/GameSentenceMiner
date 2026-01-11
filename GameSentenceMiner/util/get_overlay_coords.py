@@ -57,6 +57,22 @@ if is_windows():
     # Process Access Rights
     PROCESS_QUERY_INFORMATION = 0x0400
     PROCESS_VM_READ = 0x0010
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    
+    # PROCESS_MEMORY_COUNTERS structure for memory queries
+    class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ('cb', wintypes.DWORD),
+            ('PageFaultCount', wintypes.DWORD),
+            ('PeakWorkingSetSize', ctypes.c_size_t),
+            ('WorkingSetSize', ctypes.c_size_t),
+            ('QuotaPeakPagedPoolUsage', ctypes.c_size_t),
+            ('QuotaPagedPoolUsage', ctypes.c_size_t),
+            ('QuotaPeakNonPagedPoolUsage', ctypes.c_size_t),
+            ('QuotaNonPagedPoolUsage', ctypes.c_size_t),
+            ('PagefileUsage', ctypes.c_size_t),
+            ('PeakPagefileUsage', ctypes.c_size_t),
+        ]
     
     # User32 types
     user32.GetForegroundWindow.restype = wintypes.HWND
@@ -104,6 +120,8 @@ if is_windows():
     # PSAPI types
     psapi.GetModuleFileNameExW.argtypes = [wintypes.HANDLE, wintypes.HMODULE, wintypes.LPWSTR, wintypes.DWORD]
     psapi.GetModuleFileNameExW.restype = wintypes.DWORD
+    psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESS_MEMORY_COUNTERS), wintypes.DWORD]
+    psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
     
     SW_RESTORE = 9
     SW_SHOW = 5
@@ -193,7 +211,10 @@ class WindowStateMonitor:
         self.backoff_steps = [0.1, 0.2, 0.3, 0.4, 0.5]
         self.max_poll_interval = 1.0
         self.last_obs_check_time = 0
-        self.last_is_fullscreen: bool = False 
+        self.last_is_fullscreen: bool = False
+        self.last_scene_name = None
+        self.last_obs_dimensions_time = 0
+        self.last_hwnd_refresh_time = 0
 
         # Known browser window classes to completely exclude
         self.BROWSER_CLASSES = {
@@ -221,6 +242,29 @@ class WindowStateMonitor:
         finally:
             kernel32.CloseHandle(h_process)
         return ""
+    
+    def _get_process_memory_usage(self, hwnd) -> int:
+        """Gets the working set size (memory usage) for a window's process."""
+        try:
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            
+            h_process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not h_process:
+                return 0
+            
+            try:
+                mem_counters = PROCESS_MEMORY_COUNTERS()
+                mem_counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+                
+                if psapi.GetProcessMemoryInfo(h_process, ctypes.byref(mem_counters), mem_counters.cb):
+                    return mem_counters.WorkingSetSize
+                return 0
+            finally:
+                kernel32.CloseHandle(h_process)
+        except Exception as e:
+            logger.debug(f"Error getting memory usage for hwnd {hwnd}: {e}")
+            return 0
 
     def _get_window_class(self, hwnd) -> str:
         """Helper to get Window Class name."""
@@ -238,26 +282,82 @@ class WindowStateMonitor:
         return buff.value
 
     def _is_overlay_window(self, hwnd) -> bool:
-        """Check if a window is the GSM overlay, Magpie, or other transparent overlay."""
+        """Check if a window is a transparent overlay (GSM, Magpie, OBS preview, etc).
+        
+        Returns TRUE only for windows that should be ignored in obscured checks.
+        Regular apps (Discord, VS Code, etc.) should return FALSE even if Electron-based.
+        
+        Optimized to check cheap properties (class, title) before expensive exe lookup.
+        """
         try:
+            # Get window class (cheap: just GetClassNameW)
             window_class = self._get_window_class(hwnd)
             
-            # Electron windows typically have "Chrome" class, check class first (faster)
-            if "Chrome" in window_class:
-                title = self._get_window_title(hwnd)
-                if "overlay" in title.lower():
-                    return True
-
-            # Check for Magpie window
+            # Check for Magpie window first (most specific)
             if "Magpie" in window_class:
                 return True
-                
+            
+            # Check for Japanese learning tool overlays by class
+            # Qt5152QWindowIcon is LunaTranslator
+            if "Qt5" in window_class and "QWindowIcon" in window_class:
+                return True
+            
+            # HwndWrapper[JL;;...] is JL (Japanese Learning tool)
+            if "HwndWrapper" in window_class and "[JL;" in window_class:
+                return True
+            
+            # Get title (cheap: just GetWindowTextW)
             title = self._get_window_title(hwnd)
+            if "Magpie" in title:
+                return True
+            
+            # Check for GSM Overlay by title
             if "GSM Overlay" in title or "gsm_overlay" in title.lower():
                 return True
             
-            if "Magpie" in title:
-                return True
+            # Electron windows have "Chrome" class - check title for GSM-specific overlays
+            if "Chrome" in window_class:
+                title_lower = title.lower()
+                if "overlay" in title_lower and "gsm" in title_lower:
+                    return True
+                
+                # For Chrome class windows, we need to check exe name
+                # to distinguish overlay apps from regular apps like Discord/VS Code
+                # This is expensive (OpenProcess + GetModuleFileNameExW) but necessary for Electron
+                exe_name = self._get_window_exe_name(hwnd)
+                if exe_name:
+                    exe_lower = exe_name.lower()
+                    
+                    # FALSE: Regular Electron apps that should count as obscuring
+                    if any(name in exe_lower for name in [
+                        "discord.exe",
+                        "code.exe", "code - insiders.exe",  # VS Code
+                        "slack.exe",
+                        "teams.exe",
+                        "spotify.exe",
+                        "cursor.exe",  # Cursor IDE
+                        "windsurf.exe"  # Windsurf IDE
+                    ]):
+                        return False
+            
+            # Check executable name for known overlay apps (expensive but necessary for some)
+            # Only reach here if not Chrome class or Chrome class didn't match deny list
+            # exe_name = self._get_window_exe_name(hwnd)
+            # if exe_name:
+            #     exe_lower = exe_name.lower()
+                
+            #     # TRUE: Transparent overlays that sit on top of games
+            #     if any(name in exe_lower for name in [
+            #         "gsm_overlay.exe",
+            #         "obs64.exe", "obs32.exe",  # OBS Studio
+            #         "streamlabs obs.exe",
+            #         "xsplit.broadcaster.exe",
+            #         "gamebar.exe",  # Windows Game Bar
+            #         "nvidia share.exe", "nvcontainer.exe",  # GeForce Experience overlay
+            #         "lunatranslator.exe",  # LunaTranslator (backup check if class fails)
+            #         "jl.exe"  # JL (Japanese Learning) (backup check if class fails)
+            #     ]):
+            #         return True
             
             return False
         except Exception:
@@ -272,7 +372,11 @@ class WindowStateMonitor:
             return False
 
     def _is_window_obscured(self, hwnd) -> bool:
-        """Check if the window is completely obscured by other windows."""
+        """Check if the window is mostly obscured by other windows.
+        
+        Uses padding to account for taskbar and other UI elements that might
+        prevent a window from being 100% covered but still effectively obscure the game.
+        """
         try:
             # Get target window rect
             target_rect = wintypes.RECT()
@@ -285,6 +389,20 @@ class WindowStateMonitor:
             if target_width <= 0 or target_height <= 0:
                 return True
             
+            # Padding to allow for taskbar and small UI elements (mainly bottom for taskbar)
+            # Horizontal padding: 10px on each side
+            # Vertical padding: 15px top, 80px bottom (typical taskbar height is ~40-48px, use 80 for safety)
+            PADDING_LEFT = 10
+            PADDING_RIGHT = 10
+            PADDING_TOP = 15
+            PADDING_BOTTOM = 80  # Account for taskbar
+            
+            # Create padded target rect for comparison
+            padded_target_left = target_rect.left + PADDING_LEFT
+            padded_target_right = target_rect.right - PADDING_RIGHT
+            padded_target_top = target_rect.top + PADDING_TOP
+            padded_target_bottom = target_rect.bottom - PADDING_BOTTOM
+            
             current_hwnd = user32.GetWindow(hwnd, GW_HWNDPREV)
             
             while current_hwnd:
@@ -295,10 +413,12 @@ class WindowStateMonitor:
                 if user32.IsWindowVisible(current_hwnd):
                     overlapping_rect = wintypes.RECT()
                     if user32.GetWindowRect(current_hwnd, ctypes.byref(overlapping_rect)):
-                        if (overlapping_rect.left <= target_rect.left and
-                            overlapping_rect.top <= target_rect.top and
-                            overlapping_rect.right >= target_rect.right and
-                            overlapping_rect.bottom >= target_rect.bottom):
+                        # Check if overlapping window covers the padded target area
+                        if (overlapping_rect.left <= padded_target_left and
+                            overlapping_rect.top <= padded_target_top and
+                            overlapping_rect.right >= padded_target_right and
+                            overlapping_rect.bottom >= padded_target_bottom):
+                            logger.debug(f"Window obscured by HWND {current_hwnd} (with padding tolerance)")
                             return True
                 
                 current_hwnd = user32.GetWindow(current_hwnd, GW_HWNDPREV)
@@ -425,9 +545,32 @@ class WindowStateMonitor:
         user32.EnumWindows(cmp_func(self._find_window_callback), 0)
         
         if self.found_hwnds:
+            # If only one window found, return it
+            if len(self.found_hwnds) == 1:
+                return self.found_hwnds[0]
+            
+            # Multiple windows found - prefer foreground if it's one of them
             fg = user32.GetForegroundWindow()
             if fg in self.found_hwnds:
+                logger.info(f"Multiple windows found ({len(self.found_hwnds)}), using foreground window")
                 return fg
+            
+            # Otherwise, select the one with highest memory usage
+            logger.info(f"Multiple windows found ({len(self.found_hwnds)}), selecting by highest memory usage")
+            best_hwnd = None
+            max_memory = 0
+            
+            for hwnd in self.found_hwnds:
+                memory = self._get_process_memory_usage(hwnd)
+                if memory > max_memory:
+                    max_memory = memory
+                    best_hwnd = hwnd
+            
+            if best_hwnd:
+                logger.info(f"Selected window with {max_memory / (1024*1024):.1f} MB memory usage")
+                return best_hwnd
+            
+            # Fallback to first window if memory query fails
             return self.found_hwnds[0]
         
         return None
@@ -475,10 +618,19 @@ class WindowStateMonitor:
             return
 
         now = time.time()
+        scene_changed = False
         if now - self.last_obs_check_time > 2.0:  # Check every 2 seconds
             self.last_obs_check_time = now
             try:
-                new_info = get_window_info_from_source(scene_name=get_current_scene())
+                current_scene = get_current_scene()
+                if current_scene != self.last_scene_name:
+                    logger.info(f"Scene changed from '{self.last_scene_name}' to '{current_scene}' - Resetting OBS dimensions.")
+                    overlay_processor.obs_width = None
+                    overlay_processor.obs_height = None
+                    scene_changed = True
+                    self.last_scene_name = current_scene
+                
+                new_info = get_window_info_from_source(scene_name=current_scene)
                 
                 if new_info and self.last_target_info:
                     if (new_info.get('title') != self.last_target_info.get('title') or 
@@ -486,12 +638,24 @@ class WindowStateMonitor:
                         logger.info(f"OBS Source changed from '{self.last_target_info.get('title')}' to '{new_info.get('title')}' - Resetting target.")
                         self.target_hwnd = None
                         self.retry_find_count = 0
+                        overlay_processor.obs_width = None
+                        overlay_processor.obs_height = None
             except Exception:
                 pass
 
+        # Check if hwnd needs refresh: None, retry limit, or stale (10+ seconds)
+        should_refresh_hwnd = False
         if not self.target_hwnd or self.retry_find_count > 10:
+            should_refresh_hwnd = True
+        elif now - self.last_hwnd_refresh_time > 10.0:
+            # Periodic refresh to catch new windows or closed windows
+            should_refresh_hwnd = True
+            logger.debug("Refreshing target hwnd (periodic check)")
+        
+        if should_refresh_hwnd:
             self.target_hwnd = self.find_target_hwnd()
             self.retry_find_count = 0
+            self.last_hwnd_refresh_time = now
         
         if not self.target_hwnd:
             self.retry_find_count += 1
@@ -512,7 +676,13 @@ class WindowStateMonitor:
             if foreground_hwnd == self.target_hwnd:
                 current_state = "active"
             else:
-                current_state = "background"
+                # Window is visible but not focused - check if completely obscured
+                is_obscured = self._is_window_obscured(self.target_hwnd)
+                logger.debug(f"Window obscured check: {is_obscured}")
+                if is_obscured:
+                    current_state = "obscured"
+                else:
+                    current_state = "background"
 
             # Check for exclusive fullscreen
             is_fullscreen = self._is_exclusive_fullscreen(self.target_hwnd)
@@ -529,6 +699,9 @@ class WindowStateMonitor:
                 logger.debug(f"Target window moved or resized: {self.last_window_rect} -> {current_rect}")
             self.window_stable_count = 0
             self.poll_interval = self.fast_poll_interval
+            # Reset OBS dimensions on window size/position change
+            overlay_processor.obs_width = None
+            overlay_processor.obs_height = None
         else:
             self.window_stable_count += 1
             if self.window_stable_count > 0 and self.window_stable_count <= len(self.backoff_steps):
@@ -557,6 +730,7 @@ class WindowStateMonitor:
         fullscreen_changed = is_fullscreen != self.last_is_fullscreen
 
         if current_state != self.last_state or magpie_changed or fullscreen_changed:
+            logger.info(f"Window state changed: {self.last_state} -> {current_state} (game: {game_name_ref}, fullscreen: {is_fullscreen})")
             self.last_state = current_state
             self.last_is_fullscreen = is_fullscreen
             
@@ -580,12 +754,18 @@ class WindowStateMonitor:
         # Always update last_magpie_info after checking for changes to prevent stale state
         self.last_magpie_info = copy.deepcopy(self.magpie_info) if self.magpie_info else None
         
+        # Check for stale OBS dimensions (reset every 30 seconds)
+        if overlay_processor.obs_width is not None and overlay_processor.obs_height is not None:
+            if now - self.last_obs_dimensions_time > 30.0:
+                logger.debug("OBS dimensions are stale (>30s), resetting for next capture")
+                overlay_processor.obs_width = None
+                overlay_processor.obs_height = None
+                self.last_obs_dimensions_time = now
+        
         # Smart Update
-        if (magpie_changed or window_moved_or_resized):
-            overlay_processor.obs_width = None
-            overlay_processor.obs_height = None
+        if (magpie_changed or window_moved_or_resized or scene_changed):
             if current_state not in ["minimized", "closed"]:
-                logger.display("Window geometry or Magpie state stable - reprocessing last OCR result")
+                logger.display("Window geometry, Magpie, or scene changed - reprocessing last OCR result")
                 asyncio.create_task(
                     overlay_processor.reprocess_and_send_last_results()
                 )
@@ -737,8 +917,8 @@ class OverlayProcessor:
     SCALE_TYPE = "fixed"
     # SCALE_TYPE = "forced_minimum"
     SCREENSHOT_SCALE_FACTOR = 0.1  # 1.0 = no scaling (only used when SCALE_TYPE = "fixed")
-    MINIMUM_WIDTH = 800
-    MINIMUM_HEIGHT = 600
+    MINIMUM_WIDTH = 1024
+    MINIMUM_HEIGHT = 768
     
     def __init__(self):
         self.config = get_config()
@@ -930,6 +1110,8 @@ class OverlayProcessor:
                         if self.obs_width is None or self.obs_height is None:
                             self.obs_width = obs_img.width
                             self.obs_height = obs_img.height
+                            if self.window_monitor:
+                                self.window_monitor.last_obs_dimensions_time = time.time()
                         
                         off_x, off_y = get_window_client_screen_offset(hwnd)
                         final_off_x = off_x - monitor['left']
@@ -1096,6 +1278,7 @@ class OverlayProcessor:
         
         if not self.lens and not self.oneocr and not self.meikiocr:
             logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
+            self.init()
             return []
         
         # if get_config().overlay.scan_delay > 0:

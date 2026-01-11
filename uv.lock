@@ -901,7 +901,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2.23.5"
+version = "2.23.11"
 source = { editable = "." }
 dependencies = [
     { name = "betterproto" },

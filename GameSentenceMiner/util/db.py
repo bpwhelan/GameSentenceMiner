@@ -524,9 +524,9 @@ class AIModelsTable(SQLiteDBTable):
 class GameLinesTable(SQLiteDBTable):
     _table = 'game_lines'
     _fields = ['game_name', 'line_text', 'screenshot_in_anki',
-               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp', 'original_game_name', 'game_id']
+               'audio_in_anki', 'screenshot_path', 'audio_path', 'replay_path', 'translation', 'timestamp', 'original_game_name', 'game_id', 'note_ids']
     _types = [str,  # Includes primary key type
-              str, str, str, str, str, str, str, str, float, str, str]
+              str, str, str, str, str, str, str, str, float, str, str, list]
     _pk = 'id'
     _auto_increment = False  # Use string IDs
 
@@ -542,7 +542,8 @@ class GameLinesTable(SQLiteDBTable):
                  replay_path: Optional[str] = None,
                  translation: Optional[str] = None,
                  original_game_name: Optional[str] = None,
-                 game_id: Optional[str] = None):
+                 game_id: Optional[str] = None,
+                 note_ids: Optional[List[str]] = None):
         self.id = id
         self.game_name = game_name
         self.line_text = line_text
@@ -556,6 +557,7 @@ class GameLinesTable(SQLiteDBTable):
         self.translation = translation if translation is not None else ''
         self.original_game_name = original_game_name if original_game_name is not None else ''
         self.game_id = game_id if game_id is not None else ''
+        self.note_ids = note_ids
         
     @classmethod
     def all(cls, for_stats: bool = False) -> List['GameLinesTable']:
@@ -575,7 +577,7 @@ class GameLinesTable(SQLiteDBTable):
         return [row[0] for row in rows if row[0] is not None]
 
     @classmethod
-    def update(cls, line_id: str, audio_in_anki: Optional[str] = None, screenshot_in_anki: Optional[str] = None, audio_path: Optional[str] = None, screenshot_path: Optional[str] = None, replay_path: Optional[str] = None, translation: Optional[str] = None):
+    def update(cls, line_id: str, audio_in_anki: Optional[str] = None, screenshot_in_anki: Optional[str] = None, audio_path: Optional[str] = None, screenshot_path: Optional[str] = None, replay_path: Optional[str] = None, translation: Optional[str] = None, note_id: Optional[str] = None):
         line = cls.get(line_id)
         if not line:
             logger.warning(f"GameLine with id {line_id} not found for update, maybe testing?")
@@ -592,6 +594,11 @@ class GameLinesTable(SQLiteDBTable):
             line.audio_in_anki = audio_in_anki
         if translation is not None:
             line.translation = translation
+        if note_id is not None:
+            if note_id not in line.note_ids:
+                if not line.note_ids:
+                    line.note_ids = []
+                line.note_ids.append(note_id)
         line.save()
         logger.debug(f"Updated GameLine id={line_id} paths.")
 

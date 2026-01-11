@@ -23,6 +23,7 @@ from GameSentenceMiner.util.configuration import get_stats_config, logger
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.games_table import GamesTable
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.stats_util import count_cards_from_lines
 from GameSentenceMiner.web.stats import (
     calculate_actual_reading_time,
     calculate_hourly_activity,
@@ -331,9 +332,7 @@ def analyze_genre_activity(lines: List, date_str: str) -> Dict:
         chars = sum(len(line.line_text) if line.line_text else 0 for line in game_line_list)
         timestamps = [float(line.timestamp) for line in game_line_list]
         time_spent = calculate_actual_reading_time(timestamps) if len(timestamps) >= 2 else 0.0
-        cards = sum(1 for line in game_line_list
-                   if (line.screenshot_in_anki and line.screenshot_in_anki.strip()) or
-                      (line.audio_in_anki and line.audio_in_anki.strip()))
+        cards = count_cards_from_lines(game_line_list)
         
         # Parse genres (stored as JSON array of genre names)
         try:
@@ -415,9 +414,7 @@ def analyze_type_activity(lines: List, date_str: str) -> Dict:
         chars = sum(len(line.line_text) if line.line_text else 0 for line in game_line_list)
         timestamps = [float(line.timestamp) for line in game_line_list]
         time_spent = calculate_actual_reading_time(timestamps) if len(timestamps) >= 2 else 0.0
-        cards = sum(1 for line in game_line_list
-                   if (line.screenshot_in_anki and line.screenshot_in_anki.strip()) or
-                      (line.audio_in_anki and line.audio_in_anki.strip()))
+        cards = count_cards_from_lines(game_line_list)
         
         # game.type is stored as a string name (e.g., "Visual Novel", "Anime", etc.)
         try:
@@ -499,9 +496,7 @@ def calculate_daily_stats(date_str: str) -> Dict:
     lines_with_screenshots = sum(1 for line in lines if line.screenshot_in_anki and line.screenshot_in_anki.strip())
     lines_with_audio = sum(1 for line in lines if line.audio_in_anki and line.audio_in_anki.strip())
     lines_with_translations = sum(1 for line in lines if line.translation and line.translation.strip())
-    anki_cards = sum(1 for line in lines
-                    if (line.screenshot_in_anki and line.screenshot_in_anki.strip()) or
-                       (line.audio_in_anki and line.audio_in_anki.strip()))
+    anki_cards = count_cards_from_lines(lines)
     
     # Analyze sessions
     session_stats = analyze_sessions(lines)

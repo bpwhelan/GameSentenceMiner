@@ -12,6 +12,47 @@
 }
 
 /* Heatmap Styles */
+.heatmap-pagination {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.heatmap-pagination-button {
+    padding: 4px 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    transition: all 0.2s;
+}
+
+.heatmap-pagination-button:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--text-tertiary);
+}
+
+.heatmap-pagination-button:disabled {
+    color: var(--text-tertiary);
+    cursor: not-allowed;
+    opacity: 0.3;
+    border-color: var(--border-color);
+}
+
+.heatmap-year-indicator {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    min-width: 40px;
+    text-align: center;
+}
+
 .heatmap-year {
     margin-bottom: 30px;
 }

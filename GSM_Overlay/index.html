@@ -1705,7 +1705,7 @@ function transformCoordinates(x, y) {
   // Function to clear all existing text boxes
 function clearTextBoxes() {
     // Fast way to clear DOM without leaving residue
-    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.furigana-box', '.recycled-indicator', '.text-block-container'];
+    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.furigana-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
     selectors.forEach(sel => {
         const elements = document.querySelectorAll(sel);
         for (let i = 0; i < elements.length; i++) {
@@ -1720,7 +1720,7 @@ function clearTextBoxes() {
 }
 
   function hideTextBoxes() {
-    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.furigana-box', '.recycled-indicator', '.text-block-container'];
+    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.furigana-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
     selectors.forEach(sel => {
         const elements = document.querySelectorAll(sel);
         for (let i = 0; i < elements.length; i++) {
@@ -1836,6 +1836,18 @@ function clearTextBoxes() {
     showTextBackground = newsettings.showTextBackground || false;
     shouldShowReadyIndicator = newsettings.showReadyIndicator;
     showFurigana = newsettings.showFurigana;
+    hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
+    
+    // Apply hide furigana on startup if enabled
+    if (hideFuriganaOnStartup && showFurigana) {
+      furiganaVisible = false;
+      // Hide any existing furigana boxes
+      const furiganaBoxes = document.querySelectorAll('.furigana-box');
+      furiganaBoxes.forEach(box => {
+        box.style.display = 'none';
+      });
+    }
+    
     showRecycledIndicator = newsettings.showRecycledIndicator !== false;
     offsetX = newsettings.offsetX || 0;
     offsetY = newsettings.offsetY || 0;
@@ -1921,6 +1933,9 @@ function clearTextBoxes() {
           break;
         case "showFurigana":
           showFurigana = value;
+          break;
+        case "hideFuriganaOnStartup":
+          hideFuriganaOnStartup = value;
           break;
         case "showRecycledIndicator":
           showRecycledIndicator = value;
@@ -2113,6 +2128,8 @@ function clearTextBoxes() {
 
   // Toggle furigana visibility on hotkey
   let furiganaVisible = true;
+  let hideFuriganaOnStartup = true; // default to true
+  
   ipcRenderer.on("toggle-furigana-visibility", () => {
     furiganaVisible = !furiganaVisible;
     const furiganaBoxes = document.querySelectorAll('.furigana-box');
@@ -2134,7 +2151,7 @@ function clearTextBoxes() {
     const fontSize = parseInt(textEl.style.fontSize, 10);
     const weburl1 = window.ws1 ? window.ws1.url : null;
     const weburl2 = window.ws2 ? window.ws2.url : null;
-    ipcRenderer.send("reply-current-settings", { fontSize, weburl1, weburl2, hideOnStartup, showHotkey, manualMode, showTextBackground });
+    ipcRenderer.send("reply-current-settings", { fontSize, weburl1, weburl2, hideOnStartup, showHotkey, manualMode, showTextBackground, hideFuriganaOnStartup });
   })
 
   ipcRenderer.on('toggle-main-box', () => {

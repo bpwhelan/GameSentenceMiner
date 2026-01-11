@@ -201,7 +201,7 @@ class AnkiConfirmationDialog(QDialog):
         
         self.setLayout(main_layout)
 
-    def populate_ui(self, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp):
+    def populate_ui(self, expression, sentence, screenshot_path, previous_screenshot_path, audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp, pending_animated=False):
         # Store state
         self.screenshot_timestamp = screenshot_timestamp
         self.previous_screenshot_timestamp = previous_screenshot_timestamp
@@ -209,6 +209,7 @@ class AnkiConfirmationDialog(QDialog):
         self.previous_screenshot_path = previous_screenshot_path
         self.vad_result = gsm_state.vad_result
         self.result = None
+        self.pending_animated = pending_animated
         
         self.expr_value_label.setText(expression)
         
@@ -236,6 +237,16 @@ class AnkiConfirmationDialog(QDialog):
             self.translation_text.blockSignals(False)
             
         self._load_image_to_label(self.screenshot_path, self.image_label)
+        
+        # Show animated screenshot status if pending
+        if pending_animated:
+            self.screenshot_button.setText("🎬 Animated (generating after confirmation)")
+            self.screenshot_button.setStyleSheet("color: #ff8c00; font-weight: bold;")
+            self.screenshot_button.setEnabled(False)
+        else:
+            self.screenshot_button.setText("Select New Screenshot")
+            self.screenshot_button.setStyleSheet("")
+            self.screenshot_button.setEnabled(True)
         
         use_prev_image = bool(self.previous_screenshot_path and get_config().anki.previous_image_field)
         self.prev_screenshot_label_title.setVisible(use_prev_image)
@@ -539,7 +550,7 @@ class AnkiConfirmationDialog(QDialog):
         return self.result
 
 def show_anki_confirmation(parent, expression, sentence, screenshot_path, previous_screenshot_path,
-                          audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp):
+                          audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp, pending_animated=False):
     global _anki_confirmation_dialog_instance
     
     app = QApplication.instance()
@@ -552,7 +563,7 @@ def show_anki_confirmation(parent, expression, sentence, screenshot_path, previo
     
     _anki_confirmation_dialog_instance.populate_ui(
         expression, sentence, screenshot_path, previous_screenshot_path,
-        audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp
+        audio_path, translation, screenshot_timestamp, previous_screenshot_timestamp, pending_animated
     )
     
     result = _anki_confirmation_dialog_instance.exec()

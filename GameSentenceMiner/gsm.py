@@ -322,13 +322,18 @@ class VideoToAudioHandler(FileSystemEventHandler):
                 f"Some error was hit catching to allow further work to be done: {e}", exc_info=True)
             notification.send_error_no_anki_update()
         if get_config().paths.remove_video and video_path and not skip_delete:
-            try:
-                if os.path.exists(video_path):
-                    logger.debug(f"Removing video: {video_path}")
-                    os.remove(video_path)
-            except Exception as e:
-                logger.error(
-                    f"Error removing video file {video_path}: {e}", exc_info=True)
+            # Don't remove video here if we have pending animated/video operations
+            # The cleanup callback in anki.py will handle it after background processing
+            if not (get_config().screenshot.animated or get_config().anki.video_field):
+                try:
+                    if os.path.exists(video_path):
+                        logger.debug(f"Removing video: {video_path}")
+                        os.remove(video_path)
+                except Exception as e:
+                    logger.error(
+                        f"Error removing video file {video_path}: {e}", exc_info=True)
+            else:
+                logger.debug(f"Video cleanup deferred to background thread for: {video_path}")
 
     @staticmethod
     def get_audio(game_line, next_line_time, video_path, anki_card_creation_time=None, temporary=False, timing_only=False, mined_line=None, full_text=''):
@@ -1067,6 +1072,7 @@ async def async_main(reloading=False):
         
         logger.info("Starting Qt on main thread...")
         logger.info("Initialization complete. Happy Mining! がんばれ！")
+        notification.send_notification("GSM Ready", "Initialization complete. Happy Mining! がんばれ！", 5)
         # This blocks until Qt event loop closes - must be called from main thread
         qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
         

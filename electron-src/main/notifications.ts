@@ -15,6 +15,7 @@ export enum NotificationType {
     AudioGenerated = 'Audio Generated',
     CheckOBS = 'Check OBS',
     Error = 'Error',
+    GSMReady = 'GSM Ready',
 }
 
 // Show a notification, optionally with a click handler
@@ -149,6 +150,9 @@ export function sendNotificationFromPython(data: any) {
         case NotificationType.Error:
             sendErrorNotification(message);
             break;
+        case NotificationType.GSMReady:
+            sendGSMReadyNotification(message);
+            break;
         default:
             console.warn(`Unknown notification type: ${type}`);
     }
@@ -205,6 +209,9 @@ export function sendErrorNoAnkiUpdate() {
     );
 }
 
+export function sendGSMReadyNotification(message: string) {
+    sendNotification(NotificationType.GSMReady, message, 5000);
+}
 export function sendErrorNotification(message: string) {
     sendNotification(NotificationType.Error, message, 5000);
 }

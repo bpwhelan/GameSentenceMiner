@@ -820,6 +820,7 @@ def register_stats_api_routes(app):
                                 "timestamp": date_obj.timestamp(),
                                 "date": rollup.date,
                                 "reading_time_seconds": rollup.total_reading_time_seconds,  # Add actual reading time
+                                "characters": rollup.total_characters,  # Add character count for average daily chars calculation
                             }
                         )
 
@@ -832,6 +833,7 @@ def register_stats_api_routes(app):
                             "date": datetime.date.fromtimestamp(
                                 float(line.timestamp)
                             ).strftime("%Y-%m-%d"),
+                            "characters": len(line.line_text),  # Add character count for consistency
                         }
                     )
 
