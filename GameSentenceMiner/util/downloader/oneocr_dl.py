@@ -67,7 +67,7 @@ class Downloader:
             return True
 
         try:
-            print("Attempting to download from official source...")
+            print("Attempting to download OneOCR files from official source...")
             # raise Exception("")
             self.downloadofficial()
             print("Download and extraction from official source successful.")

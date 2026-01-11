@@ -134,26 +134,8 @@ def get_todays_live_data(today, user_tz=None):
     return today_lines, live_stats
 
 
-def count_cards_from_lines(lines):
-    """
-    Count Anki cards from game lines.
-    A line counts as a card if it has audio_in_anki OR screenshot_in_anki.
-    
-    Args:
-        lines: List of game line objects
-        
-    Returns:
-        int: Number of cards
-    """
-    if not lines:
-        return 0
-    
-    count = 0
-    for line in lines:
-        if (line.audio_in_anki or '').strip() or (line.screenshot_in_anki or '').strip():
-            count += 1
-    
-    return count
+# Import helper function from stats_util
+from GameSentenceMiner.util.stats_util import count_cards_from_lines, count_cards_from_line, has_cards
 
 
 def filter_stats_by_media_type(combined_stats, media_type):
@@ -197,6 +179,7 @@ def count_cards_from_lines_by_type(lines, media_type):
     """
     Count cards from lines, filtered by media type.
     Requires joining with GamesTable to get type information.
+    Uses note_ids if available, otherwise falls back to checking audio_in_anki OR screenshot_in_anki.
     """
     if not lines or not media_type or media_type == "ALL":
         return count_cards_from_lines(lines)
@@ -204,13 +187,14 @@ def count_cards_from_lines_by_type(lines, media_type):
     card_count = 0
     for line in lines:
         # Check if line has card
-        if not ((line.audio_in_anki or '').strip() or (line.screenshot_in_anki or '').strip()):
+        if not has_cards(line):
             continue
         
         # Get game metadata to check type
         game = GamesTable.get_by_game_line(line)
         if game and game.type == media_type:
-            card_count += 1
+            # Count actual number of cards
+            card_count += count_cards_from_line(line)
     
     return card_count
 

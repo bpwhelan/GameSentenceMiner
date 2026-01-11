@@ -124,6 +124,17 @@
       margin-bottom: 0;
     }
 
+    label.sub-option {
+      margin-left: 20px;
+      background: rgba(255, 255, 255, 0.01);
+      border-left: 2px solid rgba(76, 175, 80, 0.3);
+    }
+
+    label.sub-option:hover {
+      background: rgba(255, 255, 255, 0.03);
+      border-left-color: rgba(76, 175, 80, 0.5);
+    }
+
     .label-text {
       flex: 1;
       margin-right: 12px;
@@ -383,6 +394,10 @@
       <label>
         <span class="label-text">Enable Furigana</span>
         <input type="checkbox" id="showFurigana" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Hide Furigana on Startup (Toggle with hotkey to show)</span>
+        <input type="checkbox" id="hideFuriganaOnStartup" />
       </label>
     </div>
 
@@ -679,6 +694,10 @@
 
     document.getElementById("showFurigana").addEventListener("change", (event) => {
       handleSettingChange("showFurigana", event.target.checked);
+    });
+
+    document.getElementById("hideFuriganaOnStartup").addEventListener("change", (event) => {
+      handleSettingChange("hideFuriganaOnStartup", event.target.checked);
     });
 
     document.getElementById("showRecycledIndicator").addEventListener("change", (event) => {
@@ -991,7 +1010,7 @@
     ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
       const { 
         fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType, 
-        showHotkey, pinned, showTextBackground, afkTimer, showFurigana, 
+        showHotkey, pinned, showTextBackground, afkTimer, showFurigana, hideFuriganaOnStartup,
         offsetX, offsetY, toggleFuriganaHotkey, translateHotkey, autoRequestTranslation,
         toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey
       } = userSettings;
@@ -1011,6 +1030,7 @@
       document.getElementById("afkTimer").value = afkTimer;
       document.getElementById("showReadyIndicator").checked = userSettings.showReadyIndicator;
       document.getElementById("showFurigana").checked = showFurigana;
+      document.getElementById("hideFuriganaOnStartup").checked = hideFuriganaOnStartup === true;
       document.getElementById("showRecycledIndicator").checked = userSettings.showRecycledIndicator !== false;
       
       // Load all hotkeys

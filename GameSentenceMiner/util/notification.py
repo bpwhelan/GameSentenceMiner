@@ -112,6 +112,7 @@ def send_notification(title, message, timeout):
         "Audio Trimmed": "AudioGenerated",  # Python title wording differs; map to AudioGenerated
         "OBS Replay Invalid": "CheckOBS",
         "Error": "Error",
+        "GSM Ready": "GSMReady",
     }
     type_key = title_to_key.get(title)
     if type_key and _send_ipc_notification(type_key, message):

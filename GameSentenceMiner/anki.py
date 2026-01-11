@@ -124,6 +124,20 @@ class MediaAssets:
     final_video_path: str = ''
 
     extra_tags: List[str] = field(default_factory=list)
+    
+    # Animated screenshot deferred generation
+    pending_animated: bool = False
+    animated_video_path: str = ''
+    animated_start_time: float = 0.0
+    animated_vad_start: float = 0.0
+    animated_vad_end: float = 0.0
+    
+    # Video deferred generation
+    pending_video: bool = False
+    video_params: Dict[str, Any] = field(default_factory=dict)
+    
+    # Cleanup callback (called after all background processing is complete)
+    cleanup_callback: Any = None  # Callable to run after processing
 
 
 def _determine_update_conditions(last_note: 'AnkiCard') -> (bool, bool):
@@ -158,11 +172,18 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
     # --- Generate new media files ---
     if config.anki.picture_field and config.screenshot.enabled:
         if config.screenshot.animated:
-            logger.info("Getting animated screenshot, this may take a moment...")
-            animated_settings = config.screenshot.animated_settings
-            assets.screenshot_path = ffmpeg.get_anki_compatible_video(
-                video_path, start_time, vad_result.start, vad_result.end, 
-                codec=animated_settings.extension, quality=animated_settings.scaled_quality, fps=animated_settings.fps, audio=False
+            # Defer animated screenshot generation until after confirmation
+            logger.info("Animated screenshot will be generated after confirmation...")
+            assets.pending_animated = True
+            assets.animated_video_path = video_path
+            assets.animated_start_time = start_time
+            if vad_result:
+                assets.animated_vad_start = vad_result.start
+                assets.animated_vad_end = vad_result.end
+            # Generate a static screenshot as a placeholder for the dialog
+            logger.info("Getting placeholder screenshot...")
+            assets.screenshot_path = ffmpeg.get_screenshot(
+                video_path, ss_time, try_selector=config.screenshot.use_screenshot_selector
             )
         else:
             logger.info("Getting screenshot...")
@@ -172,12 +193,15 @@ def _generate_media_files(reuse_audio: bool, game_line: 'GameLine', video_path: 
         wait_for_stable_file(assets.screenshot_path)
 
     if config.anki.video_field and vad_result:
-        logger.info("Getting Video for Anki... May take a moment.")
-        animated_settings = config.screenshot.animated_settings
-        assets.video_path = ffmpeg.get_anki_compatible_video(
-            video_path, start_time, vad_result.start, vad_result.end, 
-            codec=animated_settings.extension, quality=animated_settings.scaled_quality, fps=animated_settings.fps, audio=True
-        )
+        # Store video parameters for deferred generation in background thread
+        logger.info("Video for Anki will be generated in background...")
+        assets.pending_video = True
+        assets.video_params = {
+            'video_path': video_path,
+            'start_time': start_time,
+            'vad_start': vad_result.start,
+            'vad_end': vad_result.end
+        }
 
     if config.anki.previous_image_field and game_line.prev:
         if anki_results.get(game_line.prev.id):
@@ -319,7 +343,7 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         gsm_state.vad_result = vad_result  # Pass VAD result to dialog if needed
         previous_ss_time = ffmpeg.get_screenshot_time(video_path, game_line.prev if game_line else None) if get_config().anki.previous_image_field else 0
         result = launch_anki_confirmation(
-            tango, sentence, assets.screenshot_path, assets.prev_screenshot_path, dialog_audio_path, translation, ss_time, previous_ss_time
+            tango, sentence, assets.screenshot_path, assets.prev_screenshot_path, dialog_audio_path, translation, ss_time, previous_ss_time, assets.pending_animated
         )
         
         if result is None:
@@ -380,6 +404,17 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
                 open_audio_in_external(anki_media_audio_path)
 
     # 6. Asynchronously update the note in Anki (media upload now happens in the same thread)
+    # Store video cleanup callback if we have pending operations
+    if (assets.pending_animated or assets.pending_video) and video_path:
+        def cleanup_video():
+            if get_config().paths.remove_video and os.path.exists(video_path):
+                try:
+                    logger.debug(f"Removing source video after background processing: {video_path}")
+                    os.remove(video_path)
+                except Exception as e:
+                    logger.error(f"Error removing video file {video_path}: {e}", exc_info=True)
+        assets.cleanup_callback = cleanup_video
+    
     run_new_thread(lambda: check_and_update_note(last_note, note, tags, assets, use_voice, update_picture_flag, use_existing_files))
 
     # 7. Handle post-creation file management (copying to output folder)
@@ -412,7 +447,8 @@ def update_anki_card(last_note: 'AnkiCard', note=None, audio_path='', video_path
         replay_path=assets.final_video_path, 
         audio_in_anki=anki_audio_path, 
         screenshot_in_anki=anki_screenshot_path, 
-        translation=translation
+        translation=translation,
+        note_id=str(last_note.noteId)
     )
     
 def check_and_update_note(last_note, note, tags=[], assets=None, use_voice=False, update_picture_flag=False, use_existing_files=False):
@@ -428,6 +464,88 @@ def check_and_update_note(last_note, note, tags=[], assets=None, use_voice=False
         use_existing_files: Whether we're reusing existing media
     """
     config = get_config()
+    
+    # Generate animated screenshot if pending (runs in this thread before updating)
+    if assets and assets.pending_animated and not use_existing_files:
+        try:
+            logger.info("Generating animated screenshot...")
+            animated_settings = config.screenshot.animated_settings
+            
+            # Generate the animated screenshot
+            animated_path = ffmpeg.get_anki_compatible_video(
+                assets.animated_video_path,
+                assets.animated_start_time,
+                assets.animated_vad_start,
+                assets.animated_vad_end,
+                codec=animated_settings.extension,
+                quality=animated_settings.scaled_quality,
+                fps=animated_settings.fps,
+                audio=False
+            )
+            
+            if animated_path and os.path.exists(animated_path):
+                wait_for_stable_file(animated_path)
+                logger.info(f"Animated screenshot generated: {animated_path}")
+                
+                # Store in Anki media collection
+                assets.screenshot_in_anki = store_media_file(animated_path)
+                logger.info(f"Stored animated screenshot in Anki: {assets.screenshot_in_anki}")
+                
+                # Update the note field with the animated screenshot
+                if update_picture_flag and assets.screenshot_in_anki:
+                    note['fields'][config.anki.picture_field] = f"<img src=\"{assets.screenshot_in_anki}\">"
+                
+                # Clean up the temporary static screenshot
+                if assets.screenshot_path and os.path.exists(assets.screenshot_path) and config.paths.remove_screenshot:
+                    try:
+                        os.remove(assets.screenshot_path)
+                        logger.debug(f"Removed temporary static screenshot: {assets.screenshot_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to remove temporary screenshot: {e}")
+                
+                # Update the assets for potential reuse
+                assets.screenshot_path = animated_path
+                assets.pending_animated = False
+            else:
+                logger.error("Failed to generate animated screenshot")
+        except Exception as e:
+            logger.error(f"Error generating animated screenshot: {e}", exc_info=True)
+    
+    # Generate video if pending (runs in this thread before updating)
+    if assets and assets.pending_video and not use_existing_files:
+        try:
+            logger.info("Generating video for Anki...")
+            animated_settings = config.screenshot.animated_settings
+            
+            # Generate the video
+            video_path = ffmpeg.get_anki_compatible_video(
+                assets.video_params['video_path'],
+                assets.video_params['start_time'],
+                assets.video_params['vad_start'],
+                assets.video_params['vad_end'],
+                codec=animated_settings.extension,
+                quality=animated_settings.scaled_quality,
+                fps=animated_settings.fps,
+                audio=True
+            )
+            
+            if video_path and os.path.exists(video_path):
+                logger.info(f"Video generated: {video_path}")
+                assets.video_path = video_path
+                
+                # Store in Anki media collection
+                assets.video_in_anki = store_media_file(video_path)
+                logger.info(f"Stored video in Anki: {assets.video_in_anki}")
+                
+                # Update the note field with the video
+                if assets.video_in_anki and config.anki.video_field:
+                    note['fields'][config.anki.video_field] = assets.video_in_anki
+                
+                assets.pending_video = False
+            else:
+                logger.error("Failed to generate video")
+        except Exception as e:
+            logger.error(f"Error generating video: {e}", exc_info=True)
     
     # Upload media files if we have new files to store
     
@@ -454,6 +572,14 @@ def check_and_update_note(last_note, note, tags=[], assets=None, use_voice=False
     if get_config().features.notify_on_update:
         notification.send_note_updated(last_note.noteId)
     gsm_status.remove_word_being_processed(last_note.get_field(get_config().anki.word_field))
+    
+    # Call cleanup callback if provided (e.g., to remove source video after processing)
+    if assets and assets.cleanup_callback:
+        try:
+            logger.debug("Calling cleanup callback after background processing complete")
+            assets.cleanup_callback()
+        except Exception as e:
+            logger.error(f"Error in cleanup callback: {e}", exc_info=True)
 
 
 def add_image_to_card(last_note: AnkiCard, image_path):
@@ -538,7 +664,7 @@ def preserve_html_tags(original_text, new_text):
             else:
                 escaped_char = re.escape(char)
                 # Matches: Char + (Optional Furigana) + (Optional Space) + (Optional inner tags)
-                pattern_parts.append(f"{escaped_char}(?:\[[^\]]*\])?\s*(?:<[^>]+>)*")
+                pattern_parts.append(rf"{escaped_char}(?:\[[^\]]*\])?\s*(?:<[^>]+>)*")
         
         fuzzy_pattern = "".join(pattern_parts)
         

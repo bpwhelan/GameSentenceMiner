@@ -206,61 +206,77 @@ document.addEventListener('DOMContentLoaded', function () {
     
     // Custom streak calculation function for activity heatmap (includes average daily time)
     function calculateActivityStreaks(grid, yearData, allLinesForYear = []) {
-        const dates = [];
+        const streakRequirement = window.statsConfig ? window.statsConfig.streakRequirementHours : 1.0;
         
-        // Collect all dates in chronological order
-        for (let week = 0; week < 53; week++) {
-            for (let day = 0; day < 7; day++) {
-                const date = grid[day][week];
-                if (date) {
-                    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-                    const activity = yearData[dateStr] || 0;
-                    dates.push({ date: dateStr, activity: activity });
-                }
-            }
+        // Build a map of all dates with activity from ALL years
+        const activityMap = new Map();
+        
+        // Access the parent renderer's heatmapData to get all years
+        if (this.heatmapData) {
+            Object.keys(this.heatmapData).sort().forEach(year => {
+                const data = this.heatmapData[year];
+                Object.keys(data).forEach(dateStr => {
+                    activityMap.set(dateStr, data[dateStr] || 0);
+                });
+            });
         }
         
-        // Sort dates chronologically
-        dates.sort((a, b) => new Date(a.date) - new Date(b.date));
+        // Get all dates sorted chronologically
+        const allDates = Array.from(activityMap.keys()).sort();
         
-        
+        // Calculate longest streak - consecutive calendar days with activity
         let longestStreak = 0;
-        let currentStreak = 0;
         let tempStreak = 0;
+        let prevDate = null;
         
-        // Calculate longest streak
-        for (let i = 0; i < dates.length; i++) {
-            if (dates[i].activity > 0) {
-                tempStreak++;
+        for (const dateStr of allDates) {
+            const activity = activityMap.get(dateStr);
+            
+            if (activity >= streakRequirement) {
+                // Check if this is consecutive with previous date
+                if (prevDate === null) {
+                    tempStreak = 1;
+                } else {
+                    const prev = new Date(prevDate);
+                    const curr = new Date(dateStr);
+                    const dayDiff = Math.round((curr - prev) / (1000 * 60 * 60 * 24));
+                    
+                    if (dayDiff === 1) {
+                        tempStreak++;
+                    } else {
+                        tempStreak = 1;
+                    }
+                }
                 longestStreak = Math.max(longestStreak, tempStreak);
+                prevDate = dateStr;
             } else {
                 tempStreak = 0;
+                prevDate = null;
             }
         }
 
-        // Calculate current streak from today backwards, using streak requirement hours from config
-        const date = new Date();
-        const today = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-        const streakRequirement = window.statsConfig ? window.statsConfig.streakRequirementHours : 1.0;
+        // Calculate current streak from today backwards (consecutive days)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        // Find today's index or the most recent date before today
-        let todayIndex = -1;
-        for (let i = dates.length - 1; i >= 0; i--) {
-            if (dates[i].date <= today) {
-                todayIndex = i;
+        let currentStreak = 0;
+        let checkDate = new Date(today);
+        let daysChecked = 0;
+        const maxDaysToCheck = 1000; // Safety limit
+        
+        while (daysChecked < maxDaysToCheck) {
+            const dateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, '0')}-${String(checkDate.getDate()).padStart(2, '0')}`;
+            const activity = activityMap.get(dateStr) || 0;
+            
+            if (activity >= streakRequirement) {
+                currentStreak++;
+            } else {
+                // Stop at first day without activity
                 break;
             }
-        }
-
-        // Count backwards from today (or most recent date)
-        if (todayIndex >= 0) {
-            for (let i = todayIndex; i >= 0; i--) {
-                if (dates[i].activity >= streakRequirement) {
-                    currentStreak++;
-                } else {
-                    break;
-                }
-            }
+            
+            checkDate.setDate(checkDate.getDate() - 1); // Move to previous day
+            daysChecked++;
         }
         
         // Helper function to format average time
@@ -275,8 +291,21 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         };
 
+        // Helper function to format average characters
+        const formatAvgChars = (avgChars) => {
+            if (avgChars >= 1000000) {
+                return `${(avgChars / 1000000).toFixed(1)}M`;
+            } else if (avgChars >= 1000) {
+                return `${(avgChars / 1000).toFixed(1)}K`;
+            }
+            return Math.round(avgChars).toString();
+        };
+
         // Calculate average daily time for this year, last 30 days, and last 7 days
         let avgDailyTime = "-";
+        let avgDailyChars = "-";
+        let avgDailyChars30 = "-";
+        let avgDailyChars7 = "-";
         let avgDaily30 = "-";
         let avgDaily7 = "-";
         
@@ -292,18 +321,23 @@ document.addEventListener('DOMContentLoaded', function () {
             if (hasReadingTimeData) {
                 // Use pre-calculated reading time from rollup data (FAST!)
                 let totalHours = 0;
+                let totalChars = 0;
                 let activeDays = 0;
                 let totalHours30 = 0;
+                let totalChars30 = 0;
                 let activeDays30 = 0;
                 let totalHours7 = 0;
+                let totalChars7 = 0;
                 let activeDays7 = 0;
                 
                 for (const line of allLinesForYear) {
                     if (line.reading_time_seconds !== undefined && line.reading_time_seconds > 0) {
                         const hours = line.reading_time_seconds / 3600;
+                        const chars = line.characters || 0;
                         
                         // All year
                         totalHours += hours;
+                        totalChars += chars;
                         activeDays++;
                         
                         // Parse the date from the line (assuming line has a date field)
@@ -319,12 +353,14 @@ document.addEventListener('DOMContentLoaded', function () {
                             // Last 30 days
                             if (lineDate >= thirtyDaysAgo) {
                                 totalHours30 += hours;
+                                totalChars30 += chars;
                                 activeDays30++;
                             }
                             
                             // Last 7 days
                             if (lineDate >= sevenDaysAgo) {
                                 totalHours7 += hours;
+                                totalChars7 += chars;
                                 activeDays7++;
                             }
                         }
@@ -333,16 +369,20 @@ document.addEventListener('DOMContentLoaded', function () {
                 
                 if (activeDays > 0) {
                     avgDailyTime = formatAvgTime(totalHours / activeDays);
+                    avgDailyChars = formatAvgChars(totalChars / activeDays);
                 }
                 if (activeDays30 > 0) {
                     avgDaily30 = formatAvgTime(totalHours30 / activeDays30);
+                    avgDailyChars30 = formatAvgChars(totalChars30 / activeDays30);
                 }
                 if (activeDays7 > 0) {
                     avgDaily7 = formatAvgTime(totalHours7 / activeDays7);
+                    avgDailyChars7 = formatAvgChars(totalChars7 / activeDays7);
                 }
             } else {
                 // Fallback: Calculate from individual timestamps (for today's data)
                 const dailyTimestamps = {};
+                const dailyChars = {};
                 for (const line of allLinesForYear) {
                     const ts = parseFloat(line.timestamp);
                     if (isNaN(ts)) continue;
@@ -350,16 +390,21 @@ document.addEventListener('DOMContentLoaded', function () {
                     const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
                     if (!dailyTimestamps[dateStr]) {
                         dailyTimestamps[dateStr] = [];
+                        dailyChars[dateStr] = 0;
                     }
                     dailyTimestamps[dateStr].push(parseFloat(line.timestamp));
+                    dailyChars[dateStr] += (line.characters || 0);
                 }
                 
                 // Calculate reading time for each day with activity
                 let totalHours = 0;
+                let totalChars = 0;
                 let activeDays = 0;
                 let totalHours30 = 0;
+                let totalChars30 = 0;
                 let activeDays30 = 0;
                 let totalHours7 = 0;
+                let totalChars7 = 0;
                 let activeDays7 = 0;
                 let afkTimerSeconds = window.statsConfig ? window.statsConfig.afkTimerSeconds : 120;
 
@@ -380,21 +425,25 @@ document.addEventListener('DOMContentLoaded', function () {
 
                     if (dayReadingTime > 0) {
                         const dayHours = dayReadingTime / 3600;
+                        const dayCharsCount = dailyChars[dateStr] || 0;
                         const dayDate = new Date(dateStr);
                         
                         // All year
                         totalHours += dayHours;
+                        totalChars += dayCharsCount;
                         activeDays++;
                         
                         // Last 30 days
                         if (dayDate >= thirtyDaysAgo) {
                             totalHours30 += dayHours;
+                            totalChars30 += dayCharsCount;
                             activeDays30++;
                         }
                         
                         // Last 7 days
                         if (dayDate >= sevenDaysAgo) {
                             totalHours7 += dayHours;
+                            totalChars7 += dayCharsCount;
                             activeDays7++;
                         }
                     }
@@ -402,18 +451,21 @@ document.addEventListener('DOMContentLoaded', function () {
                 
                 if (activeDays > 0) {
                     avgDailyTime = formatAvgTime(totalHours / activeDays);
+                    avgDailyChars = formatAvgChars(totalChars / activeDays);
                 }
                 if (activeDays30 > 0) {
                     avgDaily30 = formatAvgTime(totalHours30 / activeDays30);
+                    avgDailyChars30 = formatAvgChars(totalChars30 / activeDays30);
                 }
                 if (activeDays7 > 0) {
                     avgDaily7 = formatAvgTime(totalHours7 / activeDays7);
+                    avgDailyChars7 = formatAvgChars(totalChars7 / activeDays7);
                 }
             }
         }
-        console.log({ longestStreak, currentStreak, avgDaily: avgDailyTime, avgDaily30, avgDaily7 })
+        console.log({ longestStreak, currentStreak, avgDaily: avgDailyTime, avgDaily30, avgDaily7, avgDailyChars, avgDailyChars30, avgDailyChars7 })
         
-        return { longestStreak, currentStreak, avgDaily: avgDailyTime, avgDaily30, avgDaily7 };
+        return { longestStreak, currentStreak, avgDaily: avgDailyTime, avgDaily30, avgDaily7, avgDailyChars, avgDailyChars30, avgDailyChars7 };
     }
     
     // Initialize heatmap renderer with custom configuration for activity tracking

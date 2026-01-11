@@ -18,6 +18,7 @@ from typing import Dict, List, Optional
 from GameSentenceMiner.util.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.db import GameLinesTable
 from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.stats_util import count_cards_from_lines
 
 
 def aggregate_rollup_data(rollups: List) -> Dict:
@@ -343,12 +344,7 @@ def calculate_live_stats_for_today(today_lines: List) -> Dict:
     lines_with_translations = sum(
         1 for line in today_lines if line.translation and line.translation.strip()
     )
-    anki_cards = sum(
-        1
-        for line in today_lines
-        if (line.screenshot_in_anki and line.screenshot_in_anki.strip())
-        or (line.audio_in_anki and line.audio_in_anki.strip())
-    )
+    anki_cards = count_cards_from_lines(today_lines)
 
     # Analyze sessions
     session_stats = analyze_sessions(today_lines)
