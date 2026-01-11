@@ -176,7 +176,7 @@
                                         This enables much faster Whisper Processing and OCR performance.</span>
                                 </div>
                             </div>
-                            <div class="input-group">
+                            <!-- <div class="input-group">
                                 <button id="cuda-guide-btn" class="secondary">📖 CUDA Compatibility Guide</button>
                                 <div class="tooltip">❓
                                     <span class="tooltiptext">
@@ -188,7 +188,7 @@
                                         <strong>Note:</strong> Your GPU driver must support the CUDA version you choose.
                                     </span>
                                 </div>
-                            </div>
+                            </div> -->
                         </div>
                     </div>
                 </div>
@@ -1688,6 +1688,25 @@
 
             // CUDA Installation
             document.getElementById('install-cuda-btn').addEventListener('click', async () => {
+                const confirmed = await ipcRenderer.invoke('show-message-box', {
+                    type: 'warning',
+                    title: 'Install CUDA GPU Support',
+                    message: 'Install CUDA GPU Support?',
+                    detail: 'This will install CUDA GPU support for faster processing for Whisper and MeikiOCR:\n\n' +
+                            '• Requires approximately 2GB of additional storage\n' +
+                            '• May not be compatible with all systems\n' +
+                            '• Install at your own risk\n\n' +
+                            'If you experience issues after installation, GSM *should* recover gracefully, but you may have to delete the "python_venv" folder manually.',
+                    buttons: ['Cancel', 'Install'],
+                    defaultId: 0,
+                    cancelId: 0
+                });
+
+                if (confirmed.response !== 1) {
+                    showPythonStatus('CUDA installation cancelled.', 'info');
+                    return;
+                }
+
                 showPythonStatus('Installing CUDA GPU support... This may take several minutes.');
                 switchToConsoleTab(); // Switch to console to see progress
 
@@ -1704,9 +1723,9 @@
             });
 
             // CUDA Guide
-            document.getElementById('cuda-guide-btn').addEventListener('click', async () => {
-                await ipcRenderer.invoke('python.openCudaGuide');
-            });
+            // document.getElementById('cuda-guide-btn').addEventListener('click', async () => {
+            //     await ipcRenderer.invoke('python.openCudaGuide');
+            // });
 
             // Repair GSM
             // document.getElementById('repair-gsm-btn').addEventListener('click', async () => {

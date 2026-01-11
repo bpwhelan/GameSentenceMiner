@@ -56,11 +56,9 @@ export function registerPythonIPC() {
             const pythonPath = await getOrInstallPython();
             await closeAllPythonProcesses();
 
+            // Wait for processes to fully close
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
-            if (pyProc) {
-                pyProc.kill();
-            }
             console.log('Installing CUDA GPU support...');
             let pipArgs: string[] = [
                 'install',
@@ -70,9 +68,14 @@ export function registerPythonIPC() {
             ];
             await pipInstallWithLogging(pythonPath, pipArgs, 'CUDA GPU');
 
+            console.log('CUDA installation complete, restarting GSM...');
+            // Give a moment for file system to settle
+            await new Promise((resolve) => setTimeout(resolve, 1000));
             
+            // Import and call ensureAndRunGSM directly
+            const { ensureAndRunGSM } = await import('../main.js');
+            await ensureAndRunGSM(pythonPath);
             
-            await restartGSM();
             return { success: true, message: 'CUDA GPU support installed successfully' };
         } catch (error: any) {
             console.error('Failed to install CUDA GPU support:', error);

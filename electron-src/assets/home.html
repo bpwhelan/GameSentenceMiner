@@ -312,8 +312,8 @@
 
                 // Update Clipboard status
                 clipboardStatus.classList.toggle('green', clipboard_enabled);
-                clipboardStatus.classList.toggle('red', !clipboard_enabled);
-                clipboardStatus.classList.toggle('neutral', !clipboard_enabled && anyWebsocketsConnected);
+                clipboardStatus.classList.toggle('neutral', !clipboard_enabled);
+                // clipboardStatus.classList.toggle('neutral', !clipboard_enabled && anyWebsocketsConnected);
                 clipboardStatus.querySelector('span:last-child').textContent = clipboard_enabled ? 'Enabled' : 'Disabled';
                 clipboardStatus.setAttribute('title', clipboard_enabled ? 'Clipboard monitoring is enabled.' : 'Clipboard monitoring is disabled.');
 
