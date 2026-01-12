@@ -544,12 +544,16 @@ async function confirmLinkGame() {
             const apiUrl = `/api/games/${currentGameForSearch.id}/link-jiten`;
             console.log(`Linking game to jiten.moe: ${apiUrl}`);
             
+            // Create a clean copy of jiten_data without circular references
+            const cleanJitenData = { ...selectedJitenGame };
+            delete cleanJitenData._unified_result;
+            
             response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     deck_id: selectedJitenGame.deck_id,
-                    jiten_data: selectedJitenGame
+                    jiten_data: cleanJitenData
                 })
             });
             
