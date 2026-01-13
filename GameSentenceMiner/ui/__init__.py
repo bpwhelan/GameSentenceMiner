@@ -1,7 +1,8 @@
 import os
 import json
 from enum import Enum
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QWidget, QApplication
+from PyQt6.QtCore import QRect
 from GameSentenceMiner.util.configuration import logger, get_app_directory
 
 class WindowId(Enum):
@@ -58,13 +59,37 @@ class WindowStateManager:
             geom = self.data[key]
             try:
                 if all(k in geom for k in ('x', 'y', 'w', 'h')):
-                    # Use move() and resize() for proper window positioning
-                    window.move(geom['x'], geom['y'])
-                    window.resize(geom['w'], geom['h'])
-                    return True
+                    # Validate position is within available screens
+                    if self._is_position_valid(geom['x'], geom['y'], geom['w'], geom['h']):
+                        window.move(geom['x'], geom['y'])
+                        window.resize(geom['w'], geom['h'])
+                        return True
+                    else:
+                        logger.warning(f"Saved position for {key} is outside available screens, skipping restore")
             except Exception as e:
                 logger.error(f"Error restoring geometry for {key}: {e}")
         return False
+
+    def _is_position_valid(self, x: int, y: int, width: int, height: int) -> bool:
+        """
+        Checks if a window position is fully visible on any available screen.
+        Returns True if the window would be fully visible, False otherwise.
+        """
+        try:
+            # Create a rectangle representing the window
+            window_rect = QRect(x, y, width, height)
+            
+            # Check if window is fully contained within any available screen
+            for screen in QApplication.screens():
+                screen_geom = screen.geometry()
+                if screen_geom.contains(window_rect):
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error validating window position: {e}")
+            # If validation fails, assume position is invalid to be safe
+            return False
 
     def save_geometry(self, window: QWidget, window_id: WindowId):
         """

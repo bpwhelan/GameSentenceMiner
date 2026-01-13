@@ -678,6 +678,7 @@ class Advanced:
     texthooker_communication_websocket_port: int = 55001
     localhost_bind_address: str = '127.0.0.1' # Default 127.0.0.1 for security, set to 0.0.0.0 to allow external connections
     dont_collect_stats: bool = False
+    audio_backend: str = 'sounddevice' # 'sounddevice' or 'qt6'
 
     def __post_init__(self):
         if self.plaintext_websocket_port == -1:

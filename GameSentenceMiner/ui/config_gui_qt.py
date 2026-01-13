@@ -2064,15 +2064,40 @@ class ConfigWindow(QWidget):
             QMessageBox.critical(self, i18n.get('error_title', 'Error'), i18n.get('error_cannot_delete_default', 'Cannot delete Default profile.'))
             return
         
-        reply = QMessageBox.question(self, i18n.get('title', 'Confirm Delete'),
-                                     i18n.get('message', "Delete '{p}'?").format(p=profile_to_delete),
+        # Safe format for dialog message - supports both {p} and {profile_name} placeholders
+        dialog_title = i18n.get('title', 'Confirm Delete')
+        dialog_message_template = i18n.get('message', "Delete '{profile_name}'?")
+        try:
+            dialog_message = dialog_message_template.format(p=profile_to_delete, profile_name=profile_to_delete)
+        except (KeyError, ValueError):
+            dialog_message = f"Delete profile '{profile_to_delete}'?"
+        
+        reply = QMessageBox.question(self, dialog_title, dialog_message,
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                      QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
+            self.profile_combo.blockSignals(True)
+            
+            index = self.profile_combo.findText(profile_to_delete)
+            if index >= 0:
+                self.profile_combo.removeItem(index)
+            
             del self.master_config.configs[profile_to_delete]
+            
             self.master_config.current_profile = DEFAULT_CONFIG
+            self.settings = self.master_config.get_config()
+            
+            self.profile_combo.setCurrentText(DEFAULT_CONFIG)
+            
+            self.profile_combo.blockSignals(False)
+            
             save_full_config(self.master_config)
+            
+            self.load_settings_to_ui()
             self.reload_settings(force_refresh=True)
+            self.refresh_obs_scenes(force_reload=True)
+            self._update_window_title()
+            self.delete_profile_button.setHidden(True)
 
     def refresh_obs_scenes(self, force_reload=False):
         # Save current selections before clearing
