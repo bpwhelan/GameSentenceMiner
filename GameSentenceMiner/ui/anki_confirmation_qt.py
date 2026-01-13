@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import requests
+import soundfile as sf
 from urllib.parse import quote
 from PyQt6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout, 
                               QLabel, QTextEdit, QPushButton, QCheckBox, QGridLayout,
@@ -16,6 +17,8 @@ from GameSentenceMiner.util.audio_player import AudioPlayer
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name, remove_html_and_cloze_tags
 from GameSentenceMiner.util.model import VADResult
 from GameSentenceMiner.ui import window_state_manager, WindowId
+from GameSentenceMiner.ui.audio_waveform_widget import AudioWaveformWidget
+from GameSentenceMiner.util.ffmpeg import trim_audio
 
 # -------------------------------------------------------------------------
 # Anki Confirmation Dialog
@@ -49,7 +52,11 @@ class AnkiConfirmationDialog(QDialog):
 
         # Audio player
         self.audio_player = AudioPlayer(finished_callback=self._audio_finished)
-        self.audio_finished_signal.connect(self._update_audio_button)
+        self.audio_finished_signal.connect(self._update_audio_buttons)
+
+        self.playback_timer = QTimer(self)
+        self.playback_timer.timeout.connect(self._update_playback_cursor)
+        self.playback_timer.setInterval(50) # Update every 50ms
 
         self.setWindowTitle("Confirm Anki Card Details")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog | Qt.WindowType.WindowMinimizeButtonHint)
@@ -141,14 +148,44 @@ class AnkiConfirmationDialog(QDialog):
         self.audio_label_title.setStyleSheet("font-weight: bold;")
         self.grid_layout.addWidget(self.audio_label_title, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
 
+        # Container for audio controls
+        audio_container = QWidget()
+        audio_layout = QVBoxLayout(audio_container)
+        audio_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.audio_status_label = QLabel()
-        self.grid_layout.addWidget(self.audio_status_label, row, 1, Qt.AlignmentFlag.AlignLeft)
-
-        self.audio_button = QPushButton("▶ Play Audio")
+        audio_layout.addWidget(self.audio_status_label)
+        
+        self.waveform_widget = AudioWaveformWidget()
+        self.waveform_widget.setMinimumHeight(120)
+        self.waveform_widget.set_dark_mode()
+        # Connect range change to a slot if needed, e.g., to stop playback
+        self.waveform_widget.range_changed.connect(lambda: self.audio_player.stop_audio())
+        self.waveform_widget.range_changed.connect(lambda _s, _e: self._cancel_auto_accept())
+        audio_layout.addWidget(self.waveform_widget)
+        
+        # Audio controls
+        audio_controls = QHBoxLayout()
+        
+        self.audio_button = QPushButton("▶ Play Range")
         self.audio_button.clicked.connect(self._cancel_auto_accept)
-        self.audio_button.clicked.connect(lambda: self._play_audio(self.audio_path))
-        self.audio_button.setMaximumWidth(120)
-        self.grid_layout.addWidget(self.audio_button, row, 2, Qt.AlignmentFlag.AlignLeft)
+        self.audio_button.clicked.connect(self._play_range)
+        audio_controls.addWidget(self.audio_button)
+        
+        self.play_original_button = QPushButton("▶ Play Full")
+        self.play_original_button.clicked.connect(self._cancel_auto_accept)
+        self.play_original_button.clicked.connect(lambda: self._play_audio(self.audio_path, full=True))
+        audio_controls.addWidget(self.play_original_button)
+        
+        self.reset_audio_button = QPushButton("Reset Trim")
+        self.reset_audio_button.clicked.connect(self._reset_audio_trim)
+        self.reset_audio_button.clicked.connect(self._cancel_auto_accept)
+        audio_controls.addWidget(self.reset_audio_button)
+        
+        audio_controls.addStretch()
+        audio_layout.addLayout(audio_controls)
+        
+        self.grid_layout.addWidget(audio_container, row, 1, 1, 2)
         row += 1
 
         # 7. TTS
@@ -281,9 +318,20 @@ class AnkiConfirmationDialog(QDialog):
         
         self.audio_status_label.setText(status_text)
         self.audio_status_label.setStyleSheet(status_style)
-        self.audio_button.setVisible(has_audio_file)
-        self.audio_button.setText("▶ Play Audio")
-        self.audio_button.setStyleSheet("")
+        
+        if has_audio_file:
+            self.waveform_widget.load_audio(self.audio_path)
+            self.waveform_widget.setVisible(True)
+            self.audio_button.setVisible(True)
+            self.play_original_button.setVisible(True)
+            self.reset_audio_button.setVisible(True)
+            self.audio_button.setText("▶ Play Range")
+            self.audio_button.setStyleSheet("")
+        else:
+            self.waveform_widget.setVisible(False)
+            self.audio_button.setVisible(False)
+            self.play_original_button.setVisible(False)
+            self.reset_audio_button.setVisible(False)
 
         # TTS
         show_tts = False
@@ -435,10 +483,20 @@ class AnkiConfirmationDialog(QDialog):
         setattr(self, target_attr, selected_path)
         self._load_image_to_label(selected_path, label_widget)
     
-    def _play_audio(self, audio_path):
+    def _play_audio(self, audio_path, full=False):
+        if self.audio_player.is_playing:
+             self.audio_player.stop_audio()
+             self._update_audio_buttons()
+             return
+
         if not audio_path or not os.path.isfile(audio_path):
             print(f"Audio file does not exist: {audio_path}")
             return
+        
+        # Reset offset for full playback
+        if full:
+             self._playback_start_offset = 0.0
+        
         try:
             if get_config().advanced.audio_player_path:
                 import platform
@@ -452,21 +510,137 @@ class AnkiConfirmationDialog(QDialog):
             else:
                 success = self.audio_player.play_audio_file(audio_path)
                 if success:
-                    self._update_audio_button()
+                    self._update_audio_buttons()
+                    self.playback_timer.start()
         except Exception as e:
             print(f"Failed to play audio: {e}")
+
+    def _play_range(self):
+        if self.audio_player.is_playing:
+             self.audio_player.stop_audio()
+             self._update_audio_buttons()
+             return
+
+        if not self.audio_path or not os.path.isfile(self.audio_path):
+            return
+
+        # Stop any existing playback (already handled by check above but for safety)
+        self.audio_player.stop_audio()
+        self.playback_timer.stop()
+        
+        start, end = self.waveform_widget.get_selection_range()
+        
+        # Get data from widget directly to avoid reloading
+        if self.waveform_widget.audio_data is None:
+             self.waveform_widget.load_audio(self.audio_path)
+        
+        data = self.waveform_widget.audio_data
+        sr = self.waveform_widget.samplerate
+        
+        if data is None:
+            return
+
+        # Slice data with small padding at the end to prevent premature cutoff
+        start_sample = int(start * sr)
+        end_sample = int(end * sr)
+        
+        # Add 100ms padding to prevent cutoff
+        padding_samples = int(0.1 * sr)
+        end_sample = min(end_sample + padding_samples, len(data))
+        
+        if start_sample >= len(data):
+            start_sample = 0
+        if end_sample > len(data) or end_sample <= start_sample:
+            end_sample = len(data)
+            
+        sliced_data = data[start_sample:end_sample]
+        
+        success = self.audio_player.play_audio_data(sliced_data, sr)
+        if success:
+            self._update_audio_buttons()
+            self.playback_timer.start()
+            # Store start offset for cursor calculation
+            self._playback_start_offset = start
+
+    def _update_playback_cursor(self):
+        if self.audio_player.is_playing:
+            current_time = self.audio_player.get_current_time()
+            offset = getattr(self, '_playback_start_offset', 0.0)
+            self.waveform_widget.set_playback_position(offset + current_time)
+        else:
+             self.playback_timer.stop()
+             self.waveform_widget.set_playback_position(-1)
+             self._update_audio_buttons()
+
+    def _reset_audio_trim(self):
+        if self.waveform_widget.audio_data is not None:
+            self.waveform_widget.start_time = 0.0
+            self.waveform_widget.end_time = self.waveform_widget.duration
+            self.waveform_widget.range_changed.emit(0.0, self.waveform_widget.duration)
+            self.waveform_widget.update()
+
+    def _save_trimmed_audio(self):
+        if self.waveform_widget.audio_data is None:
+             return self.audio_path
+
+        # Check if trimmed
+        start, end = self.waveform_widget.get_selection_range()
+        duration = self.waveform_widget.duration
+        
+        # Tolerance for float comparison
+        if abs(start) < 0.01 and abs(end - duration) < 0.01:
+            return self.audio_path # No significant trim
+            
+        # Determine output file
+        game_name = gsm_state.current_game if gsm_state.current_game else "trimmed"
+        orig_ext = os.path.splitext(self.audio_path)[1]
+        if not orig_ext: orig_ext = ".wav" 
+        
+        filename = f"{game_name}_trimmed_{int(time.time())}{orig_ext}"
+        new_path = make_unique_file_name(
+            os.path.join(get_temporary_directory(), filename)
+        )
+        
+        try:
+            # Use ffmpeg wrapper to trim which handles formats properly
+            trim_audio(
+                input_audio=self.audio_path,
+                start_time=start,
+                end_time=end,
+                output_audio=new_path,
+                trim_beginning=True,
+                fade_in_duration=0.05,
+                fade_out_duration=0.05
+            )
+            return new_path
+        except Exception as e:
+            logger.error(f"Failed to save trimmed audio: {e}")
+            return self.audio_path
     
     def _audio_finished(self):
+        self.playback_timer.stop()
+        self.waveform_widget.set_playback_position(-1)
         self.audio_finished_signal.emit()
     
-    def _update_audio_button(self):
+    def _update_audio_buttons(self):
+        """Update both Play Range and Play Full button states based on playback status."""
+        is_playing = self.audio_player.is_playing
+        
         if self.audio_button:
-            if self.audio_player.is_playing:
+            if is_playing:
                 self.audio_button.setText("⏹ Stop")
                 self.audio_button.setStyleSheet("background-color: #ffc107; color: black;")
             else:
-                self.audio_button.setText("▶ Play Audio")
+                self.audio_button.setText("▶ Play Range")
                 self.audio_button.setStyleSheet("")
+        
+        if self.play_original_button:
+            if is_playing:
+                self.play_original_button.setText("⏹ Stop")
+                self.play_original_button.setStyleSheet("background-color: #ffc107; color: black;")
+            else:
+                self.play_original_button.setText("▶ Play Full")
+                self.play_original_button.setStyleSheet("")
     
     def _generate_tts_audio(self):
         try:
@@ -492,6 +666,13 @@ class AnkiConfirmationDialog(QDialog):
             with open(tts_audio_path, 'wb') as f:
                 f.write(response.content)
             self.audio_path = tts_audio_path
+            
+            # Update waveform
+            self.waveform_widget.load_audio(self.audio_path)
+            self.waveform_widget.setVisible(True)
+            self.play_original_button.setVisible(True)
+            self.reset_audio_button.setVisible(True)
+            
             self.audio_status_label.setText("✔ TTS audio generated")
             self.audio_status_label.setStyleSheet("color: green;")
             self.audio_button.setVisible(True)
@@ -510,6 +691,9 @@ class AnkiConfirmationDialog(QDialog):
         
     def _on_voice(self):
         self._cleanup_audio()
+        
+        final_audio_path = self._save_trimmed_audio()
+        
         # UPDATE 3: Comment out access to missing checkbox
         # if self.disable_dialog_checkbox.isChecked():
         #    self._save_disable_preference()
@@ -517,7 +701,7 @@ class AnkiConfirmationDialog(QDialog):
         translation = self.translation_text.toPlainText().strip()
         self.result = (True, self.sentence_text.toPlainText().strip(), translation, 
                       self.screenshot_path, self.previous_screenshot_path, 
-                      self.nsfw_tag_checkbox.isChecked(), self.audio_path)
+                      self.nsfw_tag_checkbox.isChecked(), final_audio_path)
         self.accept()
 
     def _on_no_voice(self):

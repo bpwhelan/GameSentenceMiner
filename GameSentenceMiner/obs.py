@@ -1180,7 +1180,6 @@ def get_window_info_from_source(client, scene_name: str = None):
             logger.debug(f"Error getting input settings for source {source_name}: {e}")
             continue
     
-    logger.warning(f"No window input found in scene")
     return None
 
 

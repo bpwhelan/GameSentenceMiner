@@ -62,9 +62,8 @@ class CronScheduler:
         Add an external cron task to be executed IMMEDIATELY.
         Thread-safe: Can be called from UI threads.
         """
-        self._ensure_init()
         if self.loop.is_running():
-            self.loop.create_task(self._queue.put(task))
+            self.loop.call_soon_threadsafe(self._queue.put_nowait, task)
         else:
             logger.warning("CronScheduler loop is not running, task queued but won't run until start()")
             self._queue.put_nowait(task)

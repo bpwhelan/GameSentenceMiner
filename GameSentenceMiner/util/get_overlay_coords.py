@@ -171,15 +171,16 @@ def get_window_client_screen_offset(hwnd: int) -> Tuple[int, int]:
 
 # Conditionally import OCR engines
 try:
-    if os.path.exists(os.path.expanduser('~/.config/oneocr/oneocr.dll')):
-        from GameSentenceMiner.owocr.owocr.ocr import OneOCR
-    else:
-        OneOCR = None
+    from GameSentenceMiner.owocr.owocr.ocr import OneOCR
+except ImportError:
+    OneOCR = None
+    
+try:
     from GameSentenceMiner.owocr.owocr.ocr import GoogleLens, get_regex, MeikiOCR
-except ImportError as import_err:
-    GoogleLens, OneOCR, get_regex, MeikiOCR = None, None, None, None
+except ImportError:
+    GoogleLens, get_regex, MeikiOCR = None, None, None
 except Exception as e:
-    GoogleLens, OneOCR, get_regex, MeikiOCR = None, None, None, None
+    GoogleLens, get_regex, MeikiOCR = None, None, None
     logger.error(f"Error importing OCR engines: {e}", exc_info=True)
 
 # Conditionally import screenshot library
@@ -552,11 +553,9 @@ class WindowStateMonitor:
             # Multiple windows found - prefer foreground if it's one of them
             fg = user32.GetForegroundWindow()
             if fg in self.found_hwnds:
-                logger.info(f"Multiple windows found ({len(self.found_hwnds)}), using foreground window")
                 return fg
             
             # Otherwise, select the one with highest memory usage
-            logger.info(f"Multiple windows found ({len(self.found_hwnds)}), selecting by highest memory usage")
             best_hwnd = None
             max_memory = 0
             
