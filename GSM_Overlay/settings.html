@@ -553,6 +553,62 @@
     </div>
     </div>
 
+    <div class="settings-grid">
+    <div class="setting-group">
+      <h4>Productivity Toolbar</h4>
+      <label>
+        <span class="label-text">
+          Toolbar Hotkey
+          <div class="hotkey-info">Toggle productivity toolbar (notepad & pomodoro timer)</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="toolbar-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+        </span>
+        <div class="input-container">
+          <input type="text" id="toolbarHotkey" value="Alt+Shift+T"
+            title="Enter a valid hotkey (e.g., Alt+Shift+T)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
+      </label>
+      <label>
+        <span class="label-text">
+          Enabled Tools
+          <div class="hotkey-info">Select which tools appear in the toolbar</div>
+        </span>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="enableNotepad" checked />
+            <span>📝 Notepad</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="enablePomodoro" checked />
+            <span>🍅 Pomodoro Timer</span>
+          </label>
+        </div>
+      </label>
+      <label>
+        <span class="label-text">
+          Pomodoro Work Duration
+          <div class="hotkey-info">Length of work sessions in minutes</div>
+        </span>
+        <input type="number" id="pomodoroWorkDuration" value="25" min="1" max="120" />
+      </label>
+      <label>
+        <span class="label-text">
+          Pomodoro Break Duration
+          <div class="hotkey-info">Length of break sessions in minutes</div>
+        </span>
+        <input type="number" id="pomodoroBreakDuration" value="5" min="1" max="60" />
+      </label>
+      <label>
+        <span class="label-text">Pomodoro Sound Notifications</span>
+        <input type="checkbox" id="pomodoroSoundEnabled" checked />
+      </label>
+    </div>
+    </div>
+
     <div class="settings-grid single-column">
     <div class="setting-group">
       <h4>Developer</h4>
@@ -775,6 +831,47 @@
       showCtrlWarning: true,
       placeholder: "Press keys...",
       settingKey: "overlaySettingsHotkey"
+    });
+    initializeHotkeyInput("toolbarHotkey", {
+      warningElementId: "toolbar-ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "toolbarHotkey"
+    });
+
+    // Toolbar settings event listeners
+    document.getElementById("enableNotepad").addEventListener("change", (event) => {
+      const enabledTools = [];
+      if (document.getElementById("enableNotepad").checked) enabledTools.push("notepad");
+      if (document.getElementById("enablePomodoro").checked) enabledTools.push("pomodoro");
+      handleSettingChange("enabledTools", enabledTools);
+    });
+
+    document.getElementById("enablePomodoro").addEventListener("change", (event) => {
+      const enabledTools = [];
+      if (document.getElementById("enableNotepad").checked) enabledTools.push("notepad");
+      if (document.getElementById("enablePomodoro").checked) enabledTools.push("pomodoro");
+      handleSettingChange("enabledTools", enabledTools);
+    });
+
+    document.getElementById("pomodoroWorkDuration").addEventListener("input", (event) => {
+      let value = parseInt(event.target.value);
+      if (isNaN(value) || value < 1) value = 1;
+      if (value > 120) value = 120;
+      event.target.value = value;
+      handleSettingChange("pomodoroWorkDuration", value);
+    });
+
+    document.getElementById("pomodoroBreakDuration").addEventListener("input", (event) => {
+      let value = parseInt(event.target.value);
+      if (isNaN(value) || value < 1) value = 1;
+      if (value > 60) value = 60;
+      event.target.value = value;
+      handleSettingChange("pomodoroBreakDuration", value);
+    });
+
+    document.getElementById("pomodoroSoundEnabled").addEventListener("change", (event) => {
+      handleSettingChange("pomodoroSoundEnabled", event.target.checked);
     });
 
     // Reusable hotkey input initialization function
@@ -1008,11 +1105,12 @@
 
     // Handle settings preload
     ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
-      const { 
-        fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType, 
+      const {
+        fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType,
         showHotkey, pinned, showTextBackground, afkTimer, showFurigana, hideFuriganaOnStartup,
         offsetX, offsetY, toggleFuriganaHotkey, translateHotkey, autoRequestTranslation,
-        toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey
+        toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey,
+        toolbarHotkey, enabledTools, pomodoroWorkDuration, pomodoroBreakDuration, pomodoroSoundEnabled
       } = userSettings;
       
       // document.getElementById("fontSize").value = fontSize;
@@ -1040,7 +1138,17 @@
       if (minimizeHotkey) document.getElementById("minimizeHotkey").value = minimizeHotkey;
       if (yomitanSettingsHotkey) document.getElementById("yomitanSettingsHotkey").value = yomitanSettingsHotkey;
       if (overlaySettingsHotkey) document.getElementById("overlaySettingsHotkey").value = overlaySettingsHotkey;
-      
+
+      // Load toolbar settings
+      if (toolbarHotkey) document.getElementById("toolbarHotkey").value = toolbarHotkey;
+      if (enabledTools) {
+        document.getElementById("enableNotepad").checked = enabledTools.includes("notepad");
+        document.getElementById("enablePomodoro").checked = enabledTools.includes("pomodoro");
+      }
+      if (pomodoroWorkDuration !== undefined) document.getElementById("pomodoroWorkDuration").value = pomodoroWorkDuration;
+      if (pomodoroBreakDuration !== undefined) document.getElementById("pomodoroBreakDuration").value = pomodoroBreakDuration;
+      if (pomodoroSoundEnabled !== undefined) document.getElementById("pomodoroSoundEnabled").checked = pomodoroSoundEnabled;
+
       // Load translation settings
       if (autoRequestTranslation !== undefined) {
         document.getElementById("autoRequestTranslation").checked = autoRequestTranslation;
@@ -1054,7 +1162,8 @@
         { hotkey: toggleWindowHotkey, warningId: 'togglewindow-ctrl-warning' },
         { hotkey: minimizeHotkey, warningId: 'minimize-ctrl-warning' },
         { hotkey: yomitanSettingsHotkey, warningId: 'yomitansettings-ctrl-warning' },
-        { hotkey: overlaySettingsHotkey, warningId: 'overlaysettings-ctrl-warning' }
+        { hotkey: overlaySettingsHotkey, warningId: 'overlaysettings-ctrl-warning' },
+        { hotkey: toolbarHotkey, warningId: 'toolbar-ctrl-warning' }
       ];
 
       hotkeyWarnings.forEach(({ hotkey, warningId }) => {

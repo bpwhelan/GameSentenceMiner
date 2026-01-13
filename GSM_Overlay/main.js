@@ -63,6 +63,11 @@ let userSettings = {
   "offsetX": 0,
   "offsetY": 0,
   "dismissedFullscreenRecommendations": [], // Games for which fullscreen recommendation was dismissed
+  "toolbarHotkey": "Alt+Shift+T",
+  "enabledTools": ["notepad", "pomodoro"], // Array of enabled tool IDs
+  "pomodoroWorkDuration": 25, // in minutes
+  "pomodoroBreakDuration": 5, // in minutes
+  "pomodoroSoundEnabled": true,
 };
 let manualIn;
 let resizeMode = false;
@@ -950,6 +955,18 @@ app.whenReady().then(async () => {
   }
   registerToggleFuriganaHotkey();
 
+  // Register toolbar hotkey
+  function registerToolbarHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.toolbarHotkey);
+    globalShortcut.register(userSettings.toolbarHotkey || "Alt+Shift+T", () => {
+      if (mainWindow) {
+        mainWindow.webContents.send("toggle-productivity-toolbar");
+      }
+    });
+  }
+  registerToolbarHotkey();
+
   registerManualShowHotkey();
 
   // Initialize kuroshiro for furigana conversion
@@ -1413,6 +1430,24 @@ app.whenReady().then(async () => {
         break;
       case "translateHotkey":
         registerTranslateHotkey(oldValue);
+        break;
+      case "toolbarHotkey":
+        registerToolbarHotkey(oldValue);
+        break;
+      case "enabledTools":
+      case "pomodoroWorkDuration":
+      case "pomodoroBreakDuration":
+      case "pomodoroSoundEnabled":
+        // Send toolbar settings update to renderer
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("toolbar-settings-updated", {
+            hotkey: userSettings.toolbarHotkey,
+            enabledTools: userSettings.enabledTools,
+            pomodoroWorkDuration: userSettings.pomodoroWorkDuration,
+            pomodoroBreakDuration: userSettings.pomodoroBreakDuration,
+            pomodoroSoundEnabled: userSettings.pomodoroSoundEnabled
+          });
+        }
         break;
       case "weburl2":
         if (backend) backend.connect(value);

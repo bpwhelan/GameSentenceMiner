@@ -490,6 +490,174 @@ background: rgba(202, 12, 12, 0.692);
   #startup-message.fade-out {
     opacity: 0;
   }
+
+  /* Productivity Toolbar Styles */
+  .productivity-toolbar {
+    position: fixed;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 600px;
+    max-width: 90vw;
+    background: rgba(20, 20, 20, 0.85);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    color: white;
+    font-family: -apple-system, sans-serif;
+    backdrop-filter: blur(10px);
+  }
+
+  .toolbar-header {
+    background: rgba(40, 40, 40, 0.9);
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: 6px 6px 0 0;
+  }
+
+  .toolbar-title {
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .toolbar-hint {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    font-style: italic;
+  }
+
+  .toolbar-close-btn {
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0 4px;
+    opacity: 0.7;
+  }
+
+  .toolbar-close-btn:hover {
+    opacity: 1;
+  }
+
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .tool-module {
+    background: rgba(30, 30, 30, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 16px;
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tool-header {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  /* Notepad Tool Styles */
+  .notepad-textarea {
+    width: 100%;
+    height: 250px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    color: white;
+    padding: 12px;
+    font-size: 13px;
+    line-height: 1.6;
+    resize: none;
+    outline: none;
+    font-family: 'Courier New', monospace;
+  }
+
+  .notepad-textarea::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .notepad-textarea:focus {
+    border-color: rgba(255, 255, 255, 0.3);
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  /* Pomodoro Timer Styles */
+  .pomodoro-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .timer-display {
+    font-size: 48px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+    text-shadow: 0 2px 10px rgba(255, 255, 255, 0.3);
+  }
+
+  .timer-mode {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.6);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .timer-controls {
+    display: flex;
+    gap: 8px;
+  }
+
+  .timer-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+  }
+
+  .timer-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+  }
+
+  .timer-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  .timer-progress-bar {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .timer-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4CAF50, #8BC34A);
+    width: 100%;
+    transition: width 0.5s linear;
+  }
 </style>
 
 <html>
@@ -567,6 +735,19 @@ background: rgba(202, 12, 12, 0.692);
   </div>
   <!-- <div id="text-box-container" class="text-box-container interactive"></div> -->
   <!-- <p id="text-box-paragraph" style="width: 100%; height: 100%;"></p> -->
+
+  <!-- Productivity Toolbar -->
+  <div id="productivity-toolbar" class="productivity-toolbar" style="display: none;">
+    <div class="toolbar-header">
+      <span class="toolbar-title">🔧 Productivity Tools</span>
+      <span class="toolbar-hint">Press <span id="toolbar-hotkey-hint">Alt+Shift+T</span> to close</span>
+      <button class="toolbar-close-btn">✖</button>
+    </div>
+    <div id="tools-container" class="tools-grid">
+      <!-- Tools will be dynamically inserted here -->
+    </div>
+  </div>
+
 </body>
 
 
@@ -2342,6 +2523,301 @@ function clearTextBoxes() {
     //   }
     // }, 30000);
   }
+
+  // ===== PRODUCTIVITY TOOLBAR CORE =====
+
+  const productivityToolbar = document.getElementById('productivity-toolbar');
+  const toolsContainer = document.getElementById('tools-container');
+  const toolbarCloseBtn = productivityToolbar.querySelector('.toolbar-close-btn');
+  const toolbarHotkeyHint = document.getElementById('toolbar-hotkey-hint');
+
+  // Tool registry - all available tools
+  const TOOL_REGISTRY = {};
+
+  // Active tools settings
+  let toolbarSettings = {
+    hotkey: 'Alt+Shift+T',
+    enabledTools: ['notepad', 'pomodoro'],
+    pomodoroWorkDuration: 25,
+    pomodoroBreakDuration: 5,
+    pomodoroSoundEnabled: true
+  };
+
+  // Register a tool in the registry
+  function registerTool(id, toolDefinition) {
+    TOOL_REGISTRY[id] = toolDefinition;
+  }
+
+  // Render all enabled tools
+  function renderTools() {
+    toolsContainer.innerHTML = '';
+
+    toolbarSettings.enabledTools.forEach(toolId => {
+      const tool = TOOL_REGISTRY[toolId];
+      if (tool) {
+        const toolElement = document.createElement('div');
+        toolElement.className = 'tool-module';
+        toolElement.id = `tool-${toolId}`;
+        toolElement.innerHTML = tool.render();
+        toolsContainer.appendChild(toolElement);
+
+        // Initialize tool after rendering
+        if (tool.init) {
+          tool.init(toolElement);
+        }
+      }
+    });
+  }
+
+  // Toggle toolbar visibility
+  function toggleToolbar() {
+    const isVisible = productivityToolbar.style.display !== 'none';
+    productivityToolbar.style.display = isVisible ? 'none' : 'block';
+
+    if (!isVisible) {
+      renderTools();
+      toolbarHotkeyHint.textContent = toolbarSettings.hotkey;
+    } else {
+      // Cleanup when closing
+      Object.values(TOOL_REGISTRY).forEach(tool => {
+        if (tool.cleanup) tool.cleanup();
+      });
+    }
+  }
+
+  // Close button handler
+  toolbarCloseBtn.addEventListener('click', () => {
+    productivityToolbar.style.display = 'none';
+    Object.values(TOOL_REGISTRY).forEach(tool => {
+      if (tool.cleanup) tool.cleanup();
+    });
+  });
+
+  // IPC handlers
+  ipcRenderer.on('toggle-productivity-toolbar', () => {
+    toggleToolbar();
+  });
+
+  ipcRenderer.on('toolbar-settings-updated', (event, settings) => {
+    toolbarSettings = settings;
+    // Re-render if toolbar is visible
+    if (productivityToolbar.style.display !== 'none') {
+      renderTools();
+    }
+  });
+
+  // Prevent click-through on toolbar
+  productivityToolbar.addEventListener('mouseenter', () => {
+    ipcRenderer.send('set-ignore-mouse-events', false);
+  });
+
+  productivityToolbar.addEventListener('mouseleave', () => {
+    if (!document.body.classList.contains('resize-mode')) {
+      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+    }
+  });
+
+  // ===== NOTEPAD TOOL =====
+
+  registerTool('notepad', {
+    render: () => {
+      return `
+        <div class="tool-header">📝 Notepad</div>
+        <textarea
+          class="notepad-textarea"
+          placeholder="Type your notes here..."
+          id="notepad-content"
+        ></textarea>
+      `;
+    },
+
+    init: (element) => {
+      const textarea = element.querySelector('#notepad-content');
+
+      // Load saved content
+      const savedContent = localStorage.getItem('gsm-notepad-content');
+      if (savedContent) {
+        textarea.value = savedContent;
+      }
+
+      // Auto-save on input
+      textarea.addEventListener('input', () => {
+        localStorage.setItem('gsm-notepad-content', textarea.value);
+      });
+
+      // Focus on load
+      setTimeout(() => textarea.focus(), 100);
+    },
+
+    cleanup: () => {
+      // Nothing to cleanup for notepad
+    }
+  });
+
+  // ===== POMODORO TIMER TOOL =====
+
+  let pomodoroState = null;
+
+  registerTool('pomodoro', {
+    render: () => {
+      return `
+        <div class="tool-header">🍅 Pomodoro Timer</div>
+        <div class="pomodoro-container">
+          <div class="timer-display">
+            <span class="timer-minutes">25</span>:<span class="timer-seconds">00</span>
+          </div>
+          <div class="timer-mode">Work Time</div>
+          <div class="timer-controls">
+            <button class="timer-btn timer-start">▶ Start</button>
+            <button class="timer-btn timer-pause" disabled>⏸ Pause</button>
+            <button class="timer-btn timer-reset">↻ Reset</button>
+          </div>
+          <div class="timer-progress-bar">
+            <div class="timer-progress-fill"></div>
+          </div>
+        </div>
+      `;
+    },
+
+    init: (element) => {
+      const display = {
+        minutes: element.querySelector('.timer-minutes'),
+        seconds: element.querySelector('.timer-seconds'),
+        mode: element.querySelector('.timer-mode'),
+        progress: element.querySelector('.timer-progress-fill')
+      };
+
+      const buttons = {
+        start: element.querySelector('.timer-start'),
+        pause: element.querySelector('.timer-pause'),
+        reset: element.querySelector('.timer-reset')
+      };
+
+      // Initialize state
+      pomodoroState = {
+        isRunning: false,
+        isWorkMode: true,
+        totalSeconds: toolbarSettings.pomodoroWorkDuration * 60,
+        remainingSeconds: toolbarSettings.pomodoroWorkDuration * 60,
+        intervalId: null
+      };
+
+      // Format time
+      function formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        display.minutes.textContent = String(mins).padStart(2, '0');
+        display.seconds.textContent = String(secs).padStart(2, '0');
+      }
+
+      // Update progress bar
+      function updateProgress() {
+        const percentage = (pomodoroState.remainingSeconds / pomodoroState.totalSeconds) * 100;
+        display.progress.style.width = `${percentage}%`;
+      }
+
+      // Play notification
+      function playNotification() {
+        if (toolbarSettings.pomodoroSoundEnabled) {
+          const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=');
+          audio.play().catch(() => {});
+        }
+
+        if (Notification.permission === 'granted') {
+          new Notification('Pomodoro Timer', {
+            body: pomodoroState.isWorkMode ? 'Break time over! Back to work.' : 'Work session complete! Take a break.',
+            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">🍅</text></svg>'
+          });
+        }
+      }
+
+      // Timer tick
+      function tick() {
+        if (pomodoroState.remainingSeconds > 0) {
+          pomodoroState.remainingSeconds--;
+          formatTime(pomodoroState.remainingSeconds);
+          updateProgress();
+        } else {
+          // Timer complete
+          stop();
+          playNotification();
+
+          // Switch mode
+          pomodoroState.isWorkMode = !pomodoroState.isWorkMode;
+          const duration = pomodoroState.isWorkMode
+            ? toolbarSettings.pomodoroWorkDuration
+            : toolbarSettings.pomodoroBreakDuration;
+          pomodoroState.totalSeconds = duration * 60;
+          pomodoroState.remainingSeconds = duration * 60;
+
+          display.mode.textContent = pomodoroState.isWorkMode ? 'Work Time' : 'Break Time';
+          formatTime(pomodoroState.remainingSeconds);
+          updateProgress();
+        }
+      }
+
+      // Start timer
+      function start() {
+        if (!pomodoroState.isRunning) {
+          pomodoroState.isRunning = true;
+          pomodoroState.intervalId = setInterval(tick, 1000);
+          buttons.start.disabled = true;
+          buttons.pause.disabled = false;
+        }
+      }
+
+      // Pause timer
+      function pause() {
+        stop();
+        buttons.start.disabled = false;
+        buttons.pause.disabled = true;
+      }
+
+      // Stop timer (internal)
+      function stop() {
+        pomodoroState.isRunning = false;
+        if (pomodoroState.intervalId) {
+          clearInterval(pomodoroState.intervalId);
+          pomodoroState.intervalId = null;
+        }
+      }
+
+      // Reset timer
+      function reset() {
+        stop();
+        pomodoroState.isWorkMode = true;
+        pomodoroState.totalSeconds = toolbarSettings.pomodoroWorkDuration * 60;
+        pomodoroState.remainingSeconds = pomodoroState.totalSeconds;
+        display.mode.textContent = 'Work Time';
+        formatTime(pomodoroState.remainingSeconds);
+        updateProgress();
+        buttons.start.disabled = false;
+        buttons.pause.disabled = true;
+      }
+
+      // Event listeners
+      buttons.start.addEventListener('click', start);
+      buttons.pause.addEventListener('click', pause);
+      buttons.reset.addEventListener('click', reset);
+
+      // Initialize display
+      formatTime(pomodoroState.remainingSeconds);
+      updateProgress();
+
+      // Request notification permission
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    },
+
+    cleanup: () => {
+      // Stop timer when toolbar closes
+      if (pomodoroState && pomodoroState.isRunning) {
+        clearInterval(pomodoroState.intervalId);
+        pomodoroState.isRunning = false;
+      }
+    }
+  });
 
 </script>
 
