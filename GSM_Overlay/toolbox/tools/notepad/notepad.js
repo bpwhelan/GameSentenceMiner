@@ -150,18 +150,18 @@ class NotepadTool {
   /**
    * Clean up the tool
    */
-  destroy() {
+  async destroy() {
     console.log('Notepad tool destroying...');
-
-    // Save before destroying
-    if (this.textareaElement.value.trim()) {
-      this.saveNotes();
-    }
 
     // Clear timeout
     if (this.saveTimeout) {
       clearTimeout(this.saveTimeout);
       this.saveTimeout = null;
+    }
+
+    // Save before destroying
+    if (this.textareaElement && this.textareaElement.value.trim()) {
+      await this.saveNotes();
     }
 
     // Remove DOM elements

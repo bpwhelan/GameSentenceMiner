@@ -11,11 +11,11 @@
  */
 
 class GoalsTool {
-  constructor(container) {
+  constructor(container, settings = {}) {
     this.container = container;
     this.goalsElement = null;
     this.isLoading = false;
-    this.apiPort = 55000; // Default GSM API port
+    this.apiPort = settings.apiPort || 55000; // Default GSM API port
   }
 
   async init() {
@@ -184,23 +184,6 @@ class GoalsTool {
       const progress = goal.progress_today || 0;
       const needed = goal.progress_needed || 0;
 
-      // Handle custom (daily habit) goals - they're checkbox-based
-      if (goal.metric_type === 'custom') {
-        const isChecked = goal.is_checked || false;
-        const checkboxIcon = isChecked ? '✅' : '⬜';
-
-        html += `
-          <div class="goals-item goals-item-checkbox ${isChecked ? 'checked' : ''}">
-            <div class="goals-item-header">
-              <span class="goals-item-icon">${checkboxIcon}</span>
-              <span class="goals-item-name">${this.escapeHtml(goal.goal_name)}</span>
-              <span class="goals-item-percent ${isChecked ? 'complete' : ''}">${isChecked ? '✓' : ''}</span>
-            </div>
-          </div>
-        `;
-        continue;
-      }
-
       // Handle static daily goals (hours_static, characters_static, cards_static)
       // Calculate percentage (can exceed 100%)
       const percentage = needed > 0 ? (progress / needed) * 100 : (progress > 0 ? 100 : 0);
@@ -269,19 +252,6 @@ class GoalsTool {
     }
   }
 
-  // Helper method to check if custom goal is completed today
-  // This is a simplified version - in a full implementation, you'd want to sync with backend
-  isCustomGoalCompletedToday(goalId) {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const storageKey = `custom_goal_${goalId}_${today}`;
-      return localStorage.getItem(storageKey) === 'true';
-    } catch (error) {
-      console.warn('Error checking custom goal status:', error);
-      return false;
-    }
-  }
-
   escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -298,7 +268,9 @@ class GoalsTool {
   }
 
   updateSettings(settings) {
-    // No settings for this tool currently
+    if (settings && settings.apiPort !== undefined) {
+      this.apiPort = settings.apiPort;
+    }
   }
 
   destroy() {

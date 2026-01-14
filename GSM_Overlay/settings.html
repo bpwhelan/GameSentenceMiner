@@ -597,7 +597,7 @@
         <label>
           <span class="label-text">
             Notepad
-            <div class="hotkey-info">Per-game notes that persist across sessions</div>
+            <div class="hotkey-info">Global notes that persist across sessions</div>
           </span>
           <input type="checkbox" class="tool-checkbox" data-tool-id="notepad" />
         </label>
@@ -1180,14 +1180,13 @@
     // Handle settings preload
     ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
       const {
-        fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType,
+        weburl1, weburl2, hideOnStartup, manualMode, manualModeType,
         showHotkey, pinned, showTextBackground, afkTimer, showFurigana, hideFuriganaOnStartup,
         offsetX, offsetY, toggleFuriganaHotkey, translateHotkey, autoRequestTranslation,
         toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey,
         toolboxEnabled, toggleToolboxHotkey, enabledTools
       } = userSettings;
       
-      // document.getElementById("fontSize").value = fontSize;
       document.getElementById("offsetX").value = offsetX;
       document.getElementById("offsetY").value = offsetY;
       document.getElementById("wsUrl1").value = weburl1;

@@ -1885,7 +1885,8 @@ function clearTextBoxes() {
     if (window.toolboxManager) {
       window.toolboxManager.updateSettings({
         enabled: newsettings.toolboxEnabled,
-        enabledTools: newsettings.enabledTools || []
+        enabledTools: newsettings.enabledTools || [],
+        toolSettings: newsettings.toolSettings || {}
       });
     }
 

@@ -961,7 +961,7 @@ app.whenReady().then(async () => {
   function registerToggleToolboxHotkey(oldHotkey) {
     if (oldHotkey) globalShortcut.unregister(oldHotkey);
     globalShortcut.unregister(userSettings.toggleToolboxHotkey);
-    globalShortcut.register(userSettings.toggleToolboxHotkey || "Alt+Shift+T", () => {
+    globalShortcut.register(userSettings.toggleToolboxHotkey || "Alt+Shift+A", () => {
       console.log("Toolbox hotkey pressed");
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('toggle-toolbox');

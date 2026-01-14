@@ -120,7 +120,7 @@ class ToolboxManager {
           // Initialize tool if it has an init method
           if (typeof toolInstance.init === 'function') {
             try {
-              toolInstance.init();
+              await toolInstance.init();
               console.log(`Tool ${toolId} initialized successfully`);
             } catch (error) {
               console.error(`Failed to initialize tool ${toolId}:`, error);
