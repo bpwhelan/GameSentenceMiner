@@ -9,26 +9,28 @@
   font-size: 48px;
   font-weight: 600;
   letter-spacing: 2px;
-  
+
   /* Colors */
   color: #ffffff;
-  text-shadow: 
+  text-shadow:
     0 0 10px rgba(0, 0, 0, 0.8),
     0 0 20px rgba(0, 0, 0, 0.6),
     2px 2px 4px rgba(0, 0, 0, 0.9);
-  
-  /* Layout */
+
+  /* Layout - center within column */
   display: flex;
   align-items: center;
   justify-content: center;
-  
+  align-self: center;
+  margin: auto 0;
+
   /* Background - transparent by default */
   background: transparent;
-  
+
   /* Responsive sizing */
   padding: 10px 20px;
   white-space: nowrap;
-  
+
   /* Prevent text selection */
   user-select: none;
   -webkit-user-select: none;

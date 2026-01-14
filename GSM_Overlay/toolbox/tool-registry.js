@@ -11,6 +11,14 @@ const TOOL_MANIFEST = {
     cssPath: './toolbox/tools/clock/clock.css',
     hasSettings: false,
     enabled: false // Default state
+  },
+  'notepad': {
+    id: 'notepad',
+    name: 'Notepad',
+    path: './toolbox/tools/notepad/notepad.js',
+    cssPath: './toolbox/tools/notepad/notepad.css',
+    hasSettings: false,
+    enabled: false
   }
 };
 

@@ -22,6 +22,7 @@ from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
 from GameSentenceMiner.owocr.owocr.run import apply_ocr_config_to_image
 from GameSentenceMiner.util.configuration import OverlayEngine, get_config, get_overlay_config, get_master_config, get_temporary_directory, is_wayland, is_windows, is_beangate, logger
 from GameSentenceMiner.util.electron_config import get_ocr_language
+from GameSentenceMiner.util.games_table import GamesTable
 # Updated imports to include window info helpers
 from GameSentenceMiner.obs import get_screenshot_PIL, get_window_info_from_source, get_current_scene, get_current_game
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
@@ -737,11 +738,19 @@ class WindowStateMonitor:
             # Recommend when: fullscreen detected AND overlay config shows manual mode is OFF
             overlay_cfg = get_overlay_config()
             recommend_manual = is_fullscreen and current_state in ["active", "background"]
-            
+
+            # Look up or create game record to get stable UUID
+            game_record = None
+            game_id = None
+            if game_name_ref:
+                game_record = GamesTable.get_or_create_by_name(game_name_ref)
+                game_id = game_record.id if game_record else None
+
             payload = {
                 "type": "window_state",
                 "data": current_state,
                 "game": game_name_ref,
+                "game_id": game_id,
                 "magpie_info": self.magpie_info,
                 "is_fullscreen": is_fullscreen,
                 "recommend_manual_mode": recommend_manual

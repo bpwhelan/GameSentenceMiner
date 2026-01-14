@@ -1,0 +1,126 @@
+/**
+ * Notepad Tool Styles
+ * Simple note-taking interface
+ */
+
+/* Container for the entire notepad */
+.notepad-container {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  flex: 1;
+  min-height: 0;
+  pointer-events: auto !important;
+}
+
+/* Save indicator - positioned in top right corner */
+.notepad-save-indicator {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.notepad-save-indicator.typing {
+  color: #ffa500;
+  background: rgba(255, 165, 0, 0.15);
+}
+
+.notepad-save-indicator.saving {
+  color: #4a9eff;
+  background: rgba(74, 158, 255, 0.15);
+}
+
+.notepad-save-indicator.saved {
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.15);
+}
+
+.notepad-save-indicator.error {
+  color: #f44336;
+  background: rgba(244, 67, 54, 0.15);
+}
+
+/* Textarea for notes */
+.notepad-textarea {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 12px;
+  box-sizing: border-box;
+
+  /* Typography */
+  font-family: 'Segoe UI', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #ffffff;
+
+  /* Appearance - 80% opacity for better visibility */
+  background: rgba(30, 30, 35, 0.80);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+
+  /* Interaction */
+  resize: none;
+  outline: none;
+  pointer-events: auto !important;
+  cursor: text;
+
+  /* Scrollbar styling for webkit browsers */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.notepad-textarea::-webkit-scrollbar {
+  width: 8px;
+}
+
+.notepad-textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.notepad-textarea::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.notepad-textarea::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Focus state */
+.notepad-textarea:focus {
+  border-color: rgba(74, 158, 255, 0.5);
+  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
+}
+
+/* Placeholder styling */
+.notepad-textarea::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+  font-style: italic;
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 600px) {
+  .notepad-container {
+    max-width: 300px;
+  }
+
+  .notepad-textarea {
+    font-size: 12px;
+  }
+}
+
+/* When multiple tools are active, reduce width */
+.toolbox-column:not(:only-child) .notepad-container {
+  max-width: 350px;
+}

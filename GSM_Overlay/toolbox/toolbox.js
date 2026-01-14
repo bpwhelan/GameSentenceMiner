@@ -10,6 +10,7 @@ class ToolboxManager {
     this.enabled = false;
     this.enabledTools = [];
     this.toggleDebounce = null;
+    this.ipcRenderer = window.require ? window.require('electron').ipcRenderer : null;
   }
 
   /**
@@ -47,13 +48,38 @@ class ToolboxManager {
       }
 
       this.visible = !this.visible;
-      
+
       if (this.visible) {
         this.container.classList.add('visible');
         console.log('Toolbox shown');
+        // Notify tools they are now visible
+        for (const [toolId, toolInstance] of this.tools.entries()) {
+          if (typeof toolInstance.onShow === 'function') {
+            try {
+              toolInstance.onShow();
+            } catch (error) {
+              console.error(`Tool ${toolId} onShow error:`, error);
+            }
+          }
+        }
       } else {
         this.container.classList.remove('visible');
         console.log('Toolbox hidden');
+        // Notify tools they are now hidden
+        for (const [toolId, toolInstance] of this.tools.entries()) {
+          if (typeof toolInstance.onHide === 'function') {
+            try {
+              toolInstance.onHide();
+            } catch (error) {
+              console.error(`Tool ${toolId} onHide error:`, error);
+            }
+          }
+        }
+      }
+
+      // Notify main process to update mouse event handling
+      if (this.ipcRenderer) {
+        this.ipcRenderer.send('toolbox-visibility-changed', this.visible);
       }
 
       this.toggleDebounce = null;

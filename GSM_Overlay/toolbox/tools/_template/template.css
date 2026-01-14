@@ -1,12 +1,14 @@
 /**
  * Template Tool Styles
- * 
+ *
  * Guidelines for tool CSS:
  * 1. Use transparent backgrounds by default
  * 2. Use text-shadow for readability on any background
  * 3. Make text non-selectable if appropriate
  * 4. Support responsive sizing based on column width
  * 5. Prefix your classes with your tool name to avoid conflicts
+ * 6. For full-height tools, use `flex: 1` and `min-height: 0`
+ * 7. For centered tools, use `margin: auto 0` and `align-self: center`
  */
 
 /* Main tool display element */
@@ -15,26 +17,28 @@
   font-family: 'Segoe UI', 'Roboto', sans-serif;
   font-size: 24px;
   font-weight: 500;
-  
+
   /* Colors - use white text with shadow for visibility */
   color: #ffffff;
-  text-shadow: 
+  text-shadow:
     0 0 10px rgba(0, 0, 0, 0.8),
     0 0 20px rgba(0, 0, 0, 0.6),
     2px 2px 4px rgba(0, 0, 0, 0.9);
-  
-  /* Layout - center content */
+
+  /* Layout - center content within column */
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  
+  align-self: center;
+  margin: auto 0;
+
   /* Background - transparent by default */
   background: transparent;
-  
+
   /* Spacing */
   padding: 10px 20px;
-  
+
   /* Prevent text selection (optional) */
   user-select: none;
   -webkit-user-select: none;

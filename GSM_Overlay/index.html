@@ -499,6 +499,7 @@ background: rgba(202, 12, 12, 0.692);
   <style>
 
   </style>
+  <link rel="stylesheet" href="toolbox/toolbox.css">
 </head>
 
 
@@ -567,6 +568,11 @@ background: rgba(202, 12, 12, 0.692);
   </div>
   <!-- <div id="text-box-container" class="text-box-container interactive"></div> -->
   <!-- <p id="text-box-paragraph" style="width: 100%; height: 100%;"></p> -->
+  
+  <div id="toolbox-overlay"></div>
+
+  <script src="toolbox/tool-registry.js"></script>
+  <script src="toolbox/toolbox.js"></script>
 </body>
 
 
@@ -592,6 +598,12 @@ background: rgba(202, 12, 12, 0.692);
   // Manual mode recommendation state
   let dismissedRecommendationGames = []; // Permanently dismissed games
   let currentGameForRecommendation = null;
+
+  // Game tracking for toolbox features
+  let currentGame = null;
+  let currentGameId = null;
+  window.currentGame = null;    // Display name (e.g., "Elden Ring")
+  window.currentGameId = null;  // UUID from GamesTable
 
   // Startup message fade-out
   window.addEventListener('DOMContentLoaded', () => {
@@ -1024,16 +1036,30 @@ background: rgba(202, 12, 12, 0.692);
         // Handle window state events
         if (data.type === "window_state") {
           console.log("Window state event received:", data.data, "for game:", data.game);
-          
+
+          // Track game changes for toolbox features
+          if (data.game !== currentGame || data.game_id !== currentGameId) {
+            currentGame = data.game;
+            currentGameId = data.game_id;
+            window.currentGame = data.game;
+            window.currentGameId = data.game_id;
+            
+            // Broadcast game change event to renderer components (e.g., toolbox)
+            ipcRenderer.send('game-changed', {
+              game: data.game,
+              game_id: data.game_id
+            });
+          }
+
           // Process magpie_info from websocket
           if (data.magpie_info !== undefined) {
             const oldMagpieActive = isMagpieActive;
             currentMagpieInfo = data.magpie_info;
             isMagpieActive = currentMagpieInfo !== null && currentMagpieInfo !== undefined;
-            
+
             console.log("Magpie info updated from websocket:", currentMagpieInfo);
             console.log("Magpie active state:", isMagpieActive);
-            
+
             // If magpie state changed, update the behavior
             if (oldMagpieActive !== isMagpieActive) {
               console.log("Magpie state changed from", oldMagpieActive, "to", isMagpieActive);
@@ -1041,10 +1067,11 @@ background: rgba(202, 12, 12, 0.692);
               // updateActionPanelMagpieArea();
             }
           }
-          
+
           ipcRenderer.send("window-state-changed", {
             state: data.data,
             game: data.game,
+            game_id: data.game_id,
             magpieActive: isMagpieActive,
             isFullscreen: data.is_fullscreen || false,
             recommendManualMode: data.recommend_manual_mode || false
@@ -1854,6 +1881,14 @@ function clearTextBoxes() {
     dismissedRecommendationGames = newsettings.dismissedFullscreenRecommendations || [];
     console.log("Loaded dismissed games:", dismissedRecommendationGames);
 
+    // Initialize toolbox with settings
+    if (window.toolboxManager) {
+      window.toolboxManager.updateSettings({
+        enabled: newsettings.toolboxEnabled,
+        enabledTools: newsettings.enabledTools || []
+      });
+    }
+
     if (pinned) {
       document.body.classList.add("force-visible");
       document.getElementById("btn-pin").style.color = "#ddd2d2";
@@ -1945,6 +1980,21 @@ function clearTextBoxes() {
           break;
         case "offsetY":
           offsetY = value;
+          break;
+        case "toolboxEnabled":
+          if (window.toolboxManager) {
+            window.toolboxManager.updateSettings({ enabled: value });
+          }
+          break;
+        case "enabledTools":
+          if (window.toolboxManager) {
+            window.toolboxManager.updateSettings({ enabledTools: value });
+          }
+          break;
+        case "toolSettings":
+          if (window.toolboxManager) {
+            window.toolboxManager.updateSettings({ toolSettings: value });
+          }
           break;
       }
     });
@@ -2203,6 +2253,14 @@ function clearTextBoxes() {
     showTranslation('Translation failed: ' + error);
   });
 
+  // Toolbox toggle listener
+  ipcRenderer.on('toggle-toolbox', () => {
+    console.log('Toggle toolbox IPC received');
+    if (window.toolboxManager) {
+      window.toolboxManager.toggle();
+    }
+  });
+
   // Handle manual mode recommendation
   ipcRenderer.on('recommend-manual-mode', (event, { game }) => {
     if (dismissedRecommendationGames.includes(game)) {
@@ -2219,6 +2277,13 @@ function clearTextBoxes() {
 
   // Handle enabling manual mode from recommendation
   document.addEventListener('DOMContentLoaded', () => {
+    // Initialize toolbox manager
+    if (typeof ToolboxManager !== 'undefined') {
+      window.toolboxManager = new ToolboxManager();
+      window.toolboxManager.init();
+      console.log('ToolboxManager initialized');
+    }
+
     const enableBtn = document.getElementById('btn-enable-manual');
     const dismissBtn = document.getElementById('btn-dismiss-recommendation');
     const banner = document.getElementById('manual-mode-recommendation');

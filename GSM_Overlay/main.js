@@ -52,11 +52,15 @@ let userSettings = {
   "yomitanSettingsHotkey": "Alt+Shift+Y",
   "overlaySettingsHotkey": "Alt+Shift+S",
   "translateHotkey": "Alt+T",
+  "toggleToolboxHotkey": "Alt+Shift+A",
   "autoRequestTranslation": false,
   "showRecycledIndicator": false,
   "pinned": false,
   "showReadyIndicator": true,
   "showTextBackground": false,
+  "toolboxEnabled": false,
+  "enabledTools": [],
+  "toolSettings": {},
   "afkTimer": 5, // in minutes
   "showFurigana": false,
   "hideFuriganaOnStartup": false,
@@ -67,6 +71,7 @@ let userSettings = {
 let manualIn;
 let resizeMode = false;
 let yomitanShown = false;
+let toolboxVisible = false;
 let mainWindow = null;
 let afkHidden = false; // true when AFK timer hid the overlay
 let websocketStates = {
@@ -291,7 +296,7 @@ function registerManualShowHotkey(oldHotkey) {
     console.log("[ManualHotkey] ACTION: Sending 'show-overlay-hotkey' false");
     mainWindow.webContents.send('show-overlay-hotkey', false);
 
-    if (!yomitanShown && !resizeMode) {
+    if (!yomitanShown && !resizeMode && !toolboxVisible) {
       if (!isLinux()) {
         console.log("[ManualHotkey] ACTION: setIgnoreMouseEvents(true)");
         mainWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -299,7 +304,7 @@ function registerManualShowHotkey(oldHotkey) {
       console.log("[ManualHotkey] ACTION: calling hideAndRestoreFocus()");
       hideAndRestoreFocus();
     } else {
-      console.log(`[ManualHotkey] Skipping Focus Restore. Yomitan: ${yomitanShown}, Resize: ${resizeMode}`);
+      console.log(`[ManualHotkey] Skipping Focus Restore. Yomitan: ${yomitanShown}, Resize: ${resizeMode}, Toolbox: ${toolboxVisible}`);
     }
   };
 
@@ -938,6 +943,18 @@ app.whenReady().then(async () => {
   }
   registerTranslateHotkey();
 
+  // Register toolbox toggle hotkey
+  function registerToggleToolboxHotkey(oldHotkey) {
+    if (oldHotkey) globalShortcut.unregister(oldHotkey);
+    globalShortcut.unregister(userSettings.toggleToolboxHotkey);
+    globalShortcut.register(userSettings.toggleToolboxHotkey || "Alt+Shift+T", () => {
+      console.log("Toolbox hotkey pressed");
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('toggle-toolbox');
+      }
+    });
+  }
+
   // Register toggle furigana hotkey
   function registerToggleFuriganaHotkey(oldHotkey) {
     if (oldHotkey) globalShortcut.unregister(oldHotkey);
@@ -949,6 +966,8 @@ app.whenReady().then(async () => {
     });
   }
   registerToggleFuriganaHotkey();
+
+  registerToggleToolboxHotkey();
 
   registerManualShowHotkey();
 
@@ -1100,7 +1119,11 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
-    // console.log("set-ignore-mouse-events", ignore, options, resizeMode, yomitanShown);
+    // console.log("set-ignore-mouse-events", ignore, options, resizeMode, yomitanShown, toolboxVisible);
+    // Don't allow click-through when toolbox is visible
+    if (toolboxVisible && ignore) {
+      return;
+    }
     if (!resizeMode && !yomitanShown) {
       // if ignore is false a button or element on the Overlay was clicked and we do not want to click-through
       if (!isWindows() && !isMac()) {
@@ -1146,6 +1169,9 @@ app.whenReady().then(async () => {
     } else {
       if (manualHotkeyPressed && manualModeToggleState) {
         return;
+      }
+      if (toolboxVisible) {
+        return; // Don't restore click-through while toolbox is visible
       }
       if (isWindows() || isMac()) {
         mainWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -1267,6 +1293,57 @@ app.whenReady().then(async () => {
     // TODO: Implement TTS functionality
   });
 
+  // Toolbox data persistence
+  const toolboxDataPath = path.join(app.getPath('userData'), 'toolbox.json');
+
+  function readToolboxData() {
+    try {
+      if (fs.existsSync(toolboxDataPath)) {
+        return JSON.parse(fs.readFileSync(toolboxDataPath, 'utf-8'));
+      }
+    } catch (error) {
+      console.error('Failed to read toolbox.json:', error);
+    }
+    return { tools: {} };
+  }
+
+  function writeToolboxData(data) {
+    try {
+      fs.writeFileSync(toolboxDataPath, JSON.stringify(data, null, 2));
+      return true;
+    } catch (error) {
+      console.error('Failed to write toolbox.json:', error);
+      return false;
+    }
+  }
+
+  ipcMain.handle('toolbox-data-read', async (event, { toolId, gameKey }) => {
+    const data = readToolboxData();
+    return gameKey ? data.tools?.[toolId]?.[gameKey] : data.tools?.[toolId] || {};
+  });
+
+  ipcMain.handle('toolbox-data-write', async (event, { toolId, gameKey, value }) => {
+    const data = readToolboxData();
+    if (!data.tools) data.tools = {};
+    if (!data.tools[toolId]) data.tools[toolId] = {};
+    data.tools[toolId][gameKey] = { ...value, lastModified: Date.now() };
+    return writeToolboxData(data);
+  });
+
+  ipcMain.on("toolbox-visibility-changed", (event, visible) => {
+    console.log('Toolbox visibility:', visible);
+    toolboxVisible = visible;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (visible) {
+        // Allow mouse interaction when toolbox is visible
+        mainWindow.setIgnoreMouseEvents(false, { forward: true });
+      } else {
+        // Restore click-through when toolbox is hidden
+        mainWindow.setIgnoreMouseEvents(true, { forward: true });
+      }
+    }
+  });
+
   ipcMain.on("websocket-closed", (event, type) => {
     websocketStates[type] = false
   });
@@ -1278,7 +1355,7 @@ app.whenReady().then(async () => {
     lastWebsocketData = data;
   });
 
-  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, isFullscreen, recommendManualMode }) => {
+  ipcMain.on("window-state-changed", (event, { state, game, game_id, magpieActive, isFullscreen, recommendManualMode }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
     // Update the tracked magpie state
@@ -1288,6 +1365,11 @@ app.whenReady().then(async () => {
 
     // Send game state to renderer to control action panel visibility
     mainWindow.webContents.send("game-state", state);
+
+    // Notify renderer of game change with both display name and UUID
+    if (game) {
+      mainWindow.webContents.send("game-changed", { game, game_id });
+    }
 
     // Forward fullscreen recommendation to renderer if applicable
     // if (recommendManualMode && !isManualMode()) {
@@ -1413,6 +1495,15 @@ app.whenReady().then(async () => {
         break;
       case "translateHotkey":
         registerTranslateHotkey(oldValue);
+        break;
+      case "toggleToolboxHotkey":
+        registerToggleToolboxHotkey(oldValue);
+        break;
+      case "toolboxEnabled":
+      case "enabledTools":
+      case "toolSettings":
+        // Settings already updated in userSettings, just saved
+        // Renderer will receive update via settings-updated broadcast
         break;
       case "weburl2":
         if (backend) backend.connect(value);
