@@ -183,3 +183,35 @@ toolbox/
 ## Version History
 
 - **1.0.0** - Initial release with Clock tool
+
+  1. Settings Structure: The GameSentenceMiner overlay has a settings.html file   organized into multiple setting groups. There's a Toolbox section that manages   various utility tools (clock, notepad, pomodoro).                            
+  2. Tool Settings Pattern: Tool-specific settings (like pomodoro's duration  
+  settings) should be nested within the Toolbox settings group, not in separate 
+  sections. This keeps related settings together contextually.
+  3. Dynamic UI: JavaScript controls visibility of tool settings panels - they  
+  show/hide based on whether the tool's checkbox is enabled (handled by
+  updateToolSettingsPanels() function).
+  4. Visual Design Pattern: Toolbox tools use a consistent semi-transparent dark
+   background style:
+    - Background: rgba(30, 30, 35, 0.75-0.80)
+    - Border: 1px solid rgba(255, 255, 255, 0.15)
+    - Border radius: 8px
+
+  This creates visual cohesion across tools like notepad and pomodoro while     
+  maintaining overlay transparency.
+  5. Tool Architecture: Each tool (notepad, pomodoro) has its own subdirectory
+  with separate CSS and JS files, making them modular and independently
+  styleable.
+  6. Panel Sizing Consistency: Tools should use consistent sizing patterns to
+  maintain visual balance. The Goals panel was updated (Jan 2026) to match the
+  Pomodoro panel dimensions:
+    - Width/Height: 100% (full container instead of max-width constraints)
+    - Padding: 20px (increased from 12px)
+    - Font sizes increased across all elements:
+      * Headers: 18px (from 13px)
+      * Icons: 20px (from 14px)
+      * Percentages: 16px (from 12px)
+      * Progress values: 14px (from 11px)
+      * Loading/error states: 18px (from 14px)
+    This ensures all panels have comparable visual weight and readability in
+    the overlay environment.

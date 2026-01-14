@@ -19,6 +19,22 @@ const TOOL_MANIFEST = {
     cssPath: './toolbox/tools/notepad/notepad.css',
     hasSettings: false,
     enabled: false
+  },
+  'pomodoro': {
+    id: 'pomodoro',
+    name: 'Pomodoro Timer',
+    path: './toolbox/tools/pomodoro/pomodoro.js',
+    cssPath: './toolbox/tools/pomodoro/pomodoro.css',
+    hasSettings: true,
+    enabled: false
+  },
+  'goals': {
+    id: 'goals',
+    name: 'Daily Goals',
+    path: './toolbox/tools/goals/goals.js',
+    cssPath: './toolbox/tools/goals/goals.css',
+    hasSettings: false,
+    enabled: false
   }
 };
 

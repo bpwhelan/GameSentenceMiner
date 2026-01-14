@@ -2205,11 +2205,15 @@ function clearTextBoxes() {
   })
 
   ipcRenderer.on('toggle-main-box', () => {
+    console.log('toggle-main-box event received');
     const mainBox = document.getElementById('main-box');
+    console.log('Main box current display:', mainBox.style.display);
     if (mainBox.style.display === 'none') {
       mainBox.style.display = '';
+      console.log('Main box shown');
     } else {
       mainBox.style.display = 'none';
+      console.log('Main box hidden');
     }
   });
 

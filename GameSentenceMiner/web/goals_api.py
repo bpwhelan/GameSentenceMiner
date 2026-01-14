@@ -94,7 +94,7 @@ def validate_metric_type(metric_type, allowed_types=None):
         allowed_types = [
             "hours", "characters", "games", "cards", "mature_cards",
             "hours_static", "characters_static", "cards_static",
-            "anki_backlog"
+            "anki_backlog", "custom"
         ]
     
     if metric_type not in allowed_types:
@@ -1016,22 +1016,57 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/progress", methods=["POST"])
     def api_goals_progress():
         """
-        Calculate progress for a custom goal within a specific date range.
-        
-        Request body:
-        {
-            "metric_type": "hours" | "characters" | "games" | "cards" | "mature_cards",
-            "start_date": "YYYY-MM-DD",
-            "end_date": "YYYY-MM-DD",
-            "goals_settings": {...}  # Optional: required for mature_cards
-        }
-        
-        Returns:
-        {
-            "progress": <number>,
-            "daily_average": <number>,
-            "days_in_range": <number>
-        }
+        Calculate progress for a custom goal within a specific date range
+        ---
+        tags:
+          - Goals
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              required:
+                - metric_type
+                - start_date
+                - end_date
+              properties:
+                metric_type:
+                  type: string
+                  enum: [hours, characters, games, cards, mature_cards, hours_static, characters_static, cards_static, anki_backlog]
+                  description: Type of metric to track
+                start_date:
+                  type: string
+                  format: date
+                  description: Start date in YYYY-MM-DD format
+                end_date:
+                  type: string
+                  format: date
+                  description: End date in YYYY-MM-DD format
+                media_type:
+                  type: string
+                  description: Filter by media type (Anime, Visual Novel, ALL, etc.)
+                  default: ALL
+                goals_settings:
+                  type: object
+                  description: Settings object (required for mature_cards and anki_backlog)
+        responses:
+          200:
+            description: Progress calculation result
+            schema:
+              type: object
+              properties:
+                progress:
+                  type: number
+                  description: Total progress for the date range
+                daily_average:
+                  type: number
+                  description: Average progress per day
+                days_in_range:
+                  type: integer
+                  description: Number of days in the range
+          400:
+            description: Invalid request
         """
         try:
             data = request.get_json()
@@ -1129,29 +1164,75 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/today-progress", methods=["POST"])
     def api_goals_today_progress():
         """
-        Calculate today's required progress for a custom goal.
-        For static goals, always returns the target value as required.
-        Shows what needs to be accomplished today to stay on track.
-        Applies easy days percentage reduction based on current day of week.
-        
-        Request body:
-        {
-            "goal_id": "goal_xxx",
-            "metric_type": "hours" | "characters" | "games" | "hours_static" | "characters_static" | "cards_static",
-            "target_value": <number>,
-            "start_date": "YYYY-MM-DD",
-            "end_date": "YYYY-MM-DD",
-            "goals_settings": {...}  # Optional: includes easyDays settings
-        }
-        
-        Returns:
-        {
-            "required": <number>,  # What needs to be done today (adjusted for easy days)
-            "progress": <number>,  # What has been done today
-            "has_target": true,
-            "days_remaining": <number>,
-            "total_progress": <number>  # Total progress from start to now
-        }
+        Calculate today's required progress for a custom goal
+        ---
+        tags:
+          - Goals
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              required:
+                - goal_id
+                - metric_type
+                - target_value
+              properties:
+                goal_id:
+                  type: string
+                  description: Unique goal identifier
+                metric_type:
+                  type: string
+                  enum: [hours, characters, games, cards, mature_cards, hours_static, characters_static, cards_static, anki_backlog]
+                  description: Type of metric to track
+                target_value:
+                  type: number
+                  description: Target value for the goal
+                start_date:
+                  type: string
+                  format: date
+                  description: Start date (not required for static goals)
+                end_date:
+                  type: string
+                  format: date
+                  description: End date (not required for static goals)
+                media_type:
+                  type: string
+                  description: Filter by media type
+                  default: ALL
+                goals_settings:
+                  type: object
+                  description: Settings including easyDays configuration
+        responses:
+          200:
+            description: Today's progress calculation
+            schema:
+              type: object
+              properties:
+                required:
+                  type: number
+                  description: Required progress for today (adjusted for easy days)
+                progress:
+                  type: number
+                  description: Current progress for today
+                has_target:
+                  type: boolean
+                  description: Whether the goal has a target
+                days_remaining:
+                  type: integer
+                  description: Days remaining until goal end date
+                total_progress:
+                  type: number
+                  description: Total progress from start to now
+                easy_day_percentage:
+                  type: integer
+                  description: Easy day multiplier percentage
+                is_static:
+                  type: boolean
+                  description: Whether this is a static goal
+          400:
+            description: Invalid request
         """
         try:
             data = request.get_json()
@@ -1300,28 +1381,78 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/projection", methods=["POST"])
     def api_custom_goal_projection():
         """
-        Calculate projection for a custom goal by its end date using 30-day average.
-        Shows what the user will have achieved by the goal's end date at current pace.
-        
-        Request body:
-        {
-            "goal_id": "goal_xxx",
-            "metric_type": "hours" | "characters" | "games" | "cards",
-            "target_value": <number>,
-            "start_date": "YYYY-MM-DD",
-            "end_date": "YYYY-MM-DD"
-        }
-        
-        Returns:
-        {
-            "projection": <number>,
-            "target": <number>,
-            "current": <number>,
-            "daily_average": <number>,
-            "end_date": "YYYY-MM-DD",
-            "days_until_target": <number>,
-            "percent_difference": <number>
-        }
+        Calculate projection for a custom goal using 30-day average
+        ---
+        tags:
+          - Goals
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              required:
+                - goal_id
+                - metric_type
+                - target_value
+                - start_date
+                - end_date
+              properties:
+                goal_id:
+                  type: string
+                  description: Unique goal identifier
+                metric_type:
+                  type: string
+                  enum: [hours, characters, games, cards, mature_cards, anki_backlog]
+                  description: Type of metric to track
+                target_value:
+                  type: number
+                  description: Target value for the goal
+                start_date:
+                  type: string
+                  format: date
+                  description: Goal start date
+                end_date:
+                  type: string
+                  format: date
+                  description: Goal end date
+                media_type:
+                  type: string
+                  description: Filter by media type
+                  default: ALL
+                goals_settings:
+                  type: object
+                  description: Settings for AnkiConnect (required for mature_cards/anki_backlog)
+        responses:
+          200:
+            description: Goal projection based on 30-day average
+            schema:
+              type: object
+              properties:
+                projection:
+                  type: number
+                  description: Projected value by end date
+                target:
+                  type: number
+                  description: Target value
+                current:
+                  type: number
+                  description: Current progress
+                daily_average:
+                  type: number
+                  description: 30-day daily average
+                end_date:
+                  type: string
+                  format: date
+                  description: Goal end date
+                days_until_target:
+                  type: integer
+                  description: Days remaining
+                percent_difference:
+                  type: number
+                  description: Percentage difference from target
+          400:
+            description: Invalid request
         """
         try:
             data = request.get_json()
@@ -1574,17 +1705,34 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/complete_todays_dailies", methods=["POST"])
     def api_complete_todays_dailies():
         """
-        Complete today's dailies and update streak.
-        Reads from 'current' entry and creates a historical snapshot for today.
-        
-        Returns:
-        {
-            "success": true,
-            "date": "2025-01-14",
-            "streak": 5,
-            "longest_streak": 10,
-            "message": "Dailies completed! Current streak: 5 days"
-        }
+        Complete today's dailies and update streak
+        ---
+        tags:
+          - Goals
+        responses:
+          200:
+            description: Dailies completed successfully
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  description: Whether the operation succeeded
+                date:
+                  type: string
+                  format: date
+                  description: Date of completion
+                streak:
+                  type: integer
+                  description: Current streak count
+                longest_streak:
+                  type: integer
+                  description: Longest streak achieved
+                message:
+                  type: string
+                  description: Success message
+          400:
+            description: Dailies already completed for today or no current goals
         """
         try:
             # Get today's date in YYYY-MM-DD format (using user's timezone)
@@ -1668,14 +1816,26 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/current_streak", methods=["GET"])
     def api_get_current_streak():
         """
-        Get the current streak and longest streak from the latest goals entry.
-        
-        Returns:
-        {
-            "streak": 5,
-            "longest_streak": 10,
-            "last_completion_date": "2025-01-14"
-        }
+        Get current streak and longest streak
+        ---
+        tags:
+          - Goals
+        responses:
+          200:
+            description: Streak information
+            schema:
+              type: object
+              properties:
+                streak:
+                  type: integer
+                  description: Current consecutive days streak
+                longest_streak:
+                  type: integer
+                  description: Longest streak ever achieved
+                last_completion_date:
+                  type: string
+                  format: date
+                  description: Last date dailies were completed
         """
         try:
             # Get latest historical entry (excludes "current")
@@ -1721,15 +1881,29 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/latest_goals", methods=["GET"])
     def api_get_latest_goals():
         """
-        Get the latest goals entry with date, streak, current_goals, goals_settings, and versions.
-        
-        Returns:
-        {
-            "date": "2025-01-14",
-            "current_goals": [...],  # Parsed JSON array
-            "goals_settings": {...},  # Parsed JSON object
-            "versions": {"goals": 1, "easyDays": 1, "ankiConnect": 1}
-        }
+        Get the latest goals entry with all data
+        ---
+        tags:
+          - Goals
+        responses:
+          200:
+            description: Latest goals snapshot
+            schema:
+              type: object
+              properties:
+                date:
+                  type: string
+                  format: date
+                  description: Date of the latest entry
+                current_goals:
+                  type: array
+                  description: Array of goal objects
+                goals_settings:
+                  type: object
+                  description: Settings including easyDays and ankiConnect
+                versions:
+                  type: object
+                  description: Version tracking for goals, easyDays, and ankiConnect
         """
         try:
             latest_entry = GoalsTable.get_latest()
@@ -1788,27 +1962,50 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/tomorrow-requirements", methods=["POST"])
     def api_tomorrow_requirements():
         """
-        Calculate tomorrow's requirements for all active goals.
-        Filters out custom goals and goals with 0 requirement tomorrow.
-        
-        Request body:
-        {
-            "current_goals": [...],  # Array of goal objects from localStorage
-            "goals_settings": {...}  # Settings object including easyDays
-        }
-        
-        Returns:
-        {
-            "requirements": [
-                {
-                    "goal_name": "Read for 6 hours in October",
-                    "goal_icon": "⏱️",
-                    "metric_type": "hours",
-                    "required_tomorrow": 1.5,
-                    "formatted_required": "1h 30m"
-                }
-            ]
-        }
+        Calculate tomorrow's requirements for all active goals
+        ---
+        tags:
+          - Goals
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              required:
+                - current_goals
+                - goals_settings
+              properties:
+                current_goals:
+                  type: array
+                  description: Array of goal objects
+                goals_settings:
+                  type: object
+                  description: Settings including easyDays configuration
+        responses:
+          200:
+            description: Tomorrow's requirements for all active goals
+            schema:
+              type: object
+              properties:
+                requirements:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      goal_name:
+                        type: string
+                      goal_icon:
+                        type: string
+                      metric_type:
+                        type: string
+                      required_tomorrow:
+                        type: number
+                      formatted_required:
+                        type: string
+                  description: List of requirements (excludes custom goals and 0-requirement goals)
+          400:
+            description: Invalid request
         """
         try:
             data = request.get_json()
@@ -1934,18 +2131,34 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/reading-pace", methods=["GET"])
     def api_reading_pace():
         """
-        Calculate average reading pace for the last 30 days.
-        Returns characters per hour (CPH).
-        
-        Returns:
-        {
-            "pace_cph": <number>,      # Characters per hour
-            "total_characters": <number>,
-            "total_hours": <number>,
-            "days_analyzed": 30,
-            "average_characters_per_day": <number>,
-            "average_hours_per_day": <number>
-        }
+        Calculate average reading pace for the last 30 days
+        ---
+        tags:
+          - Goals
+        responses:
+          200:
+            description: Reading pace statistics
+            schema:
+              type: object
+              properties:
+                pace_cph:
+                  type: integer
+                  description: Characters per hour
+                total_characters:
+                  type: integer
+                  description: Total characters read in 30 days
+                total_hours:
+                  type: number
+                  description: Total hours spent reading
+                days_analyzed:
+                  type: integer
+                  description: Number of days analyzed (always 30)
+                average_characters_per_day:
+                  type: integer
+                  description: Average characters per day
+                average_hours_per_day:
+                  type: number
+                  description: Average hours per day
         """
         try:
             # 1. Determine Date Range
@@ -2003,37 +2216,38 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/current", methods=["GET"])
     def api_get_current_goals():
         """
-        Get current (live) goals and settings from database.
-        Returns the latest entry marked with date='current' or creates a default one.
-        
-        Returns:
-        {
-            "current_goals": [...],
-            "goals_settings": {
-                "easyDays": {"monday": 100, ...},
-                "ankiConnect": {"deckName": "..."},
-                "customCheckboxes": {...}
-            },
-            "last_updated": <timestamp>
-        }
-
-        Example:
-            import requests
-
-            url = "http://localhost:5050/api/goals/current"
-
-            try:
-                response = requests.get(url)
-                response.raise_for_status()  # raise error for non-200
-
-                data = response.json()
-                print("Current goals:", data.get("current_goals"))
-                print("Settings:", data.get("goals_settings"))
-                print("Last updated:", data.get("last_updated"))
-
-            except requests.exceptions.RequestException as e:
-                print("Request failed:", e)
-
+        Get current (live) goals and settings from database
+        ---
+        tags:
+          - Goals
+        responses:
+          200:
+            description: Current goals and settings
+            schema:
+              type: object
+              properties:
+                current_goals:
+                  type: array
+                  description: Array of current goal objects
+                goals_settings:
+                  type: object
+                  properties:
+                    easyDays:
+                      type: object
+                      description: Easy day percentages for each day of week
+                    ankiConnect:
+                      type: object
+                      properties:
+                        deckName:
+                          type: string
+                      description: AnkiConnect settings
+                    customCheckboxes:
+                      type: object
+                      description: Custom checkbox settings
+                  description: Goals settings
+                last_updated:
+                  type: number
+                  description: Unix timestamp of last update
         """
         try:
             # Try to get the 'current' entry (date='current')
@@ -2109,20 +2323,40 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/update", methods=["POST"])
     def api_update_current_goals():
         """
-        Update current (live) goals and/or settings in database.
-        
-        Request body:
-        {
-            "current_goals": [...],      // Optional - only if goals changed
-            "goals_settings": {...},     // Optional - only if settings changed
-            "partial_settings": {...}    // Optional - partial settings update (merged with existing)
-        }
-        
-        Returns:
-        {
-            "success": true,
-            "last_updated": <timestamp>
-        }
+        Update current (live) goals and/or settings in database
+        ---
+        tags:
+          - Goals
+        parameters:
+          - name: body
+            in: body
+            required: true
+            schema:
+              type: object
+              properties:
+                current_goals:
+                  type: array
+                  description: Optional - updated goals array
+                goals_settings:
+                  type: object
+                  description: Optional - complete settings replacement
+                partial_settings:
+                  type: object
+                  description: Optional - partial settings update (merged with existing)
+        responses:
+          200:
+            description: Update successful
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  description: Whether the update succeeded
+                last_updated:
+                  type: number
+                  description: Unix timestamp of update
+          400:
+            description: Invalid request
         """
         try:
             data = request.get_json()
@@ -2205,45 +2439,47 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/today", methods=["GET"])
     def api_get_todays_goals():
         """
-        Get all goals for today with their current progress and required amounts.
-        Returns a consolidated list of all active goals for today.
-        
-        Returns:
-        {
-            "date": "2025-01-14",
-            "goals": [
-                {
-                    "goal_name": "Read for 6 hours in October",
-                    "progress_today": 2.5,
-                    "progress_needed": 1.8,
-                    "metric_type": "hours",
-                    "goal_icon": "⏱️"
-                },
-                ...
-            ]
-        }
-
-        Example:
-            import requests
-
-            def fetch_todays_goals():
-                try:
-                    data = requests.get("http://localhost:5050/api/goals/today").json()
-                    print(f"📅 {data.get('date')}")
-
-                    for g in data.get("goals", []):
-                        name = g.get("goal_name")
-                        today = g.get("progress_today")
-                        needed = g.get("progress_needed")
-                        icon = g.get("goal_icon", "🎯")
-
-                        print(f"{icon} {name}: {today}/{needed}")
-
-                except Exception as e:
-                    print("Error:", e)
-
-            fetch_todays_goals()
-
+        Get all active goals for today with progress and requirements
+        ---
+        tags:
+          - Goals
+        parameters:
+          - name: X-Timezone
+            in: header
+            type: string
+            required: false
+            description: User's timezone (e.g., America/New_York). Defaults to UTC if not provided.
+        responses:
+          200:
+            description: Today's goals with progress
+            schema:
+              type: object
+              properties:
+                date:
+                  type: string
+                  format: date
+                  description: Today's date in YYYY-MM-DD format
+                goals:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      goal_name:
+                        type: string
+                        description: Name of the goal
+                      progress_today:
+                        type: number
+                        description: Current progress for today
+                      progress_needed:
+                        type: number
+                        description: Required progress for today (adjusted for easy days)
+                      metric_type:
+                        type: string
+                        description: Type of metric
+                      goal_icon:
+                        type: string
+                        description: Emoji icon for the goal
+                  description: List of active goals for today (excludes custom goals and inactive goals)
         """
         logger.info("API /api/goals/today called")
         try:

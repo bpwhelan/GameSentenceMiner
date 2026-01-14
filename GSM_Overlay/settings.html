@@ -601,7 +601,58 @@
           </span>
           <input type="checkbox" class="tool-checkbox" data-tool-id="notepad" />
         </label>
+        <label>
+          <span class="label-text">
+            Pomodoro Timer
+            <div class="hotkey-info">Customizable work/break timer with notifications</div>
+          </span>
+          <input type="checkbox" class="tool-checkbox" data-tool-id="pomodoro" />
+        </label>
+        <label>
+          <span class="label-text">
+            Daily Goals
+            <div class="hotkey-info">Display today's goals and progress from GSM</div>
+          </span>
+          <input type="checkbox" class="tool-checkbox" data-tool-id="goals" />
+        </label>
         <!-- Future tools will be added here -->
+      </div>
+
+      <!-- Pomodoro Settings (shown when pomodoro is enabled) -->
+      <div id="pomodoro-settings" style="display: none; margin-top: 16px;">
+        <h4 style="margin-bottom: 8px;">Pomodoro Timer Settings</h4>
+
+        <label>
+          <span class="label-text">
+            Work Duration (minutes)
+            <div class="hotkey-info">Duration of each work session (1-120 minutes)</div>
+          </span>
+          <input type="number" id="pomodoro-work-duration" min="1" max="120" value="25" />
+        </label>
+
+        <label>
+          <span class="label-text">
+            Short Break Duration (minutes)
+            <div class="hotkey-info">Duration of short breaks between work sessions (1-60 minutes)</div>
+          </span>
+          <input type="number" id="pomodoro-short-break" min="1" max="60" value="5" />
+        </label>
+
+        <label>
+          <span class="label-text">
+            Long Break Duration (minutes)
+            <div class="hotkey-info">Duration of long break after completing all sessions (1-120 minutes)</div>
+          </span>
+          <input type="number" id="pomodoro-long-break" min="1" max="120" value="15" />
+        </label>
+
+        <label>
+          <span class="label-text">
+            Sessions Before Long Break
+            <div class="hotkey-info">Number of work sessions before taking a long break (2-10)</div>
+          </span>
+          <input type="number" id="pomodoro-sessions" min="2" max="10" value="4" />
+        </label>
       </div>
     </div>
     </div>
@@ -845,6 +896,8 @@
     document.querySelectorAll('.tool-checkbox').forEach(checkbox => {
       checkbox.addEventListener('change', () => {
         updateEnabledTools();
+        // Show/hide tool-specific settings panels
+        updateToolSettingsPanels();
       });
     });
 
@@ -853,6 +906,47 @@
         .map(cb => cb.dataset.toolId);
       handleSettingChange("enabledTools", enabledTools);
     }
+
+    function updateToolSettingsPanels() {
+      const enabledTools = Array.from(document.querySelectorAll('.tool-checkbox:checked'))
+        .map(cb => cb.dataset.toolId);
+
+      // Show/hide pomodoro settings panel
+      const pomodoroSettingsPanel = document.getElementById('pomodoro-settings');
+      if (pomodoroSettingsPanel) {
+        pomodoroSettingsPanel.style.display = enabledTools.includes('pomodoro') ? 'block' : 'none';
+      }
+    }
+
+    // Track tool settings locally
+    let cachedToolSettings = {};
+
+    // Pomodoro settings
+    const pomodoroSettings = {
+      workDuration: document.getElementById('pomodoro-work-duration'),
+      shortBreak: document.getElementById('pomodoro-short-break'),
+      longBreak: document.getElementById('pomodoro-long-break'),
+      sessions: document.getElementById('pomodoro-sessions')
+    };
+
+    function updatePomodoroSettings() {
+      const settings = {
+        workDuration: parseInt(pomodoroSettings.workDuration.value),
+        shortBreakDuration: parseInt(pomodoroSettings.shortBreak.value),
+        longBreakDuration: parseInt(pomodoroSettings.longBreak.value),
+        sessionsBeforeLongBreak: parseInt(pomodoroSettings.sessions.value)
+      };
+
+      // Update cached tool settings
+      cachedToolSettings.pomodoro = settings;
+      handleSettingChange("toolSettings", cachedToolSettings);
+    }
+
+    Object.values(pomodoroSettings).forEach(input => {
+      if (input) {
+        input.addEventListener('change', updatePomodoroSettings);
+      }
+    });
 
     // Reusable hotkey input initialization function
     function initializeHotkeyInput(inputId, options = {}) {
@@ -1137,6 +1231,36 @@
         document.querySelectorAll('.tool-checkbox').forEach(checkbox => {
           checkbox.checked = enabledTools.includes(checkbox.dataset.toolId);
         });
+      }
+
+      // Load tool-specific settings
+      if (userSettings.toolSettings) {
+        // Cache tool settings
+        cachedToolSettings = userSettings.toolSettings;
+
+        // Pomodoro settings
+        if (userSettings.toolSettings.pomodoro) {
+          const pomodoroSettings = userSettings.toolSettings.pomodoro;
+          if (pomodoroSettings.workDuration !== undefined) {
+            document.getElementById("pomodoro-work-duration").value = pomodoroSettings.workDuration;
+          }
+          if (pomodoroSettings.shortBreakDuration !== undefined) {
+            document.getElementById("pomodoro-short-break").value = pomodoroSettings.shortBreakDuration;
+          }
+          if (pomodoroSettings.longBreakDuration !== undefined) {
+            document.getElementById("pomodoro-long-break").value = pomodoroSettings.longBreakDuration;
+          }
+          if (pomodoroSettings.sessionsBeforeLongBreak !== undefined) {
+            document.getElementById("pomodoro-sessions").value = pomodoroSettings.sessionsBeforeLongBreak;
+          }
+        }
+
+        // Show/hide pomodoro settings based on whether pomodoro is enabled
+        const pomodoroEnabled = enabledTools && enabledTools.includes('pomodoro');
+        const pomodoroSettingsPanel = document.getElementById('pomodoro-settings');
+        if (pomodoroSettingsPanel) {
+          pomodoroSettingsPanel.style.display = pomodoroEnabled ? 'block' : 'none';
+        }
       }
 
       // Show/hide Ctrl warning based on loaded hotkeys

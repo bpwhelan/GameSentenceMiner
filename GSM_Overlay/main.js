@@ -60,7 +60,14 @@ let userSettings = {
   "showTextBackground": false,
   "toolboxEnabled": false,
   "enabledTools": [],
-  "toolSettings": {},
+  "toolSettings": {
+    "pomodoro": {
+      "workDuration": 25,        // minutes
+      "shortBreakDuration": 5,   // minutes
+      "longBreakDuration": 15,   // minutes
+      "sessionsBeforeLongBreak": 4
+    }
+  },
   "afkTimer": 5, // in minutes
   "showFurigana": false,
   "hideFuriganaOnStartup": false,
@@ -863,11 +870,18 @@ app.whenReady().then(async () => {
   function registerToggleWindowHotkey(oldHotkey) {
     if (oldHotkey) globalShortcut.unregister(oldHotkey);
     globalShortcut.unregister(userSettings.toggleWindowHotkey);
-    globalShortcut.register(userSettings.toggleWindowHotkey || "Alt+Shift+H", () => {
+    const hotkey = userSettings.toggleWindowHotkey || "Alt+Shift+H";
+    const registered = globalShortcut.register(hotkey, () => {
+      console.log(`Toggle window hotkey (${hotkey}) pressed`);
       if (mainWindow) {
         mainWindow.webContents.send('toggle-main-box');
       }
     });
+    if (registered) {
+      console.log(`Successfully registered toggle window hotkey: ${hotkey}`);
+    } else {
+      console.error(`Failed to register toggle window hotkey: ${hotkey}. It may be in use by another application.`);
+    }
   }
   registerToggleWindowHotkey();
 
