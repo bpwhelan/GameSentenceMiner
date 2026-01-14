@@ -698,7 +698,7 @@ async function createWindow() {
 
     mainWindow.loadFile(path.join(getAssetsDir(), 'index.html'));
 
-    const menu = Menu.buildFromTemplate([
+    const template: Electron.MenuItemConstructorOptions[] = [
         {
             label: 'File',
             submenu: [
@@ -733,7 +733,33 @@ async function createWindow() {
                 },
             ],
         },
-    ]);
+    ];
+
+    if (process.platform === 'darwin') {
+        const fileMenu = template.find((item) => item.label === 'File');
+        if (fileMenu && Array.isArray(fileMenu.submenu)) {
+            // Remove Quit from File menu on macOS
+            fileMenu.submenu = fileMenu.submenu.filter((item: any) => item.label !== 'Quit');
+        }
+
+        template.unshift({
+            label: APP_NAME,
+            submenu: [
+                { role: 'about' },
+                { type: 'separator' },
+                { role: 'services' },
+                { type: 'separator' },
+                { role: 'hide' },
+                { role: 'hideOthers' },
+                { role: 'unhide' },
+                { type: 'separator' },
+                { label: 'Quit', click: async () => await quit() },
+            ],
+        });
+    }
+
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
 
     if (isDev) {
         menu.append(
@@ -746,6 +772,8 @@ async function createWindow() {
                 },
             })
         );
+        // Re-set application menu after append
+        Menu.setApplicationMenu(menu);
     }
 
     mainWindow.setMenu(menu);
@@ -1027,6 +1055,12 @@ async function processArgsAndStartSettings() {
 }
 
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
+
+// Fix for name and icon on macOS
+if (process.platform === 'darwin') {
+    app.setName(APP_NAME);
+    app.dock?.setIcon(getIconPath());
+}
 
 if (!app.requestSingleInstanceLock()) {
     app.whenReady().then(() => {
