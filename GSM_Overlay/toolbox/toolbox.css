@@ -1,0 +1,28 @@
+/**
+ * Toolbox Overlay Styles
+ * Full-screen overlay container for toolbox system
+ */
+
+#toolbox-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: none;
+  pointer-events: none; /* Click-through by default */
+  z-index: 9000; /* Below main UI elements but above game */
+}
+
+#toolbox-overlay.visible {
+  display: flex;
+  flex-direction: row;
+}
+
+.toolbox-column {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto; /* Tools can capture clicks if needed */
+}

@@ -1,0 +1,68 @@
+/**
+ * Template Tool Styles
+ * 
+ * Guidelines for tool CSS:
+ * 1. Use transparent backgrounds by default
+ * 2. Use text-shadow for readability on any background
+ * 3. Make text non-selectable if appropriate
+ * 4. Support responsive sizing based on column width
+ * 5. Prefix your classes with your tool name to avoid conflicts
+ */
+
+/* Main tool display element */
+.template-tool-display {
+  /* Typography - adjust as needed */
+  font-family: 'Segoe UI', 'Roboto', sans-serif;
+  font-size: 24px;
+  font-weight: 500;
+  
+  /* Colors - use white text with shadow for visibility */
+  color: #ffffff;
+  text-shadow: 
+    0 0 10px rgba(0, 0, 0, 0.8),
+    0 0 20px rgba(0, 0, 0, 0.6),
+    2px 2px 4px rgba(0, 0, 0, 0.9);
+  
+  /* Layout - center content */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  
+  /* Background - transparent by default */
+  background: transparent;
+  
+  /* Spacing */
+  padding: 10px 20px;
+  
+  /* Prevent text selection (optional) */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Example: Interactive elements */
+.template-tool-button {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  color: #ffffff;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.template-tool-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .template-tool-display {
+    font-size: 18px;
+  }
+}
+
+/* Adjustments when multiple tools are active */
+.toolbox-column:not(:only-child) .template-tool-display {
+  font-size: 20px;
+}

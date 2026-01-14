@@ -551,6 +551,52 @@
         </div>
       </label>
     </div>
+
+    <div class="setting-group">
+      <h4>Toolbox</h4>
+      <label>
+        <span class="label-text">
+          Enable Toolbox System
+          <div class="hotkey-info">Provides utility tools overlay (clock, etc.)</div>
+        </span>
+        <input type="checkbox" id="toolboxEnabled" />
+      </label>
+      
+      <label>
+        <span class="label-text">
+          Toggle Toolbox Hotkey
+          <div class="hotkey-info">Show/hide toolbox overlay</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">
+            Click input and press your desired key (modifiers optional)
+          </div>
+        </span>
+        <div class="input-container">
+          <input type="text" id="toggleToolboxHotkey" value="Alt+Shift+T" readonly />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
+      </label>
+      
+      <!-- Warning for Ctrl usage -->
+      <div id="toolbox-ctrl-warning" class="warning-text" style="display: none; color: #ff9800; font-size: 11px; margin-top: 4px;">
+        Warning: Ctrl-based hotkeys may interfere with copy/paste functionality.
+      </div>
+      
+      <!-- Tools List -->
+      <div id="toolbox-tools-list">
+        <h4 style="margin-top: 16px; margin-bottom: 8px;">Available Tools</h4>
+        <label>
+          <span class="label-text">
+            24-Hour Clock
+            <div class="hotkey-info">Display current time in 24-hour format</div>
+          </span>
+          <input type="checkbox" class="tool-checkbox" data-tool-id="clock" />
+        </label>
+        <!-- Future tools will be added here -->
+      </div>
+    </div>
     </div>
 
     <div class="settings-grid single-column">
@@ -776,6 +822,30 @@
       placeholder: "Press keys...",
       settingKey: "overlaySettingsHotkey"
     });
+    initializeHotkeyInput("toggleToolboxHotkey", {
+      warningElementId: "toolbox-ctrl-warning",
+      showCtrlWarning: true,
+      placeholder: "Press keys...",
+      settingKey: "toggleToolboxHotkey"
+    });
+
+    // Toolbox enabled toggle
+    document.getElementById("toolboxEnabled").addEventListener("change", (event) => {
+      handleSettingChange("toolboxEnabled", event.target.checked);
+    });
+
+    // Tool checkboxes
+    document.querySelectorAll('.tool-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', () => {
+        updateEnabledTools();
+      });
+    });
+
+    function updateEnabledTools() {
+      const enabledTools = Array.from(document.querySelectorAll('.tool-checkbox:checked'))
+        .map(cb => cb.dataset.toolId);
+      handleSettingChange("enabledTools", enabledTools);
+    }
 
     // Reusable hotkey input initialization function
     function initializeHotkeyInput(inputId, options = {}) {
@@ -1008,11 +1078,12 @@
 
     // Handle settings preload
     ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates }) => {
-      const { 
-        fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType, 
+      const {
+        fontSize, weburl1, weburl2, hideOnStartup, manualMode, manualModeType,
         showHotkey, pinned, showTextBackground, afkTimer, showFurigana, hideFuriganaOnStartup,
         offsetX, offsetY, toggleFuriganaHotkey, translateHotkey, autoRequestTranslation,
-        toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey
+        toggleWindowHotkey, minimizeHotkey, yomitanSettingsHotkey, overlaySettingsHotkey,
+        toolboxEnabled, toggleToolboxHotkey, enabledTools
       } = userSettings;
       
       // document.getElementById("fontSize").value = fontSize;
@@ -1046,6 +1117,21 @@
         document.getElementById("autoRequestTranslation").checked = autoRequestTranslation;
       }
 
+      // Load toolbox settings
+      if (toolboxEnabled !== undefined) {
+        document.getElementById("toolboxEnabled").checked = toolboxEnabled;
+      }
+      
+      if (toggleToolboxHotkey) {
+        document.getElementById("toggleToolboxHotkey").value = toggleToolboxHotkey;
+      }
+      
+      if (enabledTools && Array.isArray(enabledTools)) {
+        document.querySelectorAll('.tool-checkbox').forEach(checkbox => {
+          checkbox.checked = enabledTools.includes(checkbox.dataset.toolId);
+        });
+      }
+
       // Show/hide Ctrl warning based on loaded hotkeys
       const hotkeyWarnings = [
         { hotkey: showHotkey, warningId: 'ctrl-warning' },
@@ -1054,7 +1140,8 @@
         { hotkey: toggleWindowHotkey, warningId: 'togglewindow-ctrl-warning' },
         { hotkey: minimizeHotkey, warningId: 'minimize-ctrl-warning' },
         { hotkey: yomitanSettingsHotkey, warningId: 'yomitansettings-ctrl-warning' },
-        { hotkey: overlaySettingsHotkey, warningId: 'overlaysettings-ctrl-warning' }
+        { hotkey: overlaySettingsHotkey, warningId: 'overlaysettings-ctrl-warning' },
+        { hotkey: toggleToolboxHotkey, warningId: 'toolbox-ctrl-warning' }
       ];
 
       hotkeyWarnings.forEach(({ hotkey, warningId }) => {

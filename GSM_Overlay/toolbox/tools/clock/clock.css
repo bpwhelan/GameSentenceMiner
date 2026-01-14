@@ -1,0 +1,53 @@
+/**
+ * Clock Tool Styles
+ * Displays time centered within its column with large, readable text
+ */
+
+.clock-display {
+  /* Typography */
+  font-family: 'Segoe UI', 'Roboto Mono', 'Consolas', monospace;
+  font-size: 48px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  
+  /* Colors */
+  color: #ffffff;
+  text-shadow: 
+    0 0 10px rgba(0, 0, 0, 0.8),
+    0 0 20px rgba(0, 0, 0, 0.6),
+    2px 2px 4px rgba(0, 0, 0, 0.9);
+  
+  /* Layout */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  /* Background - transparent by default */
+  background: transparent;
+  
+  /* Responsive sizing */
+  padding: 10px 20px;
+  white-space: nowrap;
+  
+  /* Prevent text selection */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Responsive adjustments for smaller columns */
+@media (max-width: 600px) {
+  .clock-display {
+    font-size: 32px;
+  }
+}
+
+/* When multiple tools are active, reduce size */
+.toolbox-column:not(:only-child) .clock-display {
+  font-size: 36px;
+}
+
+/* Three or more tools */
+.toolbox-column:nth-last-child(n+3):first-child ~ .toolbox-column .clock-display,
+.toolbox-column:nth-last-child(n+3):first-child .clock-display {
+  font-size: 28px;
+}
